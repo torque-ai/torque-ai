@@ -25,6 +25,7 @@ function createRepo() {
   git(['init']);
   git(['config', 'user.email', 'vitest@example.com']);
   git(['config', 'user.name', 'Vitest']);
+  git(['config', 'core.autocrlf', 'false']);
 }
 
 function commitBaseFile(relativePath, content) {

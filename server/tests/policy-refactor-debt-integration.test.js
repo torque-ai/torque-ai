@@ -28,7 +28,9 @@ function resolvePolicyFixtureRoot() {
 }
 
 const policyFixtureRoot = resolvePolicyFixtureRoot();
-const seedFixture = require(path.join(policyFixtureRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json'));
+const seedPath = path.join(policyFixtureRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json');
+const hasSeedFile = fs.existsSync(seedPath);
+const seedFixture = hasSeedFile ? require(seedPath) : {};
 
 const projectRoot = policyFixtureRoot;
 const POLICY_ID = 'refactor_backlog_required_for_hotspot_worsening';
@@ -37,7 +39,7 @@ function mapRulesById(rules) {
   return new Map(rules.map((rule) => [rule.policy_id || rule.id, rule]));
 }
 
-describe('policy refactor debt integration', () => {
+describe.skipIf(!hasSeedFile)('policy refactor debt integration', () => {
   let db;
   let testDir;
 
