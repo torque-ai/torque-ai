@@ -22,7 +22,7 @@ const WRITE_KEY = VALID_CONFIG_KEYS.has('max_concurrent')
   ? 'max_concurrent'
   : READ_KEY;
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../api/middleware', () => currentModules.middleware);

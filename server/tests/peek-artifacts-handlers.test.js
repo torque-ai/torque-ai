@@ -5,7 +5,7 @@ const path = require('path');
 
 const MODULE_PATH = require.resolve('../handlers/peek/artifacts');
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('fs', () => currentModules.fsModule);
 vi.mock('../database', () => currentModules.database);

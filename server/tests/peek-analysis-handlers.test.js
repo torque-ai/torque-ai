@@ -10,7 +10,7 @@ const realShared = require('../handlers/shared');
 const { ErrorCodes } = realShared;
 const ANALYSIS_MODULE_PATH = require.resolve('../handlers/peek/analysis');
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);

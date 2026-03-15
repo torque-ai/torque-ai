@@ -161,7 +161,7 @@ const SPECIAL_HANDLER_NAMES = [
   'handleShutdown',
 ];
 
-var currentModules = {};
+let currentModules = {};
 
 let routes;
 let v2Dispatch;

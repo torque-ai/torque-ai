@@ -197,7 +197,7 @@ describe('inbound webhook handlers', () => {
 
 describe('crypto timing-safe signature validation', () => {
   it('validates signatures using crypto.timingSafeEqual', () => {
-    const body = '{\"event\":\"push\",\"ref\":\"main\"}';
+    const body = '{"event":"push","ref":"main"}';
     const secret = 'timing-secret';
     const signature = signPayload(secret, body);
 
@@ -212,7 +212,7 @@ describe('crypto timing-safe signature validation', () => {
   });
 
   it('rejects invalid signatures quickly via constant-time compare', () => {
-    const body = '{\"event\":\"push\"}';
+    const body = '{"event":"push"}';
     const secret = 'timing-secret';
     const signature = 'sha256=' + '0'.repeat(64);
 

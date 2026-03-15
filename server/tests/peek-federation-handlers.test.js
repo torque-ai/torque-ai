@@ -6,7 +6,7 @@ const MODULE_PATH = require.resolve('../handlers/peek/federation');
 const FIXED_TIME = '2026-03-12T19:00:00.000Z';
 const FIXED_DIGEST = 'a'.repeat(64);
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../contracts/peek', () => currentModules.contracts);
 vi.mock('../handlers/peek/artifacts', () => currentModules.artifacts);

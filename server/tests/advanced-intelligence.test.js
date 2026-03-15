@@ -3,7 +3,7 @@
 const intelligenceHandlersPath = require.resolve('../handlers/advanced/intelligence');
 const realShared = require('../handlers/shared');
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);

@@ -9,7 +9,7 @@ const realCrypto = require('node:crypto');
 const MODULE_PATH = path.resolve(__dirname, '../handlers/peek/webhook-outbound.js');
 const realSetImmediate = global.setImmediate;
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('crypto', () => currentModules.crypto);
 vi.mock('http', () => currentModules.http);

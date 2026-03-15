@@ -95,7 +95,6 @@ function createCtx(overrides = {}) {
     output: 'final output',
     errorOutput: 'final error output',
     proc: { provider: 'codex' },
-    task,
     ...overrides,
     task,
   };

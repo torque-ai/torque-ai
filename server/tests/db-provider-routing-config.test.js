@@ -19,7 +19,6 @@ function nextId(prefix) {
 function createTask(overrides = {}) {
   const id = overrides.id || nextId('task');
   db.createTask({
-    id,
     task_description: overrides.task_description || `Task ${id}`,
     working_directory: overrides.working_directory || os.tmpdir(),
     status: overrides.status || 'queued',

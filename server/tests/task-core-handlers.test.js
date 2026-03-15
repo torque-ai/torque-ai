@@ -1566,7 +1566,7 @@ describe('task-core handlers', () => {
     it('returns a timeout summary when the task keeps running', async () => {
       vi.useFakeTimers();
 
-      let currentTask = makeTask({
+      const currentTask = makeTask({
         id: 'task-timeout',
         status: 'running',
         progress_percent: 55,

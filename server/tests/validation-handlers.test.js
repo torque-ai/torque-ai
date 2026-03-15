@@ -190,13 +190,13 @@ describe('Validation Handlers', () => {
     it('rejects path traversal with ../', async () => {
       const result = await safeTool('setup_precommit_hook', { working_directory: '../tmp' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('working_directory must not contain \"..\" path segments');
+      expect(getText(result)).toContain('working_directory must not contain ".." path segments');
     });
 
     it('rejects path traversal with ..\\', async () => {
       const result = await safeTool('setup_precommit_hook', { working_directory: '..\\tmp' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('working_directory must not contain \"..\" path segments');
+      expect(getText(result)).toContain('working_directory must not contain ".." path segments');
     });
   });
 

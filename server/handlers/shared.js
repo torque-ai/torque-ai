@@ -559,6 +559,7 @@ function checkForControlChars(str, fieldName = 'value') {
   if (str.includes('\x00')) {
     return { safe: false, reason: `${fieldName} contains null bytes` };
   }
+  // eslint-disable-next-line no-control-regex
   const dangerousControlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F]/;
   if (dangerousControlChars.test(str)) {
     return { safe: false, reason: `${fieldName} contains dangerous control characters` };
@@ -568,6 +569,7 @@ function checkForControlChars(str, fieldName = 'value') {
 
 function sanitizeControlChars(str) {
   if (typeof str !== 'string') return str;
+  // eslint-disable-next-line no-control-regex
   return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 }
 

@@ -118,7 +118,7 @@ describe('Path traversal hardening', () => {
         file_path: '..\\\\..\\\\',
         class_name: 'GameScene',
         method_name: 'setup',
-        new_body: 'console.log(\"ok\");',
+        new_body: 'console.log("ok");',
       });
       expectInvalidParam(result);
     });
@@ -126,7 +126,7 @@ describe('Path traversal hardening', () => {
     it('rejects path traversal in handleAddImportStatement', () => {
       const result = automationTsTools.handleAddImportStatement({
         file_path: '../../../etc/passwd',
-        import_statement: 'import { Foo } from \"./Foo\";',
+        import_statement: 'import { Foo } from "./Foo";',
       });
       expectInvalidParam(result);
     });

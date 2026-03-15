@@ -484,8 +484,10 @@ function sanitizeInjectedOutput(text, maxLen = 5000) {
   // Escape template delimiters to prevent re-injection
   sanitized = sanitized.replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }');
   // Strip ANSI escape sequences
+  // eslint-disable-next-line no-control-regex
   sanitized = sanitized.replace(/\x1b\[[0-9;]*m/g, '');
   // Strip control characters (null, backspace, vertical tab, form feed, etc.) but keep \n \r \t
+  // eslint-disable-next-line no-control-regex
   sanitized = sanitized.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
   return sanitized;
 }
@@ -502,7 +504,7 @@ function injectDependencyOutputs(description, depTasks) {
   if (!description || typeof description !== 'string') return description || '';
   if (!depTasks || typeof depTasks !== 'object') return description;
 
-  return description.replace(/\{\{([\w\-]+)\.(output|error_output|exit_code)\}\}/g, (match, nodeId, field) => {
+  return description.replace(/\{\{([\w-]+)\.(output|error_output|exit_code)\}\}/g, (match, nodeId, field) => {
     const dep = depTasks[nodeId];
     if (!dep) {
       return `[ERROR: output unavailable from node '${nodeId}' — dependency missing or failed]`;

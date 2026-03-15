@@ -93,7 +93,6 @@ function resetDbTables() {
 function createTask(overrides = {}) {
   const taskId = overrides.id || `task-${crypto.randomUUID()}`;
   db.createTask({
-    id: taskId,
     task_description: overrides.task_description || `Task ${taskId}`,
     working_directory: overrides.working_directory || workingDir,
     status: overrides.status || 'queued',

@@ -73,7 +73,7 @@ function getVerifyRouter() {
 function handleConfigureStallDetection(args) {
   const provider = args.provider || 'all';
   // SECURITY: validate provider name to prevent config key injection
-  if (!/^[a-zA-Z0-9_\-]+$/.test(provider)) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(provider)) {
     return { content: [{ type: 'text', text: `Invalid provider name: ${provider}. Only alphanumeric, hyphens, and underscores allowed.` }], isError: true };
   }
   const thresholdSec = args.stall_threshold_seconds;

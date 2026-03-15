@@ -15,7 +15,7 @@ const schedulingAutomationPath = require.resolve(SCHEDULING_AUTOMATION_MODULE);
 const evaluationStorePath = require.resolve(EVALUATION_STORE_MODULE);
 const rollbackPath = require.resolve(ROLLBACK_MODULE);
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../db/scheduling-automation', () => currentModules.schedulingAutomation);
 vi.mock('../policy-engine/evaluation-store', () => currentModules.evaluationStore);

@@ -2,7 +2,7 @@
 
 const pipelineHandlersPath = require.resolve('../handlers/task/pipeline');
 
-var currentModules = {};
+let currentModules = {};
 
 const originalCacheEntries = new Map();
 

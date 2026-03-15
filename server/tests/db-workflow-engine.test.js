@@ -40,7 +40,6 @@ function addWorkflowTask(workflowId, overrides = {}) {
     working_directory: os.tmpdir(),
     provider: overrides.provider || 'codex',
     model: overrides.model || 'codex',
-    workflow_id: workflowId,
     workflow_node_id: overrides.workflow_node_id || `node-${randomUUID()}`,
     ...overrides,
     workflow_id: workflowId,

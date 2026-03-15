@@ -11,7 +11,7 @@ const realLiveAutonomy = require('../handlers/peek/live-autonomy');
 const { ErrorCodes, makeError } = realShared;
 const RECOVERY_MODULE_PATH = require.resolve('../handlers/peek/recovery');
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../handlers/peek/shared', () => currentModules.peekShared);
@@ -64,9 +64,6 @@ function createExecuteResponse(overrides = {}) {
     data: {
       success: true,
       attempts: 1,
-      audit_entry: {
-        executor: 'peek',
-      },
       ...overrides,
       audit_entry: {
         executor: 'peek',

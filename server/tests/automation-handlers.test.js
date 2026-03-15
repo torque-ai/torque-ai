@@ -7,7 +7,7 @@ const path = require('path');
 const automationHandlersPath = require.resolve('../handlers/automation-handlers');
 const tempDirs = new Set();
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);

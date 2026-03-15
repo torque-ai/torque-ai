@@ -5,7 +5,7 @@ const Database = require('better-sqlite3');
 
 const MODULE_PATH = require.resolve('../handlers/peek/compliance');
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../database', () => currentModules.database);
 vi.mock('../logger', () => currentModules.logger);

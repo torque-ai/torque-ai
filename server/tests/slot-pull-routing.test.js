@@ -106,7 +106,6 @@ function createProviderMap(overrides = {}) {
 
   for (const [providerId, partial] of Object.entries(overrides)) {
     providers[providerId] = {
-      provider: providerId,
       enabled: 1,
       priority: 999,
       transport: 'api',

@@ -37,7 +37,6 @@ function createConstantsMock(overrides = {}) {
   return {
     DEFAULT_FALLBACK_MODEL: 'fallback-default:7b',
     MAX_STREAMING_OUTPUT: 48,
-    TASK_TIMEOUTS: { OLLAMA_API: 4321 },
     ...overrides,
     TASK_TIMEOUTS: {
       OLLAMA_API: 4321,

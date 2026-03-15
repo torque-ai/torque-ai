@@ -127,7 +127,7 @@ function handleInstantiateTemplate(args) {
   const vars = args.variables || {};
   const substitute = (str) => {
     if (!str) return str;
-    return str.replace(/\{\{([\w.\-]+)\}\}/g, (match, varName) => {
+    return str.replace(/\{\{([\w.-]+)\}\}/g, (match, varName) => {
       return vars[varName] !== undefined ? vars[varName] : match;
     });
   };

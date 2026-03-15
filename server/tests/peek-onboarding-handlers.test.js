@@ -12,7 +12,7 @@ const {
   PEEK_FIRST_SLICE_HOST_PLATFORMS,
 } = realContracts;
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../handlers/peek/shared', () => currentModules.peekShared);
 vi.mock('../logger', () => currentModules.loggerModule);

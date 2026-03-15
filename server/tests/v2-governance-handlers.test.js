@@ -12,7 +12,7 @@ const MODULE_PATHS = [
 
 const FIXED_TIMESTAMP = '2026-03-10T12:34:56.789Z';
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../api/middleware', () => currentModules.middleware);

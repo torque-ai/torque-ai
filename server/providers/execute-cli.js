@@ -543,7 +543,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
     : (task.working_directory ? path.dirname(task.working_directory) : undefined);
 
   // Build environment variables — SECURITY: only pass safe env vars + provider-specific keys
-  const envVars = buildSafeEnv(providerName, {
+  const envVars = buildSafeEnv(provider, {
     PATH: updatedPath,
     FORCE_COLOR: '0',
     NO_COLOR: '1',

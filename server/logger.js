@@ -23,7 +23,7 @@ const REDACT_PATTERNS = [
   // Key-like hex/base64 strings after common prefixes
   /(?:key|secret|token|password)["']?\s*:\s*["']([a-zA-Z0-9+/=_-]{16,})["']/gi,
   { regex: /https?:\/\/[^:]+:[^@]+@/gi, replacement: 'https://***:***@' },
-  { regex: /Basic\s+[A-Za-z0-9+\/=]{8,}/gi, replacement: 'Basic [REDACTED]' },
+  { regex: /Basic\s+[A-Za-z0-9+/=]{8,}/gi, replacement: 'Basic [REDACTED]' },
   { regex: /whsec_[A-Za-z0-9_-]+/gi, replacement: '[REDACTED]' },
   { regex: /"secret"\s*:\s*"[^"]+"/gi, replacement: '"secret": "[REDACTED]"' },
 ];

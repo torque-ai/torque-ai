@@ -107,7 +107,6 @@ function createProviderMap(overrides = {}) {
 
   for (const [providerId, partial] of Object.entries(overrides)) {
     providers[providerId] = {
-      provider: providerId,
       enabled: 1,
       priority: 999,
       transport: 'api',
@@ -142,7 +141,6 @@ function createDbHarness(overrides = {}) {
       Object.entries(overrides.tasks || {}).map(([taskId, task]) => [
         taskId,
         {
-          id: taskId,
           provider: 'codex',
           status: 'queued',
           retry_count: 0,

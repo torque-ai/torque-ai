@@ -11,7 +11,7 @@ const realShared = require('../handlers/shared');
 const { ErrorCodes, makeError } = realShared;
 const CAPTURE_MODULE_PATH = require.resolve('../handlers/peek/capture');
 
-var currentModules = {};
+let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);

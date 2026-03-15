@@ -17,7 +17,7 @@ const MODULE_PATHS = [
 const originalHttpGet = realHttp.get;
 const originalHttpsGet = realHttps.get;
 
-var currentModules = {};
+let currentModules = {};
 let state;
 let handlers;
 
