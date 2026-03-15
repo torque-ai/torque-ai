@@ -1,0 +1,89 @@
+{
+  "contract": {
+    "name": "peek_capabilities",
+    "version": 1
+  },
+  "slice": {
+    "name": "first",
+    "supported_host_platforms": [
+      "windows"
+    ],
+    "supported_app_types": [
+      "wpf",
+      "win32",
+      "electron_webview"
+    ]
+  },
+  "routes": {
+    "health": "/health",
+    "investigation_bundle": "/diagnose"
+  },
+  "versioning": {
+    "runtime_version": "19.0.0",
+    "version_source": "peek_server.__version__",
+    "package_root": "tools/peek-server"
+  },
+  "features": {
+    "window_process_discovery": {
+      "status": "supported",
+      "routes": [
+        "/list",
+        "/windows",
+        "/process"
+      ]
+    },
+    "screenshot_capture": {
+      "status": "supported",
+      "routes": [
+        "/peek",
+        "/diagnose"
+      ]
+    },
+    "element_tree_inspection": {
+      "status": "supported",
+      "routes": [
+        "/elements",
+        "/diagnose"
+      ]
+    },
+    "ocr_text_extraction": {
+      "status": "supported",
+      "routes": [
+        "/ocr"
+      ]
+    },
+    "investigation_bundle": {
+      "status": "supported",
+      "routes": [
+        "/diagnose"
+      ],
+      "persisted_artifacts": true
+    },
+    "artifact_manifest": {
+      "status": "supported",
+      "routes": [
+        "/diagnose"
+      ]
+    },
+    "signed_bundle_metadata": {
+      "status": "planned",
+      "backlog_id": "SS-A-06"
+    },
+    "low_risk_recovery": {
+      "status": "planned",
+      "backlog_id": "SS-B-01"
+    },
+    "cross_platform_hosts": {
+      "status": "not_supported"
+    },
+    "browser_first_support": {
+      "status": "not_supported"
+    },
+    "high_risk_recovery": {
+      "status": "not_supported"
+    },
+    "mandatory_non_gui_sensors": {
+      "status": "not_supported"
+    }
+  }
+}

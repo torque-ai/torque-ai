@@ -1,0 +1,139 @@
+{
+  "contract": {
+    "name": "peek_investigation_bundle",
+    "version": 1
+  },
+  "kind": "diagnose",
+  "slice": "first",
+  "created_at": "2026-03-10T00:00:00Z",
+  "runtime": {
+    "name": "peek-server",
+    "version": "19.0.0",
+    "platform": "windows",
+    "package_root": "tools/peek-server"
+  },
+  "request": {
+    "route": "/diagnose",
+    "options": {
+      "hwnd": 1001,
+      "format": "png",
+      "annotate": true,
+      "elements": true,
+      "measurements": true,
+      "text_content": true
+    }
+  },
+  "target": {
+    "hwnd": 1001,
+    "locator": {
+      "type": "hwnd",
+      "value": 1001
+    }
+  },
+  "result": {
+    "success": true,
+    "error": null,
+    "warnings": []
+  },
+  "artifacts": {
+    "persisted": false,
+    "bundle_path": null,
+    "artifact_report_path": null,
+    "signed": false
+  },
+  "evidence": {
+    "screenshot": {
+      "present": true,
+      "encoding": "base64",
+      "mime_type": "image/png",
+      "data": "c2NyZWVuc2hvdA=="
+    },
+    "annotated_screenshot": {
+      "present": true,
+      "encoding": "base64",
+      "mime_type": "image/png",
+      "data": "YW5ub3RhdGVk"
+    },
+    "elements": {
+      "count": 2,
+      "tree": [
+        {
+          "name": "Main Window",
+          "type": "Window",
+          "automation_id": "main-window",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 640,
+            "h": 480
+          },
+          "children": [
+            {
+              "name": "Save",
+              "type": "Button",
+              "automation_id": "save-button",
+              "bounds": {
+                "x": 480,
+                "y": 440,
+                "w": 120,
+                "h": 32
+              },
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    "measurements": {
+      "window_size": {
+        "w": 640,
+        "h": 480
+      },
+      "element_summary": [
+        {
+          "name": "Main Window",
+          "type": "Window",
+          "bounds": {
+            "x": 0,
+            "y": 0,
+            "w": 640,
+            "h": 480
+          }
+        }
+      ],
+      "spacing": []
+    },
+    "text_content": {
+      "buttons": [
+        "Save"
+      ],
+      "labels": [
+        "Status:"
+      ],
+      "inputs": [
+        {
+          "label": "Name",
+          "value": "Quarterly report"
+        }
+      ],
+      "lists": [
+        {
+          "name": "Items",
+          "item_count": 3
+        }
+      ]
+    },
+    "annotation_index": [
+      {
+        "index": 1,
+        "label": "Save",
+        "bounds": {
+          "x": 480,
+          "y": 440,
+          "w": 120,
+          "h": 32
+        }
+      }
+    ]
+  }
+}

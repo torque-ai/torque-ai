@@ -1,0 +1,69 @@
+'use strict';
+
+const {
+  DEFAULT_REQUEST_RATE_PER_MINUTE,
+  PROVIDER_REGISTRY,
+  PROVIDER_LOCAL_IDS,
+  V2_TRANSPORTS,
+} = require('../api/v2-provider-registry');
+
+describe('v2-provider-registry', () => {
+  it('exports DEFAULT_REQUEST_RATE_PER_MINUTE as 120', () => {
+    expect(DEFAULT_REQUEST_RATE_PER_MINUTE).toBe(120);
+  });
+
+  it('exports all 14 providers', () => {
+    const providers = Object.keys(PROVIDER_REGISTRY);
+    expect(providers.length).toBe(14);
+    expect(providers).toContain('codex');
+    expect(providers).toContain('claude-cli');
+    expect(providers).toContain('ollama');
+    expect(providers).toContain('aider-ollama');
+    expect(providers).toContain('hashline-ollama');
+    expect(providers).toContain('hashline-openai');
+    expect(providers).toContain('anthropic');
+    expect(providers).toContain('groq');
+    expect(providers).toContain('hyperbolic');
+    expect(providers).toContain('cerebras');
+    expect(providers).toContain('ollama-cloud');
+    expect(providers).toContain('google-ai');
+    expect(providers).toContain('openrouter');
+    expect(providers).toContain('deepinfra');
+  });
+
+  it('each provider has name, transport, local, and features', () => {
+    for (const [id, provider] of Object.entries(PROVIDER_REGISTRY)) {
+      expect(provider).toHaveProperty('name');
+      expect(provider).toHaveProperty('transport');
+      expect(provider).toHaveProperty('local');
+      expect(provider).toHaveProperty('features');
+      expect(typeof provider.name).toBe('string');
+      expect(typeof provider.local).toBe('boolean');
+      expect(V2_TRANSPORTS.has(provider.transport)).toBe(true);
+      expect(typeof provider.features.chat).toBe('boolean');
+    }
+  });
+
+  it('PROVIDER_LOCAL_IDS contains only local providers', () => {
+    for (const id of PROVIDER_LOCAL_IDS) {
+      expect(PROVIDER_REGISTRY[id]).toBeDefined();
+      expect(PROVIDER_REGISTRY[id].local).toBe(true);
+    }
+  });
+
+  it('V2_TRANSPORTS contains api, cli, and hybrid', () => {
+    expect(V2_TRANSPORTS.has('api')).toBe(true);
+    expect(V2_TRANSPORTS.has('cli')).toBe(true);
+    expect(V2_TRANSPORTS.has('hybrid')).toBe(true);
+    expect(V2_TRANSPORTS.size).toBe(3);
+  });
+
+  it('v2-router.js now gets the same providers (dedup verification)', () => {
+    // v2-router.js previously had only 10 providers. After consolidation,
+    // both files import from the same module with all 14.
+    expect(PROVIDER_REGISTRY['cerebras']).toBeDefined();
+    expect(PROVIDER_REGISTRY['ollama-cloud']).toBeDefined();
+    expect(PROVIDER_REGISTRY['google-ai']).toBeDefined();
+    expect(PROVIDER_REGISTRY['openrouter']).toBeDefined();
+  });
+});

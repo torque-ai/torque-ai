@@ -1,0 +1,227 @@
+const path = require('path');
+const Database = require('better-sqlite3');
+
+const { createTables } = require('../db/schema-tables');
+const { seedDefaults } = require('../db/schema-seeds');
+
+const logger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+const SEEDED_TABLES = [
+  'artifact_config',
+  'cache_config',
+  'priority_config',
+  'safeguard_tool_config',
+  'failover_config',
+  'config',
+  'maintenance_schedule',
+  'provider_config',
+  'provider_rate_limits',
+  'routing_rules',
+  'model_capabilities',
+  'rate_limits',
+  'cost_budgets',
+  'approval_rules',
+  'failure_patterns',
+];
+
+const EXPECTED_CONFIG_DEFAULTS = {
+  default_provider: 'claude-cli',
+  strategic_provider: 'ollama',
+  smart_routing_enabled: '1',
+  smart_routing_default_provider: 'aider-ollama',
+  ollama_auto_tuning_enabled: '1',
+  codex_enabled: '1',
+  max_per_host: '4',
+  rate_limiting_enabled: '1',
+  file_locking_enabled: '1',
+  free_tier_auto_scale_enabled: 'false',
+  scheduling_mode: 'legacy',
+};
+
+const VALID_PROVIDER_NAMES = new Set([
+  'codex',
+  'claude-cli',
+  'ollama',
+  'aider-ollama',
+  'hashline-ollama',
+  'hashline-openai',
+  'anthropic',
+  'groq',
+  'ollama-cloud',
+  'cerebras',
+  'google-ai',
+  'openrouter',
+  'hyperbolic',
+  'deepinfra',
+]);
+
+const SCORE_COLUMNS = [
+  'score_code_gen',
+  'score_refactoring',
+  'score_testing',
+  'score_reasoning',
+  'score_docs',
+  'lang_typescript',
+  'lang_javascript',
+  'lang_python',
+  'lang_csharp',
+  'lang_go',
+  'lang_rust',
+  'lang_general',
+];
+
+function createSeededDb() {
+  const db = new Database(':memory:');
+  createTables(db, logger);
+
+  const safeAddColumn = (table, colDef) => {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${colDef}`);
+    } catch {}
+  };
+
+  const setConfigDefault = (key, value) => {
+    db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)').run(key, String(value));
+  };
+
+  const dataDir = path.join('/tmp', `schema-seeds-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  seedDefaults(db, logger, safeAddColumn, { DATA_DIR: dataDir, setConfigDefault });
+
+  return { db, dataDir, safeAddColumn, setConfigDefault };
+}
+
+function getCount(db, tableName) {
+  return db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get().count;
+}
+
+function getConfigValue(db, key) {
+  const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+describe('db/schema-seeds', () => {
+  let db;
+  let safeAddColumn;
+  let setConfigDefault;
+
+  beforeEach(() => {
+    ({ db, safeAddColumn, setConfigDefault } = createSeededDb());
+  });
+
+  afterEach(() => {
+    if (db) {
+      db.close();
+      db = null;
+    }
+  });
+
+  it.each(SEEDED_TABLES)('seeds rows into %s', (tableName) => {
+    expect(getCount(db, tableName)).toBeGreaterThan(0);
+  });
+
+  it('is idempotent across all requested seed tables', () => {
+    const countsBefore = Object.fromEntries(
+      SEEDED_TABLES.map((tableName) => [tableName, getCount(db, tableName)]),
+    );
+
+    expect(() => {
+      seedDefaults(db, logger, safeAddColumn, {
+        DATA_DIR: '/tmp/test',
+        setConfigDefault,
+      });
+    }).not.toThrow();
+
+    const countsAfter = Object.fromEntries(
+      SEEDED_TABLES.map((tableName) => [tableName, getCount(db, tableName)]),
+    );
+
+    expect(countsAfter).toEqual(countsBefore);
+  });
+
+  it('seeds the expected config defaults', () => {
+    for (const [key, expectedValue] of Object.entries(EXPECTED_CONFIG_DEFAULTS)) {
+      expect(getConfigValue(db, key)).toBe(expectedValue);
+    }
+  });
+
+  it('seeds only valid provider names into provider_config', () => {
+    const providers = db.prepare('SELECT provider FROM provider_config ORDER BY priority, provider').all();
+
+    expect(providers.length).toBeGreaterThan(0);
+    expect(new Set(providers.map((row) => row.provider)).size).toBe(providers.length);
+
+    for (const { provider } of providers) {
+      expect(VALID_PROVIDER_NAMES.has(provider)).toBe(true);
+    }
+
+    expect(providers.some((row) => row.provider === 'codex')).toBe(true);
+    expect(providers.some((row) => row.provider === 'claude-cli')).toBe(true);
+    expect(providers.some((row) => row.provider === 'ollama')).toBe(true);
+  });
+
+  it('seeds provider capability tags and quality bands', () => {
+    const rows = db.prepare(`
+      SELECT provider, capability_tags, quality_band
+      FROM provider_config
+      WHERE provider IN ('codex', 'claude-cli', 'hashline-openai', 'groq')
+      ORDER BY provider
+    `).all();
+    const byProvider = Object.fromEntries(rows.map((row) => [row.provider, row]));
+
+    expect(JSON.parse(byProvider.codex.capability_tags)).toEqual([
+      'file_creation',
+      'file_edit',
+      'multi_file',
+      'reasoning',
+    ]);
+    expect(byProvider.codex.quality_band).toBe('A');
+    expect(JSON.parse(byProvider['claude-cli'].capability_tags)).toEqual([
+      'file_creation',
+      'file_edit',
+      'multi_file',
+      'reasoning',
+    ]);
+    expect(byProvider['claude-cli'].quality_band).toBe('A');
+    expect(JSON.parse(byProvider['hashline-openai'].capability_tags)).toEqual([
+      'file_edit',
+      'reasoning',
+    ]);
+    expect(byProvider['hashline-openai'].quality_band).toBe('B');
+    expect(JSON.parse(byProvider.groq.capability_tags)).toEqual([]);
+    expect(byProvider.groq.quality_band).toBe('D');
+  });
+
+  it('seeds model capability scores within the 0-1 range', () => {
+    const rows = db.prepare(`
+      SELECT model_name, ${SCORE_COLUMNS.join(', ')}
+      FROM model_capabilities
+    `).all();
+
+    expect(rows.length).toBeGreaterThan(0);
+
+    for (const row of rows) {
+      for (const column of SCORE_COLUMNS) {
+        expect(row[column]).toBeGreaterThanOrEqual(0);
+        expect(row[column]).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('seeds routing rules that target known providers', () => {
+    const knownProviders = new Set(
+      db.prepare('SELECT provider FROM provider_config').all().map((row) => row.provider),
+    );
+    const rules = db.prepare('SELECT name, target_provider FROM routing_rules').all();
+
+    expect(rules.length).toBeGreaterThan(0);
+
+    for (const rule of rules) {
+      expect(knownProviders.has(rule.target_provider)).toBe(true);
+    }
+  });
+});

@@ -1,0 +1,515 @@
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { workflows as workflowsApi } from '../api';
+import { useToast } from '../components/Toast';
+import { useAbortableRequest } from '../hooks/useAbortableRequest';
+import { getRelevantModel } from '../utils/providerModels';
+import StatCard from '../components/StatCard';
+import WorkflowDAG from '../components/WorkflowDAG';
+import { formatDistanceToNow } from 'date-fns';
+
+const STATUS_COLORS = {
+  completed: 'bg-green-500',
+  failed: 'bg-red-500',
+  running: 'bg-blue-500',
+  pending: 'bg-slate-500',
+  cancelled: 'bg-orange-500',
+  paused: 'bg-yellow-500',
+};
+
+const TASK_STATUS_ICONS = {
+  completed: { icon: '\u2713', color: 'text-green-400' },
+  failed: { icon: '\u2717', color: 'text-red-400' },
+  running: { icon: '\u25CB', color: 'text-blue-400 animate-pulse' },
+  pending: { icon: '\u25CB', color: 'text-slate-500' },
+  skipped: { icon: '\u25CB', color: 'text-slate-600' },
+  cancelled: { icon: '\u25CB', color: 'text-orange-400' },
+};
+
+const STATUS_FILTERS = ['all', 'running', 'completed', 'failed', 'pending', 'cancelled'];
+
+function StatusBadge({ status }) {
+  return (
+    <span className={`px-2 py-1 rounded-full text-[11px] font-medium text-white ${STATUS_COLORS[status] || 'bg-gray-500'}`}>
+      {status}
+    </span>
+  );
+}
+
+function formatDuration(seconds) {
+  if (!seconds || seconds < 0) return '-';
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.round(seconds % 60);
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+/** Parse workflow context for task counts and duration */
+function getWorkflowMeta(wf, now = Date.now()) {
+  const ctx = typeof wf.context === 'string'
+    ? (() => { try { return JSON.parse(wf.context); } catch { return {}; } })()
+    : (wf.context || {});
+  const totalTasks = ctx.total_tasks || wf.total_tasks || 0;
+  const completedTasks = ctx.completed_tasks || wf.completed_tasks || 0;
+  const failedTasks = ctx.failed_tasks || wf.failed_tasks || 0;
+
+  let durationSecs = null;
+  if (wf.started_at || ctx.started_at) {
+    const start = new Date(wf.started_at || ctx.started_at);
+    const end = wf.status === 'running'
+      ? new Date(now)
+      : wf.completed_at || ctx.completed_at
+        ? new Date(wf.completed_at || ctx.completed_at)
+        : new Date(now);
+    durationSecs = (end - start) / 1000;
+  }
+
+  return { totalTasks, completedTasks, failedTasks, durationSecs, ctx };
+}
+
+/** Indented DAG task row inside expanded workflow */
+function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
+  const statusInfo = TASK_STATUS_ICONS[task.status] || TASK_STATUS_ICONS.pending;
+  const duration = task.completed_at && task.started_at
+    ? (new Date(task.completed_at) - new Date(task.started_at)) / 1000
+    : task.status === 'running' && task.started_at
+      ? (now - new Date(task.started_at).getTime()) / 1000
+      : null;
+
+  const deps = task.depends_on || task.dependencies || [];
+
+  return (
+    <tr
+      className="border-b border-slate-700/20 hover:bg-slate-700/20 cursor-pointer transition-colors"
+      onClick={() => onOpenDrawer?.(task.id || task.task_id)}
+    >
+      <td className="px-4 py-2" style={{ paddingLeft: `${16 + depth * 24}px` }}>
+        <div className="flex items-center gap-2">
+          {depth > 0 && (
+            <span className="text-slate-600 text-xs font-mono">{'|--'}</span>
+          )}
+          <span className={`font-mono text-sm ${statusInfo.color}`}>{statusInfo.icon}</span>
+          <span className="text-sm text-slate-300">
+            {task.node_id || task.description?.substring(0, 50) || task.task_description?.substring(0, 50) || task.id || task.task_id}
+          </span>
+        </div>
+        {deps.length > 0 && (
+          <div className="text-[10px] text-slate-600 mt-0.5" style={{ paddingLeft: depth > 0 ? '32px' : '24px' }}>
+            depends on: {deps.join(', ')}
+          </div>
+        )}
+      </td>
+      <td className="px-4 py-2">
+        <StatusBadge status={task.status} />
+      </td>
+      <td className="px-4 py-2">
+        {task.provider ? (
+          <span className={`px-2 py-1 rounded text-[11px] ${
+            task.provider === 'claude-cli' ? 'bg-purple-600/30 text-purple-300'
+              : task.provider === 'codex' ? 'bg-blue-600/30 text-blue-300'
+                : 'bg-teal-600/30 text-teal-300'
+          }`}>
+            {task.provider}
+          </span>
+        ) : <span className="text-slate-600">-</span>}
+      </td>
+      <td className="px-4 py-2">
+        {getRelevantModel(task.provider, task.model) ? (
+          <span className="px-2 py-1 rounded text-[11px] bg-indigo-600/30 text-indigo-300">
+            {getRelevantModel(task.provider, task.model)}
+          </span>
+        ) : <span className="text-slate-600">-</span>}
+      </td>
+      <td className="px-4 py-2 text-sm font-mono text-slate-300">
+        {duration != null ? formatDuration(duration) : '-'}
+      </td>
+    </tr>
+  );
+}
+
+/** Expanded workflow detail: loads tasks and renders as DAG graph + table */
+function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, now }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState('graph'); // 'graph' or 'table'
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    workflowsApi.get(workflowId).then((data) => {
+      if (!cancelled) setDetail(data);
+    }).catch(() => {}).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [workflowId]);
+
+  if (loading) {
+    return (
+      <tr>
+        <td colSpan={7} className="p-4">
+          <div className="flex items-center gap-2 text-slate-400 text-sm">
+            <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            Loading workflow tasks...
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  if (!detail) return null;
+
+  // Extract tasks — handle both object map and array formats
+  const tasksRaw = detail.tasks
+    ? (Array.isArray(detail.tasks) ? detail.tasks : Object.values(detail.tasks))
+    : [];
+
+  // Build dependency graph for indentation
+  const taskMap = new Map();
+  for (const t of tasksRaw) {
+    const key = t.node_id || t.id || t.task_id;
+    taskMap.set(key, t);
+  }
+
+  // Compute depth: tasks with no dependencies are depth 0, others are depth based on longest dep chain
+  function computeDepth(task, visited = new Set()) {
+    const key = task.node_id || task.id || task.task_id;
+    if (visited.has(key)) return 0;
+    visited.add(key);
+    const deps = task.depends_on || task.dependencies || [];
+    if (deps.length === 0) return 0;
+    let maxDepth = 0;
+    for (const dep of deps) {
+      const depTask = taskMap.get(dep);
+      if (depTask) {
+        maxDepth = Math.max(maxDepth, computeDepth(depTask, visited) + 1);
+      }
+    }
+    return maxDepth;
+  }
+
+  const tasksWithDepth = tasksRaw.map(t => ({
+    ...t,
+    _depth: computeDepth(t),
+  }));
+
+  // Sort by depth (roots first), then by node_id/name
+  tasksWithDepth.sort((a, b) => {
+    if (a._depth !== b._depth) return a._depth - b._depth;
+    const aName = a.node_id || a.id || '';
+    const bName = b.node_id || b.id || '';
+    return aName.localeCompare(bName);
+  });
+
+  return (
+    <tr>
+      <td colSpan={7} className="p-0">
+        <div className="bg-slate-800/40 border-t border-b border-slate-700/30 px-4 py-3">
+          <div className="flex items-center gap-3 mb-3">
+            <h4 className="text-sm font-medium text-white">Task DAG</h4>
+            <span className="text-xs text-slate-500">
+              {tasksWithDepth.length} task{tasksWithDepth.length !== 1 ? 's' : ''}
+            </span>
+            {detail.cost && detail.cost.total_cost_usd > 0 && (
+              <span className="text-xs text-slate-400">
+                Cost: ${detail.cost.total_cost_usd.toFixed(4)}
+              </span>
+            )}
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                onClick={() => setViewMode('graph')}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  viewMode === 'graph' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'
+                }`}
+              >
+                Graph
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'
+                }`}
+              >
+                Table
+              </button>
+            </div>
+          </div>
+          {tasksWithDepth.length > 0 ? (
+            viewMode === 'graph' ? (
+              <WorkflowDAG tasks={tasksWithDepth} onOpenDrawer={onOpenDrawer} />
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="text-xs text-slate-500">
+                    <th className="px-4 py-1 text-left">Node</th>
+                    <th className="px-4 py-1 text-left">Status</th>
+                    <th className="px-4 py-1 text-left">Provider</th>
+                    <th className="px-4 py-1 text-left">Model</th>
+                    <th className="px-4 py-1 text-left">Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tasksWithDepth.map((task) => (
+                    <DAGTaskRow
+                      key={task.id || task.task_id || task.node_id}
+                      task={task}
+                      depth={task._depth}
+                      onOpenDrawer={onOpenDrawer}
+                      now={now}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            )
+          ) : (
+            <p className="text-sm text-slate-500">No tasks found</p>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [workflows, setWorkflows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState(null);
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
+  const toast = useToast();
+  const { execute } = useAbortableRequest();
+  const now = useMemo(() => Date.now(), [relativeTimeTick]);
+
+  // Sync filter to URL
+  useEffect(() => {
+    const params = {};
+    if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
+    setSearchParams(params, { replace: true });
+  }, [statusFilter, setSearchParams]);
+
+  const loadWorkflows = useCallback(() => {
+    setLoading(true);
+    execute(async (isCurrent) => {
+      try {
+        const params = { limit: 100 };
+        if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
+        const data = await workflowsApi.list(params);
+        if (!isCurrent()) return;
+        setWorkflows(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!isCurrent()) return;
+        console.error('Failed to load workflows:', err);
+        toast.error('Failed to load workflows');
+      } finally {
+        if (isCurrent()) setLoading(false);
+      }
+    });
+  }, [statusFilter, execute, toast]);
+
+  useEffect(() => {
+    loadWorkflows();
+    // Auto-refresh every 30s for running workflows
+    const id = setInterval(loadWorkflows, 30000);
+    return () => clearInterval(id);
+  }, [loadWorkflows]);
+
+  // Summary statistics
+  const summaryStats = useMemo(() => {
+    const total = workflows.length;
+    const completed = workflows.filter(w => w.status === 'completed').length;
+    const failed = workflows.filter(w => w.status === 'failed').length;
+    const active = workflows.filter(w => w.status === 'running').length;
+    const successRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    let totalDuration = 0;
+    let durationCount = 0;
+    for (const wf of workflows) {
+      const { durationSecs } = getWorkflowMeta(wf, now);
+      if (durationSecs && durationSecs > 0) {
+        totalDuration += durationSecs;
+        durationCount++;
+      }
+    }
+    const avgDuration = durationCount > 0 ? totalDuration / durationCount : 0;
+
+    return { total, completed, failed, active, successRate, avgDuration };
+  }, [workflows, now]);
+
+  // Client-side sort: newest first
+  const sortedWorkflows = useMemo(() => {
+    if (!workflows.length) return workflows;
+    return [...workflows].sort((a, b) => {
+      const da = new Date(a.created_at || 0).getTime();
+      const db = new Date(b.created_at || 0).getTime();
+      return db - da;
+    });
+  }, [workflows]);
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-white">Workflows</h1>
+        <button
+          onClick={loadWorkflows}
+          className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg transition-colors"
+          title="Refresh"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Workflows" value={summaryStats.total} />
+        <StatCard
+          label="Success Rate"
+          value={`${summaryStats.successRate}%`}
+          subtext={`${summaryStats.completed} completed, ${summaryStats.failed} failed`}
+        />
+        <StatCard label="Avg Duration" value={formatDuration(summaryStats.avgDuration)} />
+        <StatCard
+          label="Active"
+          value={summaryStats.active}
+          subtext={summaryStats.active > 0 ? 'currently running' : 'none running'}
+        />
+      </div>
+
+      {/* Status Filter Buttons */}
+      <div className="flex items-center gap-2">
+        {STATUS_FILTERS.map(s => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              statusFilter === s
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700/50'
+            }`}
+          >
+            {s.charAt(0).toUpperCase() + s.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Workflow Table */}
+      <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-slate-400 text-left border-b border-slate-700">
+              <th className="px-4 py-3 w-8"></th>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Progress</th>
+              <th className="px-4 py-3">Duration</th>
+              <th className="px-4 py-3">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && workflows.length === 0 ? (
+              <>
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i} className="border-b border-slate-700/30 animate-pulse">
+                    <td className="px-4 py-3 w-8"><div className="w-4 h-4 bg-slate-700 rounded" /></td>
+                    <td className="px-4 py-3"><div className="h-4 w-48 bg-slate-700 rounded" /></td>
+                    <td className="px-4 py-3"><div className="w-16 h-5 bg-slate-700 rounded-full" /></td>
+                    <td className="px-4 py-3"><div className="w-12 h-4 bg-slate-700 rounded" /></td>
+                    <td className="px-4 py-3"><div className="w-14 h-4 bg-slate-700 rounded" /></td>
+                    <td className="px-4 py-3"><div className="w-20 h-4 bg-slate-700 rounded" /></td>
+                  </tr>
+                ))}
+              </>
+            ) : sortedWorkflows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="p-8 text-center text-slate-500">
+                  {statusFilter !== 'all' ? `No ${statusFilter} workflows found` : 'No workflows found'}
+                </td>
+              </tr>
+            ) : (
+              sortedWorkflows.map((wf) => {
+                const meta = getWorkflowMeta(wf, now);
+                const isExpanded = expandedId === wf.id;
+                const progressPct = meta.totalTasks > 0
+                  ? Math.round((meta.completedTasks / meta.totalTasks) * 100)
+                  : 0;
+
+                return (
+                  <Fragment key={wf.id}>
+                    <tr
+                      onClick={() => setExpandedId(isExpanded ? null : wf.id)}
+                      className={`border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer transition-colors ${
+                        isExpanded ? 'bg-slate-700/20' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-3 w-8">
+                        <svg
+                          className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-white font-medium">{wf.name || wf.id}</p>
+                        {wf.description && (
+                          <p className="text-xs text-slate-500 mt-0.5 truncate max-w-xs">{wf.description}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={wf.status} />
+                      </td>
+                      <td className="px-4 py-3">
+                        {meta.totalTasks > 0 ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 max-w-[80px] h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  meta.failedTasks > 0 ? 'bg-red-500' : 'bg-green-500'
+                                }`}
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
+                            <span className="text-slate-300 text-sm">
+                              <span className={meta.completedTasks === meta.totalTasks ? 'text-green-400' : 'text-white'}>
+                                {meta.completedTasks}
+                              </span>
+                              <span className="text-slate-500">/{meta.totalTasks}</span>
+                            </span>
+                            {meta.failedTasks > 0 && (
+                              <span className="text-red-400 text-xs">({meta.failedTasks} failed)</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-600">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-slate-300">
+                        {meta.durationSecs != null ? formatDuration(meta.durationSecs) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400" title={wf.created_at}>
+                        {wf.created_at
+                          ? formatDistanceToNow(new Date(wf.created_at), { addSuffix: true })
+                          : '-'}
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <ExpandedWorkflowDAG
+                        workflowId={wf.id}
+                        onOpenDrawer={onOpenDrawer}
+                        now={now}
+                      />
+                    )}
+                  </Fragment>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

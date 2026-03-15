@@ -1,0 +1,441 @@
+const db = require('../database');
+const taskManager = require('../task-manager');
+const handlers = require('../handlers/task/project');
+
+function getText(result) {
+  return result?.content?.[0]?.text || '';
+}
+
+describe('handler:task-project', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+
+  it('handleRecordUsage returns TASK_NOT_FOUND when task does not exist', () => {
+    vi.spyOn(db, 'getTask').mockReturnValue(null);
+
+    const result = handlers.handleRecordUsage({
+      task_id: 'missing-task',
+      input_tokens: 10,
+      output_tokens: 20,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('TASK_NOT_FOUND');
+  });
+
+  it('handleRecordUsage records usage with default model', () => {
+    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1' });
+    const recordSpy = vi.spyOn(db, 'recordTokenUsage').mockReturnValue({
+      model: 'codex',
+      input_tokens: 1200,
+      output_tokens: 340,
+      total_tokens: 1540,
+      estimated_cost_usd: 0.0123,
+    });
+
+    const result = handlers.handleRecordUsage({
+      task_id: 'task-1',
+      input_tokens: 1200,
+      output_tokens: 340,
+    });
+
+    expect(recordSpy).toHaveBeenCalledWith('task-1', {
+      input_tokens: 1200,
+      output_tokens: 340,
+      model: 'codex',
+    });
+    const text = getText(result);
+    expect(text).toContain('Usage Recorded');
+    expect(text).toContain('Total Tokens');
+    expect(text).toContain('$0.0123');
+  });
+
+  it('handleGetTaskUsage returns empty-state message when no usage exists', () => {
+    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-2', task_description: 'No usage task' });
+    vi.spyOn(db, 'getTaskTokenUsage').mockReturnValue([]);
+
+    const result = handlers.handleGetTaskUsage({ task_id: 'task-2' });
+
+    expect(getText(result)).toContain('No usage data recorded for this task');
+  });
+
+  it('handleGetTaskUsage aggregates totals across usage rows', () => {
+    vi.spyOn(db, 'getTask').mockReturnValue({
+      id: 'task-3',
+      task_description: 'Aggregate usage task description',
+    });
+    vi.spyOn(db, 'getTaskTokenUsage').mockReturnValue([
+      {
+        input_tokens: 100,
+        output_tokens: 50,
+        estimated_cost_usd: 0.01,
+        model: 'codex',
+        recorded_at: '2026-03-01T10:00:00.000Z',
+      },
+      {
+        input_tokens: 40,
+        output_tokens: 10,
+        estimated_cost_usd: 0.005,
+        model: 'codex',
+        recorded_at: '2026-03-01T11:00:00.000Z',
+      },
+    ]);
+
+    const result = handlers.handleGetTaskUsage({ task_id: 'task-3' });
+    const text = getText(result);
+
+    expect(text).toContain('Totals');
+    expect(text).toContain('140');
+    expect(text).toContain('60');
+    expect(text).toContain('200');
+    expect(text).toContain('$0.0150');
+  });
+
+  it('handleCostSummary includes model and period breakdown', () => {
+    vi.spyOn(db, 'getCurrentProject').mockReturnValue('alpha');
+    vi.spyOn(db, 'getTokenUsageSummary').mockReturnValue({
+      total_input_tokens: 500,
+      total_output_tokens: 200,
+      total_tokens: 700,
+      total_cost_usd: 1.25,
+      task_count: 3,
+      by_model: {
+        codex: { input_tokens: 500, output_tokens: 200, cost_usd: 1.25 },
+      },
+    });
+    const periodSpy = vi.spyOn(db, 'getCostByPeriod').mockReturnValue([
+      { period: '2026-03-01', tokens: 350, cost: 0.6 },
+      { period: '2026-03-02', tokens: 350, cost: 0.65 },
+    ]);
+
+    const result = handlers.handleCostSummary({ period: 'day', limit: 5 });
+
+    expect(periodSpy).toHaveBeenCalledWith('day', 5);
+    const text = getText(result);
+    expect(text).toContain('Cost Summary (Project: alpha)');
+    expect(text).toContain('By Model');
+    expect(text).toContain('By Day');
+    expect(text).toContain('$1.2500');
+  });
+
+  it('handleEstimateCost renders estimate for provided model', () => {
+    const estimateSpy = vi.spyOn(db, 'estimateCost').mockReturnValue({
+      model: 'deepinfra',
+      estimated_input_tokens: 200,
+      estimated_output_tokens: 400,
+      estimated_total_tokens: 600,
+      estimated_cost_usd: 0.042,
+    });
+
+    const result = handlers.handleEstimateCost({
+      task_description: 'Design a migration plan',
+      model: 'deepinfra',
+    });
+
+    expect(estimateSpy).toHaveBeenCalledWith('Design a migration plan', 'deepinfra');
+    const text = getText(result);
+    expect(text).toContain('Cost Estimate');
+    expect(text).toContain('deepinfra');
+    expect(text).toContain('~$0.0420');
+  });
+
+  it('handleListProjects returns empty-state when no projects exist', () => {
+    vi.spyOn(db, 'listProjects').mockReturnValue([]);
+
+    const result = handlers.handleListProjects({});
+
+    expect(getText(result)).toContain('No projects found');
+  });
+
+  it('handleListProjects renders totals for non-empty project list', () => {
+    vi.spyOn(db, 'listProjects').mockReturnValue([
+      {
+        project: 'alpha',
+        task_count: 2,
+        completed_count: 1,
+        failed_count: 0,
+        active_count: 1,
+        total_cost: 1.5,
+      },
+      {
+        project: 'beta',
+        task_count: 3,
+        completed_count: 2,
+        failed_count: 1,
+        active_count: 0,
+        total_cost: 2.25,
+      },
+    ]);
+
+    const result = handlers.handleListProjects({});
+    const text = getText(result);
+
+    expect(text).toContain('| alpha | 2 | 1 | 0 | 1 | $1.50 |');
+    expect(text).toContain('| beta | 3 | 2 | 1 | 0 | $2.25 |');
+    expect(text).toContain('Total Projects:** 2');
+    expect(text).toContain('Total Cost:** $3.75');
+  });
+
+  it('handleProjectStats returns error when project cannot be determined', () => {
+    vi.spyOn(db, 'getCurrentProject').mockReturnValue(null);
+
+    const result = handlers.handleProjectStats({});
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+  });
+
+  it('handleCurrentProject shows quotas and task status counts', () => {
+    vi.spyOn(db, 'getProjectRoot').mockReturnValue('/repo/alpha');
+    vi.spyOn(db, 'getCurrentProject').mockReturnValue('alpha');
+    vi.spyOn(db, 'getProjectStats').mockReturnValue({
+      total_tasks: 7,
+      tasks_by_status: { running: 2, completed: 5 },
+      pipelines: 1,
+      scheduled_tasks: 0,
+      cost: { total_tokens: 9876, total_cost: 3.25 },
+      top_templates: [],
+      top_tags: [],
+      recent_tasks: [],
+    });
+    vi.spyOn(db, 'getEffectiveProjectConfig').mockReturnValue({
+      max_concurrent: 3,
+      max_daily_cost: 5,
+      max_daily_tokens: 20000,
+      default_timeout: 30,
+      default_priority: 0,
+      auto_approve: false,
+      enabled: true,
+    });
+    vi.spyOn(db, 'canProjectStartTask').mockReturnValue({ allowed: true });
+    vi.spyOn(db, 'getProjectRunningCount').mockReturnValue(2);
+    vi.spyOn(db, 'getProjectDailyUsage').mockReturnValue({ cost: 1.5, tokens: 1500 });
+
+    const result = handlers.handleCurrentProject({ working_directory: '/repo/alpha/src' });
+    const text = getText(result);
+
+    expect(text).toContain('Current Project');
+    expect(text).toContain('Can Submit Tasks:** Yes');
+    expect(text).toContain('Concurrency:** 2/3');
+    expect(text).toContain('Daily Cost:** $1.50/$5.00');
+    expect(text).toContain('- running: 2');
+  });
+
+  it('handleConfigureProject without settings falls back to current config view', () => {
+    vi.spyOn(db, 'getCurrentProject').mockReturnValue('alpha');
+    const setSpy = vi.spyOn(db, 'setProjectConfig');
+    vi.spyOn(db, 'getEffectiveProjectConfig').mockReturnValue({
+      max_concurrent: 2,
+      global_max_concurrent: 5,
+      max_daily_cost: 10,
+      max_daily_tokens: 50000,
+      default_timeout: 30,
+      default_priority: 0,
+      auto_approve: false,
+      enabled: true,
+    });
+    vi.spyOn(db, 'getProjectDailyUsage').mockReturnValue({ cost: 1.2, tokens: 450 });
+    vi.spyOn(db, 'canProjectStartTask').mockReturnValue({ allowed: true });
+    vi.spyOn(db, 'getProjectRunningCount').mockReturnValue(1);
+
+    const result = handlers.handleConfigureProject({ project: 'alpha' });
+
+    expect(setSpy).not.toHaveBeenCalled();
+    expect(getText(result)).toContain('Project Configuration: alpha');
+  });
+
+  it('handleGetProjectConfig returns error when no project is resolved', () => {
+    vi.spyOn(db, 'getCurrentProject').mockReturnValue(null);
+
+    const result = handlers.handleGetProjectConfig({});
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+  });
+
+  it('handleListProjectConfigs renders configured projects', () => {
+    vi.spyOn(db, 'listProjectConfigs').mockReturnValue([
+      {
+        project: 'alpha',
+        max_concurrent: 2,
+        max_daily_cost: 10,
+        max_daily_tokens: 20000,
+        enabled: true,
+      },
+    ]);
+
+    const result = handlers.handleListProjectConfigs({});
+
+    expect(getText(result)).toContain('Project Configurations');
+    expect(getText(result)).toContain('| alpha | 2 | $10.00 | 20,000 | Yes |');
+  });
+
+  it('handleCloneTask clones and starts immediately when requested', () => {
+    vi.spyOn(db, 'getTask').mockReturnValue({
+      id: 'orig-task',
+      task_description: 'Original task description',
+      working_directory: '/repo',
+      timeout_minutes: 45,
+      auto_approve: true,
+      priority: 2,
+      tags: ['a'],
+      max_retries: 1,
+      retry_strategy: 'linear',
+      retry_delay_seconds: 10,
+    });
+    const createSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => task);
+    vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: true });
+
+    const result = handlers.handleCloneTask({ task_id: 'orig-task', start_immediately: true });
+
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'pending',
+      task_description: 'Original task description',
+      priority: 2,
+    }));
+    expect(getText(result)).toContain('Task cloned!');
+    expect(getText(result)).toContain('Status:** Queued');
+  });
+
+  it('handleBulkImportTasks blocks path traversal in file_path mode', () => {
+    const result = handlers.handleBulkImportTasks({ file_path: '../secrets/tasks.json' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('PATH_TRAVERSAL');
+  });
+
+  it('handleBulkImportTasks resolves $index dependencies and only auto-starts roots', () => {
+    vi.spyOn(db, 'safeJsonParse').mockReturnValue([
+      { task: 'root-task' },
+      { task: 'child-task', depends_on: ['$0'] },
+    ]);
+    const createSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => task);
+    const startSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
+
+    const result = handlers.handleBulkImportTasks({
+      content: '[{"task":"root-task"},{"task":"child-task","depends_on":["$0"]}]',
+      working_directory: '/repo',
+      start_immediately: true,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(createSpy).toHaveBeenCalledTimes(2);
+    const secondTaskPayload = createSpy.mock.calls[1][0];
+    expect(secondTaskPayload.depends_on).toHaveLength(1);
+    expect(typeof secondTaskPayload.depends_on[0]).toBe('string');
+    expect(secondTaskPayload.depends_on[0]).not.toBe('$0');
+    expect(startSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleValidateImport returns errors for invalid dependency types', () => {
+    const result = handlers.handleValidateImport({
+      content: JSON.stringify([{ task: 'bad deps', depends_on: [123] }]),
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('INVALID_PARAM');
+    expect(getText(result)).toContain('depends_on element must be a string');
+  });
+
+  it('handleCreateGroup applies default priority and timeout', () => {
+    const createSpy = vi.spyOn(db, 'createTaskGroup').mockImplementation((group) => group);
+
+    const result = handlers.handleCreateGroup({
+      name: 'Ops',
+      project: 'alpha',
+      description: 'Ops runbooks',
+    });
+
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Ops',
+      default_priority: 0,
+      default_timeout: 30,
+    }));
+    expect(getText(result)).toContain('Task group created!');
+  });
+
+  it('handleListGroups renders group statistics table', () => {
+    const listSpy = vi.spyOn(db, 'listTaskGroups').mockReturnValue([
+      {
+        name: 'Ops',
+        project: 'alpha',
+        stats: { total: 4, running: 1, completed: 2, failed: 1 },
+      },
+    ]);
+
+    const result = handlers.handleListGroups({ project: 'alpha' });
+
+    expect(listSpy).toHaveBeenCalledWith({ project: 'alpha' });
+    expect(getText(result)).toContain('| Ops | alpha | 4 | 1 | 2 | 1 |');
+  });
+
+  it('handleGroupAction retries only failed tasks', () => {
+    vi.spyOn(db, 'getTaskGroup').mockReturnValue({ id: 'g-1', name: 'Ops' });
+    vi.spyOn(db, 'getGroupTasks').mockReturnValue([
+      { id: 't1', status: 'failed', task_description: 'fail 1', working_directory: '/repo', timeout_minutes: 10, auto_approve: false, priority: 0, tags: [] },
+      { id: 't2', status: 'completed', task_description: 'done', working_directory: '/repo', timeout_minutes: 10, auto_approve: false, priority: 0, tags: [] },
+    ]);
+    const createSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => task);
+    const startSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
+
+    const result = handlers.handleGroupAction({ group_id: 'g-1', action: 'retry_failed' });
+
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(getText(result)).toContain('Affected tasks:** 1');
+  });
+
+  it('handleGroupAction rejects unknown actions', () => {
+    vi.spyOn(db, 'getTaskGroup').mockReturnValue({ id: 'g-2' });
+    vi.spyOn(db, 'getGroupTasks').mockReturnValue([]);
+
+    const result = handlers.handleGroupAction({ group_id: 'g-2', action: 'archive' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('INVALID_PARAM');
+  });
+
+  it('handleForecastCosts validates days_ahead', () => {
+    const result = handlers.handleForecastCosts({ days_ahead: -1 });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('INVALID_PARAM');
+  });
+
+  it('handleDeleteBudget returns success when budget is deleted', () => {
+    vi.spyOn(db, 'deleteBudget').mockReturnValue({ deleted: true });
+
+    const result = handlers.handleDeleteBudget({ budget_id: 'budget-1' });
+
+    expect(result.isError).toBeFalsy();
+    expect(getText(result)).toContain('Budget budget-1 deleted.');
+  });
+
+  it('handleSetDefaultLimits writes provided defaults and renders current values', () => {
+    const setConfigSpy = vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+    const getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      if (key === 'default_project_max_concurrent') return '4';
+      if (key === 'default_project_max_daily_cost') return '2.5';
+      if (key === 'auto_create_project_config') return '0';
+      return null;
+    });
+
+    const result = handlers.handleSetDefaultLimits({
+      max_concurrent: 4,
+      max_daily_cost: 2.5,
+      auto_create_config: false,
+    });
+
+    expect(setConfigSpy).toHaveBeenCalledWith('default_project_max_concurrent', '4');
+    expect(setConfigSpy).toHaveBeenCalledWith('default_project_max_daily_cost', '2.5');
+    expect(setConfigSpy).toHaveBeenCalledWith('auto_create_project_config', '0');
+    expect(getConfigSpy).toHaveBeenCalled();
+
+    const text = getText(result);
+    expect(text).toContain('Max Concurrent:** 4');
+    expect(text).toContain('Max Daily Cost:** $2.5');
+    expect(text).toContain('Auto-create Config:** No');
+  });
+});

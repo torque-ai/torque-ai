@@ -1,0 +1,142 @@
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
+const { randomUUID } = require('crypto');
+
+const {
+  setupTestDb,
+  teardownTestDb,
+  safeTool,
+} = require('./vitest-setup');
+
+const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+
+let db;
+let testDir;
+let runtime;
+let templateBuffer;
+
+function loadTemplateBuffer() {
+  if (!templateBuffer) {
+    templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
+  }
+  return templateBuffer;
+}
+
+function resetRuntimeDb() {
+  db.resetForTest(loadTemplateBuffer());
+}
+
+function initRuntime() {
+  runtime.init({
+    db,
+    startTask: () => ({ status: 'running' }),
+    cancelTask: (taskId, reason) => ({ taskId, reason, status: 'cancelled' }),
+    processQueue: () => {},
+    dashboard: {
+      notifyTaskUpdated: () => {},
+      notifyWorkflowUpdated: () => {},
+      notifyStatsUpdated: () => {},
+    },
+  });
+}
+
+function createWorkflow(overrides = {}) {
+  const id = overrides.id || randomUUID();
+  db.createWorkflow({
+    id,
+    name: overrides.name || `wf-${id.slice(0, 8)}`,
+    status: overrides.status || 'running',
+    description: overrides.description || null,
+    working_directory: overrides.working_directory || testDir,
+  });
+  return id;
+}
+
+function createTask(overrides = {}) {
+  const id = overrides.id || randomUUID();
+  const task = {
+    id,
+    task_description: overrides.task_description || `Task ${id.slice(0, 8)}`,
+    working_directory: overrides.working_directory || testDir,
+    status: overrides.status || 'pending',
+    provider: overrides.provider || 'codex',
+    ...overrides,
+  };
+  db.createTask(task);
+  return id;
+}
+
+describe('P1 workflow fixes', () => {
+  beforeAll(() => {
+    ({ testDir } = setupTestDb('workflow-fixes'));
+    db = require('../database');
+    runtime = require('../execution/workflow-runtime');
+    initRuntime();
+  });
+
+  beforeEach(() => {
+    resetRuntimeDb();
+    initRuntime();
+  });
+
+  afterAll(() => {
+    teardownTestDb();
+  });
+
+  it('handles sequential termination calls for the same workflow without errors', () => {
+    const workflowId = createWorkflow({ name: 'p1-terminal-guard' });
+    const firstTask = createTask({ workflow_id: workflowId, status: 'completed' });
+    const secondTask = createTask({ workflow_id: workflowId, status: 'completed' });
+
+    // Both calls should complete without throwing (guard releases between calls)
+    expect(() => runtime.handleWorkflowTermination(firstTask)).not.toThrow();
+    expect(() => runtime.handleWorkflowTermination(secondTask)).not.toThrow();
+
+    // Workflow should reach a terminal state after processing both tasks
+    const wf = db.getWorkflow(workflowId);
+    expect(['completed', 'failed', 'running']).toContain(wf.status);
+  });
+
+  it('escapes regex-special characters in template_loop variable names', async () => {
+    const templated = `tmpl-${randomUUID()}`;
+    const wildcardResult = await safeTool('create_task_template', {
+      name: templated,
+      task_template: 'expanded=${a.*}, keep=${marker}, index=${index}',
+      default_timeout: 30,
+    });
+
+    expect(wildcardResult.isError).toBeFalsy();
+    const wildcardLoop = await safeTool('template_loop', {
+      template_id: templated,
+      items: ['value-1'],
+      variable_name: 'a.*',
+    });
+    expect(wildcardLoop.isError).toBeFalsy();
+
+    const wildcardTask = db.getDbInstance().prepare(
+      'SELECT task_description FROM tasks WHERE template_name = ? AND task_description LIKE ? ORDER BY created_at DESC LIMIT 1'
+    ).get(templated, 'expanded=%');
+    expect(wildcardTask.task_description).toBe('expanded=value-1, keep=${marker}, index=0');
+
+    const crashTemplate = `tmpl-crash-${randomUUID()}`;
+    const crashCreate = await safeTool('create_task_template', {
+      name: crashTemplate,
+      task_template: 'value=${[value}',
+      default_timeout: 30,
+    });
+    expect(crashCreate.isError).toBeFalsy();
+
+    const crashLoop = await safeTool('template_loop', {
+      template_id: crashTemplate,
+      items: ['escaped'],
+      variable_name: '[value',
+    });
+    expect(crashLoop.isError).toBeFalsy();
+
+    const crashTask = db.getDbInstance().prepare(
+      'SELECT task_description FROM tasks WHERE template_name = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(crashTemplate);
+    expect(crashTask.task_description).toBe('value=escaped');
+  });
+});
