@@ -32,11 +32,14 @@ function resolvePolicyFixtureRoot() {
 
 const projectRoot = resolvePolicyFixtureRoot();
 
+const seedPath = path.join(projectRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json');
+const hasSeedFile = fs.existsSync(seedPath);
+
 function mapRulesById(rules) {
   return new Map(rules.map((rule) => [rule.policy_id || rule.id, rule]));
 }
 
-describe('policy phase 5 integration', () => {
+describe.skipIf(!hasSeedFile)('policy phase 5 integration', () => {
   let db;
   let testDir;
 

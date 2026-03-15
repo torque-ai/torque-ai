@@ -46,9 +46,13 @@ describe('OllamaStrategicProvider', () => {
   let fetchMock;
   let provider;
 
+  let originalOllamaHost;
+
   beforeEach(() => {
     originalHost = process.env.OLLAMA_STRATEGIC_HOST;
+    originalOllamaHost = process.env.OLLAMA_HOST;
     delete process.env.OLLAMA_STRATEGIC_HOST;
+    delete process.env.OLLAMA_HOST;
 
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -65,6 +69,11 @@ describe('OllamaStrategicProvider', () => {
     } else {
       process.env.OLLAMA_STRATEGIC_HOST = originalHost;
     }
+    if (originalOllamaHost === undefined) {
+      delete process.env.OLLAMA_HOST;
+    } else {
+      process.env.OLLAMA_HOST = originalOllamaHost;
+    }
   });
 
   describe('constructor', () => {
@@ -73,8 +82,8 @@ describe('OllamaStrategicProvider', () => {
       expect(provider.enabled).toBe(true);
       expect(provider.maxConcurrent).toBe(3);
       expect(provider.activeTasks).toBe(0);
-      expect(provider.host).toBe('0.0.0.0');
-      expect(provider.baseUrl).toBe('0.0.0.0/v1');
+      expect(provider.host).toBe('http://localhost:11434');
+      expect(provider.baseUrl).toBe('http://localhost:11434/v1');
       expect(provider.defaultModel).toBe('qwen2.5-coder:32b');
       expect(provider.defaultTemperature).toBe(0.3);
       expect(provider.hasCapacity()).toBe(true);
@@ -190,7 +199,7 @@ describe('OllamaStrategicProvider', () => {
         models: ['qwen2.5-coder:32b', 'deepseek-r1:32b'],
       });
       expect(fetchMock).toHaveBeenCalledWith(
-        '0.0.0.0/api/tags',
+        'http://localhost:11434/api/tags',
         expect.objectContaining({
           method: 'GET',
           signal: expect.any(AbortSignal),
@@ -281,7 +290,7 @@ describe('OllamaStrategicProvider', () => {
       const result = await provider.submit('Diagnose the task');
 
       expect(fetchMock).toHaveBeenCalledWith(
-        '0.0.0.0/v1/chat/completions',
+        'http://localhost:11434/v1/chat/completions',
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

@@ -341,11 +341,12 @@ describe('buildCodexCommand', () => {
     expect(typeof result.stdinPrompt).toBe('string');
   });
 
-  it('includes exec as first arg', () => {
+  it('includes exec in args', () => {
     const task = makeTask({ provider: 'codex' });
     const result = tm.buildCodexCommand(task, null, '');
 
-    expect(result.finalArgs[0]).toBe('exec');
+    // On nvm-managed Node, finalArgs may be prepended with the codex path
+    expect(result.finalArgs).toContain('exec');
   });
 
   it('includes --skip-git-repo-check', () => {

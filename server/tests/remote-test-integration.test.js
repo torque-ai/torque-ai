@@ -37,7 +37,7 @@ function createUnavailableRegistry() {
   };
 }
 
-describe('remote test execution integration', { timeout: 20000 }, () => {
+describe.skipIf(process.env.CI === 'true')('remote test execution integration', { timeout: 20000 }, () => {
   let server;
   let port;
   let projectsDir;

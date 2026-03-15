@@ -478,7 +478,9 @@ describe('integration/infra handlers', () => {
 
   describe('database backup and restore handlers', () => {
     it('backs up the database to an explicit destination path', () => {
-      const destPath = path.join('C:\\', 'backups', 'manual-backup.db');
+      const destPath = process.platform === 'win32'
+        ? path.join('C:\\', 'backups', 'manual-backup.db')
+        : '/tmp/backups/manual-backup.db';
       mocks.db.backupDatabase.mockReturnValue({
         path: destPath,
         size: 4096,
@@ -489,7 +491,7 @@ describe('integration/infra handlers', () => {
       const text = getText(result);
 
       expect(mocks.db.backupDatabase).toHaveBeenCalledWith(destPath);
-      expect(text).toContain('**Path:** C:\\backups\\manual-backup.db');
+      expect(text).toContain(`**Path:** ${destPath}`);
       expect(text).toContain('**Size:** 4.0 KB');
       expect(text).toContain('**Created:** 2026-03-12T10:00:00.000Z');
     });

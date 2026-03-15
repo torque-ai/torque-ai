@@ -198,14 +198,22 @@ function isUnderGitDirectory(testDir) {
 }
 
 function createNonGitDir() {
-  const rootPrefix = path.parse(process.cwd()).root;
-  const nonGit = fs.mkdtempSync(path.join(rootPrefix, 'torque-non-git-'));
-  if (isUnderGitDirectory(nonGit)) {
+  // Try os.tmpdir() first (always writable), then filesystem root as fallback
+  const candidates = [os.tmpdir(), path.parse(process.cwd()).root];
+  for (const base of candidates) {
+    let nonGit;
+    try {
+      nonGit = fs.mkdtempSync(path.join(base, 'torque-non-git-'));
+    } catch {
+      continue; // base not writable (e.g., filesystem root on Linux CI)
+    }
+    if (!isUnderGitDirectory(nonGit)) {
+      tempRoots.push(nonGit);
+      return nonGit;
+    }
     fs.rmSync(nonGit, { recursive: true, force: true });
-    throw new Error('Unable to create non-git directory in current environment');
   }
-  tempRoots.push(nonGit);
-  return nonGit;
+  throw new Error('Unable to create non-git directory in current environment');
 }
 
 describe('automation-batch-orchestration handlers', () => {
@@ -474,8 +482,9 @@ describe('automation-batch-orchestration handlers', () => {
 
     it('rejects absolute paths outside working_directory for stage_paths', async () => {
       const workingDir = createTempDir();
-      const outsidePath = path.join(path.parse(workingDir).root, 'outside-autocommit-root');
-      fs.mkdirSync(outsidePath, { recursive: true });
+      // Create outsidePath under os.tmpdir() to avoid permission issues on CI
+      const outsidePath = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-autocommit-root-'));
+      tempRoots.push(outsidePath);
       initGitRepo(workingDir);
       fs.mkdirSync(path.join(workingDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(workingDir, 'src', 'safe.ts'), 'export const safe = true;');

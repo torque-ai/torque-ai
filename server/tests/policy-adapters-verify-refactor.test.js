@@ -1770,7 +1770,7 @@ describe('policy adapters verify/refactor combined coverage', () => {
       });
     });
 
-    it('warns when refactor debt worsens without backlog coverage in advisory mode', () => {
+    it.skipIf(!fs.existsSync(path.join(projectRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json')))('warns when refactor debt worsens without backlog coverage in advisory mode', () => {
       loadTorqueDefaults(projectRoot);
       createTask(db, testDir, 'task-refactor-prev');
       createTask(db, testDir, 'task-refactor-now');

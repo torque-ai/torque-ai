@@ -64,7 +64,9 @@ describe('mcp-launch-readiness (normalizeReportPath)', () => {
   });
 
   it('returns absolute paths unchanged', () => {
-    const absPath = 'C:\\Users\\test\\report.json';
+    const absPath = process.platform === 'win32'
+      ? 'C:\\Users\\test\\report.json'
+      : '/home/test/report.json';
     expect(normalizeReportPath(absPath)).toBe(absPath);
   });
 

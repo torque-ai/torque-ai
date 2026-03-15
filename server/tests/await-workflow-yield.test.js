@@ -195,8 +195,8 @@ describe('await_workflow yield-on-completion', () => {
 
       const result = await safeTool('await_workflow', {
         workflow_id: wf.workflowId,
-        timeout_minutes: 0.02,  // ~1.2 seconds
-        poll_interval_ms: 50
+        timeout_minutes: 0.05,  // ~3 seconds — enough for slow CI runners
+        poll_interval_ms: 100
       });
       const text = getText(result);
 

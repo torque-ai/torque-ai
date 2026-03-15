@@ -17,6 +17,7 @@ vi.mock('../logger', () => ({
 }));
 
 const originalOllamaHost = process.env.OLLAMA_STRATEGIC_HOST;
+const originalOllamaBaseHost = process.env.OLLAMA_HOST;
 
 function clearModule(modulePath) {
   try {
@@ -112,6 +113,11 @@ afterEach(() => {
   } else {
     process.env.OLLAMA_STRATEGIC_HOST = originalOllamaHost;
   }
+  if (originalOllamaBaseHost === undefined) {
+    delete process.env.OLLAMA_HOST;
+  } else {
+    process.env.OLLAMA_HOST = originalOllamaBaseHost;
+  }
 
   delete global.fetch;
 
@@ -143,6 +149,7 @@ describe('orchestrator integration', () => {
     beforeEach(() => {
       global.fetch = vi.fn();
       delete process.env.OLLAMA_STRATEGIC_HOST;
+      delete process.env.OLLAMA_HOST;
     });
 
     it('creates correctly and routes decompose, diagnose, and review through Ollama', async () => {
@@ -212,7 +219,7 @@ describe('orchestrator integration', () => {
 
       expect(global.fetch).toHaveBeenCalledTimes(3);
       for (const [url, options] of global.fetch.mock.calls) {
-        expect(url).toBe('0.0.0.0/v1/chat/completions');
+        expect(url).toBe('http://localhost:11434/v1/chat/completions');
         expect(options.method).toBe('POST');
         expect(options.headers).toEqual({ 'Content-Type': 'application/json' });
         expect(options.signal).toBeInstanceOf(AbortSignal);

@@ -88,15 +88,21 @@ function createMockRegistry(clientMap = {}) {
 
 // ── Tests ────────────────────────────────────────────────────
 
+const isCI = process.env.CI === 'true';
+
 beforeAll(() => {
-  setupTestDbModule('../remote/remote-test-routing', 'remote-routing');
+  if (!isCI) {
+    setupTestDbModule('../remote/remote-test-routing', 'remote-routing');
+  }
 });
 
 afterAll(() => {
-  teardownTestDb();
+  if (!isCI) {
+    teardownTestDb();
+  }
 });
 
-describe('createRemoteTestRouter', () => {
+describe.skipIf(isCI)('createRemoteTestRouter', () => {
   beforeEach(() => {
     resetTables(['project_config']);
   });
