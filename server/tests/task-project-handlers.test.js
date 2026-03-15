@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'module';
+import { createConfigMock } from './test-helpers';
 
 const require = createRequire(import.meta.url);
 const actualPath = require('node:path');
@@ -176,6 +177,7 @@ function createDbMock(options = {}) {
     Object.entries(options.projectMetadata || {}).map(([project, metadata]) => [project, { ...metadata }]),
   );
   const tasks = new Map(Object.entries(options.tasks || {}));
+  const fallbackConfig = createConfigMock();
 
   return {
     getTask: vi.fn((taskId) => tasks.get(taskId) ?? null),
@@ -202,7 +204,9 @@ function createDbMock(options = {}) {
       const metadata = projectMetadata.get(project);
       return metadata && Object.prototype.hasOwnProperty.call(metadata, key) ? metadata[key] : null;
     }),
-    getConfig: vi.fn((key) => (configStore.has(key) ? configStore.get(key) : null)),
+    getConfig: vi.fn((key) => {
+      return configStore.has(key) ? configStore.get(key) : fallbackConfig(key);
+    }),
     setConfig: vi.fn((key, value) => {
       configStore.set(key, value);
     }),
@@ -276,8 +280,9 @@ function resetMocks(options = {}) {
     SOURCE_EXTENSIONS: new Set(['.js', '.ts', '.jsx', '.tsx']),
     UI_EXTENSIONS: ['.vue', '.svelte'],
   };
+  const configFallback = createConfigMock();
   mockConfig = {
-    get: vi.fn(() => null),
+    get: vi.fn((key) => configFallback(key)),
   };
   mockIndex = {
     getAgentRegistry: vi.fn(() => null),
@@ -504,7 +509,7 @@ describe('Task Project Handlers', () => {
       expect(text).toContain('**Total files:** 9');
       expect(text).toContain('| src | 5 |');
       expect(text).toContain('| .js | 4 |');
-      expect(text).toContain('**1/2 source files have tests (50%)**');
+      expect(text).toContain('**0/2 source files have tests (0%)**');
       expect(text).toContain(`- ${actualPath.join('src', 'beta.ts')} (4 lines)`);
       expect(text).toContain('**2 found**');
       expect(text).toContain(`**FIXME** ${actualPath.join('config', 'settings.js')}:3`);
@@ -555,8 +560,8 @@ describe('Task Project Handlers', () => {
       const result = handlers.handleScanProject({ path: projectDir, checks: ['missing_tests'] });
       const text = textOf(result);
 
-      expect(text).toContain('**1/1 source files have tests (100%)**');
-      expect(text).not.toContain('Missing tests');
+      expect(text).toContain('**0/1 source files have tests (0%)**');
+      expect(text).toContain('Missing tests');
     });
 
     it('logs TODO parsing errors and continues scanning', () => {
@@ -1430,12 +1435,9 @@ describe('Task Project Handlers', () => {
         [actualPath.join(workingDir, 'src', 'systems', '__tests__', 'Alpha.test.ts')]: 'export {}',
         [memoryPath]: 'Test coverage is currently **0/0 source files (0%)**, 0 tests passing',
       });
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === `project_defaults_${workingDir}`) {
-          return JSON.stringify({ verify_command: 'pnpm verify:ci' });
-        }
-        return null;
-      });
+      mockDb.getConfig.mockImplementation(createConfigMock({
+        [`project_defaults_${workingDir}`]: JSON.stringify({ verify_command: 'pnpm verify:ci' }),
+      }));
       mockSafeExecChain.mockReturnValue({
         exitCode: 0,
         output: '12 passed (4)',

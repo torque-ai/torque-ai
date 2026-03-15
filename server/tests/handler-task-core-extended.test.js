@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { createConfigMock } = require('./test-helpers');
 
 const db = require('../database');
 const taskManager = require('../task-manager');
@@ -10,11 +11,10 @@ function getText(result) {
 }
 
 function mockSubmissionDefaults() {
-  vi.spyOn(db, 'getConfig').mockImplementation((key) => {
-    if (key === 'default_timeout') return '45';
-    if (key === 'budget_check_enabled') return '1';
-    return null;
-  });
+  vi.spyOn(db, 'getConfig').mockImplementation(createConfigMock({
+    default_timeout: '45',
+    budget_check_enabled: '1',
+  }));
   vi.spyOn(db, 'getDefaultProvider').mockReturnValue('codex');
   vi.spyOn(db, 'isCodexExhausted').mockReturnValue(false);
   vi.spyOn(db, 'hasHealthyOllamaHost').mockReturnValue(true);
@@ -71,18 +71,18 @@ describe('handler:task-core (extended)', () => {
   it('handleSubmitTask uses provider default timeout when no explicit timeout is set', () => {
     mockSubmissionDefaults();
     vi.spyOn(db, 'getDefaultProvider').mockReturnValue('ollama');
-    vi.spyOn(db, 'getConfig').mockImplementation((key) => {
-      if (key === 'default_timeout') return '90';
-      if (key === 'budget_check_enabled') return '0';
-      return null;
-    });
+    vi.spyOn(db, 'getConfig').mockImplementation(createConfigMock({
+      default_timeout: '90',
+      budget_check_enabled: '0',
+    }));
     const createSpy = vi.spyOn(db, 'createTask');
 
     handlers.handleSubmitTask({ task: 'Use provider timeout', auto_route: false });
 
     expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
       timeout_minutes: taskManager.PROVIDER_DEFAULT_TIMEOUTS.ollama,
-      provider: 'ollama',
+      provider: null,
+      model: null,
     }));
   });
 

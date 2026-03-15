@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 
 const evaluationStore = require('../policy-engine/evaluation-store');
 const profileStore = require('../policy-engine/profile-store');
@@ -13,7 +14,23 @@ const {
   teardownTestDb,
 } = require('./vitest-setup');
 
-const projectRoot = path.resolve(__dirname, '..', '..');
+function resolvePolicyFixtureRoot() {
+  const preferredRoot = path.resolve(__dirname, '..', '..');
+  const preferredPath = path.join(preferredRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json');
+  if (fs.existsSync(preferredPath)) {
+    return preferredRoot;
+  }
+
+  const fallbackRoot = path.resolve(__dirname, '..', '..', '..', 'Torque');
+  const fallbackPath = path.join(fallbackRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json');
+  if (fs.existsSync(fallbackPath)) {
+    return fallbackRoot;
+  }
+
+  return preferredRoot;
+}
+
+const projectRoot = resolvePolicyFixtureRoot();
 
 function mapRulesById(rules) {
   return new Map(rules.map((rule) => [rule.policy_id || rule.id, rule]));

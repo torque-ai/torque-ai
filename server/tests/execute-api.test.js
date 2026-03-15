@@ -715,7 +715,7 @@ describe('execute-api.js', () => {
       }
 
       expect(provider.submit).toHaveBeenCalledTimes(3);
-      expect(timeoutStub.delays).toEqual([75, 150]);
+      expect(timeoutStub.delays).toEqual([42000, 42000]);
       expect(sanitizeMock.redactSecrets).toHaveBeenCalledWith('API error (429): rate_limit retry_after_seconds=42');
       expect(tracker.recordRateLimit).toHaveBeenCalledWith('openrouter', 42);
       expect(tracker.recordUsage).not.toHaveBeenCalled();

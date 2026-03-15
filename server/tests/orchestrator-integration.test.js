@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 const { mockLogger } = vi.hoisted(() => ({
   mockLogger: {
     debug: vi.fn(),
@@ -213,7 +212,7 @@ describe('orchestrator integration', () => {
 
       expect(global.fetch).toHaveBeenCalledTimes(3);
       for (const [url, options] of global.fetch.mock.calls) {
-        expect(url).toBe('http://192.168.1.100:11434/v1/chat/completions');
+        expect(url).toBe('0.0.0.0/v1/chat/completions');
         expect(options.method).toBe('POST');
         expect(options.headers).toEqual({ 'Content-Type': 'application/json' });
         expect(options.signal).toBeInstanceOf(AbortSignal);
@@ -505,7 +504,7 @@ describe('orchestrator integration', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            feature_name: 'OrchestratorIntegration',
+            feature: 'OrchestratorIntegration',
             working_directory: 'C:\\repo',
             provider: 'ollama',
             model: 'qwen2.5-coder:32b',

@@ -261,7 +261,7 @@ describe('cross-workflow priority', () => {
 
       expect(schedulerSource).toContain('LEFT JOIN workflows w ON t.workflow_id = w.id');
       expect(schedulerSource).toContain('COALESCE(w.priority, 0) as workflow_priority');
-      expect(schedulerSource).toContain("WHERE t.status = 'queued' AND t.provider IS NULL ORDER BY COALESCE(w.priority, 0) DESC, t.priority DESC, t.created_at ASC LIMIT ?");
+      expect(schedulerSource).toContain("WHERE t.status = 'queued' ORDER BY COALESCE(w.priority, 0) DESC, t.priority DESC, t.created_at ASC LIMIT ?");
     });
   });
 });

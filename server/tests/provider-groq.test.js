@@ -17,7 +17,7 @@ const GroqProvider = require('../providers/groq.js');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
 
 function loadBuildErrorMessage() {
-  const filePath = path.resolve(process.cwd(), 'server/providers/groq.js');
+  const filePath = path.resolve(__dirname, '../providers/groq.js');
   const source = fs.readFileSync(filePath, 'utf8');
   class FakeBaseProvider {}
   const sandbox = {

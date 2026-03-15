@@ -736,6 +736,9 @@ describe('captured request handler dispatch', () => {
 
   describe('POST /api/tools/:tool_name (generic passthrough)', () => {
     it('calls handleToolCall for a valid tool name', async () => {
+      db.setConfig('api_key', 'secret-key-123');
+      db.setConfig('rest_api_tool_mode', 'extended');
+
       handleToolCallSpy.mockResolvedValue({
         content: [{ type: 'text', text: 'check_status result' }],
       });
@@ -743,7 +746,10 @@ describe('captured request handler dispatch', () => {
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
         url: '/api/tools/check_status',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-torque-key': 'secret-key-123',
+        },
         body: {},
       });
 
@@ -755,6 +761,8 @@ describe('captured request handler dispatch', () => {
     });
 
     it('passes request body as tool args', async () => {
+      db.setConfig('api_key', 'secret-key-123');
+
       handleToolCallSpy.mockResolvedValue({
         content: [{ type: 'text', text: 'result' }],
       });
@@ -762,7 +770,10 @@ describe('captured request handler dispatch', () => {
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
         url: '/api/tools/await_task',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-torque-key': 'secret-key-123',
+        },
         body: { task_id: 'abc-123', timeout_minutes: 5 },
       });
 
@@ -774,6 +785,9 @@ describe('captured request handler dispatch', () => {
     });
 
     it('returns 400 when tool handler returns isError', async () => {
+      db.setConfig('api_key', 'secret-key-123');
+      db.setConfig('rest_api_tool_mode', 'extended');
+
       handleToolCallSpy.mockResolvedValue({
         isError: true,
         content: [{ type: 'text', text: 'Task not found' }],
@@ -782,7 +796,10 @@ describe('captured request handler dispatch', () => {
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
         url: '/api/tools/get_result',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-torque-key': 'secret-key-123',
+        },
         body: { task_id: 'nonexistent' },
       });
 

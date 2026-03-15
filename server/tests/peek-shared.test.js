@@ -1,11 +1,13 @@
 'use strict';
 
 const fs = require('fs');
+const crypto = require('crypto');
 const os = require('os');
 const path = require('path');
 const http = require('http');
 const https = require('https');
 const { EventEmitter } = require('events');
+const { createConfigMock } = require('./test-helpers');
 
 const mockDb = {
   getTask: vi.fn(),
@@ -14,6 +16,7 @@ const mockDb = {
   getPeekHost: vi.fn(),
   listPeekHosts: vi.fn(),
   getDefaultPeekHost: vi.fn(),
+  getConfig: vi.fn().mockImplementation(createConfigMock()),
 };
 
 const mockHandlerShared = {
@@ -51,6 +54,7 @@ function resetMockDefaults() {
   mockDb.getPeekHost.mockReset().mockReturnValue(null);
   mockDb.listPeekHosts.mockReset().mockReturnValue([]);
   mockDb.getDefaultPeekHost.mockReset().mockReturnValue(null);
+  mockDb.getConfig.mockReset().mockImplementation(createConfigMock());
   mockHandlerShared.makeError.mockReset().mockImplementation((code, message) => ({ code, message }));
 }
 
@@ -196,7 +200,7 @@ describe('peek shared utilities', () => {
   it('builds persisted output directories using task scope and sanitized targets', () => {
     mockDb.getArtifactConfig.mockReturnValue({ storage_path: 'C:\\artifacts' });
     vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
-    vi.spyOn(Math, 'random').mockReturnValue(0.123456789);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('4fzzzx99');
     const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
 
     const outputDir = peekShared.buildPeekPersistOutputDir(
@@ -204,7 +208,7 @@ describe('peek shared utilities', () => {
       { title: 'Main Window' },
     );
 
-    const runId = `1700000000000-${(0.123456789).toString(36).slice(2, 8)}`;
+    const runId = `1700000000000-${'4fzzzx99'.slice(0, 8)}`;
     const expected = path.join('C:\\artifacts', 'task-9', 'peek-diagnose', runId, 'main-window');
 
     expect(outputDir).toBe(expected);

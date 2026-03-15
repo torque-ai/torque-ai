@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createConfigMock } = require('./test-helpers');
 
 const HANDLER_MODULE = '../handlers/task/core';
 const MODULE_PATHS = [
@@ -148,7 +149,7 @@ function installCjsModuleMock(modulePath, exportsValue) {
   };
 }
 
-function createConfigMock(dbRef) {
+function createDbConfigMock(dbRef) {
   return {
     init: vi.fn(),
     get: vi.fn((key, fallback) => {
@@ -191,7 +192,7 @@ function clearLoadedModules() {
 function loadHandlers() {
   clearLoadedModules();
   currentModules.database = mockDb;
-  currentModules.config = createConfigMock(mockDb);
+  currentModules.config = createDbConfigMock(mockDb);
   currentModules.taskManager = mockTaskManager;
   currentModules.routing = mockRouting;
   currentModules.shared = mockShared;
@@ -295,11 +296,7 @@ function resetMockDefaults() {
   mockLogger.child.mockImplementation(() => mockLogger);
 
   mockDb.getConfig.mockReset();
-  mockDb.getConfig.mockImplementation((key) => {
-    if (key === 'default_timeout') return '33';
-    if (key === 'budget_check_enabled') return '1';
-    return null;
-  });
+  mockDb.getConfig.mockImplementation(createConfigMock({ default_timeout: '33', budget_check_enabled: '1' }));
 
   mockDb.getDefaultProvider.mockReset();
   mockDb.getDefaultProvider.mockReturnValue('codex');
@@ -533,7 +530,7 @@ describe('task-core handlers', () => {
       expect(mockRouting.handleSmartSubmitTask).not.toHaveBeenCalled();
       expect(lastCreatedTask()).toMatchObject({
         task_description: 'Handle locally',
-        provider: 'codex',
+        provider: null,
       });
     });
 
@@ -546,7 +543,7 @@ describe('task-core handlers', () => {
       expect(mockRouting.handleSmartSubmitTask).not.toHaveBeenCalled();
       expect(lastCreatedTask()).toMatchObject({
         task_description: 'Use explicit provider',
-        provider: 'ollama',
+        provider: null,
       });
     });
 
@@ -591,19 +588,21 @@ describe('task-core handlers', () => {
         timeout_minutes: 90,
         auto_approve: true,
         priority: 7,
-        provider: 'ollama',
+        provider: null,
         model: 'qwen2.5-coder:32b',
       });
-      expect(JSON.parse(createdTask.metadata)).toEqual({ user_provider_override: true });
+      expect(JSON.parse(createdTask.metadata)).toEqual({
+        intended_provider: 'ollama',
+        user_provider_override: true,
+      });
     });
 
     it('stores tier-list metadata and leaves provider unassigned in slot-pull mode', () => {
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'default_timeout') return '33';
-        if (key === 'budget_check_enabled') return '1';
-        if (key === 'scheduling_mode') return 'slot-pull';
-        return null;
-      });
+      mockDb.getConfig.mockImplementation(createConfigMock({
+        default_timeout: '33',
+        budget_check_enabled: '1',
+        scheduling_mode: 'slot-pull',
+      }));
 
       handlers.handleSubmitTask({
         task: 'Create a new scheduler helper',
@@ -615,6 +614,7 @@ describe('task-core handlers', () => {
       });
       expect(lastCreatedTaskMetadata()).toEqual({
         eligible_providers: ['deepinfra', 'codex'],
+        intended_provider: 'deepinfra',
         capability_requirements: ['file_creation'],
         quality_tier: 'normal',
         user_provider_override: false,
@@ -632,12 +632,11 @@ describe('task-core handlers', () => {
     });
 
     it('locks explicit providers into singleton eligible lists in slot-pull mode', () => {
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'default_timeout') return '33';
-        if (key === 'budget_check_enabled') return '1';
-        if (key === 'scheduling_mode') return 'slot-pull';
-        return null;
-      });
+      mockDb.getConfig.mockImplementation(createConfigMock({
+        default_timeout: '33',
+        budget_check_enabled: '1',
+        scheduling_mode: 'slot-pull',
+      }));
       mockDb.analyzeTaskForRouting.mockReturnValue({
         provider: 'ollama',
         reason: 'explicit slot-pull tier list',
@@ -657,6 +656,7 @@ describe('task-core handlers', () => {
       });
       expect(lastCreatedTaskMetadata()).toEqual({
         eligible_providers: ['ollama'],
+        intended_provider: 'ollama',
         capability_requirements: ['reasoning'],
         quality_tier: 'normal',
         user_provider_override: true,
@@ -679,9 +679,9 @@ describe('task-core handlers', () => {
       expect(result.isError).toBeUndefined();
 
       const createdTask = lastCreatedTask();
-      expect(createdTask.provider).toBe('codex');
+      expect(createdTask.provider).toBe(null);
       expect(createdTask.timeout_minutes).toBe(45);
-      expect(JSON.parse(createdTask.metadata)).toEqual({});
+      expect(JSON.parse(createdTask.metadata)).toEqual({ intended_provider: 'codex' });
     });
 
     it('accepts a null timeout and falls back to the provider timeout default', () => {
@@ -692,7 +692,7 @@ describe('task-core handlers', () => {
       });
 
       expect(lastCreatedTask()).toMatchObject({
-        provider: 'ollama',
+        provider: null,
         timeout_minutes: 90,
       });
     });
@@ -712,7 +712,7 @@ describe('task-core handlers', () => {
 
       handlers.handleSubmitTask({ task: 'Use fallback timeout', auto_route: false });
 
-      expect(lastCreatedTask().provider).toBe('custom-provider');
+      expect(lastCreatedTask().provider).toBeNull();
       expect(lastCreatedTask().timeout_minutes).toBe(33);
     });
 
@@ -773,7 +773,7 @@ describe('task-core handlers', () => {
       expect(mockDb.estimateCost).toHaveBeenCalledWith('Default provider with explicit model', 'gpt-5.3-codex');
       expect(mockDb.checkBudgetBeforeSubmission).toHaveBeenCalledWith('codex', 0.25);
       expect(lastCreatedTask()).toMatchObject({
-        provider: 'codex',
+        provider: null,
         model: 'gpt-5.3-codex',
       });
     });
@@ -817,11 +817,7 @@ describe('task-core handlers', () => {
     });
 
     it('skips budget estimation when budget checks are disabled', () => {
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'default_timeout') return '33';
-        if (key === 'budget_check_enabled') return '0';
-        return null;
-      });
+      mockDb.getConfig.mockImplementation(createConfigMock({ default_timeout: '33', budget_check_enabled: '0' }));
 
       const result = handlers.handleSubmitTask({
         task: 'No budget gate',
@@ -867,7 +863,10 @@ describe('task-core handlers', () => {
         priority: 6,
         provider: 'ollama',
         model: 'qwen2.5-coder:32b',
-        metadata: { user_provider_override: true },
+        metadata: {
+          user_provider_override: true,
+          intended_provider: 'ollama',
+        },
       });
     });
 
@@ -880,7 +879,9 @@ describe('task-core handlers', () => {
       expect(mockPolicyEngine.evaluate).toHaveBeenCalledWith(expect.objectContaining({
         provider: 'codex',
         model: null,
-        metadata: {},
+        metadata: {
+          intended_provider: 'codex',
+        },
       }));
     });
 
@@ -1038,7 +1039,7 @@ describe('task-core handlers', () => {
       expect(createdTask).toMatchObject({
         id: '00000000-0000-0000-0000-000000000001',
         status: 'queued',
-        provider: 'ollama',
+        provider: null,
         timeout_minutes: 90,
         priority: 3,
       });
@@ -1051,7 +1052,10 @@ describe('task-core handlers', () => {
         provider: 'ollama',
       });
 
-      expect(lastCreatedTaskMetadata()).toEqual({ user_provider_override: true });
+      expect(lastCreatedTaskMetadata()).toEqual({
+        intended_provider: 'ollama',
+        user_provider_override: true,
+      });
     });
 
     it('stores empty metadata for queued tasks without an explicit provider', () => {
@@ -1059,7 +1063,7 @@ describe('task-core handlers', () => {
         task: 'Queue default metadata',
       });
 
-      expect(lastCreatedTaskMetadata()).toEqual({});
+      expect(lastCreatedTaskMetadata()).toEqual({ intended_provider: 'codex' });
     });
 
     it('accepts a null timeout and falls back to the provider timeout default when queueing', () => {
@@ -1070,7 +1074,7 @@ describe('task-core handlers', () => {
       });
 
       expect(lastCreatedTask()).toMatchObject({
-        provider: 'ollama',
+        provider: null,
         timeout_minutes: 90,
       });
     });
@@ -1081,7 +1085,7 @@ describe('task-core handlers', () => {
       handlers.handleQueueTask({ task: 'Queue fallback timeout' });
 
       expect(lastCreatedTask().timeout_minutes).toBe(33);
-      expect(lastCreatedTask().provider).toBe('custom-provider');
+      expect(lastCreatedTask().provider).toBeNull();
     });
 
     it('prefers an explicit timeout over provider defaults when queueing', () => {
@@ -1185,17 +1189,13 @@ describe('task-core handlers', () => {
       expect(mockDb.estimateCost).toHaveBeenCalledWith('Queue default provider with model', 'gpt-5.3-codex');
       expect(mockDb.checkBudgetBeforeSubmission).toHaveBeenCalledWith('codex', 0.25);
       expect(lastCreatedTask()).toMatchObject({
-        provider: 'codex',
+        provider: null,
         model: 'gpt-5.3-codex',
       });
     });
 
     it('skips queue budget estimation when budget checks are disabled', () => {
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'default_timeout') return '33';
-        if (key === 'budget_check_enabled') return '0';
-        return null;
-      });
+      mockDb.getConfig.mockImplementation(createConfigMock({ default_timeout: '33', budget_check_enabled: '0' }));
 
       const result = handlers.handleQueueTask({
         task: 'Queue without budget gate',
@@ -1224,7 +1224,10 @@ describe('task-core handlers', () => {
         priority: 4,
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
-        metadata: { user_provider_override: true },
+        metadata: {
+          user_provider_override: true,
+          intended_provider: 'ollama',
+        },
       });
     });
 
@@ -1236,7 +1239,9 @@ describe('task-core handlers', () => {
       expect(mockPolicyEngine.evaluate).toHaveBeenCalledWith(expect.objectContaining({
         provider: 'codex',
         model: null,
-        metadata: {},
+        metadata: {
+          intended_provider: 'codex',
+        },
       }));
     });
 

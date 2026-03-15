@@ -75,6 +75,10 @@ function createToolsSubject(options = {}) {
     injectedModules[request] = [];
   }
   for (const request of HANDLER_REQUESTS) {
+    if (request === './handlers/shared' && !(options.modules && Object.prototype.hasOwnProperty.call(options.modules, request))) {
+      injectedModules[request] = REQUIRE_FROM_TOOLS(request);
+      continue;
+    }
     injectedModules[request] = {};
   }
 

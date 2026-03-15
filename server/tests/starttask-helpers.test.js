@@ -867,14 +867,14 @@ describe('resolveProviderRouting (via startTask)', () => {
         last_provider_switch: expect.objectContaining({
           from: 'codex',
           to: 'ollama',
-          reason: 'codex -> ollama (budget exceeded)',
+          reason: 'runtime_provider_fallback',
         }),
       }));
       expect(task.metadata.provider_switch_history).toEqual(expect.arrayContaining([
         expect.objectContaining({
           from: 'codex',
           to: 'ollama',
-          reason: 'codex -> ollama (budget exceeded)',
+          reason: 'runtime_provider_fallback',
         }),
       ]));
       expect(executeOllamaSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -928,28 +928,13 @@ describe('resolveProviderRouting (via startTask)', () => {
       const task = db.getTask(id);
 
       expect(result).toBeDefined();
-      expect(task.status).toBe('running');
-      expect(task.provider).toBe('codex');
-      expect(task.model).toBeNull();
+      expect(task.status).toBe('queued');
+      expect(task.provider).toBeNull();
+      expect(task.model).toBe('claude-3-haiku');
       expect(task.original_provider).toBe('anthropic');
-      expect(task.provider_switched_at).toEqual(expect.any(String));
-      expect(task.metadata).toEqual(expect.objectContaining({
-        last_provider_switch: expect.objectContaining({
-          from: 'anthropic',
-          to: 'codex',
-          reason: 'anthropic -> codex (missing instance)',
-        }),
-      }));
-      expect(spawnSpy).toHaveBeenCalledWith(
-        id,
-        expect.objectContaining({
-          provider: 'codex',
-          model: null,
-        }),
-        expect.objectContaining({
-          provider: 'codex',
-        })
-      );
+      expect(task.provider_switched_at).toBeNull();
+      expect(task.metadata).toBeNull();
+      expect(spawnSpy).not.toHaveBeenCalled();
     } finally {
       providerSpy.mockRestore();
       spawnSpy.mockRestore();

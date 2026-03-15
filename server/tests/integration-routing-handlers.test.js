@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const { createConfigMock } = require('./test-helpers');
 
 const HANDLER_MODULE = '../handlers/integration/routing';
 const MODULE_PATHS = [
@@ -127,7 +128,7 @@ function installCjsModuleMock(modulePath, exportsValue) {
   };
 }
 
-function createConfigMock() {
+function createConfigModuleMock() {
   return {
     init: vi.fn(),
     get: vi.fn((key, fallback) => {
@@ -160,6 +161,14 @@ function createConfigMock() {
   };
 }
 
+function setMockDbConfig(overrides = {}) {
+  if (Object.keys(overrides).length > 0) {
+    configValues = { ...configValues, ...overrides };
+  }
+
+  mockDb.getConfig.mockImplementation(createConfigMock(configValues));
+}
+
 function clearLoadedModules() {
   for (const modulePath of MODULE_PATHS) {
     try {
@@ -180,7 +189,7 @@ function loadHandler() {
   installCjsModuleMock('../utils/context-stuffing', mockContextStuffing);
   installCjsModuleMock('../utils/smart-scan', mockSmartScan);
   installCjsModuleMock('../logger', mockLogger);
-  installCjsModuleMock('../config', createConfigMock());
+  installCjsModuleMock('../config', createConfigModuleMock());
   installCjsModuleMock('uuid', mockUuid);
   return require(HANDLER_MODULE);
 }
@@ -295,9 +304,7 @@ function resetMockState() {
   mockDb.analyzeTaskForRouting.mockReturnValue(baseRoutingResult());
 
   mockDb.getConfig.mockReset();
-  mockDb.getConfig.mockImplementation((key) => (
-    Object.prototype.hasOwnProperty.call(configValues, key) ? configValues[key] : null
-  ));
+  setMockDbConfig();
 
   mockDb.getProvider.mockReset();
   mockDb.getProvider.mockImplementation((name) => providerConfigs[name] || null);
@@ -671,7 +678,7 @@ describe('integration routing handlers', () => {
 
       const task = taskFromResult(result);
       expect(task).toBeTruthy();
-      expect(task.provider).toBe('claude-cli');
+      expect(task.provider).toBeNull();
       expect(task.metadata.user_provider_override).toBe(true);
       expect(task.metadata.requested_provider).toBe('claude-cli');
       expect(mockDb.analyzeTaskForRouting).not.toHaveBeenCalled();
@@ -684,7 +691,7 @@ describe('integration routing handlers', () => {
     });
 
     it('stores tier-list metadata and leaves provider unassigned in slot-pull mode', async () => {
-      configValues.scheduling_mode = 'slot-pull';
+      setMockDbConfig({ scheduling_mode: 'slot-pull' });
       mockDb.analyzeTaskForRouting
         .mockReturnValueOnce(baseRoutingResult({
           provider: 'ollama',
@@ -727,7 +734,7 @@ describe('integration routing handlers', () => {
     });
 
     it('locks explicit providers into singleton tier lists in slot-pull mode', async () => {
-      configValues.scheduling_mode = 'slot-pull';
+      setMockDbConfig({ scheduling_mode: 'slot-pull' });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'claude-cli',
         complexity: 'normal',
@@ -799,7 +806,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('codex');
+      expect(task.provider).toBeNull();
       expect(task.model).toBe('gpt-5.3-codex-spark');
       expect(task.timeout_minutes).toBe(25);
     });
@@ -815,7 +822,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('codex');
+      expect(task.provider).toBeNull();
       expect(task.model).toBe('gpt-5.3-codex-spark');
     });
   });
@@ -835,7 +842,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('ollama');
+      expect(task.provider).toBeNull();
       expect(task.model).toBe('qwen2.5-coder:32b');
       expect(textOf(result)).toContain('local model (safe)');
     });
@@ -854,13 +861,13 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('codex');
+      expect(task.provider).toBeNull();
       expect(task.model).toBe('gpt-5.3-codex-spark');
       expect(textOf(result)).toContain('Codex Spark');
     });
 
     it('routes modifications to claude-cli when Codex is disabled', async () => {
-      configValues.codex_enabled = '0';
+      setMockDbConfig({ codex_enabled: '0' });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'ollama',
         complexity: 'normal',
@@ -874,13 +881,12 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('claude-cli');
+      expect(task.provider).toBeNull();
       expect(task.model).toBeNull();
     });
 
     it('falls back to codestral when Codex and claude-cli are unavailable', async () => {
-      configValues.codex_enabled = '0';
-      configValues.claude_cli_enabled = '0';
+      setMockDbConfig({ codex_enabled: '0', claude_cli_enabled: '0' });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'ollama',
         complexity: 'normal',
@@ -894,12 +900,12 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('ollama');
+      expect(task.provider).toBeNull();
       expect(task.model).toBe('codestral:22b');
     });
 
     it('uses smart model fallback when the primary host is busy', async () => {
-      configValues.codex_enabled = '0';
+      setMockDbConfig({ codex_enabled: '0' });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'ollama',
         complexity: 'normal',
@@ -926,12 +932,12 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('ollama');
+      expect(task.provider).toBeNull();
       expect(task.model).toBe('smart-secondary');
     });
 
     it('keeps the primary model when async-heavy tasks skip host fallback', async () => {
-      configValues.codex_enabled = '0';
+      setMockDbConfig({ codex_enabled: '0' });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'ollama',
         complexity: 'normal',
@@ -969,7 +975,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('codex');
+      expect(task.provider).toBeNull();
       expect(task.metadata.routing_reason).toContain('original provider disabled');
     });
 
@@ -992,7 +998,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBe('claude-cli');
+      expect(task.provider).toBeNull();
       expect(textOf(result)).toContain('openrouter unhealthy');
     });
 
@@ -1145,7 +1151,7 @@ describe('integration routing handlers', () => {
     });
 
     it('auto-approves simple tasks when auto_approve_simple is enabled', async () => {
-      configValues.auto_approve_simple = '1';
+      setMockDbConfig({ auto_approve_simple: '1' });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'codex',
         complexity: 'simple',

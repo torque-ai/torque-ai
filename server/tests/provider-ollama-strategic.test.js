@@ -73,8 +73,8 @@ describe('OllamaStrategicProvider', () => {
       expect(provider.enabled).toBe(true);
       expect(provider.maxConcurrent).toBe(3);
       expect(provider.activeTasks).toBe(0);
-      expect(provider.host).toBe('http://192.168.1.100:11434');
-      expect(provider.baseUrl).toBe('http://192.168.1.100:11434/v1');
+      expect(provider.host).toBe('0.0.0.0');
+      expect(provider.baseUrl).toBe('0.0.0.0/v1');
       expect(provider.defaultModel).toBe('qwen2.5-coder:32b');
       expect(provider.defaultTemperature).toBe(0.3);
       expect(provider.hasCapacity()).toBe(true);
@@ -190,7 +190,7 @@ describe('OllamaStrategicProvider', () => {
         models: ['qwen2.5-coder:32b', 'deepseek-r1:32b'],
       });
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://192.168.1.100:11434/api/tags',
+        '0.0.0.0/api/tags',
         expect.objectContaining({
           method: 'GET',
           signal: expect.any(AbortSignal),
@@ -281,7 +281,7 @@ describe('OllamaStrategicProvider', () => {
       const result = await provider.submit('Diagnose the task');
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://192.168.1.100:11434/v1/chat/completions',
+        '0.0.0.0/v1/chat/completions',
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

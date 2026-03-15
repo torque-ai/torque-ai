@@ -17,6 +17,7 @@
 
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { createConfigMock } = require('./test-helpers');
 
 let db;
 
@@ -335,7 +336,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
       prepare: vi.fn(),
       listTasks: vi.fn().mockReturnValue([]),
       listOllamaHosts: vi.fn().mockReturnValue([]),
-      getConfig: vi.fn().mockReturnValue(null),
+      getConfig: vi.fn(createConfigMock()),
       selectOllamaHostForModel: vi.fn().mockReturnValue({ host: null, reason: 'no host' }),
       updateTaskStatus: vi.fn(),
       getNextQueuedTask: vi.fn().mockReturnValue(null),
@@ -398,13 +399,12 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
       },
     ]);
 
-    mockDb.getConfig.mockImplementation((key) => {
-      if (configOverrides && key in configOverrides) return configOverrides[key];
-      if (key === 'codex_enabled') return '1';
-      if (key === 'ollama_balanced_model') return 'qwen2.5-coder:32b';
-      if (key === 'ollama_fast_model') return 'qwen2.5-coder:7b';
-      return null;
-    });
+    mockDb.getConfig.mockImplementation(createConfigMock({
+      codex_enabled: '1',
+      ollama_balanced_model: 'qwen2.5-coder:32b',
+      ollama_fast_model: 'qwen2.5-coder:7b',
+      ...(configOverrides || {}),
+    }));
 
     // Inject free-tier quota tracker if provided
     if (freeQuotaTracker) {
@@ -593,11 +593,10 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
       { id: 'h1', name: 'local', status: 'healthy', running_tasks: 0, max_concurrent: 4 },
     ]);
 
-    mockDb.getConfig.mockImplementation((key) => {
-      if (key === 'codex_enabled') return '1';
-      if (key === 'ollama_balanced_model') return 'qwen2.5-coder:32b';
-      return null;
-    });
+    mockDb.getConfig.mockImplementation(createConfigMock({
+      codex_enabled: '1',
+      ollama_balanced_model: 'qwen2.5-coder:32b',
+    }));
 
     scheduler.processQueueInternal();
 

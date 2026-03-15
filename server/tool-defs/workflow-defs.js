@@ -268,6 +268,34 @@ const tools = [
     }
   },
   {
+    name: 'export_workflow',
+    description: 'Export a workflow as a portable JSON structure.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow_id: {
+          type: 'string',
+          description: 'Workflow ID to export'
+        }
+      },
+      required: ['workflow_id']
+    }
+  },
+  {
+    name: 'import_workflow',
+    description: 'Import a workflow from a portable JSON structure.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'string',
+          description: 'Portable workflow JSON payload'
+        }
+      },
+      required: ['data']
+    }
+  },
+  {
     name: 'workflow_status',
     description: 'Get detailed workflow progress and task states',
     inputSchema: {

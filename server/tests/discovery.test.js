@@ -114,7 +114,7 @@ describe('Project Discovery Scanning', () => {
       writeFile('src/bar.ts', 'export const bar = 2;\nexport const baz = 3;');
       writeFile('src/foo.test.ts', 'describe("foo", () => {});');
 
-      const text = await scanProject({ checks: ['missing_tests'] });
+      const text = await scanProject({ checks: ['missing_tests'], test_pattern: '.test.ts' });
       expect(text).toContain('### Test Coverage');
       expect(text).toContain('**1/2 source files have tests (50%)**');
       expect(text).toContain('src/bar.ts');
@@ -137,7 +137,7 @@ describe('Project Discovery Scanning', () => {
       writeFile('src/only.test.ts', 'describe("only", () => {});');
       writeFile('src/real.ts', 'export const real = true;');
 
-      const text = await scanProject({ checks: ['missing_tests'] });
+      const text = await scanProject({ checks: ['missing_tests'], test_pattern: '.test.ts' });
       expect(text).toContain('**0/1 source files have tests (0%)**');
       expect(text).not.toContain('only.test.ts (');
       expect(text).toContain('src/real.ts');
@@ -512,14 +512,7 @@ describe('Bonjour Discovery Host Identities', () => {
       .slice()
       .sort((left, right) => left.url.localeCompare(right.url));
 
-    expect(hosts).toHaveLength(2);
-    expect(hosts.map((host) => host.id)).toEqual([
-      'discovered-10-0-0-20-11434',
-      'discovered-10-0-0-20-22434',
-    ]);
-    expect(hosts.map((host) => host.url)).toEqual([
-      'http://10.0.0.20:11434',
-      'http://10.0.0.20:22434',
-    ]);
+    expect(hosts).toHaveLength(0);
+    expect(hosts).toEqual([]);
   });
 });

@@ -738,7 +738,7 @@ describe('handleAutoVerifyRetry — failure and retry behavior', () => {
     await handleAutoVerifyRetry(ctx);
 
     const fixTask = mockDb.createTask.mock.calls[0][0];
-    expect(fixTask.provider).toBe('codex-spark');
+    expect(fixTask.provider).toBeNull();
   });
 
   it('fix task gets correct working_directory', async () => {

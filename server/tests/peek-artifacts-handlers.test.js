@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const crypto = require('crypto');
 const path = require('path');
+const { createConfigMock } = require('./test-helpers');
 
 const MODULE_PATH = require.resolve('../handlers/peek/artifacts');
 
@@ -214,6 +215,7 @@ function createDatabaseMock(overrides = {}) {
       created_at: '2026-03-12T18:30:00.000Z',
       expires_at: '2026-04-11T18:30:00.000Z',
     })),
+    getConfig: vi.fn().mockImplementation(createConfigMock()),
     getWorkflow: vi.fn(() => ({ context: { keep: true } })),
     updateTask: vi.fn(),
     updateWorkflow: vi.fn(),
@@ -669,6 +671,7 @@ describe('peek/artifacts exported handlers', () => {
 
   describe('buildPeekFallbackPersistOutputDir', () => {
     it('builds a process-scoped adhoc output path under the artifact root', () => {
+      vi.spyOn(crypto, 'randomUUID').mockReturnValue('9876abcd');
       const outputDir = artifacts.buildPeekFallbackPersistOutputDir({
         process: 'My App.exe',
       });
@@ -678,7 +681,7 @@ describe('peek/artifacts exported handlers', () => {
         'artifacts-root',
         '_adhoc',
         'peek-diagnose',
-        `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
         'my-app-exe',
       ));
       expect(harness.fsModule.mkdirSync).toHaveBeenCalledWith(outputDir, {

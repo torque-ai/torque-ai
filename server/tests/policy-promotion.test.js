@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 
 const evaluationStore = require('../policy-engine/evaluation-store');
 const profileLoader = require('../policy-engine/profile-loader');
@@ -9,9 +10,26 @@ const {
   teardownTestDb,
 } = require('./vitest-setup');
 
-const seedFixture = require('../../artifacts/policy/config/torque-dev-policy.seed.json');
+function resolvePolicyFixtureRoot() {
+  const preferredRoot = path.resolve(__dirname, '..', '..');
+  const preferredPath = path.join(preferredRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json');
+  if (fs.existsSync(preferredPath)) {
+    return preferredRoot;
+  }
 
-const projectRoot = path.resolve(__dirname, '..', '..');
+  const fallbackRoot = path.resolve(__dirname, '..', '..', '..', 'Torque');
+  const fallbackPath = path.join(fallbackRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json');
+  if (fs.existsSync(fallbackPath)) {
+    return fallbackRoot;
+  }
+
+  return preferredRoot;
+}
+
+const policyFixtureRoot = resolvePolicyFixtureRoot();
+const seedFixture = require(path.join(policyFixtureRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json'));
+
+const projectRoot = policyFixtureRoot;
 
 describe('policy promotion', () => {
   function createEvaluation(policyId, taskId, overrides = {}) {

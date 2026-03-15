@@ -477,6 +477,7 @@ describe('providers/execution.js', () => {
       db: deps.db,
       dashboard: deps.dashboard,
       apiAbortControllers: deps.apiAbortControllers,
+      handleWorkflowTermination: deps.handleWorkflowTermination,
       processQueue: deps.processQueue,
       recordTaskStartedAuditEvent: deps.recordTaskStartedAuditEvent,
     });

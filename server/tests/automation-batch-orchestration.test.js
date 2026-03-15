@@ -10,9 +10,10 @@ const automationHandlers = require('../handlers/automation-handlers');
 const mockDb = require('../database');
 const mockTaskManager = require('../task-manager');
 const { ErrorCodes } = require('../handlers/shared');
+const { createConfigMock } = require('./test-helpers');
 
 function setDbDefaults() {
-  vi.spyOn(mockDb, 'getConfig').mockReturnValue(null);
+  vi.spyOn(mockDb, 'getConfig').mockImplementation(createConfigMock());
   vi.spyOn(mockDb, 'setConfig').mockImplementation(() => undefined);
   vi.spyOn(mockDb, 'listScheduledTasks').mockReturnValue([]);
   vi.spyOn(mockDb, 'createCronScheduledTask').mockImplementation((name) => ({ id: 'sched-1', name }));
@@ -889,7 +890,9 @@ Add runtime behavior.
         { working_directory: '/repo' },
         {
           db: {
-            getConfig: vi.fn((key) => (key === 'continuous_batch_enabled' ? '0' : null)),
+            getConfig: vi.fn().mockImplementation(createConfigMock({
+              continuous_batch_enabled: '0',
+            })),
             recordEvent: vi.fn(),
           },
           logger: { info: vi.fn(), warn: vi.fn() },
@@ -911,11 +914,10 @@ Add runtime behavior.
         { working_directory: '/repo' },
         {
           db: {
-            getConfig: vi.fn((key) => {
-              if (key === 'continuous_batch_enabled') return '1';
-              if (key === 'continuous_batch_deluge_path') return '/deluge';
-              return null;
-            }),
+            getConfig: vi.fn().mockImplementation(createConfigMock({
+              continuous_batch_enabled: '1',
+              continuous_batch_deluge_path: '/deluge',
+            })),
             recordEvent: vi.fn(),
           },
           logger: { info, warn: vi.fn() },
@@ -931,13 +933,12 @@ Add runtime behavior.
 
     it('plans and submits the next workflow using configured defaults', async () => {
       const recordEvent = vi.fn();
-      const getConfig = vi.fn((key) => {
-        if (key === 'continuous_batch_enabled') return '1';
-        if (key === 'continuous_batch_working_directory') return '/configured-repo';
-        if (key === 'continuous_batch_deluge_path') return '/deluge';
-        if (key === 'continuous_batch_step_providers') return '{"wire":"ollama","tests":"codex"}';
-        return null;
-      });
+      const getConfig = vi.fn().mockImplementation(createConfigMock({
+        continuous_batch_enabled: '1',
+        continuous_batch_working_directory: '/configured-repo',
+        continuous_batch_deluge_path: '/deluge',
+        continuous_batch_step_providers: '{"wire":"ollama","tests":"codex"}',
+      }));
       const info = vi.fn();
       const warn = vi.fn();
       const handlePlanNextBatch = vi.fn().mockResolvedValue({
@@ -991,11 +992,10 @@ Add runtime behavior.
         { working_directory: '/repo' },
         {
           db: {
-            getConfig: vi.fn((key) => {
-              if (key === 'continuous_batch_enabled') return '1';
-              if (key === 'continuous_batch_deluge_path') return '/deluge';
-              return null;
-            }),
+            getConfig: vi.fn().mockImplementation(createConfigMock({
+              continuous_batch_enabled: '1',
+              continuous_batch_deluge_path: '/deluge',
+            })),
             recordEvent: vi.fn(),
           },
           logger: { info: vi.fn(), warn },

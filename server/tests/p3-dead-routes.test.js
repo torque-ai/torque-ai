@@ -3,7 +3,7 @@ const path = require('path');
 
 const { routeMap } = require('../tools');
 
-const INTERNAL_ONLY_ROUTES = new Set(['ping', 'restart_server', 'unlock_all_tools']);
+const INTERNAL_ONLY_ROUTES = new Set(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier']);
 
 function loadToolDefinitionNames() {
   const toolDefDir = path.join(__dirname, '../tool-defs');

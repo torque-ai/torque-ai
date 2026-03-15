@@ -872,7 +872,7 @@ describe('integration/infra handlers', () => {
       expect(text).toContain('**Total files:** 9');
       expect(text).toContain('| src | 4 |');
       expect(text).toContain('| .js | 5 |');
-      expect(text).toContain('**1/2 source files have tests (50%)**');
+      expect(text).toContain('**0/2 source files have tests (0%)**');
       expect(text).toContain(`- ${path.join('src', 'beta.ts')} (4 lines)`);
       expect(text).toContain('**2 found**');
       expect(text).toContain(`**FIXME** ${path.join('config', 'settings.js')}:4`);

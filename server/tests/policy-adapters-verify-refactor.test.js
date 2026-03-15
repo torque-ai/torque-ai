@@ -1,6 +1,8 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
+const { createConfigMock } = require('./test-helpers');
 
 const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
 
@@ -15,7 +17,23 @@ const ENGINE_MODULE = '../policy-engine/engine';
 
 const VERIFICATION_POLICY_ID = 'verification_required_for_code_changes';
 const REFACTOR_POLICY_ID = 'refactor_backlog_required_for_hotspot_worsening';
-const projectRoot = path.resolve(__dirname, '..', '..');
+function resolvePolicyFixtureRoot() {
+  const preferredRoot = path.resolve(__dirname, '..', '..');
+  const preferredPath = path.join(preferredRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json');
+  if (fs.existsSync(preferredPath)) {
+    return preferredRoot;
+  }
+
+  const fallbackRoot = path.resolve(__dirname, '..', '..', '..', 'Torque');
+  const fallbackPath = path.join(fallbackRoot, 'artifacts', 'policy', 'config', 'torque-dev-policy.seed.json');
+  if (fs.existsSync(fallbackPath)) {
+    return fallbackRoot;
+  }
+
+  return preferredRoot;
+}
+
+const projectRoot = resolvePolicyFixtureRoot();
 const realMatchers = require(MATCHERS_MODULE);
 
 const UNIT_MODULES = [
@@ -255,6 +273,7 @@ function loadRefactorDebtSubject(options = {}) {
       options.omitGetDbInstance
         ? {}
         : {
+            getConfig: vi.fn().mockImplementation(createConfigMock()),
             getDbInstance: vi.fn(() => (
               Object.prototype.hasOwnProperty.call(options, 'dbInstance') ? options.dbInstance : null
             )),

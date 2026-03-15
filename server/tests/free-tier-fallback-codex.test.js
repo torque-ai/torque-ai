@@ -281,7 +281,7 @@ describe('free-tier Codex fallback', () => {
     }
 
     expect(provider.submit).toHaveBeenCalledTimes(3);
-    expect(timeoutStub.delays).toEqual([75, 150]);
+    expect(timeoutStub.delays).toEqual([42000, 42000]);
     // requeueTaskAfterAttemptedStart calls updateTaskStatus(id, 'queued', patch)
     expect(deps.db.updateTaskStatus).toHaveBeenLastCalledWith(task.id, 'queued', expect.objectContaining({
       provider: 'codex',
@@ -432,12 +432,13 @@ describe('free-tier Codex fallback', () => {
       provider: 'codex',
       metadata: expect.objectContaining({
         retry_of: 'failed-task',
+        intended_provider: 'codex',
       }),
     }));
     expect(mockDb.createTask).toHaveBeenCalledWith(expect.objectContaining({
       id: 'retry-clone-1',
-      provider: 'codex',
-      metadata: expect.stringContaining('"retry_of":"failed-task"'),
+      provider: null,
+      metadata: expect.stringContaining('"intended_provider":"codex"'),
     }));
     expect(mockControlPlane.sendSuccess).toHaveBeenCalledWith(
       expect.any(Object),

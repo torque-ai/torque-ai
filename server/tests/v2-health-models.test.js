@@ -1,6 +1,7 @@
 const { EventEmitter } = require('events');
 const http = require('http');
 const db = require('../database');
+const { createConfigMock } = require('./test-helpers');
 
 function createMockResponse() {
   let resolve;
@@ -148,7 +149,7 @@ describe('v2 provider health and model inventory endpoints', () => {
       close: vi.fn(),
     };
 
-    getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation((key) => configValues[key] ?? null);
+    getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation(createConfigMock(configValues));
     getProviderSpy = vi.spyOn(db, 'getProvider').mockImplementation((providerId) => providerRows.get(providerId) || null);
     getProviderHealthSpy = vi.spyOn(db, 'getProviderHealth').mockReturnValue({
       successes: 0,
@@ -186,7 +187,7 @@ describe('v2 provider health and model inventory endpoints', () => {
   beforeEach(() => {
     providerRows.clear();
     configValues = {};
-    getConfigSpy.mockImplementation((key) => configValues[key] ?? null);
+    getConfigSpy.mockImplementation(createConfigMock(configValues));
     getProviderHealthSpy.mockReturnValue({
       successes: 0,
       failures: 0,
@@ -377,10 +378,10 @@ describe('v2 provider health and model inventory endpoints', () => {
     expect(payload.meta.request_id).toEqual(expect.any(String));
     expect(payload.data).toEqual(expect.objectContaining({
       provider_id: 'groq',
-      status: 'degraded',
+      status: 'unavailable',
       latency_ms: 1800,
       success_ratio: 0.9,
-      last_error: 'provider has recent failures',
+      last_error: 'No API key configured',
       checked_at: expect.any(String),
     }));
 

@@ -11,6 +11,7 @@ function createMockStream() {
       mockChunkBuffer.push(chunkValue);
     }),
     end: vi.fn(),
+    destroy: vi.fn(),
   };
 }
 
@@ -59,7 +60,7 @@ describe('Logger with mocked fs streams', () => {
   let logger;
   let mockStream;
   let createWriteStreamSpy;
-  let statSyncSpy;
+  let lstatSyncSpy;
   let renameSyncSpy;
 
   beforeEach(() => {
@@ -68,7 +69,10 @@ describe('Logger with mocked fs streams', () => {
     createWriteStreamSpy = vi
       .spyOn(fs, 'createWriteStream')
       .mockReturnValue(mockStream);
-    statSyncSpy = vi.spyOn(fs, 'statSync').mockReturnValue({ size: 0 });
+    lstatSyncSpy = vi.spyOn(fs, 'lstatSync').mockReturnValue({
+      size: 0,
+      isSymbolicLink: () => false,
+    });
     renameSyncSpy = vi.spyOn(fs, 'renameSync').mockReturnValue(undefined);
 
     logger = new Logger({
@@ -92,7 +96,7 @@ describe('Logger with mocked fs streams', () => {
     const stream = logger._getStream();
 
     expect(stream).toBe(mockStream);
-    expect(statSyncSpy).toHaveBeenCalledWith(path.join('/tmp/logger-tests', 'torque.log'));
+    expect(lstatSyncSpy).toHaveBeenCalledWith(path.join('/tmp/logger-tests', 'torque.log'));
     expect(createWriteStreamSpy).toHaveBeenCalledWith(
       path.join('/tmp/logger-tests', 'torque.log'),
       { flags: 'a' },
@@ -108,13 +112,16 @@ describe('Logger with mocked fs streams', () => {
   });
 
   it('loads current size from fs.statSync', () => {
-    statSyncSpy.mockReturnValue({ size: 77 });
+    lstatSyncSpy.mockReturnValue({
+      size: 77,
+      isSymbolicLink: () => false,
+    });
     logger._getStream();
     expect(logger._currentSize).toBe(77);
   });
 
   it('defaults current size to zero when statSync throws', () => {
-    statSyncSpy.mockImplementation(() => {
+    lstatSyncSpy.mockImplementation(() => {
       throw new Error('missing');
     });
     logger._getStream();
@@ -301,7 +308,7 @@ describe('Logger with mocked fs streams', () => {
     logger._currentSize = 50;
     logger._rotate();
 
-    expect(mockStream.end).toHaveBeenCalledTimes(1);
+    expect(mockStream.destroy).toHaveBeenCalledTimes(1);
     expect(renameSyncSpy).toHaveBeenCalledTimes(4);
 
     const base = path.join('/tmp/logger-tests', 'torque.log');

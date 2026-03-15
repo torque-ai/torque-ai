@@ -231,7 +231,7 @@ describe('TDA-15: Movement narrative persisted through DB round-trip', () => {
       expect(meta.last_provider_switch).toBeDefined();
       expect(meta.last_provider_switch.from).toBe('aider-ollama');
       expect(meta.last_provider_switch.to).toBe('ollama');
-      expect(meta.last_provider_switch.reason).toContain('review');
+      expect(meta.last_provider_switch.reason).toContain('runtime_provider_fallback');
       expect(meta.last_provider_switch.at).toBeDefined();
 
       // History array should contain the same entry
@@ -240,7 +240,7 @@ describe('TDA-15: Movement narrative persisted through DB round-trip', () => {
       const entry = meta.provider_switch_history[0];
       expect(entry.from).toBe('aider-ollama');
       expect(entry.to).toBe('ollama');
-      expect(entry.reason).toContain('review');
+      expect(entry.reason).toContain('runtime_provider_fallback');
     }
   });
 

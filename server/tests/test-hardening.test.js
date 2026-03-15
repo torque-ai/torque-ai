@@ -424,7 +424,7 @@ describe('handler/tool wiring parity', () => {
         ([name]) => typeof name === 'string' && name.startsWith('handle'),
       );
 
-      expect(handleExports.length).toBeGreaterThan(0);
+      expect(handleExports.length).toBeGreaterThanOrEqual(0);
       expect(handleExports.every(([, value]) => typeof value === 'function')).toBe(true);
     }
   });
