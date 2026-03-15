@@ -25,6 +25,7 @@ function determineTaskComplexity(taskDescription, files = []) {
 
   // F7: Non-English descriptions — keyword patterns won't match, use structural analysis
   if (desc.length > 0) {
+    // eslint-disable-next-line no-control-regex
     const nonAsciiRatio = (desc.replace(/[\x00-\x7F]/g, '').length) / desc.length;
     if (nonAsciiRatio > 0.3) {
       // Non-English description — classify by structural signals instead of keywords
