@@ -1,0 +1,865 @@
+'use strict';
+
+/**
+ * V2 Control-Plane Task Handlers
+ *
+ * Structured JSON REST handlers for the task lifecycle.
+ * These return { data, meta } envelopes — not MCP text blobs.
+ */
+
+const { v4: uuidv4 } = require('uuid');
+const db = require('../database');
+const serverConfig = require('../config');
+const logger = require('../logger').child({ component: 'v2-task-handlers' });
+const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
+const { CONTEXT_STUFFING_PROVIDERS } = require('../utils/context-stuffing');
+const { resolveContextFiles } = require('../utils/smart-scan');
+const {
+  sendSuccess,
+  sendError,
+  sendList,
+  resolveRequestId,
+  buildTaskResponse,
+  buildTaskDetailResponse,
+} = require('./v2-control-plane');
+const { parseBody } = require('./middleware');
+
+let _taskManager = null;
+
+function init(taskManager) {
+  _taskManager = taskManager;
+}
+
+function getBlockedPolicyMessage(policyResult) {
+  return policyResult?.reason || policyResult?.error || 'Task blocked by policy';
+}
+
+function parseTaskMetadata(task) {
+  if (!task || task.metadata == null) return {};
+  if (typeof task.metadata === 'object' && !Array.isArray(task.metadata)) {
+    return { ...task.metadata };
+  }
+  if (typeof task.metadata !== 'string') return {};
+
+  try {
+    const parsed = JSON.parse(task.metadata);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+function getPendingSwitchTargetProvider(task) {
+  const metadata = parseTaskMetadata(task);
+  return firstNonEmptyString(
+    metadata.provider_switch_target,
+    metadata.target_provider,
+    metadata.fallback_provider,
+    metadata.next_provider,
+    metadata.last_provider_switch?.to,
+  );
+}
+
+function getPendingSwitchOriginalProvider(task) {
+  const metadata = parseTaskMetadata(task);
+  return firstNonEmptyString(
+    metadata.original_provider,
+    metadata.requested_provider,
+    metadata.last_provider_switch?.from,
+    task?.original_provider,
+    task?.provider,
+  );
+}
+
+function buildRetryMetadata(task, retryOfTaskId) {
+  const taskMetadata = parseTaskMetadata(task);
+  const retryMetadata = { retry_of: retryOfTaskId };
+  // Preserve user_provider_override only when the original task was explicitly
+  // user-routed. Smart-routed tasks that ended up on a non-default provider
+  // should NOT lock to that provider on retry.
+  if (taskMetadata.user_provider_override === true ||
+      (typeof taskMetadata.original_provider === 'string' && taskMetadata.original_provider.trim())) {
+    retryMetadata.user_provider_override = true;
+  }
+  return retryMetadata;
+}
+
+function emitTaskUpdated(taskId, status) {
+  if (!taskId) return;
+  process.emit('torque:task-updated', { taskId, status });
+}
+
+function getProviderValidation(provider) {
+  if (typeof provider !== 'string' || !provider.trim()) {
+    return { valid: false, code: 'validation_error', message: 'provider is required', status: 400 };
+  }
+
+  const providerId = provider.trim();
+  const providerConfig = db.getProvider(providerId);
+  if (!providerConfig) {
+    return { valid: false, code: 'provider_not_found', message: `Unknown provider: ${providerId}`, status: 400 };
+  }
+  if (!providerConfig.enabled) {
+    return { valid: false, code: 'provider_unavailable', message: `Provider is currently disabled: ${providerId}`, status: 400 };
+  }
+
+  return { valid: true, provider: providerId, config: providerConfig };
+}
+
+// ─── POST /api/v2/tasks — Submit a task ───────────────────────────────────
+
+async function handleSubmitTask(req, res) {
+  const requestId = resolveRequestId(req);
+  const body = req.body || await parseBody(req);
+
+  const description = (body.task || body.description || '').trim();
+  if (!description) {
+    return sendError(res, requestId, 'validation_error', 'task or description is required', 400);
+  }
+  if (description.length > 50000) {
+    return sendError(res, requestId, 'validation_error', 'Task description exceeds maximum length', 400);
+  }
+
+  const provider = body.provider || db.getDefaultProvider();
+  if (body.provider) {
+    const providerConfig = db.getProvider(body.provider);
+    if (!providerConfig) {
+      return sendError(res, requestId, 'provider_not_found', `Unknown provider: ${body.provider}`, 404);
+    }
+    if (!providerConfig.enabled) {
+      return sendError(res, requestId, 'provider_unavailable', `Provider ${body.provider} is disabled`, 400);
+    }
+  }
+
+  const taskId = uuidv4();
+  const defaultTimeout = serverConfig.getInt('default_timeout', 30);
+  const providerTimeout = PROVIDER_DEFAULT_TIMEOUTS[provider] || defaultTimeout;
+  const timeout = body.timeout_minutes ?? providerTimeout;
+  const metadata = body.provider
+    ? { user_provider_override: true, requested_provider: body.provider, intended_provider: provider }
+    : { intended_provider: provider };
+  if (body.context_stuff !== undefined) metadata.context_stuff = body.context_stuff;
+  const policyResult = typeof _taskManager?.evaluateTaskSubmissionPolicy === 'function'
+    ? _taskManager.evaluateTaskSubmissionPolicy({
+        id: taskId,
+        task_description: description,
+        working_directory: body.working_directory || null,
+        timeout_minutes: timeout,
+        auto_approve: Boolean(body.auto_approve),
+        priority: body.priority || 0,
+        provider,
+        model: body.model || null,
+        metadata,
+      })
+    : null;
+  if (policyResult?.blocked === true) {
+    return sendError(res, requestId, 'task_blocked', getBlockedPolicyMessage(policyResult), 403, {}, req);
+  }
+
+  try {
+    db.createTask({
+      id: taskId,
+      status: 'pending',
+      task_description: description,
+      working_directory: body.working_directory || null,
+      timeout_minutes: timeout,
+      auto_approve: Boolean(body.auto_approve),
+      priority: body.priority || 0,
+      provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+      model: body.model || null,
+      metadata: JSON.stringify(metadata),
+    });
+
+    // Context-stuff: resolve files for eligible providers before starting
+    if (CONTEXT_STUFFING_PROVIDERS.has(provider) && body.context_stuff !== false) {
+      try {
+        const depth = body.context_depth || 1;
+        const scanResult = resolveContextFiles({
+          taskDescription: description,
+          workingDirectory: body.working_directory || process.cwd(),
+          files: Array.isArray(body.files) ? body.files.filter(f => typeof f === 'string') : [],
+          contextDepth: depth,
+        });
+        if (scanResult.contextFiles.length > 0) {
+          metadata.context_files = scanResult.contextFiles;
+          metadata.context_scan_reasons = Object.fromEntries(scanResult.reasons);
+          db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
+            .run(JSON.stringify(metadata), taskId);
+          logger.info(`[v2] Context-stuffed ${scanResult.contextFiles.length} files for task ${taskId}`);
+        }
+      } catch (e) {
+        logger.debug(`[v2] Context scan failed for task ${taskId}: ${e.message}`);
+      }
+    }
+
+    const result = _taskManager.startTask(taskId);
+    if (result?.blocked) {
+      return sendError(res, requestId, 'task_blocked', result.reason || 'Task blocked by policy', 403, {}, req);
+    }
+    const task = db.getTask(taskId);
+    const status = task?.status || (result.queued ? 'queued' : 'running');
+    emitTaskUpdated(taskId, status);
+
+    sendSuccess(res, requestId, {
+      task_id: taskId,
+      status,
+      provider,
+      model: body.model || null,
+      ...buildTaskResponse(task),
+    }, 201, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── GET /api/v2/tasks — List tasks ──────────────────────────────────────
+
+async function handleListTasks(req, res) {
+  const requestId = resolveRequestId(req);
+  const query = req.query || {};
+
+  const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 100);
+  const page = Math.max(parseInt(query.page, 10) || 1, 1);
+  const offset = query.page !== undefined
+    ? (page - 1) * limit
+    : Math.max(parseInt(query.offset, 10) || 0, 0);
+
+  const filters = {};
+  if (query.status === 'archived') {
+    filters.archivedOnly = true;
+  } else if (query.status) {
+    filters.status = query.status;
+  }
+  if (query.provider) filters.provider = query.provider;
+  if (query.search) filters.search = query.search;
+  if (query.from) filters.from_date = query.from;
+  if (query.to) filters.to_date = query.to;
+  if (query.orderBy) filters.orderBy = query.orderBy;
+  if (query.orderDir) filters.orderDir = query.orderDir;
+  if (query.tags) {
+    const tags = String(query.tags)
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(Boolean);
+    if (tags.length > 0) filters.tags = tags;
+  }
+
+  const tasks = db.listTasks({
+    ...filters,
+    limit,
+    offset,
+  });
+  const items = tasks.map(buildTaskResponse).filter(Boolean);
+  const total = typeof db.countTasks === 'function' ? db.countTasks(filters) : items.length;
+
+  sendList(res, requestId, items, total, req);
+}
+
+// ─── GET /api/v2/tasks/:task_id — Get task detail ────────────────────────
+
+async function handleGetTask(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch (err) {
+    if (String(err.message).includes('Ambiguous')) {
+      return sendError(res, requestId, 'validation_error', err.message, 400, {}, req);
+    }
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  sendSuccess(res, requestId, buildTaskDetailResponse(task), 200, req);
+}
+
+// ─── POST /api/v2/tasks/:task_id/cancel — Cancel task ────────────────────
+
+async function handleCancelTask(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  const terminalStatuses = new Set(['completed', 'failed', 'cancelled', 'skipped']);
+  if (terminalStatuses.has(task.status)) {
+    return sendSuccess(res, requestId, {
+      task_id: task.id,
+      cancelled: false,
+      status: task.status,
+      reason: 'Task already in terminal state',
+    }, 200, req);
+  }
+
+  try {
+    const body = req.body || {};
+    if (_taskManager) {
+      _taskManager.cancelTask(task.id, body.reason || 'Cancelled via REST API');
+    } else {
+      db.updateTaskStatus(task.id, 'cancelled');
+    }
+    const updated = db.getTask(task.id);
+
+    sendSuccess(res, requestId, {
+      task_id: task.id,
+      cancelled: true,
+      status: updated?.status || 'cancelled',
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── POST /api/v2/tasks/:task_id/retry — Retry a failed task ─────────────
+
+async function handleRetryTask(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  const retryableStatuses = new Set(['failed', 'cancelled']);
+  if (!retryableStatuses.has(task.status)) {
+    return sendError(res, requestId, 'invalid_status', `Cannot retry task with status: ${task.status}`, 400, {}, req);
+  }
+
+  try {
+    const newTaskId = uuidv4();
+    const taskMetadata = parseTaskMetadata(task);
+    const retryProvider = typeof taskMetadata.original_provider === 'string' && taskMetadata.original_provider.trim()
+      ? taskMetadata.original_provider.trim()
+      : task.provider;
+    const providerValidation = retryProvider ? getProviderValidation(retryProvider) : { valid: true };
+    if (!providerValidation.valid) {
+      return sendError(res, requestId, providerValidation.code, providerValidation.message, providerValidation.status, {}, req);
+    }
+    const retryMetadata = buildRetryMetadata(task, taskId);
+    retryMetadata.intended_provider = retryProvider;
+    const retryPolicyResult = typeof _taskManager?.evaluateTaskSubmissionPolicy === 'function'
+      ? _taskManager.evaluateTaskSubmissionPolicy({
+          id: newTaskId,
+          task_description: task.task_description || task.description,
+          working_directory: task.working_directory,
+          timeout_minutes: task.timeout_minutes,
+          auto_approve: task.auto_approve,
+          priority: task.priority || 0,
+          provider: retryProvider,
+          model: task.model,
+          metadata: retryMetadata,
+        })
+      : null;
+    if (retryPolicyResult?.blocked === true) {
+      return sendError(res, requestId, 'task_blocked', getBlockedPolicyMessage(retryPolicyResult), 403, {}, req);
+    }
+
+    db.createTask({
+      id: newTaskId,
+      status: 'pending',
+      task_description: task.task_description || task.description,
+      working_directory: task.working_directory,
+      timeout_minutes: task.timeout_minutes,
+      auto_approve: task.auto_approve,
+      priority: task.priority || 0,
+      provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+      model: task.model,
+      metadata: JSON.stringify(retryMetadata),
+    });
+
+    const result = _taskManager.startTask(newTaskId);
+    if (result?.blocked) {
+      return sendError(res, requestId, 'task_blocked', result.reason || 'Task blocked by policy', 403, {}, req);
+    }
+    const newTask = db.getTask(newTaskId);
+    const status = newTask?.status || (result.queued ? 'queued' : 'running');
+    emitTaskUpdated(newTaskId, status);
+
+    sendSuccess(res, requestId, {
+      task_id: newTaskId,
+      original_task_id: taskId,
+      status,
+      ...buildTaskResponse(newTask),
+    }, 201, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── PATCH /api/v2/tasks/:task_id/provider — Reassign queued task provider ─
+
+async function handleReassignTaskProvider(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+  const body = req.body || await parseBody(req);
+  const provider = typeof body?.provider === 'string' ? body.provider.trim() : '';
+
+  if (!provider) {
+    return sendError(res, requestId, 'validation_error', 'provider is required', 400, {}, req);
+  }
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (task.status !== 'queued') {
+    return sendError(res, requestId, 'invalid_status', `Cannot reassign provider for task with status: ${task.status}`, 409, {}, req);
+  }
+
+  const providerConfig = db.getProvider(provider);
+  if (!providerConfig) {
+    return sendError(res, requestId, 'provider_not_found', `Unknown provider: ${provider}`, 400, {}, req);
+  }
+  if (!providerConfig.enabled) {
+    return sendError(res, requestId, 'provider_unavailable', 'Provider is currently disabled', 400, {}, req);
+  }
+
+  try {
+    // Items 12+13: Clear stale model/ollama_host_id when changing provider family
+    const providerRegistry = require('../providers/registry');
+    const oldCategory = providerRegistry.getCategory(task.provider);
+    const newCategory = providerRegistry.getCategory(provider);
+    const familyChanged = oldCategory !== newCategory;
+
+    const metadata = {
+      ...parseTaskMetadata(task),
+      user_provider_override: true,
+    };
+    // Item 14: Clear stale overflow metadata since operator reassigned explicitly
+    delete metadata.free_tier_overflow;
+    delete metadata.original_provider;
+
+    const updateFields = { provider, metadata };
+    if (familyChanged) {
+      updateFields.model = null;
+    }
+    if (familyChanged || !providerRegistry.isOllamaProvider(provider)) {
+      updateFields.ollama_host_id = null;
+    }
+
+    const updatedTask = db.updateTask(taskId, updateFields);
+    process.emit('torque:queue-changed');
+    emitTaskUpdated(taskId, updatedTask?.status || task.status);
+
+    logger.info(
+      `Reassigned queued task ${taskId} provider from ${task.provider || 'unknown'} to ${updatedTask?.provider || provider}`,
+    );
+
+    sendSuccess(res, requestId, buildTaskDetailResponse(updatedTask), 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── POST /api/v2/tasks/:task_id/commit — Commit task changes ────────────
+
+async function handleCommitTask(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (task.status !== 'completed') {
+    return sendError(res, requestId, 'invalid_status', `Cannot commit task with status: ${task.status}`, 400, {}, req);
+  }
+
+  try {
+    // Delegate to the MCP handler which does the heavy lifting
+    const { handleCommitTask: mpcCommit } = require('../handlers/task/pipeline');
+    const body = req.body || {};
+    const result = mpcCommit({
+      task_id: taskId,
+      message: body.message,
+      auto_push: body.auto_push,
+    });
+
+    // Parse MCP response to extract commit info
+    const text = result?.content?.[0]?.text || '';
+    const shaMatch = text.match(/([a-f0-9]{7,40})/);
+
+    sendSuccess(res, requestId, {
+      task_id: taskId,
+      committed: !result?.isError,
+      sha: shaMatch ? shaMatch[1] : null,
+      message: text,
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── GET /api/v2/tasks/:task_id/diff — Task file diff ────────────────────
+
+async function handleTaskDiff(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  try {
+    const changes = db.getTaskFileChanges ? db.getTaskFileChanges(taskId) : [];
+    const filesChanged = Array.isArray(changes) ? changes : [];
+
+    sendSuccess(res, requestId, {
+      task_id: taskId,
+      files_changed: filesChanged.length,
+      changes: filesChanged.map(c => ({
+        file: c.file_path || c.file,
+        action: c.change_type || c.action || 'modified',
+        lines_added: c.lines_added || 0,
+        lines_removed: c.lines_removed || 0,
+      })),
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── GET /api/v2/tasks/:task_id/logs — Task output/error logs ────────────
+
+async function handleTaskLogs(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  sendSuccess(res, requestId, {
+    task_id: taskId,
+    status: task.status,
+    output: task.output || null,
+    error_output: task.error_output || null,
+  }, 200, req);
+}
+
+// ─── GET /api/v2/tasks/:task_id/progress — Task progress ─────────────────
+
+async function handleTaskProgress(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  if (!_taskManager) {
+    return sendError(res, requestId, 'not_initialized', 'Task manager not initialized', 500, {}, req);
+  }
+
+  const progress = _taskManager.getTaskProgress(taskId);
+  if (!progress) {
+    return sendError(res, requestId, 'task_not_found', `Task not found or not running: ${taskId}`, 404, {}, req);
+  }
+
+  sendSuccess(res, requestId, {
+    task_id: taskId,
+    status: progress.status || 'running',
+    progress_percent: progress.progress || 0,
+    phase: progress.phase || null,
+    elapsed_seconds: progress.elapsed_seconds || 0,
+    output_bytes: progress.output_length || 0,
+    last_output_at: progress.last_output_at || null,
+  }, 200, req);
+}
+
+// ─── DELETE /api/v2/tasks/:task_id — Delete a completed/failed task ────────
+
+async function handleDeleteTask(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  const runningStatuses = new Set(['running', 'queued']);
+  if (runningStatuses.has(task.status)) {
+    return sendError(res, requestId, 'invalid_status', `Cannot delete task with status: ${task.status}. Cancel it first.`, 400, {}, req);
+  }
+
+  try {
+    db.deleteTask(taskId);
+    sendSuccess(res, requestId, { task_id: taskId, deleted: true }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── POST /api/v2/tasks/:task_id/approve-switch — Approve provider switch ──
+
+async function handleApproveSwitch(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (task.status !== 'pending_provider_switch') {
+    return sendError(res, requestId, 'invalid_status', `Cannot approve provider switch for task with status: ${task.status}`, 409, {}, req);
+  }
+
+  const metadata = parseTaskMetadata(task);
+  const targetProvider = firstNonEmptyString(
+    metadata.provider_switch_target,
+    metadata.target_provider,
+    metadata.fallback_provider,
+  );
+  if (!targetProvider) {
+    return sendError(res, requestId, 'validation_error', 'Pending provider switch is missing a target provider', 400, {}, req);
+  }
+
+  // Item 17: Validate target provider exists and is enabled (parity with reassignment)
+  const providerConfig = db.getProvider(targetProvider);
+  if (!providerConfig) {
+    return sendError(res, requestId, 'provider_not_found', `Unknown provider: ${targetProvider}`, 400, {}, req);
+  }
+  if (!providerConfig.enabled) {
+    return sendError(res, requestId, 'provider_unavailable', `Provider is currently disabled: ${targetProvider}`, 400, {}, req);
+  }
+
+  try {
+    // Item 16: Stamp user_provider_override so budget/overflow can't undo manual approval
+    // Items 12+13: Clear stale model/ollama_host_id when changing provider family
+    const providerRegistry = require('../providers/registry');
+    const oldCategory = providerRegistry.getCategory(task.provider);
+    const newCategory = providerRegistry.getCategory(targetProvider);
+    const familyChanged = oldCategory !== newCategory;
+
+    const updatedMetadata = {
+      ...metadata,
+      user_provider_override: true,
+    };
+    // Item 14: Clear stale overflow metadata since operator approved explicitly
+    delete updatedMetadata.free_tier_overflow;
+    delete updatedMetadata.original_provider;
+
+    // Item 19: Clear stale runtime/failure state when re-queueing
+    const requeueFields = {
+      provider: targetProvider,
+      metadata: updatedMetadata,
+      started_at: null,
+      completed_at: null,
+      exit_code: null,
+      pid: null,
+      progress_percent: 0,
+    };
+    if (familyChanged) {
+      requeueFields.model = null;
+    }
+    if (familyChanged || !providerRegistry.isOllamaProvider(targetProvider)) {
+      requeueFields.ollama_host_id = null;
+    }
+
+    let updatedTask;
+    try {
+      updatedTask = db.updateTask(taskId, { status: 'queued', ...requeueFields });
+    } catch (err) {
+      if (!/Use updateTaskStatus\(\) to modify task status/.test(err?.message || '') || typeof db.updateTaskStatus !== 'function') {
+        throw err;
+      }
+      updatedTask = db.updateTaskStatus(taskId, 'queued', requeueFields);
+    }
+
+    const responseTask = {
+      ...task,
+      ...(updatedTask && typeof updatedTask === 'object' ? updatedTask : {}),
+      status: 'queued',
+      provider: targetProvider,
+    };
+
+    process.emit('torque:queue-changed');
+    emitTaskUpdated(taskId, responseTask.status);
+
+    logger.info(`Approved provider switch for task ${taskId} from ${task.provider || 'unknown'} to ${targetProvider}`);
+
+    sendSuccess(res, requestId, buildTaskDetailResponse(responseTask), 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── POST /api/v2/tasks/:task_id/reject-switch — Reject provider switch ────
+
+async function handleRejectSwitch(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = db.getTask(taskId);
+  } catch {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (task.status !== 'pending_provider_switch') {
+    return sendError(res, requestId, 'invalid_status', `Cannot reject provider switch for task with status: ${task.status}`, 409, {}, req);
+  }
+
+  const metadata = parseTaskMetadata(task);
+  const restoreProvider = firstNonEmptyString(
+    task.provider,
+    metadata.original_provider,
+  );
+  if (!restoreProvider) {
+    return sendError(res, requestId, 'validation_error', 'Pending provider switch is missing an original provider', 400, {}, req);
+  }
+  const providerValidation = getProviderValidation(restoreProvider);
+  if (!providerValidation.valid) {
+    return sendError(res, requestId, providerValidation.code, providerValidation.message, providerValidation.status, {}, req);
+  }
+
+  try {
+    // Items 12+13: Clear stale model/ollama_host_id when restoring to a different family
+    const providerRegistry = require('../providers/registry');
+    const oldCategory = providerRegistry.getCategory(task.provider);
+    const newCategory = providerRegistry.getCategory(restoreProvider);
+    const familyChanged = oldCategory !== newCategory;
+    const updatedMetadata = {
+      ...metadata,
+    };
+    // Items 20+21: Clear stale overflow/original-provider metadata after rejection
+    delete updatedMetadata.free_tier_overflow;
+    delete updatedMetadata.original_provider;
+
+    // Item 19: Clear stale runtime/failure state when re-queueing
+    const requeueFields = {
+      provider: restoreProvider,
+      metadata: updatedMetadata,
+      started_at: null,
+      completed_at: null,
+      exit_code: null,
+      pid: null,
+      progress_percent: 0,
+    };
+    if (familyChanged) {
+      requeueFields.model = null;
+    }
+    if (familyChanged || !providerRegistry.isOllamaProvider(restoreProvider)) {
+      requeueFields.ollama_host_id = null;
+    }
+
+    let updatedTask;
+    try {
+      updatedTask = db.updateTask(taskId, { status: 'queued', ...requeueFields });
+    } catch (err) {
+      if (!/Use updateTaskStatus\(\) to modify task status/.test(err?.message || '') || typeof db.updateTaskStatus !== 'function') {
+        throw err;
+      }
+      updatedTask = db.updateTaskStatus(taskId, 'queued', requeueFields);
+    }
+
+    const responseTask = {
+      ...task,
+      ...(updatedTask && typeof updatedTask === 'object' ? updatedTask : {}),
+      status: 'queued',
+      provider: restoreProvider,
+      metadata: updatedMetadata,
+    };
+
+    process.emit('torque:queue-changed');
+    emitTaskUpdated(taskId, responseTask.status);
+
+    logger.info(`Rejected provider switch for task ${taskId}; restored provider ${restoreProvider}`);
+
+    sendSuccess(res, requestId, buildTaskDetailResponse(responseTask), 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+module.exports = {
+  init,
+  handleSubmitTask,
+  handleListTasks,
+  handleGetTask,
+  handleCancelTask,
+  handleRetryTask,
+  handleReassignTaskProvider,
+  handleCommitTask,
+  handleTaskDiff,
+  handleTaskLogs,
+  handleTaskProgress,
+  handleDeleteTask,
+  handleApproveSwitch,
+  handleRejectSwitch,
+};

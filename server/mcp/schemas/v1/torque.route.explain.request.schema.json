@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "minLength": 1
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "required": [
+    "task_id"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "include_events": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

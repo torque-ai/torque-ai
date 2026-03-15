@@ -1,0 +1,12 @@
+{
+  "name": "torque-ai",
+  "version": "1.0.0-beta.1",
+  "description": "TORQUE - Distributed AI task orchestration for coding tools. Multi-provider routing with quality gates and cost tracking.",
+  "author": {
+    "name": "WanderlustCoder",
+    "url": "https://github.com/torque-ai"
+  },
+  "repository": "https://github.com/torque-ai/torque-ai",
+  "license": "BSL-1.1",
+  "keywords": ["torque", "orchestration", "ai", "tasks", "codex", "claude", "mcp", "ollama", "workflow"]
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.list",
+  "title": "task.list",
+  "description": "Schema for listing tasks.",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "queued",
+        "running",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "description": "Filter by status"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Filter by tags (returns tasks matching ANY of the specified tags)"
+    },
+    "project": {
+      "type": "string",
+      "description": "Filter by project name (defaults to current project based on working directory)"
+    },
+    "all_projects": {
+      "type": "boolean",
+      "description": "Show tasks from all projects instead of just the current one",
+      "default": false
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Filter tasks by plan project ID"
+    },
+    "limit": {
+      "type": "number",
+      "description": "Maximum number of tasks to return",
+      "default": 20
+    }
+  },
+  "additionalProperties": false
+}

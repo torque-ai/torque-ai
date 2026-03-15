@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "days": {
+      "type": "number"
+    }
+  },
+  "additionalProperties": false
+}

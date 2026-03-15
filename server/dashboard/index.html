@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TORQUE Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1>TORQUE Dashboard</h1>
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Connecting...</span>
+            </div>
+            <button class="notification-toggle" id="notificationToggle" title="Toggle desktop notifications">
+                Notifications: Off
+            </button>
+            <button class="notification-toggle" id="notificationPrefsBtn" title="Notification preferences">
+                Prefs
+            </button>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Overview Cards -->
+        <section class="overview-section">
+            <div class="overview-cards">
+                <div class="card overview-card">
+                    <div class="card-label">Running</div>
+                    <div class="card-value" id="runningCount">0</div>
+                </div>
+                <div class="card overview-card">
+                    <div class="card-label">Queued</div>
+                    <div class="card-value" id="queuedCount">0</div>
+                </div>
+                <div class="card overview-card">
+                    <div class="card-label">Completed</div>
+                    <div class="card-value" id="completedCount">0</div>
+                </div>
+                <div class="card overview-card">
+                    <div class="card-label">Failed</div>
+                    <div class="card-value" id="failedCount">0</div>
+                </div>
+                <div class="card overview-card">
+                    <div class="card-label">SSE Subscribers</div>
+                    <div class="card-value" id="sseSubscribersCount">0</div>
+                </div>
+                <div class="card overview-card">
+                    <div class="card-label">Pending Events</div>
+                    <div class="card-value" id="pendingEventsCount">0</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Task Queue Table -->
+        <section class="tasks-section">
+            <h2>Task Queue</h2>
+            <div class="task-filters" style="margin-bottom: 12px; display: flex; gap: 6px; flex-wrap: wrap;">
+                <button class="filter-btn active" data-status="">All</button>
+                <button class="filter-btn" data-status="running">Running</button>
+                <button class="filter-btn" data-status="queued">Queued</button>
+                <button class="filter-btn" data-status="completed">Completed</button>
+                <button class="filter-btn" data-status="failed">Failed</button>
+                <button class="filter-btn" data-status="cancelled">Cancelled</button>
+                <button class="filter-btn" data-status="archived">Archived</button>
+            </div>
+            <div class="card">
+                <div class="table-wrapper">
+                    <table class="tasks-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>Provider</th>
+                                <th>Description</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasksTableBody">
+                            <tr class="empty-state">
+                                <td colspan="6">No tasks</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Provider Performance -->
+        <section class="providers-section">
+            <h2>Provider Performance</h2>
+            <div class="providers-grid" id="providersGrid">
+                <div class="card provider-card">
+                    <div class="card-label">Loading providers...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Host Health -->
+        <section class="hosts-section">
+            <h2>Host Health</h2>
+            <div class="hosts-grid" id="hostsGrid">
+                <div class="card host-card">
+                    <div class="card-label">Loading hosts...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Remote Testing Hosts -->
+        <section class="peek-hosts-section">
+            <div class="section-header">
+                <h2>Remote Testing Hosts</h2>
+                <button class="action-button" id="addPeekHostBtn" type="button">+ Add Host</button>
+            </div>
+            <div class="peek-hosts-grid" id="peekHostsGrid">
+                <div class="card host-card">
+                    <div class="card-label">Loading peek hosts...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Add/Edit Peek Host Modal -->
+        <div class="modal-overlay" id="peekHostModal" style="display:none">
+            <div class="modal-content">
+                <h3 id="peekHostModalTitle">Add Remote Testing Host</h3>
+                <form id="peekHostForm">
+                    <input type="hidden" name="originalName" />
+                    <label>Name <input name="name" class="agent-input" placeholder="my-host" required /></label>
+                    <label>URL <input name="url" class="agent-input" placeholder="http://192.168.1.100:9876" required /></label>
+                    <label>Platform
+                        <select name="platform" class="agent-input">
+                            <option value="windows">Windows</option>
+                            <option value="linux">Linux</option>
+                            <option value="macos">macOS</option>
+                        </select>
+                    </label>
+                    <label class="checkbox-label"><input type="checkbox" name="default" /> Set as default</label>
+                    <details class="credential-section">
+                        <summary>SSH Credentials</summary>
+                        <label>User <input name="ssh_user" class="agent-input" placeholder="user" /></label>
+                        <label>Key Path <input name="ssh_key_path" class="agent-input" placeholder="~/.ssh/id_rsa" /></label>
+                        <label>Port <input name="ssh_port" class="agent-input" type="number" value="22" /></label>
+                    </details>
+                    <details class="credential-section">
+                        <summary>HTTP Auth</summary>
+                        <label>Scheme
+                            <select name="http_scheme" class="agent-input">
+                                <option value="bearer">Bearer Token</option>
+                                <option value="basic">Basic Auth</option>
+                            </select>
+                        </label>
+                        <label>Token / Password <input name="http_token" class="agent-input" type="password" /></label>
+                        <label>Username (Basic only) <input name="http_username" class="agent-input" /></label>
+                    </details>
+                    <details class="credential-section">
+                        <summary>Windows Credentials</summary>
+                        <label>Username <input name="win_username" class="agent-input" placeholder="Administrator" /></label>
+                        <label>Password <input name="win_password" class="agent-input" type="password" /></label>
+                        <label>Domain <input name="win_domain" class="agent-input" /></label>
+                    </details>
+                    <div class="modal-actions">
+                        <button type="submit" class="action-button">Save</button>
+                        <button type="button" class="action-button secondary" id="peekHostCancelBtn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Remote Agents -->
+        <section class="agents-section">
+            <div class="section-header">
+                <h2>Remote Agents</h2>
+                <button class="action-button" id="agentsRefreshButton" type="button">Refresh Agents</button>
+            </div>
+
+            <div class="card">
+                <div class="agent-register-form">
+                    <h3>Register New Agent</h3>
+                    <form id="agentRegisterForm">
+                        <div class="agent-register-grid">
+                            <label>
+                                Agent ID
+                                <input name="id" class="agent-input" placeholder="agent-01" required />
+                            </label>
+                            <label>
+                                Name
+                                <input name="name" class="agent-input" placeholder="Remote Agent One" required />
+                            </label>
+                            <label>
+                                Host
+                                <input name="host" class="agent-input" placeholder="127.0.0.1" required />
+                            </label>
+                            <label>
+                                Port
+                                <input name="port" class="agent-input" type="number" min="1" max="65535" value="3460" />
+                            </label>
+                            <label>
+                                Secret
+                                <input name="secret" class="agent-input" type="password" placeholder="shared secret" required />
+                            </label>
+                        </div>
+                        <div class="agent-form-actions">
+                            <button class="action-button" type="submit">Register</button>
+                            <span id="agentRegisterMessage" class="agent-message" aria-live="polite"></span>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="table-wrapper">
+                    <table class="tasks-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Host:Port</th>
+                                <th>Status</th>
+                                <th>Last health check</th>
+                                <th>Enabled</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agentsTableBody">
+                            <tr class="empty-state">
+                                <td colspan="7">Loading agents...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Format Success Rates -->
+        <section class="formats-section">
+            <h2>Edit Format Success Rates</h2>
+            <div class="formats-grid" id="formatsGrid">
+                <div class="card format-card">
+                    <div class="card-label">Loading format stats...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Notification Metrics -->
+        <section class="notifications-section">
+            <h2>Notification Metrics</h2>
+            <div class="overview-cards" id="notificationMetricsGrid">
+                <div class="card overview-card">
+                    <div class="card-label">Delivered</div>
+                    <div class="card-value" id="metricsDelivered">0</div>
+                </div>
+                <div class="card overview-card">
+                    <div class="card-label">Deduplicated</div>
+                    <div class="card-value" id="metricsDeduplicated">0</div>
+                </div>
+                <div class="card overview-card">
+                    <div class="card-label">Acknowledged</div>
+                    <div class="card-value" id="metricsAcknowledged">0</div>
+                </div>
+                <div class="card overview-card">
+                    <div class="card-label">Errors</div>
+                    <div class="card-value" id="metricsErrors">0</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Event History -->
+        <section class="event-history-section">
+            <h2>Event History</h2>
+            <div class="card">
+                <div class="table-wrapper">
+                    <table class="tasks-table">
+                        <thead>
+                            <tr>
+                                <th>Task ID</th>
+                                <th>Event</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                                <th>Project</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="eventHistoryBody">
+                            <tr class="empty-state">
+                                <td colspan="6">No events</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Task Output Modal -->
+    <div class="modal-overlay" id="outputModal" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Task Output <span class="task-id" id="outputTaskId"></span></h3>
+                <button class="modal-close" id="outputModalClose">&times;</button>
+            </div>
+            <pre class="modal-terminal" id="outputContent"></pre>
+        </div>
+    </div>
+
+    <!-- Notification Preferences Modal -->
+    <div class="modal-overlay" id="prefsModal" style="display:none;">
+        <div class="modal" style="max-width:500px;">
+            <div class="modal-header">
+                <h3>Notification Preferences</h3>
+                <button class="modal-close" id="prefsModalClose">&times;</button>
+            </div>
+            <div style="padding:1.5rem;display:flex;flex-direction:column;gap:1rem;">
+                <div class="pref-group">
+                    <label class="pref-label">Sound on task completion</label>
+                    <input type="checkbox" id="prefSoundCompleted" class="pref-checkbox">
+                </div>
+                <div class="pref-group">
+                    <label class="pref-label">Sound on task failure</label>
+                    <input type="checkbox" id="prefSoundFailed" class="pref-checkbox">
+                </div>
+                <div class="pref-group">
+                    <label class="pref-label">Flash event row on new event</label>
+                    <input type="checkbox" id="prefFlashEvents" class="pref-checkbox" checked>
+                </div>
+                <div class="pref-group">
+                    <label class="pref-label">Sound volume</label>
+                    <input type="range" id="prefVolume" min="0" max="100" value="50" style="width:100%;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+    <script>
+    (function() {
+      var peekHostsGrid = document.getElementById('peekHostsGrid');
+      var peekHostModal = document.getElementById('peekHostModal');
+      var peekHostForm = document.getElementById('peekHostForm');
+      var peekHostModalTitle = document.getElementById('peekHostModalTitle');
+      var addPeekHostBtn = document.getElementById('addPeekHostBtn');
+      var peekHostCancelBtn = document.getElementById('peekHostCancelBtn');
+
+      function esc(str) { var d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+      var ajaxHeaders = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+
+      function loadPeekHosts() {
+        fetch('/api/peek-hosts').then(function(r) { return r.json(); }).then(function(hosts) {
+          peekHostsGrid.textContent = '';
+          if (!hosts.length) {
+            var empty = document.createElement('div');
+            empty.className = 'card host-card';
+            var lbl = document.createElement('div');
+            lbl.className = 'card-label';
+            lbl.textContent = 'No remote testing hosts registered. Click "+ Add Host" to get started.';
+            empty.appendChild(lbl);
+            peekHostsGrid.appendChild(empty);
+            return;
+          }
+          hosts.forEach(function(h) {
+            var card = document.createElement('div');
+            card.className = 'card peek-host-card';
+            card.setAttribute('data-name', h.name);
+
+            if (h.enabled === 0) card.classList.add('host-card-disabled');
+
+            var label = document.createElement('div');
+            label.className = 'card-label';
+            label.textContent = h.name;
+            if (h.is_default) {
+              var badge = document.createElement('span');
+              badge.className = 'default-badge';
+              badge.textContent = 'default';
+              label.appendChild(document.createTextNode(' '));
+              label.appendChild(badge);
+            }
+            if (h.enabled === 0) {
+              var disabledBadge = document.createElement('span');
+              disabledBadge.className = 'host-disabled-badge';
+              disabledBadge.textContent = 'disabled';
+              label.appendChild(document.createTextNode(' '));
+              label.appendChild(disabledBadge);
+            }
+            card.appendChild(label);
+
+            var meta = document.createElement('div');
+            meta.className = 'host-meta';
+            meta.textContent = h.url + ' \u00b7 ' + (h.platform || 'unknown');
+            card.appendChild(meta);
+
+            var badges = document.createElement('div');
+            badges.className = 'cred-badges';
+            ['ssh', 'http_auth', 'windows'].forEach(function(t) {
+              var has = (h.credentials || []).some(function(c) { return c.credential_type === t; });
+              var span = document.createElement('span');
+              span.className = 'cred-badge ' + (has ? 'configured' : 'none');
+              span.textContent = t.replace('_', ' ') + (has ? ' \u2713' : '');
+              badges.appendChild(span);
+            });
+            card.appendChild(badges);
+
+            var actions = document.createElement('div');
+            actions.className = 'host-actions';
+            var editBtn = document.createElement('button');
+            editBtn.className = 'action-button small';
+            editBtn.type = 'button';
+            editBtn.textContent = 'Edit';
+            editBtn.addEventListener('click', function() { editPeekHost(h.name); });
+            actions.appendChild(editBtn);
+
+            var testBtn = document.createElement('button');
+            testBtn.className = 'action-button small';
+            testBtn.type = 'button';
+            testBtn.textContent = 'Test';
+            testBtn.addEventListener('click', function() { testPeekHost(h.name); });
+            actions.appendChild(testBtn);
+
+            var toggleBtn = document.createElement('button');
+            toggleBtn.className = 'action-button small';
+            toggleBtn.type = 'button';
+            toggleBtn.textContent = h.enabled === 0 ? 'Enable' : 'Disable';
+            toggleBtn.addEventListener('click', function() { togglePeekHost(h.name); });
+            actions.appendChild(toggleBtn);
+
+            var removeBtn = document.createElement('button');
+            removeBtn.className = 'action-button small danger';
+            removeBtn.type = 'button';
+            removeBtn.textContent = 'Remove';
+            removeBtn.addEventListener('click', function() { removePeekHost(h.name); });
+            actions.appendChild(removeBtn);
+
+            var testResult = document.createElement('span');
+            testResult.className = 'test-result';
+            testResult.id = 'test-' + h.name;
+            actions.appendChild(testResult);
+
+            card.appendChild(actions);
+            peekHostsGrid.appendChild(card);
+          });
+        }).catch(function(err) {
+          peekHostsGrid.textContent = '';
+          var errCard = document.createElement('div');
+          errCard.className = 'card host-card';
+          var errLbl = document.createElement('div');
+          errLbl.className = 'card-label';
+          errLbl.textContent = 'Error loading peek hosts: ' + err.message;
+          errCard.appendChild(errLbl);
+          peekHostsGrid.appendChild(errCard);
+        });
+      }
+
+      addPeekHostBtn.addEventListener('click', function() {
+        peekHostModalTitle.textContent = 'Add Remote Testing Host';
+        peekHostForm.reset();
+        peekHostForm.elements.originalName.value = '';
+        peekHostModal.style.display = 'flex';
+      });
+
+      peekHostCancelBtn.addEventListener('click', function() { peekHostModal.style.display = 'none'; });
+      peekHostModal.addEventListener('click', function(e) { if (e.target === peekHostModal) peekHostModal.style.display = 'none'; });
+
+      function editPeekHost(name) {
+        fetch('/api/peek-hosts').then(function(r) { return r.json(); }).then(function(hosts) {
+          var host = hosts.find(function(h) { return h.name === name; });
+          if (!host) return;
+          peekHostModalTitle.textContent = 'Edit Remote Testing Host';
+          peekHostForm.elements.originalName.value = name;
+          peekHostForm.elements.name.value = host.name;
+          peekHostForm.elements.url.value = host.url;
+          peekHostForm.elements.platform.value = host.platform || 'windows';
+          peekHostForm.elements.default.checked = !!host.is_default;
+          peekHostModal.style.display = 'flex';
+        });
+      }
+
+      function testPeekHost(name) {
+        var el = document.getElementById('test-' + name);
+        if (el) el.textContent = ' testing...';
+        fetch('/api/hosts/' + encodeURIComponent(name) + '/credentials/ssh/test', { method: 'POST', headers: ajaxHeaders })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (el) el.textContent = data.host_reachable ? ' \u2713 reachable (' + data.latency_ms + 'ms)' : ' \u2717 ' + (data.error || 'unreachable');
+          })
+          .catch(function(err) { if (el) el.textContent = ' \u2717 ' + err.message; });
+      }
+
+      function togglePeekHost(name) {
+        fetch('/api/peek-hosts/' + encodeURIComponent(name) + '/toggle', {
+          method: 'POST',
+          headers: ajaxHeaders,
+          body: '{}'
+        }).then(function() { loadPeekHosts(); });
+      }
+
+      function removePeekHost(name) {
+        if (!confirm('Remove remote testing host "' + name + '"? This also deletes stored credentials.')) return;
+        fetch('/api/peek-hosts/' + encodeURIComponent(name), { method: 'DELETE', headers: ajaxHeaders }).then(function() { loadPeekHosts(); });
+      }
+
+      peekHostForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var fd = new FormData(peekHostForm);
+        var originalName = fd.get('originalName');
+        var hostData = { name: fd.get('name'), url: fd.get('url'), platform: fd.get('platform'), default: peekHostForm.elements.default.checked };
+        var method = originalName ? 'PUT' : 'POST';
+        var url = originalName ? '/api/peek-hosts/' + encodeURIComponent(originalName) : '/api/peek-hosts';
+        fetch(url, { method: method, headers: ajaxHeaders, body: JSON.stringify(hostData) }).then(function() {
+          var hostName = hostData.name;
+          var promises = [];
+          var sshUser = fd.get('ssh_user');
+          if (sshUser) {
+            promises.push(fetch('/api/hosts/' + encodeURIComponent(hostName) + '/credentials/ssh', {
+              method: 'PUT', headers: ajaxHeaders,
+              body: JSON.stringify({ label: 'SSH', value: { user: sshUser, key_path: fd.get('ssh_key_path') || '', port: parseInt(fd.get('ssh_port')) || 22 } })
+            }));
+          }
+          var httpToken = fd.get('http_token');
+          if (httpToken) {
+            var val = fd.get('http_scheme') === 'basic'
+              ? { scheme: 'basic', username: fd.get('http_username') || '', password: httpToken }
+              : { scheme: 'bearer', token: httpToken };
+            promises.push(fetch('/api/hosts/' + encodeURIComponent(hostName) + '/credentials/http_auth', {
+              method: 'PUT', headers: ajaxHeaders,
+              body: JSON.stringify({ label: 'HTTP Auth', value: val })
+            }));
+          }
+          var winUser = fd.get('win_username');
+          if (winUser) {
+            promises.push(fetch('/api/hosts/' + encodeURIComponent(hostName) + '/credentials/windows', {
+              method: 'PUT', headers: ajaxHeaders,
+              body: JSON.stringify({ label: 'Windows', value: { username: winUser, password: fd.get('win_password') || '', domain: fd.get('win_domain') || '' } })
+            }));
+          }
+          return Promise.all(promises);
+        }).then(function() {
+          peekHostModal.style.display = 'none';
+          loadPeekHosts();
+        });
+      });
+
+      loadPeekHosts();
+    })();
+    </script>
+</body>
+</html>

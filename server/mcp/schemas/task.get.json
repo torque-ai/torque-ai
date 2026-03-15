@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.get",
+  "title": "task.get",
+  "description": "Schema for getting a task by ID.",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Task ID to get results for"
+    }
+  },
+  "required": [
+    "task_id"
+  ],
+  "additionalProperties": false
+}

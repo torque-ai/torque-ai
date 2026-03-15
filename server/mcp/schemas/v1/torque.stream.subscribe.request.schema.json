@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_types": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "status_change",
+          "completed",
+          "failed",
+          "started",
+          "cancelled",
+          "output",
+          "output_update",
+          "*"
+        ]
+      }
+    },
+    "expires_in_minutes": {
+      "type": "number"
+    },
+    "idempotency_key": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

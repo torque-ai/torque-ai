@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "working_directory": {
+      "type": "string"
+    },
+    "timeout_minutes": {
+      "type": "number"
+    },
+    "auto_approve": {
+      "type": "boolean"
+    },
+    "priority": {
+      "type": "number"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

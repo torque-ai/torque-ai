@@ -1,0 +1,56 @@
+# Dependencies (rebuilt inside container)
+node_modules/
+server/node_modules/
+dashboard/node_modules/
+
+# Databases (data is in Docker volume)
+*.db
+*.db-wal
+*.db-shm
+server/tasks.db*
+server/torque.db*
+torque.db*
+
+# Logs
+*.log
+*.log.*
+server/torque-debug.log
+server/torque.log*
+
+# Test artifacts
+coverage/
+server/coverage/
+.nyc_output/
+dashboard/e2e/
+
+# Development files
+.git/
+.gitignore
+.claude/
+.mcp.json
+.codex-context/
+.aider*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Documentation (not needed in image)
+docs/
+mock-battle/
+CHANGELOG.md
+README.md
+
+# Build artifacts
+dashboard/dist/
+
+# Runtime caches
+server/.cache/
+
+# Windows artifacts
+nul

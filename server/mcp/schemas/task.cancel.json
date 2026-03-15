@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.cancel",
+  "title": "task.cancel",
+  "description": "Schema for cancelling a task.",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Task ID to cancel"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Reason for cancellation"
+    },
+    "confirm": {
+      "type": "boolean",
+      "description": "Set to true to confirm cancellation after reviewing task details. First call without confirm returns task info for review.",
+      "default": false
+    }
+  },
+  "required": [
+    "task_id"
+  ],
+  "additionalProperties": false
+}

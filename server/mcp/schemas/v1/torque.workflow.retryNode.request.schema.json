@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "required": [
+    "workflow_id"
+  ],
+  "properties": {
+    "workflow_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "from_task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "node_task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "idempotency_key": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

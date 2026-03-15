@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array"
+    },
+    "project": {
+      "type": "string"
+    },
+    "all_projects": {
+      "type": "boolean"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "limit": {
+      "type": "number"
+    }
+  },
+  "additionalProperties": false
+}

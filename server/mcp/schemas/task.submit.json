@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.submit",
+  "title": "task.submit",
+  "description": "Schema for submitting a task.",
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "description": "The task description/instructions. For local LLMs: Be specific! Include exact file paths, concrete changes, and clear acceptance criteria. Example: \"Add unit test for CalculateTotal method in tests/OrderTests.cs covering null input case\""
+    },
+    "working_directory": {
+      "type": "string",
+      "description": "Working directory for the task (defaults to current directory)"
+    },
+    "timeout_minutes": {
+      "type": "number",
+      "description": "Timeout in minutes before auto-cancellation (default: 30)",
+      "default": 30
+    },
+    "auto_approve": {
+      "type": "boolean",
+      "description": "Auto-approve actions (WARNING: bypasses sandbox)",
+      "default": false
+    },
+    "priority": {
+      "type": "number",
+      "description": "Task priority (higher = processed first when queued)",
+      "default": 0
+    },
+    "provider": {
+      "type": "string",
+      "description": "Execution provider (codex, claude-cli, ollama, aider-ollama, hashline-ollama, hashline-openai, anthropic, deepinfra, groq, hyperbolic). Defaults to configured default provider.",
+      "enum": [
+        "codex",
+        "claude-cli",
+        "ollama",
+        "aider-ollama",
+        "hashline-ollama",
+        "hashline-openai",
+        "anthropic",
+        "deepinfra",
+        "groq",
+        "hyperbolic"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "description": "Model to use. For ollama/aider-ollama: e.g., mistral:7b, qwen2.5-coder:7b (use list_ollama_models to see available). For codex: e.g., gpt-5.3-codex-spark (passed as -m flag)."
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "additionalProperties": false
+}

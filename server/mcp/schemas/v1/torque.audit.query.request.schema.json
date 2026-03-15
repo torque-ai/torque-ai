@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "entity_type": {
+      "type": "string"
+    },
+    "entity_id": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "since": {
+      "type": "string"
+    },
+    "until": {
+      "type": "string"
+    },
+    "limit": {
+      "type": "number"
+    },
+    "offset": {
+      "type": "number"
+    },
+    "include_stats": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

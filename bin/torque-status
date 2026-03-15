@@ -1,0 +1,243 @@
+#!/usr/bin/env node
+/**
+ * TORQUE CLI - Quick status and queue management
+ *
+ * Usage:
+ *   torque-status              # Show summary
+ *   torque-status running      # List running tasks
+ *   torque-status queued       # List queued tasks
+ *   torque-status failed       # List failed tasks
+ *   torque-status completed    # List completed tasks
+ *   torque-status task <id>    # Get task details
+ *   torque-status hosts        # Show Ollama hosts
+ *   torque-status watch        # Live updating status
+ */
+
+const path = require('path');
+const db = require(path.join(__dirname, '..', 'server', 'database'));
+
+db.init();
+
+const args = process.argv.slice(2);
+const command = args[0] || 'summary';
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  return d.toLocaleTimeString();
+}
+
+function truncate(str, len = 50) {
+  if (!str) return '-';
+  return str.length > len ? str.slice(0, len) + '...' : str;
+}
+
+function printSummary() {
+  const queued = db.countTasks({ status: 'queued' });
+  const running = db.countTasks({ status: 'running' });
+  const completed = db.countTasks({ status: 'completed' });
+  const failed = db.countTasks({ status: 'failed' });
+  const pending = db.countTasks({ status: 'pending_provider_switch' });
+
+  console.log('\n  TORQUE Task Queue');
+  console.log('  ' + '='.repeat(40));
+  console.log(`  Queued:     ${queued}`);
+  console.log(`  Running:    ${running}`);
+  console.log(`  Completed:  ${completed}`);
+  console.log(`  Failed:     ${failed}`);
+  if (pending > 0) {
+    console.log(`  Pending:    ${pending}`);
+  }
+  console.log('  ' + '-'.repeat(40));
+  console.log(`  Total:      ${queued + running + completed + failed + pending}`);
+  console.log();
+
+  // Show running tasks
+  if (running > 0) {
+    const tasks = db.listTasks({ status: 'running', limit: 10 });
+    console.log('  Running Tasks:');
+    tasks.forEach(t => {
+      const host = t.ollama_host_id || 'unknown';
+      const model = t.model || '-';
+      console.log(`    [${t.id.slice(0,8)}] ${host} (${model}) - ${truncate(t.task_description, 40)}`);
+    });
+    console.log();
+  }
+}
+
+function listTasks(status, limit = 20) {
+  const tasks = db.listTasks({ status, limit });
+
+  if (tasks.length === 0) {
+    console.log(`\n  No ${status} tasks.\n`);
+    return;
+  }
+
+  console.log(`\n  ${status.toUpperCase()} Tasks (${tasks.length}):`);
+  console.log('  ' + '-'.repeat(80));
+
+  tasks.forEach(t => {
+    const id = t.id.slice(0, 8);
+    const provider = (t.provider || 'codex').padEnd(8);
+    const model = (t.model || '-').padEnd(15);
+    const host = (t.ollama_host_id || '-').padEnd(12);
+    const desc = truncate(t.task_description, 35);
+    const time = formatDate(t.started_at || t.created_at);
+
+    console.log(`  ${id} | ${provider} | ${model} | ${host} | ${time} | ${desc}`);
+  });
+  console.log();
+}
+
+function getTask(taskId) {
+  // Support partial ID matching
+  let task = db.getTask(taskId);
+
+  if (!task) {
+    // Try to find by partial ID
+    const all = db.listTasks({ limit: 1000 });
+    task = all.find(t => t.id.startsWith(taskId));
+  }
+
+  if (!task) {
+    console.log(`\n  Task not found: ${taskId}\n`);
+    return;
+  }
+
+  console.log('\n  Task Details');
+  console.log('  ' + '='.repeat(60));
+  console.log(`  ID:          ${task.id}`);
+  console.log(`  Status:      ${task.status}`);
+  console.log(`  Provider:    ${task.provider || 'codex'}`);
+  console.log(`  Model:       ${task.model || '-'}`);
+  console.log(`  Host:        ${task.ollama_host_id || '-'}`);
+  console.log(`  Created:     ${task.created_at}`);
+  console.log(`  Started:     ${task.started_at || '-'}`);
+  console.log(`  Completed:   ${task.completed_at || '-'}`);
+  console.log('  ' + '-'.repeat(60));
+  console.log('  Description:');
+  console.log(`  ${task.task_description}`);
+
+  if (task.output) {
+    console.log('  ' + '-'.repeat(60));
+    console.log('  Output (last 500 chars):');
+    console.log(`  ${task.output.slice(-500)}`);
+  }
+
+  if (task.error_output) {
+    console.log('  ' + '-'.repeat(60));
+    console.log('  Error:');
+    console.log(`  ${task.error_output}`);
+  }
+  console.log();
+}
+
+function showHosts() {
+  const hosts = db.listOllamaHosts();
+
+  console.log('\n  Ollama Hosts');
+  console.log('  ' + '='.repeat(60));
+
+  hosts.forEach(h => {
+    const status = h.is_available ? 'ONLINE' : 'OFFLINE';
+    const models = h.available_models ? JSON.parse(h.available_models).join(', ') : '-';
+    console.log(`  ${h.name} (${h.host_id})`);
+    console.log(`    URL:      ${h.url}`);
+    console.log(`    Status:   ${status}`);
+    console.log(`    Priority: ${h.priority}`);
+    console.log(`    Capacity: ${h.capacity_weight}`);
+    console.log(`    Models:   ${truncate(models, 50)}`);
+    console.log();
+  });
+}
+
+async function watch() {
+  console.clear();
+  console.log('  TORQUE Live Status (Ctrl+C to exit)\n');
+
+  const update = () => {
+    // Move cursor to top
+    process.stdout.write('\x1B[3;0H');
+
+    const queued = db.countTasks({ status: 'queued' });
+    const running = db.countTasks({ status: 'running' });
+    const completed = db.countTasks({ status: 'completed' });
+    const failed = db.countTasks({ status: 'failed' });
+
+    console.log(`  Queued: ${String(queued).padStart(5)} | Running: ${String(running).padStart(3)} | Completed: ${String(completed).padStart(5)} | Failed: ${String(failed).padStart(4)}`);
+    console.log('  ' + '-'.repeat(70));
+
+    const tasks = db.listTasks({ status: 'running', limit: 10 });
+
+    // Clear previous task lines
+    for (let i = 0; i < 12; i++) {
+      console.log(' '.repeat(80));
+    }
+    process.stdout.write('\x1B[6;0H');
+
+    if (tasks.length > 0) {
+      console.log('  Running:');
+      tasks.forEach(t => {
+        const host = (t.ollama_host_id || '-').padEnd(12);
+        const model = (t.model || '-').padEnd(15);
+        console.log(`    [${t.id.slice(0,8)}] ${host} ${model} ${truncate(t.task_description, 35)}`);
+      });
+    } else {
+      console.log('  No running tasks');
+    }
+
+    console.log('\n  Updated:', new Date().toLocaleTimeString());
+  };
+
+  update();
+  setInterval(update, 2000);
+}
+
+// Command routing
+switch (command) {
+  case 'summary':
+  case 'status':
+    printSummary();
+    break;
+  case 'running':
+  case 'queued':
+  case 'failed':
+  case 'completed':
+  case 'pending_provider_switch':
+    listTasks(command, parseInt(args[1]) || 20);
+    break;
+  case 'task':
+    if (!args[1]) {
+      console.log('\n  Usage: torque-status task <id>\n');
+    } else {
+      getTask(args[1]);
+    }
+    break;
+  case 'hosts':
+    showHosts();
+    break;
+  case 'watch':
+  case 'live':
+    watch();
+    break;
+  case 'help':
+  case '--help':
+  case '-h':
+    console.log(`
+  TORQUE CLI - Quick status and queue management
+
+  Usage:
+    torque-status              Show summary
+    torque-status running      List running tasks
+    torque-status queued [n]   List queued tasks (default 20)
+    torque-status failed       List failed tasks
+    torque-status completed    List completed tasks
+    torque-status task <id>    Get task details (supports partial ID)
+    torque-status hosts        Show Ollama hosts
+    torque-status watch        Live updating status
+`);
+    break;
+  default:
+    console.log(`\n  Unknown command: ${command}`);
+    console.log('  Run "torque-status help" for usage.\n');
+}

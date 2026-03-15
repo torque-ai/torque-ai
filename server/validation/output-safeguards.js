@@ -1,0 +1,723 @@
+/**
+ * Output Safeguards Module
+ *
+ * Post-task validation pipeline: quality scoring, security scanning,
+ * build checks, accessibility, XAML validation, etc.
+ *
+ * Extracted from task-manager.js (Phase 5 decomposition).
+ */
+
+const path = require('path');
+const fs = require('fs');
+const { CODE_EXTENSIONS, SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../constants');
+const serverConfig = require('../config');
+const logger = require('../logger').child({ component: 'output-safeguards' });
+
+// ─── Injected dependencies ──────────────────────────────────────────────────
+let db = null;
+let _getFileChangesForValidation = null;
+let _checkFileQuality = null;
+let _parseAiderOutput = null;
+let _verifyHashlineReferences = null;
+let _cleanupJunkFiles = null;
+let _findPlaceholderArtifacts = null;
+
+function init(deps) {
+  if (deps.db) db = deps.db;
+  if (deps.getFileChangesForValidation) _getFileChangesForValidation = deps.getFileChangesForValidation;
+  if (deps.checkFileQuality) _checkFileQuality = deps.checkFileQuality;
+  if (deps.parseAiderOutput) _parseAiderOutput = deps.parseAiderOutput;
+  if (deps.verifyHashlineReferences) _verifyHashlineReferences = deps.verifyHashlineReferences;
+  if (deps.cleanupJunkFiles) _cleanupJunkFiles = deps.cleanupJunkFiles;
+  if (deps.findPlaceholderArtifacts) _findPlaceholderArtifacts = deps.findPlaceholderArtifacts;
+}
+
+// ─── Secret Sanitization ────────────────────────────────────────────────────
+
+// Maximum input length for secret pattern matching (ReDoS protection)
+const MAX_SANITIZE_LENGTH = 100000; // 100KB
+
+// Patterns that may indicate secrets in output (used for sanitization)
+// SECURITY: Patterns are designed to avoid catastrophic backtracking:
+// - Use anchored/bounded quantifiers where possible
+// - Limit repetition lengths to prevent ReDoS
+// - Avoid nested quantifiers like (a+)+
+const SECRET_PATTERNS = [
+  /api[_-]?key[=:\s]+['"]?[\w-]{20,64}/gi,        // API keys (bounded length)
+  /secret[=:\s]+['"]?[\w-]{16,128}/gi,             // Secrets (bounded length)
+  /password[=:\s]+['"]?[^\s'"]{8,64}/gi,           // Passwords (bounded length)
+  /bearer\s+[\w\-_.]{10,500}/gi,                   // Bearer tokens (bounded, safe chars)
+  /authorization[=:\s]+['"]?[\w\-_.=+/]{10,500}/gi, // Auth headers (bounded, safe chars)
+  /token[=:\s]+['"]?[\w-]{20,256}/gi,              // Tokens (bounded length)
+  /-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----/gi,  // Private keys (no quantifiers on groups)
+  /aws[_-]?(?:access[_-]?key|secret)[=:\s]+['"]?[\w]{16,64}/gi  // AWS keys (bounded, no nested groups)
+];
+
+/**
+ * Sanitize output text by redacting potential secrets
+ * SECURITY: Implements length limit to prevent ReDoS attacks
+ * @param {string} text - The text to sanitize
+ * @returns {string} Sanitized text with secrets redacted
+ */
+function sanitizeOutputForCondition(text) {
+  if (typeof text !== 'string') return '';
+
+  // SECURITY: Limit input length to prevent ReDoS attacks
+  // For very long strings, truncate before pattern matching
+  const truncated = text.length > MAX_SANITIZE_LENGTH
+    ? text.substring(0, MAX_SANITIZE_LENGTH) + '\n[OUTPUT TRUNCATED FOR SECURITY SCANNING]'
+    : text;
+
+  let sanitized = truncated;
+  for (const pattern of SECRET_PATTERNS) {
+    // Reset lastIndex for global patterns to ensure consistent behavior
+    pattern.lastIndex = 0;
+    sanitized = sanitized.replace(pattern, '[REDACTED]');
+  }
+  return sanitized;
+}
+
+// ─── Main Output Safeguards Pipeline ────────────────────────────────────────
+
+async function runOutputSafeguards(taskId, status, task) {
+  try {
+    // Check if adaptive retry is enabled
+    const retryEnabled = serverConfig.getBool('adaptive_retry_enabled');
+    const qualityScoringEnabled = serverConfig.getBool('quality_scoring_enabled');
+    const providerStatsEnabled = serverConfig.getBool('provider_stats_enabled');
+    const buildCheckEnabled = serverConfig.isOptIn('build_check_enabled');
+
+    let validationScore = 100;
+    let syntaxScore = 100;
+    let completenessScore = 100;
+
+    // 1. Run output validation (for completed tasks)
+    if (status === 'completed') {
+      // Get file changes from git to validate
+      const fileChanges = _getFileChangesForValidation(task?.working_directory, 1);
+      logger.info(`Safeguard: validating ${fileChanges.length} changed files for task ${taskId}`);
+
+      const validationResults = db.validateTaskOutput(taskId, fileChanges);
+
+      // Check if any validation failures exist
+      if (validationResults.length > 0) {
+        const criticalOrErrors = validationResults.filter(r =>
+          r.severity === 'critical' || r.severity === 'error'
+        );
+
+        // Calculate validation score (deduct points for issues)
+        validationScore = Math.max(0, 100 - (criticalOrErrors.length * 20) - (validationResults.length - criticalOrErrors.length) * 5);
+
+        if (criticalOrErrors.length > 0) {
+          logger.info(`[Safeguard] Task ${taskId} has ${criticalOrErrors.length} validation errors`);
+
+          // Mark task as having validation issues
+          db.setConfig(`task_${taskId}_validation_status`, 'failed');
+
+          // Check if any critical validation errors have auto_fail or indicate destructive changes
+          const hasCriticalAutoFail = criticalOrErrors.some(r =>
+            r.severity === 'critical' || r.auto_fail === true
+          );
+
+          // Auto-rollback on critical validation failure (file truncation, etc.)
+          if (hasCriticalAutoFail && task?.working_directory) {
+            const autoRollbackOnValidation = serverConfig.getBool('auto_rollback_on_validation_failure');
+            if (autoRollbackOnValidation) {
+              logger.info(`[Safeguard] Auto-rollback triggered for ${taskId} due to critical validation failure`);
+
+              // Record file changes in database before rollback (so performAutoRollback can find them)
+              for (const fc of fileChanges) {
+                try {
+                  db.recordFileChange(taskId, fc.path, 'modified', {
+                    fileSizeBytes: fc.size,
+                    workingDirectory: task.working_directory
+                  });
+                } catch (e) {
+                  logger.info(`[Safeguard] Failed to record file change: ${e.message}`);
+                }
+              }
+
+              const rollback = db.performAutoRollback(taskId, task.working_directory, 'validation_failure', 1);
+              if (rollback.success) {
+                logger.info(`[Safeguard] Auto-rollback successful: ${rollback.files_processed} file(s) restored`);
+                // Update task status to indicate validation failure with rollback
+                // Guard: only overwrite if task is still in a non-terminal state
+                // (async safeguards run after close handler — task may already be terminalized)
+                try {
+                  const currentTask = db.getTask(taskId);
+                  if (currentTask && currentTask.status !== 'failed' && currentTask.status !== 'cancelled') {
+                    db.updateTaskStatus(taskId, 'failed', { error_output: 'Critical validation failure - files auto-rolled back: ' + criticalOrErrors.map(e => e.rule_name || e.message).join(', '), completed_at: new Date().toISOString() });
+                  }
+                } catch (e) {
+                  logger.info(`[Safeguard] Failed to update task status: ${e.message}`);
+                }
+              } else {
+                logger.info(`[Safeguard] Auto-rollback had errors: ${JSON.stringify(rollback.errors)}`);
+              }
+            }
+          }
+
+          // Check if adaptive retry should be triggered
+          if (retryEnabled) {
+            const retryDecision = db.shouldRetryWithCloud(taskId, task?.output || '', {
+              validation_failed: true,
+              provider: task?.provider
+            });
+
+            if (retryDecision.shouldRetry) {
+              logger.info(`[Safeguard] Triggering adaptive retry for ${taskId} → ${retryDecision.fallbackProvider}`);
+            }
+          }
+        }
+      }
+    }
+
+    // 1a. Wire checkFileQuality + runSyntaxValidation into syntaxScore
+    if (status === 'completed' && task?.working_directory) {
+      const fileChangesForQuality = _getFileChangesForValidation(task.working_directory, 1);
+      for (const fc of fileChangesForQuality) {
+        const fullPath = path.join(task.working_directory, fc.path);
+        // checkFileQuality (sync)
+        try {
+          const qr = _checkFileQuality(fullPath);
+          if (!qr.valid) {
+            syntaxScore = Math.max(0, syntaxScore - 15 * qr.issues.length);
+            logger.info(`[Safeguard] File quality issues in ${fc.path}: ${qr.issues.join('; ')}`);
+          }
+        } catch { /* ignore */ }
+
+        // runSyntaxValidation (async)
+        try {
+          const sr = await db.runSyntaxValidation(fullPath, task.working_directory);
+          if (sr && sr.results) {
+            const failures = sr.results.filter(r => !r.success);
+            if (failures.length > 0) {
+              syntaxScore = Math.max(0, syntaxScore - 25 * failures.length);
+              logger.info(`[Safeguard] Syntax validation failures in ${fc.path}: ${failures.map(f => f.validator).join(', ')}`);
+            }
+          }
+        } catch { /* validator not available */ }
+      }
+    }
+
+    // 1b. Clean up junk files created by aider hallucinating filenames
+    if (status === 'completed' && task?.working_directory && task?.provider === 'aider-ollama') {
+      try {
+        _cleanupJunkFiles(task.working_directory, taskId);
+      } catch (err) {
+        logger.info(`[Safeguard] Junk file cleanup error for ${taskId}: ${err.message}`);
+      }
+
+      // Treat leftover placeholder files as validation failures rather than silently deleting them.
+      try {
+        const placeholderResult = _findPlaceholderArtifacts
+          ? _findPlaceholderArtifacts(task.working_directory)
+          : { valid: true, issues: [] };
+        if (!placeholderResult.valid) {
+          const diagnostics = placeholderResult.issues.join('\n');
+          db.setConfig(`task_${taskId}_validation_status`, 'failed');
+          db.setConfig(`task_${taskId}_validation_issues`, diagnostics);
+          logger.error(`[Safeguard] Placeholder artifacts remain after task ${taskId}:\n${diagnostics}`);
+        }
+      } catch (err) {
+        logger.info(`[Safeguard] Placeholder artifact reporting error for ${taskId}: ${err.message}`);
+      }
+    }
+
+    // 2. Check for failure patterns (for both completed and failed tasks)
+    const output = task?.output || task?.error_output || '';
+    if (output) {
+      const matches = db.matchFailurePatterns(taskId, output, task?.provider);
+      if (matches.length > 0) {
+        logger.info(`[Safeguard] Task ${taskId} matched ${matches.length} failure patterns`);
+
+        // Check if adaptive retry should be triggered
+        if (retryEnabled && status === 'completed') {
+          const retryDecision = db.shouldRetryWithCloud(taskId, output, {
+            failure_patterns_matched: matches.length,
+            provider: task?.provider
+          });
+
+          if (retryDecision.shouldRetry) {
+            logger.info(`[Safeguard] Failure patterns detected, consider retry with ${retryDecision.fallbackProvider}`);
+          }
+        }
+      }
+    }
+
+    // 3. Check approval requirements (for completed tasks)
+    if (status === 'completed') {
+      const approvalRequired = db.checkApprovalRequired(taskId, {
+        provider: task?.provider,
+        output_size: (task?.output || '').length
+      });
+
+      if (approvalRequired.required) {
+        logger.info(`[Safeguard] Task ${taskId} requires approval: ${approvalRequired.reason}`);
+      }
+    }
+
+    // 3b. Hashline verification (if enabled)
+    let hashlineScore = 100;
+    const hashlineVerificationEnabled = serverConfig.getBool('hashline_verification_enabled');
+    if (hashlineVerificationEnabled && status === 'completed' && task?.working_directory) {
+      try {
+        const hashResult = _verifyHashlineReferences(taskId, output, task.working_directory);
+        hashlineScore = hashResult.score;
+        if (hashResult.mismatched > 0) {
+          logger.info(`[Safeguard] Hashline verification: ${hashResult.matched}/${hashResult.total} matched, ${hashResult.mismatched} stale`);
+        }
+      } catch (e) {
+        logger.info(`[Safeguard] Hashline verification error: ${e.message}`);
+      }
+    }
+
+    // 4. Calculate and record quality score
+    if (qualityScoringEnabled && status === 'completed') {
+      const taskType = db.classifyTaskType(task?.task_description || '');
+
+      // Compute completenessScore based on provider
+      if (task?.provider === 'aider-ollama') {
+        const parsed = _parseAiderOutput(output);
+        completenessScore = parsed.score;
+      } else {
+        // Check if there were actual file changes
+        const fcCheck = _getFileChangesForValidation(task?.working_directory, 1);
+        if (fcCheck.length > 0) {
+          completenessScore = 100;
+        } else if (output.length > 0) {
+          completenessScore = 30;
+        } else {
+          completenessScore = 0;
+        }
+      }
+
+      db.recordQualityScore(taskId, task?.provider || 'unknown', taskType, {
+        validation: validationScore,
+        syntax: syntaxScore,
+        completeness: completenessScore,
+        hashline: hashlineScore,
+        metrics: { outputLength: output.length }
+      });
+
+      // Include hashline score (15% weight) when hashline references were present
+      const hasHashlineRefs = hashlineScore < 100 || (output && /L\d{3}:[0-9a-f]{2}:/.test(output));
+      const overallScore = hasHashlineRefs
+        ? validationScore * 0.35 + syntaxScore * 0.25 + completenessScore * 0.25 + hashlineScore * 0.15
+        : validationScore * 0.4 + syntaxScore * 0.3 + completenessScore * 0.3;
+      logger.info(`[Safeguard] Quality score recorded for ${taskId}: ${overallScore.toFixed(1)}${hasHashlineRefs ? ' (hashline-weighted)' : ''}`);
+    }
+
+    // 5. Update provider statistics
+    if (providerStatsEnabled) {
+      const taskType = db.classifyTaskType(task?.task_description || '');
+      const durationSeconds = task?.started_at && task?.completed_at
+        ? (new Date(task.completed_at) - new Date(task.started_at)) / 1000
+        : null;
+
+      const hasHashlineRefs = hashlineScore < 100 || (output && /L\d{3}:[0-9a-f]{2}:/.test(output));
+      const qualityScore = qualityScoringEnabled
+        ? (hasHashlineRefs
+          ? validationScore * 0.35 + syntaxScore * 0.25 + completenessScore * 0.25 + hashlineScore * 0.15
+          : validationScore * 0.4 + syntaxScore * 0.3 + completenessScore * 0.3)
+        : null;
+
+      db.updateProviderStats(
+        task?.provider || 'unknown',
+        taskType,
+        status === 'completed',
+        qualityScore,
+        durationSeconds
+      );
+
+      logger.info(`[Safeguard] Provider stats updated: ${task?.provider || 'unknown'} / ${taskType}`);
+    }
+
+    // 6. Run build check (if enabled and task was code-related)
+    if (buildCheckEnabled && status === 'completed' && task?.working_directory) {
+      const taskType = db.classifyTaskType(task?.task_description || '');
+      const isCodeTask = ['feature', 'bugfix', 'refactoring', 'modification'].includes(taskType);
+
+      if (isCodeTask) {
+        logger.info(`[Safeguard] Running build check for ${taskId}...`);
+        db.runBuildCheck(taskId, task.working_directory)
+          .then(result => {
+            if (result.checked) {
+              logger.info(`[Safeguard] Build check ${result.passed ? 'PASSED' : 'FAILED'} for ${taskId}`);
+            }
+          })
+          .catch(err => {
+            logger.info(`[Safeguard] Build check error for ${taskId}:`, err.message);
+          });
+      }
+    }
+
+    // ============ Extended Safeguards ============
+
+    // 7. Record cost tracking (for cloud providers)
+    const costTrackingEnabled = serverConfig.getBool('cost_tracking_enabled');
+    if (costTrackingEnabled && status === 'completed' && task?.provider) {
+      const outputLength = (task?.output || '').length;
+      const inputLength = (task?.task_description || '').length;
+      const estimatedInputTokens = Math.ceil(inputLength / 4);
+      const estimatedOutputTokens = Math.ceil(outputLength / 4);
+
+      if (task.provider !== 'aider-ollama') {
+        db.recordCost(
+          task.provider,
+          taskId,
+          estimatedInputTokens,
+          estimatedOutputTokens,
+          task.model || null
+        );
+        logger.info(`[Safeguard] Cost tracked for ${taskId}: ~${estimatedInputTokens}/${estimatedOutputTokens} tokens`);
+      }
+    }
+
+    // 8. Run security scan (for completed code tasks)
+    const securityScanEnabled = serverConfig.getBool('security_scan_enabled');
+    if (securityScanEnabled && status === 'completed' && task?.working_directory) {
+      const fileChanges = db.getTaskFileChanges(taskId);
+      let totalIssues = 0;
+
+      for (const change of fileChanges) {
+        if (change.new_content && change.file_path) {
+          const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
+          if (CODE_EXTENSIONS.has(ext.toLowerCase())) {
+            const issues = db.runSecurityScan(taskId, change.file_path, change.new_content);
+            totalIssues += issues.length;
+          }
+        }
+      }
+
+      if (totalIssues > 0) {
+        logger.info(`[Safeguard] Security scan found ${totalIssues} potential issues for ${taskId}`);
+      }
+    }
+
+    // 9. Check timeout alerts
+    const timeoutAlertsEnabled = serverConfig.getBool('timeout_alerts_enabled');
+    if (timeoutAlertsEnabled && task?.timeout_minutes) {
+      const alerts = db.getTimeoutAlerts(taskId);
+      if (alerts.length > 0) {
+        logger.info(`[Safeguard] Task ${taskId} had ${alerts.length} timeout alert(s)`);
+      }
+    }
+
+    // 10. Check output size limits
+    const outputLimitsEnabled = serverConfig.getBool('output_limits_enabled');
+    if (outputLimitsEnabled && status === 'completed' && task?.provider) {
+      const outputSize = (task?.output || '').length;
+      const fileChanges = db.getTaskFileChanges(taskId).map(c => ({
+        path: c.file_path,
+        size: (c.new_content || '').length
+      }));
+
+      const limitCheck = db.checkOutputSizeLimits(taskId, task.provider, outputSize, fileChanges);
+      if (!limitCheck.withinLimits) {
+        logger.info(`[Safeguard] Output size limit exceeded for ${taskId}: ${JSON.stringify(limitCheck.violations || [])}`);
+      }
+    }
+
+    // 11. Record audit trail event
+    const auditEnabled = serverConfig.getBool('audit_trail_enabled');
+    if (auditEnabled) {
+      db.recordAuditEvent(
+        'task_status_change',
+        'task',
+        taskId,
+        status,
+        task?.provider || 'system',
+        null,
+        { status, provider: task?.provider, working_directory: task?.working_directory }
+      );
+    }
+
+    // 12. Release file locks (for completed/failed tasks)
+    if (['completed', 'failed', 'cancelled'].includes(status)) {
+      const released = db.releaseAllFileLocks(taskId);
+      if (released > 0) {
+        logger.info(`[Safeguard] Released ${released} file lock(s) for ${taskId}`);
+      }
+    }
+
+    // ============ Advanced Safeguards - Wave 4 ============
+
+    // 13. Analyze code complexity (for completed code tasks)
+    const complexityEnabled = serverConfig.getBool('complexity_analysis_enabled');
+    if (complexityEnabled && status === 'completed') {
+      const fileChanges = db.getTaskFileChanges(taskId);
+      let highComplexityCount = 0;
+
+      for (const change of fileChanges) {
+        if (change.new_content && change.file_path) {
+          const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
+          if (CODE_EXTENSIONS.has(ext.toLowerCase())) {
+            const metrics = db.analyzeCodeComplexity(taskId, change.file_path, change.new_content);
+            if (metrics.cyclomatic_complexity > 10) {
+              highComplexityCount++;
+            }
+          }
+        }
+      }
+
+      if (highComplexityCount > 0) {
+        logger.info(`[Safeguard] ${highComplexityCount} file(s) have high complexity (>10) for ${taskId}`);
+      }
+    }
+
+    // 14. Check documentation coverage (for completed code tasks)
+    const docCoverageEnabled = serverConfig.getBool('doc_coverage_enabled');
+    if (docCoverageEnabled && status === 'completed') {
+      const fileChanges = db.getTaskFileChanges(taskId);
+      let lowCoverageCount = 0;
+
+      for (const change of fileChanges) {
+        if (change.new_content && change.file_path) {
+          const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
+          if (CODE_EXTENSIONS.has(ext.toLowerCase())) {
+            const coverage = db.checkDocCoverage(taskId, change.file_path, change.new_content);
+            if (coverage.coverage_percent < 50 && coverage.total_public_items > 0) {
+              lowCoverageCount++;
+            }
+          }
+        }
+      }
+
+      if (lowCoverageCount > 0) {
+        logger.info(`[Safeguard] ${lowCoverageCount} file(s) have low doc coverage (<50%) for ${taskId}`);
+      }
+    }
+
+    // 15. Check accessibility (for UI code)
+    const a11yEnabled = serverConfig.getBool('accessibility_check_enabled');
+    if (a11yEnabled && status === 'completed') {
+      const fileChanges = db.getTaskFileChanges(taskId);
+      let totalViolations = 0;
+
+      for (const change of fileChanges) {
+        if (change.new_content && change.file_path) {
+          const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
+          if (UI_EXTENSIONS.has(ext.toLowerCase())) {
+            const a11y = db.checkAccessibility(taskId, change.file_path, change.new_content);
+            totalViolations += a11y.violations_count;
+          }
+        }
+      }
+
+      if (totalViolations > 0) {
+        logger.info(`[Safeguard] ${totalViolations} accessibility violation(s) found for ${taskId}`);
+      }
+    }
+
+    // 16. Estimate resource usage (detect risky patterns)
+    const resourceEstEnabled = serverConfig.getBool('resource_estimation_enabled');
+    if (resourceEstEnabled && status === 'completed') {
+      const fileChanges = db.getTaskFileChanges(taskId);
+
+      for (const change of fileChanges) {
+        if (change.new_content && change.file_path) {
+          const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
+          if (SOURCE_EXTENSIONS.has(ext.toLowerCase())) {
+            const estimate = db.estimateResourceUsage(taskId, change.file_path, change.new_content);
+            if (estimate.risk_factors?.length > 0) {
+              logger.info(`[Safeguard] Resource risk factors in ${change.file_path}: ${estimate.risk_factors.join(', ')}`);
+            }
+          }
+        }
+      }
+    }
+
+    // 17. Detect configuration drift (if baselines exist)
+    const driftDetectionEnabled = serverConfig.getBool('config_drift_enabled');
+    if (driftDetectionEnabled && status === 'completed' && task?.working_directory) {
+      const drift = db.detectConfigDrift(taskId, task.working_directory);
+      if (drift.count > 0) {
+        logger.info(`[Safeguard] Configuration drift detected: ${drift.count} file(s) changed for ${taskId}`);
+      }
+    }
+
+    // ============ File Location Safeguards - Wave 5 ============
+
+    // 18. Check for files created outside expected directories
+    const locationCheckEnabled = serverConfig.getBool('file_location_check_enabled');
+    if (locationCheckEnabled && status === 'completed' && task?.working_directory) {
+      const anomalies = db.checkFileLocationAnomalies(taskId, task.working_directory);
+      if (anomalies.length > 0) {
+        logger.info(`[Safeguard] File location anomalies detected for ${taskId}:`);
+        for (const anomaly of anomalies) {
+          logger.info(`  - ${anomaly.anomaly_type}: ${anomaly.file_path}`);
+        }
+      }
+    }
+
+    // 19. Check for duplicate files (same name in different locations)
+    const duplicateCheckEnabled = serverConfig.getBool('duplicate_file_check_enabled');
+    if (duplicateCheckEnabled && status === 'completed' && task?.working_directory) {
+      const duplicates = db.checkDuplicateFiles(taskId, task.working_directory);
+      if (duplicates.length > 0) {
+        logger.info(`[Safeguard] Duplicate files detected for ${taskId}:`);
+        for (const dup of duplicates) {
+          logger.info(`  - ${dup.file_name} found in ${dup.location_count} locations`);
+          if (dup.locations) {
+            for (const loc of dup.locations) {
+              logger.info(`      ${loc}`);
+            }
+          }
+        }
+      }
+    }
+
+    // ============ Code Verification Safeguards - Wave 6 ============
+
+    // 20. Verify type references exist (detect hallucinated interfaces)
+    const typeVerifyEnabled = serverConfig.getBool('type_verification_enabled');
+    if (typeVerifyEnabled && status === 'completed' && task?.working_directory) {
+      const fileChanges = db.getTaskFileChanges(taskId);
+      let missingTypesTotal = 0;
+
+      for (const change of fileChanges) {
+        if (change.new_content && change.file_path) {
+          const codeExtensions = ['.cs', '.ts', '.tsx'];
+          const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
+          if (codeExtensions.includes(ext.toLowerCase())) {
+            const verification = db.verifyTypeReferences(taskId, change.file_path, change.new_content, task.working_directory);
+            missingTypesTotal += verification.missing_types;
+          }
+        }
+      }
+
+      if (missingTypesTotal > 0) {
+        logger.info(`[Safeguard] Type verification found ${missingTypesTotal} missing/hallucinated type(s) for ${taskId}`);
+      }
+    }
+
+    // 21. Analyze build output for errors (after build check runs)
+    const buildAnalysisEnabled = serverConfig.getBool('build_analysis_enabled');
+    if (buildAnalysisEnabled && status === 'completed' && task?.working_directory) {
+      const buildResults = db.prepare ? db.prepare('SELECT * FROM build_checks WHERE task_id = ? ORDER BY checked_at DESC LIMIT 1').get(taskId) : null;
+      if (buildResults && buildResults.exit_code !== 0 && buildResults.error_output) {
+        const analysis = db.analyzeBuildOutput(taskId, buildResults.error_output);
+        if (analysis.errors_found > 0) {
+          logger.info(`[Safeguard] Build error analysis for ${taskId}:`);
+          logger.info(`  - ${analysis.errors_found} error(s) found`);
+          if (analysis.has_namespace_conflicts) {
+            logger.info(`  - Namespace conflicts detected (CS0104)`);
+          }
+          if (analysis.has_missing_types) {
+            logger.info(`  - Missing types detected (CS0246)`);
+          }
+
+          // 22. Auto-rollback on build failure (if enabled)
+          const autoRollbackEnabled = serverConfig.isOptIn('auto_rollback_on_build_failure');
+          if (autoRollbackEnabled) {
+            logger.info(`[Safeguard] Auto-rollback triggered for ${taskId} due to build failure`);
+            const rollback = db.performAutoRollback(taskId, task.working_directory, 'build_failure', 1);
+            if (rollback.success) {
+              logger.info(`[Safeguard] Auto-rollback successful: ${rollback.files_processed} file(s) restored`);
+            } else {
+              logger.info(`[Safeguard] Auto-rollback had errors: ${JSON.stringify(rollback.errors)}`);
+            }
+          }
+        }
+      }
+    }
+
+    // ============ XAML Validation Safeguards - Wave 7 ============
+
+    // 23. Validate XAML semantics (detect TemplateBinding misuse, etc.)
+    const xamlValidationEnabled = serverConfig.getBool('xaml_validation_enabled');
+    if (xamlValidationEnabled && status === 'completed' && task?.working_directory) {
+      const fileChanges = db.getTaskFileChanges(taskId);
+      let xamlIssuesTotal = 0;
+
+      for (const change of fileChanges) {
+        if (change.new_content && change.file_path) {
+          const ext = change.file_path.substring(change.file_path.lastIndexOf('.')).toLowerCase();
+          if (ext === '.xaml') {
+            const validation = db.validateXamlSemantics(taskId, change.file_path, change.new_content);
+            xamlIssuesTotal += validation.errors;
+
+            // 24. Check XAML/code-behind consistency
+            const xamlConsistencyEnabled = serverConfig.getBool('xaml_consistency_enabled');
+            if (xamlConsistencyEnabled) {
+              const codeBehindPath = change.file_path + '.cs';
+              const codeBehindChange = fileChanges.find(c => c.file_path === codeBehindPath);
+              if (codeBehindChange?.new_content) {
+                const consistency = db.checkXamlCodeBehindConsistency(
+                  taskId,
+                  change.file_path,
+                  change.new_content,
+                  codeBehindChange.new_content
+                );
+                if (consistency.errors > 0) {
+                  logger.info(`[Safeguard] XAML/code-behind consistency issues for ${change.file_path}: ${consistency.errors} error(s)`);
+                }
+              } else {
+                try {
+                  const fullPath = path.isAbsolute(codeBehindPath) ? codeBehindPath : path.join(task.working_directory, codeBehindPath);
+                  if (fs.existsSync(fullPath)) {
+                    const codeBehindContent = fs.readFileSync(fullPath, 'utf8');
+                    const consistency = db.checkXamlCodeBehindConsistency(
+                      taskId,
+                      change.file_path,
+                      change.new_content,
+                      codeBehindContent
+                    );
+                    if (consistency.errors > 0) {
+                      logger.info(`[Safeguard] XAML/code-behind consistency issues for ${change.file_path}: ${consistency.errors} error(s)`);
+                    }
+                  }
+                } catch {
+                  // Silently skip if we can't read the code-behind
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (xamlIssuesTotal > 0) {
+        logger.info(`[Safeguard] XAML validation found ${xamlIssuesTotal} semantic error(s) for ${taskId}`);
+      }
+    }
+
+    // 25. Run app smoke test after XAML changes (if enabled)
+    const smokeTestEnabled = serverConfig.isOptIn('xaml_smoke_test_enabled');
+    if (smokeTestEnabled && status === 'completed' && task?.working_directory) {
+      const fileChanges = db.getTaskFileChanges(taskId);
+      const hasXamlChanges = fileChanges.some(c =>
+        c.file_path?.toLowerCase().endsWith('.xaml') ||
+        c.file_path?.toLowerCase().endsWith('.xaml.cs')
+      );
+
+      if (hasXamlChanges) {
+        logger.info(`[Safeguard] Running app smoke test for ${taskId} due to XAML changes`);
+        try {
+          const smokeResult = db.runAppSmokeTestSync(taskId, task.working_directory, { timeoutSeconds: 10 });
+          if (!smokeResult.passed) {
+            logger.info(`[Safeguard] Smoke test FAILED for ${taskId} (exit code: ${smokeResult.exit_code})`);
+            if (smokeResult.error_output) {
+              logger.info(`[Safeguard] Smoke test error: ${smokeResult.error_output.slice(0, 500)}`);
+            }
+          } else {
+            logger.info(`[Safeguard] Smoke test PASSED for ${taskId}`);
+          }
+        } catch (smokeErr) {
+          logger.info(`[Safeguard] Smoke test execution error for ${taskId}: ${smokeErr.message}`);
+        }
+      }
+    }
+
+  } catch (err) {
+    logger.info(`[Safeguard] Error running safeguards for task ${taskId}:`, err.message);
+  }
+}
+
+module.exports = {
+  init,
+  runOutputSafeguards,
+  sanitizeOutputForCondition,
+  MAX_SANITIZE_LENGTH,
+  SECRET_PATTERNS,
+};

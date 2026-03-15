@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "torque": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["PATH_TO_TORQUE/server/index.js"],
+      "cwd": "PATH_TO_TORQUE/server",
+      "description": "TORQUE - Task Orchestration System with local LLM routing"
+    }
+  }
+}

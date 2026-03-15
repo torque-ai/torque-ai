@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  torque:
+    build: .
+    container_name: torque-server
+    ports:
+      - "3456:3456"  # Dashboard (web UI + WebSocket)
+      - "3457:3457"  # REST API
+      - "3458:3458"  # MCP SSE transport
+      - "9394:9394"  # GPU metrics (optional)
+    volumes:
+      - torque-data:/data           # Persistent SQLite database
+      - ./projects:/projects:ro     # Mount project directories (read-only)
+    environment:
+      - TORQUE_DATA_DIR=/data
+      - NODE_ENV=production
+      # Ollama on the Docker host — use host.docker.internal
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      # Cloud provider API keys (uncomment and set as needed)
+      # - DEEPINFRA_API_KEY=
+      # - HYPERBOLIC_API_KEY=
+      # - OPENAI_API_KEY=
+      # - ANTHROPIC_API_KEY=
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    # Keep stdin open for MCP stdio protocol
+    stdin_open: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: torque-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - torque
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  torque-data:
+    name: torque-data
+  prometheus-data:
+    name: torque-prometheus-data

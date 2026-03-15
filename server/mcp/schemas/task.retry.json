@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.retry",
+  "title": "task.retry",
+  "description": "Schema for retrying a task.",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "ID of the failed task to retry"
+    },
+    "modified_task": {
+      "type": "string",
+      "description": "Optional: modified task description for the retry"
+    }
+  },
+  "required": [
+    "task_id"
+  ],
+  "additionalProperties": false
+}

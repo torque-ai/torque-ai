@@ -1,0 +1,68 @@
+# Worktrees
+.worktrees/
+
+# Dependencies
+node_modules/
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+server/tasks.db
+server/tasks.db-wal
+server/tasks.db-shm
+
+# Context files created during tasks
+.codex-context/
+
+# Environment variables
+.env
+.env.local
+
+# Local config files
+.claude/*.local.md
+.mcp.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Logs
+*.log
+*.log.*
+npm-debug.log*
+
+# Test artifacts
+coverage/
+.nyc_output/
+server/tests/_*
+
+# Runtime caches
+server/.cache/
+
+# Temporary worktree isolation dirs
+server/.tmp/
+
+# Screenshots
+screenshots/
+
+# Dashboard build output
+dashboard/dist/
+
+# Code review artifacts
+docs/reviews/
+
+# Aider history
+.aider.*
+.aider*
+.claude/settings.local.json
+
+# Stray artifacts
+artifacts/releases/
+server/artifacts/
+server/eng.traineddata

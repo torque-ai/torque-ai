@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "subscription_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cursor_token": {
+      "type": "string",
+      "minLength": 1
+    },
+    "idempotency_key": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

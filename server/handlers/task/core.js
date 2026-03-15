@@ -1,0 +1,1154 @@
+/**
+ * Task Core — Core lifecycle handlers
+ * Extracted from task-handlers.js during decomposition.
+ *
+ * Handlers: handleSubmitTask, handleQueueTask, handleCheckStatus, handleGetResult,
+ *           handleWaitForTask, handleListTasks, handleCancelTask, handleConfigure,
+ *           handleGetProgress, handleShareContext, handleSyncFiles
+ */
+
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
+const db = require('../../database');
+const serverConfig = require('../../config');
+const taskManager = require('../../task-manager');
+const {
+  buildPeekArtifactReferencesFromTaskArtifacts,
+} = require('../../contracts/peek');
+const { safeLimit, MAX_BATCH_SIZE, MAX_TASK_LENGTH, ErrorCodes, makeError, isPathTraversalSafe, checkProviderAvailability, requireTask } = require('../shared');
+const { formatTime, calculateDuration } = require('./utils');
+const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
+const { resolveContextFiles } = require('../../utils/smart-scan');
+const { PROVIDER_DEFAULT_TIMEOUTS } = require('../../constants');
+const logger = require('../../logger');
+
+/**
+ * Validate that an object does not exceed a maximum nesting depth.
+ * Prevents stack-overflow DoS from deeply nested metadata payloads.
+ */
+function checkDepth(obj, max = 20, depth = 0) {
+  if (depth > max) throw new Error('Metadata nesting exceeds maximum depth');
+  if (obj && typeof obj === 'object') {
+    for (const v of Object.values(obj)) checkDepth(v, max, depth + 1);
+  }
+}
+
+function getTaskInfoPressureLevel() {
+  try {
+    const info = typeof taskManager.getResourcePressureInfo === 'function'
+      ? taskManager.getResourcePressureInfo()
+      : null;
+    return info && typeof info.level === 'string' ? info.level : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function rejectBlockedSubmission(policyResult) {
+  if (!policyResult || policyResult.blocked !== true) {
+    return null;
+  }
+  const message = policyResult.reason || policyResult.error || 'Task blocked by policy';
+  return makeError(ErrorCodes.OPERATION_FAILED, message);
+}
+
+
+function formatTaskStatus(task, progress) {
+  let result = `## Task: ${task.id}\n\n`;
+  result += `**Status:** ${task.status}\n`;
+  result += `**Description:** ${task.task_description}\n`;
+  result += `**Working Directory:** ${task.working_directory || '(default)'}\n`;
+  result += `**Timeout:** ${task.timeout_minutes} minutes\n`;
+  result += `**Auto-approve:** ${task.auto_approve ? 'Yes' : 'No'}\n`;
+  result += `**Priority:** ${task.priority}\n`;
+  result += `**Resource Pressure:** ${getTaskInfoPressureLevel()}\n`;
+  if (task.provider) {
+    result += `**Provider:** ${task.provider}\n`;
+  }
+  if (task.ollama_host_id) {
+    const host = db.getOllamaHost(task.ollama_host_id);
+    if (host) {
+      result += `**Ollama Host:** ${host.name} (\`${host.url}\`)\n`;
+    } else {
+      result += `**Ollama Host:** ${task.ollama_host_id}\n`;
+    }
+  }
+  if (task.model) {
+    result += `**Model:** ${task.model}\n`;
+  }
+  result += `**Created:** ${formatTime(task.created_at)}\n`;
+  if (task.started_at) {
+    result += `**Started:** ${formatTime(task.started_at)}\n`;
+  }
+  if (task.completed_at) {
+    result += `**Completed:** ${formatTime(task.completed_at)}\n`;
+    result += `**Duration:** ${calculateDuration(task.started_at, task.completed_at)}\n`;
+  }
+  if (progress) {
+    result += `**Progress:** ${progress.progress}%\n`;
+    if (progress.elapsedSeconds) {
+      result += `**Elapsed:** ${progress.elapsedSeconds}s\n`;
+    }
+  }
+  if (task.status === 'running') {
+    const activity = taskManager.getTaskActivity(task.id, { skipGitCheck: true });
+    if (activity) {
+      if (activity.isStalled) {
+        result += `**Activity:** \u26a0\ufe0f STALLED (no output for ${activity.lastActivitySeconds}s)\n`;
+      } else if (activity.lastActivitySeconds > 30) {
+        result += `**Activity:** Last output ${activity.lastActivitySeconds}s ago\n`;
+      } else {
+        result += `**Activity:** \u2713 Active (last output ${activity.lastActivitySeconds}s ago)\n`;
+      }
+    }
+  }
+  if (task.exit_code !== null) {
+    result += `**Exit Code:** ${task.exit_code}\n`;
+  }
+  return result;
+}
+
+function buildTaskPeekArtifactSection(taskId) {
+  if (!taskId || typeof db.listArtifacts !== 'function') {
+    return '';
+  }
+
+  try {
+    const artifacts = db.listArtifacts(taskId);
+    const refs = buildPeekArtifactReferencesFromTaskArtifacts(artifacts, { task_id: taskId });
+    if (refs.length === 0) {
+      return '';
+    }
+
+    const artifactById = new Map(
+      artifacts
+        .filter((artifact) => artifact && typeof artifact.id === 'string')
+        .map((artifact) => [artifact.id, artifact])
+    );
+
+    const lines = ['### Bundle Artifacts'];
+    for (const ref of refs) {
+      const label = ref.task_label ? `${ref.task_label}: ` : '';
+      const details = [];
+      if (ref.artifact_id) {
+        details.push(`artifact ${ref.artifact_id.substring(0, 8)}`);
+      }
+      if (ref.contract?.name && ref.contract?.version != null) {
+        details.push(`${ref.contract.name} v${ref.contract.version}`);
+      }
+
+      const artifact = ref.artifact_id ? artifactById.get(ref.artifact_id) : null;
+      const signedMetadata = artifact?.metadata?.signed_metadata;
+      const integrityValid = artifact?.metadata?.integrity?.valid;
+      if (signedMetadata) {
+        const integrityLabel = integrityValid === true ? 'valid' : integrityValid === false ? 'invalid' : 'unknown';
+        details.push(
+          `signed ${signedMetadata.algorithm}:${signedMetadata.checksum} by ${signedMetadata.signer} at ${signedMetadata.signed_at} (${integrityLabel})`
+        );
+      }
+
+      const suffix = details.length > 0 ? ` (${details.join(', ')})` : '';
+      lines.push(`- ${label}${ref.name || ref.kind || 'artifact'}: ${ref.path}${suffix}`);
+    }
+
+    return `\n${lines.join('\n')}\n`;
+  } catch (err) {
+    logger.debug('[task-core] non-critical error listing task artifacts:', err.message || err);
+    return '';
+  }
+}
+
+
+/**
+ * Submit and immediately start a task
+ */
+function handleSubmitTask(args) {
+  // Phase 3.2: auto_route dispatch — default true routes to smart_submit_task
+  if (args.auto_route !== false && !args.provider) {
+    // Lazy require to avoid circular dependency (integration requires task/core)
+    const { handleSmartSubmitTask } = require('../integration/routing');
+    return handleSmartSubmitTask({
+      task: args.task,
+      working_directory: args.working_directory,
+      timeout_minutes: args.timeout_minutes,
+      priority: args.priority,
+      model: args.model,
+      files: args.files,
+      context_stuff: args.context_stuff,
+      context_depth: args.context_depth,
+      tuning: args.tuning,
+    });
+  }
+
+  // Input validation
+  if (!args.task || typeof args.task !== 'string' || args.task.trim().length === 0) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task must be a non-empty string');
+  }
+  if (args.task.length > MAX_TASK_LENGTH) {
+    return makeError(ErrorCodes.INVALID_PARAM, `Task description exceeds maximum length (${args.task.length} > ${MAX_TASK_LENGTH} characters)`);
+  }
+  if (args.timeout_minutes !== undefined && args.timeout_minutes !== null &&
+    (typeof args.timeout_minutes !== 'number' || args.timeout_minutes < 0)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'timeout_minutes must be zero or a positive number');
+  }
+  if (args.priority !== undefined && typeof args.priority !== 'number') {
+    return makeError(ErrorCodes.INVALID_PARAM, 'priority must be a number');
+  }
+
+  const taskId = uuidv4();
+  const defaultTimeout = serverConfig.getInt('default_timeout', 30);
+  const defaultProvider = db.getDefaultProvider();
+
+  // Validate provider if specified
+  if (args.provider) {
+    const providerConfig = db.getProvider(args.provider);
+    if (!providerConfig) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Unknown provider: ${args.provider}`);
+    }
+    if (!providerConfig.enabled) {
+      return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${args.provider} is disabled`);
+    }
+  }
+
+  // Provider availability gate — reject if no providers can serve (RB-031)
+  const availCheck = checkProviderAvailability(db, { hasExplicitProvider: !!args.provider });
+  if (availCheck) return availCheck.error;
+
+  // Fix F3: Use per-provider timeout defaults when no explicit timeout given
+  const providerName = args.provider || defaultProvider;
+  const providerTimeout = PROVIDER_DEFAULT_TIMEOUTS[providerName] || defaultTimeout;
+  const timeout = args.timeout_minutes ?? providerTimeout;
+  const taskDescription = args.task.trim();
+  const model = args.model || null;
+  const schedulingMode = db.getConfig ? (db.getConfig('scheduling_mode') || 'legacy') : 'legacy';
+  const useTierList = schedulingMode === 'slot-pull';
+  const routingFiles = Array.isArray(args.files) ? args.files.filter(f => typeof f === 'string') : [];
+  const tierResult = useTierList
+    ? db.analyzeTaskForRouting(taskDescription, args.working_directory || null, routingFiles, {
+        tierList: true,
+        isUserOverride: !!args.provider,
+        overrideProvider: args.provider || null,
+      })
+    : null;
+  const slotPullEligibleProviders = Array.isArray(args.eligible_providers) && args.eligible_providers.length > 0
+    ? args.eligible_providers
+    : (Array.isArray(tierResult?.eligible_providers) && tierResult.eligible_providers.length > 0
+      ? tierResult.eligible_providers
+      : [args.provider ? providerName : (tierResult?.provider || providerName)].filter(Boolean));
+  const slotPullCapabilityRequirements = Array.isArray(tierResult?.capability_requirements)
+    ? tierResult.capability_requirements
+    : [];
+  const slotPullQualityTier = tierResult?.quality_tier
+    || ((tierResult?.complexity || 'normal') === 'complex'
+      ? 'complex'
+      : ((tierResult?.complexity || 'normal') === 'simple' ? 'simple' : 'normal'));
+  const slotPullMetadata = {
+    eligible_providers: slotPullEligibleProviders,
+    capability_requirements: slotPullCapabilityRequirements,
+    quality_tier: slotPullQualityTier,
+    user_provider_override: !!args.provider,
+    intended_provider: slotPullEligibleProviders[0] || providerName,
+  };
+
+  if (serverConfig.getBool('budget_check_enabled')) {
+    const estimate = db.estimateCost(taskDescription, model || providerName);
+    const budgetCheck = db.checkBudgetBeforeSubmission(providerName, estimate.estimated_cost_usd);
+    if (!budgetCheck.allowed) {
+      return makeError(
+        ErrorCodes.BUDGET_EXCEEDED,
+        `Budget would be exceeded for ${budgetCheck.budget}: $${budgetCheck.current.toFixed(2)}/$${budgetCheck.limit.toFixed(2)}`
+      );
+    }
+  }
+
+  // When the user explicitly specifies a provider, mark it so overflow won't reroute
+  // Store intended_provider in metadata — provider field stays null until slot claim
+  const metadata = useTierList
+    ? slotPullMetadata
+    : (args.provider
+      ? { user_provider_override: true, intended_provider: providerName }
+      : { intended_provider: providerName });
+
+  // F9: Early model availability check — warn if requested model not found on any host
+  if (args.model) {
+    try {
+      const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];
+      const available = hosts.some(h => h.status !== 'down' && h.models_cache && h.models_cache.includes(args.model));
+      if (!available && hosts.length > 0) {
+        const availableModels = [...new Set(hosts.flatMap(h => (h.models_cache || '').split(',').map(m => m.trim()).filter(Boolean)))];
+        metadata.model_warning = `Model '${args.model}' not found on any host. Available: ${availableModels.slice(0, 5).join(', ')}`;
+      }
+    } catch { /* ignore — hosts table may not exist */ }
+  }
+  const policyResult = typeof taskManager.evaluateTaskSubmissionPolicy === 'function'
+    ? taskManager.evaluateTaskSubmissionPolicy({
+        id: taskId,
+        task_description: taskDescription,
+        working_directory: args.working_directory || null,
+        timeout_minutes: timeout,
+        auto_approve: Boolean(args.auto_approve),
+        priority: args.priority || 0,
+        provider: providerName,
+        model,
+        metadata,
+      })
+    : null;
+  const blockedError = rejectBlockedSubmission(policyResult);
+  if (blockedError) {
+    return blockedError;
+  }
+
+  checkDepth(metadata);
+
+  if (useTierList) {
+    db.createTask({
+      id: taskId,
+      status: 'pending',
+      task_description: taskDescription,
+      working_directory: args.working_directory || null,
+      timeout_minutes: timeout,
+      auto_approve: Boolean(args.auto_approve),
+      priority: args.priority || 0,
+      provider: args.provider ? providerName : null,
+      model: model,  // null = use provider's default model
+      metadata: JSON.stringify(metadata)
+    });
+  } else {
+    db.createTask({
+      id: taskId,
+      status: 'pending',
+      task_description: taskDescription,
+      working_directory: args.working_directory || null,
+      timeout_minutes: timeout,
+      auto_approve: Boolean(args.auto_approve),
+      priority: args.priority || 0,
+      provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+      model: model,  // null = use provider's default model
+      metadata: JSON.stringify(metadata)
+    });
+  }
+
+  if (useTierList && !args.provider && typeof db.getDbInstance === 'function') {
+    try {
+      db.getDbInstance()
+        .prepare('UPDATE tasks SET provider = NULL, metadata = ? WHERE id = ?')
+        .run(JSON.stringify(slotPullMetadata), taskId);
+    } catch (err) {
+      logger.debug(`[submit_task] Failed to persist slot-pull late binding for ${taskId}: ${err.message}`);
+    }
+  }
+
+  // Context-stuff: resolve files for context-stuffing-eligible providers (even on explicit provider path)
+  if (CONTEXT_STUFFING_PROVIDERS.has(providerName) && args.context_stuff !== false) {
+    try {
+      const depth = args.context_depth || 1;
+      // F6: Skip context stuffing when no working_directory is specified
+      if (!args.working_directory) {
+        logger.debug(`[submit_task] No working_directory specified for ${taskId} — skipping context stuffing`);
+      }
+      const contextWorkDir = args.working_directory || null;
+      if (!contextWorkDir) {
+        // No working directory — can't resolve context files; add warning to metadata
+        const taskRow2 = db.getTask(taskId);
+        const existingMeta2 = taskRow2?.metadata ? (typeof taskRow2.metadata === 'string' ? JSON.parse(taskRow2.metadata) : { ...taskRow2.metadata }) : {};
+        existingMeta2.warning = 'No working directory specified — file context unavailable';
+        db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
+          .run(JSON.stringify(existingMeta2), taskId);
+      }
+      const scanResult = contextWorkDir ? resolveContextFiles({
+        taskDescription,
+        workingDirectory: contextWorkDir,
+        files: Array.isArray(args.files) ? args.files.filter(f => typeof f === 'string') : [],
+        contextDepth: depth,
+      }) : null;
+      if (scanResult && scanResult.contextFiles.length > 0) {
+        const taskRow = db.getTask(taskId);
+        const existingMeta = taskRow?.metadata ? (typeof taskRow.metadata === 'string' ? JSON.parse(taskRow.metadata) : { ...taskRow.metadata }) : {};
+        existingMeta.context_files = scanResult.contextFiles;
+        existingMeta.context_scan_reasons = Object.fromEntries(scanResult.reasons);
+        db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
+          .run(JSON.stringify(existingMeta), taskId);
+      }
+    } catch (err) {
+      logger.debug(`[submit_task] Context scan failed for ${taskId}: ${err.message}`);
+    }
+  }
+
+  const result = taskManager.startTask(taskId);
+  if (result?.blocked) {
+    return makeError(ErrorCodes.OPERATION_FAILED, result.reason || 'Task blocked by policy');
+  }
+
+  return {
+    __subscribe_task_id: taskId,
+    content: [{
+      type: 'text',
+      text: result.queued
+        ? `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.\nCurrent running tasks: ${taskManager.getRunningTaskCount()}`
+        : `Task started (ID: ${taskId}, provider: ${providerName}). Use check_status or get_progress to monitor.`
+    }]
+  };
+}
+
+
+/**
+ * Add task to queue (always queues first, then triggers queue processing asynchronously)
+ */
+function handleQueueTask(args) {
+  // Input validation (matching handleSubmitTask)
+  if (!args.task || typeof args.task !== 'string' || args.task.trim().length === 0) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task must be a non-empty string');
+  }
+  if (args.task.length > MAX_TASK_LENGTH) {
+    return makeError(ErrorCodes.INVALID_PARAM, `Task description exceeds maximum length (${args.task.length} > ${MAX_TASK_LENGTH} characters)`);
+  }
+  if (args.timeout_minutes !== undefined && args.timeout_minutes !== null &&
+    (typeof args.timeout_minutes !== 'number' || args.timeout_minutes < 0)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'timeout_minutes must be zero or a positive number');
+  }
+  if (args.priority !== undefined && typeof args.priority !== 'number') {
+    return makeError(ErrorCodes.INVALID_PARAM, 'priority must be a number');
+  }
+
+  const taskId = uuidv4();
+  const defaultTimeout = serverConfig.getInt('default_timeout', 30);
+  const defaultProvider = db.getDefaultProvider();
+
+  // Validate provider if specified
+  const providerName = args.provider || defaultProvider;
+  if (args.provider) {
+    const providerConfig = db.getProvider(args.provider);
+    if (!providerConfig) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Unknown provider: ${args.provider}`);
+    }
+    if (!providerConfig.enabled) {
+      return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${args.provider} is disabled`);
+    }
+  }
+
+  // Provider availability gate — reject if no providers can serve (RB-031)
+  const availCheck2 = checkProviderAvailability(db, { hasExplicitProvider: !!args.provider });
+  if (availCheck2) return availCheck2.error;
+
+  // Fix F3: Use per-provider timeout defaults when no explicit timeout given
+  const providerTimeout = PROVIDER_DEFAULT_TIMEOUTS[providerName] || defaultTimeout;
+  const timeout = args.timeout_minutes ?? providerTimeout;
+  const taskDescription = args.task.trim();
+  const model = args.model || null;
+
+  if (serverConfig.getBool('budget_check_enabled')) {
+    const estimate = db.estimateCost(taskDescription, model || providerName);
+    const budgetCheck = db.checkBudgetBeforeSubmission(providerName, estimate.estimated_cost_usd);
+    if (!budgetCheck.allowed) {
+      return makeError(
+        ErrorCodes.BUDGET_EXCEEDED,
+        `Budget would be exceeded for ${budgetCheck.budget}: $${budgetCheck.current.toFixed(2)}/$${budgetCheck.limit.toFixed(2)}`
+      );
+    }
+  }
+
+  const metadata = args.provider
+    ? { user_provider_override: true, intended_provider: providerName }
+    : { intended_provider: providerName };
+  const policyResult = typeof taskManager.evaluateTaskSubmissionPolicy === 'function'
+    ? taskManager.evaluateTaskSubmissionPolicy({
+        id: taskId,
+        task_description: taskDescription,
+        working_directory: args.working_directory || null,
+        timeout_minutes: timeout,
+        auto_approve: Boolean(args.auto_approve),
+        priority: args.priority || 0,
+        provider: providerName,
+        model,
+        metadata,
+      })
+    : null;
+  const blockedError = rejectBlockedSubmission(policyResult);
+  if (blockedError) {
+    return blockedError;
+  }
+
+  checkDepth(metadata);
+
+  db.createTask({
+    id: taskId,
+    status: 'queued',
+    task_description: taskDescription,
+    working_directory: args.working_directory || null,
+    timeout_minutes: timeout,
+    auto_approve: Boolean(args.auto_approve),
+    priority: args.priority || 0,
+    provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+    model: model,
+    metadata: JSON.stringify(metadata)
+  });
+
+  return {
+    content: [{
+      type: 'text',
+      text: `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.`
+    }]
+  };
+}
+
+
+/**
+ * Check status of one or all tasks
+ */
+function handleCheckStatus(args) {
+  const pressureLevel = getTaskInfoPressureLevel();
+
+  if (args.task_id) {
+    const { task, error: taskErr } = requireTask(db, args.task_id);
+    if (taskErr) return taskErr;
+
+    const progress = taskManager.getTaskProgress(args.task_id);
+
+    return {
+      pressureLevel,
+      content: [{
+        type: 'text',
+        text: formatTaskStatus(task, progress)
+      }]
+    };
+  }
+
+  // Summary of all tasks
+  const running = db.listTasks({ status: 'running' });
+  const queued = db.listTasks({ status: 'queued' });
+  const recent = db.listTasks({ limit: 5 });
+
+  let summary = `## TORQUE Task Status\n\n`;
+  summary += `**Resource Pressure:** ${pressureLevel}\n`;
+  // TDA-14: Explicit gating visibility — tell callers when tasks are being deferred
+  const gatingEnabled = db.getConfig ? db.getConfig('resource_gating_enabled') === '1' : false;
+  if (gatingEnabled && (pressureLevel === 'high' || pressureLevel === 'critical')) {
+    summary += `**Resource Gating:** Active — queued task starts deferred until pressure drops\n`;
+  }
+  summary += `**Running:** ${running.length}\n`;
+  summary += `**Queued:** ${queued.length}\n\n`;
+
+  if (running.length > 0) {
+    summary += `### Running Tasks\n`;
+    for (const task of running) {
+      const progress = taskManager.getTaskProgress(task.id);
+      const activity = taskManager.getTaskActivity(task.id, { skipGitCheck: true });
+      const modelInfo = task.model ? ` [${task.model}]` : '';
+
+      // Build activity indicator
+      let activityInfo = '';
+      if (activity) {
+        if (activity.isStalled) {
+          activityInfo = ` ⚠️ STALLED (no output ${activity.lastActivitySeconds}s)`;
+        } else if (activity.lastActivitySeconds > 30) {
+          activityInfo = ` (last output ${activity.lastActivitySeconds}s ago)`;
+        } else {
+          activityInfo = ` ✓`;
+        }
+      }
+
+      summary += `- ${task.id.slice(0, 8)}...${modelInfo} (${progress?.progress || 0}%)${activityInfo} - ${(task.task_description || '').slice(0, 50)}...\n`;
+    }
+    summary += '\n';
+  }
+
+  if (queued.length > 0) {
+    summary += `### Queued Tasks\n`;
+    for (const task of queued) {
+      const modelInfo = task.model ? ` [${task.model}]` : '';
+      summary += `- ${task.id.slice(0, 8)}...${modelInfo} (priority: ${task.priority}) - ${(task.task_description || '').slice(0, 50)}...\n`;
+    }
+    summary += '\n';
+  }
+
+  summary += `### Recent Tasks\n`;
+  for (const task of recent) {
+    const modelInfo = task.model ? ` [${task.model}]` : '';
+    summary += `- ${task.id.slice(0, 8)}...${modelInfo} [${task.status}] - ${(task.task_description || '').slice(0, 50)}...\n`;
+  }
+
+  return {
+    pressureLevel,
+    content: [{ type: 'text', text: summary }]
+  };
+}
+
+
+/**
+ * Get full result of a task
+ */
+function handleGetResult(args) {
+  const { task, error: taskErr } = requireTask(db, args.task_id);
+  if (taskErr) return taskErr;
+
+  if (task.status === 'running' || task.status === 'queued' || task.status === 'pending') {
+    return {
+      content: [{
+        type: 'text',
+        text: `Task is still ${task.status}. Use get_progress for running tasks, or wait for completion.`
+      }]
+    };
+  }
+
+  let result = `## Task Result: ${args.task_id}\n\n`;
+  result += `**Status:** ${task.status}\n`;
+  if (task.provider) {
+    result += `**Provider:** ${task.provider}\n`;
+  }
+  if (task.model) {
+    result += `**Model:** ${task.model}\n`;
+  }
+  // Surface model overrides: show when the actual model differs from what was requested
+  try {
+    const metadata = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {};
+    if (metadata.requested_model && task.model && metadata.requested_model !== task.model) {
+      result += `**Requested Model:** ${metadata.requested_model} → overridden to ${task.model}\n`;
+    }
+  } catch (err) {
+    logger.debug('[task-core] non-critical error parsing task metadata:', err.message || err);
+  }
+  result += `**Exit Code:** ${task.exit_code}\n`;
+  result += `**Duration:** ${calculateDuration(task.started_at, task.completed_at)}\n`;
+
+  // Show which host executed the task
+  if (task.ollama_host_id) {
+    const host = db.getOllamaHost(task.ollama_host_id);
+    if (host) {
+      result += `**Host:** ${host.name} (\`${host.url}\`)\n`;
+    } else {
+      result += `**Host:** ${task.ollama_host_id}\n`;
+    }
+  }
+
+  if (task.files_modified && task.files_modified.length > 0) {
+    result += `**Files Modified:** ${task.files_modified.join(', ')}\n`;
+  }
+
+  const peekArtifactSection = buildTaskPeekArtifactSection(task.id);
+  if (peekArtifactSection) {
+    result += peekArtifactSection;
+  }
+
+  result += `\n### Output\n\`\`\`\n${task.output || '(no output)'}\n\`\`\`\n`;
+
+  if (task.error_output) {
+    result += `\n### Errors\n\`\`\`\n${task.error_output}\n\`\`\`\n`;
+  }
+
+  return {
+    content: [{ type: 'text', text: result }]
+  };
+}
+
+
+/**
+ * Wait for a task to complete (blocks until done or timeout).
+ * Polls the database at increasing intervals instead of requiring the caller to loop.
+ */
+async function handleWaitForTask(args) {
+  try {
+  
+  const taskId = args.task_id;
+  if (!taskId) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
+  }
+  
+
+  const { task, error: taskErr } = requireTask(db, taskId);
+  if (taskErr) return taskErr;
+
+  const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'skipped'];
+  const rawTimeout = Number(args.timeout_seconds);
+  const timeoutMs = Math.min((rawTimeout > 0 ? rawTimeout : 300), 600) * 1000;
+  const startTime = Date.now();
+
+  // If already terminal, return immediately
+  if (TERMINAL_STATUSES.includes(task.status)) {
+    return handleGetResult({ task_id: taskId });
+  }
+
+  // Poll with increasing intervals: 1s, 2s, 3s, ... capped at 5s
+  let pollInterval = 1000;
+  const MAX_POLL = 5000;
+
+  return new Promise((resolve) => {
+    const check = () => {
+      try {
+        const elapsed = Date.now() - startTime;
+        if (elapsed >= timeoutMs) {
+          const current = db.getTask(taskId);
+          resolve({
+            content: [{
+              type: 'text',
+              text: `## Timeout waiting for task ${taskId}\n\n` +
+                `**Status:** ${current?.status || 'unknown'}\n` +
+                `**Elapsed:** ${Math.round(elapsed / 1000)}s\n` +
+                `**Progress:** ${current?.progress_percent || 0}%\n\n` +
+                `Task is still ${current?.status || 'unknown'}. Use \`get_result\` or \`get_progress\` to check later.`
+            }]
+          });
+          return;
+        }
+
+        const current = db.getTask(taskId);
+        if (!current) {
+          resolve(makeError(ErrorCodes.TASK_NOT_FOUND, `Task ${taskId} was deleted while waiting.`));
+          return;
+        }
+
+        if (TERMINAL_STATUSES.includes(current.status)) {
+          // Task finished — return full result
+          resolve(handleGetResult({ task_id: taskId }));
+          return;
+        }
+
+        // Not done yet — schedule next poll
+        pollInterval = Math.min(pollInterval + 1000, MAX_POLL);
+        setTimeout(check, pollInterval);
+      } catch (err) {
+        resolve(makeError(ErrorCodes.OPERATION_FAILED, `Error while waiting for task: ${err.message}`));
+      }
+    };
+
+    // Start first check after 1s
+    setTimeout(check, pollInterval);
+  });
+  } catch (err) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
+  }}
+
+
+/**
+ * List tasks with filtering
+ */
+function handleListTasks(args) {
+  // Determine project filter
+  let projectFilter = null;
+  if (!args.all_projects) {
+    // Use specified project or detect from current working directory
+    projectFilter = args.project || db.getCurrentProject(process.cwd());
+  }
+
+  const tasks = db.listTasks({
+    status: args.status,
+    tags: args.tags,
+    project: projectFilter,
+    project_id: args.project_id,
+    limit: safeLimit(args.limit, 20)
+  });
+
+  if (tasks.length === 0) {
+    let msg = 'No tasks found';
+    if (args.status) msg = `No tasks with status: ${args.status}`;
+    if (args.tags && Array.isArray(args.tags) && args.tags.length > 0) msg = `No tasks with tags: ${args.tags.join(', ')}`;
+    if (projectFilter) msg += ` in project: ${projectFilter}`;
+    if (!args.all_projects) msg += '\n\n*Tip: Use `all_projects: true` to see tasks from all projects.*';
+    return {
+      content: [{ type: 'text', text: msg }]
+    };
+  }
+
+  let title = '## Tasks';
+  const filters = [];
+  if (projectFilter) filters.push(`project: ${projectFilter}`);
+  if (args.all_projects) filters.push('all projects');
+  if (args.status) filters.push(args.status);
+  if (args.tags && Array.isArray(args.tags) && args.tags.length > 0) filters.push(`tags: ${args.tags.join(', ')}`);
+  if (filters.length > 0) title += ` (${filters.join(', ')})`;
+
+  let result = `${title}\n\n`;
+  result += `| ID | Status | Model | Host | Description | Created |\n`;
+  result += `|----|--------|-------|------|-------------|--------|\n`;
+
+  for (const task of tasks) {
+    // Get host name if available
+    let hostName = '-';
+    if (task.ollama_host_id) {
+      const host = db.getOllamaHost(task.ollama_host_id);
+      hostName = host ? host.name.slice(0, 10) : task.ollama_host_id.slice(0, 10);
+    }
+    // Get model name, truncate if needed
+    const modelName = task.model ? task.model.slice(0, 15) : '-';
+    result += `| ${task.id.slice(0, 8)}... | ${task.status} | ${modelName} | ${hostName} | ${(task.task_description || '').slice(0, 20)}... | ${formatTime(task.created_at)} |\n`;
+  }
+
+  return {
+    content: [{ type: 'text', text: result }]
+  };
+}
+
+
+/**
+ * Cancel a task.
+ * Safety: For running/queued tasks, returns task details and requires confirm=true
+ * to actually cancel. This prevents accidental cancellation of tasks owned by
+ * other sessions.
+ */
+function handleCancelTask(args) {
+  if (!args.task_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
+  }
+
+  // Look up the task first to show what's about to be cancelled
+  const { task, error: taskErr } = requireTask(db, args.task_id);
+  if (taskErr) return taskErr;
+
+  // For running or queued tasks, require explicit confirm=true
+  // This gives the caller a chance to see what they're cancelling
+  if ((task.status === 'running' || task.status === 'queued') && !args.confirm) {
+    const desc = (task.description || '').substring(0, 300);
+    const age = task.created_at ? Math.round((Date.now() - new Date(task.created_at).getTime()) / 60000) : '?';
+    const project = task.project || 'unknown';
+    const provider = task.provider || 'unknown';
+    return {
+      content: [{ type: 'text', text:
+        `## Cancel Safety Check\n\n` +
+        `**Task:** ${args.task_id}\n` +
+        `**Status:** ${task.status}\n` +
+        `**Project:** ${project}\n` +
+        `**Provider:** ${provider}\n` +
+        `**Age:** ${age} minutes\n` +
+        `**Description:** ${desc}${(task.description || '').length > 300 ? '...' : ''}\n\n` +
+        `⚠️ **This task is ${task.status}. Cancellation is irreversible.**\n\n` +
+        `To confirm, call again with \`confirm: true\`. ` +
+        `To inspect further, use \`check_status\` or \`get_progress\`.`
+      }]
+    };
+  }
+
+  let success;
+  try {
+    success = taskManager.cancelTask(args.task_id, args.reason || 'Cancelled by user');
+  } catch {
+    // cancelTask throws when task not found by prefix match
+    if (task) {
+      return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Cannot cancel task ${args.task_id} - status is ${task.status}`);
+    }
+    return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
+  }
+
+  if (success) {
+    const desc = (task.description || '').substring(0, 200);
+    return {
+      content: [{ type: 'text', text: `Task ${args.task_id} cancelled.\n\n**Was:** ${desc}` }]
+    };
+  }
+
+  if (task) {
+    return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Cannot cancel task ${args.task_id} - status is ${task.status}`);
+  }
+
+  return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
+}
+
+
+/**
+ * Get or set configuration
+ */
+function handleConfigure(args) {
+  let changed = false;
+
+  if (args.max_concurrent !== undefined) {
+    const num = Number(args.max_concurrent);
+    if (!Number.isFinite(num)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'max_concurrent must be a finite number');
+    }
+    const value = Math.max(1, Math.min(10, num));
+    db.setConfig('max_concurrent', value);
+    changed = true;
+  }
+
+  if (args.default_timeout !== undefined) {
+    const num = Number(args.default_timeout);
+    if (!Number.isFinite(num)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'default_timeout must be a finite number');
+    }
+    const value = Math.max(1, Math.min(120, num));
+    db.setConfig('default_timeout', value);
+    changed = true;
+  }
+
+  if (args.scheduling_mode !== undefined) {
+    const mode = String(args.scheduling_mode).trim();
+    if (!['legacy', 'slot-pull'].includes(mode)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'scheduling_mode must be "legacy" or "slot-pull"');
+    }
+    db.setConfig('scheduling_mode', mode);
+    changed = true;
+  }
+
+  const config = db.getAllConfig();
+
+  let result = `## Configuration\n\n`;
+  result += `**Max Concurrent Tasks:** ${config.max_concurrent}\n`;
+  result += `**Default Timeout:** ${config.default_timeout} minutes\n`;
+  result += `**Scheduling Mode:** ${config.scheduling_mode || 'legacy'}\n`;
+  result += `**Currently Running:** ${taskManager.getRunningTaskCount()}\n`;
+
+  if (changed) {
+    result += `\n*Configuration updated.*`;
+    // Process queue in case we increased concurrency
+    taskManager.processQueue();
+  }
+
+  return {
+    content: [{ type: 'text', text: result }]
+  };
+}
+
+
+/**
+ * Get progress of a running task
+ */
+function handleGetProgress(args) {
+  if (!args.task_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
+  }
+
+  const progress = taskManager.getTaskProgress(args.task_id);
+
+  if (!progress) {
+    return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
+  }
+
+  // Bound tail_lines to prevent memory issues with huge values
+  const MAX_TAIL_LINES = 10000;
+  const tailLines = Math.min(Math.max(1, parseInt(args.tail_lines, 10) || 50), MAX_TAIL_LINES);
+
+  // Try stream chunks first for live output, fall back to DB output field
+  let outputText = progress.output || '';
+  if (progress.running && (!outputText || outputText.startsWith('[Streaming:'))) {
+    try {
+      const chunks = db.getLatestStreamChunks(args.task_id, 0, 200);
+      if (chunks.length > 0) {
+        outputText = chunks.map(c => c.chunk_data).join('');
+      }
+    } catch (err) {
+      // Fall back to progress.output
+      logger.debug('[task-core] non-critical error parsing progress chunks:', err.message || err);
+    }
+  }
+
+  const outputLines = outputText.split('\n');
+  const tailOutput = outputLines.slice(-tailLines).join('\n');
+
+  let result = `## Task Progress: ${(args.task_id || '').slice(0, 8)}...\n\n`;
+  result += `**Status:** ${progress.running ? 'running' : 'finished'}\n`;
+  result += `**Progress:** ${progress.progress}%\n`;
+
+  if (progress.elapsedSeconds) {
+    result += `**Elapsed:** ${progress.elapsedSeconds}s\n`;
+  }
+
+  result += `\n### Latest Output (last ${tailLines} lines)\n\`\`\`\n${tailOutput || '(no output yet)'}\n\`\`\`\n`;
+
+  return {
+    content: [{ type: 'text', text: result }]
+  };
+}
+
+
+/**
+ * Share context with a task
+ */
+function handleShareContext(args) {
+  // Input validation
+  if (!args.task_id || typeof args.task_id !== 'string') {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id must be a non-empty string');
+  }
+  if (!args.content || typeof args.content !== 'string') {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'content must be a non-empty string');
+  }
+
+  const { task, error: taskErr } = requireTask(db, args.task_id);
+  if (taskErr) return taskErr;
+
+  // Sanitize context type - only allow alphanumeric, dash, underscore
+  const rawContextType = args.context_type || 'custom';
+  const contextType = rawContextType.replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (contextType.length === 0 || contextType.length > 64) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'context_type must be 1-64 alphanumeric characters');
+  }
+
+  // F6: Require working_directory for context sharing — don't fall back to server cwd
+  const workDir = task.working_directory;
+  if (!workDir) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'Task has no working_directory set — cannot share context. Specify working_directory when submitting the task.');
+  }
+  try {
+    const workDirStats = fs.lstatSync(workDir);
+    // Ensure it's a real directory, not a symlink (which could point anywhere)
+    if (!workDirStats.isDirectory()) {
+      return makeError(ErrorCodes.INVALID_PARAM, `Working directory is not a directory: ${workDir}`);
+    }
+    // Check if it's a symlink (lstat returns symlink info, not target info)
+    if (workDirStats.isSymbolicLink()) {
+      return makeError(ErrorCodes.INVALID_PARAM, `Working directory is a symlink: ${workDir}`);
+    }
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return makeError(ErrorCodes.INVALID_PARAM, `Working directory does not exist: ${workDir}`);
+    }
+    return makeError(ErrorCodes.INTERNAL_ERROR, `Failed to validate working directory: ${err.message || String(err)}`);
+  }
+
+  const contextDir = path.join(workDir, '.codex-context');
+
+  // Create context directory if needed
+  if (!fs.existsSync(contextDir)) {
+    fs.mkdirSync(contextDir, { recursive: true });
+  }
+
+  const contextFile = path.join(contextDir, `${contextType}.md`);
+  fs.writeFileSync(contextFile, args.content);
+
+  // Update task context in database — re-read current state to avoid stale context overwrite
+  const currentTask = db.getTask(args.task_id);
+  const currentStatus = currentTask ? currentTask.status : task.status;
+  const freshContext = currentTask?.context;
+  const existingContext = (typeof freshContext === 'object' && freshContext !== null) ? freshContext : {};
+  existingContext[contextType] = contextFile;
+  db.updateTaskStatus(args.task_id, currentStatus, { context: existingContext });
+
+  return {
+    content: [{
+      type: 'text',
+      text: `Context shared. File created at: ${contextFile}\nCodex can reference this file during the task.`
+    }]
+  };
+}
+
+
+/**
+ * Sync files between workspaces
+ */
+function handleSyncFiles(args) {
+  // Input validation
+  if (!args.task_id || typeof args.task_id !== 'string') {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id must be a non-empty string');
+  }
+  if (!args.files || !Array.isArray(args.files) || args.files.length === 0) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'files must be a non-empty array');
+  }
+  if (args.files.length > MAX_BATCH_SIZE) {
+    return makeError(ErrorCodes.INVALID_PARAM, `files array cannot exceed ${MAX_BATCH_SIZE} items`);
+  }
+  if (args.direction && !['push', 'pull'].includes(args.direction)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'direction must be "push" or "pull"');
+  }
+
+  const { task, error: taskErr2 } = requireTask(db, args.task_id);
+  if (taskErr2) return taskErr2;
+
+  // F6: Require working_directory for file sync — don't fall back to server cwd
+  if (!task.working_directory) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'Task has no working_directory set — cannot sync files. Specify working_directory when submitting the task.');
+  }
+  const taskDir = path.resolve(task.working_directory);
+  const results = [];
+
+  for (const file of args.files) {
+    // Validate each file path is a string
+    if (typeof file !== 'string' || file.trim().length === 0) {
+      results.push(`✗ Invalid file path: ${file}`);
+      continue;
+    }
+    if (!isPathTraversalSafe(file)) {
+      results.push(`✗ Path traversal blocked: ${file}`);
+      continue;
+    }
+
+    try {
+      if (args.direction === 'push') {
+        // Copy from Claude's workspace to task workspace
+        // Use basename to prevent overwriting arbitrary paths
+        const dest = path.join(taskDir, path.basename(file));
+        if (!fs.existsSync(file)) {
+          results.push(`✗ Source not found: ${file}`);
+          continue;
+        }
+        fs.copyFileSync(file, dest);
+        results.push(`✓ Pushed: ${file} → ${dest}`);
+      } else {
+        // Copy from task workspace to Claude's workspace
+        // Normalize and validate path stays within taskDir
+        const normalizedFile = path.normalize(file).replace(/^(\.\.[/\\])+/, '');
+        const src = path.resolve(taskDir, normalizedFile);
+
+        // Security check: ensure resolved path is within taskDir (case-insensitive on Windows)
+        const srcNorm = process.platform === 'win32' ? src.toLowerCase() : src;
+        const basNorm = process.platform === 'win32' ? taskDir.toLowerCase() : taskDir;
+        if (!srcNorm.startsWith(basNorm + path.sep) && srcNorm !== basNorm) {
+          results.push(`✗ Path traversal blocked: ${file}`);
+          continue;
+        }
+
+        if (fs.existsSync(src)) {
+          // Just report the file exists - Claude can read it directly
+          results.push(`✓ Available: ${src}`);
+        } else {
+          results.push(`✗ Not found: ${src}`);
+        }
+      }
+    } catch (err) {
+      results.push(`✗ Error with ${file}: ${err.message}`);
+    }
+  }
+
+  return {
+    content: [{
+      type: 'text',
+      text: `## File Sync Results\n\n${results.join('\n')}`
+    }]
+  };
+}
+
+
+// ── Unified task_info dispatcher (Phase 3.2) ──
+
+function handleTaskInfo(args) {
+  const mode = args.mode || 'status';
+  let result;
+
+  switch (mode) {
+    case 'status':
+      result = handleCheckStatus(args);
+      break;
+    case 'result':
+      if (!args.task_id) {
+        return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required for mode=result');
+      }
+      result = handleGetResult(args);
+      break;
+    case 'progress':
+      if (!args.task_id) {
+        return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required for mode=progress');
+      }
+      result = handleGetProgress(args);
+      break;
+    default:
+      return makeError(ErrorCodes.INVALID_PARAM, `Unknown mode: ${mode}. Valid: status, result, progress`);
+  }
+
+  if (result && !result.isError && result.pressureLevel === undefined) {
+    result.pressureLevel = getTaskInfoPressureLevel();
+  }
+
+  return result;
+}
+
+module.exports = {
+  handleSubmitTask,
+  handleQueueTask,
+  handleCheckStatus,
+  handleGetResult,
+  handleWaitForTask,
+  handleListTasks,
+  handleCancelTask,
+  handleConfigure,
+  handleGetProgress,
+  handleShareContext,
+  handleSyncFiles,
+  handleTaskInfo,
+};

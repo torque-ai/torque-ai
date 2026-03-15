@@ -1,0 +1,7 @@
+{
+  "name": "torque-agent",
+  "version": "1.0.0",
+  "description": "Lightweight remote execution agent for TORQUE",
+  "main": "index.js",
+  "type": "module"
+}

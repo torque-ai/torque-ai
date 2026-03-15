@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "include_tools": {
+      "type": "boolean"
+    },
+    "include_errors": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

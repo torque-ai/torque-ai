@@ -1,0 +1,64 @@
+# Dependencies (users run npm install themselves)
+server/node_modules/
+dashboard/node_modules/
+node_modules/
+
+# Tests
+server/tests/
+cli/tests/
+dashboard/src/
+dashboard/e2e/
+*.test.js
+*.test.jsx
+vitest.config.js
+playwright.config.js
+eslint.config.*
+
+# Development
+.github/
+.claude/
+.claude-plugin/
+.torque/
+.worktrees/
+hooks/
+skills/
+agents/
+mock-battle/
+commands/
+test-hardening.js
+test.runsettings
+
+# Internal docs
+docs/plans/
+docs/superpowers/
+docs/evidence/
+docs/archive/
+server/docs/investigations/
+server/docs/archive/
+server/docs/reviews/
+artifacts/
+
+# Build/CI
+Dockerfile
+docker-compose.yml
+coverage/
+test-results/
+backups/
+
+# Personal/Runtime
+.mcp.json
+.env
+.env.local
+*.db
+*.sqlite
+*.log
+*.log.*
+nul
+server/eng.traineddata
+server/artifacts/
+server/coverage/
+server/eslint.config.js
+server/vitest.config.js
+
+# Scripts (internal)
+scripts/

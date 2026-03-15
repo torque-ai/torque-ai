@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "required": [
+    "ok",
+    "data"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "data": {},
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

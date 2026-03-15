@@ -1,0 +1,48 @@
+{
+  "name": "torque-server",
+  "version": "2.1.0",
+  "description": "TORQUE MCP server - Threaded Orchestration Router for Queued Unit Execution",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "test": "vitest run",
+    "test:unit": "vitest run --reporter=verbose tests/db-*.test.js tests/handler-*.test.js tests/validation-*.test.js tests/error-*.test.js",
+    "test:integration": "vitest run --reporter=verbose tests/e2e-*.test.js tests/close-handler-*.test.js tests/task-operations.test.js",
+    "test:integration:rest": "vitest run --reporter=verbose tests/rest-provider-host-routes.integration.test.js tests/rest-v2-inference-tasks.integration.test.js tests/rest-v2-async-lifecycle.integration.test.js tests/rest-v2-concurrency.integration.test.js",
+    "ci:live-rest-readiness-local": "node scripts/check-live-rest-readiness.js",
+    "ci:live-rest-readiness-local:async": "node scripts/check-live-rest-readiness.js --with-async-defaults",
+    "ci:live-rest-readiness-local:async-concurrency": "node scripts/check-live-rest-readiness.js --with-async-defaults --with-concurrency-defaults",
+    "ci:live-rest-readiness-local:async-concurrency:codex-claude": "node scripts/check-live-rest-readiness.js --with-async-defaults --with-concurrency-defaults-codex-claude",
+    "ci:mcp-launch-readiness": "node scripts/mcp-launch-readiness.js",
+    "ci:dashboard-mutation-smoke": "node scripts/smoke-dashboard-mutations.js",
+    "ci:mcp-readiness-pack": "node scripts/mcp-readiness-pack.js",
+    "ci:mcp-dual-agent-smoke": "node scripts/mcp-dual-agent-smoke.js",
+    "ci:live-rest-local": "node scripts/run-live-rest-local.js",
+    "ci:live-rest-local:async": "node scripts/run-live-rest-local.js --with-async-defaults",
+    "ci:live-rest-local:async-concurrency": "node scripts/run-live-rest-local.js --with-async-defaults --with-concurrency-defaults",
+    "ci:live-rest-local:async-concurrency:codex-claude": "node scripts/run-live-rest-local.js --with-async-defaults --with-concurrency-defaults-codex-claude",
+    "test:stress": "vitest run --reporter=verbose tests/chaos-*.test.js",
+    "test:smoke": "vitest run --reporter=verbose tests/db-core.test.js tests/task-operations.test.js tests/api-server.test.js",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "bonjour-service": "^1.3.0",
+    "uuid": "^13.0.0"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^9.39.2",
+    "vitest": "^4.0.18"
+  }
+}
