@@ -20,7 +20,7 @@ const TEMPLATE_STAMP = path.join(TEMPLATE_DIR, '.ready');
 /** Snapshot git.exe PIDs before the suite runs (Windows only). */
 let preExistingGitPids = new Set();
 
-function snapshotGitPids() {
+function _snapshotGitPids() {
   if (process.platform !== 'win32') return new Set();
   try {
     // tasklist is ~10x faster than PowerShell Get-Process (~30ms vs ~260ms)

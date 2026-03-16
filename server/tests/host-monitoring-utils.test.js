@@ -553,7 +553,7 @@ describe('host-monitoring utility module', () => {
         memoryLimitMb: 8192,
       });
 
-      const getSpy = vi.spyOn(http, 'get').mockImplementation((target, _options, callback) => {
+      vi.spyOn(http, 'get').mockImplementation((target, _options, callback) => {
         const cb = typeof _options === 'function' ? _options : callback;
         const parsed = new URL(typeof target === 'string' ? target : target.href);
 

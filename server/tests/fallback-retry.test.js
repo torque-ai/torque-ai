@@ -3,7 +3,7 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { installMock } = require('./cjs-mock');
-const { QUEUE_RETRY_DEBOUNCE_MS, STALL_REQUEUE_DEBOUNCE_MS } = require('../constants');
+const { STALL_REQUEUE_DEBOUNCE_MS } = require('../constants');
 const { classifyError, findLargerAvailableModel, BASE_RETRY_DELAY_MS } = require('../execution/fallback-retry');
 
 let testDir;
@@ -459,7 +459,7 @@ describe('fallback-retry module', () => {
       db.setConfig('claude_cli_enabled', '1');
 
       withDbMethods({
-        getProvider: vi.fn((name) => ({ enabled: true })),
+        getProvider: vi.fn((_name) => ({ enabled: true })),
         isProviderHealthy: undefined,
       }, () => {
         const task = createTask({ provider: 'ollama' });

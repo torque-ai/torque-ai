@@ -173,7 +173,7 @@ describe('Host Failover Chain', () => {
     let orphanCleanup;
 
     beforeEach(() => {
-      const modPath = require.resolve('../maintenance/orphan-cleanup');
+      require.resolve('../maintenance/orphan-cleanup');
       orphanCleanup = require('../maintenance/orphan-cleanup');
     });
 
@@ -305,7 +305,7 @@ describe('Host Failover Chain', () => {
 
     beforeEach(() => {
       for (const modName of ['../maintenance/orphan-cleanup', '../utils/host-monitoring']) {
-        const p = require.resolve(modName);
+        require.resolve(modName);
       }
       orphanCleanup = require('../maintenance/orphan-cleanup');
       hostMonitoring = require('../utils/host-monitoring');

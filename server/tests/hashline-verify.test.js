@@ -18,7 +18,7 @@ describe('Hashline Verify', () => {
   let mockLineSimilarity;
 
   beforeEach(() => {
-    const modPath = require.resolve('../validation/hashline-verify');
+    require.resolve('../validation/hashline-verify');
 
     hashlineVerify = require('../validation/hashline-verify');
 

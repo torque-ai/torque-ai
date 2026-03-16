@@ -16,7 +16,7 @@ const db = require('../database');
 // Stop the retention policy timer started at module load
 eventDispatch.stopRetentionPolicy();
 
-const { sessions, notifySubscribedSessions, taskSubscriptions: _taskSubscriptions, addSessionToTaskSubscriptions } = mcpSse;
+const { sessions, notifySubscribedSessions, taskSubscriptions: _taskSubscriptions, addSessionToTaskSubscriptions: _addSessionToTaskSubscriptions } = mcpSse;
 const { dispatchTaskEvent, taskEvents } = eventDispatch;
 
 // ──────────────────────────────────────────────────────────────

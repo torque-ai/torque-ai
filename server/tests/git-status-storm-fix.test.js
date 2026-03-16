@@ -11,7 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { createTestRepoWithCommit, commitFile, cleanupRepo } = require('./git-test-utils');
+const { createTestRepoWithCommit, cleanupRepo } = require('./git-test-utils');
 const { getWorktreeFingerprint, invalidateFingerprintCache, _fingerprintCache } = require('../utils/git');
 
 describe('Git Status Storm Fix', () => {
