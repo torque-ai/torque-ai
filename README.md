@@ -9,6 +9,17 @@ Submit coding tasks, walk away, come back to verified results. TORQUE picks the 
 
 ## Quick Start
 
+### Claude Code Plugin (recommended)
+
+```
+/plugin marketplace add torque-ai/torque-ai
+/plugin install torque
+```
+
+That's it. The MCP server starts automatically. Try `/torque:torque-submit Write tests for auth.ts`.
+
+### npm / CLI
+
 ```bash
 npm install -g torque-ai
 torque init
@@ -131,6 +142,16 @@ The web dashboard at `http://localhost:3456` provides:
 | Multi-host LB | — | ✓ |
 | Scheduling | — | ✓ |
 | All safeguards | — | ✓ |
+
+## Recommended Companion: Superpowers
+
+TORQUE handles orchestration — where and how your tasks execute. For the best development workflow, pair it with [Superpowers](https://github.com/obra/superpowers) by Jesse Vincent for brainstorming, TDD, systematic debugging, and code review.
+
+```
+/plugin install superpowers
+```
+
+Together: Superpowers helps you plan and structure work. TORQUE executes it across your providers in parallel.
 
 ## Contributing
 

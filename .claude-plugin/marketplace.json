@@ -1,0 +1,32 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "torque-ai",
+  "owner": {
+    "name": "TORQUE AI"
+  },
+  "metadata": {
+    "description": "TORQUE — AI Task Orchestration plugin for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "torque",
+      "source": ".",
+      "description": "Multi-provider task orchestration — DAG workflows, quality gates, distributed execution across Codex, Claude, Ollama, DeepInfra, and more",
+      "version": "2.1.0",
+      "author": {
+        "name": "TORQUE AI"
+      },
+      "repository": "https://github.com/torque-ai/torque-ai",
+      "license": "BSL-1.1",
+      "keywords": [
+        "orchestration",
+        "tasks",
+        "workflows",
+        "llm",
+        "multi-provider"
+      ],
+      "category": "development"
+    }
+  ]
+}
