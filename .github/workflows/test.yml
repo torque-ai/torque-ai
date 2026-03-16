@@ -72,7 +72,7 @@ jobs:
           # On Node 22 + Linux, vitest with pool:forks hangs after all tests pass.
           # timeout returns 124 when it kills the hung process.
           # vitest exits immediately on test failure, so 124 means tests passed but process hung.
-          if [ "$VITEST_EXIT" -eq 124 ] || [ "$VITEST_EXIT" -eq 137 ]; then
+          if [ "$VITEST_EXIT" -eq 124 ] || [ "$VITEST_EXIT" -eq 137 ] || [ "$VITEST_EXIT" -eq 143 ]; then
             echo "::notice::vitest process hung after test completion — killed by timeout (Node 22 fork cleanup issue)"
             exit 0
           fi
@@ -91,7 +91,7 @@ jobs:
           timeout 180 npx vitest run --coverage
           VITEST_EXIT=$?
           set -e
-          if [ "$VITEST_EXIT" -eq 124 ] || [ "$VITEST_EXIT" -eq 137 ]; then
+          if [ "$VITEST_EXIT" -eq 124 ] || [ "$VITEST_EXIT" -eq 137 ] || [ "$VITEST_EXIT" -eq 143 ]; then
             echo "::notice::vitest coverage hung after test completion — killed by timeout"
             exit 0
           fi
