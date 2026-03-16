@@ -34,6 +34,12 @@ function setDb(dbInstance) {
   hostBenchmarking.setDb(dbInstance);
   modelCapabilities.setDb(dbInstance);
   hostComplexity.setDb(dbInstance);
+  try {
+    const wsModel = require('../workstation/model');
+    wsModel.setDb(dbInstance);
+  } catch (err) {
+    logger.debug('Workstation model init deferred: ' + err.message);
+  }
 }
 
 function setGetTask(fn) {
@@ -1254,5 +1260,4 @@ module.exports = {
   deleteCredential,
   deleteAllHostCredentials,
 };
-
 

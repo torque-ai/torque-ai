@@ -747,9 +747,24 @@ function startTimers() {
         if (db.isReady && !db.isReady()) return; // DB not initialized yet — skip cycle
         try {
           const lockResult = db.acquireLock('health_check_runner', queueLockHolderId, healthCheckIntervalSeconds, null);
-          if (lockResult.acquired) {
-            runHostHealthChecks();
-            probeCodexRecovery().catch(e => logger.debug(`Codex probe error: ${e.message}`));
+        if (lockResult.acquired) {
+          runHostHealthChecks();
+          probeCodexRecovery().catch(e => logger.debug(`Codex probe error: ${e.message}`));
+          try {
+            const wsModel = require('../workstation/model');
+            const httpMod = require('http');
+            const wsList = wsModel.listWorkstations({ enabled: true });
+            for (const ws of wsList) {
+              httpMod.get('http://' + ws.host + ':' + ws.agent_port + '/health', { timeout: 5000 }, (res) => {
+                let body = '';
+                res.on('data', chunk => { body += chunk; });
+                res.on('end', () => {
+                  try { wsModel.recordHealthCheck(ws.id, true, JSON.parse(body).ollama && JSON.parse(body).ollama.models); }
+                  catch { wsModel.recordHealthCheck(ws.id, false); }
+                });
+              }).on('error', () => { wsModel.recordHealthCheck(ws.id, false); });
+            }
+          } catch { /* workstation health deferred */ }
           }
           // If lock held by sibling, skip this cycle
         } catch (error) {

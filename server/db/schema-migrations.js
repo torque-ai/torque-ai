@@ -443,6 +443,55 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   } catch (e) {
     logger.debug(`Schema migration (provider_health_history): ${e.message}`);
   }
+
+  // Unified workstations table — replaces peek_hosts, remote_agents, ollama_hosts
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workstations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        host TEXT NOT NULL,
+        agent_port INTEGER DEFAULT 3460,
+        platform TEXT,
+        arch TEXT,
+        tls_cert TEXT,
+        tls_fingerprint TEXT,
+        secret TEXT,
+        capabilities TEXT,
+        ollama_port INTEGER DEFAULT 11434,
+        models_cache TEXT,
+        memory_limit_mb INTEGER,
+        settings TEXT,
+        last_model_used TEXT,
+        model_loaded_at TEXT,
+        gpu_metrics_port INTEGER,
+        models_updated_at TEXT,
+        gpu_name TEXT,
+        gpu_vram_mb INTEGER,
+        status TEXT DEFAULT 'unknown',
+        consecutive_failures INTEGER DEFAULT 0,
+        last_health_check TEXT,
+        last_healthy TEXT,
+        max_concurrent INTEGER DEFAULT 3,
+        running_tasks INTEGER DEFAULT 0,
+        priority INTEGER DEFAULT 10,
+        enabled INTEGER DEFAULT 1,
+        is_default INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (workstations): ${e.message}`);
+  }
+
+  // Phase 2: Migrate existing host data to workstations
+  try {
+    const { migrateExistingHostsToWorkstations } = require('../workstation/migration');
+    migrateExistingHostsToWorkstations(db);
+  } catch (e) {
+    logger.debug(`Schema migration (workstation data migration): ${e.message}`);
+  }
 }
 
 module.exports = { runMigrations };

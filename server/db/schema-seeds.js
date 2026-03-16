@@ -613,6 +613,11 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
         seedStmt.run(...row);
       }
     } catch (e) { logger.debug(`Schema migration (model capabilities seed): ${e.message}`); }
+
+  // Workstation defaults
+  setConfigDefault('workstation_health_check_interval_seconds', '30');
+  setConfigDefault('workstation_agent_port', '3460');
+  setConfigDefault('workstation_cert_warning_days', '30');
 }
 
 module.exports = { seedDefaults };
