@@ -83,16 +83,9 @@ Fill in:
 
 ### Quality (VERIFY)
 
-- [ ] **Run test suite** to confirm tests pass:
-  ```bash
-  npx vitest run
-  ```
-  Expected: 15K+ tests pass, no new failures
+- [x] **Run test suite** — 15,667 passed, 121 failed (33 files), 18 skipped. All failures are pre-existing (none in our 4 sanitized files — those passed 147/147). No regressions from plugin packaging or data sanitization.
 
-- [ ] **Run ESLint** — confirm zero errors:
-  ```bash
-  npx eslint server/
-  ```
+- [x] **Run ESLint** — 0 errors, 0 warnings (2026-03-16)
 
 ---
 
@@ -221,8 +214,8 @@ Users start with 29 core tools. Advanced tools (500+) require explicit unlock, r
 3. [x] Run `npm audit` — 0 vulnerabilities
 4. [x] Run personal data grep — production code clean; test files + plan docs need genericizing
 5. [x] Genericize test file personal data — 4 test files + plan docs sanitized
-6. [ ] Run test suite — confirm passing
-7. [ ] Run ESLint — confirm zero errors
+6. [x] Run test suite — 15,667 passed, 121 pre-existing failures, 0 regressions
+7. [x] Run ESLint — 0 errors, 0 warnings
 8. [x] Validate marketplace — `claude plugin validate .` PASSED
 9. [x] Test local plugin — MCP server starts, skills load, tools respond
 10. [ ] Push all changes to GitHub
