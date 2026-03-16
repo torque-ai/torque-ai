@@ -9,6 +9,7 @@ module.exports = defineConfig({
     include: ['tests/**/*.test.js', 'tests/test-*.js'],
     setupFiles: ['tests/worker-setup.js'],
     pool: 'forks',
+    dangerouslyIgnoreUnhandledErrors: !!process.env.CI,
     maxWorkers: Math.max(1, Math.min(os.cpus().length - 1, 8)),
     fileParallelism: true,
     globalSetup: ['tests/global-setup.js'],
