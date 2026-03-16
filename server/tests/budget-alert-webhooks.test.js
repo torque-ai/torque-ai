@@ -16,9 +16,9 @@ describe('RB-045: budget alert webhook targeting', () => {
   let index;
   let db;
   let webhookHandlers;
-  let checkBudgetAlertsSpy;
-  let updateBudgetAlertSpy;
-  let getWebhookSpy;
+  let _checkBudgetAlertsSpy;
+  let _updateBudgetAlertSpy;
+  let _getWebhookSpy;
   let getDataDirSpy;
   let sendWebhookSpy;
   let triggerWebhooksSpy;
@@ -34,9 +34,9 @@ describe('RB-045: budget alert webhook targeting', () => {
     vi.resetModules();
     vi.restoreAllMocks();
     loadIndex();
-    checkBudgetAlertsSpy = vi.spyOn(db, 'checkBudgetAlerts').mockReturnValue([]);
-    updateBudgetAlertSpy = vi.spyOn(db, 'updateBudgetAlert').mockReturnValue();
-    getWebhookSpy = vi.spyOn(db, 'getWebhook').mockReturnValue();
+    _checkBudgetAlertsSpy = vi.spyOn(db, 'checkBudgetAlerts').mockReturnValue([]);
+    _updateBudgetAlertSpy = vi.spyOn(db, 'updateBudgetAlert').mockReturnValue();
+    _getWebhookSpy = vi.spyOn(db, 'getWebhook').mockReturnValue();
     sendWebhookSpy = vi.spyOn(webhookHandlers, 'sendWebhook').mockResolvedValue();
     triggerWebhooksSpy = vi.spyOn(webhookHandlers, 'triggerWebhooks').mockResolvedValue();
     if (typeof db.getDataDir === 'function') {

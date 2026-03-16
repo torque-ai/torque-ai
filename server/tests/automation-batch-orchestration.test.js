@@ -9,7 +9,7 @@ const handlers = require('../handlers/automation-batch-orchestration');
 const automationHandlers = require('../handlers/automation-handlers');
 const mockDb = require('../database');
 const mockTaskManager = require('../task-manager');
-const { ErrorCodes } = require('../handlers/shared');
+const { ErrorCodes: _ErrorCodes } = require('../handlers/shared');
 const { createConfigMock } = require('./test-helpers');
 
 function setDbDefaults() {

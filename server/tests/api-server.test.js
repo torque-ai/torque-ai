@@ -113,11 +113,11 @@ describe('API Server endpoints', () => {
   let handleToolCallSpy;
   let getConfigSpy;
   let countTasksSpy;
-  let createTaskSpy;
-  let getTaskSpy;
-  let updateTaskStatusSpy;
-  let getTaskEventsSpy;
-  let recordTaskEventSpy;
+  let _createTaskSpy;
+  let _getTaskSpy;
+  let _updateTaskStatusSpy;
+  let _getTaskEventsSpy;
+  let _recordTaskEventSpy;
   let listProvidersSpy;
   let getProviderSpy;
   let getDefaultProviderSpy;
@@ -126,7 +126,7 @@ describe('API Server endpoints', () => {
   let getProviderStatsSpy;
   let listOllamaHostsSpy;
   let getProviderAdapterDefaultSpy;
-  let getProviderCapabilityMatrixSpy;
+  let _getProviderCapabilityMatrixSpy;
   let inferenceSubmitSpy;
   let recordProviderUsageSpy;
   let mockTaskStore;
@@ -284,13 +284,13 @@ describe('API Server endpoints', () => {
     vi.spyOn(adapterRegistry, 'getProviderAdapter').mockImplementation(
       getProviderAdapterDefaultSpy,
     );
-    getProviderCapabilityMatrixSpy = vi.spyOn(adapterRegistry, 'getProviderCapabilityMatrix').mockImplementation(
+    _getProviderCapabilityMatrixSpy = vi.spyOn(adapterRegistry, 'getProviderCapabilityMatrix').mockImplementation(
       buildTestProviderCapabilityMatrix,
     );
     mockTaskStore = new Map();
     mockTaskEventsStore = new Map();
 
-    createTaskSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => {
+    _createTaskSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => {
       ensureTaskStore();
       const row = createTaskRow({
         ...task,
@@ -299,12 +299,12 @@ describe('API Server endpoints', () => {
       return row;
     });
 
-    getTaskSpy = vi.spyOn(db, 'getTask').mockImplementation((taskId) => {
+    _getTaskSpy = vi.spyOn(db, 'getTask').mockImplementation((taskId) => {
       ensureTaskStore();
       return mockTaskStore.get(taskId) || null;
     });
 
-    updateTaskStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((taskId, status, additionalFields = {}) => {
+    _updateTaskStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((taskId, status, additionalFields = {}) => {
       ensureTaskStore();
       const row = mockTaskStore.get(taskId);
       if (!row) {
@@ -333,7 +333,7 @@ describe('API Server endpoints', () => {
       return row;
     });
 
-    getTaskEventsSpy = vi.spyOn(db, 'getTaskEvents').mockImplementation((taskId, options = {}) => {
+    _getTaskEventsSpy = vi.spyOn(db, 'getTaskEvents').mockImplementation((taskId, options = {}) => {
       ensureTaskStore();
       const events = mockTaskEventsStore.get(taskId) || [];
       const filtered = events.filter((event) => {
@@ -353,7 +353,7 @@ describe('API Server endpoints', () => {
         .slice(0, options.limit || 100);
     });
 
-    recordTaskEventSpy = vi.spyOn(db, 'recordTaskEvent').mockImplementation((...args) => {
+    _recordTaskEventSpy = vi.spyOn(db, 'recordTaskEvent').mockImplementation((...args) => {
       const [taskId, eventType, oldValue, newValue, eventData] = args;
       emitTaskEvent(taskId, eventType, oldValue, newValue, eventData);
     });
