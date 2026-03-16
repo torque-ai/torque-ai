@@ -505,8 +505,11 @@ describe('TaskDetailDrawer', () => {
 
     rerender(<TaskDetailDrawer taskId="task-2" onClose={vi.fn()} />);
 
+    // Wait for task-2 tabs to render (header appears before loading completes)
     await waitFor(() => {
       expect(screen.getByText('#task-2')).toBeTruthy();
+      // Tabs only render after loading completes — verify they're present
+      expect(screen.getAllByText('diff').length).toBeGreaterThan(0);
     }, { timeout: 3000 });
 
     await act(async () => {
