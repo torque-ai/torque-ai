@@ -460,6 +460,10 @@ export function startMockApi(port = 3456) {
       req.on('data', (chunk) => { _body += chunk; });
       req.on('end', () => {
         const result = route(req.method, url.pathname, query);
+        if (process.env.CI) {
+          const status = result?.__status || 200;
+          console.log(`[mock-api] ${req.method} ${url.pathname} → ${status}${result?.__status === 404 ? ` (${result.error})` : ''}`);
+        }
         const status = result?.__status || 200;
         const payload = { ...result };
         delete payload.__status;
