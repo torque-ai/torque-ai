@@ -91,10 +91,6 @@ function isoNowMinusHours(hours) {
   return new Date(Date.now() - hours * 3600000).toISOString();
 }
 
-function isoNowMinusMinutes(minutes) {
-  return new Date(Date.now() - minutes * 60000).toISOString();
-}
-
 function resetState() {
   const tables = [
     'analytics',

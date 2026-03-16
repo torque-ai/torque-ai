@@ -35,8 +35,8 @@ const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS
 const { sanitizeLLMOutput } = require('./utils/sanitize');
 const { parseModelSizeB, isSmallModel, getModelSizeCategory, isThinkingModel } = require('./utils/model');
 const { parseGitStatusLine, getModifiedFiles } = require('./utils/git');
-const hashlineParser = require('./utils/hashline-parser');
-const fileResolution = require('./utils/file-resolution');
+const _hashlineParser = require('./utils/hashline-parser');
+const _fileResolution = require('./utils/file-resolution');
 const hostMonitoring = require('./utils/host-monitoring');
 const contextEnrichment = require('./utils/context-enrichment');
 const tsserverClient = require('./utils/tsserver-client');
@@ -69,7 +69,7 @@ const _taskFinalizer = require('./execution/task-finalizer');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
 const _completionPipeline = require('./execution/completion-pipeline');
 const _processLifecycle = require('./execution/process-lifecycle');
-const { clearProcTimeouts, safeDecrementHostSlot, killProcessGraceful, pauseProcess, safeTriggerWebhook, cleanupProcessTracking } = _processLifecycle;
+const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking } = _processLifecycle;
 const debugLifecycle = require('./execution/debug-lifecycle');
 const _processStreams = require('./execution/process-streams');
 const _commandBuilders = require('./execution/command-builders');
@@ -105,7 +105,7 @@ const {
   handleSandboxRevertDetection,
   handleAutoValidation, handleBuildTestStyleCommit, handleProviderFailover,
   recordModelOutcome, recordProviderHealth,
-  fireTerminalTaskHook, handlePostCompletion,
+  handlePostCompletion,
   finalizeTask,
   buildAiderCommand, configureAiderHost,
   categorizeQueuedTasks, processQueueInternal,
@@ -1961,11 +1961,9 @@ function estimateProgress(output, provider) {
 const {
   detectSuccessFromOutput,
   detectOutputCompletion,
-  buildCombinedProcessOutput,
   COMPLETION_OUTPUT_THRESHOLDS,
   SHARED_COMPLETION_PATTERNS,
   PROVIDER_COMPLETION_PATTERNS,
-  FAILURE_REJECTION_PATTERNS,
 } = completionDetection;
 
 /**
@@ -2154,7 +2152,6 @@ debugLifecycle.init({
 // Thin wrappers delegating to ./execution/debug-lifecycle.js (Step 5 extraction)
 function pauseTask(taskId, reason = null) { return debugLifecycle.pauseTask(taskId, reason); }
 function resumeTask(taskId) { return debugLifecycle.resumeTask(taskId); }
-function isSafeRegexPattern(pattern) { return debugLifecycle.isSafeRegexPattern(pattern); }
 function checkBreakpoints(taskId, text, type = 'output') { return debugLifecycle.checkBreakpoints(taskId, text, type); }
 function pauseTaskForDebug(taskId, breakpoint) { return debugLifecycle.pauseTaskForDebug(taskId, breakpoint); }
 function stepExecution(taskId, stepMode = 'continue', count = 1) { return debugLifecycle.stepExecution(taskId, stepMode, count); }
