@@ -568,7 +568,7 @@ describe('guidance-handlers', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `ssh kenten@192.168.1.183 "cd C:\Users\Kenten\Projects\Torque && npx vitest run server/tests/guidance-handlers.test.js"`
+Run: `npx vitest run server/tests/guidance-handlers.test.js`
 
 Expected: FAIL — `Cannot find module '../handlers/guidance-handlers'`
 
@@ -958,7 +958,7 @@ module.exports = {
 
 - [ ] **Step 2: Run tests to verify they pass**
 
-Run: `ssh kenten@192.168.1.183 "cd C:\Users\Kenten\Projects\Torque && npx vitest run server/tests/guidance-handlers.test.js"`
+Run: `npx vitest run server/tests/guidance-handlers.test.js`
 
 Expected: Most tests PASS. Fix any failures from mock/import issues.
 
@@ -1002,7 +1002,7 @@ describe('ping schema', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `ssh kenten@192.168.1.183 "cd C:\Users\Kenten\Projects\Torque && npx vitest run server/tests/guidance-handlers.test.js"`
+Run: `npx vitest run server/tests/guidance-handlers.test.js`
 
 Expected: FAIL — `include_guidance` property does not exist yet.
 
@@ -1024,7 +1024,7 @@ tier: {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `ssh kenten@192.168.1.183 "cd C:\Users\Kenten\Projects\Torque && npx vitest run server/tests/guidance-handlers.test.js"`
+Run: `npx vitest run server/tests/guidance-handlers.test.js`
 
 Expected: PASS
 
@@ -1084,7 +1084,7 @@ The caller specifies their tier via the `tier` parameter. CLAUDE.md instructs Cl
 
 - [ ] **Step 3: Run tests to verify they pass**
 
-Run: `ssh kenten@192.168.1.183 "cd C:\Users\Kenten\Projects\Torque && npx vitest run server/tests/guidance-handlers.test.js"`
+Run: `npx vitest run server/tests/guidance-handlers.test.js`
 
 Expected: PASS
 
@@ -1204,7 +1204,7 @@ git commit -m "docs: rewrite CLAUDE.md — lean core discipline + pointer to /ap
 - [ ] **Step 1: Run the full test suite**
 
 ```bash
-ssh kenten@192.168.1.183 "cd C:\Users\Kenten\Projects\Torque && npx vitest run server/tests/guidance-handlers.test.js"
+npx vitest run server/tests/guidance-handlers.test.js
 ```
 
 Expected: All tests pass.

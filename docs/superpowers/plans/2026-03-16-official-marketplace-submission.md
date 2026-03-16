@@ -78,20 +78,20 @@ Fill in:
 
 - [x] **Run personal data grep** — ran 2026-03-16. Results:
   - **Production code:** CLEAN — zero matches in `server/*.js`, `skills/`, `.claude-plugin/`, `CLAUDE.md`, `README.md`
-  - **Test files (4 files):** contain `werem` and `bahumut` in test data — `api-webhooks.test.js`, `api-server.test.js`, `remote-command-tools.test.js`, `remote-agent-handlers.test.js`. These are test fixtures, not identifying data exposed to users, but should be genericized before official submission.
-  - **Plan docs (3 files):** contain `kenten@192.168.1.183` SSH commands — internal development plans in `docs/superpowers/plans/`. Should either be excluded from published package or genericized.
+  - **Test files (4 files):** SANITIZED — `werem` → `testuser`, `bahumut` → `test-host`/`remote-gpu-host`
+  - **Plan docs:** SANITIZED — SSH commands genericized to local `npx` commands
 
 ### Quality (VERIFY)
 
 - [ ] **Run test suite** to confirm tests pass:
   ```bash
-  ssh kenten@192.168.1.183 "cd C:\Users\Kenten\Projects\Torque && npx vitest run"
+  npx vitest run
   ```
   Expected: 15K+ tests pass, no new failures
 
 - [ ] **Run ESLint** — confirm zero errors:
   ```bash
-  ssh kenten@192.168.1.183 "cd C:\Users\Kenten\Projects\Torque && npx eslint server/"
+  npx eslint server/
   ```
 
 ---
@@ -220,7 +220,7 @@ Users start with 29 core tools. Advanced tools (500+) require explicit unlock, r
 2. [x] Update SECURITY.md with audit results + MCP plugin context
 3. [x] Run `npm audit` — 0 vulnerabilities
 4. [x] Run personal data grep — production code clean; test files + plan docs need genericizing
-5. [ ] Genericize test file personal data (4 test files: werem → example-user, bahumut → test-host)
+5. [x] Genericize test file personal data — 4 test files + plan docs sanitized
 6. [ ] Run test suite — confirm passing
 7. [ ] Run ESLint — confirm zero errors
 8. [x] Validate marketplace — `claude plugin validate .` PASSED

@@ -201,8 +201,8 @@ describe('api/webhooks.substitutePayload', () => {
 
     expect(mod.substitutePayload(
       'Deploy {{payload.repository.name}} from {{payload.repository.owner.login}}',
-      { repository: { name: 'torque', owner: { login: 'werem' } } },
-    )).toBe('Deploy torque from werem');
+      { repository: { name: 'torque', owner: { login: 'testuser' } } },
+    )).toBe('Deploy torque from testuser');
   });
 
   it('replaces repeated placeholders independently', () => {

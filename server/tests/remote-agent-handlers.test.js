@@ -438,9 +438,9 @@ describe('remote-agent-handlers', () => {
         durationMs: 22,
       });
       const registry = createMockRegistry([
-        { id: 'bahumuts-omen', name: 'remote-gpu-host', status: 'healthy', enabled: true },
+        { id: 'remote-gpu-host', name: 'remote-gpu-host', status: 'healthy', enabled: true },
       ], {
-        'bahumuts-omen': { run },
+        'remote-gpu-host': { run },
       });
       const { handlers } = loadHandlers({ registry });
 
@@ -499,9 +499,9 @@ describe('remote-agent-handlers', () => {
     it('surfaces remote execution failures without local fallback text', async () => {
       const run = vi.fn().mockRejectedValue(new Error('stream timed out'));
       const registry = createMockRegistry([
-        { id: 'bahumuts-omen', name: 'remote-gpu-host', status: 'healthy', enabled: true },
+        { id: 'remote-gpu-host', name: 'remote-gpu-host', status: 'healthy', enabled: true },
       ], {
-        'bahumuts-omen': { run },
+        'remote-gpu-host': { run },
       });
       const { handlers } = loadHandlers({ registry });
 

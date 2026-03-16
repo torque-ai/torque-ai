@@ -166,7 +166,7 @@ describe('remote command MCP tools', () => {
     const { handlers } = loadHandlers({
       registry: {
         getAll: vi.fn(() => [
-          { id: 'bahumuts-omen', name: 'remote-gpu-host', status: 'healthy', enabled: true },
+          { id: 'remote-gpu-host', name: 'remote-gpu-host', status: 'healthy', enabled: true },
         ]),
         getClient: vi.fn(() => ({ run })),
       },

@@ -2083,30 +2083,30 @@ describe('API Server endpoints', () => {
   it('ollama host path routes forward to remove/enable/disable/refresh tools', async () => {
     const removeResponse = await dispatchRequest(requestHandler, {
       method: 'DELETE',
-      url: '/api/ollama/hosts/discovered-l5i-bahumut',
+      url: '/api/ollama/hosts/discovered-test-host',
     });
-    expect(handleToolCallSpy).toHaveBeenCalledWith('remove_ollama_host', { host_id: 'discovered-l5i-bahumut' });
+    expect(handleToolCallSpy).toHaveBeenCalledWith('remove_ollama_host', { host_id: 'discovered-test-host' });
     expect(removeResponse.statusCode).toBe(200);
 
     const enableResponse = await dispatchRequest(requestHandler, {
       method: 'POST',
-      url: '/api/ollama/hosts/discovered-l5i-bahumut/enable',
+      url: '/api/ollama/hosts/discovered-test-host/enable',
     });
-    expect(handleToolCallSpy).toHaveBeenCalledWith('enable_ollama_host', { host_id: 'discovered-l5i-bahumut' });
+    expect(handleToolCallSpy).toHaveBeenCalledWith('enable_ollama_host', { host_id: 'discovered-test-host' });
     expect(enableResponse.statusCode).toBe(200);
 
     const disableResponse = await dispatchRequest(requestHandler, {
       method: 'POST',
-      url: '/api/ollama/hosts/discovered-l5i-bahumut/disable',
+      url: '/api/ollama/hosts/discovered-test-host/disable',
     });
-    expect(handleToolCallSpy).toHaveBeenCalledWith('disable_ollama_host', { host_id: 'discovered-l5i-bahumut' });
+    expect(handleToolCallSpy).toHaveBeenCalledWith('disable_ollama_host', { host_id: 'discovered-test-host' });
     expect(disableResponse.statusCode).toBe(200);
 
     const refreshResponse = await dispatchRequest(requestHandler, {
       method: 'POST',
-      url: '/api/ollama/hosts/discovered-l5i-bahumut/refresh-models',
+      url: '/api/ollama/hosts/discovered-test-host/refresh-models',
     });
-    expect(handleToolCallSpy).toHaveBeenCalledWith('refresh_host_models', { host_id: 'discovered-l5i-bahumut' });
+    expect(handleToolCallSpy).toHaveBeenCalledWith('refresh_host_models', { host_id: 'discovered-test-host' });
     expect(refreshResponse.statusCode).toBe(200);
   });
 
