@@ -24,7 +24,7 @@
 | Task 8: Publish npm package (optional) | TODO | — |
 
 ### Remaining Work (requires user action)
-1. **Validate marketplace** — run `claude plugin validate .` or `/plugin validate .`
+1. ~~**Validate marketplace**~~ DONE (`f44c138`)
 2. **Test local plugin loading** — `claude --plugin-dir .` to verify skills + MCP server
 3. **Test marketplace install** — push to GitHub, then `/plugin marketplace add torque-ai/torque-ai`
 4. **Submit to official marketplace** — web form at `claude.ai/settings/plugins/submit`
@@ -447,7 +447,7 @@ This file makes the GitHub repo itself a plugin marketplace. Users add it with `
 }
 ```
 
-- [ ] **Step 2: Validate the marketplace** ← REMAINING (needs `claude plugin validate .`)
+- [x] **Step 2: Validate the marketplace** — passed after fixing `$schema` + source path (`f44c138`)
 
 ```bash
 claude plugin validate .

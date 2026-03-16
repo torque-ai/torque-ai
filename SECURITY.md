@@ -48,6 +48,33 @@ If you discover a security vulnerability in TORQUE, please report it responsibly
 - Regular `npm audit` checks in CI pipeline
 - No production dependencies with known critical vulnerabilities
 
+## Security Audit (2026-03-14)
+
+A comprehensive security audit identified and resolved all findings:
+
+| Severity | Found | Fixed |
+|----------|-------|-------|
+| Critical | 3 | 3 |
+| High | 5 | 5 |
+| Medium | 16 | 16 |
+| Low | 3 | 3 |
+
+Key fixes:
+- Environment variable injection prevention (child processes no longer inherit all parent env vars)
+- Strict authentication defaults for V2 control plane API
+- Sensitive file filtering in context stuffing (`.env` files excluded from cloud API prompts)
+- Double-encoding path traversal blocking
+- IPv6 SSRF bypass prevention
+- Per-tool authorization support
+
+## MCP Plugin Context
+
+When installed as a Claude Code plugin, TORQUE:
+- Spawns child processes only when the user explicitly submits a task — never automatically
+- Makes network calls only to user-configured providers (Ollama hosts, cloud APIs)
+- Starts with 29 core tools (Tier 1) — advanced tools require explicit unlock via `unlock_tier`
+- Stores all data locally in SQLite — see [PRIVACY.md](PRIVACY.md)
+
 ## Known Limitations
 
 - Dashboard WebSocket connections do not currently require authentication (tracked as RB-074)
