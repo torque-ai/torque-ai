@@ -340,8 +340,11 @@ function pruneOldTaskEvents() {
 let _pruneTimer = null;
 function startRetentionPolicy() {
   if (_pruneTimer) return;
-  setTimeout(() => pruneOldTaskEvents(), 30000);
+  const initialTimer = setTimeout(() => pruneOldTaskEvents(), 30000);
   _pruneTimer = setInterval(() => pruneOldTaskEvents(), 24 * 60 * 60 * 1000);
+  // unref() so these timers don't prevent process exit (e.g. in test workers)
+  if (initialTimer.unref) initialTimer.unref();
+  if (_pruneTimer.unref) _pruneTimer.unref();
 }
 
 function stopRetentionPolicy() {
