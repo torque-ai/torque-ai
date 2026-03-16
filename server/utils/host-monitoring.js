@@ -714,7 +714,8 @@ function initializeDiscovery() {
       logger.info(`[Discovery] Failed to initialize: ${err.message}`);
     }
   }, 1000);
-  // discoveryInitTimeout.unref(); — removed: discovery must initialize
+  // unref so test workers can exit; server stays alive via HTTP listeners
+  _discoveryInitTimeout.unref();
 }
 
 /**
@@ -760,7 +761,7 @@ function startTimers() {
           );
         }
       }, healthCheckIntervalSeconds * 1000);
-      // healthCheckInterval.unref(); — removed: timers must keep process alive
+      healthCheckInterval.unref();
     } catch (error) {
       if (!isExpectedDbShutdownError(error)) {
         logThrottledMonitoringIssue(
@@ -772,6 +773,7 @@ function startTimers() {
       }
     }
   }, 0);
+  healthCheckBootstrapTimeout.unref();
 
   // Run once on startup (delayed 15s) and warm model cache
   healthCheckStartupTimeout = setTimeout(() => {
@@ -789,7 +791,7 @@ function startTimers() {
       }
     }
   }, 15000);
-  // healthCheckStartup.unref(); — removed: startup health check must fire
+  healthCheckStartupTimeout.unref();
 
   // Activity polling (GPU/model status) — faster than health checks, lightweight
   // Wrapped with distributed lock so only one MCP instance runs polling per cycle
@@ -821,9 +823,9 @@ function startTimers() {
           );
         }
       }, intervalSec * 1000);
-      // activityPollInterval.unref(); — removed: activity polling must keep process alive
+      activityPollInterval.unref();
       // Initial poll after 5 seconds
-      setTimeout(() => {
+      const initialPollTimer = setTimeout(() => {
         pollHostActivity().catch((error) => {
           logThrottledMonitoringIssue(
             'warn',
@@ -833,6 +835,7 @@ function startTimers() {
           );
         });
       }, 5000);
+      initialPollTimer.unref();
     } catch (error) {
       if (!isExpectedDbShutdownError(error)) {
         logThrottledMonitoringIssue(
@@ -844,6 +847,7 @@ function startTimers() {
       }
     }
   }, 2000);
+  activityPollBootstrapTimeout.unref();
 
   // Register signal handlers for graceful shutdown (dedup: remove old before adding new)
   if (sigTermHandler) process.removeListener('SIGTERM', sigTermHandler);
