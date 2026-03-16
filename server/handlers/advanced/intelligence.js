@@ -227,7 +227,7 @@ function handleWarmCache(args) {
 function handleComputePriority(args) {
   const { task_id, recalculate } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
   const score = db.computePriorityScore(task_id, { recalculate });
@@ -374,7 +374,7 @@ function handleExplainPriority(args) {
 function handleBoostPriority(args) {
   const { task_id, boost_amount, expires_in_minutes } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
   db.boostPriority(task_id, boost_amount, expires_in_minutes);

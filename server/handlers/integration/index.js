@@ -432,7 +432,6 @@ function handleTaskChanges(args) {
   }
 
   try {
-    const { execFileSync } = require('child_process');
     const { safeGitExec } = require('../../utils/git');
     const output = safeGitExec(diffArgs, { cwd: workDir, timeout: 10000 });
 
@@ -481,7 +480,6 @@ function handleRollbackFile(args) {
   }
 
   try {
-    const { execFileSync } = require('child_process');
     const { safeGitExec: safeGit } = require('../../utils/git');
     safeGit(['checkout', task.git_before_sha, '--', args.file_path], { cwd: workDir, maxBuffer: 10 * 1024 * 1024, timeout: 10000 });
 
@@ -519,7 +517,6 @@ function handleStashChanges(args) {
   }
 
   try {
-    const { execFileSync } = require('child_process');
     const stashArgs = ['stash', 'push'];
     if (args.message) {
       stashArgs.push('-m', args.message);

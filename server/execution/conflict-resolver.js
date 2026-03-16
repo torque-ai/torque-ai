@@ -3,7 +3,6 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
 const { safeGitExec } = require('../utils/git');
 const db = require('../database');
 const logger = require('../logger').child({ component: 'conflict-resolver' });

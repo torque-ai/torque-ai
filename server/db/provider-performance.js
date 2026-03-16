@@ -1,6 +1,4 @@
 'use strict';
-const logger = require('../logger').child({ component: 'provider-performance' });
-
 let _db = null;
 function setDb(db) { _db = db; }
 

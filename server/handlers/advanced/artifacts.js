@@ -57,7 +57,7 @@ function handleStoreArtifact(args) {
   }
 
   // Verify task exists
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
   const config = db.getArtifactConfig();

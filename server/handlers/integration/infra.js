@@ -4,7 +4,6 @@
 
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
 const db = require('../../database');
 const serverConfig = require('../../config');
 const { CODE_EXTENSIONS, SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../../constants');
@@ -849,7 +848,6 @@ function handleFullProjectAudit(args) {
   // 3. Group files into audit batches sized per provider budget
   const auditPrompt = 'You are auditing a Node.js project for bugs, logic errors, race conditions, security issues, and dead code. Review the following file(s). Report ONLY confirmed bugs with file:line references and severity (CRITICAL/HIGH/MEDIUM). Do NOT report style issues, missing docs, or suggestions.';
 
-  const assignments = [];
   const assignedFiles = new Set();
 
   // Round-robin distribute files to providers
@@ -877,7 +875,6 @@ function handleFullProjectAudit(args) {
             break;
           }
         }
-        const fileList = taskFiles.map(f => f.rel).join(', ');
         provider.tasks.push({
           task: `${auditPrompt}\n\nFiles to review:\n${taskFiles.map(f => `- ${f.rel} (${f.lines} lines)`).join('\n')}`,
           context_stuff: false,
