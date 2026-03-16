@@ -1,6 +1,6 @@
 'use strict';
 
-const path = require('path');
+const _path = require('path');
 
 // --- installMock pattern for CJS dependency injection ---
 function installMock(modulePath, exports) {

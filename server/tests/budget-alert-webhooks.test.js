@@ -19,7 +19,7 @@ describe('RB-045: budget alert webhook targeting', () => {
   let _checkBudgetAlertsSpy;
   let _updateBudgetAlertSpy;
   let _getWebhookSpy;
-  let getDataDirSpy;
+  let _getDataDirSpy;
   let sendWebhookSpy;
   let triggerWebhooksSpy;
 
@@ -40,7 +40,7 @@ describe('RB-045: budget alert webhook targeting', () => {
     sendWebhookSpy = vi.spyOn(webhookHandlers, 'sendWebhook').mockResolvedValue();
     triggerWebhooksSpy = vi.spyOn(webhookHandlers, 'triggerWebhooks').mockResolvedValue();
     if (typeof db.getDataDir === 'function') {
-      getDataDirSpy = vi.spyOn(db, 'getDataDir').mockReturnValue(path.join(os.tmpdir(), 'torque-budget-alerts-test'));
+      _getDataDirSpy = vi.spyOn(db, 'getDataDir').mockReturnValue(path.join(os.tmpdir(), 'torque-budget-alerts-test'));
     }
   });
 

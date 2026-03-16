@@ -423,7 +423,7 @@ describe('Cost Tracking Module', () => {
       const origDir = process.env.TORQUE_DATA_DIR;
       process.env.TORQUE_DATA_DIR = freshDir;
 
-      const dbModPath = require.resolve('../database');
+      const _dbModPath = require.resolve('../database');
       const freshDb = require('../database');
       freshDb.init();
 

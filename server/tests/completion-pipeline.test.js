@@ -81,7 +81,7 @@ describe('completion-pipeline', () => {
       const db1 = createMockDb();
       const db2 = createMockDb();
       const parse1 = vi.fn();
-      const parse2 = vi.fn();
+      const _parse2 = vi.fn();
 
       init({ db: db1, parseTaskMetadata: parse1 });
       init({ db: db2 });

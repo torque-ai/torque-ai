@@ -13,7 +13,7 @@ const {
   estimateTokens,
   getContextBudget,
   PROVIDER_CONTEXT_BUDGETS,
-  OPENROUTER_MODEL_BUDGETS,
+  OPENROUTER_MODEL_BUDGETS: _OPENROUTER_MODEL_BUDGETS,
   CONTEXT_STUFFING_PROVIDERS,
 } = require('../utils/context-stuffing');
 

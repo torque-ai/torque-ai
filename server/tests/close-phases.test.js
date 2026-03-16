@@ -26,7 +26,7 @@ function loadClosePhasesWithMocks() {
   cp.execFileSync = mockExecFileSync;
   cp.spawnSync = mockSpawnSync;
 
-  const modPath = require.resolve('../validation/close-phases');
+  const _modPath = require.resolve('../validation/close-phases');
   const mod = require('../validation/close-phases');
 
   // Restore originals so other modules aren't affected

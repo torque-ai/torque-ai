@@ -149,7 +149,7 @@ describe('BUG-001: override_provider respected in smart_submit_task', () => {
     // Disable ollama provider to test the guard
     db.updateProvider('ollama', { enabled: 0 });
 
-    const { task, error, text } = await submitAndGetTask({
+    const { task: _task, error, text } = await submitAndGetTask({
       task: 'Scan project structure and list all source files',
       provider: 'ollama',
     });
@@ -624,12 +624,12 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
 // ────────────────────────────────────────────────────────────────
 describe('BUG-001: override_provider blocks budget rerouting in task-manager', () => {
   let db;
-  let taskManager;
+  let _taskManager;
 
   beforeAll(() => {
     const env = setupTestDb('bug-001-taskmanager');
     db = env.db;
-    taskManager = require('../task-manager');
+    _taskManager = require('../task-manager');
     // Prevent real network calls
     db.checkOllamaHealth = async () => true;
   });

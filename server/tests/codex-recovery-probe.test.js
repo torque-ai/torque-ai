@@ -21,7 +21,7 @@ function loadHostMonitoringWithMocks() {
   // Patch child_process exports BEFORE require so destructuring captures our mock
   cp.spawnSync = mockSpawnSync;
 
-  const modPath = require.resolve('../utils/host-monitoring');
+  const _modPath = require.resolve('../utils/host-monitoring');
   const mod = require('../utils/host-monitoring');
 
   // Restore originals so other modules aren't affected
@@ -229,7 +229,7 @@ describe('probeCodexRecovery', () => {
     });
 
     afterEach(() => {
-      const httpsPath = require.resolve('https');
+      const _httpsPath = require.resolve('https');
     });
 
     function setupExhaustedConfig() {
