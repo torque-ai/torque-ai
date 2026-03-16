@@ -179,6 +179,154 @@ const MOCK_HOST_ACTIVITY = {
 let cancelledTaskIds = new Set();
 
 function route(method, pathname, query) {
+  // V2 routes use /api/v2/* and return { data: ... } envelope
+  // Legacy /api/* routes are kept for backward compatibility
+
+  // -- Tasks (v2) --
+  if (method === 'GET' && pathname === '/api/v2/tasks') {
+    let filtered = [...MOCK_TASKS];
+    if (query.status) {
+      filtered = filtered.filter((t) => t.status === query.status);
+    }
+    if (query.q) {
+      const q = query.q.toLowerCase();
+      filtered = filtered.filter((t) => (t.task_description || '').toLowerCase().includes(q));
+    }
+    return {
+      data: {
+        items: filtered,
+        total: filtered.length,
+      },
+      meta: { page: 1, totalPages: 1 },
+    };
+  }
+
+  const v2TaskMatch = pathname.match(/^\/api\/v2\/tasks\/([^/]+)$/);
+  if (method === 'GET' && v2TaskMatch) {
+    const id = v2TaskMatch[1];
+    const task = MOCK_TASKS.find((t) => t.id === id);
+    if (task) return { data: { ...task } };
+    return { __status: 404, error: { code: 'NOT_FOUND', message: 'Task not found' } };
+  }
+
+  const v2TaskDiffMatch = pathname.match(/^\/api\/v2\/tasks\/([^/]+)\/diff$/);
+  if (method === 'GET' && v2TaskDiffMatch) {
+    return { data: { diff_content: null, files_changed: 0, lines_added: 0, lines_removed: 0 } };
+  }
+
+  const v2TaskLogsMatch = pathname.match(/^\/api\/v2\/tasks\/([^/]+)\/logs$/);
+  if (method === 'GET' && v2TaskLogsMatch) {
+    return { data: [] };
+  }
+
+  const v2TaskCancelMatch = pathname.match(/^\/api\/v2\/tasks\/([^/]+)\/cancel$/);
+  if (method === 'POST' && v2TaskCancelMatch) {
+    cancelledTaskIds.add(v2TaskCancelMatch[1]);
+    return { data: { success: true } };
+  }
+
+  const v2TaskRetryMatch = pathname.match(/^\/api\/v2\/tasks\/([^/]+)\/retry$/);
+  if (method === 'POST' && v2TaskRetryMatch) {
+    return { data: { success: true } };
+  }
+
+  // -- Stats (v2) --
+  if (method === 'GET' && pathname === '/api/v2/stats/overview') {
+    return { data: MOCK_OVERVIEW };
+  }
+  if (method === 'GET' && pathname === '/api/v2/stats/timeseries') {
+    return { data: { series: MOCK_TIMESERIES } };
+  }
+  if (method === 'GET' && pathname === '/api/v2/stats/quality') {
+    return { data: MOCK_QUALITY };
+  }
+  if (method === 'GET' && pathname === '/api/v2/stats/stuck') {
+    return { data: MOCK_STUCK };
+  }
+  if (method === 'GET' && pathname === '/api/v2/stats/models') {
+    return { data: { items: [] } };
+  }
+  if (method === 'GET' && pathname === '/api/v2/stats/format-success') {
+    return { data: { items: [] } };
+  }
+
+  // -- Providers (v2) --
+  if (method === 'GET' && pathname === '/api/v2/providers') {
+    return { data: { items: MOCK_PROVIDERS } };
+  }
+  const v2ProviderStatsMatch = pathname.match(/^\/api\/v2\/providers\/([^/]+)\/stats$/);
+  if (method === 'GET' && v2ProviderStatsMatch) {
+    return { data: { completed: 50, failed: 2, avg_duration: 45 } };
+  }
+  if (method === 'GET' && pathname === '/api/v2/providers/trends') {
+    return { data: { items: [] } };
+  }
+
+  // -- Hosts (v2) --
+  if (method === 'GET' && pathname === '/api/v2/hosts') {
+    return { data: { items: MOCK_HOSTS } };
+  }
+  if (method === 'GET' && pathname === '/api/v2/hosts/activity') {
+    return { data: MOCK_HOST_ACTIVITY };
+  }
+
+  // -- Budget (v2) --
+  if (method === 'GET' && pathname === '/api/v2/budget/summary') {
+    return { data: { totalCost: 4.52, providers: {} } };
+  }
+  if (method === 'GET' && pathname === '/api/v2/budget/status') {
+    return { data: { budget: 50, spent: 4.52, remaining: 45.48 } };
+  }
+
+  // -- Workflows (v2) --
+  if (method === 'GET' && pathname === '/api/v2/workflows') {
+    return { data: { items: [], total: 0 } };
+  }
+
+  // -- Plan Projects (v2) --
+  if (method === 'GET' && pathname === '/api/v2/plan-projects') {
+    return { data: { items: [], total: 0 } };
+  }
+
+  // -- System (v2) --
+  if (method === 'GET' && pathname === '/api/v2/system/status') {
+    return { data: { status: 'ok', uptime: 3600 } };
+  }
+
+  // -- Tuning (v2) --
+  if (method === 'GET' && pathname === '/api/v2/tuning') {
+    return { data: { items: [] } };
+  }
+
+  // -- Schedules (v2) --
+  if (method === 'GET' && pathname === '/api/v2/schedules') {
+    return { data: { items: [] } };
+  }
+
+  // -- Approvals (v2) --
+  if (method === 'GET' && pathname === '/api/v2/approvals') {
+    return { data: { items: [] } };
+  }
+
+  // -- Peek Hosts (v2) --
+  if (method === 'GET' && pathname === '/api/v2/peek-hosts') {
+    return { data: { items: [] } };
+  }
+
+  // -- Instances (v2) --
+  if (method === 'GET' && pathname === '/api/v2/instances') {
+    return { data: { items: [] } };
+  }
+
+  // -- Benchmarks (v2) --
+  if (method === 'GET' && pathname === '/api/v2/benchmarks') {
+    return { data: { items: [] } };
+  }
+
+  // ======================================================================
+  // Legacy /api/* routes (kept for backward compatibility)
+  // ======================================================================
+
   // -- Tasks --
   if (method === 'GET' && pathname === '/api/tasks') {
     let filtered = [...MOCK_TASKS];
