@@ -143,5 +143,17 @@ module.exports = async function setup() {
     // NOTE: Do NOT delete TEMPLATE_DIR here. Late-starting workers in the
     // forks pool may still be reading template.db.buf when teardown runs.
     // The directory is overwritten on the next vitest run anyway.
+
+    // Force exit on CI: forked worker processes occasionally retain pending
+    // handles (event-dispatch EventEmitter, polling timers) that prevent
+    // the vitest process from exiting cleanly. All tests have completed
+    // by this point. Using unref() lets vitest exit normally if it can;
+    // the timer only fires if the process hangs.
+    if (process.env.CI) {
+      const exitTimer = setTimeout(() => {
+        process.exit(process.exitCode || 0);
+      }, 5000);
+      exitTimer.unref();
+    }
   };
 };
