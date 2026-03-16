@@ -280,6 +280,7 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
   const toast = useToast();
   const { execute } = useAbortableRequest();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
 
   // Sync filter to URL

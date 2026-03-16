@@ -168,7 +168,7 @@ describe('History', () => {
   });
 
   it('shows Reassign controls for queued tasks and submits the selected provider', async () => {
-    tasksApi.list.mockResolvedValueOnce({
+    tasksApi.list.mockResolvedValue({
       tasks: [{
         id: 'task-queue-1',
         status: 'queued',

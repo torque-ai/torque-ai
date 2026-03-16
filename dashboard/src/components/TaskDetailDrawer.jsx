@@ -156,6 +156,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
   const outputEndRef = useRef(null);
   const mountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
   const providerOptions = useMemo(
     () => buildProviderOptions(providerList, task?.provider),

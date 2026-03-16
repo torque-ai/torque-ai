@@ -21,7 +21,6 @@ export function ToastProvider({ children }) {
     return id;
   }, [removeToast]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const toast = useMemo(() => ({
     error: (msg) => addToast(msg, 'error'),
     success: (msg) => addToast(msg, 'success', 3000),

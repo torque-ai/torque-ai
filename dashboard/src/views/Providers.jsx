@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { providers as providersApi, stats as statsApi, hosts as hostsApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
@@ -127,29 +127,7 @@ export default function Providers({ statsVersion, tasksTick }) {
   const [compareB, setCompareB] = useState('');
   const toast = useToast();
 
-  // Refetch when statsVersion or tasksTick changes (WebSocket push) or days filter changes
-  useEffect(() => {
-    loadData();
-  }, [days, statsVersion, tasksTick]);
-
-  // Fallback polling at 120s in case WebSocket is disconnected
-  useEffect(() => {
-    const pollInterval = setInterval(loadData, 120000);
-    return () => clearInterval(pollInterval);
-  }, [days]);
-
-  async function handleToggle(providerId, enabled) {
-    try {
-      await providersApi.toggle(providerId, enabled);
-      toast.success(`Provider ${enabled ? 'enabled' : 'disabled'}`);
-      loadData();
-    } catch (err) {
-      console.error('Toggle failed:', err);
-      toast.error(`Toggle failed: ${err.message}`);
-    }
-  }
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       const [providersData, timeSeriesData, hostsData, trendsData] = await Promise.all([
         providersApi.list(),
@@ -167,7 +145,30 @@ export default function Providers({ statsVersion, tasksTick }) {
     } finally {
       setLoading(false);
     }
+  }, [days, toast]);
+
+  // Refetch when statsVersion or tasksTick changes (WebSocket push) or days filter changes
+  useEffect(() => {
+    loadData();
+  }, [days, statsVersion, tasksTick, loadData]);
+
+  // Fallback polling at 120s in case WebSocket is disconnected
+  useEffect(() => {
+    const pollInterval = setInterval(loadData, 120000);
+    return () => clearInterval(pollInterval);
+  }, [loadData]);
+
+  async function handleToggle(providerId, enabled) {
+    try {
+      await providersApi.toggle(providerId, enabled);
+      toast.success(`Provider ${enabled ? 'enabled' : 'disabled'}`);
+      loadData();
+    } catch (err) {
+      console.error('Toggle failed:', err);
+      toast.error(`Toggle failed: ${err.message}`);
+    }
   }
+
 
   const totals = providersList.reduce(
     (acc, p) => {

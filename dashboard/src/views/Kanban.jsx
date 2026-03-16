@@ -619,6 +619,99 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     return () => clearTimeout(searchTimerRef.current);
   }, []);
 
+  const mergeTasks = useCallback((freshTasks) => {
+    setAllTasks((prev) => {
+      const restMap = new Map(freshTasks.map(t => [t.id, t]));
+      const merged = new Map();
+      for (const t of freshTasks) merged.set(t.id, t);
+      for (const t of prev) {
+        if (!merged.has(t.id)) merged.set(t.id, t); // keep tasks from other columns
+        const rest = restMap.get(t.id);
+        if (rest && t.updated_at && rest.updated_at && t.updated_at > rest.updated_at) {
+          merged.set(t.id, t);
+        }
+      }
+      return Array.from(merged.values());
+    });
+  }, []);
+
+  // Phase 1: Active data only (running + queued + overview) — fast, used for WS-driven refreshes
+  function loadActiveData() { // eslint-disable-line no-unused-vars
+    execute(async (isCurrent) => {
+      try {
+        const [queuedData, runningData, pendingData, overviewData] = await Promise.all([
+          tasksApi.list({ status: 'queued', limit: 50 }),
+          tasksApi.list({ status: 'running', limit: 50 }),
+          tasksApi.list({ status: 'pending_provider_switch', limit: 20 }),
+          statsApi.overview(),
+        ]);
+        if (!isCurrent()) return;
+        mergeTasks([...queuedData.tasks, ...runningData.tasks, ...pendingData.tasks]);
+        setOverview(overviewData);
+        failCountRef.current = 0;
+        setStaleData(false);
+        setLastRefreshed(Date.now());
+      } catch {
+        if (!isCurrent()) return;
+        failCountRef.current++;
+        if (failCountRef.current >= 3) setStaleData(true);
+      } finally {
+        if (isCurrent()) setLoading(false);
+      }
+    });
+  }
+
+  // Phase 2: Full load — all columns + supplementary stats
+  const loadData = useCallback(() => {
+    return execute(async (isCurrent) => {
+      try {
+        // Phase 1: critical data first — gets the board visible fast
+        const [queuedData, runningData, pendingData, overviewData] = await Promise.all([
+          tasksApi.list({ status: 'queued', limit: 50 }),
+          tasksApi.list({ status: 'running', limit: 50 }),
+          tasksApi.list({ status: 'pending_provider_switch', limit: 20 }),
+          statsApi.overview(),
+        ]);
+        if (!isCurrent()) return;
+        mergeTasks([...queuedData.tasks, ...runningData.tasks, ...pendingData.tasks]);
+        setOverview(overviewData);
+        setLoading(false);
+
+        // Phase 2: supplementary data — fills in completed/failed/cancelled + charts
+        const [completedData, failedData, cancelledData, stuckData, qualityData, timeseriesData, providerData] = await Promise.all([
+          tasksApi.list({ status: 'completed', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
+          tasksApi.list({ status: 'failed', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
+          tasksApi.list({ status: 'cancelled', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
+          statsApi.stuck().catch(() => null),
+          statsApi.quality().catch(() => null),
+          statsApi.timeseries({ days: 7 }).catch(() => []),
+          providersApi.list().catch(() => []),
+        ]);
+        if (!isCurrent()) return;
+        mergeTasks([...completedData.tasks, ...failedData.tasks, ...cancelledData.tasks]);
+        setStuckTasks(normalizeStuckTasks(stuckData));
+        setQualityStats(qualityData);
+        setActivityData(Array.isArray(timeseriesData) ? timeseriesData : []);
+        setProviderList(Array.isArray(providerData) ? providerData : []);
+        failCountRef.current = 0;
+        setStaleData(false);
+        setLastRefreshed(Date.now());
+      } catch (err) {
+        if (!isCurrent()) return;
+        console.error('Failed to load kanban data:', err);
+        failCountRef.current++;
+        if (failCountRef.current >= 3) {
+          setStaleData(true);
+        }
+        if (failCountRef.current === 1) {
+          toast.error('Failed to load dashboard data');
+        }
+      } finally {
+        if (isCurrent()) setLoading(false);
+      }
+    });
+  }, [execute, toast, mergeTasks]);
+
   useEffect(() => {
     loadData();
     // Fallback polling at 120s — WebSocket events drive most updates via tasksTick/statsVersion
@@ -638,14 +731,14 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       document.removeEventListener('visibilitychange', handleVisibility);
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
     };
-  }, []);
+  }, [loadData]);
 
   // Refetch when WebSocket pushes stats or task mutations — full refresh including completed
   useEffect(() => {
     if (statsVersion > 0 || tasksTick > 0) {
       loadData();
     }
-  }, [statsVersion, tasksTick]);
+  }, [statsVersion, tasksTick, loadData]);
 
   useEffect(() => {
     const currentLiveIds = new Set((liveTasks || []).map(t => t.id));
@@ -725,99 +818,6 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       return changed ? next : prev;
     });
   }, [allTasks]);
-
-  function mergeTasks(freshTasks) {
-    setAllTasks((prev) => {
-      const restMap = new Map(freshTasks.map(t => [t.id, t]));
-      const merged = new Map();
-      for (const t of freshTasks) merged.set(t.id, t);
-      for (const t of prev) {
-        if (!merged.has(t.id)) merged.set(t.id, t); // keep tasks from other columns
-        const rest = restMap.get(t.id);
-        if (rest && t.updated_at && rest.updated_at && t.updated_at > rest.updated_at) {
-          merged.set(t.id, t);
-        }
-      }
-      return Array.from(merged.values());
-    });
-  }
-
-  // Phase 1: Active data only (running + queued + overview) — fast, used for WS-driven refreshes
-  function loadActiveData() { // eslint-disable-line no-unused-vars
-    execute(async (isCurrent) => {
-      try {
-        const [queuedData, runningData, pendingData, overviewData] = await Promise.all([
-          tasksApi.list({ status: 'queued', limit: 50 }),
-          tasksApi.list({ status: 'running', limit: 50 }),
-          tasksApi.list({ status: 'pending_provider_switch', limit: 20 }),
-          statsApi.overview(),
-        ]);
-        if (!isCurrent()) return;
-        mergeTasks([...queuedData.tasks, ...runningData.tasks, ...pendingData.tasks]);
-        setOverview(overviewData);
-        failCountRef.current = 0;
-        setStaleData(false);
-        setLastRefreshed(Date.now());
-      } catch {
-        if (!isCurrent()) return;
-        failCountRef.current++;
-        if (failCountRef.current >= 3) setStaleData(true);
-      } finally {
-        if (isCurrent()) setLoading(false);
-      }
-    });
-  }
-
-  // Phase 2: Full load — all columns + supplementary stats
-  function loadData() {
-    return execute(async (isCurrent) => {
-      try {
-        // Phase 1: critical data first — gets the board visible fast
-        const [queuedData, runningData, pendingData, overviewData] = await Promise.all([
-          tasksApi.list({ status: 'queued', limit: 50 }),
-          tasksApi.list({ status: 'running', limit: 50 }),
-          tasksApi.list({ status: 'pending_provider_switch', limit: 20 }),
-          statsApi.overview(),
-        ]);
-        if (!isCurrent()) return;
-        mergeTasks([...queuedData.tasks, ...runningData.tasks, ...pendingData.tasks]);
-        setOverview(overviewData);
-        setLoading(false);
-
-        // Phase 2: supplementary data — fills in completed/failed/cancelled + charts
-        const [completedData, failedData, cancelledData, stuckData, qualityData, timeseriesData, providerData] = await Promise.all([
-          tasksApi.list({ status: 'completed', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
-          tasksApi.list({ status: 'failed', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
-          tasksApi.list({ status: 'cancelled', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
-          statsApi.stuck().catch(() => null),
-          statsApi.quality().catch(() => null),
-          statsApi.timeseries({ days: 7 }).catch(() => []),
-          providersApi.list().catch(() => []),
-        ]);
-        if (!isCurrent()) return;
-        mergeTasks([...completedData.tasks, ...failedData.tasks, ...cancelledData.tasks]);
-        setStuckTasks(normalizeStuckTasks(stuckData));
-        setQualityStats(qualityData);
-        setActivityData(Array.isArray(timeseriesData) ? timeseriesData : []);
-        setProviderList(Array.isArray(providerData) ? providerData : []);
-        failCountRef.current = 0;
-        setStaleData(false);
-        setLastRefreshed(Date.now());
-      } catch (err) {
-        if (!isCurrent()) return;
-        console.error('Failed to load kanban data:', err);
-        failCountRef.current++;
-        if (failCountRef.current >= 3) {
-          setStaleData(true);
-        }
-        if (failCountRef.current === 1) {
-          toast.error('Failed to load dashboard data');
-        }
-      } finally {
-        if (isCurrent()) setLoading(false);
-      }
-    });
-  }
 
   async function handleManualRefresh() {
     setRefreshing(true);

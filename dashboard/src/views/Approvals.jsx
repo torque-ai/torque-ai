@@ -39,7 +39,7 @@ export default function Approvals() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     loadData();

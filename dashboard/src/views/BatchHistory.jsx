@@ -347,6 +347,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
   const [sortDir, setSortDir] = useState('desc');
   const toast = useToast();
   const { execute } = useAbortableRequest();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
 
   // Sync filter to URL
@@ -396,7 +397,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
   }
 
   // Parse workflow context for task counts
-  function getWorkflowMeta(wf) {
+  const getWorkflowMeta = useCallback((wf) => {
     const ctx = typeof wf.context === 'string' ? (() => { try { return JSON.parse(wf.context); } catch { return {}; } })() : (wf.context || {});
     const totalTasks = ctx.total_tasks || wf.total_tasks || 0;
     const completedTasks = ctx.completed_tasks || wf.completed_tasks || 0;
@@ -415,7 +416,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
     }
 
     return { totalTasks, completedTasks, failedTasks, durationSecs, ctx };
-  }
+  }, [now]);
 
   // Client-side sort
   const sortedWorkflows = useMemo(() => {
@@ -447,7 +448,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
       }
     });
     return sorted;
-  }, [workflows, sortCol, sortDir, now]);
+  }, [workflows, sortCol, sortDir, getWorkflowMeta]);
 
   // Summary stats
   const summaryStats = useMemo(() => {
@@ -467,7 +468,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
     const avgDuration = durationCount > 0 ? totalDuration / durationCount : 0;
 
     return { total, successRate, avgDuration };
-  }, [workflows, now]);
+  }, [workflows, getWorkflowMeta]);
 
   return (
     <div className="p-6">

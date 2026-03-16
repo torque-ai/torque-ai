@@ -138,11 +138,7 @@ function ProjectDetail({ projectId, onBack, onAction }) {
   const [loading, setLoading] = useState(true);
   const { execute } = useAbortableRequest();
 
-  useEffect(() => {
-    loadProject();
-  }, [projectId]);
-
-  function loadProject() {
+  const loadProject = useCallback(() => {
     setLoading(true);
     execute(async (isCurrent) => {
       try {
@@ -156,7 +152,11 @@ function ProjectDetail({ projectId, onBack, onAction }) {
         if (isCurrent()) setLoading(false);
       }
     });
-  }
+  }, [projectId, execute]);
+
+  useEffect(() => {
+    loadProject();
+  }, [loadProject]);
 
   if (loading) {
     return <div className="p-6 text-slate-400">Loading project...</div>;
@@ -424,13 +424,7 @@ export default function PlanProjects() {
     return () => clearTimeout(searchTimerRef.current);
   }, []);
 
-  useEffect(() => {
-    loadProjects();
-    const interval = setInterval(loadProjects, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  function loadProjects() {
+  const loadProjects = useCallback(() => {
     execute(async (isCurrent) => {
       try {
         const data = await projectsApi.list();
@@ -444,7 +438,13 @@ export default function PlanProjects() {
         if (isCurrent()) setLoading(false);
       }
     });
-  }
+  }, [execute, toast]);
+
+  useEffect(() => {
+    loadProjects();
+    const interval = setInterval(loadProjects, 5000);
+    return () => clearInterval(interval);
+  }, [loadProjects]);
 
   async function handleAction(projectId, action) {
     if (action === 'delete') {

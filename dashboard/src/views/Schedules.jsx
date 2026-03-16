@@ -45,7 +45,7 @@ export default function Schedules() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     loadSchedules();

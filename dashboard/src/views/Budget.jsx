@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { budget as budgetApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
@@ -50,13 +50,7 @@ export default function Budget() {
   const [savingBudget, setSavingBudget] = useState(false);
   const toast = useToast();
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
-  }, [days]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       const [s, b] = await Promise.all([
         budgetApi.summary(days),
@@ -70,7 +64,13 @@ export default function Budget() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [days, toast]);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
+  }, [loadData]);
 
   async function handleSaveBudget(e) {
     e.preventDefault();

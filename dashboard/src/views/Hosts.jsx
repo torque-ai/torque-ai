@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { hosts as hostsApi, peekHosts as peekHostsApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
@@ -589,14 +589,7 @@ export default function Hosts({ hostActivity }) {
   const toast = useToast();
   const { execute } = useAbortableRequest();
 
-  useEffect(() => {
-    loadHosts();
-    loadPeekHosts();
-    const interval = setInterval(() => { loadHosts(); loadPeekHosts(); }, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  function loadHosts() {
+  const loadHosts = useCallback(() => {
     execute(async (isCurrent) => {
       try {
         const data = await hostsApi.list();
@@ -613,7 +606,14 @@ export default function Hosts({ hostActivity }) {
         }
       }
     });
-  }
+  }, [execute, toast]);
+
+  useEffect(() => {
+    loadHosts();
+    loadPeekHosts();
+    const interval = setInterval(() => { loadHosts(); loadPeekHosts(); }, 10000);
+    return () => clearInterval(interval);
+  }, [loadHosts]);
 
   async function handleRefresh() {
     setRefreshing(true);

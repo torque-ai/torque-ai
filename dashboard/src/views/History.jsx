@@ -189,6 +189,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   const tableRef = useRef(null);
   const toast = useToast();
   const { execute } = useAbortableRequest();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
 
   // Extract unique tags from loaded tasks
@@ -212,7 +213,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
     if (sortDir !== 'desc') params.dir = sortDir;
     if (pagination.page > 1) params.page = String(pagination.page);
     setSearchParams(params, { replace: true });
-  }, [filters, dateRange, sortCol, sortDir, pagination.page]);
+  }, [filters, dateRange, sortCol, sortDir, pagination.page, setSearchParams]);
 
   // Reset page to 1 when filters or date range change
   const prevFiltersRef = useRef(filters);
@@ -247,40 +248,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
     return () => clearTimeout(searchTimerRef.current);
   }, []);
 
-  useEffect(() => {
-    loadTasks();
-    const pollInterval = setInterval(loadTasks, 5000);
-    return () => clearInterval(pollInterval);
-  }, [pagination.page, filters, dateRange, sortCol, sortDir]);
-
-  useEffect(() => {
-    setQueuedProviderSelections((prev) => {
-      const next = { ...prev };
-      const queuedIds = new Set();
-      let changed = false;
-
-      tasks.forEach((task) => {
-        if (task.status !== 'queued') return;
-        queuedIds.add(task.id);
-        const defaultProvider = task.provider || COMMON_PROVIDER_OPTIONS[0];
-        if (!next[task.id]) {
-          next[task.id] = defaultProvider;
-          changed = true;
-        }
-      });
-
-      Object.keys(next).forEach((taskId) => {
-        if (!queuedIds.has(taskId)) {
-          delete next[taskId];
-          changed = true;
-        }
-      });
-
-      return changed ? next : prev;
-    });
-  }, [tasks]);
-
-  function loadTasks() {
+  const loadTasks = useCallback(() => {
     setLoading(true);
     execute(async (isCurrent) => {
       try {
@@ -316,7 +284,40 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
         if (isCurrent()) setLoading(false);
       }
     });
-  }
+  }, [pagination.page, filters, dateRange, sortCol, sortDir, execute, toast]);
+
+  useEffect(() => {
+    loadTasks();
+    const pollInterval = setInterval(loadTasks, 5000);
+    return () => clearInterval(pollInterval);
+  }, [loadTasks]);
+
+  useEffect(() => {
+    setQueuedProviderSelections((prev) => {
+      const next = { ...prev };
+      const queuedIds = new Set();
+      let changed = false;
+
+      tasks.forEach((task) => {
+        if (task.status !== 'queued') return;
+        queuedIds.add(task.id);
+        const defaultProvider = task.provider || COMMON_PROVIDER_OPTIONS[0];
+        if (!next[task.id]) {
+          next[task.id] = defaultProvider;
+          changed = true;
+        }
+      });
+
+      Object.keys(next).forEach((taskId) => {
+        if (!queuedIds.has(taskId)) {
+          delete next[taskId];
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [tasks]);
 
   async function handleRetry(taskId) {
     try {

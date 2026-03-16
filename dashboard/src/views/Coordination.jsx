@@ -53,7 +53,7 @@ export default function Coordination() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     loadData();
