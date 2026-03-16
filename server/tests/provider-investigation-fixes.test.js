@@ -16,11 +16,11 @@ const { randomUUID } = require('crypto');
 
 describe('Item 15: workflow provider validation', () => {
   const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
-  let db;
+  let _db;
 
   beforeAll(() => {
     const env = setupTestDb('provider-investigation-item15');
-    db = env.db;
+    _db = env.db;
   });
   afterAll(() => { teardownTestDb(); });
 
@@ -513,7 +513,7 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
       });
     }
 
-    function withTaskIdDependentShape(run) {
+    function _withTaskIdDependentShape(run) {
       const original = db.getDependentTasks;
       db.getDependentTasks = (taskId) => {
         const rows = original.call(db, taskId);

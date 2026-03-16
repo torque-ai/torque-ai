@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { buildSafeEnv, SAFE_ENV_KEYS, BLOCKED_KEYS, PROVIDER_KEYS } from '../utils/safe-env.js';
+import { buildSafeEnv, SAFE_ENV_KEYS as _SAFE_ENV_KEYS, BLOCKED_KEYS, PROVIDER_KEYS } from '../utils/safe-env.js';
 
 describe('safe-env', () => {
   const originalEnv = { ...process.env };

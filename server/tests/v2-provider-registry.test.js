@@ -32,7 +32,7 @@ describe('v2-provider-registry', () => {
   });
 
   it('each provider has name, transport, local, and features', () => {
-    for (const [id, provider] of Object.entries(PROVIDER_REGISTRY)) {
+    for (const [_id, provider] of Object.entries(PROVIDER_REGISTRY)) {
       expect(provider).toHaveProperty('name');
       expect(provider).toHaveProperty('transport');
       expect(provider).toHaveProperty('local');

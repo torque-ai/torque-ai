@@ -1,9 +1,9 @@
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 
-let db, handleToolCall;
+let db;
 let taskSequence = 0;
 
-beforeAll(() => { ({ db, handleToolCall } = setupTestDb('val-cost')); });
+beforeAll(() => { ({ db } = setupTestDb('val-cost')); });
 afterAll(() => { teardownTestDb(); });
 
 function createCompletedTask(overrides = {}) {

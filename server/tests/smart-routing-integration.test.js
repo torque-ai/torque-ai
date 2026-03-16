@@ -10,7 +10,7 @@ let handler;
 let taskManager;
 let templateBuffer;
 let createAndStartTaskSpy;
-let capturedTaskArgs;
+let _capturedTaskArgs;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
 function seedModelCapabilities() {
@@ -133,11 +133,11 @@ function resetAndSeedDb() {
 
   createAndStartTaskSpy = vi.spyOn(taskManager, 'createAndStartTask');
   createAndStartTaskSpy.mockClear();
-  capturedTaskArgs = null;
+  _capturedTaskArgs = null;
 
   const originalCreateTask = db.createTask;
   vi.spyOn(db, 'createTask').mockImplementation((task) => {
-    capturedTaskArgs = task;
+    _capturedTaskArgs = task;
     taskManager.createAndStartTask(task);
     return originalCreateTask(task);
   });

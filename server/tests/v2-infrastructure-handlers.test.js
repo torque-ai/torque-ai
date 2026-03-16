@@ -370,7 +370,7 @@ function resetMockDefaults() {
     const bucket = state.credentials.get(credentialKey(hostName, hostType));
     if (!bucket) return [];
     return Array.from(bucket.values()).map((entry) => {
-      const { value, ...safe } = entry;
+      const { value: _value, ...safe } = entry;
       return clone(safe);
     });
   });

@@ -13,7 +13,6 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const logger = require('../logger').child({ component: 'git-worktree' });
 const { TASK_TIMEOUTS } = require('../constants');
 

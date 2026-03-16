@@ -57,19 +57,6 @@ function initRuntime(overrides = {}) {
   });
 }
 
-function withTaskIdDependentShape(run) {
-  const original = db.getDependentTasks;
-  db.getDependentTasks = (taskId) => {
-    const rows = original.call(db, taskId);
-    return rows.map(row => ({ ...row, task_id: row.task_id || row.id }));
-  };
-  try {
-    run();
-  } finally {
-    db.getDependentTasks = original;
-  }
-}
-
 function teardown() {
   if (db) {
     try {

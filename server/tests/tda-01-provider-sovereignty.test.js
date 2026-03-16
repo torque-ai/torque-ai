@@ -125,7 +125,7 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
 
   it('does not set user_provider_override when no provider specified', () => {
     if (!handleSubmitTask) return;
-    const spy = vi.spyOn(mockDb, 'createTask');
+    const _spy = vi.spyOn(mockDb, 'createTask');
     try {
       handleSubmitTask({
         task: 'Test task without provider',
@@ -290,7 +290,7 @@ describe('TDA-01: handleSmartSubmitTask — disabled provider sovereignty', () =
     mockDb.checkOllamaHealth.mockResolvedValue(true);
 
     // When auto-routed (no override_provider), disabled provider should fall back
-    const result = await handleSmartSubmitTask({
+    const _result = await handleSmartSubmitTask({
       task: 'Document the API',
       working_directory: '/tmp',
     });

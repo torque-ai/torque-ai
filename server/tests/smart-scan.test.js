@@ -172,7 +172,7 @@ describe('parseImports', () => {
   });
 
   it('handles imports with explicit extensions', () => {
-    const depFile = tmpFile('src/data.json', '{}');
+    const _depFile = tmpFile('src/data.json', '{}');
     // .json isn't in RESOLVE_EXTENSIONS, but exact path should work
     // Actually this tests that explicit extension works
     const jsFile = tmpFile('src/helper.js', 'module.exports = 1;');
@@ -581,7 +581,7 @@ describe('smartScan', () => {
   });
 
   it('convention matches apply to imported files too', () => {
-    const dep = tmpFile('src/service.js', 'module.exports = {};');
+    const _dep = tmpFile('src/service.js', 'module.exports = {};');
     const depTest = tmpFile('src/service.test.js', '// test for service');
     const main = tmpFile('src/app.js', "const s = require('./service');\n");
 

@@ -117,7 +117,6 @@ describe('v2 provider health and model inventory endpoints', () => {
   let mockServer;
   let createServerSpy;
   let getConfigSpy;
-  let getProviderSpy;
   let getProviderHealthSpy;
   let isProviderHealthySpy;
   let getProviderStatsSpy;
@@ -150,7 +149,7 @@ describe('v2 provider health and model inventory endpoints', () => {
     };
 
     getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation(createConfigMock(configValues));
-    getProviderSpy = vi.spyOn(db, 'getProvider').mockImplementation((providerId) => providerRows.get(providerId) || null);
+    vi.spyOn(db, 'getProvider').mockImplementation((providerId) => providerRows.get(providerId) || null);
     getProviderHealthSpy = vi.spyOn(db, 'getProviderHealth').mockReturnValue({
       successes: 0,
       failures: 0,

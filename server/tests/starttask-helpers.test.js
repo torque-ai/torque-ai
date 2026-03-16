@@ -579,7 +579,7 @@ describe('resolveProviderRouting (via startTask)', () => {
 
     registerMockHost(db, 'http://127.0.0.1:19807', ['codellama:latest'], { name: 'audit-routing' });
 
-    const budgetSpy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
+    const _budgetSpy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
       exceeded: true,
       budget: 'test-budget',
       spent: 100.00,

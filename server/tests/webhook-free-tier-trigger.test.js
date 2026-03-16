@@ -422,7 +422,7 @@ describe('handleInboundWebhook free-tier routing', () => {
 
     setFreeTierTrackerGetter(() => null);
 
-    const { statusCode, body } = await triggerWebhook('null-tracker-result-hook', {});
+    const { statusCode } = await triggerWebhook('null-tracker-result-hook', {});
 
     expect(statusCode).toBe(200);
     expect(toolCallSpy).toHaveBeenCalledWith('smart_submit_task', expect.objectContaining({

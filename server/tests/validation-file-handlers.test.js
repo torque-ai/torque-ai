@@ -5,7 +5,6 @@ const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 
 let db;
-let handleToolCall;
 let dataDir;
 
 function parseResult(result) {
@@ -45,7 +44,7 @@ function uniqueTaskDir(task, suffix) {
 
 describe('Validation File Handlers', () => {
   beforeAll(() => {
-    ({ db, handleToolCall } = setupTestDb('val-file'));
+    ({ db } = setupTestDb('val-file'));
     dataDir = process.env.TORQUE_DATA_DIR;
   });
 
