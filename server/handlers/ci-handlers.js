@@ -5,6 +5,7 @@ const { ErrorCodes, makeError } = require('./error-codes');
 const watcher = require('../ci/watcher');
 const GitHubActionsProvider = require('../server/ci/github-actions');
 const diagnostics = require('../server/ci/diagnostics');
+const credentialCrypto = require('../utils/credential-crypto');
 
 const DEFAULT_CI_PROVIDER = 'github-actions';
 
@@ -69,6 +70,12 @@ function parsePollInterval(args) {
     return undefined;
   }
   return parsed;
+}
+
+function encryptWebhookSecret(secret) {
+  const key = credentialCrypto.getOrCreateKey();
+  const { encrypted_value, iv, auth_tag } = credentialCrypto.encrypt(secret, key);
+  return `ENC:${encrypted_value}:${iv}:${auth_tag}`;
 }
 
 function createProvider(args, repo) {
@@ -351,7 +358,12 @@ function handleConfigureCiProvider(args) {
     db.setConfig('default_ci_repo', updates.default_repo);
   }
   if (updates.webhook_secret !== undefined) {
-    db.setConfig('webhook_secret', updates.webhook_secret);
+    try {
+      updates.webhook_secret = encryptWebhookSecret(updates.webhook_secret);
+      db.setConfig('webhook_secret', updates.webhook_secret);
+    } catch (err) {
+      return makeError(ErrorCodes.OPERATION_FAILED, `Failed to encrypt webhook_secret: ${err.message || err}`);
+    }
   }
   if (updates.poll_interval_ms !== undefined) {
     db.setConfig('poll_interval_ms', updates.poll_interval_ms);

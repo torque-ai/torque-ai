@@ -30,6 +30,11 @@ const mockProviderInstance = {
   getFailureLogs: vi.fn(),
 };
 
+const mockCredentialCrypto = {
+  getOrCreateKey: vi.fn(),
+  encrypt: vi.fn(),
+};
+
 const mockGitHubActionsProvider = vi.fn(function GitHubActionsProviderMock() {
   return mockProviderInstance;
 });
@@ -38,6 +43,9 @@ const mockDiagnostics = {
 };
 
 function resetMocks() {
+  mockCredentialCrypto.getOrCreateKey.mockReset();
+  mockCredentialCrypto.encrypt.mockReset();
+
   for (const fn of Object.values(mockDb)) {
     fn.mockReset();
   }
@@ -53,6 +61,12 @@ function resetMocks() {
   mockGitHubActionsProvider.mockClear();
   mockDiagnostics.diagnoseFailures.mockReset();
   mockDb.getConfig.mockReturnValue(null);
+  mockCredentialCrypto.getOrCreateKey.mockReturnValue('mock-key');
+  mockCredentialCrypto.encrypt.mockReturnValue({
+    encrypted_value: 'aa',
+    iv: 'bb',
+    auth_tag: 'cc',
+  });
 }
 
 function loadHandlers() {
@@ -61,6 +75,7 @@ function loadHandlers() {
   installMock('../ci/watcher', mockWatcher);
   installMock('../server/ci/github-actions', mockGitHubActionsProvider);
   installMock('../server/ci/diagnostics', mockDiagnostics);
+  installMock('../utils/credential-crypto', mockCredentialCrypto);
   installMock('../handlers/error-codes', realErrorCodes);
   return require('../handlers/ci-handlers');
 }
@@ -241,8 +256,10 @@ describe('ci-handlers.js', () => {
       });
 
       expect(mockDb.setConfig).toHaveBeenCalledWith('default_ci_repo', 'acme/website');
-      expect(mockDb.setConfig).toHaveBeenCalledWith('webhook_secret', 'super-secret-value');
+      expect(mockDb.setConfig).toHaveBeenCalledWith('webhook_secret', 'ENC:aa:bb:cc');
       expect(mockDb.setConfig).toHaveBeenCalledWith('poll_interval_ms', '15000');
+      expect(mockCredentialCrypto.getOrCreateKey).toHaveBeenCalledTimes(1);
+      expect(mockCredentialCrypto.encrypt).toHaveBeenCalledWith('super-secret-value', 'mock-key');
       expect(getText(result)).not.toContain('super-secret-value');
       expect(getText(result)).toContain('**default_repo:** acme/website');
       expect(getText(result)).toContain('**webhook_secret:**');
