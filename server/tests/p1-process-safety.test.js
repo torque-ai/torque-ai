@@ -25,7 +25,6 @@ describe('index.killStaleInstance process safety', () => {
   let originalDataDir;
 
   function loadIndexForTempDir() {
-    const modPath = require.resolve('../index');
     return require('../index');
   }
 

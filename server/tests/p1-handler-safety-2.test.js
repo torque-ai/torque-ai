@@ -223,7 +223,7 @@ describe('P1 handler safety fixes (part 2)', () => {
           // Intentionally skip deluge_path and spec to trigger run_batch with minimal input
           // that will fail during workflow creation
         });
-      } catch (err) {
+      } catch (_err) {
         threw = true;
         // If it throws, that's the bug — the handler should return makeError, not throw
       }
@@ -249,7 +249,7 @@ describe('P1 handler safety fixes (part 2)', () => {
           deluge_path: path.join(testDir, 'nonexistent-deluge'),
           // No feature_name — forces planning step which may fail
         });
-      } catch (err) {
+      } catch (_err) {
         threw = true;
       }
 

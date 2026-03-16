@@ -6,10 +6,6 @@
 
 'use strict';
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-
 let workflowRuntime;
 
 describe('P1 workflow DAG output injection', () => {

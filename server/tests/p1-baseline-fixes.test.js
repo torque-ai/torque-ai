@@ -6,7 +6,6 @@
  */
 
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');

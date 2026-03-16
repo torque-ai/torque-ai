@@ -9,7 +9,6 @@ describe('Orphan Cleanup', () => {
   let orphanCleanup;
 
   beforeEach(() => {
-    const modPath = require.resolve('../maintenance/orphan-cleanup');
     orphanCleanup = require('../maintenance/orphan-cleanup');
   });
 

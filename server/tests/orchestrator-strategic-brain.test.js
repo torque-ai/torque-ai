@@ -21,7 +21,7 @@ describe('prompt-templates', () => {
   });
 
   it('each template has system, user, and schema properties', () => {
-    for (const [name, tpl] of Object.entries(TEMPLATES)) {
+    for (const [_name, tpl] of Object.entries(TEMPLATES)) {
       expect(tpl).toHaveProperty('system');
       expect(tpl).toHaveProperty('user');
       expect(tpl).toHaveProperty('schema');
