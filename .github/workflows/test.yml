@@ -54,7 +54,7 @@ jobs:
         working-directory: server
 
       - name: Run server tests
-        run: npx vitest run --pool threads
+        run: npx vitest run
         working-directory: server
         timeout-minutes: 5
         env:
@@ -63,7 +63,7 @@ jobs:
 
       - name: Run server tests with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npx vitest run --coverage --pool threads
+        run: npx vitest run --coverage
         working-directory: server
         timeout-minutes: 5
         env:
