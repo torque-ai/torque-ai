@@ -3,8 +3,8 @@
 const db = require('../database');
 const { ErrorCodes, makeError } = require('./error-codes');
 const watcher = require('../ci/watcher');
-const GitHubActionsProvider = require('../server/ci/github-actions');
-const diagnostics = require('../server/ci/diagnostics');
+const GitHubActionsProvider = require('../ci/github-actions');
+const diagnostics = require('../ci/diagnostics');
 const credentialCrypto = require('../utils/credential-crypto');
 
 const DEFAULT_CI_PROVIDER = 'github-actions';
