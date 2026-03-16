@@ -75,7 +75,7 @@ describe('Adv Approval Handlers', () => {
         rule_type: 'all'
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('name, description, and rule_type are required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error when description is missing', async () => {
@@ -84,7 +84,7 @@ describe('Adv Approval Handlers', () => {
         rule_type: 'all'
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('name, description, and rule_type are required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error when rule_type is missing', async () => {
@@ -93,7 +93,7 @@ describe('Adv Approval Handlers', () => {
         description: 'missing type'
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('name, description, and rule_type are required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error for invalid rule_type', async () => {
@@ -103,7 +103,7 @@ describe('Adv Approval Handlers', () => {
         rule_type: 'invalid_type'
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('rule_type must be one of');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
   });
 
@@ -174,7 +174,7 @@ describe('Adv Approval Handlers', () => {
     it('returns error when approval_id is missing', async () => {
       const result = await safeTool('approve_task', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('approval_id is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
   });
 

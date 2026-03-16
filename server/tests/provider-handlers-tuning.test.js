@@ -71,7 +71,7 @@ describe('Provider Handlers', () => {
     it('rejects unknown preset', async () => {
       const result = await safeTool('set_llm_tuning', { preset: 'nonexistent_preset' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Unknown preset');
+      expect(getText(result)).toContain('Parameter "preset" must be one of');
     });
 
     it('updates num_ctx', async () => {
@@ -257,7 +257,7 @@ describe('Provider Handlers', () => {
     it('rejects unknown preset', async () => {
       const result = await safeTool('apply_llm_preset', { preset: 'turbo_mode' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Unknown preset');
+      expect(getText(result)).toContain('Parameter "preset" must be one of');
     });
 
     it('shows settings in response', async () => {
@@ -636,8 +636,8 @@ describe('Provider Handlers', () => {
   describe('get_host_settings', () => {
     it('rejects missing host_id', async () => {
       const result = await safeTool('get_host_settings', {});
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('host_id is required');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Missing required parameter: "host_id"');
     });
 
     it('returns error for nonexistent host', async () => {
@@ -656,7 +656,8 @@ describe('Provider Handlers', () => {
   describe('set_host_settings', () => {
     it('rejects missing host_id', async () => {
       const result = await safeTool('set_host_settings', { num_gpu: 30 });
-      expect(getText(result)).toContain('host_id is required');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Missing required parameter: "host_id"');
     });
 
     it('rejects nonexistent host', async () => {
@@ -718,8 +719,8 @@ describe('Provider Handlers', () => {
         provider: 'ollama',
         chain: ['codex', 'claude-cli']
       });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('Fallback Chain Updated');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Parameter "chain"');
     });
 
     it('rejects missing provider', async () => {

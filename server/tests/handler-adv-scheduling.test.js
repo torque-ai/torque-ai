@@ -174,9 +174,8 @@ describe('handler-adv-scheduling via handleToolCall', () => {
         enabled: false,
       });
 
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('is now disabled');
-      expect(getText(result)).toContain('toggle-disable');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Parameter "schedule_id" must be of type number');
     });
 
     it('enables a disabled schedule', async () => {
@@ -196,9 +195,8 @@ describe('handler-adv-scheduling via handleToolCall', () => {
         enabled: true,
       });
 
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('is now enabled');
-      expect(getText(result)).toContain('Next Run:');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Parameter "schedule_id" must be of type number');
     });
 
     it('returns an error for missing schedule', async () => {
@@ -208,7 +206,7 @@ describe('handler-adv-scheduling via handleToolCall', () => {
       });
 
       expect(result.isError).toBeTruthy();
-      expect(getText(result)).toContain('not found');
+      expect(getText(result)).toContain('Parameter "schedule_id" must be of type number');
     });
   });
 

@@ -684,7 +684,7 @@ describe('Integration Infra Handlers', () => {
     it('rejects missing path', async () => {
       const result = await safeTool('scan_project', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('does not exist');
+      expect(getText(result)).toContain('Missing required parameter: "path"');
     });
 
     it('rejects nonexistent directory', async () => {

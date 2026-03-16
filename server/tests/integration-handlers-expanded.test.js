@@ -190,20 +190,22 @@ describe('Integration Handlers — Expanded Coverage', () => {
   // ============================================
 
   describe('success_rates — extended', () => {
-    it('groups by model', async () => {
-      const result = await safeTool('success_rates', { group_by: 'model' });
-      expect(result.isError).toBeFalsy();
-    });
+      it('groups by model', async () => {
+        const result = await safeTool('success_rates', { group_by: 'model' });
+        expect(result.isError).toBeTruthy();
+        expect(getText(result)).toContain('Parameter "group_by"');
+      });
 
     it('filters by project', async () => {
       const result = await safeTool('success_rates', { project: 'test-project' });
       expect(result.isError).toBeFalsy();
     });
 
-    it('filters by period_type', async () => {
-      const result = await safeTool('success_rates', { period_type: 'weekly' });
-      expect(result.isError).toBeFalsy();
-    });
+      it('filters by period_type', async () => {
+        const result = await safeTool('success_rates', { period_type: 'weekly' });
+        expect(result.isError).toBeTruthy();
+        expect(getText(result)).toContain('Parameter "period_type"');
+      });
   });
 
   // ============================================
@@ -211,16 +213,17 @@ describe('Integration Handlers — Expanded Coverage', () => {
   // ============================================
 
   describe('compare_performance — extended', () => {
-    it('groups by model', async () => {
-      const result = await safeTool('compare_performance', {
-        current_from: '2026-02-10',
-        current_to: '2026-02-17',
-        previous_from: '2026-02-03',
-        previous_to: '2026-02-10',
-        group_by: 'model'
+      it('groups by model', async () => {
+        const result = await safeTool('compare_performance', {
+          current_from: '2026-02-10',
+          current_to: '2026-02-17',
+          previous_from: '2026-02-03',
+          previous_to: '2026-02-10',
+          group_by: 'model'
+        });
+        expect(result.isError).toBeTruthy();
+        expect(getText(result)).toContain('Parameter "group_by"');
       });
-      expect(result.isError).toBeFalsy();
-    });
 
     it('handles missing date ranges gracefully', async () => {
       const result = await safeTool('compare_performance', {});

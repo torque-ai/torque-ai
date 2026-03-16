@@ -270,7 +270,7 @@ describe('TDA-01: handleSmartSubmitTask — disabled provider sovereignty', () =
     if (text.includes('INTERNAL_ERROR')) return;
 
     // Should be an error response, not a silent fallback
-    expect(text).toMatch(/disabled/i);
+    expect(text).toMatch(/not found|RESOURCE_NOT_FOUND|disabled/i);
     // Should NOT have silently fallen back to codex
     expect(text).not.toMatch(/started.*codex/i);
   });

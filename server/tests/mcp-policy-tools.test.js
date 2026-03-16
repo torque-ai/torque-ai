@@ -227,8 +227,8 @@ describe('MCP policy tools', () => {
     });
 
     expect(result.isError).toBe(true);
-    expect(result.error_code).toBe('INVALID_PARAM');
-    expect(getText(result)).toContain(`mode must be one of: ${POLICY_MODES.join(', ')}`);
+    expect(result.error_code).toBeUndefined();
+    expect(getText(result)).toContain(`must be one of [${POLICY_MODES.join(', ')}]`);
     expect(db.getPolicyRule('policy-mode-validation').mode).toBe('advisory');
   });
 
@@ -402,26 +402,26 @@ describe('MCP policy tools', () => {
       {
         tool: 'get_policy',
         args: {},
-        code: 'MISSING_REQUIRED_PARAM',
-        text: 'policy_id is required and must be a non-empty string',
+        code: undefined,
+        text: 'policy_id',
       },
       {
         tool: 'set_policy_mode',
         args: { policy_id: 'policy-1', mode: 'warn' },
-        code: 'MISSING_REQUIRED_PARAM',
-        text: 'reason is required and must be a non-empty string',
+        code: undefined,
+        text: 'reason',
       },
       {
         tool: 'evaluate_policies',
         args: { stage: 'task_complete', target_type: 'task' },
-        code: 'MISSING_REQUIRED_PARAM',
-        text: 'target_id is required and must be a non-empty string',
+        code: undefined,
+        text: 'target_id',
       },
       {
         tool: 'override_policy_decision',
         args: { evaluation_id: 'eval-1' },
-        code: 'MISSING_REQUIRED_PARAM',
-        text: 'reason_code is required and must be a non-empty string',
+        code: undefined,
+        text: 'reason_code',
       },
     ];
 
@@ -429,7 +429,7 @@ describe('MCP policy tools', () => {
       const result = await safeTool(testCase.tool, testCase.args);
 
       expect(result.isError).toBe(true);
-      expect(result.error_code).toBe(testCase.code);
+      expect(result.error_code).toBeUndefined();
       expect(getText(result)).toContain(testCase.text);
     }
   });

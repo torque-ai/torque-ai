@@ -75,7 +75,7 @@ describe('Task Templates', () => {
       });
       expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('name is required');
+      expect(text).toContain('Missing required parameter: "name"');
     });
 
     it('rejects missing task_template', async () => {
@@ -84,7 +84,7 @@ describe('Task Templates', () => {
       });
       expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('task_template is required');
+      expect(text).toContain('Missing required parameter: "task_template"');
     });
 
     it('overwrites existing template with same name', async () => {
@@ -172,7 +172,7 @@ describe('Task Templates', () => {
       });
       expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('template_name is required');
+      expect(text).toContain('Missing required parameter: "template_name"');
     });
 
     it('rejects non-existent template', async () => {
@@ -266,7 +266,7 @@ describe('Task Templates', () => {
       const result = await safeTool('delete_task_template', {});
       expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('name is required');
+      expect(text).toContain('Missing required parameter: "name"');
     });
 
     it('returns error for non-existent template', async () => {

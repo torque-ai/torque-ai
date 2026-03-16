@@ -137,13 +137,13 @@ describe('Adv Performance Handlers', () => {
     it('returns error when query parameter is missing', async () => {
       const result = await safeTool('query_plan', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('query parameter is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error when query is not a string', async () => {
       const result = await safeTool('query_plan', { query: 123 });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('query parameter is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('handles query plan for indexed query', async () => {

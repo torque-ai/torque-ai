@@ -88,8 +88,8 @@ describe('Provider Handlers', () => {
         id: 'local-auto-name',
         url: 'http://localhost:19999'
       });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('Ollama Host Added');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Missing required parameter: "name"');
     });
   });
 

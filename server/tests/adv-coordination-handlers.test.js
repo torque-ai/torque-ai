@@ -55,7 +55,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when name is missing', async () => {
       const result = await safeTool('register_agent', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('name is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('rejects deeply nested metadata', async () => {
@@ -79,7 +79,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when agent_id is missing', async () => {
       const result = await safeTool('unregister_agent', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Agent ID is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error for nonexistent agent', async () => {
@@ -100,7 +100,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when agent_id is missing', async () => {
       const result = await safeTool('agent_heartbeat', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Agent ID is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error for nonexistent agent', async () => {
@@ -155,7 +155,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when agent_id is missing', async () => {
       const result = await safeTool('get_agent', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Agent ID is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error for nonexistent agent', async () => {
@@ -186,7 +186,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when agent_id is missing', async () => {
       const result = await safeTool('update_agent', { capabilities: ['js'] });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Agent ID is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error for nonexistent agent', async () => {
@@ -215,15 +215,15 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when task_id or agent_id is missing', async () => {
       const r1 = await safeTool('claim_task', { agent_id: 'some-agent' });
       expect(r1.isError).toBe(true);
-      expect(getText(r1)).toContain('task_id and agent_id are required');
+      expect(getText(r1)).toContain('Validation failed for 1 parameter(s):');
 
       const r2 = await safeTool('claim_task', { task_id: 'some-task' });
       expect(r2.isError).toBe(true);
-      expect(getText(r2)).toContain('task_id and agent_id are required');
+      expect(getText(r2)).toContain('Validation failed for 1 parameter(s):');
 
       const r3 = await safeTool('claim_task', {});
       expect(r3.isError).toBe(true);
-      expect(getText(r3)).toContain('task_id and agent_id are required');
+      expect(getText(r3)).toContain('Validation failed for 2 parameter(s):');
     });
 
     it('returns error for nonexistent task', async () => {
@@ -255,7 +255,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when claim_id is missing', async () => {
       const result = await safeTool('renew_lease', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('claim_id is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error for nonexistent claim', async () => {
@@ -279,7 +279,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when claim_id is missing', async () => {
       const result = await safeTool('release_task', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('claim_id is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error for nonexistent claim', async () => {
@@ -360,7 +360,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when name is missing', async () => {
       const result = await safeTool('create_agent_group', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Group name is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('creates agent group with valid name', async () => {
@@ -374,11 +374,11 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when agent_id or group_id is missing', async () => {
       const r1 = await safeTool('add_to_group', { agent_id: 'a1' });
       expect(r1.isError).toBe(true);
-      expect(getText(r1)).toContain('agent_id and group_id are required');
+      expect(getText(r1)).toContain('Validation failed for 1 parameter(s):');
 
       const r2 = await safeTool('add_to_group', { group_id: 'g1' });
       expect(r2.isError).toBe(true);
-      expect(getText(r2)).toContain('agent_id and group_id are required');
+      expect(getText(r2)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('adds agent to group when both exist (created directly)', async () => {
@@ -400,11 +400,11 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when agent_id or group_id is missing', async () => {
       const r1 = await safeTool('remove_from_group', { agent_id: 'a1' });
       expect(r1.isError).toBe(true);
-      expect(getText(r1)).toContain('agent_id and group_id are required');
+      expect(getText(r1)).toContain('Validation failed for 1 parameter(s):');
 
       const r2 = await safeTool('remove_from_group', { group_id: 'g1' });
       expect(r2.isError).toBe(true);
-      expect(getText(r2)).toContain('agent_id and group_id are required');
+      expect(getText(r2)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('removes agent from group (created directly)', async () => {
@@ -489,17 +489,17 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when task_id or thief_agent_id is missing', async () => {
       const r1 = await safeTool('steal_task', { thief_agent_id: 'thief-1' });
       expect(r1.isError).toBe(true);
-      expect(getText(r1)).toContain('task_id and thief_agent_id are required');
+      expect(getText(r1)).toContain('Validation failed for 1 parameter(s):');
 
       const r2 = await safeTool('steal_task', { task_id: 'task-1' });
       expect(r2.isError).toBe(true);
-      expect(getText(r2)).toContain('task_id and thief_agent_id are required');
+      expect(getText(r2)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error when both args missing', async () => {
       const result = await safeTool('steal_task', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('task_id and thief_agent_id are required');
+      expect(getText(result)).toContain('Validation failed for 2 parameter(s):');
     });
 
     it('returns error when stealing a non-claimed task', async () => {
@@ -542,7 +542,7 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when agent_id is missing', async () => {
       const result = await safeTool('trigger_failover', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('agent_id is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('triggers failover for an existing agent', async () => {
@@ -635,13 +635,13 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when lock_name is missing', async () => {
       const result = await safeTool('acquire_lock', { agent_id: 'a1' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('lock_name and agent_id are required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error when agent_id is missing', async () => {
       const result = await safeTool('acquire_lock', { lock_name: 'lock-1' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('lock_name and agent_id are required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('uses default ttl when ttl_seconds omitted', async () => {
@@ -672,13 +672,13 @@ describe('Advanced Coordination Handlers', () => {
     it('returns error when lock_name is missing', async () => {
       const result = await safeTool('release_lock', { agent_id: 'a1' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('lock_name and agent_id are required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error when agent_id is missing', async () => {
       const result = await safeTool('release_lock', { lock_name: 'lock-1' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('lock_name and agent_id are required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error when releasing lock not held by agent', async () => {

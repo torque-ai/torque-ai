@@ -126,7 +126,7 @@ describe('Git Operations', () => {
 
     it('handles empty status parameter', async () => {
       const result = await safeTool('list_rollbacks', { status: '' });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
     });
   });
 

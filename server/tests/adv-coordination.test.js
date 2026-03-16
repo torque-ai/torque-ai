@@ -110,7 +110,7 @@ describe('adv-coordination handlers', () => {
       const result = await safeTool('register_agent', {});
 
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Agent name is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('registers an agent with defaults and records an agent_joined event', async () => {
@@ -230,7 +230,7 @@ describe('adv-coordination handlers', () => {
       const result = await safeTool('create_agent_group', {});
 
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Group name is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('adds an agent to a group and stores the membership row', async () => {

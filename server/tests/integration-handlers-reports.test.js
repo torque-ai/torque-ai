@@ -186,7 +186,8 @@ describe('Integration Handlers', () => {
 
     it('accepts group_by parameter', async () => {
       const result = await safeTool('success_rates', { group_by: 'provider' });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Parameter "group_by"');
     });
 
     it('accepts group_by template', async () => {

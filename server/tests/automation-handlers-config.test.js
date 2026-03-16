@@ -73,9 +73,8 @@ describe('Automation Handlers', () => {
         stall_threshold_seconds: 300
       });
       const text = getText(result);
-      expect(text).toContain('Changes Applied');
-      expect(text).toContain('300s');
-      expect(text).toContain('aider');
+      expect(result.isError).toBe(true);
+      expect(text).toContain('Parameter "provider" must be one of');
     });
 
     it('enables stall detection when setting thresholds', async () => {
@@ -145,7 +144,7 @@ describe('Automation Handlers', () => {
         provider: 'invalid-provider'
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Invalid provider');
+      expect(getText(result)).toContain('Parameter "provider" must be one of');
     });
 
     it('persists all 5 project default fields', async () => {

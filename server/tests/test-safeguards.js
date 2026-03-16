@@ -259,7 +259,10 @@ describe('Safeguards & Validation', () => {
         pattern: 'test',
         severity: 'not-a-severity'
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
+      expect(result).toHaveProperty('content');
+      const output = result.content?.[0]?.text || '';
+      expect(output).toContain('must be one of');
     });
 
     it('accepts size rule type', async () => {

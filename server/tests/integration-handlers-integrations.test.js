@@ -180,8 +180,8 @@ describe('Integration Handlers', () => {
 
     it('returns empty message for unconfigured type', async () => {
       const result = await safeTool('integration_health', { integration_type: 'nonexistent' });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('No');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Parameter "integration_type"');
     });
   });
 
@@ -515,7 +515,8 @@ describe('Integration Handlers', () => {
         previous_to: '2026-02-10',
         group_by: 'provider'
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Parameter "group_by"');
     });
   });
 

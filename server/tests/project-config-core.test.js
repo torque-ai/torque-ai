@@ -252,13 +252,13 @@ describe('project-config core', () => {
     it('rejects set_project_defaults without a working_directory', async () => {
       const result = await tool('set_project_defaults', { provider: 'codex' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('working_directory is required');
+      expect(getText(result)).toContain('Missing required parameter: "working_directory"');
     });
 
     it('rejects get_project_defaults without a working_directory', async () => {
       const result = await tool('get_project_defaults', {});
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('working_directory is required');
+      expect(getText(result)).toContain('Missing required parameter: "working_directory"');
     });
 
     it('reports when a project has no saved defaults yet', async () => {
@@ -402,7 +402,7 @@ describe('project-config core', () => {
       const config = db.getProjectConfig(project);
 
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Invalid provider');
+      expect(getText(result)).toContain('Parameter "provider" must be one of');
       expect(config.default_provider).toBe('codex');
     });
 

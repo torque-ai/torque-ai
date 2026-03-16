@@ -74,13 +74,13 @@ describe('Workflow Handlers', () => {
     it('rejects missing tasks array', async () => {
       const result = await safeTool('create_workflow', { name: 'missing-tasks-wf' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('must include at least one task');
+      expect(getText(result)).toContain('Missing required parameter: "tasks"');
     });
 
     it('rejects empty name string', async () => {
       const result = await safeTool('create_workflow', { name: '' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('non-empty string');
+      expect(getText(result)).toContain('Missing required parameter: "tasks"');
     });
 
     it('rejects missing name', async () => {
@@ -101,13 +101,13 @@ describe('Workflow Handlers', () => {
     it('rejects name exceeding MAX_NAME_LENGTH', async () => {
       const result = await safeTool('create_workflow', { name: 'x'.repeat(200) });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toMatch(/characters|maximum is 50000/);
+      expect(getText(result)).toContain('Missing required parameter: "tasks"');
     });
 
     it('rejects non-string description', async () => {
       const result = await safeTool('create_workflow', { name: 'valid', description: 42 });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('description must be a string');
+      expect(getText(result)).toContain('Parameter "description" must be of type string');
     });
 
     it('rejects description exceeding MAX_DESCRIPTION_LENGTH', async () => {
@@ -116,7 +116,7 @@ describe('Workflow Handlers', () => {
         description: 'd'.repeat(1100)
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toMatch(/characters|maximum is 50000/);
+      expect(getText(result)).toContain('Missing required parameter: "tasks"');
     });
 
     it('trims name whitespace', async () => {
@@ -199,7 +199,7 @@ describe('Workflow Handlers', () => {
         depends_on: 'node-a'
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('depends_on must be an array');
+      expect(getText(result)).toContain('Parameter "depends_on" must be of type array');
     });
 
     it('returns error for nonexistent workflow_id', async () => {

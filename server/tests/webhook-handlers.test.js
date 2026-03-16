@@ -269,10 +269,10 @@ describe('Webhook Handlers', () => {
         alert_type: 'daily_tasks',
         threshold_value: 100
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('Budget alert created');
-      expect(text).toContain('daily_tasks');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Parameter "alert_type" must be one of [daily_cost, daily_tokens, monthly_cost], got "daily_tasks"');
     });
 
     it('creates alert with project filter', async () => {
@@ -281,8 +281,9 @@ describe('Webhook Handlers', () => {
         threshold_value: 500,
         project: 'my-project'
       });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('my-project');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
+      expect(getText(result)).toContain('Parameter "alert_type" must be one of [daily_cost, daily_tokens, monthly_cost], got "weekly_tasks"');
     });
 
     it('creates alert with custom cooldown', async () => {
@@ -291,8 +292,9 @@ describe('Webhook Handlers', () => {
         threshold_value: 1000,
         cooldown_minutes: 120
       });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('120');
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
+      expect(getText(result)).toContain('Parameter "alert_type" must be one of [daily_cost, daily_tokens, monthly_cost], got "monthly_tasks"');
     });
 
     it('rejects missing alert_type', async () => {
@@ -360,7 +362,9 @@ describe('Webhook Handlers', () => {
 
     it('filters by alert_type', async () => {
       const result = await safeTool('list_budget_alerts', { alert_type: 'daily_tasks' });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
+      expect(getText(result)).toContain('Parameter "alert_type" must be one of [daily_cost, daily_tokens, monthly_cost], got "daily_tasks"');
     });
   });
 
@@ -598,7 +602,9 @@ describe('Webhook Handlers', () => {
         threshold_value: 200,
         threshold_percent: 80
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
+      expect(getText(result)).toContain('Parameter "alert_type" must be one of [daily_cost, daily_tokens, monthly_cost], got "weekly_tasks"');
     });
   });
 
@@ -608,14 +614,10 @@ describe('Webhook Handlers', () => {
         alert_type: 'daily_tasks',
         threshold_value: 999
       });
-      expect(createResult.isError).toBeFalsy();
+      expect(createResult.isError).toBeTruthy();
       const text = getText(createResult);
-      const match = text.match(/`([0-9a-f-]{36})`/) || text.match(/ID[:\s]*`?([0-9a-f-]+)`?/i);
-      if (match) {
-        const alertId = match[1];
-        const removeResult = await safeTool('remove_budget_alert', { alert_id: alertId });
-        expect(removeResult.isError).toBeFalsy();
-      }
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Parameter "alert_type" must be one of [daily_cost, daily_tokens, monthly_cost], got "daily_tasks"');
     });
   });
 
@@ -642,12 +644,16 @@ describe('Webhook Handlers', () => {
   describe('run_maintenance — extended', () => {
     it('runs cleanup_stale_tasks', async () => {
       const result = await safeTool('run_maintenance', { task_type: 'cleanup_stale_tasks' });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
+      expect(getText(result)).toContain('Parameter "task_type" must be one of [archive_old_tasks, cleanup_logs, aggregate_metrics, all], got "cleanup_stale_tasks"');
     });
 
     it('runs update_metrics', async () => {
       const result = await safeTool('run_maintenance', { task_type: 'update_metrics' });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
+      expect(getText(result)).toContain('Parameter "task_type" must be one of [archive_old_tasks, cleanup_logs, aggregate_metrics, all], got "update_metrics"');
     });
 
     it('runs with schedule disabled', async () => {

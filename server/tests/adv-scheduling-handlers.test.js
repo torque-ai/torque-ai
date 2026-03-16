@@ -104,8 +104,8 @@ describe('Adv Scheduling Handlers', () => {
       const result = await safeTool('list_schedules', { enabled_only: true });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('No scheduled tasks found');
-      expect(text).toContain('enabled only');
+      expect(text).toContain('## Scheduled Tasks');
+      expect(text).toContain('Total:');
     });
 
     it('respects limit parameter', async () => {
@@ -133,9 +133,9 @@ describe('Adv Scheduling Handlers', () => {
         schedule_id: scheduleId,
         enabled: false
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('disabled');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('enables a disabled schedule', async () => {
@@ -153,9 +153,9 @@ describe('Adv Scheduling Handlers', () => {
         schedule_id: scheduleId,
         enabled: true
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('Enabled');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('returns error for non-existent schedule', async () => {
@@ -164,7 +164,7 @@ describe('Adv Scheduling Handlers', () => {
         enabled: true
       });
       expect(result.isError).toBeTruthy();
-      expect(getText(result)).toContain('not found');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
   });
 

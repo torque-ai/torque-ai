@@ -84,11 +84,11 @@ describe('Item 15: workflow provider validation', () => {
         node_id: 'bad-prov-node',
         task_description: 'Task with bad provider',
         provider: 'fantasy-provider-999'
+        });
+        expect(result.isError).toBe(true);
+        expect(getText(result)).toContain('Parameter "provider" must be one of');
+        expect(getText(result)).toContain('fantasy-provider-999');
       });
-      expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Unknown provider');
-      expect(getText(result)).toContain('fantasy-provider-999');
-    });
 
     it('accepts add_workflow_task with valid provider', async () => {
       const result = await safeTool('add_workflow_task', {

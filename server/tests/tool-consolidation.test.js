@@ -21,13 +21,13 @@ describe('manage_host', () => {
   it('requires action parameter', async () => {
     const result = await safeTool('manage_host', {});
     expect(result.isError).toBe(true);
-    expect(getText(result)).toMatch(/action.*required/i);
+    expect(getText(result)).toMatch(/Missing required parameter: "action"/i);
   });
 
   it('rejects invalid action', async () => {
     const result = await safeTool('manage_host', { action: 'explode' });
     expect(result.isError).toBe(true);
-    expect(getText(result)).toMatch(/unknown action/i);
+    expect(getText(result)).toMatch(/Parameter "action" must be one of/i);
   });
 
   it('action=list returns host listing', async () => {
@@ -107,13 +107,13 @@ describe('manage_tuning', () => {
   it('requires action parameter', async () => {
     const result = await safeTool('manage_tuning', {});
     expect(result.isError).toBe(true);
-    expect(getText(result)).toMatch(/action.*required/i);
+    expect(getText(result)).toMatch(/Missing required parameter: "action"/i);
   });
 
   it('rejects invalid action', async () => {
     const result = await safeTool('manage_tuning', { action: 'explode' });
     expect(result.isError).toBe(true);
-    expect(getText(result)).toMatch(/unknown action/i);
+    expect(getText(result)).toMatch(/Parameter "action" must be one of/i);
   });
 
   it('action=get_llm returns tuning parameters', async () => {
@@ -287,7 +287,7 @@ describe('task_info', () => {
   it('rejects invalid mode', async () => {
     const result = await safeTool('task_info', { mode: 'explode' });
     expect(result.isError).toBe(true);
-    expect(getText(result)).toMatch(/unknown mode/i);
+    expect(getText(result)).toMatch(/Parameter "mode" must be one of/i);
   });
 });
 
@@ -297,13 +297,13 @@ describe('manage_webhook', () => {
   it('requires action parameter', async () => {
     const result = await safeTool('manage_webhook', {});
     expect(result.isError).toBe(true);
-    expect(getText(result)).toMatch(/action.*required/i);
+    expect(getText(result)).toMatch(/Missing required parameter: "action"/i);
   });
 
   it('rejects invalid action', async () => {
     const result = await safeTool('manage_webhook', { action: 'explode' });
     expect(result.isError).toBe(true);
-    expect(getText(result)).toMatch(/unknown action/i);
+    expect(getText(result)).toMatch(/Parameter "action" must be one of/i);
   });
 
   it('action=add creates a webhook', async () => {

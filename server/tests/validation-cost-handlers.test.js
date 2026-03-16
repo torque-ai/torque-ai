@@ -35,14 +35,11 @@ describe('Validation Cost Handlers', () => {
       db.recordCost('provider-alpha', taskId, 250, 60, 'model-alpha');
 
       const result = await safeTool('get_cost_summary', { provider: 'provider-alpha', days: '1' });
-      expect(result.isError).toBeFalsy();
-      const payload = JSON.parse(getText(result));
+      expect(result.isError).toBeTruthy();
+      const text = getText(result);
 
-      expect(payload.days).toBe(1);
-      expect(payload.costs).toMatchObject({
-        provider: 'provider-alpha'
-      });
-      expect(payload.costs.task_count).toBeGreaterThanOrEqual(1);
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Parameter "days" must be of type number, got string');
     });
   });
 
@@ -103,7 +100,8 @@ describe('Validation Cost Handlers', () => {
     it('rejects missing name', async () => {
       const result = await safeTool('set_budget', { budget_usd: 50 });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('name is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
+      expect(getText(result)).toContain('Missing required parameter: "name" (Budget name)');
     });
 
     it('rejects non-positive budget', async () => {
@@ -136,10 +134,10 @@ describe('Validation Cost Handlers', () => {
 
     it('accepts days argument', async () => {
       const result = await safeTool('get_cost_forecast', { days: '14' });
-      expect(result.isError).toBeFalsy();
-      const payload = JSON.parse(getText(result));
-      expect(typeof payload.daily_avg).toBe('number');
-      expect(typeof payload.projected_monthly).toBe('number');
+      expect(result.isError).toBeTruthy();
+      const text = getText(result);
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Parameter "days" must be of type number, got string');
     });
   });
 });

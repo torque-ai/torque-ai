@@ -76,7 +76,7 @@ describe('Adv Artifacts Handlers', () => {
         name: 'test.txt'
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('file_path is required');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('rejects non-existent file', async () => {

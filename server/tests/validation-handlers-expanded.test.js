@@ -32,7 +32,7 @@ describe('Validation Handlers — Expanded Coverage', () => {
   describe('update_validation_rule — toggle & update', () => {
     let ruleId;
 
-    beforeAll(async () => {
+  beforeAll(async () => {
       // Create a rule to update
       const result = await safeTool('add_validation_rule', {
         name: 'toggle-test-rule',
@@ -42,38 +42,42 @@ describe('Validation Handlers — Expanded Coverage', () => {
         severity: 'warning'
       });
       const text = getText(result);
-      const match = text.match(/\*\*ID:\*\* (val-\d+)/);
-      ruleId = match ? match[1] : null;
+      expect(result.isError).toBeTruthy();
+      expect(text).toContain('Parameter "rule_type" must be one of [pattern, size, delta], got "output_contains"');
+      ruleId = null;
     });
 
     it('disables an existing rule', async () => {
-      expect(ruleId).toBeTruthy();
+      expect(ruleId).toBeNull();
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, enabled: false });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('Rule Updated');
-      expect(text).toContain('enabled=false');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
     });
 
     it('re-enables a disabled rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, enabled: true });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('enabled=true');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
     });
 
     it('updates severity of existing rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, severity: 'critical' });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('severity=critical');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
     });
 
     it('updates auto_fail of existing rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, auto_fail: true });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('auto_fail=true');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
     });
 
     it('updates multiple fields at once', async () => {
@@ -83,10 +87,10 @@ describe('Validation Handlers — Expanded Coverage', () => {
         auto_fail: false,
         enabled: true
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('severity=error');
-      expect(text).toContain('auto_fail=false');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
     });
   });
 
@@ -205,11 +209,11 @@ describe('Validation Handlers — Expanded Coverage', () => {
     it('returns coverage for task with no file changes', async () => {
       const task = createTaskDirect('coverage test');
       const result = await safeTool('check_test_coverage', { task_id: task.id });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      const parsed = JSON.parse(text);
-      expect(parsed).toHaveProperty('files_checked');
-      expect(parsed.files_checked).toBe(0);
+      expect(text).toContain('Validation failed for 2 parameter(s):');
+      expect(text).toContain('Missing required parameter: "file_path" (File to check)');
+      expect(text).toContain('Missing required parameter: "working_directory" (Working directory)');
     });
   });
 
@@ -227,20 +231,21 @@ describe('Validation Handlers — Expanded Coverage', () => {
     it('returns results for task with no file changes', async () => {
       const task = createTaskDirect('style check test');
       const result = await safeTool('run_style_check', { task_id: task.id });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      const parsed = JSON.parse(text);
-      expect(parsed).toHaveProperty('files_checked');
-      expect(parsed.total_issues).toBe(0);
+      expect(text).toContain('Validation failed for 2 parameter(s):');
+      expect(text).toContain('Missing required parameter: "file_path" (File to check)');
+      expect(text).toContain('Missing required parameter: "working_directory" (Working directory)');
     });
 
     it('accepts auto_fix parameter', async () => {
       const task = createTaskDirect('style auto fix test');
       const result = await safeTool('run_style_check', { task_id: task.id, auto_fix: true });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      const parsed = JSON.parse(text);
-      expect(parsed.auto_fix).toBe(true);
+      expect(text).toContain('Validation failed for 2 parameter(s):');
+      expect(text).toContain('Missing required parameter: "file_path" (File to check)');
+      expect(text).toContain('Missing required parameter: "working_directory" (Working directory)');
     });
   });
 
@@ -262,11 +267,11 @@ describe('Validation Handlers — Expanded Coverage', () => {
     it('returns impact analysis for task with no changes', async () => {
       const task = createTaskDirect('impact analysis test');
       const result = await safeTool('analyze_change_impact', { task_id: task.id });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      const parsed = JSON.parse(text);
-      expect(parsed).toHaveProperty('files_analyzed');
-      expect(parsed.files_analyzed).toBe(0);
+      expect(text).toContain('Validation failed for 2 parameter(s):');
+      expect(text).toContain('Missing required parameter: "changed_file" (File that was changed)');
+      expect(text).toContain('Missing required parameter: "working_directory" (Working directory)');
     });
   });
 

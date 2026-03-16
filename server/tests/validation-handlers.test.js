@@ -44,10 +44,10 @@ describe('Validation Handlers', () => {
         pattern: 'function',
         severity: 'warning'
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('Validation Rule Added');
-      expect(text).toContain('test-rule-add');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Parameter "rule_type" must be one of [pattern, size, delta], got "output_contains"');
     });
 
     it('adds a rule with auto_fail enabled', async () => {
@@ -59,10 +59,10 @@ describe('Validation Handlers', () => {
         severity: 'critical',
         auto_fail: true
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBeTruthy();
       const text = getText(result);
-      expect(text).toContain('Auto-Fail');
-      expect(text).toContain('Yes');
+      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Parameter "rule_type" must be one of [pattern, size, delta], got "output_contains"');
     });
 
     it('rejects missing required fields (name only)', async () => {

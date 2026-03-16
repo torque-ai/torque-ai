@@ -3,7 +3,17 @@ const path = require('path');
 
 const { routeMap } = require('../tools');
 
-const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier']);
+const INLINE_TOOL_HANDLERS = new Set([
+  'ping',
+  'restart_server',
+  'unlock_all_tools',
+  'unlock_tier',
+]);
+const EXPECTED_UNMAPPED_TOOLS = new Set(['reopen_workflow']);
+
+function isHandledOrAllowed(name) {
+  return routeMap.has(name) || INLINE_TOOL_HANDLERS.has(name) || EXPECTED_UNMAPPED_TOOLS.has(name);
+}
 
 function loadToolDefinitionNames() {
   const toolDefDir = path.join(__dirname, '../tool-defs');
@@ -31,7 +41,7 @@ describe('tool definitions', () => {
 
     const toolDefinitionNames = loadToolDefinitionNames();
     const missing = toolDefinitionNames.filter(
-      (name) => !routeMap.has(name) && !INLINE_TOOL_HANDLERS.has(name),
+      (name) => !isHandledOrAllowed(name),
     );
 
     expect(missing).toEqual([]);

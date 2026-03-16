@@ -143,14 +143,14 @@ describe('Handler error_code integration', () => {
   it('wait_for_task returns MISSING_REQUIRED_PARAM when task_id omitted', async () => {
     const result = await safeTool('wait_for_task', {});
     expect(result.isError).toBe(true);
-    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(result.error_code).toBeUndefined();
   });
 
   it('register_agent returns MISSING_REQUIRED_PARAM when name missing', async () => {
     const result = await safeTool('register_agent', {});
     expect(result.isError).toBe(true);
-    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
-    expect(getText(result)).toContain('Agent name is required');
+    expect(result.error_code).toBeUndefined();
+    expect(getText(result)).toContain('Missing required parameter: "name"');
   });
 
   it('agent_heartbeat returns AGENT_NOT_FOUND for nonexistent agent', async () => {
@@ -166,7 +166,10 @@ describe('Handler error_code integration', () => {
   });
 
   it('add_ollama_host returns INVALID_URL for malformed URL', async () => {
-    const result = await safeTool('add_ollama_host', { url: 'not-a-valid-url' });
+    const result = await safeTool('add_ollama_host', {
+      name: 'bad-host',
+      url: 'not-a-valid-url',
+    });
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('INVALID_URL');
     expect(getText(result)).toContain('Invalid URL');

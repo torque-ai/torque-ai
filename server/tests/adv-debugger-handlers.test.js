@@ -93,13 +93,13 @@ describe('Adv Debugger Handlers', () => {
     it('rejects invalid pattern_type', async () => {
       const result = await safeTool('set_breakpoint', { pattern: 'test', pattern_type: 'stdin' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('pattern_type must be one of');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('rejects invalid action', async () => {
       const result = await safeTool('set_breakpoint', { pattern: 'test', action: 'explode' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('action must be one of');
+      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
     });
 
     it('rejects max_hits less than 1', async () => {
