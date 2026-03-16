@@ -40,11 +40,13 @@ function safeJsonParse(value, defaultValue = null) {
 }
 
 function getConfig(key) {
+  if (!db || (db.open === false)) return null;
   const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key);
   return row ? row.value : null;
 }
 
 function setConfig(key, value) {
+  if (!db || (db.open === false)) return;
   const stmt = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
   stmt.run(key, String(value));
 }
@@ -82,6 +84,7 @@ function enrichProviderRow(provider) {
  * @returns {any}
  */
 function getProvider(providerId) {
+  if (!db || (db.open === false)) return null;
   const stmt = db.prepare('SELECT * FROM provider_config WHERE provider = ?');
   return enrichProviderRow(stmt.get(providerId));
 }
@@ -91,6 +94,7 @@ function getProvider(providerId) {
  * @returns {any}
  */
 function listProviders() {
+  if (!db || (db.open === false)) return [];
   const stmt = db.prepare('SELECT * FROM provider_config ORDER BY priority ASC');
   return stmt.all().map((p) => enrichProviderRow(p));
 }
