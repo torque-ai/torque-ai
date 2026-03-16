@@ -26,7 +26,7 @@ function handleForkWorkflow(args) {
   }
 
   // Verify workflow exists
-  const { workflow, error: wfErr } = requireWorkflow(db, workflow_id);
+  const { workflow: _workflow, error: wfErr } = requireWorkflow(db, workflow_id);
   if (wfErr) return wfErr;
 
   const fork = db.createWorkflowFork({

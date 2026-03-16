@@ -115,7 +115,7 @@ function handleDetectConfigDrift(args) {
  * Estimate resource usage
  */
 function handleEstimateResources(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = db.getTaskFileChanges(args.task_id);
@@ -150,7 +150,7 @@ function handleEstimateResources(args) {
  * Check internationalization
  */
 function handleCheckI18n(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = db.getTaskFileChanges(args.task_id);
@@ -186,7 +186,7 @@ function handleCheckI18n(args) {
  * Check accessibility
  */
 function handleCheckAccessibility(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = db.getTaskFileChanges(args.task_id);

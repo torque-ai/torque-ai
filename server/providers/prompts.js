@@ -22,7 +22,7 @@ const TIER_CONTEXT_CAPS = {
 };
 
 // Dependency injection
-let db = null;
+let _db = null;
 
 /**
  * Initialize dependencies for this module.
@@ -30,7 +30,7 @@ let db = null;
  * @param {Object} deps.db - Database module (getConfig)
  */
 function init(deps) {
-  if (deps.db) db = deps.db;
+  if (deps.db) _db = deps.db;
   serverConfig.init({ db: deps.db });
 }
 

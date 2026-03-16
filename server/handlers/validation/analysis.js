@@ -240,7 +240,7 @@ function handleGetVulnerabilityResults(args) {
  * Analyze code complexity
  */
 function handleAnalyzeComplexity(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = db.getTaskFileChanges(args.task_id);
@@ -289,7 +289,7 @@ function handleGetComplexityMetrics(args) {
  * Detect dead code
  */
 function handleDetectDeadCode(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = db.getTaskFileChanges(args.task_id);
@@ -364,7 +364,7 @@ async function handleValidateApiContract(args) {
  * Check documentation coverage
  */
 function handleCheckDocCoverage(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = db.getTaskFileChanges(args.task_id);

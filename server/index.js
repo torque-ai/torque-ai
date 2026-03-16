@@ -43,7 +43,7 @@ let agentRegistry = null;
 let mcpPlatform = null;
 
 // Single source of truth — shared with mcp-sse.js
-const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES, getToolNamesForTier } = require('./core-tools');
+const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 
 // PID file for reliable external shutdown (written on startup, cleaned on shutdown)
 const PID_FILE = path.join(db.getDataDir(), 'torque.pid');
