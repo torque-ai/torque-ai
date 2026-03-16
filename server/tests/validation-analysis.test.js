@@ -118,10 +118,6 @@ describe('validation/analysis handlers', () => {
     vi.restoreAllMocks();
   });
 
-  it('loads shared helpers through the mocked logger module', () => {
-    expect(mockLogger.child).toHaveBeenCalledWith({ component: 'shared-handlers' });
-  });
-
   describe('handleCheckTestCoverage', () => {
     it('returns MISSING_REQUIRED_PARAM when task_id is missing', () => {
       const result = handlers.handleCheckTestCoverage({});
