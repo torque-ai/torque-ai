@@ -1,5 +1,5 @@
 const CIProvider = require('../ci/provider');
-const GitHubActionsProvider = require('../server/ci/github-actions');
+const GitHubActionsProvider = require('../ci/github-actions');
 const childProcess = require('child_process');
 const crypto = require('crypto');
 

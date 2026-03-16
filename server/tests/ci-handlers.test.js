@@ -73,8 +73,8 @@ function loadHandlers() {
   delete require.cache[require.resolve('../handlers/ci-handlers')];
   installMock('../database', mockDb);
   installMock('../ci/watcher', mockWatcher);
-  installMock('../server/ci/github-actions', mockGitHubActionsProvider);
-  installMock('../server/ci/diagnostics', mockDiagnostics);
+  installMock('../ci/github-actions', mockGitHubActionsProvider);
+  installMock('../ci/diagnostics', mockDiagnostics);
   installMock('../utils/credential-crypto', mockCredentialCrypto);
   installMock('../handlers/error-codes', realErrorCodes);
   return require('../handlers/ci-handlers');
