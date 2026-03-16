@@ -62,6 +62,95 @@ const HANDLER_MODULES = [
   require('./handlers/audit-handlers'),
 ];
 
+// ── Schema lookup map (tool name → inputSchema) ──
+const schemaMap = new Map();
+for (const def of TOOLS) {
+  if (def && def.name && def.inputSchema) {
+    schemaMap.set(def.name, def.inputSchema);
+  }
+}
+
+// ── Centralized JSON Schema validation ──
+
+/**
+ * Validate args against a JSON Schema inputSchema.
+ * Returns null if valid, or an error object { message, details[] } if invalid.
+ *
+ * Strict for `required` fields (missing → error).
+ * Strict for `type` checks on present fields (wrong type → error).
+ * Validates `enum` constraints on present fields.
+ */
+function validateArgsAgainstSchema(args, schema) {
+  if (!schema || schema.type !== 'object') return null;
+
+  const errors = [];
+  const properties = schema.properties || {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+
+  // Check required fields
+  for (const field of required) {
+    if (args[field] === undefined || args[field] === null) {
+      const propDef = properties[field];
+      const desc = propDef && propDef.description ? ` (${propDef.description})` : '';
+      errors.push(`Missing required parameter: "${field}"${desc}`);
+    }
+  }
+
+  // Check type and enum constraints on present fields
+  for (const [key, value] of Object.entries(args)) {
+    if (key.startsWith('__')) continue; // skip internal context fields
+    const propDef = properties[key];
+    if (!propDef) continue; // extra fields are allowed (no additionalProperties enforcement)
+
+    if (value === undefined || value === null) continue;
+
+    // Type checking
+    if (propDef.type) {
+      const actualType = Array.isArray(value) ? 'array' : typeof value;
+      let typeValid = false;
+
+      switch (propDef.type) {
+        case 'string':
+          typeValid = actualType === 'string';
+          break;
+        case 'number':
+        case 'integer':
+          typeValid = actualType === 'number' && !Number.isNaN(value);
+          break;
+        case 'boolean':
+          typeValid = actualType === 'boolean';
+          break;
+        case 'array':
+          typeValid = actualType === 'array';
+          break;
+        case 'object':
+          typeValid = actualType === 'object';
+          break;
+        default:
+          typeValid = true; // unknown type — skip
+      }
+
+      if (!typeValid) {
+        errors.push(`Parameter "${key}" must be of type ${propDef.type}, got ${actualType}`);
+      }
+    }
+
+    // Enum checking
+    if (propDef.enum && Array.isArray(propDef.enum)) {
+      if (!propDef.enum.includes(value)) {
+        errors.push(`Parameter "${key}" must be one of [${propDef.enum.join(', ')}], got "${value}"`);
+      }
+    }
+  }
+
+  if (errors.length === 0) return null;
+
+  return {
+    message: `Validation failed for ${errors.length} parameter(s)`,
+    details: errors,
+  };
+}
+
 // ── Auto-build dispatch map from handler exports ──
 
 function pascalToSnake(s) {
@@ -303,8 +392,20 @@ async function handleToolCall(name, args) {
     }
   }
 
-  // NOTE: Parameter validation is delegated to individual handlers.
-  // TODO (Phase 2): Add centralized JSON Schema validation using tool-def inputSchema.
+  // Centralized JSON Schema validation (Phase 2)
+  const schema = schemaMap.get(name);
+  if (schema) {
+    const validationError = validateArgsAgainstSchema(args || {}, schema);
+    if (validationError) {
+      return {
+        content: [{
+          type: 'text',
+          text: `${validationError.message}:\n${validationError.details.map(d => `  - ${d}`).join('\n')}`,
+        }],
+        isError: true,
+      };
+    }
+  }
 
   // Centralized file_path traversal guard for all tool handlers
   if (args.file_path && typeof args.file_path === 'string') {
@@ -329,6 +430,8 @@ async function handleToolCall(name, args) {
 module.exports = {
   TOOLS,
   routeMap,
+  schemaMap,
   handleToolCall,
+  validateArgsAgainstSchema,
   INTERNAL_HANDLER_EXPORTS,
 };
