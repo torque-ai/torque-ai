@@ -7,7 +7,6 @@
  * These return { data, meta } envelopes — not MCP text blobs.
  */
 
-const { v4: uuidv4 } = require('uuid');
 const db = require('../database');
 const {
   sendSuccess,

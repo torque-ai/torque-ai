@@ -355,7 +355,7 @@ function listFixtures(filters = {}) {
   return db.prepare(query).all(...values).map(mapFixtureRow);
 }
 
-function resolveFixtureWithInheritance(nameOrId, visited = new Set()) {
+function resolveFixtureWithInheritance(nameOrId, _visited = new Set()) {
   const fixture = getFixture(nameOrId);
   if (!fixture) return null;
 

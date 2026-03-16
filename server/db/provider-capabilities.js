@@ -1,5 +1,4 @@
 'use strict';
-const logger = require('../logger').child({ component: 'provider-capabilities' });
 
 const DEFAULT_CAPABILITIES = {
   codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },

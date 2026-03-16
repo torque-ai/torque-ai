@@ -22,10 +22,10 @@ function setDb(dbInstance) { db = dbInstance; }
 function setGetTask(fn) { getTaskFn = fn; }
 function setDbFunctions(fns) { Object.assign(dbFunctions, fns); }
 function setFindSimilarTasks(fn) { findSimilarTasksFn = fn; }
-function setSetPriorityWeights(fn) { setWeightsFn = fn; }
+function setSetPriorityWeights(fn) { _setWeightsFn = fn; }
 
 let findSimilarTasksFn;
-let setWeightsFn;
+let _setWeightsFn;
 
 function safeJsonParse(value, defaultValue = null) {
   if (!value) return defaultValue;

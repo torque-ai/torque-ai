@@ -239,7 +239,7 @@ function _getConclusion(run) {
 async function _notifyFailure({
   run,
   watch,
-  provider,
+  _provider,
   failures,
   triage,
 }) {
@@ -280,7 +280,6 @@ async function _pollWatch(watch, providerObj) {
     return;
   }
 
-  const db = _getDb();
   const currentWatch = _getWatch(watch.repo, watch.provider);
   if (!currentWatch || Number(currentWatch.active) !== 1) {
     return;
@@ -385,7 +384,6 @@ async function watchRepo(options) {
     ? parsedPollInterval
     : 30000;
   const branch = typeof options.branch === 'string' ? options.branch : null;
-  const key = _runKey(repo, providerName);
 
   const current = _getWatch(repo, providerName);
   if (!current && _activeTimers.size >= MAX_WATCHES) {
