@@ -28,6 +28,7 @@ export function useWebSocket(onMessage) {
   const retryCountRef = useRef(0);
   const shouldReconnectRef = useRef(true);
   const subscriptionsRef = useRef(new Set());
+  const connectRef = useRef(null);
   const [connectionState, setConnectionState] = useState('disconnected'); // 'connected' | 'disconnected' | 'reconnecting'
   const [clientCount, setClientCount] = useState(0);
   const [instanceId, setInstanceId] = useState(null);
@@ -83,20 +84,16 @@ export function useWebSocket(onMessage) {
         throw err;
       }
 
-      try {
-        // Handle connection info with instance identity
-        if (message.event === 'connected') {
-          setClientCount(message.data.clients);
-          if (message.data.instanceId) setInstanceId(message.data.instanceId);
-          if (message.data.shortId) setShortId(message.data.shortId);
-        }
+      // Handle connection info with instance identity
+      if (message.event === 'connected') {
+        setClientCount(message.data.clients);
+        if (message.data.instanceId) setInstanceId(message.data.instanceId);
+        if (message.data.shortId) setShortId(message.data.shortId);
+      }
 
-        // Forward to handler
-        if (onMessage) {
-          onMessage(message);
-        }
-      } catch (error) {
-        throw error;
+      // Forward to handler
+      if (onMessage) {
+        onMessage(message);
       }
     };
 
@@ -110,7 +107,7 @@ export function useWebSocket(onMessage) {
       retryCountRef.current++;
       reconnectTimeoutRef.current = setTimeout(() => {
         if (shouldReconnectRef.current) {
-          connect();
+          connectRef.current();
         }
         reconnectTimeoutRef.current = null;
       }, delay);
@@ -122,6 +119,8 @@ export function useWebSocket(onMessage) {
 
     wsRef.current = ws;
   }, [onMessage, parseMessage, logParseError]);
+
+  useEffect(() => { connectRef.current = connect; }, [connect]);
 
   // Subscribe to a specific task's output
   const subscribe = useCallback((taskId) => {

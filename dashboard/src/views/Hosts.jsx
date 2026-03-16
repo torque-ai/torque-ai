@@ -80,8 +80,10 @@ function HostCard({ host, activity, onToggle, onRemove }) {
   } catch { /* ignore */ }
 
   // Check if model is warm (loaded within last 5 min)
+  /* eslint-disable react-hooks/purity */
   const isModelWarm = host.model_loaded_at &&
     (Date.now() - new Date(host.model_loaded_at).getTime()) < 5 * 60 * 1000;
+  /* eslint-enable react-hooks/purity */
 
   return (
     <div className={`glass-card p-5 card-hover${!host.enabled ? ' opacity-60' : ''}`}>

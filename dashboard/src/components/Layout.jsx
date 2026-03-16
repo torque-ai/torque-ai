@@ -148,7 +148,8 @@ const navItems = [
   { to: '/strategic', icon: StrategicIcon, label: 'Strategic' },
 ];
 
-function NavItem({ to, icon: Icon, label, collapsed }) {
+function NavItem({ to, icon, label, collapsed }) {
+  const IconComponent = icon;
   return (
     <NavLink
       to={to}
@@ -162,7 +163,7 @@ function NavItem({ to, icon: Icon, label, collapsed }) {
         }`
       }
     >
-      <Icon />
+      <IconComponent />
       <span className={collapsed ? 'md:hidden' : ''}>{label}</span>
     </NavLink>
   );
@@ -229,6 +230,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
 
   // Close mobile sidebar on route change
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMobileOpen(false);
   }, [location.pathname]);
 

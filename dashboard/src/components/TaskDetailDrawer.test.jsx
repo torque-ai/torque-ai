@@ -1,5 +1,5 @@
 import { screen, act, waitFor, fireEvent } from '@testing-library/react';
-import { renderWithProviders, mockFetch } from '../test-utils';
+import { renderWithProviders } from '../test-utils';
 import TaskDetailDrawer from './TaskDetailDrawer';
 
 // Mock the api module so TaskDetailDrawer's internal fetch calls work

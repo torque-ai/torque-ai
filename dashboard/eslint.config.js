@@ -30,7 +30,7 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
     },
   },
   {
@@ -51,11 +51,23 @@ export default defineConfig([
     },
   },
   {
-    files: ['**/*.test.{js,jsx}'],
+    files: ['**/*.test.{js,jsx}', 'src/test-utils.{js,jsx}'],
     languageOptions: {
       globals: {
         ...globals.node,
         ...vitestGlobals,
+      },
+    },
+  },
+  {
+    files: ['e2e/**/*.{js,jsx}'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.browser,
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        console: 'readonly',
       },
     },
   },

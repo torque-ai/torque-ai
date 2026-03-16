@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const SHORTCUTS = [
   { key: '?', description: 'Show keyboard shortcuts' },
@@ -23,11 +23,11 @@ const NAV_KEYS = {
   j: '/projects',
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useKeyboardShortcuts({ onRefresh } = {}) {
   const [showHelp, setShowHelp] = useState(false);
   const [pendingG, setPendingG] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
 
   const handleKeyDown = useCallback((e) => {
     // Ignore when typing in inputs

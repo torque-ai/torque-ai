@@ -766,6 +766,39 @@ function getActiveSessionCount() {
   return sessions.size;
 }
 
+/**
+ * Push a structured notification payload to subscribed MCP SSE clients.
+ *
+ * This helper is intentionally lightweight and forwards to the task/event
+ * notification path so callers can mock a single MCP-facing contract.
+ *
+ * @param {object} notification
+ * @param {string} notification.type - Event type used for SSE task filters.
+ * @param {object} notification.data - Notification payload.
+ * @returns {void}
+ */
+function pushNotification(notification) {
+  if (!notification || typeof notification !== 'object') {
+    return;
+  }
+
+  const eventName = typeof notification.type === 'string' && notification.type
+    ? notification.type
+    : 'ci';
+
+  const payload = notification.data && typeof notification.data === 'object'
+    ? notification.data
+    : {};
+
+  // Keep compatibility with existing task-based filters.
+  const taskData = {
+    taskId: payload.taskId || payload.run_id || null,
+    ...payload,
+  };
+
+  notifySubscribedSessions(eventName, taskData);
+}
+
 // ──────────────────────────────────────────────────────────────
 // Subscription persistence
 // ──────────────────────────────────────────────────────────────
@@ -1556,6 +1589,7 @@ module.exports = {
   start,
   stop,
   notifySubscribedSessions,
+  pushNotification,
   getActiveSessionCount,
   setShuttingDown,
   sessions,

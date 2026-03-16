@@ -1,4 +1,4 @@
-import { screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { screen, waitFor, act } from '@testing-library/react';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ToastProvider } from './components/Toast';
@@ -75,7 +75,7 @@ vi.mock('./hooks/useAbortableRequest', () => ({
 
 // Mock date-fns (used by History)
 vi.mock('date-fns', () => ({
-  format: vi.fn((date, fmt) => '2026-01-15'),
+  format: vi.fn((_date, _fmt) => '2026-01-15'),
   formatDistanceToNow: vi.fn(() => '5 minutes ago'),
 }));
 
@@ -149,7 +149,7 @@ beforeAll(async () => {
   App = mod.default;
 });
 
-function renderApp(route = '/') {
+function renderApp(_route = '/') {
   return render(<App />, {
     wrapper: ({ children }) => children,
   });

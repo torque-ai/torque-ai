@@ -308,8 +308,8 @@ export function startMockApi(port = 3456) {
       const query = Object.fromEntries(url.searchParams.entries());
 
       // Collect body for POST
-      let body = '';
-      req.on('data', (chunk) => { body += chunk; });
+      let _body = '';
+      req.on('data', (chunk) => { _body += chunk; });
       req.on('end', () => {
         const result = route(req.method, url.pathname, query);
         const status = result?.__status || 200;

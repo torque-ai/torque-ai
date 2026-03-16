@@ -186,6 +186,23 @@ function ProviderHealthGrid({ providers }) {
 
 // ─── Decision History Table ─────────────────────────────────
 
+function DecisionSortHeader({ field, label, sortField, sortDir, onSort }) {
+  const isActive = sortField === field;
+  return (
+    <th
+      className="pb-2 pr-4 cursor-pointer select-none hover:text-slate-200 transition-colors"
+      onClick={() => onSort(field)}
+    >
+      <span className="flex items-center gap-1">
+        {label}
+        {isActive && (
+          <span className="text-[10px]">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>
+        )}
+      </span>
+    </th>
+  );
+}
+
 function DecisionHistoryTable({ decisions }) {
   const [sortField, setSortField] = useState('created_at');
   const [sortDir, setSortDir] = useState('desc');
@@ -219,23 +236,6 @@ function DecisionHistoryTable({ decisions }) {
     }
   }
 
-  function SortHeader({ field, label }) {
-    const isActive = sortField === field;
-    return (
-      <th
-        className="pb-2 pr-4 cursor-pointer select-none hover:text-slate-200 transition-colors"
-        onClick={() => handleSort(field)}
-      >
-        <span className="flex items-center gap-1">
-          {label}
-          {isActive && (
-            <span className="text-[10px]">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>
-          )}
-        </span>
-      </th>
-    );
-  }
-
   if (!decisions || decisions.length === 0) {
     return (
       <div className="glass-card p-6 text-center">
@@ -257,12 +257,12 @@ function DecisionHistoryTable({ decisions }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-slate-400 border-b border-slate-700/50">
-              <SortHeader field="created_at" label="Time" />
+              <DecisionSortHeader field="created_at" label="Time" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <th className="pb-2 pr-4">Task ID</th>
-              <SortHeader field="complexity" label="Complexity" />
-              <SortHeader field="provider" label="Provider" />
+              <DecisionSortHeader field="complexity" label="Complexity" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+              <DecisionSortHeader field="provider" label="Provider" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <th className="pb-2 pr-4">Model</th>
-              <SortHeader field="status" label="Status" />
+              <DecisionSortHeader field="status" label="Status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <th className="pb-2 pr-4">Flags</th>
               <th className="pb-2">Description</th>
             </tr>

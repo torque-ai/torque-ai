@@ -25,6 +25,7 @@ function HookRuleViolationChild({ addExtraHook }) {
   const [baseline] = useState('baseline');
 
   if (addExtraHook) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const [unstable] = useState('unstable');
     return <div>Hook rule child {baseline} {unstable}</div>;
   }

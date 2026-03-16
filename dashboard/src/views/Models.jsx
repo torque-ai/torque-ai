@@ -42,6 +42,7 @@ export default function Models() {
 
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     statsApi.models(days).then(d => {
       if (!cancelled) { setData(d); setLoading(false); }
@@ -59,7 +60,7 @@ export default function Models() {
   const totalCompleted = models.reduce((s, m) => s + m.completed, 0);
   const overallSuccessRate = totalTasks > 0 ? Math.round(totalCompleted / totalTasks * 100) : 0;
   const totalCost = models.reduce((s, m) => s + (m.total_cost || 0), 0);
-  const topModel = models[0];
+  // const topModel = models[0]; // unused, available for future use
 
   // Build chart data: success rate comparison (bar chart)
   const successData = models

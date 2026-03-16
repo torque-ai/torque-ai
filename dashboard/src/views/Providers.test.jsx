@@ -1,5 +1,5 @@
 import { screen, waitFor } from '@testing-library/react';
-import { renderWithProviders, mockFetch } from '../test-utils';
+import { renderWithProviders } from '../test-utils';
 import Providers from './Providers';
 
 // Mock recharts to avoid rendering issues in jsdom

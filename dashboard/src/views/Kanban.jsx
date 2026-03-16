@@ -391,6 +391,7 @@ const TaskCard = memo(function TaskCard({
 
 const KanbanColumn = memo(function KanbanColumn({
   label,
+  // eslint-disable-next-line no-unused-vars
   color,
   dotColor,
   tasks,
@@ -742,7 +743,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   }
 
   // Phase 1: Active data only (running + queued + overview) — fast, used for WS-driven refreshes
-  function loadActiveData() {
+  function loadActiveData() { // eslint-disable-line no-unused-vars
     execute(async (isCurrent) => {
       try {
         const [queuedData, runningData, pendingData, overviewData] = await Promise.all([
@@ -757,7 +758,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         failCountRef.current = 0;
         setStaleData(false);
         setLastRefreshed(Date.now());
-      } catch (err) {
+      } catch {
         if (!isCurrent()) return;
         failCountRef.current++;
         if (failCountRef.current >= 3) setStaleData(true);

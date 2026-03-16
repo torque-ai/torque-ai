@@ -50,7 +50,13 @@ describe('GitHubActionsProvider', () => {
   let execFileSpy;
 
   beforeEach(() => {
-    execFileSpy = vi.spyOn(childProcess, 'execFile').mockResolvedValue({ stdout: '', stderr: '' });
+    execFileSpy = vi.spyOn(childProcess, 'execFile').mockImplementation((...args) => {
+      const callback = args[args.length - 1];
+      if (typeof callback === 'function') {
+        callback(null, '', '');
+      }
+      return undefined;
+    });
   });
 
   afterEach(() => {
@@ -61,7 +67,11 @@ describe('GitHubActionsProvider', () => {
     const provider = new GitHubActionsProvider({ name: 'github-actions', repo: 'org/torque' });
     const missingGhError = new Error('not found');
     missingGhError.code = 'ENOENT';
-    execFileSpy.mockRejectedValueOnce(missingGhError);
+    execFileSpy.mockImplementationOnce((...args) => {
+      const callback = args[args.length - 1];
+      callback(missingGhError);
+      return undefined;
+    });
 
     const result = await provider.checkPrerequisites();
 
@@ -73,6 +83,7 @@ describe('GitHubActionsProvider', () => {
       'gh',
       ['auth', 'status', '--hostname', 'github.com'],
       { timeout: 30000 },
+      expect.any(Function),
     );
   });
 
@@ -89,8 +100,9 @@ describe('GitHubActionsProvider', () => {
 
   it('getRun parses gh JSON output into normalized CIEvent', async () => {
     const provider = new GitHubActionsProvider({ name: 'github-actions', repo: 'org/torque' });
-    execFileSpy.mockResolvedValueOnce({
-      stdout: JSON.stringify({
+    execFileSpy.mockImplementationOnce((...args) => {
+      const callback = args[args.length - 1];
+      callback(null, JSON.stringify({
         status: 'completed',
         conclusion: 'failure',
         headSha: 'abc123',
@@ -99,8 +111,8 @@ describe('GitHubActionsProvider', () => {
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:10Z',
         databaseId: 456,
-      }),
-      stderr: '',
+      }), '');
+      return undefined;
     });
 
     await expect(provider.getRun('456')).resolves.toEqual({
@@ -133,15 +145,17 @@ describe('GitHubActionsProvider', () => {
         'status,conclusion,headSha,headBranch,url,createdAt,updatedAt,jobs,databaseId',
       ],
       { timeout: 30000 },
+      expect.any(Function),
     );
   });
 
   it('getFailureLogs returns raw text capped at 2MB', async () => {
     const provider = new GitHubActionsProvider({ name: 'github-actions', repo: 'org/torque' });
     const oversizedText = 'A'.repeat(MAX_FAILURE_LOG_BYTES + 2048);
-    execFileSpy.mockResolvedValueOnce({
-      stdout: oversizedText,
-      stderr: '',
+    execFileSpy.mockImplementationOnce((...args) => {
+      const callback = args[args.length - 1];
+      callback(null, oversizedText, '');
+      return undefined;
     });
 
     const logs = await provider.getFailureLogs('456');
@@ -152,13 +166,15 @@ describe('GitHubActionsProvider', () => {
       'gh',
       ['run', 'view', '456', '--log-failed'],
       { timeout: 30000 },
+      expect.any(Function),
     );
   });
 
   it('listRuns returns filtered array of run objects', async () => {
     const provider = new GitHubActionsProvider({ name: 'github-actions', repo: 'org/torque' });
-    execFileSpy.mockResolvedValueOnce({
-      stdout: JSON.stringify([
+    execFileSpy.mockImplementationOnce((...args) => {
+      const callback = args[args.length - 1];
+      callback(null, JSON.stringify([
         {
           databaseId: 1,
           status: 'completed',
@@ -177,8 +193,8 @@ describe('GitHubActionsProvider', () => {
           url: 'https://github.com/org/torque/actions/runs/2',
           createdAt: '2026-01-01T00:01:00Z',
         },
-      ]),
-      stderr: '',
+      ]), '');
+      return undefined;
     });
 
     const runs = await provider.listRuns({ branch: 'feature', status: 'success', limit: 3 });
@@ -215,6 +231,7 @@ describe('GitHubActionsProvider', () => {
         '3',
       ],
       { timeout: 30000 },
+      expect.any(Function),
     );
   });
 
@@ -253,7 +270,7 @@ describe('GitHubActionsProvider', () => {
     const provider = new GitHubActionsProvider({ name: 'github-actions', repo: 'org/torque' });
     const body = '{"hello":"world"}';
     const secret = 'super-secret';
-    const expectedSignature = `sha256=${crypto\n      .createHmac('sha256', secret)\n      .update(body)\n      .digest('hex')}`;
+    const expectedSignature = `sha256=${crypto.createHmac('sha256', secret).update(body).digest('hex')}`;
 
     await expect(
       provider.verifyWebhookSignature(
@@ -268,7 +285,7 @@ describe('GitHubActionsProvider', () => {
     const provider = new GitHubActionsProvider({ name: 'github-actions', repo: 'org/torque' });
     const body = '{"hello":"world"}';
     const secret = 'super-secret';
-    const expectedSignature = `sha256=${crypto\n      .createHmac('sha256', 'wrong-secret')\n      .update(body)\n      .digest('hex')}`;
+    const expectedSignature = `sha256=${crypto.createHmac('sha256', 'wrong-secret').update(body).digest('hex')}`;
 
     await expect(
       provider.verifyWebhookSignature(

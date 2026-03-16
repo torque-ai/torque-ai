@@ -132,6 +132,7 @@ function ExpandedWorkflow({ workflowId, onOpenDrawer, now }) {
 
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     workflowsApi.get(workflowId).then((data) => {
       if (!cancelled) setDetail(data);

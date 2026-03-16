@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react';
 
 const ToastContext = createContext(null);
 
@@ -21,12 +21,13 @@ export function ToastProvider({ children }) {
     return id;
   }, [removeToast]);
 
-  const toast = useCallback({
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const toast = useMemo(() => ({
     error: (msg) => addToast(msg, 'error'),
     success: (msg) => addToast(msg, 'success', 3000),
     info: (msg) => addToast(msg, 'info', 4000),
     warning: (msg) => addToast(msg, 'warning', 4500),
-  }, [addToast]);
+  }), [addToast]);
 
   return (
     <ToastContext.Provider value={toast}>
@@ -40,6 +41,7 @@ export function ToastProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useToast() {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error('useToast must be used within ToastProvider');

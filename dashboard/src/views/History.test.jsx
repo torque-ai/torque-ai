@@ -1,5 +1,5 @@
 import { screen, waitFor, fireEvent } from '@testing-library/react';
-import { renderWithProviders, mockFetch } from '../test-utils';
+import { renderWithProviders } from '../test-utils';
 import History from './History';
 
 const { setSearchParamsMock } = vi.hoisted(() => ({
@@ -27,7 +27,7 @@ vi.mock('../api', () => ({
 }));
 
 vi.mock('date-fns', () => ({
-  format: vi.fn((date, fmt) => '2026-01-15'),
+  format: vi.fn((_date, _fmt) => '2026-01-15'),
   formatDistanceToNow: vi.fn(() => '5 minutes ago'),
 }));
 

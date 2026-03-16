@@ -96,7 +96,7 @@ describe('useWebSocket', () => {
       try {
         const parsed = JSON.parse(raw);
         return parsed.event === eventName;
-      } catch (_error) {
+      } catch {
         return false;
       }
     });
@@ -202,7 +202,6 @@ describe('useWebSocket', () => {
     const ws = latestSocket();
     act(() => { ws.simulateOpen(); });
     act(() => { result.current.subscribe('task-123'); });
-    const sent = ws.sentMessages;
     const subscribeMsgs = parseMessages(ws, 'subscribe');
     expect(subscribeMsgs.length).toBeGreaterThanOrEqual(1);
     expect(JSON.parse(subscribeMsgs[0])).toEqual({ event: 'subscribe', taskId: 'task-123' });
@@ -214,7 +213,6 @@ describe('useWebSocket', () => {
     const ws = latestSocket();
     act(() => { ws.simulateOpen(); });
     act(() => { result.current.unsubscribe('task-123'); });
-    const sent = ws.sentMessages;
     const unsubMsgs = parseMessages(ws, 'unsubscribe');
     expect(unsubMsgs.length).toBeGreaterThanOrEqual(1);
     expect(JSON.parse(unsubMsgs[0])).toEqual({ event: 'unsubscribe', taskId: 'task-123' });

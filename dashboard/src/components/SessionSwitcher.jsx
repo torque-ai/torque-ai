@@ -5,7 +5,7 @@ import { instances as instancesApi } from '../api';
  * Session switcher dropdown for multi-session dashboard navigation.
  * Shows all active MCP instances and allows switching between them.
  */
-export default function SessionSwitcher({ shortId, instanceId }) {
+export default function SessionSwitcher({ shortId }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -74,6 +74,7 @@ export default function SessionSwitcher({ shortId, instanceId }) {
     const currentPath = window.location.pathname;
     const currentSearch = window.location.search;
     const currentHash = window.location.hash;
+    // eslint-disable-next-line react-hooks/immutability
     window.location.href = `${window.location.protocol}//${window.location.hostname}:${inst.port}${currentPath}${currentSearch}${currentHash}`;
   }
 

@@ -43,6 +43,7 @@ const HANDLER_MODULES = [
   require('./handlers/workflow'),
   require('./handlers/validation'),
   require('./handlers/provider-handlers'),
+  require('./handlers/ci-handlers'),
   require('./handlers/webhook-handlers'),
   require('./handlers/inbound-webhook-handlers'),
   require('./handlers/advanced'),

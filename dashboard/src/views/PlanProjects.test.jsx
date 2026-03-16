@@ -1,5 +1,5 @@
 import { screen, waitFor, fireEvent } from '@testing-library/react';
-import { renderWithProviders, mockFetch } from '../test-utils';
+import { renderWithProviders } from '../test-utils';
 import PlanProjects from './PlanProjects';
 
 vi.mock('../api', () => ({

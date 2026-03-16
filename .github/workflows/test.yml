@@ -82,7 +82,7 @@ jobs:
         working-directory: dashboard
 
       - name: Lint dashboard
-        run: npm run lint || echo "::warning::Dashboard lint found errors (fix incrementally)"
+        run: npm run lint
         working-directory: dashboard
 
       - name: Build dashboard

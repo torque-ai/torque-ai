@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const childProcess = require('child_process');
 
 const CIProvider = require('./provider');
 
@@ -20,10 +20,9 @@ class GitHubActionsProvider extends CIProvider {
     }
 
     try {
-      await execFile(
+      await this._runGhCommand(
         'gh',
         ['auth', 'status', '--hostname', 'github.com'],
-        { timeout: GH_TIMEOUT_MS },
       );
       this._prerequisiteResult = { ready: true };
       return this._prerequisiteResult;
@@ -42,7 +41,7 @@ class GitHubActionsProvider extends CIProvider {
   }
 
   async getRun(runId) {
-    const { stdout } = await execFile(
+    const { stdout } = await this._runGhCommand(
       'gh',
       [
         'run',
@@ -51,7 +50,6 @@ class GitHubActionsProvider extends CIProvider {
         '--json',
         'status,conclusion,headSha,headBranch,url,createdAt,updatedAt,jobs,databaseId',
       ],
-      { timeout: GH_TIMEOUT_MS },
     );
 
     const run = JSON.parse(stdout);
@@ -59,10 +57,9 @@ class GitHubActionsProvider extends CIProvider {
   }
 
   async getFailureLogs(runId) {
-    const { stdout } = await execFile(
+    const { stdout } = await this._runGhCommand(
       'gh',
       ['run', 'view', runId, '--log-failed'],
-      { timeout: GH_TIMEOUT_MS },
     );
 
     return typeof stdout === 'string'
@@ -72,7 +69,7 @@ class GitHubActionsProvider extends CIProvider {
 
   async listRuns(filters = {}) {
     const limit = filters.limit || 10;
-    const { stdout } = await execFile(
+    const { stdout } = await this._runGhCommand(
       'gh',
       [
         'run',
@@ -82,7 +79,6 @@ class GitHubActionsProvider extends CIProvider {
         '--limit',
         String(limit),
       ],
-      { timeout: GH_TIMEOUT_MS },
     );
 
     const runs = JSON.parse(stdout);
@@ -172,6 +168,21 @@ class GitHubActionsProvider extends CIProvider {
       updatedAt: rawRun.updatedAt,
       raw: typeof rawRun.raw === 'string' ? rawRun.raw : JSON.stringify(rawRun.raw || rawRun),
     };
+  }
+
+  _runGhCommand(...args) {
+    return new Promise((resolve, reject) => {
+      childProcess.execFile(...args, { timeout: GH_TIMEOUT_MS }, (error, stdout = '', stderr = '') => {
+        if (error) {
+          const commandError = error;
+          commandError.stdout = stdout;
+          commandError.stderr = stderr;
+          reject(commandError);
+          return;
+        }
+        resolve({ stdout, stderr });
+      });
+    });
   }
 
   _normalizeRunStatus(status, conclusion) {

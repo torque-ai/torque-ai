@@ -46,6 +46,7 @@ const BG_COLORS = {
 };
 
 // Matches ESC [ <params> m  (SGR sequences)
+// eslint-disable-next-line no-control-regex
 const ANSI_RE = /\u001b\[([0-9;]*)m/g;
 
 /**
@@ -122,5 +123,6 @@ export function parseAnsi(text) {
  * @returns {boolean}
  */
 export function hasAnsi(text) {
+  // eslint-disable-next-line no-control-regex
   return /\u001b\[/.test(text);
 }

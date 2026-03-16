@@ -866,6 +866,7 @@ function DiffTab({ taskId, toast }) {
     if (!taskId) return;
     const requestId = ++requestIdRef.current;
     const isCurrentRequest = () => mountedRef.current && requestIdRef.current === requestId;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setDiff(null);
     tasksApi.diff(taskId)
@@ -953,6 +954,7 @@ function DiffTab({ taskId, toast }) {
   );
 }
 
+// eslint-disable-next-line react-hooks/purity
 function TimelineEntry({ label, time, detail, isLast, color = 'bg-blue-500', durationFrom, durationLabel, now = Date.now() }) {
   const dur = durationFrom && time
     ? new Date(time) - new Date(durationFrom)
