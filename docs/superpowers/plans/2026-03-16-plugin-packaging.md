@@ -351,6 +351,16 @@ TORQUE routes between 10 execution providers:
 
 All cloud providers use your own API keys (BYOK). Local providers use your Ollama installation.
 
+## Recommended Companion: Superpowers
+
+TORQUE handles orchestration — where and how your tasks execute. For the best development workflow, pair it with [Superpowers](https://github.com/obra/superpowers) by Jesse Vincent for brainstorming, TDD, systematic debugging, and code review.
+
+```bash
+/plugin install superpowers
+```
+
+Together: Superpowers helps you plan and structure work. TORQUE executes it across your providers in parallel.
+
 ## Documentation
 
 Full docs: [CLAUDE.md](./CLAUDE.md) | [Safeguards](./docs/safeguards.md)
