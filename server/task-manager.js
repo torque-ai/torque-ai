@@ -2344,7 +2344,9 @@ const _queuePollInterval = setInterval(() => {
     logger.error(`QueuePoll error`, { error: err.message });
   }
 }, 30000); // Every 30 seconds
-// queuePollInterval.unref(); — removed: queue processing must keep process alive
+// unref so this timer doesn't prevent process exit in test workers.
+// The server stays alive via HTTP listeners, not this interval.
+_queuePollInterval.unref();
 
 // ============================================================
 // Initialize extracted modules with dependency injection
