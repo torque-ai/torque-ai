@@ -1,8 +1,8 @@
 # TORQUE Cloud — Design Spec
 
 **Date:** 2026-03-16
-**Status:** Draft (post-review revision 1)
-**Scope:** Cloud-hosted SaaS product — Cloudflare Workers, multi-tenant, hub-and-spoke architecture with local agent relay
+**Status:** Draft (revision 2 — container architecture pivot)
+**Scope:** Cloud-hosted SaaS product — Cloudflare edge + Fly.io containers, multi-tenant, hub-and-spoke with local agent relay
 
 ## Problem
 
@@ -15,7 +15,7 @@ TORQUE is a powerful AI task orchestration platform, but it requires local insta
 3. Multi-tenant from day one — proper user isolation, auth, billing
 4. Support BYOK (bring your own key) for cloud providers + subscription-based local tools (Codex, Claude Code) via agent relay
 5. Freemium model — free tier proves value, Pro tier unlocks power-user workflows
-6. Zero infrastructure for the operator to maintain — Cloudflare handles scaling
+6. Minimal infrastructure — Cloudflare edge + Fly.io containers, zero custom server management
 
 ## Non-Goals
 
@@ -28,72 +28,102 @@ TORQUE is a powerful AI task orchestration platform, but it requires local insta
 
 ## Architecture
 
-### Two Products, One Monorepo
+### Two Products, One Codebase
 
 Open-core model:
 
 1. **TORQUE** (open source, self-hosted) — existing product. Users clone, install, run locally. Free, BSL license.
-2. **TORQUE Cloud** (hosted SaaS) — same orchestration brain, multi-tenant, Cloudflare-hosted. Freemium.
+2. **TORQUE Cloud** (hosted SaaS) — the **same TORQUE server** running in per-user Fly.io containers, fronted by Cloudflare edge for auth/billing/dashboard. Freemium.
 
-Both products share a `packages/core` library containing the orchestration logic. Product-specific code (transports, DB adapters, auth, billing) lives in separate packages.
+**Key insight:** The cloud version runs the actual TORQUE codebase unchanged in containers. There is no reimplementation, no core extraction, no async conversion. One codebase, one test suite, guaranteed feature parity. Cloudflare handles what it's good at (edge auth, rate limiting, static hosting). Fly.io handles what it's good at (running Node.js with full system access).
 
 ### Hub and Spoke
 
 ```
-┌─────────────────────── Cloud ───────────────────────┐
-│  TORQUE Hub                                          │
-│  ┌─────────┐ ┌──────────┐ ┌───────────┐            │
-│  │Dashboard│ │Scheduler │ │Workflows  │            │
-│  │  (web)  │ │+ Queue   │ │+ Guidance │            │
-│  └─────────┘ └────┬─────┘ └───────────┘            │
-│                    │                                 │
-│         ┌─────────┼──────────┐                      │
-│         ▼         ▼          ▼                      │
-│    ┌─────────┐ ┌──────┐ ┌──────┐  ← BYOK API keys │
-│    │DeepInfra│ │Groq  │ │Anthro│                    │
-│    └─────────┘ └──────┘ └──────┘                    │
-│                    │                                 │
-└────────────────────┼─────────────────────────────────┘
-                     │ WebSocket (persistent)
-                     ▼
-┌──────────── User's Machine ─────────────┐
-│  TORQUE Agent (lightweight relay)        │
-│  ┌─────────┐ ┌───────────┐ ┌─────────┐ │
-│  │Codex CLI│ │Claude Code│ │npm test  │ │
-│  │(sub)    │ │(sub)      │ │(verify)  │ │
-│  └─────────┘ └───────────┘ └─────────┘ │
-│  ┌──────────┐                           │
-│  │Local     │  ← optional               │
-│  │Ollama    │                           │
-│  └──────────┘                           │
-└─────────────────────────────────────────┘
+┌─── Cloudflare Edge ───┐     ┌──── Fly.io ────────────────┐
+│                        │     │  Per-user container:        │
+│  Workers:              │     │  ┌───────────────────────┐  │
+│   - Auth (OAuth/key)   │     │  │ Actual TORQUE server  │  │
+│   - Rate limiting      │◄───►│  │ - Same codebase       │  │
+│   - Billing/tier check │     │  │ - Same SQLite         │  │
+│   - Request routing    │     │  │ - Same 15K tests      │  │
+│                        │     │  │ - Full orchestration   │  │
+│  Pages:                │     │  └───────────┬───────────┘  │
+│   - Dashboard UI       │     │              │              │
+│                        │     └──────────────┼──────────────┘
+│  KV: sessions, cache   │                    │
+│  D1: users, billing    │                    │ WebSocket
+└────────────────────────┘                    │
+                                              ▼
+                               ┌──────────────────────────┐
+                               │  User's Machine           │
+                               │  TORQUE Agent              │
+                               │  ┌─────────┐ ┌─────────┐ │
+                               │  │Codex CLI│ │Claude   │ │
+                               │  │(sub)    │ │Code(sub)│ │
+                               │  └─────────┘ └─────────┘ │
+                               │  ┌─────────┐ ┌─────────┐ │
+                               │  │npm test │ │Local    │ │
+                               │  │(verify) │ │Ollama   │ │
+                               │  └─────────┘ └─────────┘ │
+                               └──────────────────────────┘
 ```
 
-**Cloud handles:** Orchestration brain — scheduling, workflows, dashboard, guidance, quality gates, auth, billing.
+**Cloudflare edge handles:** Auth, rate limiting, billing enforcement, dashboard hosting, session management. Stateless request routing to the correct user container.
+
+**Fly.io container handles:** Full TORQUE orchestration — scheduling, workflows, quality gates, guidance, provider routing, cloud API calls (BYOK). Each user gets their own container running the unmodified TORQUE server with its own SQLite database.
 
 **Agent handles:** Subscription-based CLI tools (Codex, Claude Code), test execution (verify_command against user's codebase), local Ollama, git operations.
 
-**Key principle:** User's code and completed task outputs stay LOCAL. Cloud stores only orchestration state (task queue, workflow DAGs, summaries, audit trail). The local agent maintains a SQLite database with the heavy data.
+**Key principle:** User's code and completed task outputs stay LOCAL via the agent. The container's SQLite holds orchestration state. Cloudflare D1 holds only multi-tenant data (user accounts, billing, API keys).
 
-### Split Database
+### Three-Layer Data Split
 
-| Data | Cloud (D1) | Local (Agent SQLite) |
-|------|:---:|:---:|
-| Task queue, scheduling state | x | |
-| Workflow DAG definitions | x | |
-| User accounts, auth | x | |
-| Provider configs (encrypted) | x | |
-| Task summaries (~500 chars) | x | |
-| Audit trail | x | |
-| Task full output | | x |
-| File baselines | | x |
-| Code content | | x |
-| Test results (full) | | x |
-| Git diffs | | x |
+| Data | Cloudflare D1 | Container SQLite | Agent SQLite |
+|------|:---:|:---:|:---:|
+| User accounts, auth | x | | |
+| API keys (hashed) | x | | |
+| Billing/tier status | x | | |
+| Provider configs (encrypted) | x | injected at start | |
+| Task queue, scheduling | | x | |
+| Workflow DAG state | | x | |
+| Task full output | | | x |
+| File baselines | | | x |
+| Code content | | | x |
+| Test results (full) | | | x |
+| Git diffs | | | x |
 
-**Sync protocol:**
-- Cloud → Local: task assignments, workflow state changes, routing decisions
-- Local → Cloud: status updates (started/completed/failed), metadata (duration, exit code), result summaries (not full output)
+**Why three layers:**
+- **D1:** Multi-tenant data that spans all users (auth, billing). Queried by Cloudflare Workers at the edge.
+- **Container SQLite:** Per-user orchestration state. This IS the existing TORQUE database, unchanged. No schema migration needed.
+- **Agent SQLite:** Heavy data that never leaves the user's machine. Privacy guarantee.
+
+### Container Lifecycle (Fly.io)
+
+```
+User signs up (Cloudflare)
+  → D1: create user record
+  → No container yet (created on first use)
+
+User connects agent or submits first task
+  → Cloudflare Worker routes to Fly.io
+  → Fly.io Machine API: create machine for user (if not exists)
+  → Container starts TORQUE server (~2s cold start)
+  → Container receives BYOK provider keys (decrypted by Worker, passed via secure env)
+  → Agent WebSocket proxied through Cloudflare to container
+
+While active:
+  → Container runs full TORQUE — all 500+ tools, all providers, all safeguards
+  → Container's SQLite holds all orchestration state
+  → Dashboard reads from container's REST API (proxied through Cloudflare)
+
+After 10 minutes of no activity:
+  → Container suspends (Fly.io Machine stop)
+  → SQLite volume persists (Fly.io persistent volumes)
+  → Next request wakes it (~1-2s)
+```
+
+**Cost model:** Fly.io charges for active CPU time. Suspended machines cost only volume storage (~$0.15/GB/mo). A free-tier user who uses TORQUE for 2 hours/day costs ~$1-3/mo in compute. Pro users with always-on containers: ~$5-7/mo.
 
 ---
 
@@ -102,88 +132,65 @@ Both products share a `packages/core` library containing the orchestration logic
 ```
 torque-ai/
   packages/
-    core/               # Shared orchestration logic
-      scheduler/        # Task scheduling, slot-pull, provider routing
-      workflow/         # DAG engine, workflow runtime
-      quality/          # Safeguards, validation, baselines
-      guidance/         # Guidance system (Layer 1-3)
-      tool-defs/        # Tool definitions (JSON schemas)
-      db/               # DatabaseAdapter interface
-      constants.js
-      providers/        # Registry, config, routing logic
-
-    server/             # Self-hosted product (existing codebase)
+    server/             # TORQUE server (existing codebase, unchanged)
       index.js          # MCP stdio + SSE + REST
       handlers/         # Tool handlers
-      db/               # SQLiteAdapter (implements DatabaseAdapter)
-      dashboard/        # Bundled dashboard
+      database.js       # SQLite (same as today)
+      tool-defs/        # Tool definitions
+      guidance/         # Guidance system
+      dashboard/        # Bundled dashboard UI
 
-    cloud/              # TORQUE Cloud (Cloudflare Workers)
+    edge/               # Cloudflare Workers (auth, billing, routing)
       src/
         worker.js       # Main Worker entry
-        router.js       # Route parsing + dispatch
+        router.js       # Route to correct user container
         auth/           # GitHub OAuth, magic link, API keys
-        durable/        # Durable Objects (per-user orchestration)
         billing/        # Stripe webhook, tier enforcement
-        db/             # D1Adapter (implements DatabaseAdapter)
-          migrations/   # D1 schema migrations
+        container-mgmt/ # Fly.io Machine API integration
+      wrangler.toml
+      d1-migrations/    # D1 schema (users, billing, keys only)
 
     agent/              # Local relay (@torque-ai/agent)
       bin/
         torque-agent.js # CLI entry
       src/
-        relay.js        # WebSocket connection to cloud
+        relay.js        # WebSocket connection to container
         executor.js     # Core command whitelist
         plugin-loader.js
         local-db.js     # SQLite for heavy data
         tray.js         # Optional system tray
-      plugins/          # Built-in plugins
+      plugins/
         codex.js, claude-cli.js, ollama.js, verify.js, git.js
 
     dashboard/          # Shared dashboard UI
-      src/              # Used by both server and cloud
+      src/              # Used by both server (bundled) and edge (Pages)
 
   package.json          # Workspace root (npm workspaces)
-  wrangler.toml         # Cloudflare config
 ```
 
-### Shared vs Product-Specific
+**What's where:**
 
-| Component | Core | Server | Cloud | Agent |
-|-----------|:---:|:---:|:---:|:---:|
-| Scheduler logic | x | | | |
-| Workflow engine | x | | | |
-| Quality gates | x | | | |
-| Tool definitions | x | | | |
-| Guidance system | x | | | |
-| Provider registry | x | | | |
-| SQLite direct access | | x | | x |
-| D1 adapter | | | x | |
-| MCP stdio transport | | x | | |
-| MCP SSE transport | | x | x | |
-| Agent WebSocket relay | | | x | x |
-| Auth + billing | | | x | |
-| Plugin system | | | | x |
-| Dashboard UI | | x | x | |
+| Component | Server (container + self-hosted) | Edge (Cloudflare) | Agent |
+|-----------|:---:|:---:|:---:|
+| Full orchestration engine | x | | |
+| All 500+ tools | x | | |
+| SQLite database | x | | |
+| MCP stdio + SSE | x | | |
+| REST API (580 routes) | x | | |
+| All 15K tests | x | | |
+| Auth (OAuth, magic link, keys) | | x | |
+| Billing (Stripe, tier enforcement) | | x | |
+| Rate limiting | | x | |
+| Container lifecycle (start/stop) | | x | |
+| Dashboard static hosting | | x | |
+| User/billing D1 database | | x | |
+| Codex/Claude CLI execution | | | x |
+| Local Ollama proxy | | | x |
+| Verify command execution | | | x |
+| Plugin system | | | x |
+| Local heavy-data SQLite | | | x |
 
-### Database Adapter Pattern
-
-Core defines interfaces, products implement:
-
-```js
-// packages/core/db/adapter.js
-class DatabaseAdapter {
-  listTasks(filters) { throw new Error('Not implemented'); }
-  createTask(task) { throw new Error('Not implemented'); }
-  updateTaskStatus(id, status) { throw new Error('Not implemented'); }
-  // ... all operations core needs
-}
-
-// packages/server/db/sqlite-adapter.js — direct SQLite (better-sqlite3)
-// packages/cloud/db/d1-adapter.js — Cloudflare D1 (SQLite-compatible SQL)
-```
-
-D1 uses the same SQL syntax as SQLite — most adapter methods will be nearly identical. The adapter exists for structural differences (connection management, transaction semantics, available tables).
+**No `packages/core` extraction needed.** The server package IS the core. The container runs it unchanged. The edge package is a thin auth/billing/routing layer. The agent is a new standalone package.
 
 ---
 
@@ -337,7 +344,9 @@ User logged into dashboard → Settings → API Keys
 
 ---
 
-## Cloudflare Architecture
+## Cloudflare Edge Architecture
+
+Cloudflare is the front door — auth, billing, rate limiting, and routing. All orchestration happens in the user's Fly.io container.
 
 ### Request Routing
 
@@ -347,96 +356,47 @@ HTTPS request → Cloudflare Edge (Worker)
   ├─ 1. Parse route
   ├─ 2. Auth check (KV session or API key hash)
   ├─ 3. Rate limit check (KV counter)
-  ├─ 4. Tier lookup (KV cached, source: D1)
+  ├─ 4. Tier enforcement (KV cached, source: D1)
   │
-  ├─ /api/guidance     → Worker handler (stateless)
-  ├─ /api/tasks/*      → Durable Object (user's DO)
-  ├─ /api/workflows/*  → Durable Object
-  ├─ /agent            → Durable Object (WebSocket upgrade)
+  ├─ /api/*            → Proxy to user's Fly.io container
+  ├─ /agent            → Proxy WebSocket to user's container
   ├─ /auth/*           → Worker handler (stateless)
+  ├─ /billing/*        → Worker handler (Stripe)
   └─ /*                → Pages (dashboard static files)
 ```
 
-### Stateless vs Stateful
+The Worker is a **smart proxy**. It authenticates, enforces tier limits, and forwards to the correct container. It does NOT run orchestration logic.
 
-| Stateless (Worker) | Stateful (Durable Object per user) |
-|----|----|
-| Auth flows (OAuth, magic link) | Task queue + scheduler |
-| API key validation | Workflow runtime |
-| Guidance endpoint | Agent WebSocket connection |
-| User profile CRUD | Provider routing decisions |
-| Billing/tier checks | Real-time task status |
-| Dashboard static serving | Event bus (notifications) |
-
-### Durable Object Lifecycle
-
-One Durable Object per user — perfect isolation, no row-level filtering needed.
-
-**Throughput consideration:** A single DO serializes all requests for a user. For Pro users with 3 agents, multiple dashboard tabs, and high task throughput, this creates a bottleneck. For the initial launch, this is acceptable — the DO processes messages in microseconds, and the actual work (LLM calls, task execution) happens outside the DO. If profiling reveals contention at scale, shard into multiple DOs per user (agent-relay DO, scheduler DO, workflow DO). The D1-as-source-of-truth model makes this sharding straightforward since DOs don't depend on each other's local state.
-
-```
-First request after auth
-  → Worker calls env.USER_ORCHESTRATOR.get(userId)
-  → Cloudflare creates or wakes the DO
-  → DO loads state from its transactional storage
-  → DO reads shared data from D1 (provider configs, tool defs)
-
-While active:
-  → Holds WebSocket to agent
-  → Processes task submissions, scheduling, workflow steps
-  → Writes state to DO storage + syncs summaries to D1
-  → Sends assignments to agent, receives status updates
-
-After 30s of no activity:
-  → Cloudflare hibernates DO (WebSocket stays alive via hibernation API)
-  → Next message (WebSocket or HTTP) wakes DO and resumes
-```
-
-### Cloudflare Primitives Mapping
+### Cloudflare Primitives
 
 | Component | Primitive | Why |
 |-----------|-----------|-----|
-| REST API | Workers | Stateless request handling, global edge |
-| Agent relay | Durable Objects | Per-user WebSocket state |
-| Cloud DB | D1 | SQLite-compatible, minimal migration |
-| Auth sessions | KV | Fast global session lookups |
-| API key encryption | Worker env vars | Server-side secrets |
+| Auth + routing proxy | Workers | Stateless, global edge |
+| User accounts + billing | D1 | Multi-tenant queryable store |
+| Session tokens + key cache | KV | Fast global lookups |
+| BYOK key encryption | Worker env vars | Server-side secrets |
 | Dashboard UI | Pages | Static site hosting |
-| File storage | R2 | Exported reports, profile templates |
-| History purge | Cron Triggers | 24h free / 30d pro cleanup |
+| Rate limit counters | KV | Edge-speed enforcement |
+| History purge trigger | Cron Triggers | Hourly cleanup |
 
-### D1 vs DO Storage — Consistency Model
+### No Durable Objects Needed
 
-**D1 is the single source of truth for all durable state.** DO storage is a hot cache that can be fully rebuilt from D1 on wake. This eliminates split-brain scenarios — if a DO crashes after writing to its local storage but before syncing to D1, the D1 state is authoritative and the DO rebuilds from it on next wake.
+The previous revision used Durable Objects for per-user orchestration state. With the container approach, the container's SQLite IS the orchestration state — no need to replicate it in DO storage. The Worker is fully stateless: authenticate, look up the user's container URL, proxy the request.
 
-| Data | D1 (authoritative) | DO Memory (hot cache) |
-|------|:---:|:---:|
-| User accounts | x | |
-| API keys (hashed) | x | |
-| Billing/tier status | x | cached |
-| Provider configs | x | cached |
-| Tool definitions | x | cached |
-| Active task queue | x | cached in-memory |
-| Workflow DAG state | x | cached in-memory |
-| Scheduling decisions | x | cached in-memory |
-| Task summaries | x | recent in-memory |
-| Audit trail | x | |
+### Container URL Resolution
 
-**DO wake path:** On hibernation wake, the DO:
-1. Reads active tasks and workflows from D1 for this user
-2. Rebuilds in-memory indexes (task-by-status, workflow-by-id)
-3. Resumes WebSocket connections (Cloudflare preserves these during hibernation)
-4. Reconciles any stale state (tasks marked "running" in D1 but agent reports them complete)
+Each user's container has a stable internal URL on Fly.io's private network. The Worker resolves it via:
 
-**Write path:** DO writes to D1 first, then updates in-memory cache. If the D1 write fails, the operation fails — no optimistic local writes. D1 read latency is acceptable because the DO caches aggressively and most operations hit the in-memory cache.
-
-This means the DO is a **stateless coordinator with a cache**, not a stateful database. Cloudflare can evict it at any time and the only cost is a cold-start rebuild from D1.
+1. KV lookup: `user:{user_id}:container_url` (cached, 5-min TTL)
+2. If miss: D1 lookup for container assignment
+3. If no container: call Fly.io Machine API to create one, store URL in D1 + KV
+4. Proxy the request to the container
 
 ---
 
 ## D1 Schema
 
-Cloud-only tables for multi-tenancy, auth, billing, and orchestration summaries.
+D1 holds ONLY multi-tenant data: user accounts, auth, billing, and provider keys. All orchestration state lives in the container's SQLite (the existing TORQUE schema, unchanged).
 
 ```sql
 -- Auth & Identity
@@ -449,6 +409,8 @@ CREATE TABLE users (
   display_name TEXT,
   tier TEXT NOT NULL DEFAULT 'free',
   tier_expires_at TEXT,
+  container_id TEXT,                 -- Fly.io Machine ID
+  container_region TEXT,             -- e.g., 'iad' (nearest region)
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_login_at TEXT
 );
@@ -478,38 +440,7 @@ CREATE TABLE user_providers (
   UNIQUE(user_id, provider)
 );
 
--- Orchestration Summaries
-CREATE TABLE task_summaries (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  description TEXT,
-  provider TEXT,
-  status TEXT NOT NULL,
-  exit_code INTEGER,
-  duration_ms INTEGER,
-  summary TEXT,
-  created_at TEXT NOT NULL,
-  completed_at TEXT,
-  workflow_id TEXT
-);
-
-CREATE INDEX idx_task_summaries_user ON task_summaries(user_id, created_at DESC);
-CREATE INDEX idx_task_summaries_workflow ON task_summaries(workflow_id)
-  WHERE workflow_id IS NOT NULL;
-
-CREATE TABLE workflow_summaries (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  name TEXT,
-  status TEXT NOT NULL,
-  total_tasks INTEGER DEFAULT 0,
-  completed_tasks INTEGER DEFAULT 0,
-  failed_tasks INTEGER DEFAULT 0,
-  created_at TEXT NOT NULL,
-  completed_at TEXT
-);
-
-CREATE INDEX idx_workflow_summaries_user ON workflow_summaries(user_id, created_at DESC);
+CREATE INDEX idx_user_providers_user ON user_providers(user_id);
 
 -- Billing & Usage
 CREATE TABLE usage_daily (
@@ -522,7 +453,7 @@ CREATE TABLE usage_daily (
   PRIMARY KEY (user_id, date)
 );
 
--- Audit Trail
+-- Audit Trail (edge actions only — login, key create, tier change)
 CREATE TABLE audit_log (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -534,10 +465,14 @@ CREATE TABLE audit_log (
 CREATE INDEX idx_audit_user ON audit_log(user_id, created_at DESC);
 ```
 
-**History purge (Cron Trigger, hourly):**
-- Free tier: task/workflow summaries older than 24 hours
-- Pro tier: task/workflow summaries older than 30 days
-- Audit log: retained 90 days for all tiers
+**What's NOT in D1 (lives in container SQLite instead):**
+- Task queue, workflow DAGs, scheduling state (existing TORQUE schema)
+- Task summaries, provider health, host inventory (existing TORQUE schema)
+- All orchestration audit trail (existing TORQUE schema)
+
+**Audit log retention:** 90 days for all tiers. Cron Trigger purges older entries.
+
+**Stripe webhook idempotency:** Processed event IDs stored in KV with 24-hour TTL. Duplicates acknowledged but not re-processed.
 
 **BYOK key encryption:**
 
@@ -575,13 +510,13 @@ Users bring their own API keys. TORQUE Cloud sells orchestration, not compute.
 | Limit | Where | Response on exceed |
 |-------|-------|-------------------|
 | Rate limit | Worker edge (KV counter) | 429 with Retry-After header |
-| Concurrent tasks | Durable Object | Structured error with upgrade_url |
-| Active workflows | Durable Object | Structured error with upgrade_url |
-| Agent connections | Durable Object | WebSocket reject with reason |
-| Provider count | Durable Object | Error on 4th provider enable |
-| Tool tier | Durable Object | "This tool requires Pro" |
-| Batch orchestration | Durable Object | Pro-required error |
-| Cloud history | Cron Trigger | Silent purge (agent keeps local) |
+| Concurrent tasks | Container (TORQUE's existing limits) | Structured error with upgrade_url |
+| Active workflows | Container (TORQUE's existing limits) | Structured error with upgrade_url |
+| Agent connections | Container (WebSocket handler) | WebSocket reject with reason |
+| Provider count | Edge (before key injection) | Error on 4th provider enable |
+| Tool tier | Container (existing tier system) | "This tool requires Pro" |
+| Batch orchestration | Container (existing tier system) | Pro-required error |
+| Cloud history | Container (SQLite cleanup on schedule) | Agent keeps local copy |
 
 **Error response format:**
 
@@ -682,91 +617,98 @@ User clicks task in dashboard
 
 ---
 
-## Migration Path
+## Build Path
 
-### Phase 1: Monorepo Scaffold (no behavior change)
+No migration needed. The existing TORQUE server runs unchanged in containers. We build three new things around it.
 
-Move current code into `packages/server/`. Create empty shells for `core/`, `cloud/`, `agent/`, `dashboard/`. Add workspace root `package.json`. Self-hosted product works unchanged.
+### Phase 1: Monorepo Scaffold
 
-### Phase 2: Extract Core from Server
+Move current code into `packages/server/`. Create `packages/edge/`, `packages/agent/`, `packages/dashboard/`. Add workspace root.
 
-This is the highest-risk phase. The current codebase has deep coupling: `database.js` is imported by 177+ files, `task-manager.js` depends on `database.js`, `providers/`, and 12+ execution modules, and the execution modules use `fs`, `child_process`, and `process.cwd()` which cannot exist in Cloudflare Workers.
+Self-hosted product works exactly as before from `packages/server/`. Zero risk — file moves only.
 
-**The async conversion problem:** The current codebase uses `better-sqlite3` (synchronous). D1 is async. Core must use async interfaces so both adapters work. This is a cascading change — every function that touches the DB must become async, and every caller of those functions must await. This will be the largest single change in the extraction.
+### Phase 2: Build Agent Package (independent)
 
-**Extraction strategy — two sub-phases:**
+Build `packages/agent/` from scratch:
+- WebSocket relay to container
+- CLI (`torque-agent start/stop/status`)
+- Plugin system (core: codex, claude-cli, ollama, verify, git)
+- Local SQLite for heavy data
+- Optional system tray
 
-**Phase 2a: Extract pure-data modules (no async conversion needed):**
+Can be tested against the existing self-hosted TORQUE server acting as a mock cloud endpoint (same REST API + WebSocket support).
 
-| Module | From | Risk | Coupling |
-|--------|------|------|----------|
-| Tool definitions (24 files) | `server/tool-defs/` | Low | Pure JSON, zero imports |
-| Constants | `server/constants.js` | Low | Imported widely but no DB dependency |
-| Guidance static files | `server/guidance/*.md` | Low | Pure content |
+### Phase 3: Build Edge Package (independent, parallel with Phase 2)
 
-**Phase 2b: Extract logic modules (async conversion required):**
+Build `packages/edge/` — Cloudflare Workers:
+- Auth flows (GitHub OAuth, magic link, API key validation)
+- Billing (Stripe integration, tier enforcement)
+- Request proxy to Fly.io containers
+- Container lifecycle management (Fly.io Machine API)
+- D1 schema + migrations
+- Rate limiting
 
-Before starting, produce a dependency graph: catalog every `require('fs')`, `require('child_process')`, `process.cwd()`, and synchronous DB call in the modules targeted for extraction. Size the async conversion scope.
+This is a greenfield Worker — no dependency on the TORQUE server codebase.
 
-| Module | From | Risk | Key Challenge |
-|--------|------|------|---------------|
-| Provider registry + config | `server/providers/` | High | DB calls for provider state, serverConfig dependency |
-| Scheduler logic | `server/execution/` | High | Deep DB coupling, provider registry dependency |
-| Workflow engine | `server/execution/workflow-runtime.js` | High | fs, child_process (indirect), conflict-resolver uses execFileSync |
-| Quality gates | `server/handlers/validation/` | High | DB queries for baselines, file system access |
-| Guidance handler | `server/handlers/guidance-handlers.js` | Medium | DB queries for dynamic context, fs for static files |
+### Phase 4: Container Configuration
 
-**The adapter pattern:** Core defines an async `DatabaseAdapter` interface with methods for all operations core needs (~50-100 methods across 15 sub-module domains). `packages/server` provides `SQLiteAdapter` that wraps synchronous `better-sqlite3` calls in thin async wrappers. `packages/cloud` provides `D1Adapter` that uses D1's native async API. Because D1 is SQLite-compatible, most SQL queries are identical — the adapter difference is primarily sync vs async wrapping and connection management.
+Configure the TORQUE server to run in Fly.io:
+- Dockerfile (already exists from CI work)
+- `fly.toml` configuration
+- Persistent volume for SQLite
+- Environment variable injection (BYOK keys from edge)
+- WebSocket endpoint for agent connections
+- Auto-suspend after inactivity
+- Health check endpoint (already exists: `/healthz`)
 
-**The Node.js API boundary:** Modules that use `fs`, `child_process`, or `process.cwd()` cannot move to core as-is. These capabilities must be injected via a platform adapter (similar to DatabaseAdapter but for runtime capabilities). In the cloud, these operations are delegated to the user's agent via WebSocket. In the server, they execute locally.
+Minimal server changes needed:
+- Accept BYOK provider keys from environment variables (may already work via existing env var support)
+- WebSocket endpoint for agent relay (new, but uses existing MCP SSE patterns)
 
-Each extraction: move module → replace direct DB/fs calls with adapter → update imports in server → run full test suite → commit. Server must pass all tests after every step. Budget 2-3 weeks for Phase 2b.
+### Phase 5: Integration + Dashboard
 
-### Phase 3: Build Agent Package (parallel with Phase 4)
-
-Build `packages/agent/` — WebSocket relay, CLI, plugin system, local SQLite. Can be developed independently once the agent protocol is defined.
-
-### Phase 4: Build Cloud Package (depends on Phase 2)
-
-Build `packages/cloud/` — Worker, Durable Objects, auth, billing, D1 adapter. Depends on core extraction being complete.
-
-### Phase 5: Integration
-
-Wire everything together. End-to-end testing: dashboard → cloud → agent → local execution → result back to dashboard.
+Wire everything together:
+- Dashboard cloud-only pages (login, onboarding, settings, billing)
+- End-to-end: sign up → create container → connect agent → submit task → see result
+- Load testing with multiple concurrent users
 
 ### Phase Dependencies
 
 ```
 Phase 1 (scaffold)        ← zero risk, file moves only
     ↓
-Phase 2 (extract core)    ← biggest refactor, incremental, tests after each step
-    ↓
 ┌──────────────────────┐
-│ Phase 3 (agent)      │  ← parallel
-│ Phase 4 (cloud)      │  ← parallel
+│ Phase 2 (agent)      │  ← parallel, independent
+│ Phase 3 (edge)       │  ← parallel, independent
+│ Phase 4 (container)  │  ← parallel, minimal server changes
 └──────────────────────┘
     ↓
-Phase 5 (integration)     ← end-to-end
+Phase 5 (integration)     ← wire + dashboard + e2e test
 ```
 
-### Risk Mitigation
+**Key difference from previous approach:** Phases 2, 3, and 4 are all independent and can run in parallel. There is no risky core extraction phase. The server codebase is touched minimally (WebSocket endpoint for agent relay, env var support for BYOK keys). All 15,000+ tests continue to pass because the server is unchanged.
 
-- Phase 2 is highest risk. 15,000+ tests must keep passing. Move one module at a time.
-- Self-hosted product must never break. Upgrading to monorepo = `npm install` and done.
-- D1 is SQLite-compatible, minimizing cloud adapter differences.
-- Agent can be tested against a mock cloud server before integration.
+### Risk Assessment
+
+| Phase | Risk | Reason |
+|-------|------|--------|
+| Phase 1 | None | File moves only |
+| Phase 2 | Low | Greenfield agent, tested against existing server |
+| Phase 3 | Low | Greenfield Worker, standard Cloudflare patterns |
+| Phase 4 | Low | Docker + Fly.io, existing Dockerfile from CI |
+| Phase 5 | Medium | Integration complexity, but each piece is tested independently |
+
+Total estimated build time: significantly less than the core extraction approach, with near-zero risk to the self-hosted product.
 
 ---
 
 ## Cloud-to-Cloud Provider Calls
 
-When a task routes to a cloud API provider (DeepInfra, Anthropic, Groq), the DO makes the API call directly via `fetch()`. Wall-clock I/O time does not count against Cloudflare's CPU limit.
+When a task routes to a cloud API provider (DeepInfra, Anthropic, Groq), the TORQUE container makes the API call directly — this is the existing provider execution path, unchanged. BYOK keys are injected as environment variables when the container starts.
 
-**Flow:** DO decrypts user's BYOK key → constructs provider API request → `fetch()` to provider → receives response → sends summary to D1 + full result via WebSocket to agent for local storage.
+**Flow:** Container's existing provider system → HTTP call to provider API → response stored in container's SQLite → summary sent to agent via WebSocket for local archival.
 
-**Timeouts:** 120-second timeout per provider call (configurable per provider in user_providers config). On timeout, task is marked failed with a retryable error.
-
-**Streaming:** For streaming LLM responses, the DO buffers chunks and forwards progress updates to the agent via `task.status` messages. Full output is assembled and sent as `task.complete` when the stream finishes.
+No new code needed — the existing provider execution paths (in `server/providers/`) work as-is. The only change is that API keys come from environment variables (injected by the edge Worker from encrypted D1 storage) rather than from the container's local config.
 
 ## CORS Policy
 
@@ -837,8 +779,9 @@ Processed Stripe event IDs are stored in KV with 24-hour TTL. On webhook receipt
 1. A new user signs up, installs the agent, connects, and submits a task within 5 minutes
 2. User's code and task outputs never leave their machine (verified by network inspection)
 3. Free tier limits are enforced at every surface (API, dashboard, agent)
-4. Self-hosted product passes all existing tests after monorepo migration
+4. Self-hosted product is completely unchanged — all 15K+ tests pass, zero modifications to server logic
 5. Dashboard works identically for self-hosted and cloud (shared package, conditional features)
 6. Agent reconnects automatically after network interruption within 60 seconds
-7. Cloud responds to API requests in <100ms (p95) via Cloudflare edge
+7. Container cold start under 3 seconds; warm requests under 100ms
 8. Zero personal data in any shipped file
+9. Container cost per free-tier user under $3/mo; per pro user under $7/mo
