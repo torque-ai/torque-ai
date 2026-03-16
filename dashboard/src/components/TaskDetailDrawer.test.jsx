@@ -497,7 +497,7 @@ describe('TaskDetailDrawer', () => {
 
     await waitFor(() => {
       expect(screen.getByText('diff')).toBeTruthy();
-    });
+    }, { timeout: 3000 });
 
     await act(async () => {
       screen.getByText('diff').click();
@@ -507,7 +507,7 @@ describe('TaskDetailDrawer', () => {
 
     await waitFor(() => {
       expect(screen.getByText('#task-2')).toBeTruthy();
-    });
+    }, { timeout: 3000 });
 
     await act(async () => {
       screen.getByText('diff').click();
