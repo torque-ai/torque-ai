@@ -452,6 +452,15 @@ const routes = [
   { method: 'GET', path: /^\/api\/v2\/audit\/runs\/([^/]+)\/summary$/, tool: 'get_audit_run_summary', mapQuery: true, mapParams: ['audit_run_id'] },
   { method: 'PATCH', path: /^\/api\/v2\/audit\/findings\/([^/]+)$/, tool: 'update_audit_finding', mapBody: true, mapParams: ['finding_id'] },
 
+  // ─── CI Watcher (7 routes) ────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/ci/await-run', tool: 'await_ci_run', mapBody: true },
+  { method: 'POST', path: '/api/v2/ci/watch', tool: 'watch_ci_repo', mapBody: true },
+  { method: 'POST', path: '/api/v2/ci/stop', tool: 'stop_ci_watch', mapBody: true },
+  { method: 'GET', path: /^\/api\/v2\/ci\/runs\/([^/]+)$/, tool: 'ci_run_status', mapQuery: true, mapParams: ['run_id'] },
+  { method: 'POST', path: '/api/v2/ci/diagnose', tool: 'diagnose_ci_failure', mapBody: true },
+  { method: 'GET', path: '/api/v2/ci/runs', tool: 'list_ci_runs', mapQuery: true },
+  { method: 'POST', path: '/api/v2/ci/configure', tool: 'configure_ci_provider', mapBody: true },
+
 ];
 
 module.exports = routes;
