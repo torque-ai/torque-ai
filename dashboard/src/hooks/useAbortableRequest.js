@@ -5,6 +5,7 @@ export function useAbortableRequest() {
   const requestCounterRef = useRef(0);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
     };

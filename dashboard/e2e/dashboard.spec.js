@@ -561,9 +561,7 @@ test('search filter updates URL with query param', async ({ page }) => {
 // ---------------------------------------------------------------------------
 // 6. Status filter dropdown updates the task list
 // ---------------------------------------------------------------------------
-// Skip: consistently fails on ubuntu-22 CI only (Playwright Chromium timing).
-// Passes locally + all other CI platforms. See git history for investigation.
-test.skip('status filter dropdown filters tasks', async ({ page }) => {
+test('status filter dropdown filters tasks', async ({ page }) => {
   await page.goto('/history');
 
   // Wait for table to populate
@@ -596,7 +594,7 @@ test.skip('status filter dropdown filters tasks', async ({ page }) => {
 // ---------------------------------------------------------------------------
 // 7. Task detail drawer opens when clicking a task row
 // ---------------------------------------------------------------------------
-test.skip('clicking a task row opens the detail drawer', async ({ page }) => {
+test('clicking a task row opens the detail drawer', async ({ page }) => {
   await page.goto('/history');
 
   // Wait for table to populate
@@ -646,7 +644,7 @@ test('cancel button appears for running/queued tasks in drawer', async ({ page }
 // ---------------------------------------------------------------------------
 // 9. Kanban view renders stat cards with numbers
 // ---------------------------------------------------------------------------
-test.skip('kanban view renders stat cards', async ({ page }) => {
+test('kanban view renders stat cards', async ({ page }) => {
   await page.goto('/');
 
   // Wait for the overview data to load.
@@ -656,7 +654,8 @@ test.skip('kanban view renders stat cards', async ({ page }) => {
   await expect(page.locator('text=Today').first()).toBeVisible({ timeout: 15000 });
 
   // The overview mock returns today.total = 23
-  await expect(page.locator('text=23')).toBeVisible({ timeout: 5000 });
+  // Use exact match to avoid matching "TS2304" in task error text
+  await expect(page.getByText('23', { exact: true })).toBeVisible({ timeout: 5000 });
 
   // Check "Running" stat card appears (also used in Kanban column headers,
   // so use .first() to avoid ambiguity)
