@@ -6,8 +6,14 @@
 const { randomUUID } = require('crypto');
 const GitHubActionsProvider = require('./github-actions');
 const { diagnoseFailures } = require('./diagnostics');
-const mcpSse = require('../mcp-sse');
 const database = require('../database');
+
+// Lazy require to break circular dependency: mcp-sse → tools → ci-handlers → watcher → mcp-sse
+let _mcpSse;
+function getMcpSse() {
+  if (!_mcpSse) _mcpSse = require('../mcp-sse');
+  return _mcpSse;
+}
 
 const _activeTimers = new Map();
 const MAX_WATCHES = 10;
@@ -250,6 +256,7 @@ async function _notifyFailure({
     },
   };
 
+  const mcpSse = getMcpSse();
   if (typeof mcpSse.pushNotification === 'function') {
     const result = mcpSse.pushNotification(payload);
     if (result && typeof result.then === 'function') {

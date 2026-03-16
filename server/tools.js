@@ -60,7 +60,6 @@ const HANDLER_MODULES = [
   require('./handlers/orchestrator-handlers'),
   require('./handlers/experiment-handlers'),
   require('./handlers/audit-handlers'),
-  require('./handlers/ci-handlers'),
 ];
 
 // ── Auto-build dispatch map from handler exports ──

@@ -132,21 +132,21 @@ function formatRunsMarkdown(runs) {
 }
 
 async function handleAwaitCiRun(args) {
-  const repoResult = requireRepo(args);
-  if (repoResult.error) {
-    return repoResult.error;
-  }
-  const runIdResult = parseRunId(args);
-  if (runIdResult.error) {
-    return runIdResult.error;
-  }
-
-  if (typeof watcher.awaitRun !== 'function') {
-    return makeError(ErrorCodes.OPERATION_FAILED, 'CI await is not available in this build');
-  }
-
-  const provider = createProvider(args, repoResult.repo);
   try {
+    const repoResult = requireRepo(args);
+    if (repoResult.error) {
+      return repoResult.error;
+    }
+    const runIdResult = parseRunId(args);
+    if (runIdResult.error) {
+      return runIdResult.error;
+    }
+
+    if (typeof watcher.awaitRun !== 'function') {
+      return makeError(ErrorCodes.OPERATION_FAILED, 'CI await is not available in this build');
+    }
+
+    const provider = createProvider(args, repoResult.repo);
     const run = await watcher.awaitRun({
       repo: repoResult.repo,
       provider: parseProvider(args),
@@ -191,28 +191,32 @@ async function handleAwaitCiRun(args) {
 }
 
 async function handleWatchCiRepo(args) {
-  const repoResult = requireRepo(args);
-  if (repoResult.error) {
-    return repoResult.error;
+  try {
+    const repoResult = requireRepo(args);
+    if (repoResult.error) {
+      return repoResult.error;
+    }
+
+    const provider = parseProvider(args);
+    const watch = await watcher.watchRepo({
+      repo: repoResult.repo,
+      provider,
+      branch: args.branch || null,
+      pollIntervalMs: parsePollInterval(args),
+    });
+
+    let output = `## CI Watch Started\n\n`;
+    output += `Repository **${watch.repo}** is now being watched for provider **${watch.provider}**.\n`;
+    output += `**Watch ID:** ${watch.id || 'N/A'}\n`;
+    output += `**Branch:** ${watch.branch || 'default'}\n`;
+    output += `**Poll Interval:** ${watch.poll_interval_ms || parsePollInterval(args) || 30000}ms`;
+
+    return {
+      content: [{ type: 'text', text: output }],
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.PROVIDER_ERROR, `Failed to watch CI repo: ${err.message || err}`);
   }
-
-  const provider = parseProvider(args);
-  const watch = await watcher.watchRepo({
-    repo: repoResult.repo,
-    provider,
-    branch: args.branch || null,
-    pollIntervalMs: parsePollInterval(args),
-  });
-
-  let output = `## CI Watch Started\n\n`;
-  output += `Repository **${watch.repo}** is now being watched for provider **${watch.provider}**.\n`;
-  output += `**Watch ID:** ${watch.id || 'N/A'}\n`;
-  output += `**Branch:** ${watch.branch || 'default'}\n`;
-  output += `**Poll Interval:** ${watch.poll_interval_ms || parsePollInterval(args) || 30000}ms`;
-
-  return {
-    content: [{ type: 'text', text: output }],
-  };
 }
 
 function handleStopCiWatch(args) {
@@ -259,17 +263,17 @@ function handleStopCiWatch(args) {
 }
 
 async function handleCiRunStatus(args) {
-  const repoResult = requireRepo(args);
-  if (repoResult.error) {
-    return repoResult.error;
-  }
-  const runIdResult = parseRunId(args);
-  if (runIdResult.error) {
-    return runIdResult.error;
-  }
-
-  const provider = createProvider(args, repoResult.repo);
   try {
+    const repoResult = requireRepo(args);
+    if (repoResult.error) {
+      return repoResult.error;
+    }
+    const runIdResult = parseRunId(args);
+    if (runIdResult.error) {
+      return runIdResult.error;
+    }
+
+    const provider = createProvider(args, repoResult.repo);
     const run = await provider.getRun(runIdResult.runId);
     return {
       content: [{ type: 'text', text: formatRunMarkdown(run) }],
@@ -280,17 +284,17 @@ async function handleCiRunStatus(args) {
 }
 
 async function handleDiagnoseCiFailure(args) {
-  const repoResult = requireRepo(args);
-  if (repoResult.error) {
-    return repoResult.error;
-  }
-  const runIdResult = parseRunId(args);
-  if (runIdResult.error) {
-    return runIdResult.error;
-  }
-
-  const provider = createProvider(args, repoResult.repo);
   try {
+    const repoResult = requireRepo(args);
+    if (repoResult.error) {
+      return repoResult.error;
+    }
+    const runIdResult = parseRunId(args);
+    if (runIdResult.error) {
+      return runIdResult.error;
+    }
+
+    const provider = createProvider(args, repoResult.repo);
     const log = await provider.getFailureLogs(runIdResult.runId);
     const report = diagnostics.diagnoseFailures(log, { runId: runIdResult.runId });
 
@@ -298,18 +302,18 @@ async function handleDiagnoseCiFailure(args) {
       content: [{ type: 'text', text: report.triage || `No actionable CI failures found for run ${runIdResult.runId}.` }],
     };
   } catch (err) {
-    return makeError(ErrorCodes.PROVIDER_ERROR, `Failed to diagnose CI failure for run ${runIdResult.runId}: ${err.message || err}`);
+    return makeError(ErrorCodes.PROVIDER_ERROR, `Failed to diagnose CI failure: ${err.message || err}`);
   }
 }
 
 async function handleListCiRuns(args) {
-  const repoResult = requireRepo(args);
-  if (repoResult.error) {
-    return repoResult.error;
-  }
-
-  const provider = createProvider(args, repoResult.repo);
   try {
+    const repoResult = requireRepo(args);
+    if (repoResult.error) {
+      return repoResult.error;
+    }
+
+    const provider = createProvider(args, repoResult.repo);
     const filters = {
       branch: args.branch,
       status: args.status,
