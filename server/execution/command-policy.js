@@ -43,6 +43,22 @@ const COMMAND_PROFILES = {
       name: 'git log',
       match: (cmd, args) => isExecutable(cmd, 'git') && matchesArg(args, 0, 'log'),
     },
+    {
+      name: 'gh run view',
+      match: (cmd, args) => isExecutable(cmd, 'gh') && matchesArg(args, 0, 'run') && matchesArg(args, 1, 'view'),
+    },
+    {
+      name: 'gh run list',
+      match: (cmd, args) => isExecutable(cmd, 'gh') && matchesArg(args, 0, 'run') && matchesArg(args, 1, 'list'),
+    },
+    {
+      name: 'gh run watch',
+      match: (cmd, args) => isExecutable(cmd, 'gh') && matchesArg(args, 0, 'run') && matchesArg(args, 1, 'watch'),
+    },
+    {
+      name: 'gh auth status',
+      match: (cmd, args) => isExecutable(cmd, 'gh') && matchesArg(args, 0, 'auth') && matchesArg(args, 1, 'status'),
+    },
   ],
   build: [
     {

@@ -2791,6 +2791,61 @@ function createTables(db, logger) {
     CREATE INDEX IF NOT EXISTS idx_audit_findings_file_path ON audit_findings(file_path);
   `);
 
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ci_watches (
+        id TEXT PRIMARY KEY,
+        repo TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'github-actions',
+        branch TEXT,
+        poll_interval_ms INTEGER DEFAULT 30000,
+        last_checked_at TEXT,
+        active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(repo, provider)
+      );
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (ci_watches): ${e.message}`);
+  }
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ci_run_cache (
+        run_id TEXT NOT NULL,
+        repo TEXT NOT NULL,
+        provider TEXT NOT NULL DEFAULT 'github-actions',
+        status TEXT,
+        conclusion TEXT,
+        commit_sha TEXT,
+        branch TEXT,
+        jobs_json TEXT,
+        failures_json TEXT,
+        triage_json TEXT,
+        diagnosed_at TEXT,
+        duration_ms INTEGER,
+        url TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (run_id, provider)
+      );
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (ci_run_cache table): ${e.message}`);
+  }
+
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_ci_run_cache_branch ON ci_run_cache(repo, branch)`);
+  } catch (e) {
+    logger.debug(`Schema migration (idx_ci_run_cache_branch): ${e.message}`);
+  }
+
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_ci_run_cache_sha ON ci_run_cache(commit_sha)`);
+  } catch (e) {
+    logger.debug(`Schema migration (idx_ci_run_cache_sha): ${e.message}`);
+  }
+
   const peekFixtureCatalog = require('./peek-fixture-catalog');
   peekFixtureCatalog.setDb(db);
   peekFixtureCatalog.seedDefaultFixtures();
