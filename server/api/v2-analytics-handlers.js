@@ -331,7 +331,7 @@ async function handleNotificationStats(req, res) {
       sessions: sessionDetails,
       metrics: notificationMetrics || {},
     }, 200, req);
-  } catch (err) {
+  } catch (_err) {
     sendSuccess(res, requestId, {
       active_sessions: 0, total_pending_events: 0, sessions: [], metrics: {},
     }, 200, req);

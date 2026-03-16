@@ -60,27 +60,8 @@ function firstNonEmptyString(...values) {
   return '';
 }
 
-function getPendingSwitchTargetProvider(task) {
-  const metadata = parseTaskMetadata(task);
-  return firstNonEmptyString(
-    metadata.provider_switch_target,
-    metadata.target_provider,
-    metadata.fallback_provider,
-    metadata.next_provider,
-    metadata.last_provider_switch?.to,
-  );
-}
-
-function getPendingSwitchOriginalProvider(task) {
-  const metadata = parseTaskMetadata(task);
-  return firstNonEmptyString(
-    metadata.original_provider,
-    metadata.requested_provider,
-    metadata.last_provider_switch?.from,
-    task?.original_provider,
-    task?.provider,
-  );
-}
+// getPendingSwitchTargetProvider and getPendingSwitchOriginalProvider removed —
+// they were defined but never referenced. Restore from git history if needed.
 
 function buildRetryMetadata(task, retryOfTaskId) {
   const taskMetadata = parseTaskMetadata(task);

@@ -10,8 +10,7 @@
 const { randomUUID } = require('crypto');
 
 // Dependencies injected via init()
-let db, logger, getProviderAdapter, getProviderCapabilityMatrix;
-let SECURITY_HEADERS, sendJson;
+let db, logger, getProviderAdapter;
 let normalizeV2Transport, getV2ProviderTransport, getV2ProviderDefaultTimeoutMs;
 let normalizeMessageContent, formatV2InferenceResult, normalizeV2InferenceStatus;
 let normalizeV2ProviderUsage, normalizeV2AttemptMetadata, getV2RetryCount;
@@ -24,9 +23,6 @@ function init(deps) {
   db = deps.db;
   logger = deps.logger;
   getProviderAdapter = deps.getProviderAdapter;
-  getProviderCapabilityMatrix = deps.getProviderCapabilityMatrix;
-  SECURITY_HEADERS = deps.SECURITY_HEADERS;
-  sendJson = deps.sendJson;
   normalizeV2Transport = deps.normalizeV2Transport;
   getV2ProviderTransport = deps.getV2ProviderTransport;
   getV2ProviderDefaultTimeoutMs = deps.getV2ProviderDefaultTimeoutMs;

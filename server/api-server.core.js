@@ -6,14 +6,14 @@
  */
 
 const http = require('http');
-const https = require('https');
+// const https = require('https'); — unused, removed
 const { randomUUID } = require('crypto');
 const tools = require('./tools');
 const { handleToolCall } = tools;
 const db = require('./database');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'api-server' });
-const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS, TASK_TIMEOUTS } = require('./constants');
+const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('./constants');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const {
   getProviderAdapter,
@@ -1316,9 +1316,6 @@ v2Inference.init({
   db,
   logger,
   getProviderAdapter,
-  getProviderCapabilityMatrix,
-  SECURITY_HEADERS,
-  sendJson,
   normalizeV2Transport,
   getV2ProviderTransport,
   getV2ProviderDefaultTimeoutMs,
@@ -1338,7 +1335,7 @@ v2Inference.init({
   sendV2Error,
 });
 
-const { executeV2ProviderInference, runV2AsyncTask } = v2Inference;
+const { executeV2ProviderInference } = v2Inference;
 
 async function handleV2TaskStatus(_req, res, context = {}, taskId = null, req = null) {
   const requestId = context.requestId || req?.requestId || randomUUID();

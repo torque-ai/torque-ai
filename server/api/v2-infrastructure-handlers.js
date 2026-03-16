@@ -285,7 +285,7 @@ function _getAgentDb() {
 
 function _sanitizeAgent(agent) {
   if (!agent) return null;
-  const { secret, ...safe } = agent;
+  const { secret: _secret, ...safe } = agent;
   return safe;
 }
 
