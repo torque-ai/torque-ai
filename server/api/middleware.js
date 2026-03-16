@@ -19,12 +19,40 @@ const rateLimitMaps = new Set();
 const DEFAULT_RATE_LIMIT = 200;
 const DEFAULT_RATE_WINDOW_MS = RATE_LIMIT_WINDOW_MS;
 
-// TODO (Phase 2): Add per-API-key rate limiting when auth is configured.
-// Currently rate-limits by IP only, which shares limits behind proxies.
+/**
+ * Extract an API key from the request headers.
+ * Checks `Authorization: Bearer <key>` and `X-API-Key: <key>` headers.
+ * Returns the key string if found, or null if no API key is present.
+ */
+function extractApiKey(req) {
+  // Check Authorization: Bearer <key>
+  const authHeader = req.headers['authorization'];
+  if (authHeader) {
+    const raw = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+    if (typeof raw === 'string' && raw.toLowerCase().startsWith('bearer ')) {
+      const key = raw.slice(7).trim();
+      if (key) return key;
+    }
+  }
+
+  // Check X-API-Key header
+  const xApiKey = req.headers['x-api-key'];
+  if (xApiKey) {
+    const raw = Array.isArray(xApiKey) ? xApiKey[0] : xApiKey;
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  }
+
+  return null;
+}
 
 /**
  * Create a sliding-window rate limiter with isolated state.
  * Returns true when request is allowed, false when request is denied.
+ *
+ * When an API key is present (via Authorization: Bearer or X-API-Key header),
+ * rate limiting is keyed by the API key instead of the client IP. This ensures
+ * that each API key gets its own independent rate limit bucket, which is
+ * important when multiple clients share the same IP (e.g., behind a proxy).
  */
 function createRateLimiter(maxRequests, windowMs) {
   /** @type {Map<string, { count: number, resetAt: number }>} */
@@ -33,12 +61,16 @@ function createRateLimiter(maxRequests, windowMs) {
 
   return function checkRateLimitForMap(req, res) {
     const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+    const apiKey = extractApiKey(req);
+
+    // Use API key as bucket identifier when present, otherwise fall back to IP
+    const bucketKey = apiKey ? `key:${apiKey}` : `ip:${ip}`;
     const now = Date.now();
 
-    let entry = rateLimitMap.get(ip);
+    let entry = rateLimitMap.get(bucketKey);
     if (!entry || now > entry.resetAt) {
       entry = { count: 0, resetAt: now + windowMs };
-      rateLimitMap.set(ip, entry);
+      rateLimitMap.set(bucketKey, entry);
     }
 
     entry.count++;
@@ -54,7 +86,7 @@ function createRateLimiter(maxRequests, windowMs) {
       const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
       req._rateLimit.remaining = 0;
       req._rateLimit.retryAfter = retryAfter;
-      req._rateLimit.bucket = `ip:${ip}`;
+      req._rateLimit.bucket = bucketKey;
       req._rateLimit.windowMs = windowMs;
 
       const requestIdHeader = req.headers['x-request-id'];
@@ -316,6 +348,7 @@ function applyMiddleware(_server, deps = {}) {
 
 module.exports = {
   createRateLimiter,
+  extractApiKey,
   getRateLimit,
   startRateLimitCleanup,
   stopRateLimitCleanup,

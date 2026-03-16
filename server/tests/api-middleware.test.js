@@ -434,7 +434,7 @@ describe('rate limiting helpers', () => {
     vi.advanceTimersByTime(1_001);
     cleanup();
 
-    expect(deleteSpy).toHaveBeenCalledWith('10.20.30.40');
+    expect(deleteSpy).toHaveBeenCalledWith('ip:10.20.30.40');
   });
 
   it('schedules one unrefed cleanup interval', () => {
