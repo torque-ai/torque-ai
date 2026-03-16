@@ -41,6 +41,10 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      - name: Install coreutils (macOS)
+        if: runner.os == 'macOS'
+        run: brew install coreutils
+
       - name: Install server dependencies
         run: npm ci
         working-directory: server
@@ -64,17 +68,16 @@ jobs:
           set +e
           if command -v timeout &>/dev/null; then
             timeout 180 npx vitest run
-          elif command -v perl &>/dev/null; then
-            perl -e 'alarm 180; exec @ARGV' npx vitest run
+          elif command -v gtimeout &>/dev/null; then
+            gtimeout 180 npx vitest run
           else
             npx vitest run
           fi
           VITEST_EXIT=$?
           set -e
           # Vitest with pool:forks can hang after all tests pass due to ref'd handles.
-          # timeout returns 124, perl alarm returns 142 (128+14=SIGALRM), runner kills with 143 (SIGTERM).
-          # Vitest exits immediately on test failure, so signal-death means tests passed but process hung.
-          if [ "$VITEST_EXIT" -eq 124 ] || [ "$VITEST_EXIT" -eq 137 ] || [ "$VITEST_EXIT" -eq 142 ] || [ "$VITEST_EXIT" -eq 143 ]; then
+          # timeout/gtimeout returns 124 when killing; runner SIGTERM gives 143.
+          if [ "$VITEST_EXIT" -eq 124 ] || [ "$VITEST_EXIT" -eq 137 ] || [ "$VITEST_EXIT" -eq 143 ]; then
             echo "::notice::vitest process hung after test completion — killed by timeout"
             exit 0
           fi
