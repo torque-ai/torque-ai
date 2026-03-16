@@ -64,6 +64,7 @@ function snapshotAllGitPids() {
  */
 function cleanupOrphanedGitProcesses() {
   if (process.platform !== 'win32') return 0;
+  if (process.env.CI) return 0; // CI runners are ephemeral — no need to clean up
   try {
     const currentPids = snapshotAllGitPids();
     const orphans = [...currentPids].filter(pid => !preExistingGitPids.has(pid));
