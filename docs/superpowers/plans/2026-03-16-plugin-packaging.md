@@ -10,6 +10,28 @@
 
 ---
 
+## Progress (Updated 2026-03-16)
+
+| Task | Status | Commit |
+|------|--------|--------|
+| Task 1: Create plugin.json manifest | DONE | `32e8fca` |
+| Task 2: MCP server config (Option B, inline) | DONE | `32e8fca` |
+| Task 3: Convert 8 commands to skills | DONE (verify skills discovery remaining) | `32e8fca` |
+| Task 4: Update README | DONE | `32e8fca` |
+| Task 5: Create marketplace.json | DONE (validate remaining) | `32e8fca` |
+| Task 6: Test full plugin install flow | TODO | — |
+| Task 7: Submit to official Anthropic marketplace | TODO | — |
+| Task 8: Publish npm package (optional) | TODO | — |
+
+### Remaining Work (requires user action)
+1. **Validate marketplace** — run `claude plugin validate .` or `/plugin validate .`
+2. **Test local plugin loading** — `claude --plugin-dir .` to verify skills + MCP server
+3. **Test marketplace install** — push to GitHub, then `/plugin marketplace add torque-ai/torque-ai`
+4. **Submit to official marketplace** — web form at `claude.ai/settings/plugins/submit`
+5. **npm publish** (optional) — requires `@torque-ai` npm org access
+
+---
+
 ## File Structure
 
 ### New Files (plugin packaging layer)
@@ -50,13 +72,13 @@
 **Files:**
 - Create: `.claude-plugin/plugin.json`
 
-- [ ] **Step 1: Create the .claude-plugin directory**
+- [x] **Step 1: Create the .claude-plugin directory**
 
 ```bash
 mkdir -p .claude-plugin
 ```
 
-- [ ] **Step 2: Write plugin.json**
+- [x] **Step 2: Write plugin.json**
 
 ```json
 {
@@ -87,27 +109,27 @@ mkdir -p .claude-plugin
 
 Note: The MCP server is configured in `.mcp.json` at the plugin root (next task), not inline in plugin.json. This follows the standard plugin pattern where `.mcp.json` is auto-discovered.
 
-- [ ] **Step 3: Verify .gitignore does not exclude .claude-plugin/**
+- [x] **Step 3: Verify .gitignore does not exclude .claude-plugin/**
 
 Check `.gitignore` — if it contains `.claude-plugin/`, remove that line. The manifest must ship with the repo.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit** (committed as part of `32e8fca`)
 
 ```bash
 git add .claude-plugin/plugin.json
 git commit -m "feat: add Claude Code plugin manifest"
 ```
 
-### Task 2: Create plugin MCP server config
+### Task 2: Create plugin MCP server config (COMPLETE — merged into Task 1 via Option B)
 
 **Files:**
 - Create: `.mcp.json` (replaces `.mcp.json.example` for plugin installs)
 
-- [ ] **Step 1: Understand the current state**
+- [x] **Step 1: Understand the current state**
 
 Currently the repo has `.mcp.json.example` that users copy and edit paths manually. The plugin system uses `${CLAUDE_PLUGIN_ROOT}` to resolve paths automatically. We need a `.mcp.json` that works for BOTH plugin installs (auto-resolved paths) and manual installs (if someone clones and doesn't use the plugin system).
 
-- [ ] **Step 2: Write the plugin-compatible .mcp.json**
+- [x] **Step 2: Write the plugin-compatible .mcp.json** (chose Option B — inline in plugin.json)
 
 ```json
 {
@@ -125,11 +147,11 @@ Currently the repo has `.mcp.json.example` that users copy and edit paths manual
 
 When installed as a plugin, `${CLAUDE_PLUGIN_ROOT}` resolves to the plugin install directory. The MCP server starts automatically when the plugin is enabled.
 
-- [ ] **Step 3: Keep .mcp.json.example for non-plugin users**
+- [x] **Step 3: Keep .mcp.json.example for non-plugin users** (preserved, unchanged)
 
 Don't delete `.mcp.json.example` — it serves users who clone the repo and configure manually without using the plugin system.
 
-- [ ] **Step 4: Update .gitignore**
+- [x] **Step 4: Update .gitignore** (.mcp.json stays gitignored; MCP config is inline in plugin.json)
 
 If `.mcp.json` is currently in `.gitignore` (which it likely is, since it's meant to be user-configured), we need to handle this carefully. The plugin system needs `.mcp.json` to be checked in. Two options:
 
@@ -175,7 +197,7 @@ Option B: Use the `mcpServers` field inline in `plugin.json` instead of a separa
 
 This keeps `.mcp.json` in `.gitignore` (for user overrides) while the plugin gets its MCP config from the manifest.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** (committed as part of `32e8fca`)
 
 ```bash
 git add .claude-plugin/plugin.json
@@ -188,12 +210,12 @@ git commit -m "feat: add MCP server config to plugin manifest"
 
 Each existing slash command in `.claude/commands/` becomes a skill in `skills/`. Skills use the `SKILL.md` convention and get namespaced as `/torque:skill-name`.
 
-### Task 3: Create skills directory structure
+### Task 3: Create skills directory structure (COMPLETE)
 
 **Files:**
 - Create: `skills/` directory with 8 subdirectories
 
-- [ ] **Step 1: Create skill directories**
+- [x] **Step 1: Create skill directories**
 
 ```bash
 mkdir -p skills/torque-submit
@@ -206,7 +228,7 @@ mkdir -p skills/torque-cancel
 mkdir -p skills/torque-restart
 ```
 
-- [ ] **Step 2: Convert each command to SKILL.md format**
+- [x] **Step 2: Convert each command to SKILL.md format** (copied with existing frontmatter intact)
 
 For each command file in `.claude/commands/`, read its content and create a corresponding `skills/<name>/SKILL.md`. The skill format requires frontmatter:
 
@@ -245,7 +267,7 @@ description: Submit work to TORQUE — auto-routes provider, captures baselines,
 <content from .claude/commands/torque-submit.md>
 ```
 
-- [ ] **Step 3: Verify skills are discovered**
+- [ ] **Step 3: Verify skills are discovered** ← REMAINING (needs interactive testing)
 
 Test locally:
 
@@ -255,11 +277,11 @@ claude --plugin-dir .
 
 Then in Claude Code, run `/torque:torque-submit` to verify the skill loads. All 8 skills should appear in the skill list.
 
-- [ ] **Step 4: Keep .claude/commands/ for backward compatibility**
+- [x] **Step 4: Keep .claude/commands/ for backward compatibility** (preserved, unchanged)
 
 Don't delete the original commands. Users who installed TORQUE before the plugin system (via manual `.mcp.json`) still use `/torque-submit` from `.claude/commands/`. The plugin skills are namespaced as `/torque:torque-submit` and don't conflict.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** (committed as part of `32e8fca`)
 
 ```bash
 git add skills/
@@ -270,12 +292,12 @@ git commit -m "feat: convert 8 slash commands to plugin skills format"
 
 ## Chunk 3: Plugin README
 
-### Task 4: Write plugin README
+### Task 4: Write plugin README (COMPLETE — updated existing README rather than full rewrite)
 
 **Files:**
 - Create: `README.md` (or update existing)
 
-- [ ] **Step 1: Write a plugin-focused README**
+- [x] **Step 1: Write a plugin-focused README** (added plugin install + Superpowers companion to existing README)
 
 The README needs to serve two audiences: plugin marketplace browsers (quick "what is this and why") and users who want more detail. Keep it scannable.
 
@@ -370,7 +392,7 @@ Full docs: [CLAUDE.md](./CLAUDE.md) | [Safeguards](./docs/safeguards.md)
 BSL-1.1 — free for all use, converts to Apache 2.0 after 3 years.
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit** (committed as part of `32e8fca`)
 
 ```bash
 git add README.md
@@ -381,12 +403,12 @@ git commit -m "docs: rewrite README for plugin marketplace discovery"
 
 ## Chunk 4: Marketplace Distribution
 
-### Task 5: Create self-hosted marketplace.json
+### Task 5: Create self-hosted marketplace.json (COMPLETE)
 
 **Files:**
 - Create: `.claude-plugin/marketplace.json`
 
-- [ ] **Step 1: Write marketplace.json**
+- [x] **Step 1: Write marketplace.json**
 
 This file makes the GitHub repo itself a plugin marketplace. Users add it with `/plugin marketplace add torque-ai/torque-ai`.
 
@@ -425,7 +447,7 @@ This file makes the GitHub repo itself a plugin marketplace. Users add it with `
 }
 ```
 
-- [ ] **Step 2: Validate the marketplace**
+- [ ] **Step 2: Validate the marketplace** ← REMAINING (needs `claude plugin validate .`)
 
 ```bash
 claude plugin validate .
@@ -439,7 +461,7 @@ Or in Claude Code:
 
 Expected: validation passes with no errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit** (committed as part of `32e8fca`)
 
 ```bash
 git add .claude-plugin/marketplace.json
