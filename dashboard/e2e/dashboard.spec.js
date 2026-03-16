@@ -1,19 +1,458 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
-import { startMockApi, stopMockApi, MOCK_TASKS } from './mock-api.js';
 
 // ---------------------------------------------------------------------------
-// The mock API server runs on port 3456. Vite is configured to proxy /api
-// requests to http://127.0.0.1:3456, so the dashboard talks to our mock
-// server transparently.
+// Mock data — same shapes as what the TORQUE mock-api.js returns, embedded
+// here so we can use Playwright page.route() interception instead of a live
+// mock HTTP server + Vite proxy.  Page-level route interception is reliable
+// across all CI platforms (the Vite proxy was flaky on ubuntu-22 / Node 22).
 // ---------------------------------------------------------------------------
 
-test.beforeAll(async () => {
-  await startMockApi(3456);
-});
+const MOCK_TASKS = [
+  {
+    id: 'aaaaaaaa-1111-1111-1111-111111111111',
+    status: 'running',
+    task_description: 'Generate unit tests for the authentication module',
+    provider: 'codex',
+    model: 'gpt-5.3-codex-spark',
+    ollama_host_name: null,
+    ollama_host_id: null,
+    created_at: new Date(Date.now() - 600_000).toISOString(),
+    started_at: new Date(Date.now() - 300_000).toISOString(),
+    completed_at: null,
+    quality_score: null,
+    error_output: null,
+    retry_count: 0,
+    tags: ['tests'],
+    output_chunks: ['Running tests...'],
+  },
+  {
+    id: 'bbbbbbbb-2222-2222-2222-222222222222',
+    status: 'completed',
+    task_description: 'Refactor database connection pooling logic',
+    provider: 'ollama',
+    model: 'qwen3:8b',
+    ollama_host_name: 'local-gpu',
+    ollama_host_id: 'host-1',
+    created_at: new Date(Date.now() - 7200_000).toISOString(),
+    started_at: new Date(Date.now() - 7000_000).toISOString(),
+    completed_at: new Date(Date.now() - 6800_000).toISOString(),
+    quality_score: 85,
+    error_output: null,
+    retry_count: 0,
+    tags: ['refactor'],
+    output_chunks: ['Refactoring complete. 3 files changed.'],
+  },
+  {
+    id: 'cccccccc-3333-3333-3333-333333333333',
+    status: 'failed',
+    task_description: 'Add XAML data bindings for settings panel',
+    provider: 'claude-cli',
+    model: null,
+    ollama_host_name: null,
+    ollama_host_id: null,
+    created_at: new Date(Date.now() - 3600_000).toISOString(),
+    started_at: new Date(Date.now() - 3500_000).toISOString(),
+    completed_at: new Date(Date.now() - 3400_000).toISOString(),
+    quality_score: 22,
+    error_output: 'TypeScript compilation failed: TS2304 Cannot find name SettingsViewModel',
+    retry_count: 1,
+    tags: ['xaml', 'ui'],
+    output_chunks: ['Build failed with 2 errors.'],
+  },
+  {
+    id: 'dddddddd-4444-4444-4444-444444444444',
+    status: 'completed',
+    task_description: 'Write documentation for the REST API endpoints',
+    provider: 'ollama',
+    model: 'gemma3:4b',
+    ollama_host_name: 'local-gpu',
+    ollama_host_id: 'host-1',
+    created_at: new Date(Date.now() - 14400_000).toISOString(),
+    started_at: new Date(Date.now() - 14300_000).toISOString(),
+    completed_at: new Date(Date.now() - 14000_000).toISOString(),
+    quality_score: 78,
+    error_output: null,
+    retry_count: 0,
+    tags: ['docs'],
+    output_chunks: ['Documentation generated for 12 endpoints.'],
+  },
+  {
+    id: 'eeeeeeee-5555-5555-5555-555555555555',
+    status: 'queued',
+    task_description: 'Optimize webpack bundle size for production build',
+    provider: 'codex',
+    model: 'gpt-5.3-codex-spark',
+    ollama_host_name: null,
+    ollama_host_id: null,
+    created_at: new Date(Date.now() - 60_000).toISOString(),
+    started_at: null,
+    completed_at: null,
+    quality_score: null,
+    error_output: null,
+    retry_count: 0,
+    tags: ['perf'],
+    output_chunks: [],
+  },
+];
 
-test.afterAll(async () => {
-  await stopMockApi();
+const MOCK_OVERVIEW = {
+  today: { total: 23, completed: 18, failed: 3, successRate: 78 },
+  yesterday: { total: 19, completed: 15, failed: 2 },
+  active: { running: 1, queued: 1 },
+};
+
+const MOCK_TIMESERIES = [
+  { date: new Date(Date.now() - 6 * 86400_000).toISOString().slice(0, 10), completed: 12, failed: 2 },
+  { date: new Date(Date.now() - 5 * 86400_000).toISOString().slice(0, 10), completed: 15, failed: 1 },
+  { date: new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10), completed: 8, failed: 3 },
+  { date: new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10), completed: 20, failed: 0 },
+  { date: new Date(Date.now() - 2 * 86400_000).toISOString().slice(0, 10), completed: 18, failed: 2 },
+  { date: new Date(Date.now() - 1 * 86400_000).toISOString().slice(0, 10), completed: 15, failed: 2 },
+  { date: new Date().toISOString().slice(0, 10), completed: 18, failed: 3 },
+];
+
+// ---------------------------------------------------------------------------
+// Intercept API calls at the page level so no mock HTTP server is needed.
+//
+// The dashboard uses two base URLs:
+//   - /api/v2/*  for most endpoints (requestV2 unwraps { data: ... })
+//   - /api/*     for legacy endpoints (request returns raw JSON)
+//
+// V2 responses must be wrapped in { data: ... } since requestV2 unwraps them.
+// ---------------------------------------------------------------------------
+
+/** Set up page.route() interception for all API endpoints used by dashboard tests. */
+async function interceptApi(page) {
+  // -- V2: Tasks list (supports ?status= and ?q= filtering) --
+  await page.route('**/api/v2/tasks?**', (route) => {
+    const url = new URL(route.request().url());
+    let filtered = [...MOCK_TASKS];
+    const status = url.searchParams.get('status');
+    if (status) {
+      filtered = filtered.filter((t) => t.status === status);
+    }
+    const q = url.searchParams.get('q');
+    if (q) {
+      const lower = q.toLowerCase();
+      filtered = filtered.filter((t) => (t.task_description || '').toLowerCase().includes(lower));
+    }
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: { items: filtered, total: filtered.length },
+        meta: { page: 1, totalPages: 1 },
+      }),
+    });
+  });
+
+  // V2: Tasks list without query string
+  await page.route(/\/api\/v2\/tasks$/, (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: { items: MOCK_TASKS, total: MOCK_TASKS.length },
+        meta: { page: 1, totalPages: 1 },
+      }),
+    });
+  });
+
+  // -- V2: Single task by ID --
+  await page.route(/\/api\/v2\/tasks\/[a-f0-9-]+$/, (route) => {
+    const url = route.request().url();
+    const match = url.match(/\/api\/v2\/tasks\/([a-f0-9-]+)$/);
+    const task = match ? MOCK_TASKS.find((t) => t.id === match[1]) : null;
+    route.fulfill({
+      status: task ? 200 : 404,
+      contentType: 'application/json',
+      body: JSON.stringify(task ? { data: { ...task } } : { error: { code: 'NOT_FOUND', message: 'Task not found' } }),
+    });
+  });
+
+  // -- V2: Task diff --
+  await page.route(/\/api\/v2\/tasks\/[a-f0-9-]+\/diff$/, (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { diff_content: null, files_changed: 0, lines_added: 0, lines_removed: 0 } }),
+    });
+  });
+
+  // -- V2: Task logs --
+  await page.route(/\/api\/v2\/tasks\/[a-f0-9-]+\/logs$/, (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [] }),
+    });
+  });
+
+  // -- V2: Task cancel --
+  await page.route(/\/api\/v2\/tasks\/[a-f0-9-]+\/cancel$/, (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { success: true } }),
+    });
+  });
+
+  // -- Legacy: Task cancel (the Cancel button uses legacy /api/tasks/:id/cancel) --
+  await page.route(/\/api\/tasks\/[a-f0-9-]+\/cancel$/, (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true }),
+    });
+  });
+
+  // -- V2: Stats overview --
+  await page.route('**/api/v2/stats/overview', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: MOCK_OVERVIEW }),
+    });
+  });
+
+  // -- V2: Stats timeseries --
+  await page.route('**/api/v2/stats/timeseries*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { series: MOCK_TIMESERIES } }),
+    });
+  });
+
+  // -- V2: Stats quality --
+  await page.route('**/api/v2/stats/quality*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { overall: { avgScore: 74, totalScored: 40 } } }),
+    });
+  });
+
+  // -- V2: Stats stuck --
+  await page.route('**/api/v2/stats/stuck*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { totalNeedsAttention: 0, longRunning: { tasks: [] }, pendingApproval: { tasks: [] }, pendingSwitch: { tasks: [] } } }),
+    });
+  });
+
+  // -- V2: Stats models --
+  await page.route('**/api/v2/stats/models*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- V2: Stats format-success --
+  await page.route('**/api/v2/stats/format-success*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- V2: Providers --
+  await page.route('**/api/v2/providers', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [
+        { id: 'codex', name: 'Codex', enabled: true, tasks_completed: 150, tasks_failed: 8, avg_duration: 45 },
+        { id: 'ollama', name: 'Ollama', enabled: true, tasks_completed: 320, tasks_failed: 12, avg_duration: 62 },
+        { id: 'claude-cli', name: 'Claude CLI', enabled: true, tasks_completed: 55, tasks_failed: 5, avg_duration: 90 },
+        { id: 'deepinfra', name: 'DeepInfra', enabled: false, tasks_completed: 0, tasks_failed: 0, avg_duration: 0 },
+      ] } }),
+    });
+  });
+
+  // -- V2: Provider stats --
+  await page.route(/\/api\/v2\/providers\/[^/]+\/stats/, (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { completed: 50, failed: 2, avg_duration: 45 } }),
+    });
+  });
+
+  // -- V2: Provider trends --
+  await page.route('**/api/v2/providers/trends*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- V2: Hosts --
+  await page.route('**/api/v2/hosts/activity*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { hosts: { 'host-1': { gpuMetrics: { vramUsedMb: 3200, vramTotalMb: 8192 } }, 'host-2': { gpuMetrics: { vramUsedMb: 6400, vramTotalMb: 24576 } } } } }),
+    });
+  });
+
+  await page.route(/\/api\/v2\/hosts$/, (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [
+        { id: 'host-1', name: 'local-gpu', url: 'http://localhost:11434', enabled: true, status: 'online', gpu: 'RTX 4060', vram_mb: 8192, running_tasks: 1, max_concurrent: 3, models: ['gemma3:4b', 'qwen3:8b'] },
+        { id: 'host-2', name: 'remote-gpu-host', url: 'http://192.168.1.100:11434', enabled: true, status: 'online', gpu: 'RTX 3090', vram_mb: 24576, running_tasks: 0, max_concurrent: 2, models: ['qwen2.5-coder:32b', 'codestral:22b'] },
+      ] } }),
+    });
+  });
+
+  // -- V2: Budget --
+  await page.route('**/api/v2/budget/summary*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { totalCost: 4.52, providers: {} } }),
+    });
+  });
+
+  await page.route('**/api/v2/budget/status*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { budget: 50, spent: 4.52, remaining: 45.48 } }),
+    });
+  });
+
+  // -- V2: Workflows --
+  await page.route('**/api/v2/workflows*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [], total: 0 } }),
+    });
+  });
+
+  // -- V2: Plan Projects --
+  await page.route('**/api/v2/plan-projects*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [], total: 0 } }),
+    });
+  });
+
+  // -- V2: System status --
+  await page.route('**/api/v2/system/status*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { status: 'ok', uptime: 3600 } }),
+    });
+  });
+
+  // -- V2: Tuning --
+  await page.route('**/api/v2/tuning*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- V2: Schedules --
+  await page.route('**/api/v2/schedules*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- V2: Approvals --
+  await page.route('**/api/v2/approvals*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- V2: Peek Hosts --
+  await page.route('**/api/v2/peek-hosts*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- V2: Instances --
+  await page.route('**/api/v2/instances*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- V2: Benchmarks --
+  await page.route('**/api/v2/benchmarks*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [] } }),
+    });
+  });
+
+  // -- Legacy: Hosts activity --
+  await page.route('**/api/hosts/activity*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ hosts: { 'host-1': { gpuMetrics: { vramUsedMb: 3200, vramTotalMb: 8192 } }, 'host-2': { gpuMetrics: { vramUsedMb: 6400, vramTotalMb: 24576 } } } }),
+    });
+  });
+
+  // -- Legacy: Instances --
+  await page.route('**/api/instances*', (route) => {
+    const url = route.request().url();
+    if (url.includes('/api/v2/')) { route.fallback(); return; }
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    });
+  });
+
+  // -- Catch-all for any other /api/** routes --
+  await page.route('**/api/**', (route) => {
+    const url = route.request().url();
+    // Let specific routes registered above handle their matches
+    if (url.includes('/api/v2/') || url.includes('/api/tasks/') || url.includes('/api/hosts/') || url.includes('/api/instances')) {
+      route.fallback();
+      return;
+    }
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({}),
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Set up page-level route interception before each test
+// ---------------------------------------------------------------------------
+
+test.beforeEach(async ({ page }) => {
+  await interceptApi(page);
 });
 
 // ---------------------------------------------------------------------------
@@ -122,8 +561,7 @@ test('search filter updates URL with query param', async ({ page }) => {
 // ---------------------------------------------------------------------------
 // 6. Status filter dropdown updates the task list
 // ---------------------------------------------------------------------------
-// TODO: investigate why status filter re-fetch doesn't render on CI ubuntu-22
-test.fixme('status filter dropdown filters tasks', async ({ page }) => {
+test('status filter dropdown filters tasks', async ({ page }) => {
   await page.goto('/history');
 
   // Wait for table to populate
@@ -156,8 +594,7 @@ test.fixme('status filter dropdown filters tasks', async ({ page }) => {
 // ---------------------------------------------------------------------------
 // 7. Task detail drawer opens when clicking a task row
 // ---------------------------------------------------------------------------
-// TODO: drawer dialog not found after row click on CI ubuntu-22
-test.fixme('clicking a task row opens the detail drawer', async ({ page }) => {
+test('clicking a task row opens the detail drawer', async ({ page }) => {
   await page.goto('/history');
 
   // Wait for table to populate
@@ -207,8 +644,7 @@ test('cancel button appears for running/queued tasks in drawer', async ({ page }
 // ---------------------------------------------------------------------------
 // 9. Kanban view renders stat cards with numbers
 // ---------------------------------------------------------------------------
-// TODO: stat cards not visible on CI ubuntu-22 — data loads but rendering times out
-test.fixme('kanban view renders stat cards', async ({ page }) => {
+test('kanban view renders stat cards', async ({ page }) => {
   await page.goto('/');
 
   // Wait for the overview data to load.
