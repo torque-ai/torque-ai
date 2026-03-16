@@ -1,4 +1,12 @@
 const { apiGet, apiPost, apiDelete, ApiError } = require('./api-client');
+const {
+  handleCiStatus,
+  handleCiWatch,
+  handleCiStop,
+  handleCiDiagnose,
+  handleCiRuns,
+  handleCiConfigure,
+} = require('./ci');
 
 function encodePath(value) {
   return encodeURIComponent(String(value || '').trim());
@@ -310,6 +318,24 @@ async function executeCommand(parsed, context = {}) {
       return handleReview(parsed, context);
     case 'benchmark':
       return handleBenchmark(parsed, context);
+    case 'ci status':
+    case 'ci_status':
+      return handleCiStatus(parsed, context);
+    case 'ci watch':
+    case 'ci_watch':
+      return handleCiWatch(parsed, context);
+    case 'ci stop':
+    case 'ci_stop':
+      return handleCiStop(parsed, context);
+    case 'ci diagnose':
+    case 'ci_diagnose':
+      return handleCiDiagnose(parsed, context);
+    case 'ci runs':
+    case 'ci_runs':
+      return handleCiRuns(parsed, context);
+    case 'ci configure':
+    case 'ci_configure':
+      return handleCiConfigure(parsed, context);
     case 'await':
       return handleAwait(parsed, context);
     case 'health':

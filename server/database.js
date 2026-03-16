@@ -38,6 +38,7 @@ const recoveryMetrics = require('./db/recovery-metrics');
 const policyProfileStore = require('./policy-engine/profile-store');
 const policyEvaluationStore = require('./policy-engine/evaluation-store');
 const auditStore = require('./db/audit-store');
+const ciCache = require('./db/ci-cache');
 const { ErrorCodes } = require('./handlers/error-codes');
 
 // === SECURITY: Column whitelist for dynamic SQL queries (M1) ===
@@ -440,6 +441,7 @@ function _wireCrossModuleDI() {
   });
 
   policyProfileStore.setGetProjectMetadata(projectConfigCore.getProjectMetadata);
+  ciCache.setDb(db);
 }
 
 /**
@@ -1815,12 +1817,30 @@ const _subModules = [
   peekPolicyAudit, peekRecoveryApprovals, recoveryMetrics,
   policyProfileStore, policyEvaluationStore,
   auditStore,
+  {
+    mod: ciCache,
+    fns: [
+      'upsertCiRunCache',
+      'getCiRunCache',
+      'listCiRunCache',
+      'pruneCiRunCache',
+      'upsertCiWatch',
+      'getCiWatch',
+      'deactivateCiWatch',
+      'listActiveCiWatches',
+    ],
+  },
 ];
 
 // Build merged exports: core functions take precedence, DI wiring is excluded
 const mergedExports = { ...coreExports };
-for (const mod of _subModules) {
+for (const modOrSpec of _subModules) {
+  const mod = modOrSpec.mod || modOrSpec;
+  const onlyFns = Array.isArray(modOrSpec.fns) ? new Set(modOrSpec.fns) : null;
   for (const [key, value] of Object.entries(mod)) {
+    if (onlyFns && !onlyFns.has(key)) {
+      continue;
+    }
     if (!_DI_INTERNALS.has(key) && !(key in mergedExports)) {
       mergedExports[key] = value;
     }

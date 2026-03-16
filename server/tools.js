@@ -21,6 +21,7 @@ const TOOLS = [
   ...require('./tool-defs/approval-defs'),
   ...require('./tool-defs/validation-defs'),
   ...require('./tool-defs/provider-defs'),
+  ...require('./tool-defs/ci-defs'),
   ...require('./tool-defs/webhook-defs'),
   ...require('./tool-defs/intelligence-defs'),
   ...require('./tool-defs/advanced-defs'),

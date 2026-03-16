@@ -22,6 +22,7 @@ const serverConfig = require('./config');
 const taskManager = require('./task-manager');
 const { TASK_TIMEOUTS } = require('./constants');
 const dashboard = require('./dashboard-server');
+const ciWatcher = require('./ci/watcher');
 const apiServer = require('./api-server');
 const mcpGateway = require('./mcp');
 // Use dynamic accessors so hot-reload can refresh tools without full restart
@@ -234,6 +235,9 @@ async function gracefulShutdown(signal) {
   isShuttingDown = true;
 
   const isConnectionLoss = signal === 'stdin-close';
+
+  // Stop CI watchers before shutdown
+  try { ciWatcher.shutdownAll(); } catch { /* ok */ }
 
   if (isConnectionLoss) {
     debugLog(`MCP connection lost - checking for running tasks...`);
@@ -619,6 +623,16 @@ function init() {
       // Don't let queue check errors crash the server
     }
   }, 5000); // Check every 5 seconds
+
+  // Initialize CI watcher
+  try {
+    ciWatcher.init({ db, providers: { 'github-actions': require('./ci/github-actions') } });
+    const activeWatches = db.listActiveCiWatches ? db.listActiveCiWatches() : [];
+    for (const watch of activeWatches) {
+      ciWatcher.watchRepo({ repo: watch.repo, provider: watch.provider, branch: watch.branch, poll_interval_ms: watch.poll_interval_ms });
+    }
+    if (db.pruneCiRunCache) db.pruneCiRunCache(7);
+  } catch (e) { debugLog(`CI watcher init: ${e.message}`); }
 
   // Start maintenance scheduler
   startMaintenanceScheduler();
