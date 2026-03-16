@@ -2,14 +2,14 @@ const { formatTime, calculateDuration } = require('../handlers/task/utils');
 
 describe('task-utils', () => {
   describe('formatTime', () => {
-    it('formats a valid ISO-8601 string to Denver timezone', () => {
+    it('formats a valid ISO-8601 string to local time', () => {
       const iso = '2024-01-01T12:00:00.000Z';
-      expect(formatTime(iso)).toBe(new Date(iso).toLocaleString('en-US', { timeZone: 'America/Denver' }));
+      expect(formatTime(iso)).toBe(new Date(iso).toLocaleString('en-US'));
     });
 
     it('formats ISO strings with different timezone offsets consistently', () => {
       const iso = '2024-06-15T23:45:30.500+02:00';
-      expect(formatTime(iso)).toBe(new Date(iso).toLocaleString('en-US', { timeZone: 'America/Denver' }));
+      expect(formatTime(iso)).toBe(new Date(iso).toLocaleString('en-US'));
     });
 
     it('returns N/A for null input', () => {
@@ -34,7 +34,7 @@ describe('task-utils', () => {
 
     it('handles leap-year boundary timestamps', () => {
       const iso = '2024-02-29T00:00:00.000Z';
-      expect(formatTime(iso)).toBe(new Date(iso).toLocaleString('en-US', { timeZone: 'America/Denver' }));
+      expect(formatTime(iso)).toBe(new Date(iso).toLocaleString('en-US'));
     });
   });
 

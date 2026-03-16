@@ -920,11 +920,11 @@ describe('handlers/shared.js utilities', () => {
       expect(shared.formatTime(null)).toBe('N/A');
     });
 
-    it('formats timestamps in America/Denver time', () => {
+    it('formats timestamps in local time', () => {
       const iso = '2026-03-12T18:45:00.000Z';
 
       expect(shared.formatTime(iso)).toBe(
-        new Date(iso).toLocaleString('en-US', { timeZone: 'America/Denver' }),
+        new Date(iso).toLocaleString('en-US'),
       );
     });
   });
