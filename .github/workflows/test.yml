@@ -54,23 +54,27 @@ jobs:
         working-directory: server
 
       - name: Run server tests
-        run: npx vitest run
+        shell: bash
         working-directory: server
         timeout-minutes: 5
         env:
           TZ: America/Denver
           CI: true
-          VITEST_POOL_EXIT_TIMEOUT: '3000'
+        run: |
+          npx vitest run
+          echo "vitest exited with code $?"
 
       - name: Run server tests with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npx vitest run --coverage
+        shell: bash
         working-directory: server
         timeout-minutes: 5
         env:
           TZ: America/Denver
           CI: true
-          VITEST_POOL_EXIT_TIMEOUT: '3000'
+        run: |
+          npx vitest run --coverage
+          echo "vitest exited with code $?"
 
       - name: Upload server coverage report
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
