@@ -6,6 +6,7 @@ module.exports = defineConfig({
     globals: true,
     testTimeout: 15000,
     hookTimeout: 10000,
+    teardownTimeout: 5000,
     include: ['tests/**/*.test.js', 'tests/test-*.js'],
     setupFiles: ['tests/worker-setup.js'],
     pool: 'forks',

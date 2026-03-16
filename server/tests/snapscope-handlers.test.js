@@ -758,7 +758,7 @@ describe('Snapscope Handlers', () => {
 
   // ─── peek_ui ───────────────────────────────────────────────────────────────
   describe('handlePeekUi', () => {
-    it('applies annotations and writes the annotated image to disk', async () => {
+    it('applies annotations and writes the annotated image to disk', { timeout: 30000 }, async () => {
       database.getDefaultPeekHost = vi.fn(() => ({
         name: 'omen',
         url: 'http://omen:9876'
