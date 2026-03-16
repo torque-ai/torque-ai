@@ -16,10 +16,15 @@ on:
           - 'false'
           - 'true'
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_live_rest != 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
