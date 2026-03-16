@@ -3,8 +3,6 @@
  * Extracted from provider-handlers.js
  */
 
-const http = require('http');
-const https = require('https');
 const os = require('os');
 const db = require('../database');
 const taskManager = require('../task-manager');

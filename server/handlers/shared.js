@@ -8,7 +8,6 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const { ErrorCodes, makeError } = require('./error-codes');
-const logger = require('../logger').child({ component: 'shared-handlers' });
 const { TASK_TIMEOUTS } = require('../constants');
 
 // ============================================================

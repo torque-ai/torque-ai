@@ -579,7 +579,7 @@ function getSharpModule() {
   return _sharpModule;
 }
 
-async function applyAnnotations(imageBuffer, annotations) {
+async function _applyAnnotations(imageBuffer, annotations) {
   if (!annotations || annotations.length === 0) return imageBuffer;
 
   const sharp = getSharpModule();

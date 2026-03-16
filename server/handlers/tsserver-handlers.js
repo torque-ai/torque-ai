@@ -5,7 +5,6 @@
 'use strict';
 
 const tsserverClient = require('../utils/tsserver-client');
-const db = require('../database');
 const serverConfig = require('../config');
 const { ErrorCodes, makeError } = require('./shared');
 

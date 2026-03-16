@@ -497,7 +497,7 @@ function handleAddComment(args) {
   const { task_id, comment, comment_type = 'note', author = 'user' } = args;
 
   // Verify task exists
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
   const result = db.addTaskComment(task_id, comment, {
@@ -535,7 +535,7 @@ function handleListComments(args) {
   const { task_id, comment_type } = args;
 
   // Verify task exists
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
   const comments = db.getTaskComments(task_id, { commentType: comment_type });

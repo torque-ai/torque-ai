@@ -666,7 +666,7 @@ function handleRollbackTask(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const { task, error: taskErr3 } = requireTask(db, task_id);
+  const { task: _task, error: taskErr3 } = requireTask(db, task_id);
   if (taskErr3) return taskErr3;
 
   // Create rollback record
