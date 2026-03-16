@@ -8,7 +8,7 @@ const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-se
 const SUBJECT_PATH = '../db/host-benchmarking';
 const RESET_TABLES = ['benchmark_results', 'ollama_hosts'];
 
-let db;
+let _db;
 let mod;
 let logger;
 let activeServers = [];
@@ -190,7 +190,7 @@ async function waitFor(predicate, { timeoutMs = 2000, intervalMs = 20 } = {}) {
 
 describe('db/host-benchmarking (real DB)', () => {
   beforeAll(() => {
-    ({ db } = setupTestDb('db-host-bench'));
+    ({ db: _db } = setupTestDb('db-host-bench'));
     ensureColumn('ollama_hosts', 'memory_limit_mb', 'memory_limit_mb INTEGER');
     ensureColumn('ollama_hosts', 'max_concurrent', 'max_concurrent INTEGER DEFAULT 1');
     ensureColumn('ollama_hosts', 'priority', 'priority INTEGER DEFAULT 10');

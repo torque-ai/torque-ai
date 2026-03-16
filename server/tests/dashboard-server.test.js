@@ -1,7 +1,7 @@
 const { EventEmitter } = require('events');
-const fs = require('fs');
+const _fs = require('fs');
 const path = require('path');
-const vm = require('vm');
+const _vm = require('vm');
 
 function createMockResponse() {
   let resolve;
@@ -503,7 +503,7 @@ describe('dashboard-server', () => {
   it('TDA-07: delta includes provider/model/host when present on task', async () => {
     vi.useFakeTimers();
 
-    const { dashboardServer, mockDb } = await loadDashboardServer({
+    const { dashboardServer, mockDb: _mockDb } = await loadDashboardServer({
       dbOverrides: {
         getTask: vi.fn(() => ({
           id: 'task-reassigned',

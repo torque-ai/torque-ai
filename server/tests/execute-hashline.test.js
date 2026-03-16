@@ -976,7 +976,7 @@ describe('execute-hashline.js', () => {
       };
 
       const requestSpy = vi.spyOn(http, 'request');
-      requestSpy.mockImplementation((_options, callback) => {
+      requestSpy.mockImplementation((_options, _callback) => {
         const req = new EventEmitter();
         req.write = vi.fn();
         req.end = vi.fn(() => {});

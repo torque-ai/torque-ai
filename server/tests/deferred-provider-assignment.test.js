@@ -208,7 +208,7 @@ describe('Deferred Provider Assignment', () => {
       mockDb.getRunningCount.mockReturnValue(0);
       mockDb.listTasks.mockReturnValue([]);
 
-      const listFn = mockDb.listQueuedTasksLightweight = vi.fn().mockReturnValue([{
+      const _listFn = mockDb.listQueuedTasksLightweight = vi.fn().mockReturnValue([{
         id: 'api-deferred-1',
         provider: null,
         model: null,

@@ -6,7 +6,7 @@
  * handled by the v2 control-plane handlers.
  */
 
-const { PassThrough } = require('stream');
+const { PassThrough: _PassThrough } = require('stream');
 
 // ─── Mock setup ─────────────────────────────────────────────────────────────
 
