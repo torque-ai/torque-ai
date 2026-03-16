@@ -233,7 +233,7 @@ describe('Logger with mocked fs streams', () => {
     logger.error('error ok');
 
     expect(mockStream.write).toHaveBeenCalledTimes(2);
-    const levels = mockStream.write.mock.calls.map(([, chunk]) => parseLogLine(mockChunkBuffer.shift()).level);
+    const levels = mockStream.write.mock.calls.map(([, _chunk]) => parseLogLine(mockChunkBuffer.shift()).level);
     expect(levels).toEqual(['warn', 'error']);
   });
 

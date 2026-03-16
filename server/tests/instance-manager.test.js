@@ -9,8 +9,6 @@ describe('Instance Manager', () => {
   let mockDb;
 
   beforeEach(() => {
-    const modPath = require.resolve('../coordination/instance-manager');
-
     instanceManager = require('../coordination/instance-manager');
 
     mockDb = {
@@ -197,7 +195,6 @@ describe('Instance Manager', () => {
     });
 
     it('does not start heartbeat if dependencies are not initialized', () => {
-      const modPath = require.resolve('../coordination/instance-manager');
       const uninitializedManager = require('../coordination/instance-manager');
       const uninitDb = {
         acquireLock: vi.fn().mockReturnValue({ acquired: true }),
@@ -281,7 +278,6 @@ describe('Instance Manager', () => {
     });
 
     it('calling init twice does not leave a stale heartbeat interval', () => {
-      const modPath = require.resolve('../coordination/instance-manager');
       const reinitManager = require('../coordination/instance-manager');
       const reinitDb1 = {
         acquireLock: vi.fn().mockReturnValue({ acquired: true }),

@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const OpenRouterProvider = require('../providers/openrouter.js');
-const { FALLBACK_MODELS, DEFAULT_COOLDOWN_SECONDS } = require('../providers/openrouter.js');
-const { MAX_STREAMING_OUTPUT } = require('../constants');
+const { FALLBACK_MODELS } = require('../providers/openrouter.js');
 
 describe('OpenRouterProvider', () => {
   let provider;
@@ -530,9 +529,9 @@ describe('OpenRouterProvider', () => {
 
     it('cooldowns persist across requests', async () => {
       // Requested model 429s, all fallbacks cooled down except gemma-3-12b
-      let callCount = 0;
+      let _callCount = 0;
       vi.stubGlobal('fetch', vi.fn().mockImplementation((url, opts) => {
-        callCount++;
+        _callCount++;
         const body = JSON.parse(opts.body);
         if (body.model === provider.defaultModel) {
           // Requested model: 429

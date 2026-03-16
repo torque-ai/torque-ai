@@ -1,7 +1,5 @@
 'use strict';
 
-const path = require('path');
-
 // Install fs mock via require.cache before loading schema-registry
 const fsMock = {
   existsSync: vi.fn(() => false),

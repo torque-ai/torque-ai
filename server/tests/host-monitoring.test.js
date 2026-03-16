@@ -319,7 +319,7 @@ describe('host-monitoring.js', () => {
   describe('runHostHealthChecks', () => {
     it('uses https.get for HTTPS hosts', async () => {
       const host = createHost('secure-host', { url: 'https://gpu.example:11434', status: 'unknown' });
-      const { monitoring, db, mocks } = setupTest({ hosts: [host] });
+      const { monitoring, db: _db, mocks } = setupTest({ hosts: [host] });
 
       mocks.httpsModule.get.mockImplementation((_url, options, callback) => {
         expect(options).toMatchObject({ timeout: 25 });

@@ -5,7 +5,6 @@ const { EventEmitter } = require('events');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let db;
-let testDir;
 let hostCreds;
 let hostsRoutes;
 let dispatch;
@@ -91,7 +90,6 @@ function createMockHealthCheckGet(statusCode = 200) {
 beforeAll(async () => {
   const env = setupTestDb('hosts-routes');
   db = env.db;
-  testDir = env.testDir;
   hostCreds = require('../db/host-management');
   hostsRoutes = require('../dashboard/routes/infrastructure');
   ({ dispatch } = require('../dashboard/router'));
