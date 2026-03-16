@@ -60,7 +60,7 @@ describe('peek onboarding', () => {
     });
 
     it('each type has required fields', () => {
-      for (const [key, spec] of Object.entries(APP_TYPE_CATALOG)) {
+      for (const [_key, spec] of Object.entries(APP_TYPE_CATALOG)) {
         expect(spec.label).toBeTruthy();
         expect(spec.framework).toBeTruthy();
         expect(spec.detection_hint).toBeTruthy();

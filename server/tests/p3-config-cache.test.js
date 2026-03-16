@@ -18,7 +18,7 @@ describe('Queue scheduler config reads are cached within a tick', () => {
   let mocks;
 
   beforeEach(() => {
-    const modPath = require.resolve('../execution/queue-scheduler');
+    require.resolve('../execution/queue-scheduler');
     scheduler = require('../execution/queue-scheduler');
 
     mockDb = {

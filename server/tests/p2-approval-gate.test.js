@@ -31,7 +31,7 @@ function setup() {
   }
   db.resetForTest(templateBuffer);
 
-  const modPath = require.resolve('../execution/queue-scheduler');
+  require.resolve('../execution/queue-scheduler');
   scheduler = require('../execution/queue-scheduler');
 
   safeStartTask = vi.fn().mockReturnValue(true);

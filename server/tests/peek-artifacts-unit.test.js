@@ -1,7 +1,5 @@
 'use strict';
 
-const crypto = require('crypto');
-
 // --- Mocks injected via require.cache ---
 const fsMock = {
   existsSync: vi.fn(() => true),
@@ -430,7 +428,7 @@ describe('peek/artifacts — unit tests', () => {
 
     it('skips non-existent files', () => {
       fsMock.existsSync.mockReturnValue(false);
-      const result = artifacts.storePeekArtifactsForTask('task-3', [{
+      artifacts.storePeekArtifactsForTask('task-3', [{
         kind: 'screenshot',
         path: '/missing/file.png',
       }]);
@@ -440,7 +438,7 @@ describe('peek/artifacts — unit tests', () => {
 
     it('skips directories', () => {
       fsMock.statSync.mockReturnValue({ isFile: () => false, size: 0 });
-      const result = artifacts.storePeekArtifactsForTask('task-4', [{
+      artifacts.storePeekArtifactsForTask('task-4', [{
         kind: 'screenshot',
         path: '/tmp/directory',
       }]);
@@ -558,7 +556,7 @@ describe('peek/artifacts — unit tests', () => {
 
       const context = { taskId: 'task-fail' };
       // Should not throw
-      const result = artifacts.persistPeekResultReferences(context, refs);
+      artifacts.persistPeekResultReferences(context, refs);
       expect(mockLoggerInstance.info).toHaveBeenCalled();
     });
 
@@ -575,7 +573,7 @@ describe('peek/artifacts — unit tests', () => {
       dbMock.getWorkflow.mockImplementation(() => { throw new Error('workflow not found'); });
 
       const context = { workflowId: 'wf-fail' };
-      const result = artifacts.persistPeekResultReferences(context, refs);
+      artifacts.persistPeekResultReferences(context, refs);
       expect(mockLoggerInstance.info).toHaveBeenCalled();
     });
   });

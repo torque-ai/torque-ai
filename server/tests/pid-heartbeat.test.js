@@ -16,7 +16,7 @@ const childProcess = require('child_process');
 
 let testDataDir = null;
 let execFileSyncSpy;
-let execSyncSpy;
+let _execSyncSpy;
 
 const mockDb = {
   getDataDir: vi.fn(() => testDataDir),
@@ -152,7 +152,7 @@ describe('PID heartbeat stale detection (RB-050)', () => {
     mockTaskManager.hasRunningProcess.mockReturnValue(false);
     mockTaskManager.isInstanceAlive.mockReturnValue(false);
     execFileSyncSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => '');
-    execSyncSpy = vi.spyOn(childProcess, 'execSync').mockImplementation(() => 'node torque/server/index.js');
+    _execSyncSpy = vi.spyOn(childProcess, 'execSync').mockImplementation(() => 'node torque/server/index.js');
     index = loadIndex(tempDir);
   });
 

@@ -55,10 +55,6 @@ const { isPresent, isImageBlobPresent } = qualityScoreModule.__test__;
 const { isLiveEligible, buildLiveEligibilityRecord } = liveAutonomyModule;
 const { normalizeString, normalizeActionName, buildRiskJustification } = liveAutonomyModule.__test__;
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
 function makeCompleteBundle() {
   return {
     app_type: 'wpf',
