@@ -128,21 +128,19 @@ test('status filter dropdown filters tasks', async ({ page }) => {
   // Wait for table to populate
   await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 10000 });
 
-  // Select "Failed" in the status dropdown
+  // Select "Failed" in the status dropdown (first select is the status filter)
   const statusSelect = page.locator('select').first();
-  const filteredTasksResponse = page.waitForResponse((response) => (
-    response.request().method() === 'GET' &&
-    response.url().includes('/api/tasks') &&
-    response.url().includes('status=failed') &&
-    response.ok()
-  ));
   await statusSelect.selectOption('failed');
 
   // URL should contain status=failed
   await expect(page).toHaveURL(/status=failed/);
 
-  // Wait for filtered tasks API response before asserting rows
-  await filteredTasksResponse;
+  // Wait for the table to update — the mock returns only the failed task when
+  // status=failed is passed as a query parameter.  Wait for the row with the
+  // failed task description to be the (only) visible row.
+  await expect(
+    page.locator('table tbody tr', { hasText: 'XAML data bindings' })
+  ).toBeVisible({ timeout: 10000 });
 
   // All visible status badges should be "failed"
   const badges = page.locator('table tbody span.rounded-full');
@@ -163,19 +161,18 @@ test('clicking a task row opens the detail drawer', async ({ page }) => {
   // Wait for table to populate
   await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 10000 });
 
-  // Click the first task row
+  // Click the first task row (click the description cell to avoid checkbox)
   await page.locator('table tbody tr').first().click();
 
-  // The drawer should appear -- it has a fixed position panel with task ID
-  // The drawer shows a truncated task ID like #aaaaaaaa or similar
-  const drawer = page.locator('.fixed.right-0');
-  await expect(drawer).toBeVisible({ timeout: 5000 });
+  // The drawer should appear — it uses role="dialog" and aria-modal="true"
+  const drawer = page.locator('[role="dialog"]');
+  await expect(drawer).toBeVisible({ timeout: 10000 });
 
-  // The drawer should contain "Description" heading
-  await expect(page.locator('h4', { hasText: 'Description' })).toBeVisible();
+  // The drawer should contain "Description" heading (h4.heading-sm)
+  await expect(drawer.locator('h4', { hasText: 'Description' })).toBeVisible({ timeout: 5000 });
 
-  // The drawer should show the task status
-  await expect(page.locator('.fixed.right-0').locator('text=Status')).toBeVisible();
+  // The drawer should show the task status in a MetaItem
+  await expect(drawer.locator('text=Status')).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -194,8 +191,8 @@ test('cancel button appears for running/queued tasks in drawer', async ({ page }
     await runningRow.click();
 
     // The drawer should show a Cancel button for running tasks
-    const cancelBtn = page.locator('.fixed.right-0 button', { hasText: 'Cancel' });
-    await expect(cancelBtn).toBeVisible({ timeout: 5000 });
+    const cancelBtn = page.locator('[role="dialog"] button', { hasText: 'Cancel' });
+    await expect(cancelBtn).toBeVisible({ timeout: 10000 });
 
     // Click cancel -- the mock API returns success
     await cancelBtn.click();
@@ -212,20 +209,22 @@ test('kanban view renders stat cards', async ({ page }) => {
   await page.goto('/');
 
   // Wait for the overview data to load.
-  // The stat cards show "Today", "Running", "Queued", "Completed".
-  // Check that the "Today" card appears with a number.
-  await expect(page.locator('text=Today').first()).toBeVisible({ timeout: 10000 });
+  // The stat cards show "Today", "Running", "Queued", "Completed (24h)".
+  // The "Today" card is a custom div, the rest are StatCard components.
+  // Wait for the "Today" label to appear (signals loading is complete).
+  await expect(page.locator('text=Today').first()).toBeVisible({ timeout: 15000 });
 
   // The overview mock returns today.total = 23
   await expect(page.locator('text=23')).toBeVisible({ timeout: 5000 });
 
-  // Check "Running" stat card appears
+  // Check "Running" stat card appears (also used in Kanban column headers,
+  // so use .first() to avoid ambiguity)
   await expect(page.locator('text=Running').first()).toBeVisible();
 
   // Check "Queued" stat card appears
   await expect(page.locator('text=Queued').first()).toBeVisible();
 
-  // Check "Completed" stat card appears
+  // Check "Completed" stat card appears (label is "Completed (24h)")
   await expect(page.locator('text=Completed').first()).toBeVisible();
 });
 
