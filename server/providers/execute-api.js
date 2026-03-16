@@ -11,12 +11,15 @@
 const logger = require('../logger').child({ component: 'execute-api' });
 const { redactSecrets } = require('../utils/sanitize');
 const { stuffContext, CONTEXT_STUFFING_PROVIDERS } = require('../utils/context-stuffing');
+const { installProxyAgent } = require('../utils/proxy-agent');
 const providerRegistry = require('./registry');
 const { FREE_PROVIDERS } = require('../execution/queue-scheduler');
 
-// TODO (Phase 2): Support HTTPS_PROXY / HTTP_PROXY env vars for enterprise proxy environments.
-// Currently all cloud API connections are direct. Users behind corporate proxies
-// should configure proxy at the OS level or use a transparent proxy.
+// Phase 2: Proxy support for enterprise environments.
+// When HTTPS_PROXY / HTTP_PROXY env vars are set, all cloud API fetch() calls
+// route through the configured proxy. NO_PROXY exclusions are respected.
+// When no proxy env vars are set, behavior is unchanged (direct connections).
+installProxyAgent();
 
 // Dependency injection
 let db = null;
