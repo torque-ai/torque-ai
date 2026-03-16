@@ -84,26 +84,16 @@ jobs:
           exit $VITEST_EXIT
 
       - name: Run server tests with coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        shell: bash
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+        run: npx vitest run --coverage
         working-directory: server
         timeout-minutes: 5
         env:
           TZ: America/Denver
           CI: true
-        run: |
-          set +e
-          timeout 180 npx vitest run --coverage
-          VITEST_EXIT=$?
-          set -e
-          if [ "$VITEST_EXIT" -eq 124 ] || [ "$VITEST_EXIT" -eq 137 ] || [ "$VITEST_EXIT" -eq 143 ]; then
-            echo "::notice::vitest coverage hung after test completion — killed by timeout"
-            exit 0
-          fi
-          exit $VITEST_EXIT
 
       - name: Upload server coverage report
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: server-coverage
@@ -132,12 +122,12 @@ jobs:
         working-directory: dashboard
 
       - name: Run dashboard tests with coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
         run: npx vitest run --coverage
         working-directory: dashboard
 
       - name: Upload dashboard coverage report
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: dashboard-coverage

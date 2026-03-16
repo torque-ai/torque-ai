@@ -1132,17 +1132,20 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
     }
   }, startupTimeoutMs);
 
-  // Set up main timeout
+  // Set up main timeout — timeout_minutes=0 means no timeout enforcement
   const MIN_TIMEOUT_MINUTES = 1;
   const MAX_TIMEOUT_MINUTES = PROVIDER_DEFAULTS.MAX_TIMEOUT_MINUTES;
-  const rawTimeout = parseInt(task.timeout_minutes, 10) || 30;
-  const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
-  const timeoutMs = boundedTimeout * 60 * 1000;
-  procRef.timeoutHandle = setTimeout(() => {
-    if (runningProcesses.has(taskId)) {
-      _helpers.cancelTask(taskId, 'Timeout exceeded');
-    }
-  }, timeoutMs);
+  const parsedTimeout = parseInt(task.timeout_minutes, 10);
+  const rawTimeout = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
+  if (rawTimeout > 0) {
+    const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
+    const timeoutMs = boundedTimeout * 60 * 1000;
+    procRef.timeoutHandle = setTimeout(() => {
+      if (runningProcesses.has(taskId)) {
+        _helpers.cancelTask(taskId, 'Timeout exceeded');
+      }
+    }, timeoutMs);
+  }
 
   return { queued: false, task: db.getTask(taskId) };
 }
