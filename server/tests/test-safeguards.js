@@ -25,10 +25,21 @@ describe('Safeguards & Validation', () => {
     fs.writeFileSync(path.join(testDir, 'sample.py'), 'def test():\n    return 42\n');
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     teardownTestDb();
     if (testDir && fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      // Retry cleanup for Windows EBUSY file lock race
+      for (let i = 0; i < 3; i++) {
+        try {
+          fs.rmSync(testDir, { recursive: true, force: true });
+          break;
+        } catch (err) {
+          if (err.code === 'EBUSY' && i < 2) {
+            await new Promise(r => setTimeout(r, 200));
+          }
+          // Ignore cleanup failures — temp dir will be collected by OS
+        }
+      }
     }
   });
 
