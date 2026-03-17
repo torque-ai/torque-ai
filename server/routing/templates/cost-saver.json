@@ -1,0 +1,18 @@
+{
+  "name": "Cost Saver",
+  "description": "Everything local except complex code generation",
+  "rules": {
+    "security": "anthropic",
+    "xaml_wpf": "ollama",
+    "architectural": "ollama",
+    "reasoning": "ollama",
+    "large_code_gen": "ollama",
+    "documentation": "ollama",
+    "simple_generation": "ollama",
+    "targeted_file_edit": "hashline-ollama",
+    "default": "ollama"
+  },
+  "complexity_overrides": {
+    "large_code_gen": { "complex": "codex" }
+  }
+}

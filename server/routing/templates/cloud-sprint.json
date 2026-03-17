@@ -1,0 +1,16 @@
+{
+  "name": "Cloud Sprint",
+  "description": "Maximum speed — everything to cloud providers",
+  "rules": {
+    "security": "anthropic",
+    "xaml_wpf": "anthropic",
+    "architectural": "codex",
+    "reasoning": "codex",
+    "large_code_gen": "codex",
+    "documentation": "groq",
+    "simple_generation": "groq",
+    "targeted_file_edit": "hashline-ollama",
+    "default": "codex"
+  },
+  "complexity_overrides": {}
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Quality First",
+  "description": "Cloud models for reasoning, code generation, and architecture",
+  "rules": {
+    "security": "anthropic",
+    "xaml_wpf": "anthropic",
+    "architectural": "codex",
+    "reasoning": "codex",
+    "large_code_gen": "codex",
+    "documentation": "deepinfra",
+    "simple_generation": "deepinfra",
+    "targeted_file_edit": "hashline-ollama",
+    "default": "deepinfra"
+  },
+  "complexity_overrides": {
+    "targeted_file_edit": { "simple": "hashline-ollama" }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "System Default",
+  "description": "Mirrors TORQUE's built-in routing behavior",
+  "rules": {
+    "security": "anthropic",
+    "xaml_wpf": "anthropic",
+    "architectural": "deepinfra",
+    "reasoning": "deepinfra",
+    "large_code_gen": "codex",
+    "documentation": "groq",
+    "simple_generation": "ollama",
+    "targeted_file_edit": "hashline-ollama",
+    "default": "ollama"
+  },
+  "complexity_overrides": {}
+}
