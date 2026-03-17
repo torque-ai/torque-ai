@@ -1,265 +1,96 @@
 'use strict';
 
 /**
- * providers/ollama-agentic.js — Agentic execution loop for Ollama /api/chat with tools
+ * providers/ollama-agentic.js — Adapter-agnostic agentic execution loop
  *
- * Sends task to Ollama via the chat completion API with tool definitions.
- * Processes tool calls in a loop until the model produces a final text response
- * or the iteration limit is reached.
+ * Works with any chat adapter that implements:
+ *   { chatCompletion: async (opts) -> { message, usage } }
+ *
+ * The loop sends a task to the adapter, processes tool calls, and continues
+ * until the model produces a final text response or a termination condition
+ * is met (max iterations, output limit, stuck loop, consecutive errors, abort).
  */
 
-const http = require('http');
-const https = require('https');
+const crypto = require('crypto');
 const logger = require('../logger').child({ component: 'ollama-agentic' });
-const { TOOL_DEFINITIONS, executeTool, parseToolCalls } = require('./ollama-tools');
+const { parseToolCalls } = require('./ollama-tools');
 
 const MAX_ITERATIONS = 10;
 const MAX_TOTAL_OUTPUT_CHARS = 512 * 1024; // 512KB total conversation log
+const DEFAULT_CONTEXT_BUDGET = 16000;      // ~16k tokens (rough: chars / 4)
+const ARGUMENTS_PREVIEW_MAX = 500;
+const RESULT_PREVIEW_MAX = 500;
 
 /**
- * Run a single /api/chat request (non-streaming for tool mode, streaming for final).
- * @param {Object} params
- * @param {string} params.host - Ollama host URL
- * @param {string} params.model - Model name
- * @param {Array} params.messages - Chat messages array
- * @param {Array|null} params.tools - Tool definitions (null to disable)
- * @param {Object} params.options - Ollama generation options (temperature, num_ctx, etc.)
- * @param {number} params.timeoutMs - Request timeout
- * @param {Function} params.onChunk - Callback for streaming chunks (text)
- * @param {AbortSignal} params.signal - Abort signal
- * @returns {Promise<Object>} - { message: { role, content, tool_calls }, done_reason, eval_count }
+ * Build an arguments preview for the tool log.
+ * For write_file, store path + content hash + byte count instead of raw content.
+ * @param {string} name - Tool name
+ * @param {Object} args - Tool arguments
+ * @returns {string|Object}
  */
-function chatRequest({ host, model, messages, tools, options, timeoutMs, onChunk, signal }) {
-  return new Promise((resolve, reject) => {
-    const url = new URL('/api/chat', host);
-    const isHttps = url.protocol === 'https:';
-    const httpModule = isHttps ? https : http;
-
-    const body = {
-      model,
-      messages,
-      stream: true,
-      think: false,
-      options: options || {},
-    };
-    if (tools && tools.length > 0) {
-      body.tools = tools;
-    }
-
-    const requestBody = JSON.stringify(body);
-
-    const req = httpModule.request({
-      hostname: url.hostname,
-      port: url.port || (isHttps ? 443 : 11434),
-      path: url.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(requestBody),
-      },
-      timeout: timeoutMs,
-      signal,
-    }, (res) => {
-      let buffer = '';
-      let accumulatedContent = '';
-      let accumulatedToolCalls = [];
-      let lastParsed = null;
-
-      res.on('data', chunk => {
-        buffer += chunk.toString();
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const parsed = JSON.parse(line);
-            lastParsed = parsed;
-
-            if (parsed.message) {
-              if (parsed.message.content) {
-                accumulatedContent += parsed.message.content;
-                if (onChunk) onChunk(parsed.message.content);
-              }
-              if (parsed.message.tool_calls && parsed.message.tool_calls.length > 0) {
-                accumulatedToolCalls.push(...parsed.message.tool_calls);
-              }
-            }
-
-            if (parsed.done) {
-              resolve({
-                message: {
-                  role: 'assistant',
-                  content: accumulatedContent,
-                  tool_calls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
-                },
-                done_reason: parsed.done_reason,
-                eval_count: parsed.eval_count,
-                total_duration: parsed.total_duration,
-              });
-            }
-          } catch { /* skip malformed NDJSON */ }
-        }
-      });
-
-      res.on('end', () => {
-        // Flush remaining buffer
-        if (buffer.trim()) {
-          try {
-            const parsed = JSON.parse(buffer);
-            if (parsed.message?.content) accumulatedContent += parsed.message.content;
-            if (parsed.message?.tool_calls) accumulatedToolCalls.push(...parsed.message.tool_calls);
-          } catch { /* ignore */ }
-        }
-        // Resolve if not already resolved by done:true
-        resolve({
-          message: {
-            role: 'assistant',
-            content: accumulatedContent,
-            tool_calls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
-          },
-          done_reason: lastParsed?.done_reason || 'stop',
-          eval_count: lastParsed?.eval_count,
-        });
-      });
-
-      res.on('error', reject);
+function buildArgumentsPreview(name, args) {
+  if (name === 'write_file' && args && typeof args.content === 'string') {
+    const hash = crypto.createHash('sha256').update(args.content).digest('hex').slice(0, 12);
+    return JSON.stringify({
+      path: args.path,
+      content_hash: hash,
+      content_bytes: Buffer.byteLength(args.content, 'utf-8'),
     });
-
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Chat request timeout'));
-    });
-
-    req.write(requestBody);
-    req.end();
-  });
+  }
+  return JSON.stringify(args).slice(0, ARGUMENTS_PREVIEW_MAX);
 }
 
 /**
- * Run the agentic tool-calling loop.
- *
- * @param {Object} params
- * @param {string} params.host - Ollama host URL
- * @param {string} params.model - Model name
- * @param {string} params.systemPrompt - System prompt
- * @param {string} params.taskPrompt - User task description
- * @param {Object} params.options - Ollama generation options
- * @param {string} params.workingDir - Working directory for tool execution
- * @param {number} params.timeoutMs - Total timeout for the entire loop
- * @param {Function} params.onProgress - Callback: (iteration, totalIterations, lastToolName) => void
- * @param {Function} params.onChunk - Callback for streaming text output
- * @param {AbortSignal} params.signal - Abort signal
- * @returns {Promise<{ output: string, toolLog: Array, changedFiles: string[], iterations: number }>}
+ * Estimate token count from a messages array (rough: chars / 4).
+ * @param {Array} messages
+ * @returns {number}
  */
-async function runAgenticLoop({
-  host, model, systemPrompt, taskPrompt, options,
-  workingDir, timeoutMs, onProgress, onChunk, signal,
-}) {
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: taskPrompt },
-  ];
+function estimateTokens(messages) {
+  let total = 0;
+  for (const m of messages) {
+    const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
+    total += content.length;
+  }
+  return Math.ceil(total / 4);
+}
 
-  const toolLog = [];
-  const changedFiles = new Set();
-  let iterations = 0;
-  let totalOutputChars = 0;
-  let finalOutput = '';
+/**
+ * Truncate oldest tool result messages in the messages array when the context
+ * budget is exceeded. Never truncates the system prompt (index 0) or the most
+ * recent 2 messages (the current iteration's last assistant + tool pair).
+ *
+ * @param {Array} messages - The messages array (mutated in place)
+ * @param {number} contextBudget - Max tokens before truncation
+ */
+function truncateOldestToolResults(messages, contextBudget) {
+  const estimated = estimateTokens(messages);
+  if (estimated <= contextBudget) return;
 
-  const perRequestTimeout = Math.min(timeoutMs, 5 * 60 * 1000); // 5min per request max
+  // Protect: index 0 (system prompt) and the last 2 messages (most recent iteration pair).
+  // We iterate from the oldest tool result forward, stopping once within budget.
+  const protectedTail = 2;
+  const cutoffIndex = messages.length - protectedTail;
 
-  for (iterations = 0; iterations < MAX_ITERATIONS; iterations++) {
-    if (signal?.aborted) {
-      throw new Error('Task cancelled');
-    }
+  for (let i = 1; i < cutoffIndex; i++) {
+    const msg = messages[i];
+    if (msg.role === 'tool' && !msg._truncated) {
+      const byteLen = Buffer.byteLength(msg.content || '', 'utf-8');
+      const status = msg._wasError ? 'ERROR' : 'OK';
+      msg.content = `[result truncated — ${byteLen} bytes, returned ${status}]`;
+      msg._truncated = true;
 
-    logger.info(`[Agentic] Iteration ${iterations + 1}/${MAX_ITERATIONS} — ${messages.length} messages`);
-
-    if (onProgress) {
-      const lastTool = toolLog.length > 0 ? toolLog[toolLog.length - 1].name : null;
-      onProgress(iterations + 1, MAX_ITERATIONS, lastTool);
-    }
-
-    // Make chat request with tools
-    const response = await chatRequest({
-      host,
-      model,
-      messages,
-      tools: TOOL_DEFINITIONS,
-      options,
-      timeoutMs: perRequestTimeout,
-      onChunk: iterations === MAX_ITERATIONS - 1 ? onChunk : null, // Only stream final iteration
-      signal,
-    });
-
-    const assistantMessage = response.message;
-
-    // Parse tool calls (handles structured + content-embedded formats)
-    const toolCalls = parseToolCalls(assistantMessage);
-
-    if (toolCalls.length === 0) {
-      // No tool calls — model is done, this is the final response
-      finalOutput = assistantMessage.content || '';
-      logger.info(`[Agentic] Model finished after ${iterations + 1} iterations (${toolLog.length} tool calls)`);
-      break;
-    }
-
-    // Add assistant message to conversation
-    // For Ollama's tool protocol, we need to include the message as-is
-    messages.push({
-      role: 'assistant',
-      content: assistantMessage.content || '',
-      ...(assistantMessage.tool_calls ? { tool_calls: assistantMessage.tool_calls } : {}),
-    });
-
-    // Execute each tool call and add results
-    for (const tc of toolCalls) {
-      logger.info(`[Agentic] Tool call: ${tc.name}(${JSON.stringify(tc.arguments).slice(0, 200)})`);
-
-      const { result, error } = executeTool(tc.name, tc.arguments, workingDir, { changedFiles });
-
-      toolLog.push({
-        iteration: iterations + 1,
-        name: tc.name,
-        arguments: tc.arguments,
-        result: result.slice(0, 500), // Truncate for log
-        error: !!error,
-      });
-
-      // Add tool result to messages (using 'tool' role per qwen2.5 template)
-      messages.push({
-        role: 'tool',
-        content: result,
-      });
-
-      totalOutputChars += result.length;
-      if (totalOutputChars > MAX_TOTAL_OUTPUT_CHARS) {
-        logger.warn(`[Agentic] Total output exceeded ${MAX_TOTAL_OUTPUT_CHARS} chars, stopping loop`);
-        finalOutput = `Task stopped: output limit exceeded after ${iterations + 1} iterations and ${toolLog.length} tool calls.\n\nLast tool results were being processed.`;
-        return { output: finalOutput, toolLog, changedFiles: [...changedFiles], iterations: iterations + 1 };
-      }
+      // Re-check if we're now within budget
+      if (estimateTokens(messages) <= contextBudget) break;
     }
   }
-
-  if (iterations >= MAX_ITERATIONS && !finalOutput) {
-    finalOutput = `Task reached maximum iterations (${MAX_ITERATIONS}). ${toolLog.length} tool calls executed.`;
-  }
-
-  // Build comprehensive output
-  const summary = buildOutputSummary(finalOutput, toolLog, changedFiles);
-
-  return {
-    output: summary,
-    toolLog,
-    changedFiles: [...changedFiles],
-    iterations: iterations + 1,
-  };
 }
 
 /**
  * Build a readable output summary from the agentic run.
+ * @param {string} finalOutput
+ * @param {Array} toolLog
+ * @param {Set} changedFiles
+ * @returns {string}
  */
 function buildOutputSummary(finalOutput, toolLog, changedFiles) {
   const parts = [];
@@ -272,8 +103,10 @@ function buildOutputSummary(finalOutput, toolLog, changedFiles) {
     parts.push(`\n--- Tool Execution Log (${toolLog.length} calls) ---`);
     for (const entry of toolLog) {
       const status = entry.error ? 'ERROR' : 'OK';
-      const argsStr = JSON.stringify(entry.arguments).slice(0, 150);
-      parts.push(`[${entry.iteration}] ${entry.name}(${argsStr}) → ${status}`);
+      const argsStr = typeof entry.arguments_preview === 'string'
+        ? entry.arguments_preview.slice(0, 150)
+        : JSON.stringify(entry.arguments_preview).slice(0, 150);
+      parts.push(`[${entry.iteration}] ${entry.name}(${argsStr}) → ${status} (${entry.duration_ms}ms)`);
     }
   }
 
@@ -287,8 +120,259 @@ function buildOutputSummary(finalOutput, toolLog, changedFiles) {
   return parts.join('\n');
 }
 
+/**
+ * Run the adapter-agnostic agentic tool-calling loop.
+ *
+ * @param {Object} params
+ * @param {Object} params.adapter - { chatCompletion: async (opts) -> { message, usage } }
+ * @param {string} params.systemPrompt - System prompt
+ * @param {string} params.taskPrompt - User task description
+ * @param {Array} params.tools - TOOL_DEFINITIONS array
+ * @param {Object} params.toolExecutor - { execute: (name, args) -> { result, error, metadata }, changedFiles: Set }
+ * @param {Object} [params.options] - Passed through to adapter.chatCompletion
+ * @param {string} [params.workingDir] - Working directory (informational; executor handles cwd)
+ * @param {number} [params.timeoutMs] - Total timeout (not enforced internally; caller sets AbortSignal)
+ * @param {number} [params.maxIterations] - Max loop iterations (default MAX_ITERATIONS)
+ * @param {number} [params.contextBudget] - Max estimated tokens before truncation (default 16000)
+ * @param {Function} [params.onProgress] - (iteration, maxIter, lastTool) => void
+ * @param {Function} [params.onToolCall] - (name, args, result) => void — for dashboard
+ * @param {AbortSignal} [params.signal] - Abort signal
+ * @returns {Promise<{ output: string, toolLog: Array, changedFiles: string[], iterations: number, tokenUsage: Object }>}
+ */
+async function runAgenticLoop({
+  adapter,
+  systemPrompt,
+  taskPrompt,
+  tools,
+  toolExecutor,
+  options,
+  workingDir,
+  timeoutMs,
+  maxIterations = MAX_ITERATIONS,
+  contextBudget = DEFAULT_CONTEXT_BUDGET,
+  onProgress,
+  onToolCall,
+  signal,
+}) {
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: taskPrompt },
+  ];
+
+  const toolLog = [];
+  // Use toolExecutor's changedFiles set if provided, otherwise create our own
+  const changedFiles = toolExecutor.changedFiles instanceof Set
+    ? toolExecutor.changedFiles
+    : new Set();
+
+  let iterations = 0;
+  let totalOutputChars = 0;
+  let finalOutput = '';
+  let tokenUsage = { prompt_tokens: 0, completion_tokens: 0 };
+
+  // Stuck loop detection
+  let prevToolCallHash = null;
+  let stuckCount = 0;
+
+  // Consecutive error detection
+  let lastErrorToolName = null;
+  let consecutiveErrorCount = 0;
+
+  // Parse failure recovery: track if we already injected a correction
+  let parseFailureCorrectionInjected = false;
+
+  // Early termination flag — set inside inner loops to break the outer loop
+  let earlyStop = false;
+
+  for (iterations = 0; iterations < maxIterations && !earlyStop; iterations++) {
+    if (signal?.aborted) {
+      throw new Error('Task cancelled');
+    }
+
+    logger.info(`[Agentic] Iteration ${iterations + 1}/${maxIterations} — ${messages.length} messages`);
+
+    if (onProgress) {
+      const lastTool = toolLog.length > 0 ? toolLog[toolLog.length - 1].name : null;
+      onProgress(iterations + 1, maxIterations, lastTool);
+    }
+
+    // Truncate context if over budget
+    truncateOldestToolResults(messages, contextBudget);
+
+    // Make chat request via adapter
+    const response = await adapter.chatCompletion({
+      messages,
+      tools: tools && tools.length > 0 ? tools : undefined,
+      options,
+      signal,
+    });
+
+    const assistantMessage = response.message;
+
+    // Accumulate token usage
+    if (response.usage) {
+      tokenUsage.prompt_tokens += response.usage.prompt_tokens || 0;
+      tokenUsage.completion_tokens += response.usage.completion_tokens || 0;
+    }
+
+    // Parse tool calls (handles structured + JSON + XML formats)
+    let toolCalls = parseToolCalls(assistantMessage);
+
+    if (toolCalls.length === 0) {
+      const content = assistantMessage.content || '';
+
+      // Parse failure recovery: if content contains "name" it might be a malformed tool call
+      if (!parseFailureCorrectionInjected && content.includes('"name"')) {
+        logger.warn('[Agentic] Possible malformed tool call detected — injecting correction message');
+        messages.push({
+          role: 'assistant',
+          content: content,
+        });
+        messages.push({
+          role: 'user',
+          content: 'Your response was not a valid tool call. Use the provided tools with the correct JSON format.',
+        });
+        parseFailureCorrectionInjected = true;
+        continue; // one retry only
+      }
+
+      // No tool calls — model is done, this is the final response
+      finalOutput = content;
+      logger.info(`[Agentic] Model finished after ${iterations + 1} iterations (${toolLog.length} tool calls)`);
+      break;
+    }
+
+    // Reset parse failure flag on successful tool call parse
+    parseFailureCorrectionInjected = false;
+
+    // Stuck loop detection: compute hash of all tool calls this iteration
+    const iterHash = JSON.stringify(toolCalls.map(tc => ({ name: tc.name, args: tc.arguments })));
+    if (iterHash === prevToolCallHash) {
+      stuckCount++;
+      if (stuckCount >= 2) {
+        finalOutput = `Task stuck: identical tool calls detected after ${iterations + 1} iterations.`;
+        logger.warn('[Agentic] Stuck loop detected — stopping');
+        break;
+      }
+    } else {
+      stuckCount = 0;
+    }
+    prevToolCallHash = iterHash;
+
+    // Add assistant message to conversation
+    messages.push({
+      role: 'assistant',
+      content: assistantMessage.content || '',
+      ...(assistantMessage.tool_calls ? { tool_calls: assistantMessage.tool_calls } : {}),
+    });
+
+    // Execute each tool call and add results
+    for (const tc of toolCalls) {
+      if (signal?.aborted) {
+        throw new Error('Task cancelled');
+      }
+
+      logger.info(`[Agentic] Tool call: ${tc.name}(${JSON.stringify(tc.arguments).slice(0, 200)})`);
+
+      const startMs = Date.now();
+      const execResult = toolExecutor.execute(tc.name, tc.arguments);
+      const durationMs = Date.now() - startMs;
+
+      const { result, error } = execResult;
+      const resultStr = typeof result === 'string' ? result : String(result || '');
+
+      // Consecutive error detection
+      if (error) {
+        if (lastErrorToolName === tc.name) {
+          consecutiveErrorCount++;
+          if (consecutiveErrorCount >= 2) {
+            // Add the error result first, then stop
+            messages.push({ role: 'tool', content: resultStr, _wasError: true });
+            finalOutput = `Task stopped: consecutive errors from ${tc.name} after ${iterations + 1} iterations.`;
+            logger.warn(`[Agentic] Consecutive errors from ${tc.name} — stopping`);
+
+            // Log the failing tool call
+            toolLog.push({
+              iteration: iterations + 1,
+              name: tc.name,
+              arguments_preview: buildArgumentsPreview(tc.name, tc.arguments),
+              result_preview: resultStr.slice(0, RESULT_PREVIEW_MAX),
+              error: true,
+              duration_ms: durationMs,
+            });
+            if (onToolCall) onToolCall(tc.name, tc.arguments, execResult);
+            totalOutputChars += resultStr.length;
+
+            // Signal outer loop to stop
+            earlyStop = true;
+            break;
+          }
+        } else {
+          consecutiveErrorCount = 1;
+          lastErrorToolName = tc.name;
+        }
+      } else {
+        // Reset error tracking on success
+        lastErrorToolName = null;
+        consecutiveErrorCount = 0;
+      }
+
+      // Log tool call
+      toolLog.push({
+        iteration: iterations + 1,
+        name: tc.name,
+        arguments_preview: buildArgumentsPreview(tc.name, tc.arguments),
+        result_preview: resultStr.slice(0, RESULT_PREVIEW_MAX),
+        error: !!error,
+        duration_ms: durationMs,
+      });
+
+      if (onToolCall) {
+        onToolCall(tc.name, tc.arguments, execResult);
+      }
+
+      // Add tool result to messages
+      messages.push({
+        role: 'tool',
+        content: resultStr,
+        _wasError: !!error,
+      });
+
+      totalOutputChars += resultStr.length;
+      if (totalOutputChars > MAX_TOTAL_OUTPUT_CHARS) {
+        logger.warn(`[Agentic] Total output exceeded ${MAX_TOTAL_OUTPUT_CHARS} chars, stopping loop`);
+        finalOutput = `Task stopped: output limit exceeded after ${iterations + 1} iterations and ${toolLog.length} tool calls.\n\nLast tool results were being processed.`;
+        // Build early return summary
+        const summary = buildOutputSummary(finalOutput, toolLog, changedFiles);
+        return {
+          output: summary,
+          toolLog,
+          changedFiles: [...changedFiles],
+          iterations: iterations + 1,
+          tokenUsage,
+        };
+      }
+    }
+
+  }
+
+  if (!finalOutput && !earlyStop && iterations >= maxIterations) {
+    finalOutput = `Task reached maximum iterations (${maxIterations}). ${toolLog.length} tool calls executed.`;
+  }
+
+  // Build comprehensive output
+  const summary = buildOutputSummary(finalOutput, toolLog, changedFiles);
+
+  return {
+    output: summary,
+    toolLog,
+    changedFiles: [...changedFiles],
+    iterations: Math.min(iterations + 1, maxIterations),
+    tokenUsage,
+  };
+}
+
 module.exports = {
   runAgenticLoop,
-  chatRequest,
   MAX_ITERATIONS,
 };
