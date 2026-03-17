@@ -190,20 +190,21 @@ function getApiKey(provider) {
   }
 
   // 2. provider_config.api_key_encrypted (decrypt)
-  if (db && typeof db.getDbInstance === 'function') {
-    try {
-      const rawDb = db.getDbInstance();
-      if (rawDb && typeof rawDb.prepare === 'function') {
-        const row = rawDb.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(provider);
-        if (row && row.api_key_encrypted) {
-          const { decryptApiKey } = require('./handlers/provider-crud-handlers');
-          const decrypted = decryptApiKey(row.api_key_encrypted);
-          if (decrypted) return decrypted;
-        }
+  try {
+    const database = db || require('./database');
+    const rawDb = typeof database.getDbInstance === 'function' ? database.getDbInstance()
+      : typeof database.getDb === 'function' ? database.getDb()
+      : null;
+    if (rawDb && typeof rawDb.prepare === 'function') {
+      const row = rawDb.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(provider);
+      if (row && row.api_key_encrypted) {
+        const { decryptApiKey } = require('./handlers/provider-crud-handlers');
+        const decrypted = decryptApiKey(row.api_key_encrypted);
+        if (decrypted) return decrypted;
       }
-    } catch {
-      // decryption failed or module not ready — fall through
     }
+  } catch {
+    // decryption failed, db not ready, or module not loaded — fall through
   }
 
   // 3. DB config table (legacy)
