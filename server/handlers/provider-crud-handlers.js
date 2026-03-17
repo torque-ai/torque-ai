@@ -656,6 +656,12 @@ function handleSetApiKey(args) {
   const encrypted = encryptApiKey(apiKey);
   database.prepare("UPDATE provider_config SET api_key_encrypted = ?, updated_at = datetime('now') WHERE provider = ?").run(encrypted, providerName);
 
+  // Invalidate adapter cache so provider reconstructs with the new key
+  try {
+    const { invalidateAdapterCache } = require('../providers/adapter-registry');
+    if (typeof invalidateAdapterCache === 'function') invalidateAdapterCache(providerName);
+  } catch { /* best effort */ }
+
   // Mark as validating and trigger async health check
   validatingProviders.set(providerName, Date.now());
   try {
@@ -699,6 +705,12 @@ function handleClearApiKey(args) {
 
   database.prepare("UPDATE provider_config SET api_key_encrypted = NULL, updated_at = datetime('now') WHERE provider = ?").run(providerName);
   validatingProviders.delete(providerName);
+
+  // Invalidate adapter cache
+  try {
+    const { invalidateAdapterCache } = require('../providers/adapter-registry');
+    if (typeof invalidateAdapterCache === 'function') invalidateAdapterCache(providerName);
+  } catch { /* best effort */ }
 
   const logger = require('../logger');
   logger.info(`API key cleared for provider ${providerName}`);

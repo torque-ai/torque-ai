@@ -94,7 +94,13 @@ function registerApiAdapter(providerId, ProviderClass, capabilities = {}) {
 
     const resolveProvider = () => {
       if (!provider) {
-        provider = new ProviderClass();
+        // Pass API key from config resolution (env var → encrypted DB → legacy config)
+        let apiKey;
+        try {
+          const serverConfig = require('../config');
+          apiKey = serverConfig.getApiKey(providerId);
+        } catch { /* config not ready */ }
+        provider = apiKey ? new ProviderClass({ apiKey }) : new ProviderClass();
       }
       return provider;
     };
@@ -257,6 +263,14 @@ registerApiAdapter('ollama-strategic', OllamaStrategicProvider, {
   supportsAsync: false,
 });
 
+function invalidateAdapterCache(providerId) {
+  if (providerId) {
+    adapterCache.delete(String(providerId));
+  } else {
+    adapterCache.clear();
+  }
+}
+
 module.exports = {
   createProviderAdapter,
   registerProviderAdapter,
@@ -264,4 +278,5 @@ module.exports = {
   getRegisteredProviderIds,
   isAdapterRegistered,
   getProviderCapabilityMatrix,
+  invalidateAdapterCache,
 };
