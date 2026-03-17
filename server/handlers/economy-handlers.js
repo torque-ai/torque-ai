@@ -10,8 +10,8 @@ const {
   resolveEconomyPolicy,
   filterProvidersForEconomy,
   setGlobalEconomyPolicy,
-  deactivateEconomyMode,
 } = require('../economy/policy');
+const { deactivateEconomyMode } = require('../economy/triggers');
 
 function makeTextResult(message, isError = false) {
   const payload = [{ type: 'text', text: message }];
