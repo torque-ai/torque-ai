@@ -171,15 +171,6 @@ describe('Group 2: Mock OpenAI-Compatible Integration', () => {
   let mockUrl;
   let requestCount;
 
-  /**
-   * Build a non-streaming OpenAI-compatible SSE response.
-   * OpenAI SSE: lines prefixed with "data: ", terminated by "data: [DONE]\n\n"
-   */
-  function buildSseResponse(chunks) {
-    const lines = chunks.map((c) => `data: ${JSON.stringify(c)}\n`).join('\n');
-    return lines + '\ndata: [DONE]\n\n';
-  }
-
   beforeAll(
     () =>
       new Promise((resolve) => {
@@ -196,53 +187,37 @@ describe('Group 2: Mock OpenAI-Compatible Integration', () => {
             }
 
             requestCount++;
-            const reqBody = JSON.parse(body);
-            res.writeHead(200, {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
 
             if (requestCount === 1) {
               // First request → respond with a tool_call for list_directory
-              const toolCallDelta = {
-                id: 'chatcmpl-mock-1',
-                object: 'chat.completion.chunk',
-                choices: [
-                  {
-                    index: 0,
-                    delta: {
-                      role: 'assistant',
-                      tool_calls: [
-                        {
-                          index: 0,
-                          id: 'call_mock_list',
-                          type: 'function',
-                          function: {
-                            name: 'list_directory',
-                            arguments: '{"path": "."}',
-                          },
-                        },
-                      ],
-                    },
-                    finish_reason: 'tool_calls',
+              res.end(JSON.stringify({
+                choices: [{
+                  message: {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [{
+                      id: 'call_mock_list',
+                      type: 'function',
+                      function: { name: 'list_directory', arguments: '{"path": "."}' },
+                    }],
                   },
-                ],
-              };
-              res.end(buildSseResponse([toolCallDelta]));
+                  finish_reason: 'tool_calls',
+                }],
+                usage: { prompt_tokens: 50, completion_tokens: 10 },
+              }));
             } else {
               // Second request (after tool result) → plain text summary
-              const textChunk = {
-                id: 'chatcmpl-mock-2',
-                object: 'chat.completion.chunk',
-                choices: [
-                  {
-                    index: 0,
-                    delta: { role: 'assistant', content: 'Mock summary: directory listed successfully.' },
-                    finish_reason: 'stop',
+              res.end(JSON.stringify({
+                choices: [{
+                  message: {
+                    role: 'assistant',
+                    content: 'Mock summary: directory listed successfully.',
                   },
-                ],
-              };
-              res.end(buildSseResponse([textChunk]));
+                  finish_reason: 'stop',
+                }],
+                usage: { prompt_tokens: 80, completion_tokens: 15 },
+              }));
             }
           });
         });

@@ -314,37 +314,32 @@ describe('openai-chat adapter — chatCompletion', () => {
   // Test 1: sends request with Bearer auth, parses SSE response with tool_calls
   // -------------------------------------------------------------------------
 
-  it('sends request with Bearer auth and parses SSE tool_calls response', async () => {
+  it('sends request with Bearer auth and parses non-streaming tool_calls response (default)', async () => {
     requestHandler = (req, res) => {
       expect(req.method).toBe('POST');
       expect(req.url).toBe('/v1/chat/completions');
-      // Verify Bearer token is forwarded
       expect(req.headers['authorization']).toBe('Bearer sk-test-key');
       const body = req._parsedBody;
       expect(body.model).toBe('llama-3.3-70b-versatile');
       expect(Array.isArray(body.tools)).toBe(true);
-      expect(body.stream).toBe(true);
+      expect(body.stream).toBe(false); // Default is non-streaming
 
-      writeSse(res, [
-        {
-          choices: [{
-            delta: {
-              role: 'assistant',
-              tool_calls: [{
-                index: 0,
-                id: 'call_abc123',
-                function: { name: 'read_file', arguments: '{"path":"src/main.cs"}' },
-              }],
-            },
-            finish_reason: null,
-          }],
-        },
-        {
-          choices: [{ delta: {}, finish_reason: 'tool_calls' }],
-          usage: { prompt_tokens: 100, completion_tokens: 25 },
-        },
-        '[DONE]',
-      ]);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_abc123',
+              type: 'function',
+              function: { name: 'read_file', arguments: '{"path":"src/main.cs"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 100, completion_tokens: 25 },
+      }));
     };
 
     const tools = [
@@ -376,11 +371,51 @@ describe('openai-chat adapter — chatCompletion', () => {
     expect(result.usage.completion_tokens).toBe(25);
   });
 
+  it('sends request with SSE streaming when options.stream=true', async () => {
+    requestHandler = (req, res) => {
+      const body = req._parsedBody;
+      expect(body.stream).toBe(true);
+
+      writeSse(res, [
+        {
+          choices: [{
+            delta: {
+              role: 'assistant',
+              tool_calls: [{
+                index: 0,
+                id: 'call_sse',
+                function: { name: 'read_file', arguments: '{"path":"src/main.cs"}' },
+              }],
+            },
+            finish_reason: null,
+          }],
+        },
+        {
+          choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+          usage: { prompt_tokens: 100, completion_tokens: 25 },
+        },
+        '[DONE]',
+      ]);
+    };
+
+    const result = await openaiChatCompletion({
+      host,
+      apiKey: 'sk-test-key',
+      model: 'test',
+      messages: [{ role: 'user', content: 'test' }],
+      tools: [{ type: 'function', function: { name: 'read_file', parameters: {} } }],
+      options: { stream: true },
+    });
+
+    expect(result.message.tool_calls).toHaveLength(1);
+    expect(result.message.tool_calls[0].id).toBe('call_sse');
+  });
+
   // -------------------------------------------------------------------------
   // Test 2: handles incremental tool_call assembly (arguments spread across chunks)
   // -------------------------------------------------------------------------
 
-  it('assembles tool_call arguments from incremental SSE chunks', async () => {
+  it('assembles tool_call arguments from incremental SSE chunks (stream=true)', async () => {
     requestHandler = (req, res) => {
       writeSse(res, [
         // First chunk: id + name + partial arguments
@@ -433,6 +468,7 @@ describe('openai-chat adapter — chatCompletion', () => {
           },
         },
       ],
+      options: { stream: true },
     });
 
     expect(result.message.tool_calls).toHaveLength(1);
@@ -447,31 +483,20 @@ describe('openai-chat adapter — chatCompletion', () => {
   // Test 3: handles plain text completion (no tool calls)
   // -------------------------------------------------------------------------
 
-  it('handles plain text completion with no tool_calls', async () => {
+  it('handles plain text completion with no tool_calls (non-streaming default)', async () => {
     requestHandler = (req, res) => {
-      // tools should be omitted from the request body when not provided
       const body = req._parsedBody;
       expect(body.tools).toBeUndefined();
+      expect(body.stream).toBe(false);
 
-      writeSse(res, [
-        {
-          choices: [{
-            delta: { role: 'assistant', content: 'The answer is ' },
-            finish_reason: null,
-          }],
-        },
-        {
-          choices: [{
-            delta: { content: '42.' },
-            finish_reason: null,
-          }],
-        },
-        {
-          choices: [{ delta: {}, finish_reason: 'stop' }],
-          usage: { prompt_tokens: 10, completion_tokens: 5 },
-        },
-        '[DONE]',
-      ]);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: { role: 'assistant', content: 'The answer is 42.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }));
     };
 
     const chunks = [];
@@ -488,8 +513,8 @@ describe('openai-chat adapter — chatCompletion', () => {
     expect(result.message.tool_calls).toBeUndefined();
     expect(result.usage.prompt_tokens).toBe(10);
     expect(result.usage.completion_tokens).toBe(5);
-    // onChunk should have been called for each content delta
-    expect(chunks).toEqual(['The answer is ', '42.']);
+    // onChunk called once with full content in non-streaming mode
+    expect(chunks).toEqual(['The answer is 42.']);
   });
 
   // -------------------------------------------------------------------------

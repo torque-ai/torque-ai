@@ -55,10 +55,13 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
     const httpModule = isHttps ? https : http;
 
     // Build request body
+    // Use non-streaming for reliability — cloud providers respond in <1s and
+    // SSE streaming has edge cases with tool result follow-ups on some providers
+    const useStreaming = options?.stream !== undefined ? options.stream : false;
     const body = {
       model,
       messages,
-      stream: true,
+      stream: useStreaming,
     };
     if (tools && tools.length > 0) {
       body.tools = tools;
@@ -84,129 +87,117 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
         signal,
       },
       (res) => {
-        let buffer = '';
-        let accumulatedContent = '';
-        // Map of index -> { id, name, argumentsRaw } for incremental assembly
-        const toolCallAccumulator = {};
-        let resolved = false;
-        let promptTokens = 0;
-        let completionTokens = 0;
-
-        function buildToolCalls() {
-          const indices = Object.keys(toolCallAccumulator).map(Number).sort((a, b) => a - b);
-          if (indices.length === 0) return undefined;
-          return indices.map((idx) => {
-            const tc = toolCallAccumulator[idx];
-            let parsedArgs;
-            try {
-              parsedArgs = JSON.parse(tc.argumentsRaw || '{}');
-            } catch {
-              parsedArgs = tc.argumentsRaw || '';
-            }
-            return {
-              id: tc.id,
-              type: 'function',
-              function: {
-                name: tc.name,
-                arguments: parsedArgs,
-              },
-            };
-          });
-        }
-
-        function doResolve() {
-          if (resolved) return;
-          resolved = true;
-
-          const toolCalls = buildToolCalls();
-          resolve({
-            message: {
-              role: 'assistant',
-              content: accumulatedContent,
-              tool_calls: toolCalls,
-            },
-            usage: {
-              prompt_tokens: promptTokens,
-              completion_tokens: completionTokens,
-            },
-          });
-        }
-
-        function processLine(line) {
-          // SSE lines are prefixed with "data: "
-          if (!line.startsWith('data: ')) return;
-          const payload = line.slice(6).trim();
-
-          if (payload === '[DONE]') {
-            doResolve();
-            return;
-          }
-
-          let parsed;
-          try {
-            parsed = JSON.parse(payload);
-          } catch {
-            // Skip malformed SSE data lines
-            return;
-          }
-
-          // Extract usage if present (may appear on final chunk or with finish_reason)
-          if (parsed.usage) {
-            promptTokens = parsed.usage.prompt_tokens ?? promptTokens;
-            completionTokens = parsed.usage.completion_tokens ?? completionTokens;
-          }
-
-          const choices = parsed.choices;
-          if (!Array.isArray(choices) || choices.length === 0) return;
-
-          const choice = choices[0];
-          const delta = choice.delta;
-          if (!delta) return;
-
-          // Accumulate content
-          if (delta.content) {
-            accumulatedContent += delta.content;
-            if (onChunk) onChunk(delta.content);
-          }
-
-          // Accumulate tool_calls incrementally by index
-          if (Array.isArray(delta.tool_calls)) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index ?? 0;
-              if (!toolCallAccumulator[idx]) {
-                toolCallAccumulator[idx] = { id: '', name: '', argumentsRaw: '' };
-              }
-              const acc = toolCallAccumulator[idx];
-              if (tc.id) acc.id = tc.id;
-              if (tc.function) {
-                if (tc.function.name) acc.name += tc.function.name;
-                if (tc.function.arguments) acc.argumentsRaw += tc.function.arguments;
-              }
-            }
-          }
-        }
+        let rawData = '';
 
         res.on('data', (chunk) => {
-          buffer += chunk.toString();
-          // SSE events are separated by blank lines (\n\n); individual lines
-          // within an event are separated by \n. Split on \n and process.
-          const lines = buffer.split('\n');
-          // Keep the last (potentially incomplete) line in the buffer
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            processLine(line);
-            if (resolved) break;
-          }
+          rawData += chunk.toString();
         });
 
         res.on('end', () => {
-          // Flush any remaining buffered content
-          if (buffer.trim()) {
-            processLine(buffer.trim());
+          try {
+            if (!useStreaming) {
+              // Non-streaming: parse single JSON response
+              const parsed = JSON.parse(rawData);
+
+              if (parsed.error) {
+                reject(new Error(`OpenAI API error: ${parsed.error.message || JSON.stringify(parsed.error)}`));
+                return;
+              }
+
+              const choice = parsed.choices?.[0];
+              const msg = choice?.message || {};
+              const content = msg.content || '';
+              if (onChunk && content) onChunk(content);
+
+              // Normalize tool_calls arguments from string to parsed object
+              let toolCalls;
+              if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+                toolCalls = msg.tool_calls.map(tc => ({
+                  id: tc.id,
+                  type: 'function',
+                  function: {
+                    name: tc.function.name,
+                    arguments: typeof tc.function.arguments === 'string'
+                      ? JSON.parse(tc.function.arguments)
+                      : tc.function.arguments,
+                  },
+                }));
+              }
+
+              resolve({
+                message: {
+                  role: 'assistant',
+                  content,
+                  tool_calls: toolCalls,
+                },
+                usage: {
+                  prompt_tokens: parsed.usage?.prompt_tokens || 0,
+                  completion_tokens: parsed.usage?.completion_tokens || 0,
+                },
+              });
+            } else {
+              // Streaming: parse SSE data lines
+              let accumulatedContent = '';
+              const toolCallAccumulator = {};
+              let promptTokens = 0;
+              let completionTokens = 0;
+
+              const lines = rawData.split('\n');
+              for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const payload = line.slice(6).trim();
+                if (payload === '[DONE]') break;
+
+                let parsed;
+                try { parsed = JSON.parse(payload); } catch { continue; }
+
+                if (parsed.usage) {
+                  promptTokens = parsed.usage.prompt_tokens ?? promptTokens;
+                  completionTokens = parsed.usage.completion_tokens ?? completionTokens;
+                }
+
+                const choice = parsed.choices?.[0];
+                const delta = choice?.delta;
+                if (!delta) continue;
+
+                if (delta.content) {
+                  accumulatedContent += delta.content;
+                  if (onChunk) onChunk(delta.content);
+                }
+
+                if (Array.isArray(delta.tool_calls)) {
+                  for (const tc of delta.tool_calls) {
+                    const idx = tc.index ?? 0;
+                    if (!toolCallAccumulator[idx]) {
+                      toolCallAccumulator[idx] = { id: '', name: '', argumentsRaw: '' };
+                    }
+                    const acc = toolCallAccumulator[idx];
+                    if (tc.id) acc.id = tc.id;
+                    if (tc.function) {
+                      if (tc.function.name) acc.name += tc.function.name;
+                      if (tc.function.arguments) acc.argumentsRaw += tc.function.arguments;
+                    }
+                  }
+                }
+              }
+
+              // Build tool_calls from accumulator
+              const indices = Object.keys(toolCallAccumulator).map(Number).sort((a, b) => a - b);
+              const toolCalls = indices.length > 0 ? indices.map(idx => {
+                const tc = toolCallAccumulator[idx];
+                let parsedArgs;
+                try { parsedArgs = JSON.parse(tc.argumentsRaw || '{}'); } catch { parsedArgs = tc.argumentsRaw; }
+                return { id: tc.id, type: 'function', function: { name: tc.name, arguments: parsedArgs } };
+              }) : undefined;
+
+              resolve({
+                message: { role: 'assistant', content: accumulatedContent, tool_calls: toolCalls },
+                usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens },
+              });
+            }
+          } catch (parseError) {
+            reject(new Error(`Failed to parse OpenAI response: ${parseError.message}`));
           }
-          // Resolve even if [DONE] was never seen (truncated stream)
-          doResolve();
         });
 
         res.on('error', reject);
