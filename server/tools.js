@@ -38,6 +38,7 @@ const TOOLS = [
   ...require('./tool-defs/audit-defs'),
   ...require('./tool-defs/workstation-defs'),
   ...require('./tool-defs/concurrency-defs'),
+  ...require('./tool-defs/economy-defs'),
 ];
 
 // ── Handler modules ──
@@ -64,6 +65,7 @@ const HANDLER_MODULES = [
   require('./handlers/audit-handlers'),
   require('./handlers/workstation-handlers'),
   require('./handlers/concurrency-handlers'),
+  require('./handlers/economy-handlers'),
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──

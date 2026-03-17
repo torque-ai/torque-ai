@@ -1064,13 +1064,38 @@ async function handleMcpRequest(request, session) {
 
   switch (method) {
     case 'initialize':
-      return {
+      const initializeResponse = {
         protocolVersion: '2024-11-05',
         capabilities: {
           tools: {},
         },
         serverInfo: SERVER_INFO,
       };
+      setTimeout(() => {
+        try {
+          const economyPolicy = require('./economy/policy');
+          const globalPolicy = economyPolicy.getGlobalEconomyPolicy();
+          if (globalPolicy && globalPolicy.enabled) {
+            const filtered = economyPolicy.filterProvidersForEconomy(globalPolicy);
+            sendJsonRpcNotification(session, 'notifications/message', {
+              level: 'info',
+              logger: 'torque',
+              data: {
+                type: 'economy_status',
+                enabled: true,
+                trigger: globalPolicy.trigger || 'manual',
+                scope: 'global',
+                reason: globalPolicy.reason || null,
+                blocked_providers: filtered ? filtered.blocked : [],
+                preferred_providers: filtered ? filtered.preferred : [],
+              },
+            });
+          }
+        } catch (err) {
+          logger.debug('Economy notification skipped: ' + err.message);
+        }
+      }, 0);
+      return initializeResponse;
 
     case 'tools/list': {
       let tools;

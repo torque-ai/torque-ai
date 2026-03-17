@@ -44,6 +44,26 @@ const V2_CP_HANDLER_LOOKUP = {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
   },
+  handleV2CpGetEconomyStatus: (req, res, ctx) => {
+    const query = require('url').parse(req.url, true).query;
+    const economyHandlers = require('../handlers/economy-handlers');
+    const result = economyHandlers.handleGetEconomyStatus(query);
+    const text = result?.content?.[0]?.text || '{}';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpSetEconomyMode: async (req, res, ctx) => {
+    const body = await new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', chunk => { data += chunk; });
+      req.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); } });
+    });
+    const economyHandlers = require('../handlers/economy-handlers');
+    const result = economyHandlers.handleSetEconomyMode(body);
+    const text = result?.content?.[0]?.text || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+  },
   // Remote execution
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,

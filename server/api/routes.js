@@ -1151,6 +1151,8 @@ const routes = [
   // Concurrency limits
   { method: 'GET', path: '/api/v2/concurrency', handlerName: 'handleV2CpGetConcurrencyLimits' },
   { method: 'POST', path: '/api/v2/concurrency/set', handlerName: 'handleV2CpSetConcurrencyLimit' },
+  { method: 'GET', path: '/api/v2/economy/status', handlerName: 'handleV2CpGetEconomyStatus' },
+  { method: 'POST', path: '/api/v2/economy/set', handlerName: 'handleV2CpSetEconomyMode' },
 
   // Shutdown — auth is handled inside handleShutdown (localhost bypass + key check)
   { method: 'POST', path: '/api/shutdown', handlerName: 'handleShutdown', skipAuth: true },

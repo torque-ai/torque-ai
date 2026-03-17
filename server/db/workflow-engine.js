@@ -177,6 +177,10 @@ function updateWorkflow(workflowId, updates) {
     fields.push('priority = ?');
     values.push(updates.priority);
   }
+  if (updates.economy_policy !== undefined) {
+    fields.push('economy_policy = ?');
+    values.push(updates.economy_policy);
+  }
 
   if (fields.length === 0) return getWorkflow(workflowId);
 

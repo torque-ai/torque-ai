@@ -487,6 +487,8 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
 
   safeAddColumn('workstations', 'vram_factor REAL');
   safeAddColumn('ollama_hosts', 'vram_factor REAL');
+  safeAddColumn('workflows', 'economy_policy TEXT DEFAULT NULL');
+  safeAddColumn('project_config', 'economy_policy TEXT DEFAULT NULL');
 
   // Phase 2: Migrate existing host data to workstations
   try {

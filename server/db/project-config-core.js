@@ -1136,6 +1136,10 @@ function setProjectConfig(project, config) {
       updates.push('prefer_remote_tests = ?');
       values.push(config.prefer_remote_tests);
     }
+    if (config.economy_policy !== undefined) {
+      updates.push('economy_policy = ?');
+      values.push(config.economy_policy);
+    }
 
     updates.push('updated_at = ?');
     values.push(now);
@@ -1158,8 +1162,8 @@ function setProjectConfig(project, config) {
         auto_pr_enabled, auto_pr_base_branch,
         default_provider, default_model, verify_command, auto_fix_enabled, test_pattern,
         auto_verify_on_completion, remote_agent_id, remote_project_path, prefer_remote_tests,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        economy_policy, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -1194,6 +1198,7 @@ function setProjectConfig(project, config) {
       config.remote_agent_id || null,
       config.remote_project_path || null,
       config.prefer_remote_tests !== undefined ? (config.prefer_remote_tests ? 1 : 0) : 0,
+      config.economy_policy || null,
       now,
       now
     );
@@ -2374,4 +2379,3 @@ const ownExports = {
 };
 
 module.exports = ownExports;
-

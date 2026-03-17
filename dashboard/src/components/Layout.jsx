@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
 import SessionSwitcher from './SessionSwitcher';
+import EconomyIndicator from './EconomyIndicator';
 
 const ROUTE_NAMES = {
   '/': 'Kanban',
@@ -374,6 +375,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
           <div className="flex items-center gap-3">
             {/* Session switcher */}
             <SessionSwitcher shortId={shortId} instanceId={instanceId} />
+            <EconomyIndicator />
             {/* Keyboard shortcut hint */}
             <span className="text-slate-600 text-xs hidden md:block">
               Press <kbd className="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-[10px] font-mono">?</kbd> for shortcuts
