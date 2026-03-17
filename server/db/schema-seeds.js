@@ -205,7 +205,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertRateLimit.run('openrouter', 1, 20, 50, null, null, 0, 'UTC', now);
   insertRateLimit.run('ollama-cloud', 1, 10, 500, 100000, null, 0, 'UTC', now);
   insertConfig.run('ollama_host', 'http://localhost:11434');
-  insertConfig.run('ollama_model', 'deepseek-r1:14b');
+  insertConfig.run('ollama_model', 'qwen2.5-coder:32b');
   insertConfig.run('smart_routing_enabled', '1');
   insertConfig.run('smart_routing_default_provider', 'aider-ollama');
   insertConfig.run('ollama_fallback_provider', 'codex');
