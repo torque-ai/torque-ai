@@ -72,8 +72,11 @@ function getConcurrencyLimits() {
     const mappedWorkstations = Array.isArray(workstations)
       ? workstations.map((workstation) => {
           const gpuVram = Number(workstation.gpu_vram_mb);
+          const wsFactor = (workstation.vram_factor && workstation.vram_factor >= 0.5 && workstation.vram_factor <= 1.0)
+            ? workstation.vram_factor : null;
+          const effectiveFactor = wsFactor || vramOverheadFactor;
           const effectiveVramBudget = Number.isFinite(gpuVram)
-            ? Math.round(gpuVram * vramOverheadFactor)
+            ? Math.round(gpuVram * effectiveFactor)
             : null;
 
           return {
@@ -81,6 +84,7 @@ function getConcurrencyLimits() {
             host: workstation.host,
             max_concurrent: workstation.max_concurrent,
             gpu_vram_mb: workstation.gpu_vram_mb,
+            vram_factor: wsFactor,
             effective_vram_budget_mb: effectiveVramBudget,
             running_tasks: workstation.running_tasks,
           };
@@ -97,6 +101,7 @@ function getConcurrencyLimits() {
             max_concurrent: host.max_concurrent,
             running_tasks: host.running_tasks,
             memory_limit_mb: host.memory_limit_mb,
+            vram_factor: host.vram_factor || null,
           }))
         : [];
     } catch {
@@ -148,13 +153,30 @@ function setConcurrencyLimit(args = {}) {
     return response('target is required for this scope.');
   }
 
-  const maxConcurrent = parseMaxConcurrent(args.max_concurrent);
-  if (maxConcurrent.error) {
-    return response(maxConcurrent.error);
+  // Allow setting vram_factor per-host/workstation alongside or instead of max_concurrent
+  const hasMaxConcurrent = args.max_concurrent !== undefined && args.max_concurrent !== null;
+  const hasVramFactor = args.vram_factor !== undefined && args.vram_factor !== null;
+
+  if (!hasMaxConcurrent && !hasVramFactor) {
+    return response('max_concurrent or vram_factor is required for this scope.');
   }
-  const mc = maxConcurrent.value;
+
+  let mc = null;
+  if (hasMaxConcurrent) {
+    const maxConcurrent = parseMaxConcurrent(args.max_concurrent);
+    if (maxConcurrent.error) return response(maxConcurrent.error);
+    mc = maxConcurrent.value;
+  }
+
+  let hostVramFactor = null;
+  if (hasVramFactor) {
+    const parsed = parseVramFactor(args.vram_factor);
+    if (parsed.error) return response(parsed.error);
+    hostVramFactor = parsed.value;
+  }
 
   if (scope === 'provider') {
+    if (!hasMaxConcurrent) return response('max_concurrent is required for provider scope.');
     try {
       const db = getDb();
       const existingProvider = db.prepare('SELECT provider FROM provider_config WHERE provider = ?').get(target);
@@ -177,10 +199,17 @@ function setConcurrencyLimit(args = {}) {
         return response(`Workstation '${target}' not found.`);
       }
 
-      workstationModel.updateWorkstation(workstation.id, { max_concurrent: mc });
-      return response(`Set max_concurrent for workstation '${target}' to ${mc}.`);
+      const updates = {};
+      if (mc !== null) updates.max_concurrent = mc;
+      if (hostVramFactor !== null) updates.vram_factor = hostVramFactor;
+      workstationModel.updateWorkstation(workstation.id, updates);
+
+      const parts = [];
+      if (mc !== null) parts.push(`max_concurrent=${mc}`);
+      if (hostVramFactor !== null) parts.push(`vram_factor=${hostVramFactor}`);
+      return response(`Updated workstation '${target}': ${parts.join(', ')}.`);
     } catch (error) {
-      return response(`Failed to set workstation max_concurrent: ${error.message}`);
+      return response(`Failed to update workstation: ${error.message}`);
     }
   }
 
@@ -190,8 +219,15 @@ function setConcurrencyLimit(args = {}) {
       return response(`Host '${target}' not found.`);
     }
 
-    hostManagement.updateOllamaHost(target, { max_concurrent: mc });
-    return response(`Set max_concurrent for host '${target}' to ${mc}.`);
+    const updates = {};
+    if (mc !== null) updates.max_concurrent = mc;
+    if (hostVramFactor !== null) updates.vram_factor = hostVramFactor;
+    hostManagement.updateOllamaHost(target, updates);
+
+    const parts = [];
+    if (mc !== null) parts.push(`max_concurrent=${mc}`);
+    if (hostVramFactor !== null) parts.push(`vram_factor=${hostVramFactor}`);
+    return response(`Updated host '${host.name}': ${parts.join(', ')}.`);
   }
 
   return response('Invalid scope. Valid scopes are: vram_factor, provider, workstation, host.');

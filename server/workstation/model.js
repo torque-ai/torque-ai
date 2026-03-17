@@ -117,7 +117,7 @@ function updateWorkstation(id, updates) {
     'last_model_used', 'model_loaded_at', 'gpu_metrics_port', 'models_updated_at',
     'gpu_name', 'gpu_vram_mb',
     'status', 'consecutive_failures', 'last_health_check', 'last_healthy',
-    'max_concurrent', 'running_tasks', 'priority', 'enabled', 'is_default',
+    'max_concurrent', 'running_tasks', 'priority', 'enabled', 'is_default', 'vram_factor',
   ];
 
   const fields = [];

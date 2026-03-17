@@ -485,6 +485,9 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     logger.debug(`Schema migration (workstations): ${e.message}`);
   }
 
+  safeAddColumn('workstations', 'vram_factor REAL');
+  safeAddColumn('ollama_hosts', 'vram_factor REAL');
+
   // Phase 2: Migrate existing host data to workstations
   try {
     const { migrateExistingHostsToWorkstations } = require('../workstation/migration');

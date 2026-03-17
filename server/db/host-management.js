@@ -180,7 +180,7 @@ function listOllamaHosts(options = {}) {
 function updateOllamaHost(hostId, updates) {
   const allowedFields = ['name', 'url', 'enabled', 'status', 'consecutive_failures',
     'last_health_check', 'last_healthy', 'running_tasks', 'models_cache', 'models_updated_at',
-    'memory_limit_mb', 'max_concurrent', 'priority', 'settings', 'gpu_metrics_port'];
+    'memory_limit_mb', 'max_concurrent', 'priority', 'settings', 'gpu_metrics_port', 'vram_factor'];
   const fields = [];
   const values = [];
 
@@ -556,7 +556,12 @@ function checkVramBudget(hostId, requestedModel) {
   const vramTotalMb = (ws && ws.gpu_vram_mb) || host.memory_limit_mb || 0;
   if (!vramTotalMb) return { allowed: true }; // No VRAM info, can't gate
 
-  const vramBudgetMb = vramTotalMb * getVramOverheadFactor();
+  // Per-host VRAM factor with global fallback
+  const perHostFactor = (ws && ws.vram_factor) || host.vram_factor || null;
+  const effectiveFactor = (perHostFactor && perHostFactor >= 0.5 && perHostFactor <= 1.0)
+    ? perHostFactor
+    : getVramOverheadFactor();
+  const vramBudgetMb = vramTotalMb * effectiveFactor;
 
   // Get requested model size
   const requestedSizeMb = getModelSizeMb(host, requestedModel);
