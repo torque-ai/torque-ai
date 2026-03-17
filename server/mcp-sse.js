@@ -1610,6 +1610,43 @@ function setShuttingDown(value) {
   shuttingDown = Boolean(value);
 }
 
+// ── Model registry notifications ─────────────────────────────────────────────
+
+process.on('torque:model-discovered', (data) => {
+  for (const [, session] of sessions) {
+    try {
+      sendJsonRpcNotification(session, 'notifications/message', {
+        level: 'info',
+        logger: 'torque',
+        data: {
+          type: 'model_discovered',
+          provider: data.provider,
+          model: data.modelName,
+          host_id: data.hostId || 'cloud',
+        },
+      });
+    } catch (_e) { void _e; /* ignore disconnected sessions */ }
+  }
+});
+
+process.on('torque:model-removed', (data) => {
+  for (const [, session] of sessions) {
+    try {
+      sendJsonRpcNotification(session, 'notifications/message', {
+        level: 'warning',
+        logger: 'torque',
+        data: {
+          type: 'model_removed',
+          provider: data.provider,
+          model: data.modelName,
+          host_id: data.hostId || 'cloud',
+          rerouted: data.rerouted || 0,
+        },
+      });
+    } catch (_e) { void _e; }
+  }
+});
+
 module.exports = {
   start,
   stop,

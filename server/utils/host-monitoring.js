@@ -178,6 +178,20 @@ async function runHostHealthChecks() {
           clearMonitoringIssue(hostLogKey);
         }
 
+        // Feed discovered models into registry for approval tracking
+        if (result.healthy && result.models && result.models.length > 0) {
+          try {
+            const registry = require('../models/registry');
+            const ollamaProviders = ['ollama', 'hashline-ollama', 'aider-ollama'];
+            for (const provider of ollamaProviders) {
+              const sync = registry.syncModelsFromHealthCheck(provider, host.id, result.models);
+              if (sync.new.length > 0) {
+                logger.info(`[Health Check] ${sync.new.length} new model(s) on ${host.name || host.url}: ${sync.new.join(', ')}`);
+              }
+            }
+          } catch (_err) { void _err; /* registry not available */ }
+        }
+
         // Check if host just transitioned to down status (3 consecutive failures)
         if (!result.healthy) {
           const updatedHost = db.getOllamaHost(host.id);
