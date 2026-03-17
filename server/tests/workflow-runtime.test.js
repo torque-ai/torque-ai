@@ -1461,6 +1461,27 @@ describe('workflow-runtime', () => {
       expect(['pending', 'queued']).toContain(db.getTask(c).status);
       expect(['pending', 'queued']).toContain(db.getTask(d).status);
     });
+
+    it('does not unblock dependents when workflow is paused', () => {
+      const wfId = createWorkflow({ name: 'runtime-eval-paused', status: 'running' });
+      const a = createWorkflowTask(wfId, 'A', 'completed');
+      const b = createWorkflowTask(wfId, 'B', 'blocked');
+
+      db.addTaskDependency({
+        workflow_id: wfId,
+        task_id: b,
+        depends_on_task_id: a,
+        on_fail: 'skip',
+      });
+
+      // Pause the workflow before evaluating dependencies
+      db.updateWorkflow(wfId, { status: 'paused' });
+
+      mod.evaluateWorkflowDependencies(a, wfId);
+
+      // Task B should remain blocked — pause prevents cascading
+      expect(db.getTask(b).status).toBe('blocked');
+    });
   });
 
   describe('circular dependency detection', () => {

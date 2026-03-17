@@ -694,7 +694,7 @@ function handleWorkflowTermination(taskId) {
     if (!workflowId) return;
 
     const workflow = db.getWorkflow(workflowId);
-    if (!workflow || ['completed', 'failed', 'cancelled'].includes(workflow.status)) {
+    if (!workflow || ['completed', 'failed', 'cancelled', 'paused'].includes(workflow.status)) {
       return;
     }
 
@@ -741,7 +741,7 @@ function handleWorkflowTermination(taskId) {
  */
 function evaluateWorkflowDependencies(taskId, workflowId) {
   const workflow = db.getWorkflow(workflowId);
-  if (!workflow || ['completed', 'failed', 'cancelled'].includes(workflow.status)) {
+  if (!workflow || ['completed', 'failed', 'cancelled', 'paused'].includes(workflow.status)) {
     return;
   }
 
