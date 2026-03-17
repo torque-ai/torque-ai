@@ -821,32 +821,7 @@ export default function Hosts({ hostActivity }) {
         </div>
       </div>
 
-      {concurrencyData && (
-        <div className="glass-card p-5 mb-6">
-          <h3 className="text-lg font-semibold text-white mb-3">VRAM Budget</h3>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-400">Factor:</span>
-            <input type="range" min={50} max={100}
-              value={Math.round((concurrencyData.vram_overhead_factor || 0.95) * 100)}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10) / 100;
-                concurrency.set({ scope: 'vram_factor', vram_factor: val }).then(() => {
-                  setConcurrencyData((prev) => ({ ...prev, vram_overhead_factor: val }));
-                  toast.success('VRAM budget set to ' + e.target.value + '%');
-                });
-              }}
-              className="flex-1" />
-            <span className="text-sm text-white font-mono w-12">
-              {Math.round((concurrencyData.vram_overhead_factor || 0.95) * 100)}%
-            </span>
-          </div>
-          {concurrencyData.workstations?.filter((ws) => ws.gpu_vram_mb).map((ws) => (
-            <p key={ws.name} className="text-xs text-slate-500 mt-1">
-              {ws.name}: {(ws.effective_vram_budget_mb / 1024).toFixed(1)} GB of {(ws.gpu_vram_mb / 1024).toFixed(1)} GB usable
-            </p>
-          ))}
-        </div>
-      )}
+      {/* Global VRAM slider removed — VRAM budget is now per-host/workstation */}
 
       {hostList.length === 0 ? (
         <div className="glass-card p-12 text-center">
