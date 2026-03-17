@@ -1148,6 +1148,10 @@ const routes = [
   { method: 'GET', path: '/api/free-tier/history', handlerName: 'handleGetFreeTierHistory', deprecated: '/api/v2/free-tier/history' },
   { method: 'GET', path: '/api/free-tier/auto-scale', handlerName: 'handleGetFreeTierAutoScale', deprecated: '/api/v2/free-tier/auto-scale' },
 
+  // Concurrency limits
+  { method: 'GET', path: '/api/v2/concurrency', handlerName: 'handleV2CpGetConcurrencyLimits' },
+  { method: 'POST', path: '/api/v2/concurrency/set', handlerName: 'handleV2CpSetConcurrencyLimit' },
+
   // Shutdown — auth is handled inside handleShutdown (localhost bypass + key check)
   { method: 'POST', path: '/api/shutdown', handlerName: 'handleShutdown', skipAuth: true },
 

@@ -21,10 +21,29 @@ const v2GovernanceHandlers = require('./v2-governance-handlers');
 const v2AnalyticsHandlers = require('./v2-analytics-handlers');
 const v2InfrastructureHandlers = require('./v2-infrastructure-handlers');
 const remoteAgentHandlers = require('../handlers/remote-agent-handlers');
+const concurrencyHandlers = require('../handlers/concurrency-handlers');
 
 // ─── Handler Lookup ──────────────────────────────────────────────────────────
 
 const V2_CP_HANDLER_LOOKUP = {
+  // Concurrency limits
+  handleV2CpGetConcurrencyLimits: (req, res, ctx) => {
+    const result = concurrencyHandlers.handleGetConcurrencyLimits();
+    const text = result?.content?.[0]?.text || '{}';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpSetConcurrencyLimit: async (req, res, ctx) => {
+    const body = await new Promise((resolve, reject) => {
+      let data = '';
+      req.on('data', chunk => { data += chunk; });
+      req.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); } });
+    });
+    const result = concurrencyHandlers.handleSetConcurrencyLimit(body);
+    const text = result?.content?.[0]?.text || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+  },
   // Remote execution
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
