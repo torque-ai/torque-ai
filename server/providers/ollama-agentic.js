@@ -264,10 +264,23 @@ async function runAgenticLoop({
     prevToolCallHash = iterHash;
 
     // Add assistant message to conversation
+    // Re-stringify tool_calls arguments — OpenAI-compatible APIs require arguments as JSON string,
+    // but our adapters parse them to objects for the tool executor
+    const rawToolCalls = assistantMessage.tool_calls
+      ? assistantMessage.tool_calls.map(tc => ({
+          ...tc,
+          function: {
+            ...tc.function,
+            arguments: typeof tc.function.arguments === 'string'
+              ? tc.function.arguments
+              : JSON.stringify(tc.function.arguments),
+          },
+        }))
+      : undefined;
     messages.push({
       role: 'assistant',
       content: assistantMessage.content || '',
-      ...(assistantMessage.tool_calls ? { tool_calls: assistantMessage.tool_calls } : {}),
+      ...(rawToolCalls ? { tool_calls: rawToolCalls } : {}),
     });
 
     // Execute each tool call and add results
