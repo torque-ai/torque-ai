@@ -129,6 +129,45 @@ const V2_CP_HANDLER_LOOKUP = {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
+  // Model registry
+  handleV2CpListModels: (req, res, ctx) => {
+    const modelHandlers = require('../handlers/model-handlers');
+    const result = modelHandlers.handleListModels(req.query || {});
+    const text = result?.content?.[0]?.text || '{}';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpListPendingModels: (req, res, ctx) => {
+    const modelHandlers = require('../handlers/model-handlers');
+    const result = modelHandlers.handleListPendingModels();
+    const text = result?.content?.[0]?.text || '{}';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpApproveModel: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const modelHandlers = require('../handlers/model-handlers');
+    const result = modelHandlers.handleApproveModel(body);
+    const text = result?.content?.[0]?.text || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpDenyModel: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const modelHandlers = require('../handlers/model-handlers');
+    const result = modelHandlers.handleDenyModel(body);
+    const text = result?.content?.[0]?.text || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpBulkApproveModels: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const modelHandlers = require('../handlers/model-handlers');
+    const result = modelHandlers.handleBulkApproveModels(body);
+    const text = result?.content?.[0]?.text || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+  },
   // Remote execution
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,

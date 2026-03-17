@@ -40,6 +40,8 @@ const TOOLS = [
   ...require('./tool-defs/workstation-defs'),
   ...require('./tool-defs/concurrency-defs'),
   ...require('./tool-defs/economy-defs'),
+  ...require('./tool-defs/model-defs'),
+  ...require('./tool-defs/provider-crud-defs'),
 ];
 
 // ── Handler modules ──
@@ -68,6 +70,8 @@ const HANDLER_MODULES = [
   require('./handlers/workstation-handlers'),
   require('./handlers/concurrency-handlers'),
   require('./handlers/economy-handlers'),
+  require('./handlers/model-handlers'),
+  require('./handlers/provider-crud-handlers'),
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──

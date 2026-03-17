@@ -1198,6 +1198,13 @@ const routes = [
   { method: 'GET', path: '/api/v2/economy/status', handlerName: 'handleV2CpGetEconomyStatus', middleware: buildV2Middleware() },
   { method: 'POST', path: '/api/v2/economy/set', handlerName: 'handleV2CpSetEconomyMode', middleware: buildV2Middleware() },
 
+  // Model registry
+  { method: 'GET', path: '/api/v2/models', handlerName: 'handleV2CpListModels', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/models/pending', handlerName: 'handleV2CpListPendingModels', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/models/approve', handlerName: 'handleV2CpApproveModel', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/models/deny', handlerName: 'handleV2CpDenyModel', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/models/bulk-approve', handlerName: 'handleV2CpBulkApproveModels', middleware: buildV2Middleware() },
+
   // Shutdown — auth is handled inside handleShutdown (localhost bypass + key check)
   { method: 'POST', path: '/api/shutdown', handlerName: 'handleShutdown', skipAuth: true },
 
