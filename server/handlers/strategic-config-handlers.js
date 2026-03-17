@@ -20,7 +20,7 @@ function resolveWorkingDirectory(args) {
       const defaults = db.getProjectDefaults();
       if (defaults && defaults.working_directory) return defaults.working_directory;
     }
-  } catch { /* best effort */ }
+  } catch (_e) { /* best effort — db may not be initialized */ }
   return null;
 }
 

@@ -9,7 +9,7 @@ const db = require('../database');
 let configLoader = null;
 try {
   configLoader = require('../orchestrator/config-loader');
-} catch { /* config-loader not yet available */ }
+} catch (_e) { /* config-loader not yet available — optional dependency */ }
 
 // Module-level usage accumulator (decoupled from instance lifecycle)
 const usageByProject = new Map();
@@ -28,7 +28,7 @@ function getBrain(workingDirectory, providerOverride, modelOverride, configOverr
   if (configLoader && typeof configLoader.resolveConfig === 'function') {
     try {
       resolvedConfig = configLoader.resolveConfig(workingDirectory);
-    } catch { /* fall back to empty config */ }
+    } catch (_e) { /* fall back to empty config if project has no config file */ }
   }
 
   // Apply config_override (ephemeral, per-call)

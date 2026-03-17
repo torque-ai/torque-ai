@@ -42,6 +42,7 @@ const TOOLS = [
   ...require('./tool-defs/economy-defs'),
   ...require('./tool-defs/model-defs'),
   ...require('./tool-defs/routing-template-defs'),
+  ...require('./tool-defs/strategic-config-defs'),
 ];
 
 // ── Handler modules ──
