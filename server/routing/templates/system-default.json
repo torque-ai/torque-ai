@@ -1,13 +1,13 @@
 {
   "name": "System Default",
-  "description": "Mirrors TORQUE's built-in routing behavior",
+  "description": "Balanced routing — local for simple tasks, free cloud for complex work",
   "rules": {
-    "security": "anthropic",
-    "xaml_wpf": "anthropic",
-    "architectural": "deepinfra",
-    "reasoning": "deepinfra",
+    "security": "ollama-cloud",
+    "xaml_wpf": "ollama-cloud",
+    "architectural": "ollama-cloud",
+    "reasoning": "ollama-cloud",
     "large_code_gen": "codex",
-    "documentation": "groq",
+    "documentation": "ollama",
     "simple_generation": "ollama",
     "targeted_file_edit": "hashline-ollama",
     "default": "ollama"

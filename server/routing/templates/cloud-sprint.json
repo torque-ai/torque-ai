@@ -2,8 +2,8 @@
   "name": "Cloud Sprint",
   "description": "Maximum speed — everything to cloud providers",
   "rules": {
-    "security": "anthropic",
-    "xaml_wpf": "anthropic",
+    "security": "codex",
+    "xaml_wpf": "codex",
     "architectural": "codex",
     "reasoning": "codex",
     "large_code_gen": "codex",

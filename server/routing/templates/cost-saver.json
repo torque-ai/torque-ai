@@ -2,7 +2,7 @@
   "name": "Cost Saver",
   "description": "Everything local except complex code generation",
   "rules": {
-    "security": "anthropic",
+    "security": "ollama",
     "xaml_wpf": "ollama",
     "architectural": "ollama",
     "reasoning": "ollama",
