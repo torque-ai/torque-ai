@@ -133,6 +133,10 @@ const SERVER_INFO = {
 // Maintenance scheduler interval (stores the interval reference)
 let maintenanceInterval = null;
 
+// Coordination scheduler intervals (agent health, lease expiry, lock cleanup)
+let coordinationAgentInterval = null;
+let coordinationLockInterval = null;
+
 // Track readline interface for cleanup on shutdown
 let readlineInterface = null;
 
@@ -313,6 +317,15 @@ async function gracefulShutdown(signal) {
       if (maintenanceInterval) {
         clearInterval(maintenanceInterval);
         maintenanceInterval = null;
+      }
+      // Clean up coordination scheduler intervals
+      if (coordinationAgentInterval) {
+        clearInterval(coordinationAgentInterval);
+        coordinationAgentInterval = null;
+      }
+      if (coordinationLockInterval) {
+        clearInterval(coordinationLockInterval);
+        coordinationLockInterval = null;
       }
       // Clean up error rate cleanup interval
       if (errorRateCleanupInterval) {
@@ -637,6 +650,9 @@ function init() {
   // Start maintenance scheduler
   startMaintenanceScheduler();
 
+  // Start coordination scheduler (agent health, lease expiry, lock cleanup)
+  startCoordinationScheduler();
+
   // Auto-start dashboard (doesn't open browser automatically)
   const dashboardPort = serverConfig.getInt('dashboard_port', 3456);
   dashboard.start({ port: dashboardPort, openBrowser: false, taskManager }).then(dashResult => {
@@ -870,6 +886,46 @@ function startMaintenanceScheduler() {
       debugLog(`Maintenance scheduler error: ${err.message}`);
     }
   }, 60000); // Check every minute
+}
+
+/**
+ * Start the coordination scheduler
+ * C-3: Runs agent health checks, lease expiry, and lock cleanup on separate intervals
+ * Idempotent - safe to call multiple times
+ */
+function startCoordinationScheduler() {
+  // Clear existing intervals to prevent duplicates
+  if (coordinationAgentInterval) {
+    clearInterval(coordinationAgentInterval);
+    coordinationAgentInterval = null;
+  }
+  if (coordinationLockInterval) {
+    clearInterval(coordinationLockInterval);
+    coordinationLockInterval = null;
+  }
+
+  // Every 30 seconds: check offline agents and expire stale leases
+  coordinationAgentInterval = setInterval(() => {
+    try {
+      db.checkOfflineAgents();
+    } catch (err) {
+      debugLog(`checkOfflineAgents error: ${err.message}`);
+    }
+    try {
+      db.expireStaleLeases();
+    } catch (err) {
+      debugLog(`expireStaleLeases error: ${err.message}`);
+    }
+  }, 30000);
+
+  // Every 5 minutes: clean up expired locks
+  coordinationLockInterval = setInterval(() => {
+    try {
+      db.cleanupExpiredLocks();
+    } catch (err) {
+      debugLog(`cleanupExpiredLocks error: ${err.message}`);
+    }
+  }, 300000);
 }
 
 /**
@@ -1365,6 +1421,14 @@ const _testing = {
       clearInterval(maintenanceInterval);
       maintenanceInterval = null;
     }
+    if (coordinationAgentInterval) {
+      clearInterval(coordinationAgentInterval);
+      coordinationAgentInterval = null;
+    }
+    if (coordinationLockInterval) {
+      clearInterval(coordinationLockInterval);
+      coordinationLockInterval = null;
+    }
     if (queueProcessingInterval) {
       clearInterval(queueProcessingInterval);
       queueProcessingInterval = null;
@@ -1406,6 +1470,7 @@ module.exports = {
   killStaleInstance,
   init,
   startMaintenanceScheduler,
+  startCoordinationScheduler,
   getAutoArchiveStatuses,
   getAgentRegistry,
   _testing,
