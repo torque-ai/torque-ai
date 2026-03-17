@@ -5,12 +5,13 @@
  *
  * Task 2: Ollama chat adapter (ollama-chat.js)
  * Task 3: OpenAI-compatible chat adapter (openai-chat.js)
- * Task 4 will append its describe block to this file.
+ * Task 4: Google AI (Gemini) chat adapter (google-chat.js)
  */
 
 const http = require('http');
 const { chatCompletion } = require('../providers/adapters/ollama-chat');
 const { chatCompletion: openaiChatCompletion } = require('../providers/adapters/openai-chat');
+const { chatCompletion: googleChatCompletion } = require('../providers/adapters/google-chat');
 
 // ---------------------------------------------------------------------------
 // Mock server helpers
@@ -513,5 +514,209 @@ describe('openai-chat adapter — chatCompletion', () => {
         messages: [{ role: 'user', content: 'hello' }],
       })
     ).rejects.toThrow('API key required for OpenAI-compatible provider');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Google AI (Gemini) chat adapter — describe block
+// ---------------------------------------------------------------------------
+
+/**
+ * Write a single Gemini-format JSON response to the HTTP response.
+ * @param {http.ServerResponse} res
+ * @param {Object} body - Gemini response object
+ */
+function writeGeminiJson(res, body) {
+  const json = JSON.stringify(body);
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(json),
+  });
+  res.end(json);
+}
+
+describe('google-chat adapter — chatCompletion', () => {
+  let server;
+  let host;
+  /** Mutable handler — each test sets this to control the mock server's behaviour. */
+  let requestHandler;
+
+  beforeAll(() => new Promise((resolve) => {
+    server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        req._parsedBody = body ? JSON.parse(body) : null;
+        if (requestHandler) {
+          requestHandler(req, res);
+        } else {
+          res.writeHead(500);
+          res.end('No handler set');
+        }
+      });
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      host = `http://127.0.0.1:${port}`;
+      resolve();
+    });
+  }));
+
+  afterAll(() => new Promise((resolve) => {
+    server.close(resolve);
+  }));
+
+  // Reset between tests
+  afterEach(() => {
+    requestHandler = null;
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 1: maps Gemini functionCall to standard tool_calls format
+  // -------------------------------------------------------------------------
+
+  it('maps Gemini functionCall parts to standard tool_calls format', async () => {
+    requestHandler = (req, res) => {
+      expect(req.method).toBe('POST');
+      // URL should contain model name and API key
+      expect(req.url).toContain('gemini-1.5-pro');
+      expect(req.url).toContain('key=test-api-key');
+      // Verify tools were sent in Gemini format
+      const body = req._parsedBody;
+      expect(Array.isArray(body.tools)).toBe(true);
+      expect(Array.isArray(body.tools[0].functionDeclarations)).toBe(true);
+      expect(body.tools[0].functionDeclarations[0].name).toBe('list_directory');
+
+      writeGeminiJson(res, {
+        candidates: [{
+          content: {
+            parts: [{ functionCall: { name: 'list_directory', args: { path: '.' } } }],
+            role: 'model',
+          },
+          finishReason: 'STOP',
+        }],
+        usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 15 },
+      });
+    };
+
+    const tools = [
+      {
+        type: 'function',
+        function: {
+          name: 'list_directory',
+          description: 'List files in a directory',
+          parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+        },
+      },
+    ];
+
+    const result = await googleChatCompletion({
+      host,
+      apiKey: 'test-api-key',
+      model: 'gemini-1.5-pro',
+      messages: [{ role: 'user', content: 'List the files in the current directory' }],
+      tools,
+    });
+
+    expect(result.message.role).toBe('assistant');
+    expect(Array.isArray(result.message.tool_calls)).toBe(true);
+    expect(result.message.tool_calls).toHaveLength(1);
+    expect(result.message.tool_calls[0].type).toBe('function');
+    expect(result.message.tool_calls[0].function.name).toBe('list_directory');
+    expect(result.message.tool_calls[0].function.arguments).toEqual({ path: '.' });
+    expect(result.usage.prompt_tokens).toBe(80);
+    expect(result.usage.completion_tokens).toBe(15);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 2: handles plain text response (no function calls)
+  // -------------------------------------------------------------------------
+
+  it('handles plain text response with no function calls', async () => {
+    requestHandler = (req, res) => {
+      const body = req._parsedBody;
+      // tools should be omitted from the request body when not provided
+      expect(body.tools).toBeUndefined();
+
+      writeGeminiJson(res, {
+        candidates: [{
+          content: {
+            parts: [{ text: 'The answer is 42.' }],
+            role: 'model',
+          },
+          finishReason: 'STOP',
+        }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
+      });
+    };
+
+    const chunks = [];
+    const result = await googleChatCompletion({
+      host,
+      apiKey: 'test-api-key',
+      model: 'gemini-1.5-flash',
+      messages: [{ role: 'user', content: 'What is the meaning of life?' }],
+      onChunk: (text) => chunks.push(text),
+    });
+
+    expect(result.message.role).toBe('assistant');
+    expect(result.message.content).toBe('The answer is 42.');
+    expect(result.message.tool_calls).toBeUndefined();
+    // onChunk should have been called with the full text content
+    expect(chunks).toEqual(['The answer is 42.']);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 3: normalizes usageMetadata to standard prompt_tokens/completion_tokens
+  // -------------------------------------------------------------------------
+
+  it('normalises usageMetadata to prompt_tokens and completion_tokens', async () => {
+    requestHandler = (req, res) => {
+      writeGeminiJson(res, {
+        candidates: [{
+          content: {
+            parts: [{ text: 'Hello!' }],
+            role: 'model',
+          },
+          finishReason: 'STOP',
+        }],
+        usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 35 },
+      });
+    };
+
+    const result = await googleChatCompletion({
+      host,
+      apiKey: 'test-api-key',
+      model: 'gemini-1.5-pro',
+      messages: [{ role: 'user', content: 'Hi' }],
+    });
+
+    expect(result.usage).toBeDefined();
+    expect(result.usage.prompt_tokens).toBe(120);
+    expect(result.usage.completion_tokens).toBe(35);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 4: rejects without API key
+  // -------------------------------------------------------------------------
+
+  it('rejects with descriptive error when apiKey is absent', async () => {
+    await expect(
+      googleChatCompletion({
+        host,
+        apiKey: '',
+        model: 'gemini-1.5-pro',
+        messages: [{ role: 'user', content: 'hello' }],
+      })
+    ).rejects.toThrow('API key required for Google AI provider');
+
+    await expect(
+      googleChatCompletion({
+        host,
+        apiKey: null,
+        model: 'gemini-1.5-pro',
+        messages: [{ role: 'user', content: 'hello' }],
+      })
+    ).rejects.toThrow('API key required for Google AI provider');
   });
 });
