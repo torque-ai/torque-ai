@@ -302,15 +302,6 @@ describe('db/provider-routing-core', () => {
       expect(result.reason).not.toContain('upgraded to');
     });
 
-    it('routes security tasks to anthropic when api key is present and provider is enabled', () => {
-      core.updateProvider('anthropic', { enabled: 1 });
-      db.setConfig('anthropic_api_key', 'anthropic-key');
-
-      const result = core.analyzeTaskForRouting('Perform a security audit on auth token handling', os.tmpdir(), []);
-      expect(result.provider).toBe('anthropic');
-      expect(result.reason).toContain('API routing');
-    });
-
     it('routes reasoning tasks to deepinfra when configured', () => {
       core.updateProvider('deepinfra', { enabled: 1 });
       db.setConfig('deepinfra_api_key', 'deepinfra-key');

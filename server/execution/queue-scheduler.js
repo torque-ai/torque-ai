@@ -925,7 +925,7 @@ function resolveCodexPendingTasks() {
     logger.info(`[Scheduler] Found ${stuck.length} task(s) stuck in codex-pending state`);
 
     const codexEnabled = serverConfig.isOptIn('codex_enabled');
-    const targetProvider = codexEnabled ? 'codex' : 'anthropic';
+    const targetProvider = codexEnabled ? 'codex' : 'ollama-cloud';
     const targetConfig = db.getProvider ? db.getProvider(targetProvider) : null;
 
     if (targetConfig && targetConfig.enabled) {

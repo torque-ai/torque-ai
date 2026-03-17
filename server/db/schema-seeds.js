@@ -138,9 +138,10 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertProvider.run('hashline-ollama', 1, 5, 'api', 'api', null, JSON.stringify([
       'connection refused', 'timeout', 'ECONNREFUSED', 'model not found'
     ]), 2, now);
-  insertProvider.run('anthropic', 0, 6, 'api', 'api', null, JSON.stringify([
-      'rate_limit_error', 'overloaded_error', '429', '529'
-    ]), 5, now);
+  // anthropic provider not seeded by default — add via provider CRUD if you have an API key
+  // insertProvider.run('anthropic', 0, 6, 'api', 'api', null, JSON.stringify([
+  //     'rate_limit_error', 'overloaded_error', '429', '529'
+  //   ]), 5, now);
   insertProvider.run('groq', 0, 7, 'api', 'api', null, JSON.stringify([
       'rate_limit', '429', 'model_not_available'
     ]), 10, now);

@@ -350,26 +350,13 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
 
   const descLower = (taskDescription || '').toLowerCase();
 
-  // API provider routing: Anthropic for security/XAML/complex, Groq for docs/explanations
-  const anthropicApiKey = serverConfig.getApiKey('anthropic');
+  // API provider routing: Groq for docs/explanations, DeepInfra/Hyperbolic for complex
   const groqApiKey = serverConfig.getApiKey('groq');
 
   const isSecurityTask = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i.test(taskDescription);
   const isXamlTask = /\b(xaml|wpf|uwp|maui|avalonia)\b/i.test(taskDescription) ||
     (files && files.some(f => /\.xaml$/i.test(f)));
   const isArchitecturalTask = /\b(architect|refactor.*multi|redesign|migration strategy|system design)\b/i.test(taskDescription);
-
-  if ((isSecurityTask || isXamlTask || isArchitecturalTask) && anthropicApiKey) {
-    const anthropicProvider = getProvider('anthropic');
-    if (anthropicProvider && anthropicProvider.enabled) {
-      const matchType = isSecurityTask ? 'security' : isXamlTask ? 'XAML/WPF' : 'architectural';
-      return {
-        provider: 'anthropic',
-        rule: null,
-        reason: `API routing: ${matchType} task → anthropic`
-      };
-    }
-  }
 
   // DeepInfra/Hyperbolic routing: complex reasoning and large-scope tasks to big models
   const deepinfraApiKey = serverConfig.getApiKey('deepinfra');
@@ -734,16 +721,15 @@ function getProviderFallbackChain(provider, options) {
   if (!chain) {
     // Local-first fallback chains — try local providers before cloud
     const defaultChains = {
-      'codex':           ['claude-cli', 'deepinfra', 'aider-ollama', 'ollama', 'anthropic'],
-      'claude-cli':      ['codex', 'deepinfra', 'aider-ollama', 'ollama', 'anthropic'],
-      'anthropic':       ['deepinfra', 'claude-cli', 'codex', 'aider-ollama', 'ollama'],
-      'groq':            ['ollama-cloud', 'deepinfra', 'anthropic', 'claude-cli', 'aider-ollama', 'ollama'],
-      'ollama-cloud':    ['cerebras', 'deepinfra', 'groq', 'anthropic', 'codex', 'claude-cli'],
-      'cerebras':        ['google-ai', 'groq', 'ollama-cloud', 'deepinfra', 'anthropic', 'codex'],
-      'google-ai':       ['openrouter', 'groq', 'cerebras', 'ollama-cloud', 'deepinfra', 'anthropic', 'codex'],
-      'openrouter':      ['google-ai', 'groq', 'cerebras', 'ollama-cloud', 'deepinfra', 'anthropic', 'codex'],
-      'hyperbolic':      ['deepinfra', 'ollama-cloud', 'anthropic', 'claude-cli', 'codex', 'aider-ollama'],
-      'deepinfra':       ['ollama-cloud', 'hyperbolic', 'anthropic', 'claude-cli', 'codex', 'aider-ollama'],
+      'codex':           ['claude-cli', 'deepinfra', 'ollama-cloud', 'aider-ollama', 'ollama'],
+      'claude-cli':      ['codex', 'deepinfra', 'ollama-cloud', 'aider-ollama', 'ollama'],
+      'groq':            ['ollama-cloud', 'deepinfra', 'claude-cli', 'aider-ollama', 'ollama'],
+      'ollama-cloud':    ['cerebras', 'deepinfra', 'groq', 'codex', 'claude-cli'],
+      'cerebras':        ['google-ai', 'groq', 'ollama-cloud', 'deepinfra', 'codex'],
+      'google-ai':       ['openrouter', 'groq', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
+      'openrouter':      ['google-ai', 'groq', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
+      'hyperbolic':      ['deepinfra', 'ollama-cloud', 'claude-cli', 'codex', 'aider-ollama'],
+      'deepinfra':       ['ollama-cloud', 'hyperbolic', 'claude-cli', 'codex', 'aider-ollama'],
       'ollama':          ['aider-ollama', 'hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
       'aider-ollama':    ['ollama', 'hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
       'hashline-ollama': ['aider-ollama', 'ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],

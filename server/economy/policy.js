@@ -20,7 +20,7 @@ const DEFAULT_POLICY = {
   provider_tiers: {
     preferred: ['hashline-ollama', 'aider-ollama', 'ollama', 'google-ai', 'groq', 'openrouter', 'ollama-cloud', 'cerebras'],
     allowed: ['deepinfra', 'hyperbolic'],
-    blocked: ['codex', 'claude-cli', 'anthropic'],
+    blocked: ['codex', 'claude-cli'],
   },
 };
 
