@@ -199,12 +199,16 @@ async function runAgenticLoop({
     // Truncate context if over budget
     truncateOldestToolResults(messages, contextBudget);
 
-    // Make chat request via adapter
+    // Make chat request via adapter.
+    // Spread options so that host/apiKey/model reach the adapter as top-level params
+    // (the adapter interface is: chatCompletion({ host, apiKey, model, messages, tools, options, signal })).
+    // Any generation-specific keys (temperature, num_ctx, etc.) also land at the top level,
+    // but adapters that don't use them will simply ignore unknown named params.
     const response = await adapter.chatCompletion({
       messages,
       tools: tools && tools.length > 0 ? tools : undefined,
-      options,
       signal,
+      ...(options || {}),
     });
 
     const assistantMessage = response.message;
