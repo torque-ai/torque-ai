@@ -624,6 +624,12 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       }
     } catch (e) { logger.debug(`Schema migration (model capabilities seed): ${e.message}`); }
 
+  // Agentic tool-calling pipeline defaults
+  setConfigDefault('agentic_enabled', '1');
+  setConfigDefault('agentic_max_iterations', '10');
+  setConfigDefault('agentic_command_mode', 'unrestricted');
+  setConfigDefault('agentic_git_safety', 'on');
+
   // Workstation defaults
   setConfigDefault('workstation_health_check_interval_seconds', '30');
   setConfigDefault('workstation_agent_port', '3460');
