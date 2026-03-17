@@ -4,11 +4,13 @@
  * agentic-adapters.test.js — Tests for the agentic chat adapter suite
  *
  * Task 2: Ollama chat adapter (ollama-chat.js)
- * Tasks 3 & 4 will append their describe blocks to this file.
+ * Task 3: OpenAI-compatible chat adapter (openai-chat.js)
+ * Task 4 will append its describe block to this file.
  */
 
 const http = require('http');
 const { chatCompletion } = require('../providers/adapters/ollama-chat');
+const { chatCompletion: openaiChatCompletion } = require('../providers/adapters/openai-chat');
 
 // ---------------------------------------------------------------------------
 // Mock server helpers
@@ -244,5 +246,272 @@ describe('ollama-chat adapter — chatCompletion', () => {
         signal: controller.signal,
       })
     ).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OpenAI-compatible chat adapter — describe block
+// ---------------------------------------------------------------------------
+
+/**
+ * Write a sequence of SSE events to a response, then end it.
+ * Each object in `events` is JSON-stringified and wrapped in `data: ...\n\n`.
+ * Pass the string '[DONE]' as a sentinel to emit `data: [DONE]\n\n`.
+ *
+ * @param {http.ServerResponse} res
+ * @param {Array<Object|'[DONE]'>} events
+ */
+function writeSse(res, events) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+  for (const event of events) {
+    if (event === '[DONE]') {
+      res.write('data: [DONE]\n\n');
+    } else {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+  }
+  res.end();
+}
+
+describe('openai-chat adapter — chatCompletion', () => {
+  let server;
+  let host;
+  /** Mutable handler — each test sets this to control the mock server's behaviour. */
+  let requestHandler;
+
+  beforeAll(() => new Promise((resolve) => {
+    server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        req._parsedBody = body ? JSON.parse(body) : null;
+        if (requestHandler) {
+          requestHandler(req, res);
+        } else {
+          res.writeHead(500);
+          res.end('No handler set');
+        }
+      });
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      host = `http://127.0.0.1:${port}`;
+      resolve();
+    });
+  }));
+
+  afterAll(() => new Promise((resolve) => {
+    server.close(resolve);
+  }));
+
+  // Reset between tests
+  afterEach(() => {
+    requestHandler = null;
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 1: sends request with Bearer auth, parses SSE response with tool_calls
+  // -------------------------------------------------------------------------
+
+  it('sends request with Bearer auth and parses SSE tool_calls response', async () => {
+    requestHandler = (req, res) => {
+      expect(req.method).toBe('POST');
+      expect(req.url).toBe('/v1/chat/completions');
+      // Verify Bearer token is forwarded
+      expect(req.headers['authorization']).toBe('Bearer sk-test-key');
+      const body = req._parsedBody;
+      expect(body.model).toBe('llama-3.3-70b-versatile');
+      expect(Array.isArray(body.tools)).toBe(true);
+      expect(body.stream).toBe(true);
+
+      writeSse(res, [
+        {
+          choices: [{
+            delta: {
+              role: 'assistant',
+              tool_calls: [{
+                index: 0,
+                id: 'call_abc123',
+                function: { name: 'read_file', arguments: '{"path":"src/main.cs"}' },
+              }],
+            },
+            finish_reason: null,
+          }],
+        },
+        {
+          choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+          usage: { prompt_tokens: 100, completion_tokens: 25 },
+        },
+        '[DONE]',
+      ]);
+    };
+
+    const tools = [
+      {
+        type: 'function',
+        function: {
+          name: 'read_file',
+          description: 'Read a file',
+          parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+        },
+      },
+    ];
+
+    const result = await openaiChatCompletion({
+      host,
+      apiKey: 'sk-test-key',
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: 'Read src/main.cs' }],
+      tools,
+    });
+
+    expect(result.message.role).toBe('assistant');
+    expect(Array.isArray(result.message.tool_calls)).toBe(true);
+    expect(result.message.tool_calls).toHaveLength(1);
+    expect(result.message.tool_calls[0].id).toBe('call_abc123');
+    expect(result.message.tool_calls[0].function.name).toBe('read_file');
+    expect(result.message.tool_calls[0].function.arguments).toEqual({ path: 'src/main.cs' });
+    expect(result.usage.prompt_tokens).toBe(100);
+    expect(result.usage.completion_tokens).toBe(25);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 2: handles incremental tool_call assembly (arguments spread across chunks)
+  // -------------------------------------------------------------------------
+
+  it('assembles tool_call arguments from incremental SSE chunks', async () => {
+    requestHandler = (req, res) => {
+      writeSse(res, [
+        // First chunk: id + name + partial arguments
+        {
+          choices: [{
+            delta: {
+              role: 'assistant',
+              tool_calls: [{
+                index: 0,
+                id: 'call_1',
+                function: { name: 'read_file', arguments: '{"pa' },
+              }],
+            },
+            finish_reason: null,
+          }],
+        },
+        // Second chunk: continuation of arguments for same index
+        {
+          choices: [{
+            delta: {
+              tool_calls: [{
+                index: 0,
+                function: { arguments: 'th":"src/main.cs"}' },
+              }],
+            },
+            finish_reason: null,
+          }],
+        },
+        // Final chunk with usage
+        {
+          choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+          usage: { prompt_tokens: 100, completion_tokens: 25 },
+        },
+        '[DONE]',
+      ]);
+    };
+
+    const result = await openaiChatCompletion({
+      host,
+      apiKey: 'sk-test-key',
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: 'Read a file' }],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'read_file',
+            description: 'Read a file',
+            parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+          },
+        },
+      ],
+    });
+
+    expect(result.message.tool_calls).toHaveLength(1);
+    expect(result.message.tool_calls[0].function.name).toBe('read_file');
+    // Arguments should be assembled from both chunks and parsed as JSON
+    expect(result.message.tool_calls[0].function.arguments).toEqual({ path: 'src/main.cs' });
+    expect(result.usage.prompt_tokens).toBe(100);
+    expect(result.usage.completion_tokens).toBe(25);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 3: handles plain text completion (no tool calls)
+  // -------------------------------------------------------------------------
+
+  it('handles plain text completion with no tool_calls', async () => {
+    requestHandler = (req, res) => {
+      // tools should be omitted from the request body when not provided
+      const body = req._parsedBody;
+      expect(body.tools).toBeUndefined();
+
+      writeSse(res, [
+        {
+          choices: [{
+            delta: { role: 'assistant', content: 'The answer is ' },
+            finish_reason: null,
+          }],
+        },
+        {
+          choices: [{
+            delta: { content: '42.' },
+            finish_reason: null,
+          }],
+        },
+        {
+          choices: [{ delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        },
+        '[DONE]',
+      ]);
+    };
+
+    const chunks = [];
+    const result = await openaiChatCompletion({
+      host,
+      apiKey: 'sk-test-key',
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'What is the meaning of life?' }],
+      onChunk: (text) => chunks.push(text),
+    });
+
+    expect(result.message.role).toBe('assistant');
+    expect(result.message.content).toBe('The answer is 42.');
+    expect(result.message.tool_calls).toBeUndefined();
+    expect(result.usage.prompt_tokens).toBe(10);
+    expect(result.usage.completion_tokens).toBe(5);
+    // onChunk should have been called for each content delta
+    expect(chunks).toEqual(['The answer is ', '42.']);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 4: rejects without API key
+  // -------------------------------------------------------------------------
+
+  it('rejects with descriptive error when apiKey is absent', async () => {
+    await expect(
+      openaiChatCompletion({
+        host,
+        apiKey: '',
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'hello' }],
+      })
+    ).rejects.toThrow('API key required for OpenAI-compatible provider');
+
+    await expect(
+      openaiChatCompletion({
+        host,
+        apiKey: null,
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'hello' }],
+      })
+    ).rejects.toThrow('API key required for OpenAI-compatible provider');
   });
 });
