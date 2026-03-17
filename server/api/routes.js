@@ -919,6 +919,14 @@ const routes = [
     middleware: buildV2Middleware(),
   },
 
+  // Strategic Brain configuration
+  { method: 'GET', path: '/api/v2/strategic/config', handlerName: 'handleV2CpStrategicConfigGet', middleware: buildV2Middleware() },
+  { method: 'PUT', path: '/api/v2/strategic/config', handlerName: 'handleV2CpStrategicConfigSet', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/strategic/config/reset', handlerName: 'handleV2CpStrategicConfigReset', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/strategic/templates', handlerName: 'handleV2CpStrategicTemplates', middleware: buildV2Middleware() },
+  { method: 'GET', path: /^\/api\/v2\/strategic\/templates\/([^/]+)$/, handlerName: 'handleV2CpStrategicTemplateGet', mapParams: ['template_name'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_name', 'template name') }) },
+  { method: 'POST', path: /^\/api\/v2\/strategic\/test\/([^/]+)$/, handlerName: 'handleV2CpStrategicTest', mapParams: ['capability'], middleware: buildV2Middleware({ params: validateDecodedParamField('capability', 'capability name') }) },
+
   // ─── V2 Control-Plane: Infrastructure ─────────────────────────────────
 
   // Workstations

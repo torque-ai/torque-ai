@@ -72,6 +72,7 @@ const HANDLER_MODULES = [
   require('./handlers/economy-handlers'),
   require('./handlers/model-handlers'),
   require('./handlers/routing-template-handlers'),
+  require('./handlers/strategic-config-handlers'),
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──

@@ -151,6 +151,60 @@ const V2_CP_HANDLER_LOOKUP = {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
+  // Strategic Brain configuration
+  handleV2CpStrategicConfigGet: (req, res, ctx) => {
+    const query = require('url').parse(req.url, true).query;
+    const handlers = require('../handlers/strategic-config-handlers');
+    const result = handlers.handleConfigGet({ working_directory: query.working_directory });
+    if (result?.isError) { throwToolResultError(result); }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpStrategicConfigSet: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const handlers = require('../handlers/strategic-config-handlers');
+    const result = handlers.handleConfigSet({ working_directory: body.working_directory, config: body.config || body });
+    if (result?.isError) { throwToolResultError(result); }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpStrategicConfigReset: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const handlers = require('../handlers/strategic-config-handlers');
+    const result = handlers.handleConfigReset({ working_directory: body.working_directory });
+    if (result?.isError) { throwToolResultError(result); }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpStrategicTemplates: (req, res, ctx) => {
+    const query = require('url').parse(req.url, true).query;
+    const handlers = require('../handlers/strategic-config-handlers');
+    const result = handlers.handleConfigTemplates({ working_directory: query.working_directory });
+    if (result?.isError) { throwToolResultError(result); }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpStrategicTemplateGet: (req, res, ctx) => {
+    const templateName = ctx.params?.template_name || '';
+    const handlers = require('../handlers/strategic-config-handlers');
+    const configLoader = require('../orchestrator/config-loader');
+    const template = configLoader.loadTemplate(templateName);
+    if (!template) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { code: 'TEMPLATE_NOT_FOUND', message: `Template not found: ${templateName}` }, meta: { request_id: ctx.requestId } }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: template, meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpStrategicTest: async (req, res, ctx) => {
+    const capability = ctx.params?.capability || '';
+    const body = await readJsonBody(req);
+    // Dry-run: use the existing strategic handlers with a dry-run flag
+    // For now, return a placeholder indicating the feature
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: { capability, status: 'dry_run_not_yet_implemented', input: body }, meta: { request_id: ctx.requestId } }));
+  },
   // Routing templates
   handleV2CpListRoutingTemplates: (req, res, ctx) => {
     const routingHandlers = require('../handlers/routing-template-handlers');
