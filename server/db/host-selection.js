@@ -42,15 +42,9 @@ function getConfig(key) {
 }
 
 function listOllamaHosts(options = {}) {
-  // Phase 3: Read from workstations table via adapter
-  const adapters = getWsAdapters();
-  if (adapters) {
-    try {
-      const wsHosts = adapters.listOllamaHosts(options);
-      if (wsHosts.length > 0) return wsHosts;
-    } catch { /* fall through to legacy query */ }
-  }
-
+  // Phase 3 note: adapter redirect happens in host-management.js (the public API).
+  // host-selection.js queries ollama_hosts directly because it's an internal module
+  // called with a specific db handle that may differ from the workstation model's db.
   let query = 'SELECT * FROM ollama_hosts WHERE 1=1';
   const values = [];
 
@@ -432,16 +426,6 @@ function isHostModelWarm(hostId, modelName, warmWindowMs = 5 * 60 * 1000) {
 }
 
 function getOllamaHost(hostId) {
-  // Phase 3: Try workstation adapter first
-  const adapters = getWsAdapters();
-  if (adapters) {
-    try {
-      const wsHosts = adapters.listOllamaHosts();
-      const match = wsHosts.find(h => h.id === hostId);
-      if (match) return match;
-    } catch { /* fall through */ }
-  }
-
   const stmt = db.prepare('SELECT * FROM ollama_hosts WHERE id = ?');
   const host = stmt.get(hostId);
   if (host && host.models_cache) {
