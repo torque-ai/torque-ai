@@ -167,6 +167,18 @@ function selectAdapter(provider) {
  * @returns {string|null}
  */
 function resolveApiKey(provider) {
+  // Delegate to config.js getApiKey which handles:
+  // 1. Environment variables (highest priority)
+  // 2. Encrypted keys in provider_config.api_key_encrypted
+  // 3. Legacy DB config table
+  try {
+    const serverConfig = require('../config');
+    if (typeof serverConfig.getApiKey === 'function') {
+      return serverConfig.getApiKey(provider);
+    }
+  } catch { /* fall through to legacy lookup */ }
+
+  // Legacy fallback if config.js doesn't have getApiKey
   const serverConfig = require('../config');
   const envMap = {
     groq: 'GROQ_API_KEY',
