@@ -33,7 +33,7 @@ function safeJsonParse(value, fallback = {}) {
   try {
     const parsed = JSON.parse(value);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
-  } catch {
+  } catch (_e) { void _e;
     return fallback;
   }
 }
@@ -204,7 +204,7 @@ function getBestAvailableProvider(removedProvider, task = null) {
       if (candidate && enabledProviders.some((provider) => provider.provider === candidate)) {
         return candidate;
       }
-    } catch {
+    } catch (_e) { void _e;
       // Fall through to priority-based selection.
     }
   }
@@ -542,7 +542,7 @@ function handleRemoveProvider(args = {}) {
       if (typeof taskManager.processQueue === 'function') {
         taskManager.processQueue();
       }
-    } catch {
+    } catch (_e) { void _e;
       // Non-fatal: queued tasks will still be picked up by the scheduler loop.
     }
 
