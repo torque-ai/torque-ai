@@ -147,14 +147,14 @@ describe('E2E: Ollama direct execution', () => {
     const taskId = createTestTask(ctx.db, {
       description: 'Test function response',
       provider: 'ollama',
-      model: 'mistral:latest',
+      model: 'codellama:latest',
     });
 
     ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed']);
 
     if (task.status === 'completed') {
-      expect(task.output).toContain('Echo: mistral:latest');
+      expect(task.output).toContain('Echo: codellama:latest');
     }
   });
 });

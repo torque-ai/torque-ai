@@ -596,10 +596,26 @@ describe('providers/execution.js', () => {
     expect(mod['not-a-real-provider']).toBeUndefined();
   });
 
+  // Async-wrapped exports (agentic wrappers) — only pass task, await result
+  it.each([
+    ['executeOllamaTask', 'ollamaMock', 'executeOllamaTask', [{ id: 'task-1' }]],
+    ['executeApiProvider', 'apiMock', 'executeApiProvider', [{ id: 'task-2' }]],
+  ])('dispatches %s through the agentic wrapper to the correct provider implementation', async (exportName, mockContainerName, mockFnName, args) => {
+    const loaded = loadExecutionModule();
+    const { mod } = loaded;
+
+    const result = await mod[exportName](...args);
+
+    expect(loaded[mockContainerName][mockFnName]).toHaveBeenCalledWith(...args);
+    expect(result).toEqual({
+      source: expect.any(String),
+      args,
+    });
+  });
+
+  // Synchronous pass-through exports
   it.each([
     ['estimateRequiredContext', 'ollamaMock', 'estimateRequiredContext', ['Review the whole repo', ['a.js']]],
-    ['executeOllamaTask', 'ollamaMock', 'executeOllamaTask', [{ id: 'task-1' }]],
-    ['executeApiProvider', 'apiMock', 'executeApiProvider', [{ id: 'task-2' }, { name: 'openrouter' }]],
     ['executeHashlineOllamaTask', 'hashlineMock', 'executeHashlineOllamaTask', [{ id: 'task-3' }]],
     ['runOllamaGenerate', 'hashlineMock', 'runOllamaGenerate', ['prompt', { signal: true }]],
     ['parseAndApplyEdits', 'hashlineMock', 'parseAndApplyEdits', ['diff body', ['file.js']]],

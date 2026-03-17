@@ -28,6 +28,7 @@ function createHarness() {
     },
     configModule: {
       get: vi.fn(() => null),
+      getApiKey: vi.fn(() => null),
       init: vi.fn(),
     },
   };
@@ -325,99 +326,52 @@ describe('Provider Registry', () => {
       expect(registry.getProviderInstance('unit-test-provider')).toBeInstanceOf(CustomProvider);
     });
 
-    it('looks up API keys from config using a normalized provider config key', () => {
+    it('resolves API keys via serverConfig.getApiKey', () => {
       class MockProvider {
         constructor(options) {
           this.options = options;
         }
       }
 
-      configModule.get.mockReturnValue('db-api-key');
+      configModule.getApiKey.mockReturnValue('resolved-key');
       registry.registerProviderClass('unit-test-provider', MockProvider);
 
       const instance = registry.getProviderInstance('unit-test-provider');
 
-      expect(configModule.get).toHaveBeenCalledWith('unit_test_provider_api_key');
-      expect(instance.options).toEqual({ apiKey: 'db-api-key' });
+      expect(configModule.getApiKey).toHaveBeenCalledWith('unit-test-provider');
+      expect(instance.options).toEqual({ apiKey: 'resolved-key' });
     });
 
-    it('falls back to the normalized uppercase env var when config is missing', () => {
+    it('passes null apiKey when getApiKey returns null', () => {
       class MockProvider {
         constructor(options) {
           this.options = options;
         }
       }
 
-      process.env.UNIT_TEST_PROVIDER_API_KEY = 'env-api-key';
-      configModule.get.mockReturnValue(null);
-      registry.registerProviderClass('unit-test-provider', MockProvider);
-
-      const instance = registry.getProviderInstance('unit-test-provider');
-
-      expect(instance.options).toEqual({ apiKey: 'env-api-key' });
-    });
-
-    it('prefers the config API key over the env var when both are present', () => {
-      class MockProvider {
-        constructor(options) {
-          this.options = options;
-        }
-      }
-
-      process.env.UNIT_TEST_PROVIDER_API_KEY = 'env-api-key';
-      configModule.get.mockReturnValue('db-api-key');
-      registry.registerProviderClass('unit-test-provider', MockProvider);
-
-      const instance = registry.getProviderInstance('unit-test-provider');
-
-      expect(instance.options).toEqual({ apiKey: 'db-api-key' });
-    });
-
-    it('falls back to the env var when config returns an empty string', () => {
-      class MockProvider {
-        constructor(options) {
-          this.options = options;
-        }
-      }
-
-      process.env.UNIT_TEST_PROVIDER_API_KEY = 'env-api-key';
-      configModule.get.mockReturnValue('');
-      registry.registerProviderClass('unit-test-provider', MockProvider);
-
-      const instance = registry.getProviderInstance('unit-test-provider');
-
-      expect(instance.options).toEqual({ apiKey: 'env-api-key' });
-    });
-
-    it('normalizes hyphenated provider names for config and env lookup', () => {
-      class MockProvider {
-        constructor(options) {
-          this.options = options;
-        }
-      }
-
-      process.env.CLAUDE_CLI_API_KEY = 'hyphenated-env-key';
-      configModule.get.mockReturnValue(null);
-      registry.registerProviderClass('claude-cli', MockProvider);
-
-      const instance = registry.getProviderInstance('claude-cli');
-
-      expect(configModule.get).toHaveBeenCalledWith('claude_cli_api_key');
-      expect(instance.options).toEqual({ apiKey: 'hyphenated-env-key' });
-    });
-
-    it('passes an undefined apiKey when no config or env key is available', () => {
-      class MockProvider {
-        constructor(options) {
-          this.options = options;
-        }
-      }
-
+      configModule.getApiKey.mockReturnValue(null);
       registry.registerProviderClass('anthropic', MockProvider);
 
       const instance = registry.getProviderInstance('anthropic');
 
-      expect(instance.options).toEqual({ apiKey: undefined });
+      expect(configModule.getApiKey).toHaveBeenCalledWith('anthropic');
+      expect(instance.options).toEqual({ apiKey: null });
+    });
+
+    it('passes the provider name directly to getApiKey for hyphenated names', () => {
+      class MockProvider {
+        constructor(options) {
+          this.options = options;
+        }
+      }
+
+      configModule.getApiKey.mockReturnValue('hyphenated-key');
+      registry.registerProviderClass('claude-cli', MockProvider);
+
+      const instance = registry.getProviderInstance('claude-cli');
+
+      expect(configModule.getApiKey).toHaveBeenCalledWith('claude-cli');
+      expect(instance.options).toEqual({ apiKey: 'hyphenated-key' });
     });
 
     it('preserves provider instance state such as enabled flags for caller-side checks', () => {

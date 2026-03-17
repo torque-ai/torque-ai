@@ -149,6 +149,8 @@ beforeEach(async () => {
   ctx.db.setConfig('max_concurrent', '20');
   // Disable rate limiting — getBool defaults to true when key is absent
   ctx.db.setConfig('rate_limit_enabled', '0');
+  // Disable agentic tool calling — these tests exercise the base API execution path
+  ctx.db.setConfig('agentic_enabled', '0');
 });
 
 afterEach(async () => {

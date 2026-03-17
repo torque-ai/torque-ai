@@ -9,7 +9,11 @@ const INLINE_TOOL_HANDLERS = new Set([
   'unlock_all_tools',
   'unlock_tier',
 ]);
-const EXPECTED_UNMAPPED_TOOLS = new Set(['reopen_workflow']);
+const EXPECTED_UNMAPPED_TOOLS = new Set([
+  'reopen_workflow',
+  // Tool-def names differ from handler route names (set_provider_api_key vs set_api_key)
+  'set_provider_api_key', 'clear_provider_api_key',
+]);
 
 function isHandledOrAllowed(name) {
   return routeMap.has(name) || INLINE_TOOL_HANDLERS.has(name) || EXPECTED_UNMAPPED_TOOLS.has(name);

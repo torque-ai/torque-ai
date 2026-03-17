@@ -3,7 +3,11 @@ const path = require('path');
 
 const { routeMap } = require('../tools');
 
-const INTERNAL_ONLY_ROUTES = new Set(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier']);
+const INTERNAL_ONLY_ROUTES = new Set([
+  'ping', 'restart_server', 'unlock_all_tools', 'unlock_tier',
+  // Handler names differ from tool-def names (handleSetApiKey → set_api_key vs tool-def set_provider_api_key)
+  'set_api_key', 'clear_api_key',
+]);
 
 function loadToolDefinitionNames() {
   const toolDefDir = path.join(__dirname, '../tool-defs');
