@@ -836,6 +836,36 @@ function startMaintenanceScheduler() {
           debugLog(`Remote agent health check error: ${err.message}`);
         });
       }
+
+      // C-2: Execute due user cron scheduled tasks
+      try {
+        const dueSchedules = db.getDueScheduledTasks();
+        for (const schedule of dueSchedules) {
+          try {
+            const config = schedule.task_config || {};
+            const taskId = require('uuid').v4();
+            db.createTask({
+              id: taskId,
+              task_description: config.task || schedule.task_description || 'Scheduled task',
+              working_directory: config.working_directory || schedule.working_directory || null,
+              provider: config.provider || null,
+              model: config.model || null,
+              tags: config.tags || null,
+              timeout_minutes: config.timeout_minutes || schedule.timeout_minutes || 30,
+              auto_approve: config.auto_approve || false,
+              priority: config.priority || 0,
+              metadata: { scheduled_task_id: schedule.id, scheduled: true },
+            });
+            taskManager.startTask(taskId);
+            db.markScheduledTaskRun(schedule.id);
+            debugLog(`Executed scheduled task "${schedule.name}" -> task ${taskId}`);
+          } catch (schedErr) {
+            debugLog(`Failed to execute scheduled task "${schedule.name}": ${schedErr.message}`);
+          }
+        }
+      } catch (cronErr) {
+        debugLog(`Cron schedule check error: ${cronErr.message}`);
+      }
     } catch (err) {
       debugLog(`Maintenance scheduler error: ${err.message}`);
     }
