@@ -141,8 +141,8 @@ function rerouteQueuedTasks(policy, workflowId, workingDirectory) {
     if (typeof queueReroute?.rerouteQueuedTasks === 'function') {
       return queueReroute.rerouteQueuedTasks(policy, workflowId, workingDirectory);
     }
-  } catch {
-    // Optional queue reroute module is currently optional until Task 7 is completed.
+  } catch (_err) {
+    void _err; // queue-reroute module is optional
   }
 
   return null;

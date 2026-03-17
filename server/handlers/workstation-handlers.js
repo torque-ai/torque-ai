@@ -106,7 +106,7 @@ function buildHostBase(workstation) {
 function workstationUrl(workstation, path, defaultPort) {
   const hostBase = buildHostBase(workstation);
   if (!hostBase) {
-    throw new Error('workstation host is required');
+    return null;
   }
 
   const url = new URL(path.startsWith('/') ? path : `/${path}`, hostBase);

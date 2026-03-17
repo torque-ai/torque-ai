@@ -226,10 +226,7 @@ const routes = [
   { method: 'GET', path: '/api/v2/providers/get-model-leaderboard', tool: 'get_model_leaderboard', mapQuery: true },
   { method: 'POST', path: '/api/v2/providers/manage-tuning', tool: 'manage_tuning', mapBody: true },
   { method: 'POST', path: '/api/v2/providers/manage-host', tool: 'manage_host', mapBody: true },
-  { method: 'GET', path: '/api/v2/concurrency', tool: 'get_concurrency_limits', mapQuery: true },
-  { method: 'POST', path: '/api/v2/concurrency/set', tool: 'set_concurrency_limit', mapBody: true },
-  { method: 'GET', path: '/api/v2/economy/status', tool: 'get_economy_status', mapQuery: true },
-  { method: 'POST', path: '/api/v2/economy/set', tool: 'set_economy_mode', mapBody: true },
+  // concurrency + economy routes are served by v2 CP handlers (routes.js), not passthrough
 
   // ─── strategic (1 routes) ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/strategic/strategic-usage', tool: 'strategic_usage', mapBody: true },

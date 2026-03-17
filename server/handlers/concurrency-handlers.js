@@ -10,7 +10,7 @@ function getDb() {
   if (typeof database.getDbInstance === 'function') {
     return database.getDbInstance();
   }
-  throw new Error('Database accessor is unavailable.');
+  return null;
 }
 
 function response(message) {

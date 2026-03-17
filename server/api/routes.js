@@ -1149,10 +1149,10 @@ const routes = [
   { method: 'GET', path: '/api/free-tier/auto-scale', handlerName: 'handleGetFreeTierAutoScale', deprecated: '/api/v2/free-tier/auto-scale' },
 
   // Concurrency limits
-  { method: 'GET', path: '/api/v2/concurrency', handlerName: 'handleV2CpGetConcurrencyLimits' },
-  { method: 'POST', path: '/api/v2/concurrency/set', handlerName: 'handleV2CpSetConcurrencyLimit' },
-  { method: 'GET', path: '/api/v2/economy/status', handlerName: 'handleV2CpGetEconomyStatus' },
-  { method: 'POST', path: '/api/v2/economy/set', handlerName: 'handleV2CpSetEconomyMode' },
+  { method: 'GET', path: '/api/v2/concurrency', handlerName: 'handleV2CpGetConcurrencyLimits', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/concurrency/set', handlerName: 'handleV2CpSetConcurrencyLimit', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/economy/status', handlerName: 'handleV2CpGetEconomyStatus', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/economy/set', handlerName: 'handleV2CpSetEconomyMode', middleware: buildV2Middleware() },
 
   // Shutdown — auth is handled inside handleShutdown (localhost bypass + key check)
   { method: 'POST', path: '/api/shutdown', handlerName: 'handleShutdown', skipAuth: true },

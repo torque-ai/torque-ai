@@ -416,22 +416,6 @@ function createServer(overrideConfig = {}) {
       return;
     }
 
-    if (req.method === 'GET' && pathname === '/health') {
-      const uptimeSeconds = Math.round((Date.now() - serverStartTime) / 1000);
-      const body = {
-        status: 'healthy',
-        version: '1.0.0',
-        uptime_seconds: uptimeSeconds,
-        running_tasks: serverRunningTasks,
-        max_concurrent: mergedConfig.max_concurrent || 3,
-        system: getSystemMetrics(),
-        projects: projectsToObject(),
-      };
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(body));
-      return;
-    }
-
     // Peek proxy (no auth — proxies to local peek_server)
     if (pathname.startsWith('/peek/')) {
       const peekPort = parseInt(process.env.PEEK_PORT || '9876');
@@ -454,6 +438,22 @@ function createServer(overrideConfig = {}) {
 
     // Authenticated endpoints below
     if (!serverAuthenticate(req, res)) {
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/health') {
+      const uptimeSeconds = Math.round((Date.now() - serverStartTime) / 1000);
+      const body = {
+        status: 'healthy',
+        version: '1.0.0',
+        uptime_seconds: uptimeSeconds,
+        running_tasks: serverRunningTasks,
+        max_concurrent: mergedConfig.max_concurrent || 3,
+        system: getSystemMetrics(),
+        projects: projectsToObject(),
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
       return;
     }
 
