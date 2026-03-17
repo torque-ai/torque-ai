@@ -204,8 +204,16 @@ async function runAgenticLoop({
     // (the adapter interface is: chatCompletion({ host, apiKey, model, messages, tools, options, signal })).
     // Any generation-specific keys (temperature, num_ctx, etc.) also land at the top level,
     // but adapters that don't use them will simply ignore unknown named params.
+    // Strip internal properties (_wasError, _truncated) from messages before sending —
+    // OpenAI-compatible APIs reject unknown properties on message objects
+    const cleanMessages = messages.map(m => {
+      if (!m._wasError && !m._truncated) return m;
+      const { _wasError, _truncated, ...clean } = m;
+      return clean;
+    });
+
     const response = await adapter.chatCompletion({
-      messages,
+      messages: cleanMessages,
       tools: tools && tools.length > 0 ? tools : undefined,
       signal,
       ...(options || {}),
