@@ -13,7 +13,6 @@ const ROUTE_NAMES = {
   '/providers': 'Providers',
   '/models': 'Models',
   '/hosts': 'Hosts',
-  '/workstations': 'Workstations',
   '/budget': 'Budget',
   '/schedules': 'Schedules',
   '/approvals': 'Approvals',
@@ -55,13 +54,6 @@ const HostIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
       d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-  </svg>
-);
-
-const WorkstationIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M6 7h12M6 12h12m-9 5h6M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
   </svg>
 );
 
@@ -149,7 +141,6 @@ const navItems = [
   { to: '/providers', icon: ChartIcon, label: 'Providers' },
   { to: '/models', icon: ModelIcon, label: 'Models' },
   { to: '/hosts', icon: HostIcon, label: 'Hosts' },
-  { to: '/workstations', icon: WorkstationIcon, label: 'Workstations' },
   { to: '/budget', icon: BudgetIcon, label: 'Budget' },
   { to: '/schedules', icon: ScheduleIcon, label: 'Schedules' },
   { to: '/approvals', icon: ApprovalIcon, label: 'Approvals' },
@@ -250,7 +241,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       if (e.key === '?') { setShowShortcuts((s) => !s); return; }
       if (e.key === 'Escape') { setShowShortcuts(false); setShowStatus(false); return; }
-      const routes = ['/', '/projects', '/history', '/batches', '/providers', '/hosts', '/workstations', '/budget'];
+      const routes = ['/', '/projects', '/history', '/batches', '/providers', '/hosts', '/budget'];
       const num = parseInt(e.key);
       if (num >= 1 && num <= routes.length) { navigate(routes[num - 1]); }
     }

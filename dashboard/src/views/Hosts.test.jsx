@@ -1,12 +1,21 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import Hosts from './Hosts';
 
 vi.mock('../api', () => ({
+  concurrency: {
+    get: vi.fn(),
+  },
   hosts: {
     list: vi.fn(),
     scan: vi.fn(),
     toggle: vi.fn(),
+    remove: vi.fn(),
+  },
+  workstations: {
+    list: vi.fn(),
+    probe: vi.fn(),
+    remove: vi.fn(),
   },
   peekHosts: {
     list: vi.fn().mockResolvedValue([]),
@@ -30,7 +39,7 @@ vi.mock('../hooks/useAbortableRequest', () => ({
   }),
 }));
 
-import { hosts as hostsApi } from '../api';
+import { concurrency, hosts as hostsApi, workstations as workstationsApi } from '../api';
 
 const mockHosts = [
   {
@@ -61,11 +70,57 @@ const mockHosts = [
   },
 ];
 
+const mockWorkstations = [
+  {
+    id: 'ws-1',
+    name: 'builder-01',
+    host: '10.0.0.12',
+    agent_port: 3460,
+    status: 'healthy',
+    gpu_name: 'RTX 4090',
+    gpu_vram_mb: 24576,
+    _capabilities: {
+      command_exec: { detected: true },
+      ollama: { detected: true },
+      gpu: { detected: true, name: 'RTX 4090', vram_mb: 24576 },
+      ui_capture: { detected: true },
+    },
+    models: ['qwen3:8b', 'codellama:13b'],
+    last_health_check: '2026-03-17T10:00:00Z',
+  },
+];
+
+const mockConcurrency = {
+  vram_overhead_factor: 0.95,
+  workstations: [
+    {
+      name: 'builder-01',
+      host: '10.0.0.12',
+      running_tasks: 2,
+      max_concurrent: 4,
+      gpu_vram_mb: 24576,
+      effective_vram_budget_mb: 23347,
+    },
+  ],
+};
+
 describe('Hosts', () => {
   beforeEach(() => {
+    concurrency.get.mockResolvedValue(mockConcurrency);
     hostsApi.list.mockResolvedValue(mockHosts);
     hostsApi.scan.mockResolvedValue({ hosts_found: 2 });
     hostsApi.toggle.mockResolvedValue({});
+    hostsApi.remove.mockResolvedValue({});
+    workstationsApi.list.mockResolvedValue(mockWorkstations);
+    workstationsApi.probe.mockResolvedValue({});
+    workstationsApi.remove.mockResolvedValue({});
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      headers: {
+        get: vi.fn(() => 'application/json'),
+      },
+      json: vi.fn().mockResolvedValue({ data: { name: 'builder-02' } }),
+    });
   });
 
   afterEach(() => {
@@ -88,6 +143,7 @@ describe('Hosts', () => {
   it('displays host names', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
+      expect(screen.getByText('builder-01')).toBeTruthy();
       expect(screen.getByText('local-gpu')).toBeTruthy();
       expect(screen.getByText('remote-gpu-host')).toBeTruthy();
     });
@@ -96,15 +152,15 @@ describe('Hosts', () => {
   it('shows healthy/down status badges', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText('Healthy')).toBeTruthy();
-      expect(screen.getByText('Down')).toBeTruthy();
+      expect(screen.getAllByText('Healthy').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Down').length).toBeGreaterThanOrEqual(1);
     });
   });
 
   it('shows healthy count in subtitle', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText(/1 healthy/)).toBeTruthy();
+      expect(screen.getByText('1 healthy ollama hosts, 1 healthy workstations')).toBeTruthy();
     });
   });
 
@@ -119,9 +175,8 @@ describe('Hosts', () => {
   it('shows model count in stats', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      // Models label appears for each host
       const modelsLabels = screen.getAllByText('Models');
-      expect(modelsLabels.length).toBe(2);
+      expect(modelsLabels.length).toBeGreaterThanOrEqual(3);
     });
   });
 
@@ -129,7 +184,7 @@ describe('Hosts', () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
       const runningLabels = screen.getAllByText('Running');
-      expect(runningLabels.length).toBe(2);
+      expect(runningLabels.length).toBeGreaterThanOrEqual(3);
     });
   });
 
@@ -161,5 +216,55 @@ describe('Hosts', () => {
       const sections = screen.getAllByText('Available Models');
       expect(sections.length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it('probes a workstation from the unified hosts page', async () => {
+    renderWithProviders(<Hosts />, { route: '/hosts' });
+
+    await waitFor(() => {
+      expect(screen.getByText('builder-01')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Probe'));
+
+    await waitFor(() => {
+      expect(workstationsApi.probe).toHaveBeenCalledWith('builder-01');
+    });
+  });
+
+  it('adds a workstation from the inline form', async () => {
+    workstationsApi.list.mockResolvedValue([]);
+    renderWithProviders(<Hosts />, { route: '/hosts' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Add Workstation')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Add Workstation'));
+    fireEvent.change(screen.getByLabelText('Name *'), { target: { value: 'builder-02' } });
+    fireEvent.change(screen.getByLabelText('Host *'), { target: { value: '10.0.0.22' } });
+    fireEvent.change(screen.getByLabelText('Port *'), { target: { value: '3461' } });
+    fireEvent.change(screen.getByLabelText('Secret *'), { target: { value: 'super-secret' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Workstation' }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/workstations',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'builder-02',
+            host: '10.0.0.22',
+            agent_port: 3461,
+            secret: 'super-secret',
+          }),
+        })
+      );
+    });
+
+    expect(workstationsApi.list.mock.calls.length).toBeGreaterThan(1);
+    expect(workstationsApi.probe).toHaveBeenCalledWith('builder-02');
   });
 });

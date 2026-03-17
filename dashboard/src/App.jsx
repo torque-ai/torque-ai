@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useMemo, useEffect, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import TaskDetailDrawer from './components/TaskDetailDrawer';
 import { ToastProvider } from './components/Toast';
@@ -16,7 +16,6 @@ const History = lazy(() => import('./views/History'));
 const Providers = lazy(() => import('./views/Providers'));
 const PlanProjects = lazy(() => import('./views/PlanProjects'));
 const Hosts = lazy(() => import('./views/Hosts'));
-const Workstations = lazy(() => import('./views/Workstations'));
 const BatchHistory = lazy(() => import('./views/BatchHistory'));
 const Budget = lazy(() => import('./views/Budget'));
 const Models = lazy(() => import('./views/Models'));
@@ -256,7 +255,7 @@ function AppInner() {
               <Route path="providers" element={<Providers statsVersion={statsVersion} tasksTick={tasksTick} />} />
               <Route path="models" element={<Models />} />
               <Route path="hosts" element={<Hosts hostActivity={hostActivity} />} />
-              <Route path="workstations" element={<Workstations />} />
+              <Route path="workstations" element={<Navigate to="/hosts" replace />} />
               <Route path="budget" element={<Budget />} />
               <Route path="schedules" element={<Schedules />} />
               <Route path="approvals" element={<Approvals />} />

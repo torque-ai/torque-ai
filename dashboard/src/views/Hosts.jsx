@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi } from '../api';
+import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { formatDistanceToNow } from 'date-fns';
@@ -29,13 +29,13 @@ function CapacityBar({ running, max }) {
   );
 }
 
-function VramBar({ used, total }) {
+function VramBar({ used, total, label = 'VRAM Usage' }) {
   const percent = Math.min(100, Math.round((used / total) * 100));
   const barColor = percent >= 90 ? 'bg-red-500' : percent >= 70 ? 'bg-yellow-500' : 'bg-green-500';
   return (
     <div>
       <div className="flex items-center justify-between text-xs mb-1">
-        <span className="text-slate-400">VRAM Usage</span>
+        <span className="text-slate-400">{label}</span>
         <span className="text-slate-300">{(used / 1024).toFixed(1)}/{(total / 1024).toFixed(1)} GB ({percent}%)</span>
       </div>
       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
@@ -67,6 +67,114 @@ function formatModelSize(bytes) {
   if (!bytes) return '';
   const gb = bytes / (1024 * 1024 * 1024);
   return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
+}
+
+function safeParseJson(value, fallback) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'string') return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function formatGb(megabytes) {
+  if (!megabytes) return '0.0 GB';
+  return `${(megabytes / 1024).toFixed(megabytes >= 1024 ? 1 : 2)} GB`;
+}
+
+function formatCapabilityLabel(capability) {
+  return capability.replace(/_/g, ' ');
+}
+
+function getCapabilityMap(workstation) {
+  if (workstation && workstation._capabilities && typeof workstation._capabilities === 'object') {
+    return workstation._capabilities;
+  }
+
+  const parsed = safeParseJson(workstation?.capabilities, {});
+  return parsed && typeof parsed === 'object' ? parsed : {};
+}
+
+function getCapabilities(workstation) {
+  return Object.entries(getCapabilityMap(workstation))
+    .filter(([, value]) =>
+      value === true ||
+      (value && typeof value === 'object' && value.detected) ||
+      (Array.isArray(value) && value.length > 0)
+    )
+    .map(([key]) => key)
+    .sort();
+}
+
+function getWorkstationModels(workstation) {
+  if (Array.isArray(workstation?.models)) return workstation.models;
+  return safeParseJson(workstation?.models_cache, []);
+}
+
+function normalizeWorkstation(workstation, concurrencyRecord) {
+  return {
+    ...workstation,
+    ...concurrencyRecord,
+    _capabilities: getCapabilityMap(workstation),
+    models: getWorkstationModels(workstation),
+    running_tasks: concurrencyRecord?.running_tasks ?? workstation?.running_tasks ?? 0,
+    max_concurrent: concurrencyRecord?.max_concurrent ?? workstation?.max_concurrent ?? 0,
+    gpu_vram_mb: concurrencyRecord?.gpu_vram_mb ?? workstation?.gpu_vram_mb ?? null,
+    effective_vram_budget_mb:
+      concurrencyRecord?.effective_vram_budget_mb ??
+      workstation?.effective_vram_budget_mb ??
+      workstation?.gpu_vram_mb ??
+      null,
+  };
+}
+
+function mergeWorkstations(workstationList, concurrencyData) {
+  const baseItems = Array.isArray(workstationList) ? workstationList : [];
+  const concurrencyItems = Array.isArray(concurrencyData?.workstations) ? concurrencyData.workstations : [];
+  const concurrencyMap = new Map(concurrencyItems.map((item) => [item.name, item]));
+  const merged = baseItems.map((item) => normalizeWorkstation(item, concurrencyMap.get(item.name)));
+  const seen = new Set(merged.map((item) => item.name));
+
+  for (const extra of concurrencyItems) {
+    if (!seen.has(extra.name)) {
+      merged.push(normalizeWorkstation(extra, extra));
+    }
+  }
+
+  return merged;
+}
+
+async function parseApiResponse(response) {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
+function getApiErrorMessage(payload, response) {
+  if (payload && typeof payload === 'object') {
+    if (payload.error?.message) return payload.error.message;
+    if (payload.message) return payload.message;
+  }
+
+  if (typeof payload === 'string' && payload.trim()) {
+    return payload.trim();
+  }
+
+  return `HTTP ${response.status}`;
 }
 
 function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurrencyData }) {
@@ -308,6 +416,230 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
         )}
       </div>
     </div>
+  );
+}
+
+function WorkstationCard({ workstation, onProbe, onRemove, probing }) {
+  const capabilities = getCapabilities(workstation);
+  const models = Array.isArray(workstation.models) ? workstation.models : [];
+  const status = STATUS_STYLES[workstation.status] || STATUS_STYLES.unknown;
+  const hostLabel = `${workstation.host}:${workstation.agent_port || 3460}`;
+
+  return (
+    <div className="glass-card p-5 card-hover">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-white truncate">{workstation.name}</h3>
+            {workstation.is_default ? (
+              <span className="px-2 py-0.5 rounded-full bg-blue-600/20 border border-blue-500/30 text-[11px] font-medium text-blue-300">
+                Default
+              </span>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-400 mt-0.5 font-mono break-all">{hostLabel}</p>
+        </div>
+        <span className={`shrink-0 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium text-white ${status.badge}`}>
+          <span className={`inline-block w-2 h-2 rounded-full ${status.dot} ${workstation.status === 'healthy' ? 'pulse-dot' : ''}`} />
+          {status.label}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="bg-slate-800/50 rounded-lg p-3">
+          <p className="text-xs text-slate-500 mb-1">Running</p>
+          <p className="text-base font-semibold text-white">{workstation.running_tasks || 0}</p>
+        </div>
+        <div className="bg-slate-800/50 rounded-lg p-3">
+          <p className="text-xs text-slate-500 mb-1">Models</p>
+          <p className="text-base font-semibold text-white">{models.length}</p>
+        </div>
+        <div className="bg-slate-800/50 rounded-lg p-3">
+          <p className="text-xs text-slate-500 mb-1">GPU</p>
+          <p className="text-sm font-semibold text-white truncate" title={workstation.gpu_name || 'Not detected'}>
+            {workstation.gpu_name || 'None'}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {capabilities.length > 0 ? capabilities.map((capability) => (
+          <span
+            key={capability}
+            className="px-2 py-0.5 rounded-md bg-indigo-600/20 border border-indigo-500/30 text-[11px] font-medium text-indigo-200"
+            title={capability}
+          >
+            {formatCapabilityLabel(capability)}
+          </span>
+        )) : (
+          <span className="text-xs text-slate-500">No capabilities detected</span>
+        )}
+      </div>
+
+      {workstation.gpu_name || workstation.gpu_vram_mb ? (
+        <div className="mt-4 p-3 rounded-lg bg-slate-800/40 border border-slate-700/60">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-slate-300 truncate">{workstation.gpu_name || 'GPU detected'}</span>
+            {workstation.gpu_vram_mb ? (
+              <span className="text-slate-400">{formatGb(workstation.gpu_vram_mb)}</span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {workstation.gpu_vram_mb ? (
+        <div className="mt-4">
+          <VramBar
+            used={workstation.effective_vram_budget_mb || workstation.gpu_vram_mb}
+            total={workstation.gpu_vram_mb}
+            label="VRAM Budget"
+          />
+        </div>
+      ) : null}
+      <CapacityBar running={workstation.running_tasks || 0} max={workstation.max_concurrent || 0} />
+
+      {models.length > 0 ? (
+        <div className="mt-4">
+          <p className="text-xs text-slate-400 mb-2">Models</p>
+          <div className="flex flex-wrap gap-1.5">
+            {models.slice(0, 6).map((model) => {
+              const label = typeof model === 'string' ? model : model?.name;
+              if (!label) return null;
+              return (
+                <span key={label} className="px-2 py-0.5 rounded bg-green-600/20 text-[11px] text-green-200 border border-green-500/25">
+                  {label}
+                </span>
+              );
+            })}
+            {models.length > 6 ? (
+              <span className="px-2 py-0.5 rounded bg-slate-700/40 text-[11px] text-slate-300 border border-slate-600/40">
+                +{models.length - 6} more
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-800">
+        <div className="text-xs text-slate-500">
+          {workstation.last_health_check ? (
+            <span title={new Date(workstation.last_health_check).toLocaleString('en-US')}>
+              Checked {formatDistanceToNow(new Date(workstation.last_health_check), { addSuffix: true })}
+            </span>
+          ) : (
+            <span>Awaiting first probe</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onProbe(workstation.name)}
+            disabled={probing}
+            className="px-3 py-1.5 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-sm text-indigo-200 hover:bg-indigo-600/35 disabled:opacity-50 transition-colors"
+          >
+            {probing ? 'Probing...' : 'Probe'}
+          </button>
+          <button
+            onClick={() => onRemove(workstation)}
+            className="px-3 py-1.5 rounded-lg bg-red-600/10 border border-red-500/30 text-sm text-red-200 hover:bg-red-600/20 transition-colors"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddWorkstationForm({ onAdd, onCancel, submitting }) {
+  const [name, setName] = useState('');
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('3460');
+  const [secret, setSecret] = useState('');
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    const parsedPort = parseInt(port, 10);
+    if (!name.trim() || !host.trim() || !secret.trim() || !Number.isFinite(parsedPort) || parsedPort <= 0) {
+      return;
+    }
+
+    onAdd({
+      name: name.trim(),
+      host: host.trim(),
+      port: String(parsedPort),
+      secret: secret.trim(),
+    });
+  }
+
+  const canSubmit = name.trim() && host.trim() && secret.trim() && Number.isFinite(parseInt(port, 10)) && parseInt(port, 10) > 0;
+
+  return (
+    <form onSubmit={handleSubmit} className="glass-card p-5 space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-white">Add Workstation</h3>
+        <p className="text-xs text-slate-400 mt-1">Register a workstation agent on the unified Hosts page.</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="workstation-name" className="text-xs text-slate-400 block mb-1">Name *</label>
+          <input
+            id="workstation-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="builder-01"
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label htmlFor="workstation-host" className="text-xs text-slate-400 block mb-1">Host *</label>
+          <input
+            id="workstation-host"
+            value={host}
+            onChange={(event) => setHost(event.target.value)}
+            placeholder="10.0.0.12"
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label htmlFor="workstation-port" className="text-xs text-slate-400 block mb-1">Port *</label>
+          <input
+            id="workstation-port"
+            type="number"
+            min={1}
+            value={port}
+            onChange={(event) => setPort(event.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label htmlFor="workstation-secret" className="text-xs text-slate-400 block mb-1">Secret *</label>
+          <input
+            id="workstation-secret"
+            type="password"
+            value={secret}
+            onChange={(event) => setSecret(event.target.value)}
+            placeholder="Shared secret"
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+          />
+        </div>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!canSubmit || submitting}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+        >
+          {submitting ? 'Adding...' : 'Add Workstation'}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -615,19 +947,26 @@ function AddPeekHostForm({ onAdd, onCancel }) {
 
 export default function Hosts({ hostActivity }) {
   const [hostList, setHostList] = useState([]);
+  const [workstationList, setWorkstationList] = useState([]);
   const [peekHostList, setPeekHostList] = useState([]);
   const [concurrencyData, setConcurrencyData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingHosts, setLoadingHosts] = useState(true);
+  const [loadingWorkstations, setLoadingWorkstations] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [probingWorkstations, setProbingWorkstations] = useState({});
+  const [addingWorkstation, setAddingWorkstation] = useState(false);
+  const [showAddWorkstation, setShowAddWorkstation] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(null); // { id, name }
+  const [confirmRemoveWorkstation, setConfirmRemoveWorkstation] = useState(null); // { name }
   const [confirmRemovePeek, setConfirmRemovePeek] = useState(null); // { name }
   const [showAddPeek, setShowAddPeek] = useState(false);
   const toast = useToast();
-  const { execute } = useAbortableRequest();
+  const { execute: executeHostLoad } = useAbortableRequest();
+  const { execute: executeWorkstationLoad } = useAbortableRequest();
 
   const loadHosts = useCallback(() => {
-    execute(async (isCurrent) => {
+    return executeHostLoad(async (isCurrent) => {
       try {
         const data = await hostsApi.list();
         if (!isCurrent()) return;
@@ -638,27 +977,67 @@ export default function Hosts({ hostActivity }) {
         toast.error('Failed to load hosts');
       } finally {
         if (isCurrent()) {
-          setLoading(false);
-          setRefreshing(false);
+          setLoadingHosts(false);
         }
       }
     });
-  }, [execute, toast]);
+  }, [executeHostLoad, toast]);
 
-  useEffect(() => {
-    concurrency.get().then(setConcurrencyData).catch(() => {});
+  const loadWorkstations = useCallback(() => {
+    return executeWorkstationLoad(async (isCurrent) => {
+      try {
+        const [listData, nextConcurrencyData] = await Promise.all([
+          workstationsApi.list(),
+          concurrency.get().catch(() => null),
+        ]);
+        if (!isCurrent()) return;
+        setConcurrencyData(nextConcurrencyData);
+        setWorkstationList(mergeWorkstations(listData, nextConcurrencyData));
+      } catch (err) {
+        if (!isCurrent()) return;
+        console.error('Failed to load workstations:', err);
+        toast.error(`Failed to load workstations: ${err.message}`);
+      } finally {
+        if (isCurrent()) {
+          setLoadingWorkstations(false);
+        }
+      }
+    });
+  }, [executeWorkstationLoad, toast]);
+
+  const loadPeekHosts = useCallback(async () => {
+    try {
+      const data = await peekHostsApi.list();
+      setPeekHostList(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load peek hosts:', err);
+    }
   }, []);
+
+  const refreshInfrastructure = useCallback(async () => {
+    await Promise.allSettled([
+      loadHosts(),
+      loadWorkstations(),
+      loadPeekHosts(),
+    ]);
+  }, [loadHosts, loadPeekHosts, loadWorkstations]);
 
   useEffect(() => {
     loadHosts();
+    loadWorkstations();
     loadPeekHosts();
-    const interval = setInterval(() => { loadHosts(); loadPeekHosts(); }, 10000);
+    const interval = setInterval(() => {
+      loadHosts();
+      loadWorkstations();
+      loadPeekHosts();
+    }, 10000);
     return () => clearInterval(interval);
-  }, [loadHosts]);
+  }, [loadHosts, loadPeekHosts, loadWorkstations]);
 
   async function handleRefresh() {
     setRefreshing(true);
-    await loadHosts();
+    await refreshInfrastructure();
+    setRefreshing(false);
   }
 
   async function handleScan() {
@@ -667,7 +1046,7 @@ export default function Hosts({ hostActivity }) {
       const result = await hostsApi.scan();
       const found = result?.hosts_found || result?.found || 0;
       toast.success(`Scan complete: ${found} host${found !== 1 ? 's' : ''} found`);
-      loadHosts();
+      await loadHosts();
     } catch (err) {
       console.error('Network scan failed:', err);
       toast.error(`Scan failed: ${err.message}`);
@@ -680,7 +1059,7 @@ export default function Hosts({ hostActivity }) {
     try {
       await hostsApi.toggle(hostId, enabled);
       toast.success(`Host ${enabled ? 'enabled' : 'disabled'}`);
-      loadHosts();
+      await loadHosts();
     } catch (err) {
       console.error('Toggle failed:', err);
       toast.error(`Toggle failed: ${err.message}`);
@@ -697,7 +1076,7 @@ export default function Hosts({ hostActivity }) {
       await hostsApi.remove(confirmRemove.id);
       toast.success(`Host "${confirmRemove.name}" removed`);
       setConfirmRemove(null);
-      loadHosts();
+      await loadHosts();
     } catch (err) {
       console.error('Remove failed:', err);
       toast.error(`Remove failed: ${err.message}`);
@@ -705,21 +1084,94 @@ export default function Hosts({ hostActivity }) {
     }
   }
 
-  // --- Peek host handlers ---
-  async function loadPeekHosts() {
+  async function createWorkstation(data) {
+    const response = await fetch('/api/v2/workstations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: data.name,
+        host: data.host,
+        agent_port: parseInt(data.port, 10),
+        secret: data.secret,
+      }),
+    });
+    const payload = await parseApiResponse(response);
+
+    if (!response.ok) {
+      throw new Error(getApiErrorMessage(payload, response));
+    }
+
+    return payload?.data ?? payload;
+  }
+
+  async function handleAddWorkstation(data) {
+    setAddingWorkstation(true);
     try {
-      const data = await peekHostsApi.list();
-      setPeekHostList(Array.isArray(data) ? data : []);
+      const existing = await workstationsApi.list();
+      if (Array.isArray(existing) && existing.some((item) => item?.name === data.name)) {
+        toast.error(`Workstation "${data.name}" already exists`);
+        return;
+      }
+
+      await createWorkstation(data);
+      setShowAddWorkstation(false);
+
+      try {
+        await workstationsApi.probe(data.name);
+        toast.success(`Workstation "${data.name}" added and probed`);
+      } catch (probeErr) {
+        console.error('Workstation probe failed after add:', probeErr);
+        toast.error(`Workstation "${data.name}" added, but probe failed: ${probeErr.message}`);
+      }
+
+      await loadWorkstations();
     } catch (err) {
-      console.error('Failed to load peek hosts:', err);
+      console.error('Add workstation failed:', err);
+      toast.error(`Add failed: ${err.message}`);
+    } finally {
+      setAddingWorkstation(false);
     }
   }
+
+  async function handleProbeWorkstation(name) {
+    setProbingWorkstations((current) => ({ ...current, [name]: true }));
+    try {
+      await workstationsApi.probe(name);
+      toast.success(`Workstation "${name}" probed`);
+      await loadWorkstations();
+    } catch (err) {
+      console.error('Probe failed:', err);
+      toast.error(`Probe failed: ${err.message}`);
+    } finally {
+      setProbingWorkstations((current) => {
+        const next = { ...current };
+        delete next[name];
+        return next;
+      });
+    }
+  }
+
+  async function handleRemoveWorkstationConfirm() {
+    if (!confirmRemoveWorkstation) return;
+    try {
+      await workstationsApi.remove(confirmRemoveWorkstation.name);
+      toast.success(`Workstation "${confirmRemoveWorkstation.name}" removed`);
+      setConfirmRemoveWorkstation(null);
+      await loadWorkstations();
+    } catch (err) {
+      console.error('Remove failed:', err);
+      toast.error(`Remove failed: ${err.message}`);
+      setConfirmRemoveWorkstation(null);
+    }
+  }
+
+  // --- Peek host handlers ---
 
   async function handlePeekToggle(name, enabled) {
     try {
       await peekHostsApi.toggle(name, enabled);
       toast.success(`Peek host ${enabled ? 'enabled' : 'disabled'}`);
-      loadPeekHosts();
+      await loadPeekHosts();
     } catch (err) {
       toast.error(`Toggle failed: ${err.message}`);
     }
@@ -730,7 +1182,7 @@ export default function Hosts({ hostActivity }) {
       await peekHostsApi.create(data);
       toast.success(`Peek host "${data.name}" added`);
       setShowAddPeek(false);
-      loadPeekHosts();
+      await loadPeekHosts();
     } catch (err) {
       toast.error(`Add failed: ${err.message}`);
     }
@@ -742,7 +1194,7 @@ export default function Hosts({ hostActivity }) {
       await peekHostsApi.remove(confirmRemovePeek.name);
       toast.success(`Peek host "${confirmRemovePeek.name}" removed`);
       setConfirmRemovePeek(null);
-      loadPeekHosts();
+      await loadPeekHosts();
     } catch (err) {
       toast.error(`Remove failed: ${err.message}`);
       setConfirmRemovePeek(null);
@@ -776,9 +1228,11 @@ export default function Hosts({ hostActivity }) {
     }
   }
 
+  const loading = loadingHosts || loadingWorkstations;
   const enabled = hostList.filter((h) => h.enabled).length;
   const healthy = hostList.filter((h) => h.enabled && h.status === 'healthy').length;
   const total = hostList.length;
+  const healthyWorkstations = workstationList.filter((workstation) => workstation.status === 'healthy').length;
 
   if (loading) {
     return (
@@ -794,7 +1248,7 @@ export default function Hosts({ hostActivity }) {
         <div>
           <h2 className="heading-lg text-white">Hosts</h2>
           <p className="text-sm text-slate-400 mt-1">
-            {enabled} enabled, {healthy} healthy — {total} total
+            {healthy} healthy ollama hosts, {healthyWorkstations} healthy workstations
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -823,78 +1277,86 @@ export default function Hosts({ hostActivity }) {
 
       {/* Global VRAM slider removed — VRAM budget is now per-host/workstation */}
 
-      {hostList.length === 0 ? (
-        <div className="glass-card p-12 text-center">
-          <p className="text-slate-400 text-lg mb-2">No hosts configured</p>
-          <p className="text-slate-500 text-sm">
-            Use <code className="bg-slate-800 px-1.5 py-0.5 rounded text-xs">add_ollama_host</code> to register a host
-          </p>
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="heading-lg text-white">Workstations</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              {healthyWorkstations} healthy — {workstationList.length} total
+            </p>
+          </div>
+          <button
+            onClick={() => setShowAddWorkstation((current) => !current)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/35 text-indigo-200 text-sm rounded-lg transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            {showAddWorkstation ? 'Cancel' : 'Add Workstation'}
+          </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {hostList.map((host) => (
-            <HostCard
-              key={host.id}
-              host={host}
-              activity={hostActivity?.hosts?.[host.id]}
-              onToggle={handleToggle}
-              onRemove={handleRemoveClick}
-              onRefreshHosts={loadHosts}
-              concurrencyData={concurrencyData}
-            />
-          ))}
-        </div>
-      )}
 
-      {concurrencyData?.workstations?.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-xl font-bold text-white mb-4">Workstations</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {concurrencyData.workstations.map((ws) => (
-              <div key={ws.name} className="glass-card p-5">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-lg font-semibold text-white">{ws.name}</h3>
-                  <span className="text-xs text-slate-400">{ws.host}</span>
-                </div>
-                {ws.gpu_vram_mb && <VramBar used={ws.effective_vram_budget_mb || 0} total={ws.gpu_vram_mb} />}
-                <CapacityBar running={ws.running_tasks} max={ws.max_concurrent} />
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-slate-400">Max Concurrent:</span>
-                  <input type="number" min={1} max={100} defaultValue={ws.max_concurrent}
-                    onBlur={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (Number.isFinite(val) && val >= 1 && val <= 100) {
-                        concurrency.set({ scope: 'workstation', target: ws.name, max_concurrent: val }).then(() => {
-                          toast.success('Workstation max concurrent set to ' + val);
-                          concurrency.get().then(setConcurrencyData);
-                        });
-                      }
-                    }}
-                    className="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-white" />
-                </div>
-                {ws.gpu_vram_mb && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className="text-xs text-slate-400">VRAM Budget:</span>
-                    <input type="range" min={50} max={100}
-                      defaultValue={ws.vram_factor ? Math.round(ws.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10) / 100;
-                        concurrency.set({ scope: 'workstation', target: ws.name, vram_factor: val }).then(() => {
-                          toast.success(`VRAM factor set to ${e.target.value}%`);
-                          concurrency.get().then(setConcurrencyData);
-                        });
-                      }}
-                      className="flex-1 h-1.5" />
-                    <span className="text-xs text-white font-mono w-10">
-                      {ws.vram_factor ? Math.round(ws.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)}%
-                    </span>
-                  </div>
-                )}
-              </div>
+        {showAddWorkstation ? (
+          <div className="mb-5">
+            <AddWorkstationForm
+              onAdd={handleAddWorkstation}
+              onCancel={() => setShowAddWorkstation(false)}
+              submitting={addingWorkstation}
+            />
+          </div>
+        ) : null}
+
+        {workstationList.length === 0 ? (
+          <div className="glass-card p-8 text-center">
+            <p className="text-slate-400 text-lg mb-2">No workstations registered</p>
+            <p className="text-slate-500 text-sm">Register a workstation agent to manage it here.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {workstationList.map((workstation) => (
+              <WorkstationCard
+                key={workstation.id || workstation.name}
+                workstation={workstation}
+                probing={Boolean(probingWorkstations[workstation.name])}
+                onProbe={handleProbeWorkstation}
+                onRemove={setConfirmRemoveWorkstation}
+              />
             ))}
           </div>
+        )}
+      </div>
+
+      <div className="mt-10">
+        <div className="mb-4">
+          <h2 className="heading-lg text-white">Ollama Hosts</h2>
+          <p className="text-sm text-slate-400 mt-1">
+            {enabled} enabled, {healthy} healthy — {total} total
+          </p>
         </div>
-      )}
+
+        {hostList.length === 0 ? (
+          <div className="glass-card p-12 text-center">
+            <p className="text-slate-400 text-lg mb-2">No hosts configured</p>
+            <p className="text-slate-500 text-sm">
+              Use <code className="bg-slate-800 px-1.5 py-0.5 rounded text-xs">add_ollama_host</code> to register a host
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {hostList.map((host) => (
+              <HostCard
+                key={host.id}
+                host={host}
+                activity={hostActivity?.hosts?.[host.id]}
+                onToggle={handleToggle}
+                onRemove={handleRemoveClick}
+                onRefreshHosts={loadHosts}
+                concurrencyData={concurrencyData}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* --- Remote Testing Hosts --- */}
       <div className="mt-10">
@@ -945,6 +1407,36 @@ export default function Hosts({ hostActivity }) {
           </div>
         )}
       </div>
+
+      {confirmRemoveWorkstation ? (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setConfirmRemoveWorkstation(null)}>
+          <div
+            className="glass-card p-6 max-w-sm mx-4"
+            role="dialog"
+            aria-label="Confirm remove workstation"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-white mb-2">Remove Workstation</h3>
+            <p className="text-sm text-slate-300 mb-6">
+              Are you sure you want to remove <strong>{confirmRemoveWorkstation.name}</strong>? This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmRemoveWorkstation(null)}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRemoveWorkstationConfirm}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Peek host remove confirmation dialog */}
       {confirmRemovePeek && (
