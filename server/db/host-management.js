@@ -142,12 +142,15 @@ function getOllamaHostByUrl(url) {
  * @returns {any}
  */
 function listOllamaHosts(options = {}) {
-  // Phase 3: Read from workstations via adapter
+  // Phase 3: Read from workstations via adapter (only if workstations table has data)
   try {
-    const wsAdapters = require('../workstation/adapters');
-    const wsHosts = wsAdapters.listOllamaHosts(options);
-    if (wsHosts.length > 0) return wsHosts;
-  } catch { /* fall through to legacy */ }
+    const wsCount = db.prepare("SELECT COUNT(*) as cnt FROM workstations").get();
+    if (wsCount && wsCount.cnt > 0) {
+      const wsAdapters = require('../workstation/adapters');
+      const wsHosts = wsAdapters.listOllamaHosts(options);
+      if (wsHosts.length > 0) return wsHosts;
+    }
+  } catch { /* fall through to legacy — workstations table may not exist in test DBs */ }
 
   let query = 'SELECT * FROM ollama_hosts WHERE 1=1';
   const values = [];
