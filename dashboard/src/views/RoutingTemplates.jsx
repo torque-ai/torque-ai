@@ -89,6 +89,7 @@ export default function RoutingTemplates() {
           setSelectedId(selectId);
           setEditingRules({ ...tpl.rules });
           setEditingOverrides({ ...(tpl.complexity_overrides || {}) });
+          setEditingName(tpl.name);
         }
       }
     } catch (err) {
@@ -105,6 +106,7 @@ export default function RoutingTemplates() {
   // ─── Helpers ────────────────────────────────────────────────────────
 
   const selectedTemplate = templates.find((t) => t.id === selectedId);
+  const [editingName, setEditingName] = useState('');
 
   function selectTemplate(id) {
     const tpl = templates.find((t) => t.id === id);
@@ -112,6 +114,7 @@ export default function RoutingTemplates() {
     setSelectedId(id);
     setEditingRules({ ...tpl.rules });
     setEditingOverrides({ ...(tpl.complexity_overrides || {}) });
+    setEditingName(tpl.name);
     setHasChanges(false);
     setExpandedRows(new Set());
   }
@@ -185,6 +188,7 @@ export default function RoutingTemplates() {
     if (!selectedTemplate || selectedTemplate.preset) return;
     try {
       await api.update(selectedId, {
+        name: editingName,
         rules: editingRules,
         complexity_overrides: editingOverrides,
       });
@@ -269,6 +273,19 @@ export default function RoutingTemplates() {
           <p className="text-xs text-slate-500 mt-2">
             Preset templates are read-only. Duplicate to create an editable copy.
           </p>
+        )}
+        {selectedTemplate && !selectedTemplate.preset && (
+          <div className="flex items-center gap-3 mt-3 pt-3 border-t border-slate-700/50">
+            <label className="text-sm text-slate-400 shrink-0">Name:</label>
+            <input
+              type="text"
+              value={editingName}
+              onChange={(e) => { setEditingName(e.target.value); setHasChanges(true); }}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500 flex-1"
+              placeholder="Template name"
+              maxLength={100}
+            />
+          </div>
         )}
       </div>
 
