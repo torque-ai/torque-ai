@@ -340,8 +340,11 @@ export default function Providers({ statsVersion, tasksTick }) {
   const handleSetApiKey = async (providerName, apiKey) => {
     try {
       await providersApi.setApiKey(providerName, apiKey);
-      addToast.success('API key saved');
+      addToast.success('API key saved — validating...');
       loadData();
+      // Re-fetch after health check has time to complete
+      setTimeout(() => loadData(), 5000);
+      setTimeout(() => loadData(), 15000);
     } catch (err) {
       addToast.error(`Failed to save key: ${err.message}`);
     }
