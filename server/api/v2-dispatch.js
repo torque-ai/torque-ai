@@ -209,8 +209,8 @@ const V2_CP_HANDLER_LOOKUP = {
     const body = await readJsonBody(req);
     const routingHandlers = require('../handlers/routing-template-handlers');
     const result = routingHandlers.handleActivateRoutingTemplate({
-      id: body.id !== undefined ? body.id : undefined,
-      name: body.name !== undefined ? body.name : undefined,
+      id: body.template_id !== undefined ? body.template_id : (body.id !== undefined ? body.id : undefined),
+      name: body.template_name !== undefined ? body.template_name : (body.name !== undefined ? body.name : undefined),
     });
     if (result?.isError) {
       throwToolResultError({ ...result, status: 404 });
