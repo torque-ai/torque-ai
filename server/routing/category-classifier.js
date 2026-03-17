@@ -81,8 +81,14 @@ const ANNOTATION_EDIT_PATTERNS = [
 ];
 
 // Detects references to specific code elements (function/method/class names, etc.)
-const SPECIFIC_TARGET_RE = /\b(the\s+\w+\s+(function|method|class|variable|property|getter|setter|constructor))\b/i;
+// Matches: "the getUser function", "the Account class", "the Account entity class",
+//          "the class declaration", "above the class"
+const SPECIFIC_TARGET_RE = /\b(the\s+\w+(\s+\w+)?\s+(function|method|class|variable|property|getter|setter|constructor|declaration|definition|interface|struct|enum)|(above|before|after|below)\s+the\s+(class|function|method|interface|struct|enum|namespace))\b/i;
 const STRUCTURAL_TARGET_RE = /\b(add|insert|append)\b.{0,30}\b(import|export|field|property|method|function|getter|setter|constructor|decorator|attribute|type|param|return)\b/i;
+
+// Explicit deep file path with edit verb — must contain a directory separator to distinguish
+// "in src/foo/Bar.cs" (targeted) from "to utils.js" (documentation)
+const EXPLICIT_FILE_PATH_RE = /\b(in|to|at|on)\s+[\w\-./\\]*[/\\][\w\-./\\]+\.\w{1,5}\b/i;
 
 function hasXamlFile(files) {
   return Array.isArray(files) && files.some(f => /\.xaml$/i.test(f));
@@ -95,10 +101,15 @@ function isTargetedFileEdit(desc) {
   if (STRUCTURAL_EDIT_PATTERNS.some(p => p.test(desc))) return true;
   if (STRUCTURAL_TARGET_RE.test(desc)) return true;
 
-  // Annotation edits (jsdoc/comment/docstring) — require a specific code element reference
-  // to distinguish "Add JSDoc to the getUser function in file.ts" (targeted)
-  // from "Add JSDoc comments to utils.js" (documentation)
-  if (ANNOTATION_EDIT_PATTERNS.some(p => p.test(desc)) && SPECIFIC_TARGET_RE.test(desc)) return true;
+  // Annotation edits (jsdoc/comment/docstring) — require either a specific code element
+  // reference OR an explicit file path to distinguish targeted edits from general documentation.
+  // "Add JSDoc to the getUser function in file.ts" → targeted (specific target)
+  // "Add XML doc comment above the class declaration in src/Account.cs" → targeted (specific target + file path)
+  // "Add JSDoc comments to utils.js" → documentation (no specific target, short path)
+  if (ANNOTATION_EDIT_PATTERNS.some(p => p.test(desc))) {
+    if (SPECIFIC_TARGET_RE.test(desc)) return true;
+    if (EXPLICIT_FILE_PATH_RE.test(desc)) return true;
+  }
 
   return false;
 }
