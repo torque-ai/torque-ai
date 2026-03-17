@@ -1,0 +1,250 @@
+'use strict';
+
+/**
+ * server/providers/agentic-git-safety.js — Git safety net for agentic tasks.
+ *
+ * Snapshots git state before a task runs, then after completion reverts any
+ * file changes that were not authorized by the task description. Prevents
+ * agentic tools from silently dirtying unrelated files.
+ *
+ * Usage:
+ *   const { captureSnapshot, checkAndRevert } = require('./agentic-git-safety');
+ *   const snapshot = captureSnapshot(workingDir);
+ *   // ... run task ...
+ *   const { reverted, kept, report } = checkAndRevert(workingDir, snapshot, taskDesc, 'enforce');
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+/** Max ms to wait for any git subprocess — prevents hanging in non-repo dirs. */
+const GIT_TIMEOUT_MS = 8000;
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Run a git command in workingDir. Returns stdout string or throws on failure.
+ * @param {string[]} args
+ * @param {string} workingDir
+ * @returns {string}
+ */
+function gitExec(args, workingDir) {
+  return execFileSync('git', args, {
+    cwd: workingDir,
+    encoding: 'utf-8',
+    timeout: GIT_TIMEOUT_MS,
+  });
+}
+
+/**
+ * Parse `git diff --name-only` output into a Set of file paths.
+ * @param {string} output
+ * @returns {Set<string>}
+ */
+function parseDirtyFiles(output) {
+  const files = new Set();
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed) files.add(trimmed);
+  }
+  return files;
+}
+
+/**
+ * Parse `git status --porcelain` output into a Set of untracked entries.
+ * Only lines starting with `??` are untracked.
+ * Entries may be files OR directories (e.g., `?? Accounting/`).
+ * @param {string} output
+ * @returns {Set<string>}
+ */
+function parseUntrackedFiles(output) {
+  const files = new Set();
+  for (const line of output.split('\n')) {
+    if (line.startsWith('?? ')) {
+      // Format: "?? path/to/file" or "?? SomeDir/" — strip the "?? " prefix
+      const filePath = line.slice(3).trim();
+      if (filePath) files.add(filePath);
+    }
+  }
+  return files;
+}
+
+/**
+ * Expand an untracked entry into individual file paths.
+ * If the entry is a directory path (ends with '/'), use `git ls-files --others`
+ * to enumerate the actual files within it. Otherwise return the path as-is.
+ * @param {string} entry  — as returned by `git status --porcelain` (may end with '/')
+ * @param {string} workingDir
+ * @returns {string[]}
+ */
+function expandUntrackedEntry(entry, workingDir) {
+  if (!entry.endsWith('/')) return [entry];
+  try {
+    const output = gitExec(
+      ['ls-files', '--others', '--exclude-standard', entry],
+      workingDir
+    );
+    const files = output.split('\n').map(l => l.trim()).filter(Boolean);
+    return files.length > 0 ? files : [entry];
+  } catch {
+    return [entry];
+  }
+}
+
+/**
+ * Check whether a task description authorizes changes to a given file.
+ * Authorization is granted if any path component of the file (basename,
+ * parent directory, etc.) appears in the task description (case-insensitive).
+ * @param {string} filePath
+ * @param {string} taskDescription
+ * @returns {boolean}
+ */
+function isAuthorized(filePath, taskDescription) {
+  if (!taskDescription) return false;
+  const desc = taskDescription.toLowerCase();
+  // Normalize separators and strip trailing slash (directory entries)
+  const normalized = filePath.replace(/\\/g, '/').replace(/\/$/, '');
+  const parts = normalized.split('/').filter(Boolean);
+  for (const part of parts) {
+    if (part && desc.includes(part.toLowerCase())) return true;
+  }
+  return false;
+}
+
+/**
+ * Check whether a file path is git-ignored in workingDir.
+ * @param {string} filePath
+ * @param {string} workingDir
+ * @returns {boolean}
+ */
+function isGitIgnored(filePath, workingDir) {
+  try {
+    execFileSync('git', ['check-ignore', '-q', filePath], {
+      cwd: workingDir,
+      encoding: 'utf-8',
+      timeout: GIT_TIMEOUT_MS,
+    });
+    return true; // exit code 0 → ignored
+  } catch {
+    return false; // non-zero → not ignored
+  }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Capture current git state in workingDir.
+ *
+ * @param {string} workingDir
+ * @returns {{ dirtyFiles: Set<string>, untrackedFiles: Set<string>, isGitRepo: boolean }}
+ */
+function captureSnapshot(workingDir) {
+  try {
+    const diffOutput = gitExec(['diff', '--name-only'], workingDir);
+    const statusOutput = gitExec(['status', '--porcelain'], workingDir);
+    return {
+      dirtyFiles: parseDirtyFiles(diffOutput),
+      untrackedFiles: parseUntrackedFiles(statusOutput),
+      isGitRepo: true,
+    };
+  } catch {
+    return { dirtyFiles: new Set(), untrackedFiles: new Set(), isGitRepo: false };
+  }
+}
+
+/**
+ * Check git state against a previously captured snapshot and revert unauthorized changes.
+ *
+ * @param {string} workingDir
+ * @param {{ dirtyFiles: Set<string>, untrackedFiles: Set<string>, isGitRepo: boolean }} snapshot
+ * @param {string} taskDescription
+ * @param {'enforce'|'warn'|'off'} [mode='enforce']
+ * @returns {{ reverted: string[], kept: string[], report: string }}
+ */
+function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce') {
+  if (mode === 'off') {
+    return { reverted: [], kept: [], report: '' };
+  }
+
+  if (!snapshot.isGitRepo) {
+    return { reverted: [], kept: [], report: '' };
+  }
+
+  // Capture fresh state
+  let currentDirty = new Set();
+  let currentUntracked = new Set();
+  try {
+    const diffOutput = gitExec(['diff', '--name-only'], workingDir);
+    const statusOutput = gitExec(['status', '--porcelain'], workingDir);
+    currentDirty = parseDirtyFiles(diffOutput);
+    currentUntracked = parseUntrackedFiles(statusOutput);
+  } catch {
+    return { reverted: [], kept: [], report: '' };
+  }
+
+  // Newly dirty tracked files (not in snapshot)
+  const newlyDirty = [...currentDirty].filter(f => !snapshot.dirtyFiles.has(f));
+
+  // Newly untracked entries (not in snapshot) — expand directories to individual files
+  const newlyUntrackedEntries = [...currentUntracked].filter(f => !snapshot.untrackedFiles.has(f));
+  const newlyUntracked = newlyUntrackedEntries.flatMap(e => expandUntrackedEntry(e, workingDir));
+
+  const reverted = [];
+  const kept = [];
+
+  // Handle newly dirty tracked files
+  for (const filePath of newlyDirty) {
+    if (isAuthorized(filePath, taskDescription)) {
+      kept.push(filePath);
+      continue;
+    }
+    if (mode === 'warn') {
+      console.warn(`[agentic-git-safety] Unauthorized change (warn mode, not reverted): ${filePath}`);
+      kept.push(filePath);
+    } else {
+      try {
+        gitExec(['checkout', '--', filePath], workingDir);
+        reverted.push(filePath);
+      } catch (err) {
+        console.warn(`[agentic-git-safety] Failed to revert ${filePath}: ${err.message}`);
+        kept.push(filePath);
+      }
+    }
+  }
+
+  // Handle newly untracked files
+  for (const filePath of newlyUntracked) {
+    if (isAuthorized(filePath, taskDescription)) {
+      kept.push(filePath);
+      continue;
+    }
+    // Check gitignore before deleting
+    if (isGitIgnored(filePath, workingDir)) {
+      kept.push(filePath);
+      continue;
+    }
+    if (mode === 'warn') {
+      console.warn(`[agentic-git-safety] Unauthorized new file (warn mode, not deleted): ${filePath}`);
+      kept.push(filePath);
+    } else {
+      const fullPath = path.resolve(workingDir, filePath);
+      try {
+        fs.unlinkSync(fullPath);
+        reverted.push(filePath);
+      } catch (err) {
+        console.warn(`[agentic-git-safety] Failed to delete ${filePath}: ${err.message}`);
+        kept.push(filePath);
+      }
+    }
+  }
+
+  let report = '';
+  if (reverted.length > 0) {
+    report = `Reverted ${reverted.length} unauthorized change${reverted.length === 1 ? '' : 's'}: ${reverted.join(', ')}`;
+  }
+
+  return { reverted, kept, report };
+}
+
+module.exports = { captureSnapshot, checkAndRevert };
