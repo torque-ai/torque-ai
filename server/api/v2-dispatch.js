@@ -129,6 +129,103 @@ const V2_CP_HANDLER_LOOKUP = {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
+  // Routing templates
+  handleV2CpListRoutingTemplates: (req, res, ctx) => {
+    const routingHandlers = require('../handlers/routing-template-handlers');
+    const result = routingHandlers.handleListRoutingTemplates();
+    const text = result?.content?.[0]?.text || '[]';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpGetRoutingTemplate: (req, res, ctx) => {
+    const routingHandlers = require('../handlers/routing-template-handlers');
+    const templateId = ctx.params?.template_id || '';
+    const result = routingHandlers.handleGetRoutingTemplate({ id: templateId });
+    if (result?.isError) {
+      throwToolResultError({ ...result, status: 404 });
+    }
+    const text = result?.content?.[0]?.text || '{}';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpCreateRoutingTemplate: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const routingHandlers = require('../handlers/routing-template-handlers');
+    const result = routingHandlers.handleSetRoutingTemplate(body);
+    if (result?.isError) {
+      throwToolResultError({ ...result, status: 400 });
+    }
+    const text = result?.content?.[0]?.text || '{}';
+    res.writeHead(201, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpUpdateRoutingTemplate: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const routingHandlers = require('../handlers/routing-template-handlers');
+    const templateId = ctx.params?.template_id || '';
+    // Resolve template by ID first, then merge body for update
+    const existing = routingHandlers.handleGetRoutingTemplate({ id: templateId });
+    if (existing?.isError) {
+      throwToolResultError({ ...existing, status: 404 });
+    }
+    const existingData = JSON.parse(existing?.content?.[0]?.text || '{}');
+    const result = routingHandlers.handleSetRoutingTemplate({
+      name: body.name || existingData.name,
+      description: body.description !== undefined ? body.description : existingData.description,
+      rules: body.rules || existingData.rules,
+      complexity_overrides: body.complexity_overrides !== undefined ? body.complexity_overrides : existingData.complexity_overrides,
+    });
+    if (result?.isError) {
+      throwToolResultError({ ...result, status: 400 });
+    }
+    const text = result?.content?.[0]?.text || '{}';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpDeleteRoutingTemplate: (req, res, ctx) => {
+    const routingHandlers = require('../handlers/routing-template-handlers');
+    const templateId = ctx.params?.template_id || '';
+    const result = routingHandlers.handleDeleteRoutingTemplate({ id: templateId });
+    if (result?.isError) {
+      const text = result?.content?.[0]?.text || '';
+      const status = text.includes('preset') ? 403 : 404;
+      throwToolResultError({ ...result, status });
+    }
+    const text = result?.content?.[0]?.text || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpGetActiveRouting: (req, res, ctx) => {
+    const routingHandlers = require('../handlers/routing-template-handlers');
+    const result = routingHandlers.handleGetActiveRouting();
+    if (result?.isError) {
+      throwToolResultError({ ...result, status: 404 });
+    }
+    const text = result?.content?.[0]?.text || '{}';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpSetActiveRouting: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const routingHandlers = require('../handlers/routing-template-handlers');
+    const result = routingHandlers.handleActivateRoutingTemplate({
+      id: body.id !== undefined ? body.id : undefined,
+      name: body.name !== undefined ? body.name : undefined,
+    });
+    if (result?.isError) {
+      throwToolResultError({ ...result, status: 404 });
+    }
+    const text = result?.content?.[0]?.text || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpListCategories: (req, res, ctx) => {
+    const routingHandlers = require('../handlers/routing-template-handlers');
+    const result = routingHandlers.handleListRoutingCategories();
+    const text = result?.content?.[0]?.text || '[]';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+  },
   // Model registry
   handleV2CpListModels: (req, res, ctx) => {
     const modelHandlers = require('../handlers/model-handlers');

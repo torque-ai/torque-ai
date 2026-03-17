@@ -41,6 +41,7 @@ const TOOLS = [
   ...require('./tool-defs/concurrency-defs'),
   ...require('./tool-defs/economy-defs'),
   ...require('./tool-defs/model-defs'),
+  ...require('./tool-defs/routing-template-defs'),
 ];
 
 // ── Handler modules ──
@@ -70,6 +71,7 @@ const HANDLER_MODULES = [
   require('./handlers/concurrency-handlers'),
   require('./handlers/economy-handlers'),
   require('./handlers/model-handlers'),
+  require('./handlers/routing-template-handlers'),
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──

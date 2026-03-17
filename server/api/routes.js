@@ -1198,6 +1198,16 @@ const routes = [
   { method: 'GET', path: '/api/v2/economy/status', handlerName: 'handleV2CpGetEconomyStatus', middleware: buildV2Middleware() },
   { method: 'POST', path: '/api/v2/economy/set', handlerName: 'handleV2CpSetEconomyMode', middleware: buildV2Middleware() },
 
+  // Routing templates
+  { method: 'GET', path: '/api/v2/routing/templates', handlerName: 'handleV2CpListRoutingTemplates', middleware: buildV2Middleware() },
+  { method: 'GET', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, handlerName: 'handleV2CpGetRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
+  { method: 'POST', path: '/api/v2/routing/templates', handlerName: 'handleV2CpCreateRoutingTemplate', middleware: buildV2Middleware() },
+  { method: 'PUT', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, handlerName: 'handleV2CpUpdateRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
+  { method: 'DELETE', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, handlerName: 'handleV2CpDeleteRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
+  { method: 'GET', path: '/api/v2/routing/active', handlerName: 'handleV2CpGetActiveRouting', middleware: buildV2Middleware() },
+  { method: 'PUT', path: '/api/v2/routing/active', handlerName: 'handleV2CpSetActiveRouting', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/routing/categories', handlerName: 'handleV2CpListCategories', middleware: buildV2Middleware() },
+
   // Model registry
   { method: 'GET', path: '/api/v2/models', handlerName: 'handleV2CpListModels', middleware: buildV2Middleware() },
   { method: 'GET', path: '/api/v2/models/pending', handlerName: 'handleV2CpListPendingModels', middleware: buildV2Middleware() },
