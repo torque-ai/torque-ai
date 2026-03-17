@@ -156,10 +156,11 @@ function fallbackReview({ validation_failures, file_size_delta_pct, config }) {
     };
   }
 
-  // Score based on warnings vs total checks
-  const totalChecks = Math.max(criteria.length, failures.length, 1);
+  // Score based on warnings vs total checks (only meaningful when criteria are configured)
+  const hasCriteria = criteria.length > 0;
+  const totalChecks = hasCriteria ? Math.max(criteria.length, failures.length) : Math.max(failures.length, 1);
   const passedChecks = totalChecks - warnings.length;
-  const score = Math.round((passedChecks / totalChecks) * 100);
+  const score = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 100;
 
   if (strictMode && warnings.length > 0) {
     return {
@@ -173,7 +174,7 @@ function fallbackReview({ validation_failures, file_size_delta_pct, config }) {
     };
   }
 
-  if (score < autoApproveThreshold) {
+  if (hasCriteria && score < autoApproveThreshold) {
     return {
       decision: 'reject',
       reason: `Score ${score} below auto-approve threshold ${autoApproveThreshold}`,
