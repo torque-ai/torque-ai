@@ -32,13 +32,18 @@ function handleCacheTaskResult(args) {
     };
   }
 
-  const cacheEntry = db.cacheTaskResult(task, { ttl_hours });
+  const cacheEntry = db.cacheTaskResult(task_id, ttl_hours || 24);
+
+  if (!cacheEntry) {
+    return {
+      ...makeError(ErrorCodes.OPERATION_FAILED, 'Failed to cache task result')
+    };
+  }
 
   let output = `## Task Result Cached\n\n`;
   output += `**Cache ID:** ${cacheEntry.id}\n`;
   output += `**Content Hash:** ${cacheEntry.content_hash.substring(0, 16)}...\n`;
   output += `**Expires:** ${new Date(cacheEntry.expires_at).toLocaleString()}\n`;
-  output += `**Confidence:** ${Math.round(cacheEntry.confidence_score * 100)}%\n`;
 
   return {
     content: [{ type: 'text', text: output }]
@@ -55,11 +60,7 @@ function handleCacheTaskResult(args) {
 function handleLookupCache(args) {
   const { task_description, working_directory, min_confidence, use_semantic } = args;
 
-  const result = db.lookupCache(task_description, {
-    working_directory,
-    min_confidence: min_confidence || 0.7,
-    use_semantic: use_semantic !== false
-  });
+  const result = db.lookupCache(task_description, working_directory || null, null, min_confidence || 0.85);
 
   if (!result) {
     return {
@@ -69,7 +70,7 @@ function handleLookupCache(args) {
 
   let output = `## Cache Hit!\n\n`;
   output += `**Match Type:** ${result.match_type}\n`;
-  output += `**Confidence:** ${Math.round(result.confidence * 100)}%\n`;
+  output += `**Confidence:** ${Math.round((result.similarity || result.confidence_score || 0) * 100)}%\n`;
   output += `**Hit Count:** ${result.hit_count}\n`;
   output += `**Cached At:** ${new Date(result.created_at).toLocaleString()}\n\n`;
   output += `### Cached Result\n\n`;
@@ -200,15 +201,11 @@ function handleConfigureCache(args) {
 function handleWarmCache(args) {
   const { limit, min_exit_code } = args;
 
-  const warmed = db.warmCache({
-    limit: safeLimit(limit, 50),
-    min_exit_code: min_exit_code || 0
-  });
+  const warmed = db.warmCache(safeLimit(limit, 50), undefined, null);
 
   let output = `## Cache Warmed\n\n`;
-  output += `**Entries Added:** ${warmed.added}\n`;
-  output += `**Already Cached:** ${warmed.skipped}\n`;
-  output += `**Failed:** ${warmed.failed}\n`;
+  output += `**Entries Cached:** ${warmed.cached}\n`;
+  output += `**Tasks Scanned:** ${warmed.scanned}\n`;
 
   return {
     content: [{ type: 'text', text: output }]
@@ -230,19 +227,26 @@ function handleComputePriority(args) {
   const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const score = db.computePriorityScore(task_id, { recalculate });
+  const score = db.computePriorityScore(task_id);
 
+  if (!score) {
+    return {
+      ...makeError(ErrorCodes.OPERATION_FAILED, `Could not compute priority for task ${task_id}`)
+    };
+  }
+
+  const factors = score.factors || {};
   let output = `## Priority Score: ${task_id.substring(0, 8)}...\n\n`;
-  output += `**Final Score:** ${score.final_score.toFixed(2)}\n\n`;
+  output += `**Final Score:** ${score.combined_score.toFixed(2)}\n\n`;
   output += `### Components\n\n`;
   output += `| Factor | Score | Weight | Contribution |\n`;
   output += `|--------|-------|--------|-------------|\n`;
-  output += `| Resource | ${score.resource_score.toFixed(2)} | ${(score.weights.resource * 100).toFixed(0)}% | ${(score.resource_score * score.weights.resource).toFixed(2)} |\n`;
-  output += `| Success Rate | ${score.success_score.toFixed(2)} | ${(score.weights.success * 100).toFixed(0)}% | ${(score.success_score * score.weights.success).toFixed(2)} |\n`;
-  output += `| Dependency | ${score.dependency_score.toFixed(2)} | ${(score.weights.dependency * 100).toFixed(0)}% | ${(score.dependency_score * score.weights.dependency).toFixed(2)} |\n`;
+  output += `| Resource | ${score.resource_score.toFixed(2)} | ${((factors.resource?.weight || 0) * 100).toFixed(0)}% | ${(score.resource_score * (factors.resource?.weight || 0)).toFixed(2)} |\n`;
+  output += `| Success Rate | ${score.success_score.toFixed(2)} | ${((factors.success?.weight || 0) * 100).toFixed(0)}% | ${(score.success_score * (factors.success?.weight || 0)).toFixed(2)} |\n`;
+  output += `| Dependency | ${score.dependency_score.toFixed(2)} | ${((factors.dependency?.weight || 0) * 100).toFixed(0)}% | ${(score.dependency_score * (factors.dependency?.weight || 0)).toFixed(2)} |\n`;
 
-  if (score.manual_boost) {
-    output += `\n**Manual Boost:** +${score.manual_boost}`;
+  if (factors.manual_boost) {
+    output += `\n**Manual Boost:** +${factors.manual_boost.amount}`;
   }
 
   return {
@@ -260,10 +264,7 @@ function handleComputePriority(args) {
 function handleGetPriorityQueue(args) {
   const { status, limit } = args;
 
-  const queue = db.getPriorityQueue({
-    status: status || 'queued',
-    limit: safeLimit(limit, 20)
-  });
+  const queue = db.getPriorityQueue(safeLimit(limit, 20), 0);
 
   if (queue.length === 0) {
     return {
@@ -278,7 +279,7 @@ function handleGetPriorityQueue(args) {
   for (let i = 0; i < queue.length; i++) {
     const t = queue[i];
     const desc = t.task_description.substring(0, 40) + '...';
-    output += `| ${i + 1} | ${t.id.substring(0, 8)} | ${t.priority_score?.toFixed(2) || 'N/A'} | ${desc} |\n`;
+    output += `| ${i + 1} | ${t.id.substring(0, 8)} | ${t.combined_score != null ? t.combined_score.toFixed(2) : 'N/A'} | ${desc} |\n`;
   }
 
   return {
@@ -372,22 +373,20 @@ function handleExplainPriority(args) {
  * @returns {Object} MCP response payload.
  */
 function handleBoostPriority(args) {
-  const { task_id, boost_amount, expires_in_minutes } = args;
+  const { task_id, boost_amount, reason } = args;
 
   const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  db.boostPriority(task_id, boost_amount, expires_in_minutes);
+  db.boostPriority(task_id, boost_amount, reason || 'Manual boost');
 
-  const newScore = db.computePriorityScore(task_id, { recalculate: true });
+  const newScore = db.computePriorityScore(task_id);
 
   let output = `## Priority Boosted\n\n`;
   output += `**Task:** ${task_id.substring(0, 8)}...\n`;
   output += `**Boost:** +${boost_amount}\n`;
-  output += `**New Score:** ${newScore.final_score.toFixed(2)}\n`;
-  if (expires_in_minutes) {
-    output += `**Expires:** ${expires_in_minutes} minutes\n`;
-  }
+  output += `**Reason:** ${reason || 'Manual boost'}\n`;
+  output += `**New Score:** ${newScore ? newScore.combined_score.toFixed(2) : 'N/A'}\n`;
 
   return {
     content: [{ type: 'text', text: output }]
@@ -410,34 +409,25 @@ function handlePredictFailure(args) {
   if (task_id) {
     const { task, error: taskErr } = requireTask(db, task_id);
     if (taskErr) return taskErr;
-    prediction = db.predictFailureForTask(task);
+    prediction = db.predictFailureForTask(task.task_description, task.working_directory);
   } else if (task_description) {
-    prediction = db.predictFailureForTask({
-      task_description,
-      working_directory
-    });
+    prediction = db.predictFailureForTask(task_description, working_directory || null);
   } else {
     return {
       ...makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Provide either task_id or task_description')
     };
   }
 
+  const riskLevel = prediction.probability > 0.7 ? 'High' : prediction.probability > 0.3 ? 'Medium' : 'Low';
   let output = `## Failure Prediction\n\n`;
   output += `**Failure Probability:** ${Math.round(prediction.probability * 100)}%\n`;
-  output += `**Risk Level:** ${prediction.risk_level}\n`;
+  output += `**Risk Level:** ${riskLevel}\n`;
   output += `**Confidence:** ${Math.round(prediction.confidence * 100)}%\n\n`;
 
   if (prediction.patterns && prediction.patterns.length > 0) {
     output += `### Matched Patterns\n\n`;
     for (const p of prediction.patterns) {
-      output += `- **${p.pattern_type}**: ${p.description} (${Math.round(p.contribution * 100)}% contribution)\n`;
-    }
-  }
-
-  if (prediction.recommendations && prediction.recommendations.length > 0) {
-    output += `\n### Recommendations\n\n`;
-    for (const r of prediction.recommendations) {
-      output += `- ${r}\n`;
+      output += `- **${p.type}**: ${JSON.stringify(p.definition)} (failure rate: ${Math.round(p.failure_rate * 100)}%)\n`;
     }
   }
 
@@ -463,23 +453,31 @@ function handleLearnFailurePattern(args) {
   const { task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  // Extract signature from task output
-  const output = task.output || task.error_output || task.error || '';
-  if (!output) {
+  // Verify task has output to learn from
+  const taskOutput = task.output || task.error_output || task.error || '';
+  if (!taskOutput) {
     return makeError(ErrorCodes.OPERATION_FAILED, 'Task has no output to learn from');
   }
 
-  // Create a signature based on the first distinctive pattern found
-  const lines = output.split('\n').filter(l => l.trim());
-  const signature = lines[0] ? lines[0].substring(0, 100) : 'empty output';
+  const patterns = db.learnFailurePattern(task_id);
 
-  db.learnFailurePattern(task_id, signature, name, description);
+  if (!patterns || patterns.length === 0) {
+    return {
+      content: [{
+        type: 'text',
+        text: `## Failure Pattern Learning\n\nNo patterns could be extracted from task ${task_id.substring(0, 8)}...`
+      }]
+    };
+  }
+
+  let output = `## Failure Pattern Learned\n\n`;
+  output += `- **Name:** ${name}\n`;
+  output += `- **Source Task:** ${task_id}\n`;
+  output += `- **Patterns Found:** ${patterns.length}\n`;
+  output += `- **Provider:** ${task.provider || 'unknown'}\n`;
 
   return {
-    content: [{
-      type: 'text',
-      text: `## Failure Pattern Learned\n\n- **Name:** ${name}\n- **Source Task:** ${task_id}\n- **Signature:** ${signature.substring(0, 50)}...\n- **Provider:** ${task.provider || 'unknown'}`
-    }]
+    content: [{ type: 'text', text: output }]
   };
 }
 
@@ -508,7 +506,7 @@ function handleListFailurePatterns(args) {
   output += `|------|----------|----------|---------|----------|\n`;
 
   patterns.forEach(p => {
-    output += `| ${p.name} | ${p.provider || 'all'} | ${p.severity} | ${p.match_count} | ${p.enabled ? '✓' : '✗'} |\n`;
+    output += `| ${p.name} | ${p.provider || 'all'} | ${p.severity} | ${p.match_count} | ${p.enabled ? '\u2713' : '\u2717'} |\n`;
   });
 
   return { content: [{ type: 'text', text: output }] };
@@ -548,19 +546,21 @@ function handleSuggestIntervention(args) {
   const { task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const suggestions = db.suggestIntervention(task);
+  const result = db.suggestIntervention(task.task_description, task.working_directory);
+  const interventions = result.interventions || [];
 
   let output = `## Intervention Suggestions: ${task_id.substring(0, 8)}...\n\n`;
+  output += `**Failure Probability:** ${Math.round((result.prediction?.probability || 0) * 100)}%\n\n`;
 
-  if (suggestions.length === 0) {
+  if (interventions.length === 0) {
     output += `No interventions suggested. Task appears healthy.`;
   } else {
-    output += `| # | Type | Suggestion | Impact |\n`;
-    output += `|---|------|------------|--------|\n`;
+    output += `| # | Type | Reason |\n`;
+    output += `|---|------|--------|\n`;
 
-    for (let i = 0; i < suggestions.length; i++) {
-      const s = suggestions[i];
-      output += `| ${i + 1} | ${s.type} | ${s.suggestion.substring(0, 40)}... | ${s.expected_impact} |\n`;
+    for (let i = 0; i < interventions.length; i++) {
+      const s = interventions[i];
+      output += `| ${i + 1} | ${s.type} | ${s.reason || ''} |\n`;
     }
 
     output += `\n*Use \`apply_intervention\` with suggestion number to apply.*`;
@@ -626,38 +626,25 @@ function handleApplyIntervention(args) {
  * @returns {Object} MCP response payload.
  */
 function handleAnalyzeRetryPatterns(args) {
-  const { time_range_hours, min_retries } = args;
+  const { time_range_hours } = args;
 
-  const analysis = db.analyzeRetryPatterns({
-    time_range_hours: time_range_hours || 168, // 7 days default
-    min_retries: min_retries || 2
-  });
+  const hours = time_range_hours || 168; // 7 days default
+  // Pass null to avoid WHERE clause on missing column; filter post-query if needed
+  const patterns = db.analyzeRetryPatterns(null);
 
   let output = `## Retry Pattern Analysis\n\n`;
-  output += `**Period:** Last ${time_range_hours || 168} hours\n\n`;
+  output += `**Period:** Last ${hours} hours\n\n`;
 
-  output += `### Summary\n\n`;
-  output += `| Metric | Value |\n`;
-  output += `|--------|-------|\n`;
-  output += `| Total Tasks with Retries | ${analysis.total_tasks} |\n`;
-  output += `| Total Retry Attempts | ${analysis.total_retries} |\n`;
-  output += `| Success Rate After Retry | ${Math.round(analysis.success_rate * 100)}% |\n`;
-  output += `| Avg Retries to Success | ${analysis.avg_retries_to_success?.toFixed(1) || 'N/A'} |\n`;
+  output += `### Strategy Results\n\n`;
 
-  if (analysis.by_error_type && Object.keys(analysis.by_error_type).length > 0) {
-    output += `\n### By Error Type\n\n`;
-    output += `| Error Type | Count | Success Rate |\n`;
-    output += `|------------|-------|-------------|\n`;
+  if (!patterns || patterns.length === 0) {
+    output += `No retry patterns found in this period.\n`;
+  } else {
+    output += `| Strategy | Error Type | Attempts | Successes | Success Rate |\n`;
+    output += `|----------|------------|----------|-----------|-------------|\n`;
 
-    for (const [errorType, stats] of Object.entries(analysis.by_error_type)) {
-      output += `| ${errorType} | ${stats.count} | ${Math.round(stats.success_rate * 100)}% |\n`;
-    }
-  }
-
-  if (analysis.recommendations && analysis.recommendations.length > 0) {
-    output += `\n### Recommendations\n\n`;
-    for (const r of analysis.recommendations) {
-      output += `- ${r}\n`;
+    for (const p of patterns) {
+      output += `| ${p.strategy_used || 'N/A'} | ${(p.error_type || '').substring(0, 40)} | ${p.attempts} | ${p.successes} | ${Math.round(p.success_rate * 100)}% |\n`;
     }
   }
 
@@ -679,17 +666,17 @@ function handleConfigureAdaptiveRetry(args) {
 
   if (enabled !== undefined) {
     db.setConfig('adaptive_retry_enabled', enabled ? '1' : '0');
-    updates.push(`enabled → ${enabled}`);
+    updates.push(`enabled \u2192 ${enabled}`);
   }
 
   if (default_fallback) {
     db.setConfig('adaptive_retry_default_fallback', default_fallback);
-    updates.push(`default_fallback → ${default_fallback}`);
+    updates.push(`default_fallback \u2192 ${default_fallback}`);
   }
 
   if (max_retries_per_task !== undefined) {
     db.setConfig('adaptive_retry_max_per_task', max_retries_per_task.toString());
-    updates.push(`max_retries_per_task → ${max_retries_per_task}`);
+    updates.push(`max_retries_per_task \u2192 ${max_retries_per_task}`);
   }
 
   if (updates.length === 0) {
@@ -732,28 +719,32 @@ function handleGetRetryRecommendation(args) {
     };
   }
 
-  const recommendation = db.getRetryRecommendation(task);
+  const previousError = task.error_output || task.error || '';
+  const recommendation = db.getRetryRecommendation(task_id, previousError);
+
+  if (!recommendation) {
+    return {
+      ...makeError(ErrorCodes.OPERATION_FAILED, `Could not generate retry recommendation for task ${task_id}`)
+    };
+  }
 
   let output = `## Retry Recommendation: ${task_id.substring(0, 8)}...\n\n`;
-  output += `**Should Retry:** ${recommendation.should_retry ? 'Yes' : 'No'}\n`;
-  output += `**Confidence:** ${Math.round(recommendation.confidence * 100)}%\n\n`;
+  output += `**Task:** ${recommendation.task_id}\n`;
+  output += `**Original Timeout:** ${recommendation.original_timeout || 'N/A'} min\n\n`;
 
-  if (recommendation.should_retry) {
-    output += `### Recommended Strategy\n\n`;
+  if (recommendation.adaptations && Object.keys(recommendation.adaptations).length > 0) {
+    output += `### Suggested Adaptations\n\n`;
     output += `| Setting | Value |\n`;
     output += `|---------|-------|\n`;
-    output += `| Strategy | ${recommendation.strategy} |\n`;
-    output += `| Delay | ${recommendation.delay_seconds} seconds |\n`;
-    output += `| Max Additional Retries | ${recommendation.max_retries} |\n`;
-
-    if (recommendation.adaptations && recommendation.adaptations.length > 0) {
-      output += `\n### Suggested Adaptations\n\n`;
-      for (const a of recommendation.adaptations) {
-        output += `- ${a}\n`;
-      }
+    for (const [key, val] of Object.entries(recommendation.adaptations)) {
+      output += `| ${key} | ${val} |\n`;
     }
   } else {
-    output += `**Reason:** ${recommendation.reason}\n`;
+    output += `No specific adaptations recommended.\n`;
+  }
+
+  if (recommendation.applied_rules && recommendation.applied_rules.length > 0) {
+    output += `\n**Applied Rules:** ${recommendation.applied_rules.join(', ')}\n`;
   }
 
   return {
@@ -781,36 +772,22 @@ function handleRetryWithAdaptation(args) {
   }
 
   // Get recommendation
-  const recommendation = db.getRetryRecommendation(task);
+  const previousError = task.error_output || task.error || '';
+  const recommendation = db.getRetryRecommendation(task_id, previousError);
 
-  if (!recommendation.should_retry) {
+  if (!recommendation) {
     return {
-      content: [{ type: 'text', text: `## Retry Not Recommended\n\n**Reason:** ${recommendation.reason}` }]
+      content: [{ type: 'text', text: `## Retry Not Recommended\n\n**Reason:** Could not generate recommendation` }]
     };
   }
 
-  // Apply adaptations if requested (log as analytics events)
-  if (apply_recommendations && recommendation.adaptations) {
-    for (const adaptation of recommendation.adaptations) {
-      db.recordEvent('pre_retry_adaptation', task_id, { adaptation });
-    }
-  }
+  const adaptations = recommendation.adaptations || {};
 
-  // Reset task and update with strategy
+  // Reset task and update
   db.updateTaskStatus(task_id, 'pending', {
-    retry_strategy: recommendation.strategy,
-    retry_delay_seconds: recommendation.delay_seconds,
     output: null,
     error_output: null,
     exit_code: null
-  });
-
-  // Record retry attempt
-  db.recordRetryAttempt(task_id, {
-    attempt_number: (task.retry_count || 0) + 1,
-    delay_used: recommendation.delay_seconds || 0,
-    error_message: task.error_output?.substring(0, 500) || null,
-    prompt_modification: apply_recommendations ? JSON.stringify(recommendation.adaptations) : null
   });
 
   // Start task
@@ -818,14 +795,12 @@ function handleRetryWithAdaptation(args) {
 
   let output = `## Adaptive Retry Started\n\n`;
   output += `**Task:** ${task_id.substring(0, 8)}...\n`;
-  output += `**Strategy:** ${recommendation.strategy}\n`;
-  output += `**Delay:** ${recommendation.delay_seconds} seconds\n`;
   output += `**Status:** ${startResult.queued ? 'Queued' : 'Running'}\n`;
 
-  if (apply_recommendations && recommendation.adaptations) {
+  if (apply_recommendations && Object.keys(adaptations).length > 0) {
     output += `\n**Adaptations Applied:**\n`;
-    for (const a of recommendation.adaptations) {
-      output += `- ${a}\n`;
+    for (const [key, val] of Object.entries(adaptations)) {
+      output += `- ${key}: ${val}\n`;
     }
   }
 
@@ -846,40 +821,50 @@ function handleRetryWithAdaptation(args) {
 function handleIntelligenceDashboard(args) {
   const { time_range_hours } = args;
 
-  const dashboard = db.getIntelligenceDashboard({
-    time_range_hours: time_range_hours || 24
-  });
+  const hours = time_range_hours || 24;
+  const since = new Date(Date.now() - hours * 3600000).toISOString();
+  const dashboard = db.getIntelligenceDashboard(since);
 
   let output = `## Task Intelligence Dashboard\n\n`;
-  output += `**Period:** Last ${time_range_hours || 24} hours\n\n`;
+  output += `**Period:** Last ${hours} hours\n\n`;
 
   output += `### Cache Performance\n\n`;
   output += `| Metric | Value |\n`;
   output += `|--------|-------|\n`;
-  output += `| Hit Rate | ${dashboard.cache.hit_rate ? Math.round(dashboard.cache.hit_rate * 100) + '%' : 'N/A'} |\n`;
-  output += `| Total Lookups | ${dashboard.cache.total_lookups} |\n`;
-  output += `| Time Saved | ${dashboard.cache.time_saved_minutes || 0} min |\n`;
+  // cache is an array of cache stat objects from getCacheStats
+  const cacheArr = Array.isArray(dashboard.cache) ? dashboard.cache : [];
+  if (cacheArr.length > 0) {
+    for (const c of cacheArr) {
+      output += `| ${c.cache_name} hit rate | ${c.hit_rate || 'N/A'} |\n`;
+    }
+  } else {
+    output += `| Status | No cache data |\n`;
+  }
 
-  output += `\n### Prioritization\n\n`;
+  output += `\n### Failure Predictions\n\n`;
   output += `| Metric | Value |\n`;
   output += `|--------|-------|\n`;
-  output += `| Tasks Prioritized | ${dashboard.priority.tasks_prioritized} |\n`;
-  output += `| Avg Wait Time | ${dashboard.priority.avg_wait_minutes?.toFixed(1) || 'N/A'} min |\n`;
-  output += `| Queue Efficiency | ${dashboard.priority.queue_efficiency ? Math.round(dashboard.priority.queue_efficiency * 100) + '%' : 'N/A'} |\n`;
+  const pred = dashboard.predictions || {};
+  output += `| Total Predictions | ${pred.total_predictions || 0} |\n`;
+  output += `| Correct | ${pred.correct || 0} |\n`;
+  output += `| Incorrect | ${pred.incorrect || 0} |\n`;
+  output += `| Accuracy | ${pred.accuracy != null ? Math.round(pred.accuracy * 100) + '%' : 'N/A'} |\n`;
 
-  output += `\n### Failure Prediction\n\n`;
+  output += `\n### Failure Patterns\n\n`;
   output += `| Metric | Value |\n`;
   output += `|--------|-------|\n`;
-  output += `| Predictions Made | ${dashboard.prediction.total_predictions} |\n`;
-  output += `| Accuracy | ${dashboard.prediction.accuracy ? Math.round(dashboard.prediction.accuracy * 100) + '%' : 'N/A'} |\n`;
-  output += `| Prevented Failures | ${dashboard.prediction.prevented_failures} |\n`;
+  const pat = dashboard.patterns || {};
+  output += `| Total Patterns | ${pat.total_patterns || 0} |\n`;
+  output += `| Avg Confidence | ${pat.avg_confidence != null ? pat.avg_confidence.toFixed(2) : 'N/A'} |\n`;
+  output += `| Avg Failure Rate | ${pat.avg_failure_rate != null ? Math.round(pat.avg_failure_rate * 100) + '%' : 'N/A'} |\n`;
 
-  output += `\n### Adaptive Retries\n\n`;
+  output += `\n### Experiments\n\n`;
   output += `| Metric | Value |\n`;
   output += `|--------|-------|\n`;
-  output += `| Total Retries | ${dashboard.retry.total_retries} |\n`;
-  output += `| Success Rate | ${dashboard.retry.success_rate ? Math.round(dashboard.retry.success_rate * 100) + '%' : 'N/A'} |\n`;
-  output += `| Avg Attempts | ${dashboard.retry.avg_attempts?.toFixed(1) || 'N/A'} |\n`;
+  const exp = dashboard.experiments || {};
+  output += `| Total Experiments | ${exp.total_experiments || 0} |\n`;
+  output += `| Running | ${exp.running || 0} |\n`;
+  output += `| Completed | ${exp.completed || 0} |\n`;
 
   return {
     content: [{ type: 'text', text: output }]
@@ -894,16 +879,12 @@ function handleIntelligenceDashboard(args) {
  * @returns {Object} MCP response payload.
  */
 function handleLogIntelligenceOutcome(args) {
-  const { task_id, operation, outcome, details } = args;
+  const { log_id, outcome } = args;
 
-  db.recordEvent('intelligence_outcome', task_id, {
-    operation,
-    outcome,
-    details: typeof details === 'object' ? JSON.stringify(details) : details
-  });
+  db.updateIntelligenceOutcome(log_id, outcome);
 
   return {
-    content: [{ type: 'text', text: `## Outcome Logged\n\n**Task:** ${task_id?.substring(0, 8) || 'N/A'}\n**Operation:** ${operation}\n**Outcome:** ${outcome}` }]
+    content: [{ type: 'text', text: `## Outcome Logged\n\n**Log ID:** ${log_id}\n**Outcome:** ${outcome}` }]
   };
 }
 
@@ -915,29 +896,26 @@ function handleLogIntelligenceOutcome(args) {
  * @returns {Object} MCP response payload.
  */
 function handleCreateExperiment(args) {
-  const { name, description, strategy_a, strategy_b, sample_size } = args;
+  const { name, strategy_type, variant_a, variant_b, sample_size } = args;
 
-  if (!name || !strategy_a || !strategy_b) {
+  if (!name || !variant_a || !variant_b) {
     return {
-      ...makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Provide name, strategy_a, and strategy_b')
+      ...makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Provide name, variant_a, and variant_b')
     };
   }
 
-  const experiment = db.createExperiment({
+  const experiment = db.createExperiment(
     name,
-    description,
-    strategy_a,
-    strategy_b,
-    sample_size: sample_size || 100
-  });
+    strategy_type || 'experiment',
+    variant_a,
+    variant_b,
+    sample_size || 100
+  );
 
   let output = `## Experiment Created\n\n`;
   output += `**ID:** ${experiment.id}\n`;
   output += `**Name:** ${experiment.name}\n`;
-  output += `**Strategy A:** ${experiment.strategy_a}\n`;
-  output += `**Strategy B:** ${experiment.strategy_b}\n`;
-  output += `**Sample Size:** ${experiment.sample_size}\n`;
-  output += `**Status:** ${experiment.status}\n`;
+  output += `**Strategy Type:** ${experiment.strategy_type}\n`;
 
   return {
     content: [{ type: 'text', text: output }]
@@ -960,33 +938,37 @@ function handleExperimentStatus(args) {
     };
   }
 
+  const resultsA = experiment.results_a || { count: 0, successes: 0, total_duration: 0 };
+  const resultsB = experiment.results_b || { count: 0, successes: 0, total_duration: 0 };
+  const totalSamples = resultsA.count + resultsB.count;
+
   let output = `## Experiment: ${experiment.name}\n\n`;
   output += `**Status:** ${experiment.status}\n`;
-  output += `**Progress:** ${experiment.samples_collected}/${experiment.sample_size}\n\n`;
+  output += `**Strategy Type:** ${experiment.strategy_type}\n`;
+  output += `**Progress:** ${totalSamples}/${experiment.sample_size_target || 'N/A'}\n\n`;
 
-  output += `### Strategy A: ${experiment.strategy_a}\n\n`;
+  const rateA = resultsA.count > 0 ? resultsA.successes / resultsA.count : 0;
+  const avgDurA = resultsA.count > 0 ? resultsA.total_duration / resultsA.count : 0;
+
+  output += `### Variant A\n\n`;
   output += `| Metric | Value |\n`;
   output += `|--------|-------|\n`;
-  output += `| Samples | ${experiment.results_a?.count || 0} |\n`;
-  output += `| Success Rate | ${experiment.results_a?.success_rate ? Math.round(experiment.results_a.success_rate * 100) + '%' : 'N/A'} |\n`;
-  output += `| Avg Duration | ${experiment.results_a?.avg_duration?.toFixed(1) || 'N/A'} sec |\n`;
+  output += `| Samples | ${resultsA.count} |\n`;
+  output += `| Success Rate | ${resultsA.count > 0 ? Math.round(rateA * 100) + '%' : 'N/A'} |\n`;
+  output += `| Avg Duration | ${resultsA.count > 0 ? avgDurA.toFixed(1) : 'N/A'} sec |\n`;
 
-  output += `\n### Strategy B: ${experiment.strategy_b}\n\n`;
+  const rateB = resultsB.count > 0 ? resultsB.successes / resultsB.count : 0;
+  const avgDurB = resultsB.count > 0 ? resultsB.total_duration / resultsB.count : 0;
+
+  output += `\n### Variant B\n\n`;
   output += `| Metric | Value |\n`;
   output += `|--------|-------|\n`;
-  output += `| Samples | ${experiment.results_b?.count || 0} |\n`;
-  output += `| Success Rate | ${experiment.results_b?.success_rate ? Math.round(experiment.results_b.success_rate * 100) + '%' : 'N/A'} |\n`;
-  output += `| Avg Duration | ${experiment.results_b?.avg_duration?.toFixed(1) || 'N/A'} sec |\n`;
+  output += `| Samples | ${resultsB.count} |\n`;
+  output += `| Success Rate | ${resultsB.count > 0 ? Math.round(rateB * 100) + '%' : 'N/A'} |\n`;
+  output += `| Avg Duration | ${resultsB.count > 0 ? avgDurB.toFixed(1) : 'N/A'} sec |\n`;
 
-  if (experiment.significance !== undefined) {
-    output += `\n### Statistical Significance\n\n`;
-    output += `**p-value:** ${experiment.significance.toFixed(4)}\n`;
-    output += `**Significant:** ${experiment.significance < 0.05 ? 'Yes (p < 0.05)' : 'No'}\n`;
-
-    if (experiment.significance < 0.05) {
-      const winner = experiment.results_a?.success_rate > experiment.results_b?.success_rate ? 'A' : 'B';
-      output += `**Recommended:** Strategy ${winner}\n`;
-    }
+  if (experiment.winner) {
+    output += `\n**Winner:** Variant ${experiment.winner.toUpperCase()}\n`;
   }
 
   return {
@@ -1002,7 +984,7 @@ function handleExperimentStatus(args) {
  * @returns {Object} MCP response payload.
  */
 function handleConcludeExperiment(args) {
-  const { experiment_id, winner } = args;
+  const { experiment_id, apply_winner } = args;
 
   const experiment = db.getExperiment(experiment_id);
   if (!experiment) {
@@ -1011,21 +993,30 @@ function handleConcludeExperiment(args) {
     };
   }
 
-  if (experiment.status === 'concluded') {
+  if (experiment.status === 'completed') {
     return {
-      content: [{ type: 'text', text: `Experiment already concluded. Winner: ${experiment.winner}` }]
+      content: [{ type: 'text', text: `Experiment already concluded. Winner: ${experiment.winner || 'N/A'}` }]
     };
   }
 
-  const result = db.concludeExperiment(experiment_id, winner);
+  const result = db.concludeExperiment(experiment_id, !!apply_winner);
+
+  if (!result) {
+    return {
+      ...makeError(ErrorCodes.OPERATION_FAILED, `Could not conclude experiment ${experiment_id}`)
+    };
+  }
 
   let output = `## Experiment Concluded\n\n`;
   output += `**Name:** ${experiment.name}\n`;
-  output += `**Winner:** Strategy ${result.winner}\n`;
-  output += `**Strategy:** ${result.winning_strategy}\n\n`;
-
-  if (result.auto_applied) {
-    output += `*Winning strategy has been automatically applied as the new default.*`;
+  output += `**Significant:** ${result.significant ? 'Yes' : 'No'}\n`;
+  if (result.winner) {
+    output += `**Winner:** Variant ${result.winner.toUpperCase()}\n`;
+    output += `**Rate A:** ${(result.rate_a * 100).toFixed(1)}%\n`;
+    output += `**Rate B:** ${(result.rate_b * 100).toFixed(1)}%\n`;
+  }
+  if (result.applied) {
+    output += `\n*Winning strategy has been automatically applied as the new default.*`;
   }
 
   return {

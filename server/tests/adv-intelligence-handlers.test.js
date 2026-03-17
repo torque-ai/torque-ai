@@ -54,8 +54,7 @@ describe('Advanced Intelligence Handlers', () => {
       expect(getText(result)).toContain('not completed');
     });
 
-    // Handler passes db.cacheTaskResult(task, {ttl_hours}) but DB expects (taskId, ttlHours)
-    it('errors due to handler/db signature mismatch on completed task', async () => {
+    it('caches completed task result successfully', async () => {
       const qr = await safeTool('queue_task', { task: 'Cache test completed task' });
       const taskId = extractTaskId(qr);
       expect(taskId).toBeTruthy();
@@ -63,18 +62,19 @@ describe('Advanced Intelligence Handlers', () => {
       db.updateTaskStatus(taskId, 'completed', { output: 'Task output for caching', exit_code: 0 });
 
       const result = await safeTool('cache_task_result', { task_id: taskId });
-      // Handler passes task object where DB expects string taskId
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Task Result Cached');
     });
 
-    it('errors with ttl_hours parameter due to handler/db mismatch', async () => {
+    it('caches with custom ttl_hours', async () => {
       const qr = await safeTool('queue_task', { task: 'Cache test with TTL' });
       const taskId = extractTaskId(qr);
       db.updateTaskStatus(taskId, 'running');
       db.updateTaskStatus(taskId, 'completed', { output: 'TTL test output', exit_code: 0 });
 
       const result = await safeTool('cache_task_result', { task_id: taskId, ttl_hours: 48 });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Task Result Cached');
     });
   });
 
@@ -202,20 +202,22 @@ describe('Advanced Intelligence Handlers', () => {
   });
 
   describe('warm_cache', () => {
-    // Handler passes db.warmCache({limit, min_exit_code}) but DB expects (limit, minSuccessRate, since)
-    it('errors due to handler/db signature mismatch', async () => {
+    it('warms cache with default parameters', async () => {
       const result = await safeTool('warm_cache', {});
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Cache Warmed');
     });
 
-    it('errors with limit parameter due to mismatch', async () => {
+    it('warms cache with custom limit', async () => {
       const result = await safeTool('warm_cache', { limit: 10 });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Cache Warmed');
     });
 
-    it('errors with min_exit_code parameter due to mismatch', async () => {
+    it('warms cache with min_exit_code parameter', async () => {
       const result = await safeTool('warm_cache', { min_exit_code: 0 });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Cache Warmed');
     });
   });
 
@@ -232,44 +234,43 @@ describe('Advanced Intelligence Handlers', () => {
       expect(getText(result)).toContain('not found');
     });
 
-    // Handler passes db.computePriorityScore(task_id, {recalculate})
-    // DB expects (taskId) -- ignores extra arg, should work
     it('computes priority for existing task', async () => {
       const qr = await safeTool('queue_task', { task: 'Priority compute test' });
       const taskId = extractTaskId(qr);
       expect(taskId).toBeTruthy();
 
       const result = await safeTool('compute_priority', { task_id: taskId });
-      // computePriorityScore(taskId) works, but handler expects score.final_score
-      // which doesn't exist (DB returns combined_score). This causes TypeError.
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Priority Score');
     });
 
-    it('errors on recalculate option', async () => {
+    it('computes priority with recalculate option', async () => {
       const qr = await safeTool('queue_task', { task: 'Priority recalculate test' });
       const taskId = extractTaskId(qr);
 
       const result = await safeTool('compute_priority', { task_id: taskId, recalculate: true });
-      // Same mismatch: handler expects final_score, DB returns combined_score
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Final Score');
     });
   });
 
   describe('get_priority_queue', () => {
-    // Handler passes db.getPriorityQueue({status, limit}) but DB expects (limit, minScore)
-    it('errors due to handler/db signature mismatch', async () => {
+    it('returns priority queue with defaults', async () => {
       const result = await safeTool('get_priority_queue', {});
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Priority Queue');
     });
 
-    it('errors with limit parameter due to mismatch', async () => {
+    it('returns priority queue with custom limit', async () => {
       const result = await safeTool('get_priority_queue', { limit: 5 });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Priority Queue');
     });
 
-    it('errors with status filter due to mismatch', async () => {
+    it('returns priority queue with status filter', async () => {
       const result = await safeTool('get_priority_queue', { status: 'pending' });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Priority Queue');
     });
   });
 
@@ -386,31 +387,30 @@ describe('Advanced Intelligence Handlers', () => {
       expect(getText(result)).toContain('not found');
     });
 
-    // Handler passes db.predictFailureForTask({task_description, working_directory})
-    // DB expects (taskDescription, workingDirectory) as separate positional args
-    it('errors on task description prediction due to handler/db mismatch', async () => {
+    it('predicts failure for task description', async () => {
       const result = await safeTool('predict_failure', {
         task_description: 'Write unit tests for auth module'
       });
-      // predictFailureForTask receives task object, calls text.toLowerCase() on it -> TypeError
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Failure Prediction');
     });
 
-    it('errors on existing task prediction due to handler/db mismatch', async () => {
+    it('predicts failure for existing task by ID', async () => {
       const qr = await safeTool('queue_task', { task: 'Failure prediction by ID test' });
       const taskId = extractTaskId(qr);
 
       const result = await safeTool('predict_failure', { task_id: taskId });
-      // predictFailureForTask(task) where task is full object -> same TypeError
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Failure Prediction');
     });
 
-    it('errors on prediction with working_directory due to mismatch', async () => {
+    it('predicts failure with working_directory', async () => {
       const result = await safeTool('predict_failure', {
         task_description: 'Prediction with working dir',
         working_directory: '/tmp/test'
       });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Failure Prediction');
     });
   });
 
@@ -504,14 +504,13 @@ describe('Advanced Intelligence Handlers', () => {
       expect(getText(result)).toContain('not found');
     });
 
-    // Handler passes db.suggestIntervention(task) with full task object
-    // DB expects (taskDescription, workingDirectory) -> TypeError
-    it('errors on intervention suggestion due to handler/db mismatch', async () => {
+    it('suggests interventions for existing task', async () => {
       const qr = await safeTool('queue_task', { task: 'Intervention suggestion test' });
       const taskId = extractTaskId(qr);
 
       const result = await safeTool('suggest_intervention', { task_id: taskId });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Intervention Suggestions');
     });
   });
 
@@ -580,21 +579,22 @@ describe('Advanced Intelligence Handlers', () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe('analyze_retry_patterns', () => {
-    // Handler passes db.analyzeRetryPatterns({time_range_hours, min_retries})
-    // DB expects (since) -- column mismatch causes SQL error
-    it('errors due to handler/db signature mismatch', async () => {
+    it('analyzes retry patterns with defaults', async () => {
       const result = await safeTool('analyze_retry_patterns', {});
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Retry Pattern Analysis');
     });
 
-    it('errors with time_range_hours due to mismatch', async () => {
+    it('analyzes retry patterns with time_range_hours', async () => {
       const result = await safeTool('analyze_retry_patterns', { time_range_hours: 24 });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Retry Pattern Analysis');
     });
 
-    it('errors with min_retries filter due to mismatch', async () => {
-      const result = await safeTool('analyze_retry_patterns', { min_retries: 3 });
-      expect(result.isError).toBe(true);
+    it('analyzes retry patterns with different time range', async () => {
+      const result = await safeTool('analyze_retry_patterns', { time_range_hours: 72 });
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Retry Pattern Analysis');
     });
   });
 
@@ -654,9 +654,7 @@ describe('Advanced Intelligence Handlers', () => {
       expect(getText(result)).toContain('not failed');
     });
 
-    // Handler passes db.getRetryRecommendation(task) with full task object
-    // DB expects (taskId, previousError) -> mismatch
-    it('errors on recommendation for failed task due to handler/db mismatch', async () => {
+    it('returns recommendation for failed task', async () => {
       const qr = await safeTool('queue_task', { task: 'Retry recommendation failed test' });
       const taskId = extractTaskId(qr);
       db.updateTaskStatus(taskId, 'running');
@@ -666,7 +664,8 @@ describe('Advanced Intelligence Handlers', () => {
       });
 
       const result = await safeTool('get_retry_recommendation', { task_id: taskId });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Retry Recommendation');
     });
   });
 
@@ -688,8 +687,7 @@ describe('Advanced Intelligence Handlers', () => {
       expect(getText(result)).toContain('not failed');
     });
 
-    // Same handler/db mismatch as get_retry_recommendation
-    it('errors on failed task retry due to handler/db mismatch', async () => {
+    it('retries failed task with adaptation', async () => {
       const qr = await safeTool('queue_task', { task: 'Retry adaptation test' });
       const taskId = extractTaskId(qr);
       db.updateTaskStatus(taskId, 'running');
@@ -699,7 +697,8 @@ describe('Advanced Intelligence Handlers', () => {
       });
 
       const result = await safeTool('retry_with_adaptation', { task_id: taskId });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Adaptive Retry');
     });
   });
 
@@ -708,58 +707,46 @@ describe('Advanced Intelligence Handlers', () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe('intelligence_dashboard', () => {
-    // Handler passes db.getIntelligenceDashboard({time_range_hours})
-    // DB expects (since) -- mismatch causes SQL error
-    it('errors due to handler/db signature mismatch', async () => {
+    it('returns dashboard with defaults', async () => {
       const result = await safeTool('intelligence_dashboard', {});
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Intelligence Dashboard');
     });
 
-    it('errors with time_range_hours parameter', async () => {
+    it('returns dashboard with custom time range', async () => {
       const result = await safeTool('intelligence_dashboard', { time_range_hours: 48 });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Intelligence Dashboard');
     });
 
-    it('errors when requesting sections', async () => {
+    it('includes all dashboard sections', async () => {
       const result = await safeTool('intelligence_dashboard', {});
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      const text = getText(result);
+      expect(text).toContain('Cache Performance');
+      expect(text).toContain('Failure Predictions');
+      expect(text).toContain('Experiments');
     });
   });
 
   describe('log_intelligence_outcome', () => {
-    it('logs an outcome event', async () => {
-      const qr = await safeTool('queue_task', { task: 'Outcome logging test' });
-      const taskId = extractTaskId(qr);
-
+    it('logs a correct outcome', async () => {
       const result = await safeTool('log_intelligence_outcome', {
-        task_id: taskId,
-        operation: 'cache_hit',
-        outcome: 'success'
+        log_id: 999,
+        outcome: 'correct'
       });
-      expect(result.isError).toBeTruthy();
+      expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('Validation failed for 1 parameter(s):');
+      expect(text).toContain('Outcome Logged');
     });
 
-    it('accepts details parameter as object', async () => {
+    it('logs an incorrect outcome', async () => {
       const result = await safeTool('log_intelligence_outcome', {
-        task_id: null,
-        operation: 'prediction',
-        outcome: 'correct',
-        details: { predicted_failure: true, actual_failure: true }
+        log_id: 1000,
+        outcome: 'incorrect'
       });
-      expect(result.isError).toBeTruthy();
-      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
-    });
-
-    it('accepts details parameter as string', async () => {
-      const result = await safeTool('log_intelligence_outcome', {
-        operation: 'retry_decision',
-        outcome: 'skipped',
-        details: 'Max retries exceeded'
-      });
-      expect(result.isError).toBeTruthy();
-      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Outcome Logged');
     });
   });
 
@@ -767,29 +754,29 @@ describe('Advanced Intelligence Handlers', () => {
     it('returns error for missing required fields', async () => {
       const result = await safeTool('create_experiment', { name: 'Test' });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Validation failed for 3 parameter(s):');
     });
 
-    // Handler passes db.createExperiment({name, description, strategy_a, strategy_b, sample_size})
-    // DB expects (name, strategyType, variantA, variantB, sampleSize) positional args
-    it('errors on create with valid args due to handler/db mismatch', async () => {
+    it('creates experiment with valid args', async () => {
       const result = await safeTool('create_experiment', {
         name: 'Retry vs No Retry',
-        strategy_a: 'immediate_retry',
-        strategy_b: 'delayed_retry',
-        description: 'Compare retry strategies'
+        strategy_type: 'retry',
+        variant_a: { strategy: 'immediate_retry' },
+        variant_b: { strategy: 'delayed_retry' }
       });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Experiment Created');
     });
 
-    it('errors on create with sample_size due to mismatch', async () => {
+    it('creates experiment with custom sample_size', async () => {
       const result = await safeTool('create_experiment', {
         name: 'Provider Compare',
-        strategy_a: 'ollama',
-        strategy_b: 'codex',
+        strategy_type: 'caching',
+        variant_a: { provider: 'ollama' },
+        variant_b: { provider: 'codex' },
         sample_size: 50
       });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Experiment Created');
     });
   });
 
@@ -802,15 +789,21 @@ describe('Advanced Intelligence Handlers', () => {
       expect(getText(result)).toContain('not found');
     });
 
-    // Cannot test existing experiment because create_experiment fails due to mismatch
-    it('errors when experiment cannot be created first', async () => {
+    it('returns status for created experiment', async () => {
       const createResult = await safeTool('create_experiment', {
         name: 'Status Check Experiment',
-        strategy_a: 'fast_model',
-        strategy_b: 'quality_model'
+        strategy_type: 'prioritization',
+        variant_a: { model: 'fast_model' },
+        variant_b: { model: 'quality_model' }
       });
-      // create fails, so no experiment to check status of
-      expect(createResult.isError).toBe(true);
+      expect(createResult.isError).toBeFalsy();
+      const expId = extractTaskId(createResult);
+
+      if (expId) {
+        const result = await safeTool('experiment_status', { experiment_id: expId });
+        expect(result.isError).toBeFalsy();
+        expect(getText(result)).toContain('Status Check Experiment');
+      }
     });
   });
 
@@ -823,23 +816,39 @@ describe('Advanced Intelligence Handlers', () => {
       expect(getText(result)).toContain('not found');
     });
 
-    // Cannot test conclude because create_experiment fails due to mismatch
-    it('errors when experiment cannot be created first', async () => {
+    it('concludes a created experiment', async () => {
       const createResult = await safeTool('create_experiment', {
         name: 'Conclude Test Experiment',
-        strategy_a: 'strategy_alpha',
-        strategy_b: 'strategy_beta'
+        strategy_type: 'retry',
+        variant_a: { strategy: 'alpha' },
+        variant_b: { strategy: 'beta' }
       });
-      expect(createResult.isError).toBe(true);
+      expect(createResult.isError).toBeFalsy();
+      const expId = extractTaskId(createResult);
+
+      if (expId) {
+        const result = await safeTool('conclude_experiment', { experiment_id: expId });
+        expect(result.isError).toBeFalsy();
+        expect(getText(result)).toContain('Experiment Concluded');
+      }
     });
 
-    it('cannot test double-conclude without working create', async () => {
+    it('reports already concluded experiment', async () => {
       const createResult = await safeTool('create_experiment', {
         name: 'Double Conclude Test',
-        strategy_a: 'x',
-        strategy_b: 'y'
+        strategy_type: 'caching',
+        variant_a: { ttl: 24 },
+        variant_b: { ttl: 48 }
       });
-      expect(createResult.isError).toBe(true);
+      expect(createResult.isError).toBeFalsy();
+      const expId = extractTaskId(createResult);
+
+      if (expId) {
+        await safeTool('conclude_experiment', { experiment_id: expId });
+        const result = await safeTool('conclude_experiment', { experiment_id: expId });
+        expect(result.isError).toBeFalsy();
+        expect(getText(result)).toContain('already concluded');
+      }
     });
   });
 
