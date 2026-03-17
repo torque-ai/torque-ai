@@ -69,7 +69,7 @@ function formatModelSize(bytes) {
   return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
 }
 
-function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts }) {
+function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurrencyData }) {
   const addToast = useToast();
 
   // Show "Disabled" badge when host is disabled, regardless of stale health status
@@ -163,6 +163,25 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts }) {
           }}
           className="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-white" />
       </div>
+
+      {/* Per-host VRAM factor */}
+      {host.memory_limit_mb > 0 && (
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-xs text-slate-400">VRAM Budget:</span>
+          <input type="range" min={50} max={100}
+            defaultValue={host.vram_factor ? Math.round(host.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10) / 100;
+              concurrency.set({ scope: 'host', target: host.id, vram_factor: val }).then(() => {
+                addToast.success(`VRAM factor set to ${e.target.value}%`);
+              });
+            }}
+            className="flex-1 h-1.5" />
+          <span className="text-xs text-white font-mono w-10">
+            {host.vram_factor ? Math.round(host.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)}%
+          </span>
+        </div>
+      )}
 
       {/* GPU metrics — full (nvidia-smi / gpu-metrics-server) or synthetic (Ollama /api/ps) */}
       {activity?.gpuMetrics && (
@@ -846,6 +865,7 @@ export default function Hosts({ hostActivity }) {
               onToggle={handleToggle}
               onRemove={handleRemoveClick}
               onRefreshHosts={loadHosts}
+              concurrencyData={concurrencyData}
             />
           ))}
         </div>
@@ -877,6 +897,24 @@ export default function Hosts({ hostActivity }) {
                     }}
                     className="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-white" />
                 </div>
+                {ws.gpu_vram_mb && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs text-slate-400">VRAM Budget:</span>
+                    <input type="range" min={50} max={100}
+                      defaultValue={ws.vram_factor ? Math.round(ws.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10) / 100;
+                        concurrency.set({ scope: 'workstation', target: ws.name, vram_factor: val }).then(() => {
+                          toast.success(`VRAM factor set to ${e.target.value}%`);
+                          concurrency.get().then(setConcurrencyData);
+                        });
+                      }}
+                      className="flex-1 h-1.5" />
+                    <span className="text-xs text-white font-mono w-10">
+                      {ws.vram_factor ? Math.round(ws.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)}%
+                    </span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
