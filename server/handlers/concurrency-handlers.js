@@ -198,6 +198,6 @@ function setConcurrencyLimit(args = {}) {
 }
 
 module.exports = {
-  getConcurrencyLimits,
-  setConcurrencyLimit,
+  handleGetConcurrencyLimits: getConcurrencyLimits,
+  handleSetConcurrencyLimit: setConcurrencyLimit,
 };
