@@ -417,6 +417,11 @@ export const strategic = {
   operations: (limit = 20) => request(`/strategic/operations?limit=${limit}`),
   decisions: (limit = 50) => requestV2(`/strategic/decisions?limit=${limit}`).then(d => unwrapListPayload(d, 'decisions')),
   providerHealth: () => requestV2('/strategic/provider-health').then(d => unwrapListPayload(d, 'providers')),
+  getConfig: (opts = {}) => requestV2('/strategic/config', opts),
+  setConfig: (data, opts = {}) => requestV2('/strategic/config', { method: 'PUT', body: JSON.stringify(data), ...opts }),
+  resetConfig: (opts = {}) => requestV2('/strategic/config/reset', { method: 'POST', ...opts }),
+  listConfigTemplates: (opts = {}) => requestV2('/strategic/templates', opts),
+  testCapability: (capability, data, opts = {}) => requestV2(`/strategic/test/${capability}`, { method: 'POST', body: JSON.stringify(data), ...opts }),
 };
 
 // ─── Routing Templates (v2) ──────────────────────────────────────────────────

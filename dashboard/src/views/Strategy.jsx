@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { strategic as strategicApi } from '../api';
 import StatCard from '../components/StatCard';
 import RoutingTemplates from './RoutingTemplates';
+import StrategicConfig from './StrategicConfig';
 
 // ─── Color Maps ─────────────────────────────────────────────
 
@@ -405,6 +406,7 @@ const TOP_TABS = [
   { id: 'decisions', label: 'Decisions' },
   { id: 'operations', label: 'Operations' },
   { id: 'routing', label: 'Routing Templates' },
+  { id: 'config', label: 'Configuration' },
 ];
 
 // ─── Main Strategy View ─────────────────────────────────────
@@ -616,6 +618,9 @@ export default function Strategic() {
 
       {/* Routing Templates Tab */}
       {topTab === 'routing' && <RoutingTemplates />}
+
+      {/* Configuration Tab */}
+      {topTab === 'config' && <StrategicConfig />}
     </div>
   );
 }
