@@ -1,0 +1,28 @@
+{
+  "name": "library",
+  "description": "Library with clean exports and documentation",
+  "decompose": {
+    "steps": ["types", "core", "utils", "tests", "docs", "exports"],
+    "step_descriptions": {
+      "types": "Define public TypeScript types and interfaces for {{feature_name}}",
+      "core": "Implement core logic for {{feature_name}}",
+      "utils": "Create utility functions supporting {{feature_name}}",
+      "tests": "Write unit tests for {{feature_name}} covering edge cases",
+      "docs": "Add JSDoc documentation to all public APIs for {{feature_name}}",
+      "exports": "Set up clean public exports for {{feature_name}} (index.ts barrel file)"
+    }
+  },
+  "review": {
+    "criteria": [
+      "Clean public exports via index file",
+      "No breaking changes to existing API",
+      "JSDoc on all public functions and types",
+      "No internal implementation details exposed"
+    ]
+  },
+  "test_samples": {
+    "decompose": { "feature_name": "validator", "feature_description": "Schema validation library with chainable API" },
+    "diagnose": { "error_output": "Cannot find module './internal/utils'", "provider": "ollama" },
+    "review": { "task_output": "Added core module, 5 utility functions, clean exports. All tests pass." }
+  }
+}

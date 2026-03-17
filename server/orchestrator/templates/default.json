@@ -1,0 +1,30 @@
+{
+  "name": "default",
+  "description": "Standard decomposition workflow",
+  "decompose": {
+    "steps": ["types", "data", "events", "system", "tests", "wire"],
+    "step_descriptions": {
+      "types": "Create TypeScript types/interfaces for {{feature_name}}",
+      "data": "Create data definitions and constants for {{feature_name}}",
+      "events": "Define events for {{feature_name}}",
+      "system": "Implement the core {{feature_name}} system",
+      "tests": "Write comprehensive tests for {{feature_name}}",
+      "wire": "Wire {{feature_name}} into the application"
+    }
+  },
+  "diagnose": {
+    "recovery_actions": ["retry", "fix_task", "switch_provider", "switch_model", "redesign", "escalate"]
+  },
+  "review": {
+    "criteria": [
+      "No stub implementations or TODO comments",
+      "All files compile without errors",
+      "No unused imports or dead code"
+    ]
+  },
+  "test_samples": {
+    "decompose": { "feature_name": "UserProfile", "feature_description": "CRUD user profiles with avatar upload" },
+    "diagnose": { "error_output": "Module not found: ./components/UserProfile", "provider": "codex" },
+    "review": { "task_output": "Added 3 files, modified 2. All tests pass." }
+  }
+}

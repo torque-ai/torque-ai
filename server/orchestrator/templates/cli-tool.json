@@ -1,0 +1,28 @@
+{
+  "name": "cli-tool",
+  "description": "CLI tool with commands, parsers, and output",
+  "decompose": {
+    "steps": ["types", "commands", "parsers", "output", "tests", "docs"],
+    "step_descriptions": {
+      "types": "Define types for {{feature_name}} CLI options, arguments, and config",
+      "commands": "Implement CLI commands for {{feature_name}}",
+      "parsers": "Create argument parsers and validators for {{feature_name}}",
+      "output": "Implement output formatting (table, JSON, human-readable) for {{feature_name}}",
+      "tests": "Write tests for {{feature_name}} commands covering happy path and errors",
+      "docs": "Write help text and documentation for {{feature_name}} commands"
+    }
+  },
+  "review": {
+    "criteria": [
+      "Help text for all commands",
+      "Non-zero exit code on error",
+      "Stderr for error output, stdout for data",
+      "JSON output mode available"
+    ]
+  },
+  "test_samples": {
+    "decompose": { "feature_name": "migrate", "feature_description": "Database migration tool with up/down/status commands" },
+    "diagnose": { "error_output": "Error: Unknown command 'migarte'", "provider": "ollama" },
+    "review": { "task_output": "Added 3 commands, help text, JSON output. All tests pass." }
+  }
+}

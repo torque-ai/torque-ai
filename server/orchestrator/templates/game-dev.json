@@ -1,0 +1,29 @@
+{
+  "name": "game-dev",
+  "description": "Game development with ECS pattern",
+  "decompose": {
+    "steps": ["types", "data", "events", "system", "tests", "wire"],
+    "project_context": "Game project using ECS pattern. Systems follow component-based architecture. Events go through the event system.",
+    "step_descriptions": {
+      "types": "Create TypeScript types/interfaces for {{feature_name}}. Define component types, config interfaces, and state enums.",
+      "data": "Create data definitions for {{feature_name}}. Include balance values, lookup tables, and default configurations.",
+      "events": "Define events for {{feature_name}}. Add event types to the event system and notification bridge.",
+      "system": "Implement the {{feature_name}} system class. Include init, update loop, and public API.",
+      "tests": "Write tests for {{feature_name}} system. Cover init, core logic, edge cases, events.",
+      "wire": "Wire {{feature_name}} into the game scene. Add imports, instantiation, and event subscriptions."
+    }
+  },
+  "review": {
+    "criteria": [
+      "No stub implementations or TODO comments",
+      "Systems wired into GameScene",
+      "Events registered in EventSystem",
+      "All public methods have JSDoc"
+    ]
+  },
+  "test_samples": {
+    "decompose": { "feature_name": "CombatSystem", "feature_description": "Turn-based combat with abilities and status effects" },
+    "diagnose": { "error_output": "ECONNREFUSED on Ollama host", "provider": "ollama" },
+    "review": { "task_output": "Created CombatSystem.ts with 12 methods. All tests pass." }
+  }
+}

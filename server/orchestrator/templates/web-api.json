@@ -1,0 +1,28 @@
+{
+  "name": "web-api",
+  "description": "REST API with database and middleware",
+  "decompose": {
+    "steps": ["schema", "models", "routes", "middleware", "tests", "docs"],
+    "step_descriptions": {
+      "schema": "Define the database schema and migrations for {{feature_name}}",
+      "models": "Implement data models and repository layer for {{feature_name}}",
+      "routes": "Create REST endpoints for {{feature_name}}",
+      "middleware": "Add validation, auth, and error handling middleware for {{feature_name}}",
+      "tests": "Write integration tests for {{feature_name}} endpoints",
+      "docs": "Document the {{feature_name}} API endpoints"
+    }
+  },
+  "review": {
+    "criteria": [
+      "Endpoints documented with request/response examples",
+      "Auth middleware applied to protected routes",
+      "Input validation on all endpoints",
+      "Error responses follow standard format"
+    ]
+  },
+  "test_samples": {
+    "decompose": { "feature_name": "UserAuth", "feature_description": "JWT authentication with refresh tokens" },
+    "diagnose": { "error_output": "SQLITE_CONSTRAINT: UNIQUE constraint failed", "provider": "codex" },
+    "review": { "task_output": "Added 4 routes, 2 middleware, 15 tests. All pass." }
+  }
+}

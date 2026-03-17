@@ -1,0 +1,31 @@
+{
+  "template": "default",
+  "decompose": {
+    "steps": ["types", "data", "events", "system", "tests", "wire"],
+    "project_context": "",
+    "coding_standards": "",
+    "provider_hints": {},
+    "step_descriptions": {},
+    "custom_prompt": null
+  },
+  "diagnose": {
+    "recovery_actions": ["retry", "fix_task", "switch_provider", "switch_model", "redesign", "escalate"],
+    "custom_patterns": [],
+    "escalation_threshold": 3,
+    "custom_prompt": null
+  },
+  "review": {
+    "criteria": [
+      "No stub implementations or TODO comments",
+      "All files compile without errors",
+      "No unused imports or dead code"
+    ],
+    "auto_approve_threshold": 85,
+    "strict_mode": false,
+    "custom_prompt": null
+  },
+  "provider": null,
+  "model": null,
+  "confidence_threshold": 0.4,
+  "temperature": 0.3
+}

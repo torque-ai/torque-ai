@@ -1,0 +1,28 @@
+{
+  "name": "frontend",
+  "description": "Frontend with components, hooks, and pages",
+  "decompose": {
+    "steps": ["types", "components", "hooks", "pages", "tests", "styles"],
+    "step_descriptions": {
+      "types": "Define TypeScript types and props interfaces for {{feature_name}}",
+      "components": "Create reusable UI components for {{feature_name}}",
+      "hooks": "Implement custom hooks for {{feature_name}} state and logic",
+      "pages": "Create page-level components that compose {{feature_name}}",
+      "tests": "Write component and hook tests for {{feature_name}}",
+      "styles": "Add styles and responsive layout for {{feature_name}}"
+    }
+  },
+  "review": {
+    "criteria": [
+      "Components have aria labels for accessibility",
+      "Responsive layout works on mobile",
+      "No inline styles — use CSS classes",
+      "Loading and error states handled"
+    ]
+  },
+  "test_samples": {
+    "decompose": { "feature_name": "Dashboard", "feature_description": "Analytics dashboard with charts and filters" },
+    "diagnose": { "error_output": "TypeError: Cannot read properties of undefined (reading 'map')", "provider": "ollama" },
+    "review": { "task_output": "Created 5 components, 2 hooks, 1 page. Tests cover rendering and interaction." }
+  }
+}
