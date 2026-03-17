@@ -329,21 +329,90 @@ function createServer(overrideConfig = {}) {
     return obj;
   }
 
+  // ── Capability Detection (for /probe) ──────────────────────────────────
+
+  function detectCapabilities() {
+    const caps = { command_exec: true, git_sync: isCommandAvailable('git') };
+
+    // Ollama
+    try {
+      const tagsRaw = execFileSync('curl', ['-s', '--max-time', '2', 'http://127.0.0.1:11434/api/tags'], { timeout: 5000, encoding: 'utf8' });
+      const tags = JSON.parse(tagsRaw);
+      caps.ollama = { detected: true, port: 11434, models: (tags.models || []).map(m => m.name) };
+    } catch { /* no Ollama */ }
+
+    // GPU
+    try {
+      if (os.platform() === 'win32') {
+        const out = execFileSync('wmic', ['path', 'win32_videocontroller', 'get', 'name,adapterram', '/format:csv'], { timeout: 5000, encoding: 'utf8' });
+        const lines = out.split('\n').filter(l => l.trim() && !l.startsWith('Node'));
+        if (lines.length > 0) {
+          const parts = lines[0].split(',');
+          caps.gpu = { detected: true, name: (parts[2] || '').trim(), vram_mb: Math.round(parseInt(parts[1] || 0) / 1024 / 1024) };
+        }
+      } else {
+        const out = execFileSync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader'], { timeout: 5000, encoding: 'utf8' });
+        const [name, mem] = out.trim().split(',').map(s => s.trim());
+        caps.gpu = { detected: true, name, vram_mb: parseInt(mem) };
+      }
+    } catch { /* no GPU */ }
+
+    // Peek server
+    try {
+      execFileSync('curl', ['-s', '--max-time', '1', 'http://127.0.0.1:9876/'], { timeout: 3000 });
+      caps.ui_capture = { detected: true, has_display: true, peek_server: 'running' };
+    } catch { /* no peek */ }
+
+    // Build tools
+    const buildTools = ['npm', 'dotnet', 'cargo', 'go', 'gradle', 'make'].filter(isCommandAvailable);
+    if (buildTools.length) caps.build_tools = buildTools;
+
+    // Test runners
+    const testRunners = ['vitest', 'jest', 'pytest', 'mocha'].filter(isCommandAvailable);
+    if (testRunners.length) caps.test_runners = testRunners;
+
+    // Platform
+    caps.platform = { os: os.platform(), arch: os.arch(), ram_mb: Math.round(os.totalmem() / 1024 / 1024) };
+
+    return caps;
+  }
+
+  function isCommandAvailable(cmd) {
+    try {
+      const whichCmd = os.platform() === 'win32' ? 'where' : 'which';
+      execFileSync(whichCmd, [cmd], { stdio: 'ignore', timeout: 3000 });
+      return true;
+    } catch { return false; }
+  }
+
+  // ── Certs Directory ──────────────────────────────────────────────────────
+
+  const CERTS_DIR = path.join(os.homedir(), '.torque-agent', 'certs');
+
+  // ── Request Handler ──────────────────────────────────────────────────────
+
   function serverHandleRequest(req, res) {
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
 
-    if (!serverAuthenticate(req, res)) {
+    // Public endpoints (no auth required — used during registration)
+    if (req.method === 'GET' && pathname === '/probe') {
+      const caps = detectCapabilities();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ platform: os.platform(), arch: os.arch(), capabilities: caps }));
       return;
     }
 
-    if (req.method === 'POST' && pathname === '/run') {
-      handleRun(req, res);
-      return;
-    }
-
-    if (req.method === 'POST' && pathname === '/sync') {
-      handleSync(req, res);
+    if (req.method === 'GET' && pathname === '/certs') {
+      const certPath = path.join(CERTS_DIR, 'agent.crt');
+      try {
+        const cert = fs.readFileSync(certPath, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ cert }));
+      } catch {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'No certificate. Run: torque-agent --init' }));
+      }
       return;
     }
 
@@ -360,6 +429,41 @@ function createServer(overrideConfig = {}) {
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
+      return;
+    }
+
+    // Peek proxy (no auth — proxies to local peek_server)
+    if (pathname.startsWith('/peek/')) {
+      const peekPort = parseInt(process.env.PEEK_PORT || '9876');
+      const proxyPath = pathname.replace(/^\/peek/, '') + parsedUrl.search;
+      const proxyReq = http.request({
+        hostname: '127.0.0.1', port: peekPort,
+        path: proxyPath || '/',
+        method: req.method, headers: req.headers,
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', () => {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'peek_server not running on this workstation' }));
+      });
+      req.pipe(proxyReq);
+      return;
+    }
+
+    // Authenticated endpoints below
+    if (!serverAuthenticate(req, res)) {
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/run') {
+      handleRun(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/sync') {
+      handleSync(req, res);
       return;
     }
 
