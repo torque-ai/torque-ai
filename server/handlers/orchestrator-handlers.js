@@ -6,26 +6,45 @@ const StrategicBrain = require('../orchestrator/strategic-brain');
 const { BenchmarkHarness } = require('../orchestrator/benchmark');
 const db = require('../database');
 
-let _brain = null;
+let configLoader = null;
+try {
+  configLoader = require('../orchestrator/config-loader');
+} catch { /* config-loader not yet available */ }
 
-function getBrain(providerOverride, modelOverride) {
-  if (_brain && !providerOverride && !modelOverride) {
-    return _brain;
+// Module-level usage accumulator (decoupled from instance lifecycle)
+const usageByProject = new Map();
+
+function getOrCreateUsage(workingDir) {
+  const key = workingDir || '__global__';
+  if (!usageByProject.has(key)) {
+    usageByProject.set(key, { total_calls: 0, total_tokens: 0, fallback_calls: 0 });
+  }
+  return usageByProject.get(key);
+}
+
+function getBrain(workingDirectory, providerOverride, modelOverride, configOverride) {
+  // Load config from three-layer merge if config-loader is available
+  let resolvedConfig = {};
+  if (configLoader && typeof configLoader.resolveConfig === 'function') {
+    try {
+      resolvedConfig = configLoader.resolveConfig(workingDirectory);
+    } catch { /* fall back to empty config */ }
   }
 
-  const config = {};
-  if (providerOverride) {
-    config.provider = providerOverride;
-  }
-  if (modelOverride) {
-    config.model = modelOverride;
-  }
-
-  if (!_brain || providerOverride || modelOverride) {
-    _brain = new StrategicBrain(config);
+  // Apply config_override (ephemeral, per-call)
+  if (configOverride && typeof configOverride === 'object') {
+    if (configLoader && typeof configLoader.deepMerge === 'function') {
+      resolvedConfig = configLoader.deepMerge(resolvedConfig, configOverride);
+    } else {
+      Object.assign(resolvedConfig, configOverride);
+    }
   }
 
-  return _brain;
+  // Explicit provider/model args override config
+  if (providerOverride) resolvedConfig.provider = providerOverride;
+  if (modelOverride) resolvedConfig.model = modelOverride;
+
+  return new StrategicBrain(resolvedConfig);
 }
 
 function loadBenchmarkSuite() {
@@ -65,7 +84,8 @@ async function handleStrategicDecompose(args) {
       return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
     }
 
-    const brain = getBrain(provider, model);
+    const configOverride = args.config_override || null;
+    const brain = getBrain(working_directory, provider, model, configOverride);
     const result = await brain.decompose({
       feature_name,
       feature_description,
@@ -130,7 +150,9 @@ async function handleStrategicDiagnose(args) {
       return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Either task_id or error_output is required');
     }
 
-    const brain = getBrain(strategic_provider);
+    const workingDir = args.working_directory || null;
+    const configOverride = args.config_override || null;
+    const brain = getBrain(workingDir, strategic_provider, null, configOverride);
     const result = await brain.diagnose(diagInput);
 
     let actionText = `**Action:** ${result.action}\n**Reason:** ${result.reason}`;
@@ -183,7 +205,9 @@ async function handleStrategicReview(args) {
       };
     }
 
-    const brain = getBrain(strategic_provider);
+    const workingDir = args.working_directory || null;
+    const configOverride = args.config_override || null;
+    const brain = getBrain(workingDir, strategic_provider, null, configOverride);
     const result = await brain.review(reviewInput);
     const issueList = (result.issues || [])
       .map((issue) => `- [${issue.severity}] ${issue.file || 'general'}: ${issue.description}`)
@@ -208,7 +232,7 @@ async function handleStrategicReview(args) {
 
 async function handleStrategicUsage(_args) {
   try {
-    const brain = getBrain();
+    const brain = getBrain(null);
     const usage = brain.getUsage();
   const totalRuns = usage.total_calls + usage.fallback_calls;
   const fallbackRate = totalRuns > 0 ? ((usage.fallback_calls / totalRuns) * 100).toFixed(1) : '0';
@@ -256,7 +280,7 @@ async function handleStrategicBenchmark(args) {
     review: REVIEW_CASES,
   };
   const suites = suite === 'all' ? ['decompose', 'diagnose', 'review'] : [suite];
-  const brain = getBrain(provider, model);
+  const brain = getBrain(null, provider, model);
   const harness = new BenchmarkHarness();
 
   for (const currentSuite of suites) {
@@ -353,7 +377,7 @@ ${details}
 }
 
 function getStrategicStatus() {
-  const brain = getBrain();
+  const brain = getBrain(null);
   const usage = brain.getUsage();
   return {
     provider: brain.provider,

@@ -20,14 +20,33 @@ const STEP_DEPS = {
   wire: ['system', 'tests'],
 };
 
-function fallbackDecompose({ feature_name, working_directory }) {
+function substituteVars(template, vars) {
+  if (!template || typeof template !== 'string') return template;
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key) => vars[key] !== undefined ? String(vars[key]) : match);
+}
+
+function fallbackDecompose({ feature_name, working_directory, config }) {
+  const steps = config?.decompose?.steps || STANDARD_STEPS;
+  const stepDescriptions = config?.decompose?.step_descriptions || {};
+  const providerHints = config?.decompose?.provider_hints || {};
+
   return {
-    tasks: STANDARD_STEPS.map((step) => ({
-      step,
-      description: STEP_TEMPLATES[step](feature_name, working_directory),
-      depends_on: STEP_DEPS[step],
-      provider_hint: step === 'tests' ? 'codex' : null,
-    })),
+    tasks: steps.map((step) => {
+      let description;
+      if (stepDescriptions[step]) {
+        description = substituteVars(stepDescriptions[step], { feature_name, working_directory });
+      } else if (STEP_TEMPLATES[step]) {
+        description = STEP_TEMPLATES[step](feature_name, working_directory);
+      } else {
+        description = `Implement the ${step} step for ${feature_name} in ${working_directory}`;
+      }
+      return {
+        step,
+        description,
+        depends_on: STEP_DEPS[step] || [],
+        provider_hint: providerHints[step] || (step === 'tests' ? 'codex' : null),
+      };
+    }),
     source: 'deterministic',
     confidence: 0.6,
   };
@@ -52,8 +71,26 @@ const ERROR_PATTERNS = [
  * @param {number} params.exit_code - The exit code from the process.
  * @returns {object} - The recommended action and additional context.
  */
-function fallbackDiagnose({ error_output, provider, exit_code }) {
+function fallbackDiagnose({ error_output, provider, exit_code, config }) {
   const output = error_output || '';
+
+  // Check user-defined custom patterns first
+  const customPatterns = config?.diagnose?.custom_patterns || [];
+  for (const cp of customPatterns) {
+    if (cp.match && new RegExp(cp.match, 'i').test(output)) {
+      return {
+        action: cp.action || 'escalate',
+        reason: cp.reason || `Matched custom pattern: ${cp.match}`,
+        suggested_provider: cp.suggested_provider || null,
+        original_provider: provider,
+        exit_code,
+        source: 'deterministic-custom',
+        confidence: 0.7,
+      };
+    }
+  }
+
+  // Built-in patterns
   for (const { pattern, action, reason, suggested_provider } of ERROR_PATTERNS) {
     if (pattern.test(output)) {
       return {
@@ -68,9 +105,10 @@ function fallbackDiagnose({ error_output, provider, exit_code }) {
     }
   }
 
+  const escalationThreshold = config?.diagnose?.escalation_threshold ?? 3;
   return {
     action: 'escalate',
-    reason: 'Unrecognized error pattern - escalate to human operator',
+    reason: `Unrecognized error pattern - escalate to human operator (threshold: ${escalationThreshold})`,
     original_provider: provider,
     exit_code,
     source: 'deterministic',
@@ -86,9 +124,13 @@ function fallbackDiagnose({ error_output, provider, exit_code }) {
  * @param {number} params.file_size_delta_pct - The percentage change in file size.
  * @returns {object} - The decision and reasoning for approval or rejection.
  */
-function fallbackReview({ validation_failures, file_size_delta_pct }) {
+function fallbackReview({ validation_failures, file_size_delta_pct, config }) {
   const failures = validation_failures || [];
   const delta = file_size_delta_pct || 0;
+  const criteria = config?.review?.criteria || [];
+  const autoApproveThreshold = config?.review?.auto_approve_threshold ?? 85;
+  const strictMode = config?.review?.strict_mode ?? false;
+
   const critical = failures.filter((failure) => failure.severity === 'critical' || failure.severity === 'error');
   const warnings = failures.filter((failure) => failure.severity === 'warning');
 
@@ -97,6 +139,7 @@ function fallbackReview({ validation_failures, file_size_delta_pct }) {
       decision: 'reject',
       reason: `File size decrease of ${Math.abs(delta)}% exceeds 50% threshold`,
       warnings: warnings.map((warning) => warning.rule),
+      criteria_checked: criteria,
       source: 'deterministic',
       confidence: 0.9,
     };
@@ -107,15 +150,47 @@ function fallbackReview({ validation_failures, file_size_delta_pct }) {
       decision: 'reject',
       reason: `${critical.length} critical validation failure(s): ${critical.map((failure) => failure.rule).join(', ')}`,
       warnings: warnings.map((warning) => warning.rule),
+      criteria_checked: criteria,
       source: 'deterministic',
       confidence: 0.8,
+    };
+  }
+
+  // Score based on warnings vs total checks
+  const totalChecks = Math.max(criteria.length, failures.length, 1);
+  const passedChecks = totalChecks - warnings.length;
+  const score = Math.round((passedChecks / totalChecks) * 100);
+
+  if (strictMode && warnings.length > 0) {
+    return {
+      decision: 'reject',
+      reason: `Strict mode: ${warnings.length} warning(s) present`,
+      quality_score: score,
+      warnings: warnings.map((warning) => warning.rule),
+      criteria_checked: criteria,
+      source: 'deterministic',
+      confidence: 0.8,
+    };
+  }
+
+  if (score < autoApproveThreshold) {
+    return {
+      decision: 'reject',
+      reason: `Score ${score} below auto-approve threshold ${autoApproveThreshold}`,
+      quality_score: score,
+      warnings: warnings.map((warning) => warning.rule),
+      criteria_checked: criteria,
+      source: 'deterministic',
+      confidence: 0.7,
     };
   }
 
   return {
     decision: 'approve',
     reason: critical.length === 0 ? 'No critical issues' : undefined,
+    quality_score: score,
     warnings: warnings.map((warning) => warning.rule),
+    criteria_checked: criteria,
     source: 'deterministic',
     confidence: warnings.length > 0 ? 0.7 : 0.9,
   };

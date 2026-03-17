@@ -77,6 +77,7 @@ function autoDetectProvider(preferred, hasConfigApiKey) {
 
 class StrategicBrain {
   constructor(config = {}) {
+    this.config = config; // Full config for passing to fallbacks/prompts
     const requestedProvider = config.provider ?? null;
     this.provider = autoDetectProvider(requestedProvider, !!config.apiKey);
     this.model = config.model ?? DEFAULT_MODELS[this.provider] ?? 'meta-llama/Llama-3.1-405B-Instruct';
@@ -87,7 +88,7 @@ class StrategicBrain {
       ollama: process.env.OLLAMA_STRATEGIC_HOST,
     };
     this.apiKey = config.apiKey ?? providerEnvFallbacks[this.provider];
-    this.confidenceThreshold = config.confidenceThreshold ?? CONFIDENCE_THRESHOLD;
+    this.confidenceThreshold = config.confidence_threshold ?? config.confidenceThreshold ?? CONFIDENCE_THRESHOLD;
     this.maxTokens = config.maxTokens ?? 4096;
     this.temperature = config.temperature ?? 0.3;
     this._providerInstance = config.providerInstance || null;
@@ -139,6 +140,8 @@ class StrategicBrain {
   }
 
   async _strategicCall(templateName, variables, fallbackArgs) {
+    // Inject config into fallback args so deterministic fallbacks can use custom steps/patterns/criteria
+    const argsWithConfig = { ...fallbackArgs, config: this.config };
     try {
       const result = await this._callLlm(templateName, variables);
       const parsed = extractJson(result?.output || '');
@@ -146,20 +149,20 @@ class StrategicBrain {
       if (!parsed) {
         logger.info(`[StrategicBrain] ${templateName}: LLM returned unparseable output, falling back`);
         this._usage.fallback_calls++;
-        return { ...FALLBACK_FNS[templateName](fallbackArgs), fallback_reason: 'unparseable_output' };
+        return { ...FALLBACK_FNS[templateName](argsWithConfig), fallback_reason: 'unparseable_output' };
       }
 
       if (typeof parsed.confidence === 'number' && parsed.confidence < this.confidenceThreshold) {
         logger.info(`[StrategicBrain] ${templateName}: LLM confidence ${parsed.confidence} below threshold ${this.confidenceThreshold}, falling back`);
         this._usage.fallback_calls++;
-        return { ...FALLBACK_FNS[templateName](fallbackArgs), fallback_reason: 'low_confidence' };
+        return { ...FALLBACK_FNS[templateName](argsWithConfig), fallback_reason: 'low_confidence' };
       }
 
       return { ...parsed, source: 'llm', usage: result?.usage };
     } catch (err) {
       logger.info(`[StrategicBrain] ${templateName}: LLM call failed (${err.message}), falling back`);
       this._usage.fallback_calls++;
-      return { ...FALLBACK_FNS[templateName](fallbackArgs), fallback_reason: err.message };
+      return { ...FALLBACK_FNS[templateName](argsWithConfig), fallback_reason: err.message };
     }
   }
 
