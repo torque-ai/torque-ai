@@ -1,3 +1,5 @@
+// Economy Mode — routing policy for cost-aware provider selection
+
 'use strict';
 
 function getDb() {

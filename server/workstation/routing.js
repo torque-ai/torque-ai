@@ -1,3 +1,5 @@
+// Workstation Routing — match task signals to workstation capabilities
+
 'use strict';
 
 const model = require('./model');

@@ -1,3 +1,5 @@
+// Workstation Model — CRUD for unified machine management
+
 'use strict';
 
 const { randomUUID } = require('crypto');

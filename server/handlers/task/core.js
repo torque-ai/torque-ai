@@ -67,11 +67,22 @@ function formatTaskStatus(task, progress) {
     result += `**Provider:** ${task.provider}\n`;
   }
   if (task.ollama_host_id) {
+    let hostName = task.ollama_host_id;
+    try {
+      const wsModel = require('../../workstation/model');
+      const ws = wsModel.getWorkstation(task.ollama_host_id);
+      if (ws) {
+        hostName = ws.name;
+      }
+    } catch {
+      // Ignore workstation lookup errors and fall back to DB host resolution.
+    }
     const host = db.getOllamaHost(task.ollama_host_id);
     if (host) {
-      result += `**Ollama Host:** ${host.name} (\`${host.url}\`)\n`;
+      hostName = host.name;
+      result += `**Ollama Host:** ${hostName} (\`${host.url}\`)\n`;
     } else {
-      result += `**Ollama Host:** ${task.ollama_host_id}\n`;
+      result += `**Ollama Host:** ${hostName}\n`;
     }
   }
   if (task.model) {
@@ -613,11 +624,22 @@ function handleGetResult(args) {
 
   // Show which host executed the task
   if (task.ollama_host_id) {
+    let hostName = task.ollama_host_id;
+    try {
+      const wsModel = require('../../workstation/model');
+      const ws = wsModel.getWorkstation(task.ollama_host_id);
+      if (ws) {
+        hostName = ws.name;
+      }
+    } catch {
+      // Ignore workstation lookup errors and fall back to DB host resolution.
+    }
     const host = db.getOllamaHost(task.ollama_host_id);
     if (host) {
-      result += `**Host:** ${host.name} (\`${host.url}\`)\n`;
+      hostName = host.name;
+      result += `**Host:** ${hostName} (\`${host.url}\`)\n`;
     } else {
-      result += `**Host:** ${task.ollama_host_id}\n`;
+      result += `**Host:** ${hostName}\n`;
     }
   }
 

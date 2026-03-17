@@ -1,3 +1,5 @@
+   // Workstation Adapters — backward-compatible wrappers for legacy host APIs
+
 'use strict';
 
 const { randomUUID } = require('crypto');

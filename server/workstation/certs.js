@@ -1,3 +1,5 @@
+// mTLS Certificate Helpers — fingerprinting and expiry detection
+
 'use strict';
 
 const crypto = require('crypto');

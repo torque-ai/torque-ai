@@ -116,6 +116,26 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       // Must have remote agent id AND prefer_remote_tests enabled
       if (!config.prefer_remote_tests || !config.remote_agent_id) return null;
 
+      // Phase 3: Try workstation lookup for remote agent
+      try {
+        const wsModel = require('../workstation/model');
+        const ws = wsModel.getWorkstationByName(config.remote_agent_id)
+          || wsModel.getWorkstation(config.remote_agent_id);
+        if (
+          ws
+          && ws._capabilities
+          && (
+            ws._capabilities.command_exec === true
+            || (ws._capabilities.command_exec && ws._capabilities.command_exec.detected)
+          )
+        ) {
+          // Found a workstation with command_exec capability matching the remote_agent_id.
+          // The existing agent-client code will handle the actual execution.
+        }
+      } catch {
+        /* fall through to legacy agent lookup */
+      }
+
       return {
         agentId: config.remote_agent_id,
         remotePath: config.remote_project_path || workingDir,

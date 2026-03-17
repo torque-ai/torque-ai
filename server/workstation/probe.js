@@ -1,4 +1,5 @@
 'use strict';
+// Probe Parser — extract capabilities from agent /probe responses
 
 function parseProbeResponse(probeResponse) {
   const caps = probeResponse.capabilities || {};

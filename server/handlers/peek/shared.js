@@ -97,6 +97,22 @@ function sanitizePeekTargetKey(value, fallback) {
 }
 
 function resolvePeekHost(args) {
+  // Phase 3: Use workstation adapter for peek host resolution
+  try {
+    const wsAdapters = require('../../workstation/adapters');
+    const wsHost = wsAdapters.resolvePeekHost(args);
+    if (wsHost) {
+      return {
+        name: wsHost.name,
+        url: `http://${wsHost.host}:9876`,
+        host: wsHost.host,
+        ssh: null,
+        is_default: !!wsHost.is_default,
+        enabled: !!wsHost.enabled,
+      };
+    }
+  } catch { /* fall through to legacy */ }
+
   if (args.host) {
     const host = db.getPeekHost(args.host);
     if (!host) {

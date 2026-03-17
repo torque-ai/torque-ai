@@ -1,3 +1,5 @@
+// Workstation Failover — re-route tasks when a workstation goes down
+
 'use strict';
 
 const model = require('./model');

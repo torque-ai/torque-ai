@@ -6,6 +6,14 @@
 const logger = require('../logger').child({ component: 'host-selection' });
 const hostBenchmarking = require('./host-benchmarking');
 
+let wsAdapters = null;
+function getWsAdapters() {
+  if (!wsAdapters) {
+    try { wsAdapters = require('../workstation/adapters'); } catch { return null; }
+  }
+  return wsAdapters;
+}
+
 let db;
 
 function setDb(instance) {
@@ -34,6 +42,15 @@ function getConfig(key) {
 }
 
 function listOllamaHosts(options = {}) {
+  // Phase 3: Read from workstations table via adapter
+  const adapters = getWsAdapters();
+  if (adapters) {
+    try {
+      const wsHosts = adapters.listOllamaHosts(options);
+      if (wsHosts.length > 0) return wsHosts;
+    } catch { /* fall through to legacy query */ }
+  }
+
   let query = 'SELECT * FROM ollama_hosts WHERE 1=1';
   const values = [];
 
@@ -415,6 +432,16 @@ function isHostModelWarm(hostId, modelName, warmWindowMs = 5 * 60 * 1000) {
 }
 
 function getOllamaHost(hostId) {
+  // Phase 3: Try workstation adapter first
+  const adapters = getWsAdapters();
+  if (adapters) {
+    try {
+      const wsHosts = adapters.listOllamaHosts();
+      const match = wsHosts.find(h => h.id === hostId);
+      if (match) return match;
+    } catch { /* fall through */ }
+  }
+
   const stmt = db.prepare('SELECT * FROM ollama_hosts WHERE id = ?');
   const host = stmt.get(hostId);
   if (host && host.models_cache) {

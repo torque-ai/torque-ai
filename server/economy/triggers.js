@@ -1,3 +1,5 @@
+// Economy Triggers — auto-activate/deactivate based on budget and quota
+
 'use strict';
 
 const db = require('../database');

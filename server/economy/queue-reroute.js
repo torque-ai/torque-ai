@@ -1,3 +1,5 @@
+// Queue Re-routing — shift queued tasks to economy providers on activation
+
 'use strict';
 
 const db = require('../database');
