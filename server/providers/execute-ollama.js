@@ -181,7 +181,15 @@ async function executeOllamaTask(task) {
   let selectedHostId = null;
 
   // Use the model specified in the task (from routing decision)
-  let requestedModel = task.model || serverConfig.get('ollama_model') || '';
+  let requestedModel = task.model;
+  if (!requestedModel) {
+    try {
+      const registry = require('../models/registry');
+      const best = registry.selectBestApprovedModel('ollama');
+      if (best) requestedModel = best.model_name;
+    } catch (_e) { void _e; }
+  }
+  if (!requestedModel) requestedModel = serverConfig.get('ollama_model') || '';
 
   // If no model specified or configured model isn't available, find the best one on any healthy host
   if (!requestedModel || !_hasModelOnAnyHost(requestedModel)) {

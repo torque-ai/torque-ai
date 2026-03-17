@@ -221,6 +221,34 @@ export const workstations = {
   }),
 };
 
+// ─── Model registry endpoints (v2) ──────────────────────────────────────────
+
+export const models = {
+  list: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return requestV2(`/models${query ? '?' + query : ''}`);
+  },
+  pending: () => requestV2('/models/pending'),
+  approve: (provider, modelName) => requestV2('/models/approve', {
+    method: 'POST', body: JSON.stringify({ provider, model_name: modelName }),
+  }),
+  deny: (provider, modelName) => requestV2('/models/deny', {
+    method: 'POST', body: JSON.stringify({ provider, model_name: modelName }),
+  }),
+  bulkApprove: (provider) => requestV2('/models/bulk-approve', {
+    method: 'POST', body: JSON.stringify({ provider }),
+  }),
+};
+
+// ─── Provider CRUD endpoints (v2) ───────────────────────────────────────────
+
+export const providerCrud = {
+  add: (data) => requestV2('/providers/add', { method: 'POST', body: JSON.stringify(data) }),
+  remove: (provider, confirm) => requestV2('/providers/remove', {
+    method: 'POST', body: JSON.stringify({ provider, confirm }),
+  }),
+};
+
 // ─── Peek host endpoints (v2 for list/create/delete/toggle) ─────────────────
 
 export const peekHosts = {

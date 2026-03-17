@@ -722,7 +722,15 @@ function processQueueInternal(options = {}) {
       continue;
     }
 
-    const model = task.model || serverConfig.get('ollama_model') || 'mistral:7b';
+    let model = task.model;
+    if (!model) {
+      try {
+        const registry = require('../models/registry');
+        const best = registry.selectBestApprovedModel(task._effectiveProvider || task.provider);
+        if (best) model = best.model_name;
+      } catch (_e) { void _e; /* registry not available */ }
+    }
+    if (!model) model = serverConfig.get('ollama_model') || 'qwen2.5-coder:32b';
     let selection = db.selectOllamaHostForModel(model);
 
     // If default model isn't available, try any host with any model

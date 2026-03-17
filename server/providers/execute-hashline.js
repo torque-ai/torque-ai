@@ -476,7 +476,15 @@ async function executeHashlineOllamaTask(task) {
   }
 
   // === Host Selection (reuse from executeOllamaTask) ===
-  let requestedModel = task.model || serverConfig.get('ollama_model') || '';
+  let requestedModel = task.model;
+  if (!requestedModel) {
+    try {
+      const registry = require('../models/registry');
+      const best = registry.selectBestApprovedModel('hashline-ollama');
+      if (best) requestedModel = best.model_name;
+    } catch (_e) { void _e; }
+  }
+  if (!requestedModel) requestedModel = serverConfig.get('ollama_model') || '';
 
   // If no model specified or configured model isn't available, find the best
   // hashline-capable model on any healthy host

@@ -96,7 +96,15 @@ function init(deps) {
  * @returns {{ cliPath: string, finalArgs: string[], usedEditFormat: string }}
  */
 function buildAiderCommand(task, resolvedFileContext, resolvedFilePaths) {
-  const aiderModel = task.model || serverConfig.get('ollama_model') || 'qwen2.5-coder:7b';
+  let aiderModel = task.model;
+  if (!aiderModel) {
+    try {
+      const registry = require('../models/registry');
+      const best = registry.selectBestApprovedModel('aider-ollama');
+      if (best) aiderModel = best.model_name;
+    } catch (_e) { void _e; }
+  }
+  if (!aiderModel) aiderModel = serverConfig.get('ollama_model') || 'qwen2.5-coder:32b';
   const aiderPath = process.platform === 'win32'
     ? path.join(os.homedir(), '.local', 'bin', 'aider.exe')
     : path.join(process.env.HOME || os.homedir(), '.local', 'bin', 'aider');
@@ -280,7 +288,15 @@ function buildAiderCommand(task, resolvedFileContext, resolvedFilePaths) {
 function configureAiderHost(task, taskId, envVars) {
   const hosts = db.listOllamaHosts();
   let selectedOllamaHostId = null;
-  const ollamaModel = task.model || serverConfig.get('ollama_model') || 'qwen2.5-coder:7b';
+  let ollamaModel = task.model;
+  if (!ollamaModel) {
+    try {
+      const registry = require('../models/registry');
+      const best = registry.selectBestApprovedModel('aider-ollama');
+      if (best) ollamaModel = best.model_name;
+    } catch (_e) { void _e; }
+  }
+  if (!ollamaModel) ollamaModel = serverConfig.get('ollama_model') || 'qwen2.5-coder:32b';
 
   if (hosts.length > 0) {
     // Multi-host mode: select best host for the model
