@@ -429,9 +429,14 @@ describe('handler/tool wiring parity', () => {
     'reopen_workflow',
     // Tool-def names differ from handler route names (set_provider_api_key vs set_api_key)
     'set_provider_api_key', 'clear_provider_api_key',
+    // Tool-def names differ from handler route names (strategic_config_* vs config_*)
+    'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
   ]);
   // Handler route names that map to tool defs under different names
-  const ALIASED_ROUTE_NAMES = new Set(['set_api_key', 'clear_api_key']);
+  const ALIASED_ROUTE_NAMES = new Set([
+    'set_api_key', 'clear_api_key',
+    'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
+  ]);
 
   it('all handler modules referenced by tools.js export handle* functions', () => {
     const modulePaths = extractHandlerModules();

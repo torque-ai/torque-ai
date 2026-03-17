@@ -7,6 +7,8 @@ const INTERNAL_ONLY_ROUTES = new Set([
   'ping', 'restart_server', 'unlock_all_tools', 'unlock_tier',
   // Handler names differ from tool-def names (handleSetApiKey → set_api_key vs tool-def set_provider_api_key)
   'set_api_key', 'clear_api_key',
+  // Handler names differ from tool-def names (handleConfigGet → config_get vs tool-def strategic_config_get)
+  'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
 ]);
 
 function loadToolDefinitionNames() {

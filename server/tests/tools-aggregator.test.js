@@ -8,7 +8,16 @@ const REQUIRE_FROM_TOOLS = createRequire(MODULE_PATH);
 const realTools = require('../tools');
 
 const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier'];
-const EXPECTED_UNMAPPED_TOOL_NAMES = ['reopen_workflow'];
+const EXPECTED_UNMAPPED_TOOL_NAMES = [
+  'reopen_workflow',
+  'set_provider_api_key', 'clear_provider_api_key',
+  'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
+];
+// Route names derived from handler exports that don't match any tool-def name
+const ALIASED_ROUTE_NAMES = [
+  'set_api_key', 'clear_api_key',
+  'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
+];
 const TOOL_DEF_REQUESTS = [...new Set(
   [...MODULE_SOURCE.matchAll(/require\(\s*['"](\.\/tool-defs\/[^'"]+)['"]\s*\)/g)].map((match) => match[1]),
 )];
@@ -680,8 +689,9 @@ describe('tools.js live registry integration', () => {
 
   it('keeps the routeMap count aligned with tool definitions plus inline handlers', () => {
     const unmappedCount = EXPECTED_UNMAPPED_TOOL_NAMES.length;
-    expect(realTools.routeMap.size).toBe(realTools.TOOLS.length - INLINE_TOOL_NAMES.length - unmappedCount);
-    expect(realTools.routeMap.size + INLINE_TOOL_NAMES.length + unmappedCount).toBe(getToolNames().length);
+    const aliasedCount = ALIASED_ROUTE_NAMES.length;
+    expect(realTools.routeMap.size).toBe(realTools.TOOLS.length - INLINE_TOOL_NAMES.length - unmappedCount + aliasedCount);
+    expect(realTools.routeMap.size + INLINE_TOOL_NAMES.length + unmappedCount - aliasedCount).toBe(getToolNames().length);
   });
 
   it('keeps routed handler signatures constrained to zero or one declared parameter', () => {

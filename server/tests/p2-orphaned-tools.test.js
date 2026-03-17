@@ -13,6 +13,8 @@ const EXPECTED_UNMAPPED_TOOLS = new Set([
   'reopen_workflow',
   // Tool-def names differ from handler route names (set_provider_api_key vs set_api_key)
   'set_provider_api_key', 'clear_provider_api_key',
+  // Tool-def names differ from handler route names (strategic_config_* vs config_*)
+  'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
 ]);
 
 function isHandledOrAllowed(name) {
