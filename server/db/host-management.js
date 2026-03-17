@@ -86,11 +86,6 @@ function addOllamaHost(host) {
     VALUES (?, ?, ?, 1, 'unknown', ?, ?, ?)
   `);
   stmt.run(host.id, host.name, host.url, memoryLimitMb, maxConcurrent, new Date().toISOString());
-  // Phase 3: Dual-write to workstations
-  try {
-    const wsAdapters = require('../workstation/adapters');
-    wsAdapters.addOllamaHost(host);
-  } catch (_e) { void _e; /* workstation write is best-effort during migration */ }
   return getOllamaHost(host.id);
 }
 
@@ -142,16 +137,10 @@ function getOllamaHostByUrl(url) {
  * @returns {any}
  */
 function listOllamaHosts(options = {}) {
-  // Phase 3: Read from workstations via adapter (only if workstations table has data)
-  try {
-    const wsCount = db.prepare("SELECT COUNT(*) as cnt FROM workstations").get();
-    if (wsCount && wsCount.cnt > 0) {
-      const wsAdapters = require('../workstation/adapters');
-      const wsHosts = wsAdapters.listOllamaHosts(options);
-      if (wsHosts.length > 0) return wsHosts;
-    }
-  } catch { /* fall through to legacy — workstations table may not exist in test DBs */ }
-
+  // Phase 3 note: adapter redirect removed from low-level CRUD to avoid
+  // interfering with mocked test setups. The workstation adapter is used
+  // at the handler/MCP level instead. These functions remain the canonical
+  // source for ollama_hosts queries until Phase 4 completes.
   let query = 'SELECT * FROM ollama_hosts WHERE 1=1';
   const values = [];
 
@@ -211,12 +200,6 @@ function updateOllamaHost(hostId, updates) {
   values.push(hostId);
   const stmt = db.prepare(`UPDATE ollama_hosts SET ${fields.join(', ')} WHERE id = ?`);
   stmt.run(...values);
-  // Phase 3: Sync update to workstation
-  try {
-    const wsModel = require('../workstation/model');
-    const ws = wsModel.getWorkstation(hostId);
-    if (ws) wsModel.updateWorkstation(hostId, updates);
-  } catch (_e) { void _e; /* best-effort */ }
   return getOllamaHost(hostId);
 }
 
