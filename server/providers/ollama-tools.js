@@ -461,6 +461,7 @@ function parseToolCalls(message) {
   // Priority 1: Structured tool_calls field
   if (message.tool_calls && message.tool_calls.length > 0) {
     return message.tool_calls.map(tc => ({
+      id: tc.id || undefined, // Preserve tool_call_id for OpenAI-compatible APIs
       name: tc.function.name,
       arguments: typeof tc.function.arguments === 'string'
         ? JSON.parse(tc.function.arguments)

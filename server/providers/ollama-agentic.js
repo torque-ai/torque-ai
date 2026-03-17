@@ -291,7 +291,7 @@ async function runAgenticLoop({
           consecutiveErrorCount++;
           if (consecutiveErrorCount >= 2) {
             // Add the error result first, then stop
-            messages.push({ role: 'tool', content: resultStr, _wasError: true });
+            messages.push({ role: 'tool', content: resultStr, ...(tc.id ? { tool_call_id: tc.id } : {}), _wasError: true });
             finalOutput = `Task stopped: consecutive errors from ${tc.name} after ${iterations + 1} iterations.`;
             logger.warn(`[Agentic] Consecutive errors from ${tc.name} — stopping`);
 
@@ -336,9 +336,11 @@ async function runAgenticLoop({
       }
 
       // Add tool result to messages
+      // Include tool_call_id when available (required by OpenAI-compatible APIs)
       messages.push({
         role: 'tool',
         content: resultStr,
+        ...(tc.id ? { tool_call_id: tc.id } : {}),
         _wasError: !!error,
       });
 
