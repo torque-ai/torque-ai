@@ -24,6 +24,19 @@ const PROVIDER_COLORS = {
   'ollama-cloud': '#34d399',
 };
 
+const CLOUD_API_PROVIDERS = new Set([
+  'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai',
+  'openrouter', 'ollama-cloud', 'anthropic',
+]);
+
+const ENV_VAR_NAMES = {
+  deepinfra: 'DEEPINFRA_API_KEY', hyperbolic: 'HYPERBOLIC_API_KEY',
+  groq: 'GROQ_API_KEY', cerebras: 'CEREBRAS_API_KEY',
+  'google-ai': 'GOOGLE_AI_API_KEY', openrouter: 'OPENROUTER_API_KEY',
+  'ollama-cloud': 'OLLAMA_CLOUD_API_KEY', anthropic: 'ANTHROPIC_API_KEY',
+  codex: 'OPENAI_API_KEY',
+};
+
 const PROVIDER_GROUPS = [
   { label: 'Local (Ollama)', providers: new Set(['ollama', 'hashline-ollama', 'aider-ollama']) },
   { label: 'Cloud (Subscription CLI)', providers: new Set(['codex', 'claude-cli']) },
@@ -72,9 +85,15 @@ function Sparkline({ data, color, width = 80, height = 24 }) {
   );
 }
 
-function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency }) {
+function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency, onSetApiKey, onClearApiKey }) {
   const color = getProviderColor(provider.provider);
   const dailyCounts = sparkData?.map((d) => d[provider.provider] || 0) || [];
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [keyValue, setKeyValue] = useState('');
+  const [keyLoading, setKeyLoading] = useState(false);
+  const isCloudProvider = CLOUD_API_PROVIDERS.has(provider.provider) ||
+    provider.provider_type === 'cloud-api' || provider.provider_type === 'custom';
+  const envVarName = ENV_VAR_NAMES[provider.provider] || '';
 
   return (
     <div className="glass-card p-5 card-hover">
@@ -144,6 +163,78 @@ function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency }) {
           className="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-white"
         />
       </div>
+      {/* API Key Management */}
+      {isCloudProvider && (
+        <div className="mt-3 pt-3 border-t border-slate-700/50">
+          {provider.api_key_status === 'env' && (
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              <span className="text-xs text-green-400">Set via environment</span>
+              <code className="text-[10px] text-slate-500 ml-1">{envVarName}</code>
+            </div>
+          )}
+          {provider.api_key_status === 'stored' && !showKeyInput && (
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              <span className="text-xs text-slate-400 font-mono">{provider.api_key_masked || '\u2022\u2022\u2022\u2022\u2022\u2022'}</span>
+              <button onClick={() => setShowKeyInput(true)} className="text-xs text-blue-400 hover:text-blue-300 ml-auto">Change</button>
+              <button onClick={async () => { await onClearApiKey?.(provider.provider); }} className="text-xs text-red-400 hover:text-red-300">Remove</button>
+            </div>
+          )}
+          {provider.api_key_status === 'validating' && (
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-amber-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="text-xs text-amber-400">Validating key...</span>
+            </div>
+          )}
+          {(provider.api_key_status === 'not_set' && !showKeyInput) && (
+            <div className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              <span className="text-xs text-slate-500">No API key</span>
+              <button onClick={() => setShowKeyInput(true)} className="text-xs text-blue-400 hover:text-blue-300 ml-auto">Add Key</button>
+            </div>
+          )}
+          {showKeyInput && (
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                value={keyValue}
+                onChange={(e) => setKeyValue(e.target.value)}
+                placeholder="Paste API key"
+                maxLength={256}
+                className="flex-1 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                autoFocus
+              />
+              <button
+                disabled={!keyValue.trim() || keyLoading}
+                onClick={async () => {
+                  setKeyLoading(true);
+                  try { await onSetApiKey?.(provider.provider, keyValue.trim()); } finally { setKeyLoading(false); }
+                  setKeyValue('');
+                  setShowKeyInput(false);
+                }}
+                className="text-xs text-green-400 hover:text-green-300 disabled:opacity-40"
+              >
+                {keyLoading ? '...' : 'Save'}
+              </button>
+              <button
+                onClick={() => { setKeyValue(''); setShowKeyInput(false); }}
+                className="text-xs text-slate-400 hover:text-slate-300"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -246,6 +337,25 @@ export default function Providers({ statsVersion, tasksTick }) {
     }
   };
 
+  const handleSetApiKey = async (providerName, apiKey) => {
+    try {
+      await providersApi.setApiKey(providerName, apiKey);
+      addToast.success('API key saved');
+      loadData();
+    } catch (err) {
+      addToast.error(`Failed to save key: ${err.message}`);
+    }
+  };
+
+  const handleClearApiKey = async (providerName) => {
+    try {
+      await providersApi.clearApiKey(providerName);
+      addToast.success('API key cleared');
+      loadData();
+    } catch (err) {
+      addToast.error(`Failed to clear key: ${err.message}`);
+    }
+  };
 
   const totals = providersList.reduce(
     (acc, p) => {
@@ -480,6 +590,8 @@ export default function Providers({ statsVersion, tasksTick }) {
                     sparkData={timeSeries}
                     onToggle={handleToggle}
                     onUpdateConcurrency={handleUpdateConcurrency}
+                    onSetApiKey={handleSetApiKey}
+                    onClearApiKey={handleClearApiKey}
                   />
                 ))}
               </div>

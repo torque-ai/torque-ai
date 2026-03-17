@@ -147,6 +147,10 @@ export const providers = {
     method: 'POST',
     body: JSON.stringify({ enabled }),
   }),
+  setApiKey: (provider, apiKey, opts = {}) =>
+    requestV2(`/providers/${encodeURIComponent(provider)}/api-key`, { method: 'PUT', body: JSON.stringify({ api_key: apiKey }), ...opts }),
+  clearApiKey: (provider, opts = {}) =>
+    requestV2(`/providers/${encodeURIComponent(provider)}/api-key`, { method: 'DELETE', ...opts }),
 };
 
 // ─── Stats endpoints (all v2) ───────────────────────────────────────────────
