@@ -93,14 +93,18 @@ function registerApiAdapter(providerId, ProviderClass, capabilities = {}) {
     let provider = null;
 
     const resolveProvider = () => {
+      // Resolve API key fresh each time — keys may change via dashboard
+      let apiKey;
+      try {
+        const serverConfig = require('../config');
+        apiKey = serverConfig.getApiKey(providerId);
+      } catch { /* config not ready */ }
+
       if (!provider) {
-        // Pass API key from config resolution (env var → encrypted DB → legacy config)
-        let apiKey;
-        try {
-          const serverConfig = require('../config');
-          apiKey = serverConfig.getApiKey(providerId);
-        } catch { /* config not ready */ }
         provider = apiKey ? new ProviderClass({ apiKey }) : new ProviderClass();
+      } else if (apiKey && provider.apiKey !== apiKey) {
+        // Key changed — reconstruct provider
+        provider = new ProviderClass({ apiKey });
       }
       return provider;
     };
