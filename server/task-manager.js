@@ -476,19 +476,35 @@ const { execFileSync } = require('child_process');
  * @returns {{ success: boolean, requeue?: boolean, reason?: string }}
  */
 function tryReserveHostSlotWithFallback(hostId, taskId) {
-  const result = db.tryReserveHostSlot(hostId);
+  // Look up the task's model for VRAM-aware gating
+  let requestedModel = null;
+  try {
+    const task = db.getTask(taskId);
+    if (task) requestedModel = task.model || null;
+  } catch { /* ignore — task lookup is best-effort */ }
+
+  const result = db.tryReserveHostSlot(hostId, requestedModel);
 
   if (result.acquired) {
     return { success: true };
   }
 
-  // Race condition: host went to capacity between selection and reservation
+  // Log with VRAM details when available
+  if (result.vramGated) {
+    logger.info(`[HostSlot] Task ${taskId}: VRAM gate blocked on host ${hostId} — ${result.vramReason}`);
+    return {
+      success: false,
+      requeue: true,
+      reason: result.vramReason
+    };
+  }
+
   logger.info(`[HostSlot] Task ${taskId}: Failed to acquire slot on host ${hostId} (${result.currentLoad}/${result.maxCapacity})`);
 
   return {
     success: false,
     requeue: true,
-    reason: `Host at capacity (race condition): ${result.currentLoad}/${result.maxCapacity}`
+    reason: `Host at capacity: ${result.currentLoad}/${result.maxCapacity}`
   };
 }
 

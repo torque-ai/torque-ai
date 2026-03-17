@@ -456,11 +456,12 @@ function getBenchmarkStats(hostId) {
 }
 
 // ============================================
-// Workstation Capacity Gating
+// Workstation Capacity Gating (VRAM-aware)
 // ============================================
 
 // Cache: ollama_host_id → workstation_id (null = no workstation found)
 const _wsHostCache = new Map();
+const VRAM_OVERHEAD_FACTOR = 0.85; // Reserve 15% VRAM for OS/driver overhead
 
 /**
  * Find the workstation record that corresponds to an ollama_host.
@@ -508,6 +509,96 @@ function findWorkstationForOllamaHost(hostId) {
 }
 
 /**
+ * Look up a model's size in MB from a host's models_cache.
+ * Returns null if model not found or size unknown.
+ * @param {object} host - ollama_host record with parsed models array
+ * @param {string} modelName - model name to look up
+ * @returns {number|null} model size in MB, or null
+ */
+function getModelSizeMb(host, modelName) {
+  if (!host || !host.models || !modelName) return null;
+  const nameLower = modelName.toLowerCase();
+  const baseName = nameLower.split(':')[0];
+
+  for (const m of host.models) {
+    if (typeof m === 'string') continue; // No size info for string-only entries
+    const mName = (m.name || '').toLowerCase();
+    if (mName === nameLower || mName.split(':')[0] === baseName) {
+      if (m.size) return m.size / (1024 * 1024); // bytes → MB
+    }
+  }
+  return null;
+}
+
+/**
+ * Check if a requested model can fit in the GPU's VRAM alongside currently loaded models.
+ * Uses the warm-model tracking (last_model_used) and running tasks to determine what's loaded.
+ *
+ * Returns { allowed: true } if the model fits, or { allowed: false, reason, ... } if not.
+ *
+ * @param {string} hostId - ollama_host ID
+ * @param {string} requestedModel - model name being requested
+ * @returns {{ allowed: boolean, reason?: string, vramUsedMb?: number, vramBudgetMb?: number }}
+ */
+function checkVramBudget(hostId, requestedModel) {
+  const host = getOllamaHost(hostId);
+  if (!host) return { allowed: true }; // Can't check, allow
+
+  // Determine VRAM budget from workstation gpu_vram_mb or host memory_limit_mb
+  const ws = findWorkstationForOllamaHost(hostId);
+  const vramTotalMb = (ws && ws.gpu_vram_mb) || host.memory_limit_mb || 0;
+  if (!vramTotalMb) return { allowed: true }; // No VRAM info, can't gate
+
+  const vramBudgetMb = vramTotalMb * VRAM_OVERHEAD_FACTOR;
+
+  // Get requested model size
+  const requestedSizeMb = getModelSizeMb(host, requestedModel);
+  if (!requestedSizeMb) return { allowed: true }; // Unknown size, allow (fail open)
+
+  // Check if requested model is already warm (loaded) — no extra VRAM needed
+  if (host.last_model_used && host.last_model_used.toLowerCase() === requestedModel.toLowerCase()) {
+    const warmCheck = isHostModelWarm(hostId, requestedModel);
+    if (warmCheck.isWarm) {
+      return { allowed: true, reason: 'Model already warm — no extra VRAM' };
+    }
+  }
+
+  // Find what models are currently loaded by checking running tasks on this host
+  const runningTasks = getRunningTasksForHost(hostId);
+  const loadedModels = new Set();
+  let loadedVramMb = 0;
+
+  for (const task of runningTasks) {
+    const taskModel = (task.model || '').toLowerCase();
+    if (taskModel && !loadedModels.has(taskModel)) {
+      loadedModels.add(taskModel);
+      const sizeMb = getModelSizeMb(host, taskModel);
+      if (sizeMb) loadedVramMb += sizeMb;
+    }
+  }
+
+  // If requested model is already loaded by another running task, no extra VRAM
+  if (loadedModels.has(requestedModel.toLowerCase())) {
+    return { allowed: true, reason: 'Model shared with running task — no extra VRAM' };
+  }
+
+  // Check if adding requested model would exceed budget
+  const totalNeededMb = loadedVramMb + requestedSizeMb;
+  if (totalNeededMb > vramBudgetMb) {
+    return {
+      allowed: false,
+      reason: `VRAM budget exceeded: ${Math.round(totalNeededMb)}MB needed (${Math.round(loadedVramMb)}MB loaded + ${Math.round(requestedSizeMb)}MB requested) > ${Math.round(vramBudgetMb)}MB budget (${vramTotalMb}MB × ${VRAM_OVERHEAD_FACTOR})`,
+      vramUsedMb: Math.round(loadedVramMb),
+      vramRequestedMb: Math.round(requestedSizeMb),
+      vramBudgetMb: Math.round(vramBudgetMb),
+      loadedModels: [...loadedModels],
+    };
+  }
+
+  return { allowed: true, vramUsedMb: Math.round(loadedVramMb + requestedSizeMb), vramBudgetMb: Math.round(vramBudgetMb) };
+}
+
+/**
  * Increment running task count for a host
  * @param {any} hostId
  * @returns {any}
@@ -524,18 +615,34 @@ function incrementHostTasks(hostId) {
  * @param {string} hostId - The host ID
  * @returns {{ acquired: boolean, currentLoad: number, maxCapacity: number }} Result object
  */
-function tryReserveHostSlot(hostId) {
+function tryReserveHostSlot(hostId, requestedModel) {
   // First, get current state for reporting
   const host = getOllamaHost(hostId);
   if (!host) {
     return { acquired: false, currentLoad: 0, maxCapacity: 0, error: 'Host not found' };
   }
 
-  // Workstation capacity gate: if a workstation exists for this physical machine,
-  // check its capacity FIRST. This prevents multiple providers from overloading
-  // a single GPU with competing models that exceed VRAM.
+  // VRAM-aware workstation gate: check if the requested model fits in GPU memory
+  // alongside whatever is already loaded. This prevents multiple providers from
+  // overloading a single GPU with competing models that exceed VRAM.
   const ws = findWorkstationForOllamaHost(hostId);
-  if (ws) {
+  if (ws && requestedModel) {
+    const vramCheck = checkVramBudget(hostId, requestedModel);
+    if (!vramCheck.allowed) {
+      logger.info(`[HostSlot] VRAM gate blocked on workstation '${ws.name}': ${vramCheck.reason}`);
+      return {
+        acquired: false,
+        currentLoad: host.running_tasks,
+        maxCapacity: host.max_concurrent || 0,
+        vramGated: true,
+        vramReason: vramCheck.reason,
+        loadedModels: vramCheck.loadedModels,
+      };
+    }
+  }
+
+  // Workstation max_concurrent gate (fallback when VRAM info unavailable or no model specified)
+  if (ws && !requestedModel) {
     try {
       const wsModel = require('../workstation/model');
       const wsResult = wsModel.tryReserveSlot(ws.id);
@@ -545,6 +652,20 @@ function tryReserveHostSlot(hostId) {
       }
     } catch (err) {
       logger.debug(`[HostSlot] Workstation gate skipped: ${err.message}`);
+    }
+  }
+
+  // Reserve workstation slot for VRAM-gated tasks that passed
+  if (ws && requestedModel) {
+    try {
+      const wsModel = require('../workstation/model');
+      const wsResult = wsModel.tryReserveSlot(ws.id);
+      if (!wsResult.acquired) {
+        logger.info(`[HostSlot] Workstation '${ws.name}' at capacity (${wsResult.currentLoad}/${wsResult.maxCapacity})`);
+        return { acquired: false, currentLoad: wsResult.currentLoad, maxCapacity: wsResult.maxCapacity, workstationGated: true };
+      }
+    } catch (err) {
+      logger.debug(`[HostSlot] Workstation slot reservation skipped: ${err.message}`);
     }
   }
 
