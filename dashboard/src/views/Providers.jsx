@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { providers as providersApi, stats as statsApi, hosts as hostsApi } from '../api';
+import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import {
@@ -46,7 +46,7 @@ function Sparkline({ data, color, width = 80, height = 24 }) {
   );
 }
 
-function ProviderCard({ provider, sparkData, onToggle }) {
+function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency }) {
   const color = getProviderColor(provider.provider);
   const dailyCounts = sparkData?.map((d) => d[provider.provider] || 0) || [];
 
@@ -102,6 +102,22 @@ function ProviderCard({ provider, sparkData, onToggle }) {
           </p>
         </div>
       </div>
+      <div className="flex items-center gap-2 mt-3">
+        <span className="text-xs text-slate-400">Max Concurrent:</span>
+        <input
+          type="number"
+          min={1}
+          max={100}
+          defaultValue={provider.max_concurrent || 1}
+          onBlur={(e) => {
+            const val = parseInt(e.target.value);
+            if (val >= 1 && val <= 100 && val !== provider.max_concurrent) {
+              onUpdateConcurrency(provider.provider, val);
+            }
+          }}
+          className="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-white"
+        />
+      </div>
     </div>
   );
 }
@@ -125,7 +141,7 @@ export default function Providers({ statsVersion, tasksTick }) {
   const [viewMode, setViewMode] = useState('overview'); // 'overview' | 'compare'
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
-  const toast = useToast();
+  const addToast = useToast();
 
   const loadData = useCallback(async () => {
     try {
@@ -141,11 +157,11 @@ export default function Providers({ statsVersion, tasksTick }) {
       setTrends(trendsData);
     } catch (err) {
       console.error('Failed to load provider data:', err);
-      toast.error('Failed to load provider data');
+      addToast.error('Failed to load provider data');
     } finally {
       setLoading(false);
     }
-  }, [days, toast]);
+  }, [days, addToast]);
 
   // Refetch when statsVersion or tasksTick changes (WebSocket push) or days filter changes
   useEffect(() => {
@@ -161,13 +177,23 @@ export default function Providers({ statsVersion, tasksTick }) {
   async function handleToggle(providerId, enabled) {
     try {
       await providersApi.toggle(providerId, enabled);
-      toast.success(`Provider ${enabled ? 'enabled' : 'disabled'}`);
+      addToast.success(`Provider ${enabled ? 'enabled' : 'disabled'}`);
       loadData();
     } catch (err) {
       console.error('Toggle failed:', err);
-      toast.error(`Toggle failed: ${err.message}`);
+      addToast.error(`Toggle failed: ${err.message}`);
     }
   }
+
+  const handleUpdateConcurrency = async (providerName, value) => {
+    try {
+      await concurrency.set({ scope: 'provider', target: providerName, max_concurrent: value });
+      addToast.success(`${providerName} max concurrent set to ${value}`);
+      loadData();
+    } catch (err) {
+      addToast.error(`Failed: ${err.message}`);
+    }
+  };
 
 
   const totals = providersList.reduce(
@@ -351,7 +377,13 @@ export default function Providers({ statsVersion, tasksTick }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
           {providersList.map((provider) => (
-            <ProviderCard key={provider.provider} provider={provider} sparkData={timeSeries} onToggle={handleToggle} />
+            <ProviderCard
+              key={provider.provider}
+              provider={provider}
+              sparkData={timeSeries}
+              onToggle={handleToggle}
+              onUpdateConcurrency={handleUpdateConcurrency}
+            />
           ))}
         </div>
       )}

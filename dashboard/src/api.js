@@ -197,6 +197,16 @@ export const hosts = {
   remove: (id) => requestV2(`/hosts/${id}`, { method: 'DELETE' }),
 };
 
+// --- Concurrency endpoints (v2) ---
+
+export const concurrency = {
+  get: () => requestV2('/concurrency'),
+  set: (data) => requestV2('/concurrency/set', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+};
+
 // ─── Peek host endpoints (v2 for list/create/delete/toggle) ─────────────────
 
 export const peekHosts = {

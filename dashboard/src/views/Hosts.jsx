@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { hosts as hostsApi, peekHosts as peekHostsApi } from '../api';
+import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { formatDistanceToNow } from 'date-fns';
@@ -69,7 +69,9 @@ function formatModelSize(bytes) {
   return gb >= 1 ? `${gb.toFixed(1)}GB` : `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
 }
 
-function HostCard({ host, activity, onToggle, onRemove }) {
+function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts }) {
+  const addToast = useToast();
+
   // Show "Disabled" badge when host is disabled, regardless of stale health status
   const effectiveStatus = !host.enabled ? 'disabled' : host.status;
   const status = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.unknown;
@@ -146,6 +148,21 @@ function HostCard({ host, activity, onToggle, onRemove }) {
       {host.max_concurrent > 0 && (
         <CapacityBar running={host.running_tasks || 0} max={host.max_concurrent} />
       )}
+      <div className="flex items-center gap-2 mt-2">
+        <span className="text-xs text-slate-400">Max:</span>
+        <input type="number" min={0} max={100}
+          defaultValue={host.max_concurrent || 1}
+          onBlur={(e) => {
+            const val = parseInt(e.target.value, 10);
+            if (Number.isFinite(val) && val >= 0 && val <= 100) {
+              concurrency.set({ scope: 'host', target: host.id, max_concurrent: val }).then(() => {
+                addToast.success('Host max concurrent set to ' + val);
+                onRefreshHosts?.();
+              });
+            }
+          }}
+          className="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-white" />
+      </div>
 
       {/* GPU metrics — full (nvidia-smi / gpu-metrics-server) or synthetic (Ollama /api/ps) */}
       {activity?.gpuMetrics && (
@@ -580,6 +597,7 @@ function AddPeekHostForm({ onAdd, onCancel }) {
 export default function Hosts({ hostActivity }) {
   const [hostList, setHostList] = useState([]);
   const [peekHostList, setPeekHostList] = useState([]);
+  const [concurrencyData, setConcurrencyData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -607,6 +625,10 @@ export default function Hosts({ hostActivity }) {
       }
     });
   }, [execute, toast]);
+
+  useEffect(() => {
+    concurrency.get().then(setConcurrencyData).catch(() => {});
+  }, []);
 
   useEffect(() => {
     loadHosts();
@@ -780,6 +802,33 @@ export default function Hosts({ hostActivity }) {
         </div>
       </div>
 
+      {concurrencyData && (
+        <div className="glass-card p-5 mb-6">
+          <h3 className="text-lg font-semibold text-white mb-3">VRAM Budget</h3>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-slate-400">Factor:</span>
+            <input type="range" min={50} max={100}
+              value={Math.round((concurrencyData.vram_overhead_factor || 0.95) * 100)}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10) / 100;
+                concurrency.set({ scope: 'vram_factor', vram_factor: val }).then(() => {
+                  setConcurrencyData((prev) => ({ ...prev, vram_overhead_factor: val }));
+                  toast.success('VRAM budget set to ' + e.target.value + '%');
+                });
+              }}
+              className="flex-1" />
+            <span className="text-sm text-white font-mono w-12">
+              {Math.round((concurrencyData.vram_overhead_factor || 0.95) * 100)}%
+            </span>
+          </div>
+          {concurrencyData.workstations?.filter((ws) => ws.gpu_vram_mb).map((ws) => (
+            <p key={ws.name} className="text-xs text-slate-500 mt-1">
+              {ws.name}: {(ws.effective_vram_budget_mb / 1024).toFixed(1)} GB of {(ws.gpu_vram_mb / 1024).toFixed(1)} GB usable
+            </p>
+          ))}
+        </div>
+      )}
+
       {hostList.length === 0 ? (
         <div className="glass-card p-12 text-center">
           <p className="text-slate-400 text-lg mb-2">No hosts configured</p>
@@ -790,8 +839,47 @@ export default function Hosts({ hostActivity }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {hostList.map((host) => (
-            <HostCard key={host.id} host={host} activity={hostActivity?.hosts?.[host.id]} onToggle={handleToggle} onRemove={handleRemoveClick} />
+            <HostCard
+              key={host.id}
+              host={host}
+              activity={hostActivity?.hosts?.[host.id]}
+              onToggle={handleToggle}
+              onRemove={handleRemoveClick}
+              onRefreshHosts={loadHosts}
+            />
           ))}
+        </div>
+      )}
+
+      {concurrencyData?.workstations?.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-xl font-bold text-white mb-4">Workstations</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {concurrencyData.workstations.map((ws) => (
+              <div key={ws.name} className="glass-card p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-lg font-semibold text-white">{ws.name}</h3>
+                  <span className="text-xs text-slate-400">{ws.host}</span>
+                </div>
+                {ws.gpu_vram_mb && <VramBar used={ws.effective_vram_budget_mb || 0} total={ws.gpu_vram_mb} />}
+                <CapacityBar running={ws.running_tasks} max={ws.max_concurrent} />
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs text-slate-400">Max Concurrent:</span>
+                  <input type="number" min={1} max={100} defaultValue={ws.max_concurrent}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (Number.isFinite(val) && val >= 1 && val <= 100) {
+                        concurrency.set({ scope: 'workstation', target: ws.name, max_concurrent: val }).then(() => {
+                          toast.success('Workstation max concurrent set to ' + val);
+                          concurrency.get().then(setConcurrencyData);
+                        });
+                      }
+                    }}
+                    className="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-white" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -461,7 +461,14 @@ function getBenchmarkStats(hostId) {
 
 // Cache: ollama_host_id → workstation_id (null = no workstation found)
 const _wsHostCache = new Map();
-const VRAM_OVERHEAD_FACTOR = 0.95; // Reserve 5% VRAM for OS/driver overhead (Ollama manages its own memory)
+function getVramOverheadFactor() {
+  const configured = getConfig('vram_overhead_factor');
+  if (configured) {
+    const val = parseFloat(configured);
+    if (val >= 0.5 && val <= 1.0) return val;
+  }
+  return 0.95;
+}
 
 /**
  * Find the workstation record that corresponds to an ollama_host.
@@ -549,7 +556,7 @@ function checkVramBudget(hostId, requestedModel) {
   const vramTotalMb = (ws && ws.gpu_vram_mb) || host.memory_limit_mb || 0;
   if (!vramTotalMb) return { allowed: true }; // No VRAM info, can't gate
 
-  const vramBudgetMb = vramTotalMb * VRAM_OVERHEAD_FACTOR;
+  const vramBudgetMb = vramTotalMb * getVramOverheadFactor();
 
   // Get requested model size
   const requestedSizeMb = getModelSizeMb(host, requestedModel);
@@ -587,7 +594,7 @@ function checkVramBudget(hostId, requestedModel) {
   if (totalNeededMb > vramBudgetMb) {
     return {
       allowed: false,
-      reason: `VRAM budget exceeded: ${Math.round(totalNeededMb)}MB needed (${Math.round(loadedVramMb)}MB loaded + ${Math.round(requestedSizeMb)}MB requested) > ${Math.round(vramBudgetMb)}MB budget (${vramTotalMb}MB × ${VRAM_OVERHEAD_FACTOR})`,
+      reason: `VRAM budget exceeded: ${Math.round(totalNeededMb)}MB needed (${Math.round(loadedVramMb)}MB loaded + ${Math.round(requestedSizeMb)}MB requested) > ${Math.round(vramBudgetMb)}MB budget (${vramTotalMb}MB × ${getVramOverheadFactor()})`,
       vramUsedMb: Math.round(loadedVramMb),
       vramRequestedMb: Math.round(requestedSizeMb),
       vramBudgetMb: Math.round(vramBudgetMb),
@@ -1466,6 +1473,7 @@ module.exports = {
   recordModelOutcome,
   getModelFormatFailures,
   computeAdaptiveScores,
+  getVramOverheadFactor,
   // Leaderboard
   getModelLeaderboard,
   // Host Credentials (from host-credentials.js)
@@ -1475,4 +1483,3 @@ module.exports = {
   deleteCredential,
   deleteAllHostCredentials,
 };
-

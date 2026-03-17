@@ -618,6 +618,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('workstation_health_check_interval_seconds', '30');
   setConfigDefault('workstation_agent_port', '3460');
   setConfigDefault('workstation_cert_warning_days', '30');
+  setConfigDefault('vram_overhead_factor', '0.95');
 }
 
 module.exports = { seedDefaults };
