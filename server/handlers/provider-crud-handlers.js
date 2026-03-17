@@ -593,9 +593,128 @@ function handleRemoveProvider(args = {}) {
   }
 }
 
+// ── API Key Management ──────────────────────────────────────────────────
+
+const validatingProviders = new Map();
+const VALIDATION_TIMEOUT_MS = 30000;
+
+const API_KEY_ENV_VARS = {
+  anthropic: 'ANTHROPIC_API_KEY', groq: 'GROQ_API_KEY', cerebras: 'CEREBRAS_API_KEY',
+  'google-ai': 'GOOGLE_AI_API_KEY', 'ollama-cloud': 'OLLAMA_CLOUD_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY', deepinfra: 'DEEPINFRA_API_KEY',
+  hyperbolic: 'HYPERBOLIC_API_KEY', codex: 'OPENAI_API_KEY',
+};
+
+function getApiKeyStatus(providerName) {
+  // Check validation timeout
+  const validatingTs = validatingProviders.get(providerName);
+  if (validatingTs && (Date.now() - validatingTs) < VALIDATION_TIMEOUT_MS) {
+    return 'validating';
+  }
+  if (validatingTs) validatingProviders.delete(providerName);
+
+  // Check env var
+  const envVar = API_KEY_ENV_VARS[providerName];
+  if (envVar && process.env[envVar]) return 'env';
+
+  // Check DB encrypted key
+  const database = getDatabaseHandle();
+  if (database) {
+    try {
+      const row = database.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(providerName);
+      if (row && row.api_key_encrypted) {
+        const decrypted = decryptApiKey(row.api_key_encrypted);
+        if (decrypted) return 'stored';
+      }
+    } catch { /* table may not exist */ }
+  }
+
+  return 'not_set';
+}
+
+function handleSetApiKey(args) {
+  const providerName = normalizeRequiredString(args.provider, 'provider');
+  const apiKey = typeof args.api_key === 'string' ? args.api_key.trim() : '';
+
+  if (!apiKey) {
+    return makeCrudError(ErrorCodes.MISSING_REQUIRED_PARAM, 'api_key is required', { code: 'validation_error', status: 400 });
+  }
+  if (apiKey.length > 256) {
+    return makeCrudError(ErrorCodes.INVALID_PARAM, 'api_key must be 256 characters or fewer', { code: 'validation_error', status: 400 });
+  }
+
+  const database = getDatabaseHandle();
+  if (!database) {
+    return makeCrudError(ErrorCodes.INTERNAL_ERROR, 'Database not available', { code: 'operation_failed', status: 500 });
+  }
+
+  const existing = database.prepare('SELECT provider FROM provider_config WHERE provider = ?').get(providerName);
+  if (!existing) {
+    return makeCrudError(ErrorCodes.RESOURCE_NOT_FOUND, `Provider not found: ${providerName}`, { code: 'provider_not_found', status: 404 });
+  }
+
+  const encrypted = encryptApiKey(apiKey);
+  database.prepare("UPDATE provider_config SET api_key_encrypted = ?, updated_at = datetime('now') WHERE provider = ?").run(encrypted, providerName);
+
+  // Mark as validating and trigger async health check
+  validatingProviders.set(providerName, Date.now());
+  try {
+    const hostMonitoring = require('../utils/host-monitoring');
+    if (typeof hostMonitoring.runHostHealthChecks === 'function') {
+      hostMonitoring.runHostHealthChecks().finally(() => {
+        validatingProviders.delete(providerName);
+      });
+    } else {
+      setTimeout(() => validatingProviders.delete(providerName), VALIDATION_TIMEOUT_MS);
+    }
+  } catch {
+    setTimeout(() => validatingProviders.delete(providerName), VALIDATION_TIMEOUT_MS);
+  }
+
+  let masked = '••••••';
+  try {
+    const { redactValue } = require('../utils/sensitive-keys');
+    if (typeof redactValue === 'function') masked = redactValue(apiKey);
+  } catch { /* best effort */ }
+
+  const logger = require('../logger');
+  logger.info(`API key set for provider ${providerName}`);
+
+  return {
+    content: [{ type: 'text', text: JSON.stringify({ status: 'saved', masked, validating: true }) }],
+  };
+}
+
+function handleClearApiKey(args) {
+  const providerName = normalizeRequiredString(args.provider, 'provider');
+  const database = getDatabaseHandle();
+  if (!database) {
+    return makeCrudError(ErrorCodes.INTERNAL_ERROR, 'Database not available', { code: 'operation_failed', status: 500 });
+  }
+
+  const existing = database.prepare('SELECT provider FROM provider_config WHERE provider = ?').get(providerName);
+  if (!existing) {
+    return makeCrudError(ErrorCodes.RESOURCE_NOT_FOUND, `Provider not found: ${providerName}`, { code: 'provider_not_found', status: 404 });
+  }
+
+  database.prepare("UPDATE provider_config SET api_key_encrypted = NULL, updated_at = datetime('now') WHERE provider = ?").run(providerName);
+  validatingProviders.delete(providerName);
+
+  const logger = require('../logger');
+  logger.info(`API key cleared for provider ${providerName}`);
+
+  return {
+    content: [{ type: 'text', text: JSON.stringify({ status: 'cleared' }) }],
+  };
+}
+
 module.exports = {
   handleAddProvider,
   handleRemoveProvider,
+  handleSetApiKey,
+  handleClearApiKey,
   encryptApiKey,
   decryptApiKey,
+  getApiKeyStatus,
+  validatingProviders,
 };
