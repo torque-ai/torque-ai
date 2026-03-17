@@ -24,18 +24,19 @@ describe('analyzeTaskForRouting with routing templates', () => {
     templateStore.setActiveTemplate(null);
   });
 
-  it('routes security task per System Default template', () => {
+  it('routes security task per System Default when explicitly activated', () => {
+    // Explicitly activate System Default template
+    const sd = templateStore.getTemplateByName('System Default');
+    templateStore.setActiveTemplate(sd.id);
+
     const result = providerRouting.analyzeTaskForRouting(
       'Fix SQL injection vulnerability in login',
       '/test', [], {}
     );
-    // System Default: security → anthropic (or fallback if anthropic unavailable)
     expect(result).toBeTruthy();
     expect(result.provider).toBeTruthy();
-    // Template should be in the reason
-    if (result.reason && result.reason.includes('Template')) {
-      expect(result.reason).toContain('security');
-    }
+    expect(result.reason).toContain('Template');
+    expect(result.reason).toContain('security');
   });
 
   it('routes using custom template when active', () => {

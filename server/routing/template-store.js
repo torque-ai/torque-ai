@@ -162,14 +162,29 @@ function deleteTemplate(id) {
   return { deleted: true };
 }
 
+function getExplicitActiveTemplateId() {
+  if (!db) return null;
+  try {
+    const row = db.prepare("SELECT value FROM config WHERE key = 'active_routing_template'").get();
+    return row?.value || null;
+  } catch {
+    return null;
+  }
+}
+
 function getActiveTemplate() {
   if (!db) return null;
-  const row = db.prepare("SELECT value FROM config WHERE key = 'active_routing_template'").get();
-  if (row && row.value) {
-    const tmpl = getTemplate(row.value);
-    if (tmpl) return tmpl;
+  try {
+    const row = db.prepare("SELECT value FROM config WHERE key = 'active_routing_template'").get();
+    if (row && row.value) {
+      const tmpl = getTemplate(row.value);
+      if (tmpl) return tmpl;
+    }
+    return getTemplateByName('System Default');
+  } catch {
+    // Table may not exist yet (tests without full schema setup)
+    return null;
   }
-  return getTemplateByName('System Default');
 }
 
 function setActiveTemplate(templateId) {
@@ -197,6 +212,6 @@ module.exports = {
   setDb, ensureTable, seedPresets,
   listTemplates, getTemplate, getTemplateByName,
   createTemplate, updateTemplate, deleteTemplate,
-  getActiveTemplate, setActiveTemplate,
+  getActiveTemplate, getExplicitActiveTemplateId, setActiveTemplate,
   resolveProvider, validateTemplate,
 };

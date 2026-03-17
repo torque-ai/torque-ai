@@ -42,11 +42,9 @@ function setDb(dbInstance) {
   if (db && typeof db.exec === 'function') {
     ensureHealthTable();
   }
-  // Initialize routing template store
+  // Pass db to template store (table creation and seeding handled by schema-seeds.js)
   if (templateStore && typeof templateStore.setDb === 'function') {
     templateStore.setDb(dbInstance);
-    templateStore.ensureTable();
-    templateStore.seedPresets();
   }
 }
 function setGetTask(fn) { getTaskFn = fn; }
@@ -468,14 +466,17 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   };
 
   // Template-based routing (user-configurable category -> provider mapping)
+  // Only active when a user has explicitly set a template via activate_routing_template.
+  // getActiveTemplate() falls back to System Default — we skip that fallback here
+  // so existing users see zero behavior change until they opt in.
   if (categoryClassifier && templateStore) {
-    const category = categoryClassifier.classify(taskDescription, files);
-    const complexity = hostManagementFns?.determineTaskComplexity
-      ? hostManagementFns.determineTaskComplexity(taskDescription, files)
-      : 'normal';
-
-    const activeTemplate = templateStore.getActiveTemplate();
+    const explicitTemplateId = templateStore.getExplicitActiveTemplateId();
+    const activeTemplate = explicitTemplateId ? templateStore.getTemplate(explicitTemplateId) : null;
     if (activeTemplate) {
+      const category = categoryClassifier.classify(taskDescription, files);
+      const complexity = hostManagementFns?.determineTaskComplexity
+        ? hostManagementFns.determineTaskComplexity(taskDescription, files)
+        : 'normal';
       const targetProvider = templateStore.resolveProvider(activeTemplate, category, complexity);
       if (targetProvider) {
         const providerConfig = getProvider(targetProvider);
