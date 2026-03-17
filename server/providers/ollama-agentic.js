@@ -207,7 +207,7 @@ async function runAgenticLoop({
     // Strip internal properties (_wasError, _truncated) from messages before sending —
     // OpenAI-compatible APIs reject unknown properties on message objects
     const cleanMessages = messages.map(m => {
-      if (!m._wasError && !m._truncated) return m;
+      if (!('_wasError' in m) && !('_truncated' in m)) return m;
       const { _wasError, _truncated, ...clean } = m;
       return clean;
     });
@@ -215,6 +215,7 @@ async function runAgenticLoop({
     const response = await adapter.chatCompletion({
       messages: cleanMessages,
       tools: tools && tools.length > 0 ? tools : undefined,
+      timeoutMs: timeoutMs || 120000, // default 2 min per request
       signal,
       ...(options || {}),
     });
