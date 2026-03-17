@@ -318,6 +318,22 @@ function buildAiderOllamaCommand(task, resolvedFileContext, resolvedFilePaths) {
         dashboard.notifyTaskUpdated(taskId);
         processQueue();
         return { requeued: true, reason: selection.reason };
+      } else if (!task.model) {
+        // Default model unavailable — try any host with any model
+        const anySelection = db.selectOllamaHostForModel(null);
+        if (anySelection.host) {
+          const slotResult = tryReserveHostSlotWithFallback(anySelection.host.id, taskId);
+          if (slotResult.success) {
+            envExtras.OLLAMA_API_BASE = anySelection.host.url;
+            selectedOllamaHostId = anySelection.host.id;
+            logger.info(`[Aider-Ollama] Default model '${ollamaModel}' unavailable, using host '${anySelection.host.name}' with fallback`);
+          } else {
+            db.updateTaskStatus(taskId, 'queued', { pid: null, started_at: null, ollama_host_id: null });
+            return { requeued: true, reason: slotResult.reason };
+          }
+        } else {
+          throw new Error(`No Ollama host available for model '${ollamaModel}'. ${selection.reason}`);
+        }
       } else {
         throw new Error(`No Ollama host available for model '${ollamaModel}'. ${selection.reason}`);
       }
