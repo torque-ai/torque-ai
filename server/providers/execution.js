@@ -42,6 +42,16 @@ const PROVIDER_HOST_MAP = {
   'google-ai': 'https://generativelanguage.googleapis.com',
 };
 
+const PROVIDER_DEFAULT_MODEL = {
+  groq: 'llama-3.3-70b-versatile',
+  cerebras: 'llama-3.3-70b',
+  deepinfra: 'Qwen/Qwen2.5-72B-Instruct',
+  openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
+  hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
+  'ollama-cloud': 'llama3.3',
+  'google-ai': 'gemini-2.0-flash',
+};
+
 // ── Deps captured at init time for the agentic wrapper ────────────────
 let _agenticDeps = null;
 
@@ -451,21 +461,16 @@ async function executeOllamaTaskWithAgentic(task) {
       signal: abortController.signal,
     });
 
-    // Store metadata
-    try {
-      db.updateTaskStatus(taskId, 'completed', {
-        task_metadata: JSON.stringify({
-          agentic_log: result.toolLog,
-          agentic_token_usage: result.tokenUsage,
-        }),
-      });
-    } catch { /* ignore metadata write failure */ }
-
+    // Store result + metadata in a single status update (avoid double-complete race)
     safeUpdateTaskStatus(taskId, 'completed', {
       output: result.output,
       exit_code: 0,
       progress_percent: 100,
       completed_at: new Date().toISOString(),
+      task_metadata: JSON.stringify({
+        agentic_log: result.toolLog,
+        agentic_token_usage: result.tokenUsage,
+      }),
     });
 
     logger.info(`[Agentic] Ollama task ${taskId} completed: ${result.iterations} iterations, ${result.toolLog.length} tool calls, ${result.changedFiles.length} files changed`);
@@ -503,25 +508,31 @@ async function executeOllamaTaskWithAgentic(task) {
 async function executeApiProviderWithAgentic(task) {
   const serverConfig = require('../config');
   const provider = task.provider || '';
-  const model = task.model || '';
+  const model = task.model || PROVIDER_DEFAULT_MODEL[provider] || '';
+  console.log(`[AGENTIC-DEBUG] executeApiProviderWithAgentic provider=${provider} model=${model} id=${task.id}`);
 
   // Check capability
   const capability = isAgenticCapable(provider, model);
+  console.log(`[AGENTIC-DEBUG] capability: capable=${capability.capable} reason=${capability.reason} source=${capability.source} hasDeps=${!!_agenticDeps}`);
 
   if (!capability.capable || !_agenticDeps) {
+    console.log(`[AGENTIC-DEBUG] FALLBACK: capable=${capability.capable} hasDeps=${!!_agenticDeps}`);
     return _executeApiModule.executeApiProvider(task);
   }
 
   // Select adapter
   const adapter = selectAdapter(provider);
+  console.log(`[AGENTIC-DEBUG] adapter: ${adapter ? 'FOUND' : 'NULL'}`);
   if (!adapter) {
+    console.log(`[AGENTIC-DEBUG] FALLBACK: no adapter for ${provider}`);
     return _executeApiModule.executeApiProvider(task);
   }
 
   // Resolve API key
   const apiKey = resolveApiKey(provider);
+  console.log(`[AGENTIC-DEBUG] apiKey: ${apiKey ? 'FOUND(' + apiKey.slice(0, 6) + '...)' : 'NULL'}`);
   if (!apiKey && provider !== 'ollama') {
-    logger.info(`[Agentic] No API key for provider ${provider}, falling back to standard API execution`);
+    console.log(`[AGENTIC-DEBUG] FALLBACK: no API key for ${provider}`);
     return _executeApiModule.executeApiProvider(task);
   }
 
@@ -584,21 +595,16 @@ async function executeApiProviderWithAgentic(task) {
       signal: abortController.signal,
     });
 
-    // Store metadata
-    try {
-      db.updateTaskStatus(taskId, 'completed', {
-        task_metadata: JSON.stringify({
-          agentic_log: result.toolLog,
-          agentic_token_usage: result.tokenUsage,
-        }),
-      });
-    } catch { /* ignore metadata write failure */ }
-
+    // Store result + metadata in a single status update (avoid double-complete race)
     safeUpdateTaskStatus(taskId, 'completed', {
       output: result.output,
       exit_code: 0,
       progress_percent: 100,
       completed_at: new Date().toISOString(),
+      task_metadata: JSON.stringify({
+        agentic_log: result.toolLog,
+        agentic_token_usage: result.tokenUsage,
+      }),
     });
 
     logger.info(`[Agentic] API task ${taskId} completed: ${result.iterations} iterations, ${result.toolLog.length} tool calls, ${result.changedFiles.length} files changed`);
