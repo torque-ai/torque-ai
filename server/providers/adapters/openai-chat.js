@@ -48,7 +48,9 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
   }
 
   return new Promise((resolve, reject) => {
-    const url = new URL('/v1/chat/completions', host);
+    // Join paths correctly — host may include a base path (e.g. https://api.groq.com/openai)
+    const baseUrl = host.endsWith('/') ? host.slice(0, -1) : host;
+    const url = new URL(baseUrl + '/v1/chat/completions');
     const isHttps = url.protocol === 'https:';
     const httpModule = isHttps ? https : http;
 
