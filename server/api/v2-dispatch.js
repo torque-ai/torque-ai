@@ -129,6 +129,28 @@ const V2_CP_HANDLER_LOOKUP = {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
+  // Provider API key management
+  handleV2CpSetProviderApiKey: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const providerName = ctx.params?.provider_name || '';
+    const providerCrudHandlers = require('../handlers/provider-crud-handlers');
+    const result = providerCrudHandlers.handleSetApiKey({ provider: providerName, api_key: body.api_key });
+    if (result?.isError) {
+      throwToolResultError(result);
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpClearProviderApiKey: (req, res, ctx) => {
+    const providerName = ctx.params?.provider_name || '';
+    const providerCrudHandlers = require('../handlers/provider-crud-handlers');
+    const result = providerCrudHandlers.handleClearApiKey({ provider: providerName });
+    if (result?.isError) {
+      throwToolResultError(result);
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+  },
   // Routing templates
   handleV2CpListRoutingTemplates: (req, res, ctx) => {
     const routingHandlers = require('../handlers/routing-template-handlers');

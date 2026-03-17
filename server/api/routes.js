@@ -1208,6 +1208,10 @@ const routes = [
   { method: 'PUT', path: '/api/v2/routing/active', handlerName: 'handleV2CpSetActiveRouting', middleware: buildV2Middleware() },
   { method: 'GET', path: '/api/v2/routing/categories', handlerName: 'handleV2CpListCategories', middleware: buildV2Middleware() },
 
+  // Provider API key management
+  { method: 'PUT', path: /^\/api\/v2\/providers\/([^/]+)\/api-key$/, handlerName: 'handleV2CpSetProviderApiKey', mapParams: ['provider_name'], middleware: buildV2Middleware({ params: validateDecodedParamField('provider_name', 'provider name') }) },
+  { method: 'DELETE', path: /^\/api\/v2\/providers\/([^/]+)\/api-key$/, handlerName: 'handleV2CpClearProviderApiKey', mapParams: ['provider_name'], middleware: buildV2Middleware({ params: validateDecodedParamField('provider_name', 'provider name') }) },
+
   // Model registry
   { method: 'GET', path: '/api/v2/models', handlerName: 'handleV2CpListModels', middleware: buildV2Middleware() },
   { method: 'GET', path: '/api/v2/models/pending', handlerName: 'handleV2CpListPendingModels', middleware: buildV2Middleware() },

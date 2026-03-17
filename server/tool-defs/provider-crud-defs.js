@@ -69,4 +69,27 @@ module.exports = [
       required: ['provider'],
     },
   },
+  {
+    name: 'set_provider_api_key',
+    description: 'Set or update the API key for a provider. Encrypts at rest and triggers an async health check.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', description: 'Provider name (e.g., "deepinfra", "groq")' },
+        api_key: { type: 'string', description: 'The API key value' },
+      },
+      required: ['provider', 'api_key'],
+    },
+  },
+  {
+    name: 'clear_provider_api_key',
+    description: 'Clear the stored API key for a provider.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', description: 'Provider name (e.g., "deepinfra", "groq")' },
+      },
+      required: ['provider'],
+    },
+  },
 ];

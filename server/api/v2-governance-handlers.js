@@ -654,9 +654,29 @@ async function handleListProviders(req, res) {
         : null;
       const success_rate = total_tasks > 0 ? Math.round(completed_tasks / total_tasks * 100) : 0;
       const total_cost = statsList.reduce((s, r) => s + (r.total_cost || 0), 0);
+      // API key status enrichment
+      let api_key_status = 'not_set';
+      let api_key_masked = null;
+      try {
+        const { getApiKeyStatus, decryptApiKey } = require('../handlers/provider-crud-handlers');
+        const { redactValue } = require('../utils/sensitive-keys');
+        const serverConfig = require('../config');
+
+        api_key_status = typeof getApiKeyStatus === 'function' ? getApiKeyStatus(p.provider) : 'not_set';
+        if (api_key_status === 'env') {
+          const envKey = serverConfig.getApiKey(p.provider);
+          if (envKey) api_key_masked = typeof redactValue === 'function' ? redactValue(envKey) : '••••••';
+        } else if ((api_key_status === 'stored' || api_key_status === 'validating') && p.api_key_encrypted) {
+          const decrypted = typeof decryptApiKey === 'function' ? decryptApiKey(p.api_key_encrypted) : null;
+          if (decrypted) api_key_masked = typeof redactValue === 'function' ? redactValue(decrypted) : '••••••';
+        }
+      } catch { /* key enrichment is best-effort */ }
+
       return {
         ...p,
         stats: { total_tasks, completed_tasks, failed_tasks, success_rate, avg_duration_seconds, total_cost },
+        api_key_status,
+        api_key_masked,
       };
     });
     sendSuccess(res, requestId, { items: enriched, total: enriched.length }, 200, req);
