@@ -189,7 +189,24 @@ function getApiKey(provider) {
     if (envVal) return envVal;
   }
 
-  // 2. DB config table
+  // 2. provider_config.api_key_encrypted (decrypt)
+  if (db && typeof db.getDbInstance === 'function') {
+    try {
+      const rawDb = db.getDbInstance();
+      if (rawDb && typeof rawDb.prepare === 'function') {
+        const row = rawDb.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(provider);
+        if (row && row.api_key_encrypted) {
+          const { decryptApiKey } = require('./handlers/provider-crud-handlers');
+          const decrypted = decryptApiKey(row.api_key_encrypted);
+          if (decrypted) return decrypted;
+        }
+      }
+    } catch {
+      // decryption failed or module not ready — fall through
+    }
+  }
+
+  // 3. DB config table (legacy)
   const dbKey = `${provider.replace(/-/g, '_')}_api_key`;
   if (db && typeof db.getConfig === 'function') {
     const dbVal = db.getConfig(dbKey);

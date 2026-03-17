@@ -5,6 +5,7 @@ const db = require('../database');
 const taskManager = require('../task-manager');
 const { normalizeProviderTransport } = require('../db/provider-routing-core');
 const { ErrorCodes, makeError } = require('./error-codes');
+const credentialCrypto = require('../utils/credential-crypto');
 
 const VALID_PROVIDER_TYPES = new Set(['ollama', 'cloud-cli', 'cloud-api', 'custom']);
 const DEFAULT_MAX_CONCURRENT = 3;
@@ -263,6 +264,26 @@ function formatRemoveConfirmText(result) {
   return parts.join(' ');
 }
 
+function encryptApiKey(plaintext) {
+  if (!plaintext || typeof plaintext !== 'string') return null;
+  const key = credentialCrypto.getOrCreateKey();
+  const { encrypted_value, iv, auth_tag } = credentialCrypto.encrypt(plaintext, key);
+  return `${iv}:${auth_tag}:${encrypted_value}`;
+}
+
+function decryptApiKey(packed) {
+  if (!packed || typeof packed !== 'string' || !packed.includes(':')) return null;
+  const parts = packed.split(':');
+  if (parts.length !== 3) return null;
+  try {
+    const key = credentialCrypto.getOrCreateKey();
+    const result = credentialCrypto.decrypt(parts[2], parts[0], parts[1], key);
+    return typeof result === 'string' ? result : String(result);
+  } catch {
+    return null;
+  }
+}
+
 function handleAddProvider(args = {}) {
   try {
     const database = getDatabaseHandle();
@@ -338,7 +359,7 @@ function handleAddProvider(args = {}) {
         now,
         now,
         apiBaseUrl,
-        apiKey,
+        apiKey ? encryptApiKey(apiKey) : null,
         providerType,
         defaultModel,
       );
@@ -575,4 +596,6 @@ function handleRemoveProvider(args = {}) {
 module.exports = {
   handleAddProvider,
   handleRemoveProvider,
+  encryptApiKey,
+  decryptApiKey,
 };
