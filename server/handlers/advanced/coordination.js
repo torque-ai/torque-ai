@@ -527,6 +527,72 @@ function handleListRoutingRules(args) {
 }
 
 
+/**
+ * List agent-level routing rules from the task_routing_rules table.
+ * Distinct from list_routing_rules which returns provider-level smart routing rules.
+ *
+ * @param {Object} args - Handler arguments.
+ * @returns {Object} MCP response payload.
+ */
+function handleListAgentRoutingRules(args) {
+  const { enabled_only, target_type } = args;
+
+  const options = {};
+  if (enabled_only !== undefined) options.enabled = enabled_only;
+  if (target_type) options.target_type = target_type;
+
+  const rules = db.listRoutingRules(options);
+
+  if (rules.length === 0) {
+    return {
+      content: [{
+        type: 'text',
+        text: `## No Agent Routing Rules Found\n\nNo agent routing rules match your criteria. Use \`create_routing_rule\` to create rules.`
+      }]
+    };
+  }
+
+  let output = `## Agent Routing Rules (${rules.length})\n\n`;
+  output += `| Priority | Name | Condition | Target | Enabled |\n`;
+  output += `|----------|------|-----------|--------|---------|\n`;
+
+  for (const rule of rules) {
+    const condVal = (rule.condition_value || '').length > 30
+      ? rule.condition_value.substring(0, 27) + '...'
+      : (rule.condition_value || '');
+    output += `| ${rule.priority} | ${rule.name} | ${rule.condition_type}="${condVal}" | ${rule.target_type}="${rule.target_value}" | ${rule.enabled ? 'yes' : 'no'} |\n`;
+  }
+
+  return { content: [{ type: 'text', text: output }] };
+}
+
+
+/**
+ * Delete an agent-level routing rule from the task_routing_rules table.
+ * Distinct from delete_routing_rule which removes provider-level smart routing rules.
+ *
+ * @param {Object} args - Handler arguments.
+ * @returns {Object} MCP response payload.
+ */
+function handleDeleteAgentRoutingRule(args) {
+  const { rule_id } = args;
+
+  if (!rule_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'rule_id is required');
+  }
+
+  const deleted = db.deleteRoutingRule(rule_id);
+
+  if (!deleted) {
+    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Agent routing rule not found: ${rule_id}`);
+  }
+
+  return {
+    content: [{ type: 'text', text: `## Agent Routing Rule Deleted\n\nSuccessfully deleted rule: **${rule_id}**` }]
+  };
+}
+
+
 // Phase 4: Work Stealing & Failover Handlers
 
 /**
@@ -888,6 +954,8 @@ module.exports = {
   handleRemoveFromGroup,
   handleCreateRoutingRule,
   handleListRoutingRules,
+  handleListAgentRoutingRules,
+  handleDeleteAgentRoutingRule,
   handleStealTask,
   handleTriggerFailover,
   handleGetStealingHistory,

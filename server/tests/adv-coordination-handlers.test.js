@@ -483,6 +483,69 @@ describe('Advanced Coordination Handlers', () => {
     });
   });
 
+  describe('list_agent_routing_rules', () => {
+    it('returns no-rules message when empty', async () => {
+      const result = await safeTool('list_agent_routing_rules', {});
+      expect(result.isError).toBeFalsy();
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+    });
+
+    it('accepts enabled_only filter', async () => {
+      const result = await safeTool('list_agent_routing_rules', { enabled_only: true });
+      expect(result.isError).toBeFalsy();
+    });
+
+    it('accepts target_type filter', async () => {
+      const result = await safeTool('list_agent_routing_rules', { target_type: 'agent' });
+      expect(result.isError).toBeFalsy();
+    });
+
+    it('returns rules after creating one', async () => {
+      await safeTool('create_routing_rule', {
+        name: 'AgentListTest',
+        condition_type: 'keyword',
+        condition_value: 'test-list',
+        target_type: 'agent',
+        target_value: 'agent-1'
+      });
+      const result = await safeTool('list_agent_routing_rules', {});
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('AgentListTest');
+    });
+  });
+
+  describe('delete_agent_routing_rule', () => {
+    it('returns error when rule_id is missing', async () => {
+      const result = await safeTool('delete_agent_routing_rule', {});
+      expect(result.isError).toBe(true);
+      expect(getText(result)).toContain('required');
+    });
+
+    it('returns error for nonexistent rule', async () => {
+      const result = await safeTool('delete_agent_routing_rule', { rule_id: 'nonexistent-rule-xyz' });
+      expect(result.isError).toBe(true);
+    });
+
+    it('deletes a rule that was created', async () => {
+      const createResult = await safeTool('create_routing_rule', {
+        name: 'ToDelete',
+        condition_type: 'keyword',
+        condition_value: 'del-test',
+        target_type: 'agent',
+        target_value: 'agent-1'
+      });
+      // Extract rule ID from output
+      const createText = getText(createResult);
+      const idMatch = createText.match(/\*\*ID:\*\*\s+(\S+)/);
+      if (idMatch) {
+        const result = await safeTool('delete_agent_routing_rule', { rule_id: idMatch[1] });
+        expect(result.isError).toBeFalsy();
+        expect(getText(result)).toContain('Deleted');
+      }
+    });
+  });
+
   // ── Work Stealing ──────────────────────────────────────────────────
 
   describe('steal_task', () => {

@@ -1694,6 +1694,37 @@ const tools = [
         }
       }
     }
+  },
+  {
+    name: 'list_agent_routing_rules',
+    description: 'List agent-level task routing rules from the coordination system (task_routing_rules table). Distinct from list_routing_rules which returns provider-level smart routing rules.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enabled_only: {
+          type: 'boolean',
+          description: 'Only show enabled rules (default: false)'
+        },
+        target_type: {
+          type: 'string',
+          description: 'Filter by target type: agent, group, capability'
+        }
+      }
+    }
+  },
+  {
+    name: 'delete_agent_routing_rule',
+    description: 'Delete an agent-level task routing rule from the coordination system (task_routing_rules table). Distinct from delete_routing_rule which removes provider-level smart routing rules.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: {
+          type: 'string',
+          description: 'ID of the agent routing rule to delete'
+        }
+      },
+      required: ['rule_id']
+    }
   }
 ];
 

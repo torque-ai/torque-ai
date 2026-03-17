@@ -86,6 +86,8 @@ const routes = [
   { method: 'POST', path: '/api/v2/advanced/learn-failure-pattern', tool: 'learn_failure_pattern', mapBody: true },
   { method: 'POST', path: '/api/v2/advanced/configure-adaptive-retry', tool: 'configure_adaptive_retry', mapBody: true },
   { method: 'GET', path: '/api/v2/advanced/list-routing-rules', tool: 'list_routing_rules', mapQuery: true },
+  { method: 'GET', path: '/api/v2/advanced/list-agent-routing-rules', tool: 'list_agent_routing_rules', mapQuery: true },
+  { method: 'DELETE', path: '/api/v2/advanced/delete-agent-routing-rule', tool: 'delete_agent_routing_rule', mapQuery: true },
 
   // ─── approvals (3 routes) ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/approvals/reject-task', tool: 'reject_task', mapBody: true },
