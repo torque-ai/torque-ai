@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency } from '../api';
+import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import {
@@ -168,6 +168,31 @@ export default function Providers({ statsVersion, tasksTick }) {
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
   const addToast = useToast();
+  const [showAddProvider, setShowAddProvider] = useState(false);
+  const [newProvider, setNewProvider] = useState({ name: '', provider_type: 'cloud-api', api_base_url: '', max_concurrent: 3 });
+
+  const handleAddProvider = async () => {
+    try {
+      await providerCrud.add(newProvider);
+      addToast.success(`Provider '${newProvider.name}' added`);
+      setShowAddProvider(false);
+      setNewProvider({ name: '', provider_type: 'cloud-api', api_base_url: '', max_concurrent: 3 });
+      loadData();
+    } catch (err) {
+      addToast.error(`Failed: ${err.message}`);
+    }
+  };
+
+  const handleRemoveProvider = async (name) => {
+    if (!window.confirm(`Remove provider '${name}'? This cannot be undone.`)) return;
+    try {
+      await providerCrud.remove(name, true);
+      addToast.success(`Provider '${name}' removed`);
+      loadData();
+    } catch (err) {
+      addToast.error(`Failed: ${err.message}`);
+    }
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -300,6 +325,40 @@ export default function Providers({ statsVersion, tasksTick }) {
 
   return (
     <div className="p-6">
+      {/* Add Provider Form */}
+      {showAddProvider && (
+        <div className="glass-card p-5 mb-6">
+          <h3 className="text-lg font-semibold text-white mb-3">Add Provider</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Name</label>
+              <input value={newProvider.name} onChange={e => setNewProvider({...newProvider, name: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" placeholder="my-provider" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Type</label>
+              <select value={newProvider.provider_type} onChange={e => setNewProvider({...newProvider, provider_type: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm">
+                <option value="ollama">Ollama</option>
+                <option value="cloud-api">Cloud API</option>
+                <option value="cloud-cli">Cloud CLI</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">API Base URL</label>
+              <input value={newProvider.api_base_url} onChange={e => setNewProvider({...newProvider, api_base_url: e.target.value})} placeholder="https://api.example.com/v1" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Max Concurrent</label>
+              <input type="number" value={newProvider.max_concurrent} onChange={e => setNewProvider({...newProvider, max_concurrent: parseInt(e.target.value) || 3})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button onClick={handleAddProvider} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm">Create</button>
+            <button onClick={() => setShowAddProvider(false)} className="px-4 py-2 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <h2 className="heading-lg text-white">Provider Statistics</h2>
@@ -322,15 +381,21 @@ export default function Providers({ statsVersion, tasksTick }) {
             </button>
           </div>
         </div>
-        <select
-          value={days}
-          onChange={(e) => setDays(parseInt(e.target.value))}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-        >
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAddProvider(!showAddProvider)}
+            className="px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 text-sm rounded-lg hover:bg-indigo-600/40"
+          >{showAddProvider ? 'Cancel' : 'Add Provider'}</button>
+          <select
+            value={days}
+            onChange={(e) => setDays(parseInt(e.target.value))}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+          >
           <option value={7}>Last 7 days</option>
           <option value={14}>Last 14 days</option>
           <option value={30}>Last 30 days</option>
-        </select>
+          </select>
+        </div>
       </div>
 
       {/* Summary stats */}

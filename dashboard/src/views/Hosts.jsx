@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi } from '../api';
+import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi, models } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { formatDistanceToNow } from 'date-fns';
@@ -950,6 +950,7 @@ export default function Hosts({ hostActivity }) {
   const [workstationList, setWorkstationList] = useState([]);
   const [peekHostList, setPeekHostList] = useState([]);
   const [concurrencyData, setConcurrencyData] = useState(null);
+  const [pendingModels, setPendingModels] = useState([]);
   const [loadingHosts, setLoadingHosts] = useState(true);
   const [loadingWorkstations, setLoadingWorkstations] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -993,6 +994,8 @@ export default function Hosts({ hostActivity }) {
         if (!isCurrent()) return;
         setConcurrencyData(nextConcurrencyData);
         setWorkstationList(mergeWorkstations(listData, nextConcurrencyData));
+        // Fetch pending models for approval panel
+        models.pending().then(d => setPendingModels(d.models || d.items || d || [])).catch(() => {});
       } catch (err) {
         if (!isCurrent()) return;
         console.error('Failed to load workstations:', err);
@@ -1276,6 +1279,42 @@ export default function Hosts({ hostActivity }) {
       </div>
 
       {/* Global VRAM slider removed — VRAM budget is now per-host/workstation */}
+
+      {/* Pending Models Approval Panel */}
+      {pendingModels.length > 0 && (
+        <div className="glass-card p-5 mb-6 border border-amber-500/30">
+          <h3 className="text-lg font-semibold text-amber-300 mb-3">
+            {pendingModels.length} Model{pendingModels.length !== 1 ? 's' : ''} Pending Approval
+          </h3>
+          <div className="space-y-2">
+            {pendingModels.map((m, i) => (
+              <div key={`${m.provider}-${m.model_name}-${i}`} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-2">
+                <div>
+                  <span className="text-white font-medium">{m.model_name}</span>
+                  <span className="text-slate-400 text-sm ml-2">on {m.provider}</span>
+                  {m.host_id && <span className="text-slate-500 text-xs ml-2">({m.host_id})</span>}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => models.approve(m.provider, m.model_name).then(() => {
+                      toast.success(`Model ${m.model_name} approved`);
+                      models.pending().then(d => setPendingModels(d.models || d.items || d || [])).catch(() => {});
+                    }).catch(err => toast.error(err.message))}
+                    className="px-3 py-1 text-xs bg-green-600/20 border border-green-500/30 text-green-300 rounded hover:bg-green-600/40"
+                  >Approve</button>
+                  <button
+                    onClick={() => models.deny(m.provider, m.model_name).then(() => {
+                      toast.success(`Model ${m.model_name} denied`);
+                      models.pending().then(d => setPendingModels(d.models || d.items || d || [])).catch(() => {});
+                    }).catch(err => toast.error(err.message))}
+                    className="px-3 py-1 text-xs bg-red-600/20 border border-red-500/30 text-red-300 rounded hover:bg-red-600/40"
+                  >Deny</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div>
         <div className="flex items-center justify-between mb-4">
