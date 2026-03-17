@@ -243,7 +243,7 @@ describe('getActiveTemplate / setActiveTemplate', () => {
 describe('resolveProvider', () => {
   it('returns base rule for category', () => {
     const tmpl = mod.getTemplateByName('System Default');
-    expect(mod.resolveProvider(tmpl, 'security', 'normal')).toBe('anthropic');
+    expect(mod.resolveProvider(tmpl, 'security', 'normal')).toBe('ollama-cloud');
     expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal')).toBe('codex');
   });
 
