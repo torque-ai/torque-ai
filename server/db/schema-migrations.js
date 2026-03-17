@@ -290,7 +290,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   try {
       const existingSettings = JSON.parse(getConfig('ollama_model_settings') || '{}');
       let updated = false;
-    
+
       // Only update if qwen2.5-coder:32b doesn't have 16K context yet
       if (!existingSettings['qwen2.5-coder:32b'] || existingSettings['qwen2.5-coder:32b'].num_ctx !== 16384) {
         existingSettings['qwen2.5-coder:32b'] = {
@@ -313,7 +313,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
         };
         updated = true;
       }
-    
+
       if (updated) {
         setConfig('ollama_model_settings', JSON.stringify(existingSettings));
       }
@@ -543,6 +543,21 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   } catch (e) {
     logger.debug(`Schema migration (routing_templates): ${e.message}`);
   }
+
+  // Agentic tool-calling: model probe cache
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agentic_model_probes (
+      model_name TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      supports_tools INTEGER NOT NULL DEFAULT 0,
+      probe_error TEXT,
+      probed_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (model_name, provider)
+    )
+  `);
+
+  // Agentic tool-calling: structured task metadata (tool log, token usage)
+  safeAddColumn('tasks', 'task_metadata TEXT');
 }
 
 module.exports = { runMigrations };
