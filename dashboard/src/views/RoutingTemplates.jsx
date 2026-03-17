@@ -10,7 +10,6 @@ const PROVIDER_COLORS = {
   ollama: '#22c55e',
   'aider-ollama': '#10b981',
   'hashline-ollama': '#14b8a6',
-  anthropic: '#f59e0b',
   groq: '#ec4899',
   deepinfra: '#f97316',
   hyperbolic: '#a855f7',
@@ -22,7 +21,7 @@ const PROVIDER_COLORS = {
 
 const KNOWN_PROVIDERS = [
   'ollama', 'hashline-ollama', 'aider-ollama', 'codex', 'claude-cli',
-  'anthropic', 'deepinfra', 'hyperbolic', 'groq', 'cerebras',
+  'deepinfra', 'hyperbolic', 'groq', 'cerebras',
   'google-ai', 'openrouter', 'ollama-cloud',
 ];
 
