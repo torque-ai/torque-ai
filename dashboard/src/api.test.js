@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { tasks, providers, stats, planProjects, hosts, budget, taskLogs, system, instances, projectTuning, workflows, benchmarks, request } from './api.js';
+import { tasks, providers, stats, planProjects, hosts, concurrency, workstations, budget, taskLogs, system, instances, projectTuning, workflows, benchmarks, request } from './api.js';
 
 // --- Test helpers ---
 
@@ -530,6 +530,66 @@ describe('api.js', () => {
       await hosts.scan();
       expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/v2/hosts/scan',
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+  });
+
+  describe('concurrency', () => {
+    it('get() sends GET to /api/v2/concurrency', async () => {
+      globalThis.fetch = mockFetch({ body: {} });
+      await concurrency.get();
+      expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/concurrency', expect.any(Object));
+    });
+
+    it('set() sends POST to /api/v2/concurrency/set', async () => {
+      globalThis.fetch = mockFetch({ body: {} });
+      await concurrency.set({ scope: 'workstation', target: 'builder-01', max_concurrent: 4 });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/concurrency/set',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ scope: 'workstation', target: 'builder-01', max_concurrent: 4 }),
+        })
+      );
+    });
+  });
+
+  describe('workstations', () => {
+    it('list() sends GET to /api/v2/workstations', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { items: [{ name: 'builder-01' }], total: 1 } } });
+      const result = await workstations.list();
+      expect(result).toEqual([{ name: 'builder-01' }]);
+      expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/workstations', expect.any(Object));
+    });
+
+    it('add() sends POST to /api/v2/workstations', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { name: 'builder-01' } } });
+      const payload = { name: 'builder-01', host: '10.0.0.12', agent_port: 3460, secret: 'shh' };
+      await workstations.add(payload);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/workstations',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+      );
+    });
+
+    it('remove() sends DELETE with encoded name', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { removed: true } } });
+      await workstations.remove('builder/01');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        `/api/v2/workstations/${encodeURIComponent('builder/01')}`,
+        expect.objectContaining({ method: 'DELETE' })
+      );
+    });
+
+    it('probe() sends POST to /api/v2/workstations/:name/probe', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { name: 'builder-01' } } });
+      await workstations.probe('builder-01');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/workstations/builder-01/probe',
         expect.objectContaining({ method: 'POST' })
       );
     });

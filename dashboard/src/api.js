@@ -207,6 +207,20 @@ export const concurrency = {
   }),
 };
 
+export const workstations = {
+  list: () => requestV2('/workstations').then(d => d.items || d),
+  add: (data) => requestV2('/workstations', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  remove: (name) => requestV2(`/workstations/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  }),
+  probe: (name) => requestV2(`/workstations/${encodeURIComponent(name)}/probe`, {
+    method: 'POST',
+  }),
+};
+
 // ─── Peek host endpoints (v2 for list/create/delete/toggle) ─────────────────
 
 export const peekHosts = {

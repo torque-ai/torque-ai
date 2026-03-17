@@ -30,19 +30,19 @@ export default function EconomyIndicator() {
 
   const loadStatus = useCallback(() => {
     request('/v2/economy/status')
-      .then((payload) => setStatus(normalizeEconomyResponse(payload)))
+      .then((payload) => {
+        const nextStatus = normalizeEconomyResponse(payload);
+        setStatus(nextStatus);
+        if (nextStatus.auto_trigger_threshold !== undefined && nextStatus.auto_trigger_threshold !== null) {
+          setThreshold(String(nextStatus.auto_trigger_threshold));
+        }
+      })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
-
-  useEffect(() => {
-    if (status?.auto_trigger_threshold !== undefined && status?.auto_trigger_threshold !== null) {
-      setThreshold(String(status.auto_trigger_threshold));
-    }
-  }, [status]);
 
   useEffect(() => {
     function handleOutsideClick(event) {
@@ -162,4 +162,3 @@ export default function EconomyIndicator() {
     </div>
   );
 }
-

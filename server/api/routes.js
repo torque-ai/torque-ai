@@ -909,6 +909,38 @@ const routes = [
 
   // ─── V2 Control-Plane: Infrastructure ─────────────────────────────────
 
+  // Workstations
+  {
+    method: 'GET',
+    path: '/api/v2/workstations',
+    handlerName: 'handleV2CpListWorkstations',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'POST',
+    path: '/api/v2/workstations',
+    handlerName: 'handleV2CpCreateWorkstation',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/workstations\/([^/]+)\/probe$/,
+    handlerName: 'handleV2CpProbeWorkstation',
+    mapParams: ['workstation_name'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('workstation_name', 'workstation name'),
+    }),
+  },
+  {
+    method: 'DELETE',
+    path: /^\/api\/v2\/workstations\/([^/]+)$/,
+    handlerName: 'handleV2CpDeleteWorkstation',
+    mapParams: ['workstation_name'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('workstation_name', 'workstation name'),
+    }),
+  },
+
   // Ollama Hosts
   {
     method: 'GET',

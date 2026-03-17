@@ -91,6 +91,7 @@ describe('Layout', () => {
     // Verify core nav items are present
     expect(screen.getByText('Batches')).toBeTruthy();
     expect(screen.getByText('Hosts')).toBeTruthy();
+    expect(screen.getByText('Workstations')).toBeTruthy();
     expect(screen.getByText('Budget')).toBeTruthy();
     expect(screen.getByText('Models')).toBeTruthy();
     expect(screen.getByText('Workflows')).toBeTruthy();

@@ -120,6 +120,10 @@ const V2_ANALYTICS_HANDLER_NAMES = [
 ];
 
 const V2_INFRASTRUCTURE_HANDLER_NAMES = [
+  'handleListWorkstations',
+  'handleCreateWorkstation',
+  'handleProbeWorkstation',
+  'handleDeleteWorkstation',
   'handleListHosts',
   'handleGetHost',
   'handleToggleHost',

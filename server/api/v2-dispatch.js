@@ -164,6 +164,10 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpPrometheusMetrics: v2AnalyticsHandlers.handlePrometheusMetrics,
   handleV2CpStrategicOperations: v2AnalyticsHandlers.handleStrategicOperations,
   // Infrastructure
+  handleV2CpListWorkstations: v2InfrastructureHandlers.handleListWorkstations,
+  handleV2CpCreateWorkstation: v2InfrastructureHandlers.handleCreateWorkstation,
+  handleV2CpProbeWorkstation: v2InfrastructureHandlers.handleProbeWorkstation,
+  handleV2CpDeleteWorkstation: v2InfrastructureHandlers.handleDeleteWorkstation,
   handleV2CpListHosts: v2InfrastructureHandlers.handleListHosts,
   handleV2CpGetHost: v2InfrastructureHandlers.handleGetHost,
   handleV2CpToggleHost: v2InfrastructureHandlers.handleToggleHost,

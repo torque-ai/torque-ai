@@ -32,6 +32,121 @@ function resolveHostType(hostName) {
   return null;
 }
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+// ─── Workstations ───────────────────────────────────────────────────────────
+
+async function handleListWorkstations(req, res) {
+  const requestId = resolveRequestId(req);
+
+  try {
+    const workstationModel = require('../workstation/model');
+    const query = req.query || {};
+    const filters = {};
+
+    if (query.enabled === 'true') filters.enabled = true;
+    if (query.enabled === 'false') filters.enabled = false;
+    if (typeof query.status === 'string' && query.status.trim()) filters.status = query.status.trim();
+    if (typeof query.capability === 'string' && query.capability.trim()) {
+      filters.capability = query.capability.trim();
+    }
+
+    const workstations = workstationModel.listWorkstations(filters);
+    sendList(res, requestId, workstations, workstations.length, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+async function handleCreateWorkstation(req, res) {
+  const requestId = resolveRequestId(req);
+  const body = req.body || await parseBody(req);
+  const workstationModel = require('../workstation/model');
+
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const host = typeof body.host === 'string' ? body.host.trim() : '';
+  const secret = typeof body.secret === 'string' ? body.secret.trim() : '';
+
+  if (!name || !host || !secret) {
+    return sendError(res, requestId, 'validation_error', 'name, host, and secret are required', 400, {}, req);
+  }
+
+  if (workstationModel.getWorkstationByName(name)) {
+    return sendError(res, requestId, 'workstation_exists', `Workstation already exists: ${name}`, 409, {}, req);
+  }
+
+  try {
+    const created = workstationModel.createWorkstation({
+      name,
+      host,
+      agent_port: parsePositiveInt(body.agent_port, 3460),
+      secret,
+      max_concurrent: parsePositiveInt(body.max_concurrent, 3),
+      priority: parsePositiveInt(body.priority, 10),
+      is_default: Boolean(body.is_default),
+    });
+
+    sendSuccess(res, requestId, created, 201, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+async function handleProbeWorkstation(req, res) {
+  const requestId = resolveRequestId(req);
+  const workstationName = req.params?.workstation_name;
+
+  if (!workstationName) {
+    return sendError(res, requestId, 'validation_error', 'workstation name is required', 400, {}, req);
+  }
+
+  try {
+    const workstationModel = require('../workstation/model');
+    const workstationHandlers = require('../handlers/workstation-handlers');
+
+    if (!workstationModel.getWorkstationByName(workstationName)) {
+      return sendError(res, requestId, 'workstation_not_found', `Workstation not found: ${workstationName}`, 404, {}, req);
+    }
+
+    const result = await workstationHandlers.handleProbeWorkstation({ name: workstationName });
+    if (result?.isError) {
+      const message = result.content?.[0]?.text || `Probe failed for workstation: ${workstationName}`;
+      return sendError(res, requestId, 'probe_failed', message, 502, {}, req);
+    }
+
+    const refreshed = workstationModel.getWorkstationByName(workstationName);
+    sendSuccess(res, requestId, refreshed, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+async function handleDeleteWorkstation(req, res) {
+  const requestId = resolveRequestId(req);
+  const workstationName = req.params?.workstation_name;
+
+  if (!workstationName) {
+    return sendError(res, requestId, 'validation_error', 'workstation name is required', 400, {}, req);
+  }
+
+  try {
+    const workstationModel = require('../workstation/model');
+    const workstation = workstationModel.getWorkstationByName(workstationName);
+
+    if (!workstation) {
+      return sendError(res, requestId, 'workstation_not_found', `Workstation not found: ${workstationName}`, 404, {}, req);
+    }
+
+    workstationModel.removeWorkstation(workstation.id);
+    sendSuccess(res, requestId, { removed: true, id: workstation.id, name: workstation.name }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
 // ─── Ollama Hosts ───────────────────────────────────────────────────────────
 
 async function handleListHosts(req, res) {
@@ -529,6 +644,11 @@ async function handleCoordinationDashboard(req, res) {
 
 module.exports = {
   init,
+  // Workstations
+  handleListWorkstations,
+  handleCreateWorkstation,
+  handleProbeWorkstation,
+  handleDeleteWorkstation,
   // Ollama Hosts
   handleListHosts,
   handleGetHost,
