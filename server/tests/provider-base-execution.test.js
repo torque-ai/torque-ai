@@ -599,7 +599,7 @@ describe('providers/execution.js', () => {
   // Async-wrapped exports (agentic wrappers) — only pass task, await result
   it.each([
     ['executeOllamaTask', 'ollamaMock', 'executeOllamaTask', [{ id: 'task-1' }]],
-    ['executeApiProvider', 'apiMock', 'executeApiProvider', [{ id: 'task-2' }]],
+    ['executeApiProvider', 'apiMock', 'executeApiProvider', [{ id: 'task-2' }, { name: 'openrouter' }]],
   ])('dispatches %s through the agentic wrapper to the correct provider implementation', async (exportName, mockContainerName, mockFnName, args) => {
     const loaded = loadExecutionModule();
     const { mod } = loaded;

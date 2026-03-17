@@ -505,35 +505,29 @@ async function executeOllamaTaskWithAgentic(task) {
  * through the adapter-agnostic agentic loop with tool calling.
  * Falls back to the standard API provider execution otherwise.
  */
-async function executeApiProviderWithAgentic(task) {
+async function executeApiProviderWithAgentic(task, providerInstance) {
   const serverConfig = require('../config');
   const provider = task.provider || '';
   const model = task.model || PROVIDER_DEFAULT_MODEL[provider] || '';
-  console.log(`[AGENTIC-DEBUG] executeApiProviderWithAgentic provider=${provider} model=${model} id=${task.id}`);
 
   // Check capability
   const capability = isAgenticCapable(provider, model);
-  console.log(`[AGENTIC-DEBUG] capability: capable=${capability.capable} reason=${capability.reason} source=${capability.source} hasDeps=${!!_agenticDeps}`);
 
   if (!capability.capable || !_agenticDeps) {
-    console.log(`[AGENTIC-DEBUG] FALLBACK: capable=${capability.capable} hasDeps=${!!_agenticDeps}`);
-    return _executeApiModule.executeApiProvider(task);
+    return _executeApiModule.executeApiProvider(task, providerInstance);
   }
 
   // Select adapter
   const adapter = selectAdapter(provider);
-  console.log(`[AGENTIC-DEBUG] adapter: ${adapter ? 'FOUND' : 'NULL'}`);
   if (!adapter) {
-    console.log(`[AGENTIC-DEBUG] FALLBACK: no adapter for ${provider}`);
-    return _executeApiModule.executeApiProvider(task);
+    return _executeApiModule.executeApiProvider(task, providerInstance);
   }
 
   // Resolve API key
   const apiKey = resolveApiKey(provider);
-  console.log(`[AGENTIC-DEBUG] apiKey: ${apiKey ? 'FOUND(' + apiKey.slice(0, 6) + '...)' : 'NULL'}`);
   if (!apiKey && provider !== 'ollama') {
-    console.log(`[AGENTIC-DEBUG] FALLBACK: no API key for ${provider}`);
-    return _executeApiModule.executeApiProvider(task);
+    logger.info(`[Agentic] No API key for provider ${provider}, falling back to standard API execution`);
+    return _executeApiModule.executeApiProvider(task, providerInstance);
   }
 
   const { db, dashboard, safeUpdateTaskStatus, processQueue, handleWorkflowTermination } = _agenticDeps;
