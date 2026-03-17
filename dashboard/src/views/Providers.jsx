@@ -14,12 +14,38 @@ const PROVIDER_COLORS = {
   ollama: '#22c55e',
   'aider-ollama': '#10b981',
   'hashline-ollama': '#14b8a6',
-  'hashline-openai': '#06b6d4',
   anthropic: '#f59e0b',
   groq: '#ec4899',
   deepinfra: '#f97316',
   hyperbolic: '#a855f7',
+  cerebras: '#06b6d4',
+  'google-ai': '#4ade80',
+  openrouter: '#fb923c',
+  'ollama-cloud': '#34d399',
 };
+
+const PROVIDER_GROUPS = [
+  { label: 'Local (Ollama)', providers: new Set(['ollama', 'hashline-ollama', 'aider-ollama']) },
+  { label: 'Cloud (Subscription CLI)', providers: new Set(['codex', 'claude-cli']) },
+  { label: 'Cloud (API — Bring Your Own Key)', providers: null }, // everything else
+];
+
+function groupProviders(list) {
+  const groups = PROVIDER_GROUPS.map(g => ({ ...g, items: [] }));
+  for (const p of list) {
+    const name = p.provider || '';
+    let placed = false;
+    for (const g of groups) {
+      if (g.providers && g.providers.has(name)) {
+        g.items.push(p);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) groups[groups.length - 1].items.push(p);
+  }
+  return groups.filter(g => g.items.length > 0);
+}
 
 const COLORS = {
   ...PROVIDER_COLORS,
@@ -365,7 +391,7 @@ export default function Providers({ statsVersion, tasksTick }) {
         </div>
       )}
 
-      {/* Provider cards */}
+      {/* Provider cards — grouped */}
       {providersList.length === 0 ? (
         <div className="glass-card p-12 text-center mb-8">
           <svg className="w-12 h-12 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -375,15 +401,24 @@ export default function Providers({ statsVersion, tasksTick }) {
           <p className="text-slate-500 text-sm">Submit a task to activate a provider</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
-          {providersList.map((provider) => (
-            <ProviderCard
-              key={provider.provider}
-              provider={provider}
-              sparkData={timeSeries}
-              onToggle={handleToggle}
-              onUpdateConcurrency={handleUpdateConcurrency}
-            />
+        <div className="mb-8 space-y-6">
+          {groupProviders(providersList).map((group) => (
+            <div key={group.label}>
+              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 pb-2 border-b border-slate-700/50">
+                {group.label}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {group.items.map((provider) => (
+                  <ProviderCard
+                    key={provider.provider}
+                    provider={provider}
+                    sparkData={timeSeries}
+                    onToggle={handleToggle}
+                    onUpdateConcurrency={handleUpdateConcurrency}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

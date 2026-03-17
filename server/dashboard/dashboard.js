@@ -162,6 +162,34 @@
   }
 
   // ---- Providers ----
+  var PROVIDER_GROUPS = {
+    'Local (Ollama)': ['ollama', 'hashline-ollama', 'aider-ollama'],
+    'Cloud (Subscription CLI)': ['codex', 'claude-cli'],
+    'Cloud (API — Bring Your Own Key)': []  // everything else
+  };
+
+  function getProviderGroup(name) {
+    if (PROVIDER_GROUPS['Local (Ollama)'].indexOf(name) !== -1) return 'Local (Ollama)';
+    if (PROVIDER_GROUPS['Cloud (Subscription CLI)'].indexOf(name) !== -1) return 'Cloud (Subscription CLI)';
+    return 'Cloud (API — Bring Your Own Key)';
+  }
+
+  function renderProviderCard(p) {
+    var successRate = p.total > 0 ? Math.round((p.completed / p.total) * 100) : 0;
+    var label = el('div', { className: 'card-label' });
+    label.textContent = p.name || p.provider || 'unknown';
+    if (p.enabled === false || p.enabled === 0) {
+      label.appendChild(document.createTextNode(' '));
+      label.appendChild(el('span', { className: 'host-disabled-badge' }, 'disabled'));
+    }
+    var stats = el('div', { className: 'provider-stats' }, [
+      el('span', null, 'Total: ' + (p.total || 0)),
+      el('span', null, 'Success: ' + successRate + '%'),
+      el('span', null, 'Avg: ' + (p.avg_duration_seconds ? p.avg_duration_seconds.toFixed(1) + 's' : '-'))
+    ]);
+    return el('div', { className: 'card provider-card' }, [label, stats]);
+  }
+
   function loadProviders() {
     fetchJson('/api/providers').then(function (providers) {
       clearNode(providersGrid);
@@ -171,20 +199,24 @@
         ]));
         return;
       }
+
+      var groups = { 'Local (Ollama)': [], 'Cloud (Subscription CLI)': [], 'Cloud (API — Bring Your Own Key)': [] };
       providers.forEach(function (p) {
-        var successRate = p.total > 0 ? Math.round((p.completed / p.total) * 100) : 0;
-        var label = el('div', { className: 'card-label' });
-        label.textContent = p.name || p.provider || 'unknown';
-        if (p.enabled === false || p.enabled === 0) {
-          label.appendChild(document.createTextNode(' '));
-          label.appendChild(el('span', { className: 'host-disabled-badge' }, 'disabled'));
-        }
-        var stats = el('div', { className: 'provider-stats' }, [
-          el('span', null, 'Total: ' + (p.total || 0)),
-          el('span', null, 'Success: ' + successRate + '%'),
-          el('span', null, 'Avg: ' + (p.avg_duration_seconds ? p.avg_duration_seconds.toFixed(1) + 's' : '-'))
-        ]);
-        providersGrid.appendChild(el('div', { className: 'card provider-card' }, [label, stats]));
+        var name = p.provider || p.name || '';
+        var group = getProviderGroup(name);
+        groups[group].push(p);
+      });
+
+      ['Local (Ollama)', 'Cloud (Subscription CLI)', 'Cloud (API — Bring Your Own Key)'].forEach(function (groupName) {
+        var groupProviders = groups[groupName];
+        if (!groupProviders.length) return;
+
+        var header = el('div', { className: 'provider-group-header' }, groupName);
+        providersGrid.appendChild(header);
+
+        groupProviders.forEach(function (p) {
+          providersGrid.appendChild(renderProviderCard(p));
+        });
       });
     }).catch(function () { /* silent */ });
   }

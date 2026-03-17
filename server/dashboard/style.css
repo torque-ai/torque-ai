@@ -285,6 +285,22 @@ section h2 {
     gap: 1.5rem;
 }
 
+.provider-group-header {
+    grid-column: 1 / -1;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.5rem 0 0.25rem;
+    border-bottom: 1px solid var(--border);
+    margin-top: 0.5rem;
+}
+
+.provider-group-header:first-child {
+    margin-top: 0;
+}
+
 .provider-card {
     display: flex;
     flex-direction: column;
