@@ -1987,7 +1987,7 @@ describe('Queue Scheduler', () => {
       });
     });
 
-    it('reroutes codex-pending tasks to anthropic when codex is disabled', () => {
+    it('reroutes codex-pending tasks to ollama-cloud when codex is disabled', () => {
       mockDb.getConfig.mockImplementation((key) => {
         if (key === 'codex_enabled') return '0';
         return null;
@@ -2000,11 +2000,11 @@ describe('Queue Scheduler', () => {
 
       scheduler.resolveCodexPendingTasks();
 
-      expect(mockDb.getProvider).toHaveBeenCalledWith('anthropic');
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('pending-2', 'queued', { provider: 'anthropic' });
+      expect(mockDb.getProvider).toHaveBeenCalledWith('ollama-cloud');
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('pending-2', 'queued', { provider: 'ollama-cloud' });
       expect(mocks.notifyDashboard).toHaveBeenCalledWith('pending-2', {
         status: 'queued',
-        provider: 'anthropic',
+        provider: 'ollama-cloud',
       });
     });
 

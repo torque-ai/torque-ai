@@ -17,6 +17,7 @@ const { resolveFileReferences } = require('../utils/file-resolution');
 const ollamaShared = require('./ollama-shared');
 const providerConfig = require('./config');
 const serverConfig = require('../config');
+const { runAgenticLoop } = require('./ollama-agentic');
 
 // Dependency injection
 let db = null;
@@ -566,19 +567,7 @@ async function executeOllamaTask(task) {
       }
     }
 
-    // Build the request body (streaming for progress updates)
-    // think: false disables qwen3's extended thinking (burns minutes on 8GB VRAM)
-    const requestBody = JSON.stringify({
-      model: ollamaModel,
-      prompt: prompt,
-      system: systemPrompt,
-      stream: true,
-      think: false,
-      keep_alive: keepAlive,
-      options: options
-    });
-
-    // Create stream for live output capture
+    // Shared variables for both agentic and legacy modes
     const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
     const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
     const abortController = new AbortController();
@@ -594,6 +583,105 @@ async function executeOllamaTask(task) {
         // db may be closed or unavailable in edge cases
       }
     }, 2000);
+
+    // === AGENTIC MODE: Use /api/chat with tool calling ===
+    const agenticEnabled = serverConfig.get('ollama_agentic_enabled') !== '0';
+
+    if (agenticEnabled) {
+      try {
+        logger.info(`[Ollama] Agentic mode: starting tool-calling loop for task ${taskId}`);
+
+        const agenticSystemPrompt = systemPrompt + `
+
+You are an autonomous coding agent with tool access. Complete the task using ONLY the provided tools.
+
+RULES:
+1. Use tools to read files, make edits, list directories, search code, and run commands.
+2. NEVER describe what you would do — actually do it with tools.
+3. ONLY modify files explicitly mentioned in the task. Do NOT touch unrelated files.
+4. If a build/test fails for reasons UNRELATED to your change, report the failure and stop. Do NOT try to fix pre-existing issues.
+5. If a tool call fails, try ONE alternative approach. If that also fails, report the error and stop.
+6. When done, respond with a brief summary of what you did and what changed.
+7. Be efficient — you have limited iterations. Read the file, make the edit, verify if needed, done.
+8. This is a Windows environment. Use PowerShell or cmd syntax for commands (dir, Get-ChildItem), not Unix (ls, find, wc).
+
+Working directory: ${workingDir}`;
+
+        const result = await runAgenticLoop({
+          host: ollamaHost,
+          model: ollamaModel,
+          systemPrompt: agenticSystemPrompt,
+          taskPrompt: prompt,
+          options,
+          workingDir,
+          timeoutMs,
+          onProgress: (iteration, max, lastTool) => {
+            const pct = Math.min(85, 10 + Math.floor((iteration / max) * 75));
+            try {
+              db.updateTaskStatus(taskId, 'running', {
+                progress_percent: pct,
+                output: `[Agentic: iteration ${iteration}/${max}, last tool: ${lastTool || 'none'}]`,
+              });
+              dashboard.notifyTaskUpdated(taskId);
+            } catch { /* ignore */ }
+          },
+          onChunk: (text) => {
+            try {
+              db.addStreamChunk(ollamaStreamId, text, 'stdout');
+              dashboard.notifyTaskOutput(taskId, text);
+            } catch { /* ignore */ }
+          },
+          signal: abortController.signal,
+        });
+
+        clearInterval(cancelCheckInterval);
+        clearTimeout(timeoutHandle);
+
+        safeUpdateTaskStatus(taskId, 'completed', {
+          output: result.output,
+          exit_code: 0,
+          progress_percent: 100,
+          completed_at: new Date().toISOString(),
+        });
+
+        if (selectedHostId) {
+          try { db.decrementHostTasks(selectedHostId); } catch (e) { logger.info(`[Ollama] Failed to decrement host tasks: ${e.message}`); }
+          selectedHostId = null;
+        }
+        try {
+          db.recordProviderUsage('ollama', taskId, {
+            duration_seconds: Math.round((Date.now() - new Date(task.started_at || Date.now()).getTime()) / 1000),
+            success: true,
+            error_type: null,
+          });
+        } catch (bookkeepingErr) {
+          logger.info(`[Ollama] Post-completion bookkeeping error: ${bookkeepingErr.message}`);
+        }
+
+        logger.info(`[Ollama] Agentic task ${taskId} completed: ${result.iterations} iterations, ${result.toolLog.length} tool calls, ${result.changedFiles.length} files changed`);
+        dashboard.notifyTaskUpdated(taskId);
+        processQueue();
+        return;
+
+      } catch (agenticError) {
+        clearInterval(cancelCheckInterval);
+        clearTimeout(timeoutHandle);
+        throw agenticError;
+      }
+    }
+
+    // === LEGACY MODE: /api/generate (no tool calling) ===
+    // Build the request body (streaming for progress updates)
+    // think: false disables qwen3's extended thinking (burns minutes on 8GB VRAM)
+    const requestBody = JSON.stringify({
+      model: ollamaModel,
+      prompt: prompt,
+      system: systemPrompt,
+      stream: true,
+      think: false,
+      keep_alive: keepAlive,
+      options: options
+    });
 
     // Make the HTTP request with streaming for progress
     let response;

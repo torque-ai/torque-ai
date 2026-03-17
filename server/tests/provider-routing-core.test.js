@@ -519,7 +519,7 @@ describe('provider-routing-core', () => {
       });
     });
 
-    it('routes security tasks to anthropic when the provider is enabled and keyed', () => {
+    it('routes security tasks to default provider (anthropic demoted to opt-in)', () => {
       const { core } = loadCore({
         db: {
           config: {
@@ -530,11 +530,11 @@ describe('provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Audit auth token handling for security issues', 'C:/repo');
 
-      expect(result.provider).toBe('anthropic');
-      expect(result.reason).toContain('security task');
+      expect(result.provider).toBe('aider-ollama');
+      expect(result.reason).toContain('No rule matched');
     });
 
-    it('routes xaml tasks to anthropic based on file extensions', () => {
+    it('routes xaml tasks to default provider (anthropic demoted to opt-in)', () => {
       const { core } = loadCore({
         db: {
           config: {
@@ -545,8 +545,8 @@ describe('provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Adjust bindings', 'C:/repo', ['Views/MainWindow.xaml']);
 
-      expect(result.provider).toBe('anthropic');
-      expect(result.reason).toContain('XAML/WPF');
+      expect(result.provider).toBe('aider-ollama');
+      expect(result.reason).toContain('No rule matched');
     });
 
     it('routes complex reasoning tasks to deepinfra with the large-model reason', () => {
@@ -884,9 +884,9 @@ describe('provider-routing-core', () => {
       expect(core.getProviderFallbackChain('codex')).toEqual([
         'claude-cli',
         'deepinfra',
+        'ollama-cloud',
         'aider-ollama',
         'ollama',
-        'anthropic',
       ]);
     });
 

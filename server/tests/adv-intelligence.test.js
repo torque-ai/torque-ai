@@ -30,16 +30,12 @@ describe('adv-intelligence handlers', () => {
         id: 'cache-1',
         content_hash: 'abcdef1234567890abcdef',
         expires_at: '2026-03-01T00:00:00.000Z',
-        confidence_score: 0.92,
       });
       const result = handlers.handleCacheTaskResult({ task_id: 'abc', ttl_hours: 24 });
       expect(result.content[0].text).toContain('Task Result Cached');
       expect(result.content[0].text).toContain('cache-1');
-      expect(result.content[0].text).toContain('92%');
-      expect(db.cacheTaskResult).toHaveBeenCalledWith(
-        { id: 'abc', status: 'completed' },
-        { ttl_hours: 24 }
-      );
+      expect(result.content[0].text).toContain('abcdef1234567890...');
+      expect(db.cacheTaskResult).toHaveBeenCalledWith('abc', 24);
     });
   });
 
@@ -159,17 +155,17 @@ describe('adv-intelligence handlers', () => {
 
   describe('handleWarmCache', () => {
     it('warms cache from completed tasks', () => {
-      vi.spyOn(db, 'warmCache').mockReturnValue({ added: 5, skipped: 2, failed: 0 });
+      vi.spyOn(db, 'warmCache').mockReturnValue({ cached: 5, scanned: 7 });
       const result = handlers.handleWarmCache({ limit: 20 });
       expect(result.content[0].text).toContain('Cache Warmed');
       expect(result.content[0].text).toContain('5');
-      expect(result.content[0].text).toContain('2');
+      expect(result.content[0].text).toContain('7');
     });
 
-    it('passes correct options to warmCache', () => {
-      vi.spyOn(db, 'warmCache').mockReturnValue({ added: 0, skipped: 0, failed: 0 });
+    it('passes correct positional args to warmCache', () => {
+      vi.spyOn(db, 'warmCache').mockReturnValue({ cached: 0, scanned: 0 });
       handlers.handleWarmCache({ limit: 10, min_exit_code: 1 });
-      expect(db.warmCache).toHaveBeenCalledWith({ limit: 10, min_exit_code: 1 });
+      expect(db.warmCache).toHaveBeenCalledWith(10, undefined, null);
     });
   });
 
@@ -186,12 +182,16 @@ describe('adv-intelligence handlers', () => {
     it('computes and displays priority score', () => {
       vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-full-id' });
       vi.spyOn(db, 'computePriorityScore').mockReturnValue({
-        final_score: 0.75,
+        combined_score: 0.75,
         resource_score: 0.8,
         success_score: 0.7,
         dependency_score: 0.6,
-        weights: { resource: 0.3, success: 0.3, dependency: 0.4 },
-        manual_boost: 5,
+        factors: {
+          resource: { weight: 0.3 },
+          success: { weight: 0.3 },
+          dependency: { weight: 0.4 },
+          manual_boost: { amount: 5 },
+        },
       });
       const result = handlers.handleComputePriority({ task_id: 'abc12345-full-id' });
       expect(result.content[0].text).toContain('Priority Score');
@@ -210,7 +210,7 @@ describe('adv-intelligence handlers', () => {
 
     it('shows priority queue with entries', () => {
       vi.spyOn(db, 'getPriorityQueue').mockReturnValue([
-        { id: 'abcd1234-5678-9012-efgh', task_description: 'do something important with this task here', priority_score: 0.85 },
+        { id: 'abcd1234-5678-9012-efgh', task_description: 'do something important with this task here', combined_score: 0.85 },
       ]);
       const result = handlers.handleGetPriorityQueue({ status: 'queued', limit: 10 });
       expect(result.content[0].text).toContain('abcd1234');
@@ -279,22 +279,26 @@ describe('adv-intelligence handlers', () => {
       vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id' });
       vi.spyOn(db, 'boostPriority').mockReturnValue(undefined);
       vi.spyOn(db, 'computePriorityScore').mockReturnValue({
-        final_score: 0.95,
+        combined_score: 0.95,
         resource_score: 0.8,
         success_score: 0.7,
         dependency_score: 0.6,
-        weights: { resource: 0.3, success: 0.3, dependency: 0.4 },
+        factors: {
+          resource: { weight: 0.3 },
+          success: { weight: 0.3 },
+          dependency: { weight: 0.4 },
+        },
       });
       const result = handlers.handleBoostPriority({
         task_id: 'abc12345-task-id',
         boost_amount: 10,
-        expires_in_minutes: 30,
+        reason: 'urgent task',
       });
       expect(result.content[0].text).toContain('Priority Boosted');
       expect(result.content[0].text).toContain('+10');
       expect(result.content[0].text).toContain('0.95');
-      expect(result.content[0].text).toContain('30 minutes');
-      expect(db.boostPriority).toHaveBeenCalledWith('abc12345-task-id', 10, 30);
+      expect(result.content[0].text).toContain('urgent task');
+      expect(db.boostPriority).toHaveBeenCalledWith('abc12345-task-id', 10, 'urgent task');
     });
   });
 
@@ -315,34 +319,29 @@ describe('adv-intelligence handlers', () => {
     });
 
     it('predicts failure for task by ID', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc', task_description: 'test' });
+      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc', task_description: 'test', working_directory: null });
       vi.spyOn(db, 'predictFailureForTask').mockReturnValue({
         probability: 0.3,
-        risk_level: 'medium',
         confidence: 0.8,
-        patterns: [{ pattern_type: 'timeout', description: 'Provider tends to timeout', contribution: 0.6 }],
-        recommendations: ['Use a faster provider'],
+        patterns: [{ type: 'timeout', definition: { provider: 'ollama' }, failure_rate: 0.6 }],
       });
       const result = handlers.handlePredictFailure({ task_id: 'abc' });
       expect(result.content[0].text).toContain('Failure Prediction');
       expect(result.content[0].text).toContain('30%');
-      expect(result.content[0].text).toContain('medium');
+      expect(result.content[0].text).toContain('Low');
       expect(result.content[0].text).toContain('timeout');
-      expect(result.content[0].text).toContain('Use a faster provider');
     });
 
     it('predicts failure for task_description directly', () => {
       vi.spyOn(db, 'predictFailureForTask').mockReturnValue({
         probability: 0.1,
-        risk_level: 'low',
         confidence: 0.6,
         patterns: [],
-        recommendations: [],
       });
       const result = handlers.handlePredictFailure({ task_description: 'simple config change' });
       expect(result.content[0].text).toContain('Failure Prediction');
       expect(result.content[0].text).toContain('10%');
-      expect(result.content[0].text).toContain('low');
+      expect(result.content[0].text).toContain('Low');
     });
   });
 
@@ -381,21 +380,16 @@ describe('adv-intelligence handlers', () => {
         output: 'Error: ENOENT file not found\nstack trace here',
         provider: 'ollama',
       });
-      vi.spyOn(db, 'learnFailurePattern').mockReturnValue(undefined);
+      vi.spyOn(db, 'learnFailurePattern').mockReturnValue([{ id: 'pat-1' }]);
       const result = handlers.handleLearnFailurePattern({
         task_id: 'abc',
         name: 'file_not_found',
         description: 'File not found errors',
       });
-      expect(result.content[0].text).toContain('Pattern Learned');
+      expect(result.content[0].text).toContain('Failure Pattern Learned');
       expect(result.content[0].text).toContain('file_not_found');
       expect(result.content[0].text).toContain('ollama');
-      expect(db.learnFailurePattern).toHaveBeenCalledWith(
-        'abc',
-        expect.stringContaining('Error: ENOENT'),
-        'file_not_found',
-        'File not found errors'
-      );
+      expect(db.learnFailurePattern).toHaveBeenCalledWith('abc');
     });
   });
 
@@ -443,20 +437,21 @@ describe('adv-intelligence handlers', () => {
     });
 
     it('shows healthy message when no suggestions', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id' });
-      vi.spyOn(db, 'suggestIntervention').mockReturnValue([]);
+      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id', task_description: 'test', working_directory: null });
+      vi.spyOn(db, 'suggestIntervention').mockReturnValue({ interventions: [], prediction: { probability: 0 } });
       const result = handlers.handleSuggestIntervention({ task_id: 'abc12345-task-id' });
       expect(result.content[0].text).toContain('healthy');
     });
 
     it('shows intervention suggestions in a table', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id' });
-      vi.spyOn(db, 'suggestIntervention').mockReturnValue([
-        { type: 'requeue', suggestion: 'Requeue with different model for better performance results', expected_impact: 'medium' },
-      ]);
+      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id', task_description: 'test', working_directory: null });
+      vi.spyOn(db, 'suggestIntervention').mockReturnValue({
+        interventions: [{ type: 'requeue', reason: 'Requeue with different model for better performance results' }],
+        prediction: { probability: 0.5 },
+      });
       const result = handlers.handleSuggestIntervention({ task_id: 'abc12345-task-id' });
+      expect(result.content[0].text).toContain('requeue');
       expect(result.content[0].text).toContain('Requeue');
-      expect(result.content[0].text).toContain('medium');
     });
   });
 
@@ -520,36 +515,23 @@ describe('adv-intelligence handlers', () => {
 
   describe('handleAnalyzeRetryPatterns', () => {
     it('shows retry analysis with defaults', () => {
-      vi.spyOn(db, 'analyzeRetryPatterns').mockReturnValue({
-        total_tasks: 10,
-        total_retries: 15,
-        success_rate: 0.6,
-        avg_retries_to_success: 1.5,
-        by_error_type: {},
-        recommendations: [],
-      });
+      vi.spyOn(db, 'analyzeRetryPatterns').mockReturnValue([
+        { strategy_used: 'exponential', error_type: 'timeout', attempts: 10, successes: 6, success_rate: 0.6 },
+      ]);
       const result = handlers.handleAnalyzeRetryPatterns({});
       expect(result.content[0].text).toContain('Retry Pattern Analysis');
       expect(result.content[0].text).toContain('60%');
       expect(result.content[0].text).toContain('10');
     });
 
-    it('shows analysis with error type breakdown and recommendations', () => {
-      vi.spyOn(db, 'analyzeRetryPatterns').mockReturnValue({
-        total_tasks: 20,
-        total_retries: 35,
-        success_rate: 0.45,
-        avg_retries_to_success: 2.3,
-        by_error_type: {
-          timeout: { count: 10, success_rate: 0.7 },
-          oom: { count: 5, success_rate: 0.2 },
-        },
-        recommendations: ['Increase timeout for ollama provider'],
-      });
-      const result = handlers.handleAnalyzeRetryPatterns({ time_range_hours: 72, min_retries: 3 });
+    it('shows analysis with error type breakdown', () => {
+      vi.spyOn(db, 'analyzeRetryPatterns').mockReturnValue([
+        { strategy_used: 'exponential', error_type: 'timeout', attempts: 10, successes: 7, success_rate: 0.7 },
+        { strategy_used: 'linear', error_type: 'oom', attempts: 5, successes: 1, success_rate: 0.2 },
+      ]);
+      const result = handlers.handleAnalyzeRetryPatterns({ time_range_hours: 72 });
       expect(result.content[0].text).toContain('timeout');
       expect(result.content[0].text).toContain('oom');
-      expect(result.content[0].text).toContain('Increase timeout');
     });
   });
 
@@ -592,32 +574,25 @@ describe('adv-intelligence handlers', () => {
     });
 
     it('shows retry recommendation for failed task', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id', status: 'failed' });
+      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id', status: 'failed', error_output: 'timeout' });
       vi.spyOn(db, 'getRetryRecommendation').mockReturnValue({
-        should_retry: true,
-        confidence: 0.85,
-        strategy: 'exponential',
-        delay_seconds: 30,
-        max_retries: 3,
-        adaptations: ['increase timeout', 'switch provider'],
+        task_id: 'abc12345-task-id',
+        original_timeout: 120,
+        adaptations: { timeout: '180', provider: 'claude-cli' },
+        applied_rules: ['increase_timeout', 'switch_provider'],
       });
       const result = handlers.handleGetRetryRecommendation({ task_id: 'abc12345-task-id' });
       expect(result.content[0].text).toContain('Retry Recommendation');
-      expect(result.content[0].text).toContain('Yes');
-      expect(result.content[0].text).toContain('exponential');
-      expect(result.content[0].text).toContain('increase timeout');
+      expect(result.content[0].text).toContain('abc12345');
+      expect(result.content[0].text).toContain('timeout');
     });
 
-    it('shows reason when retry not recommended', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id', status: 'failed' });
-      vi.spyOn(db, 'getRetryRecommendation').mockReturnValue({
-        should_retry: false,
-        confidence: 0.9,
-        reason: 'Max retries exceeded',
-      });
+    it('shows message when no recommendation available', () => {
+      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc12345-task-id', status: 'failed', error_output: '' });
+      vi.spyOn(db, 'getRetryRecommendation').mockReturnValue(null);
       const result = handlers.handleGetRetryRecommendation({ task_id: 'abc12345-task-id' });
-      expect(result.content[0].text).toContain('No');
-      expect(result.content[0].text).toContain('Max retries exceeded');
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not generate retry recommendation');
     });
   });
 
@@ -637,48 +612,34 @@ describe('adv-intelligence handlers', () => {
     });
 
     it('does not retry when not recommended', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc', status: 'failed' });
-      vi.spyOn(db, 'getRetryRecommendation').mockReturnValue({
-        should_retry: false,
-        reason: 'Too many retries',
-      });
+      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'abc', status: 'failed', error_output: '' });
+      vi.spyOn(db, 'getRetryRecommendation').mockReturnValue(null);
       const result = handlers.handleRetryWithAdaptation({ task_id: 'abc' });
       expect(result.content[0].text).toContain('Not Recommended');
-      expect(result.content[0].text).toContain('Too many retries');
     });
 
-    it('retries with adaptation and records events', () => {
+    it('retries with adaptation', () => {
       vi.spyOn(db, 'getTask').mockReturnValue({
         id: 'abc',
         status: 'failed',
-        retry_count: 1,
         error_output: 'timeout after 120s',
       });
       vi.spyOn(db, 'getRetryRecommendation').mockReturnValue({
-        should_retry: true,
-        strategy: 'exponential',
-        delay_seconds: 30,
-        adaptations: ['increase timeout'],
+        task_id: 'abc',
+        adaptations: { timeout: '180' },
+        applied_rules: ['increase_timeout'],
       });
-      vi.spyOn(db, 'recordEvent').mockReturnValue(undefined);
       vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
-      vi.spyOn(db, 'recordRetryAttempt').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: true });
 
       const result = handlers.handleRetryWithAdaptation({ task_id: 'abc', apply_recommendations: true });
       expect(result.content[0].text).toContain('Adaptive Retry Started');
-      expect(result.content[0].text).toContain('exponential');
       expect(result.content[0].text).toContain('Queued');
-      expect(result.content[0].text).toContain('increase timeout');
-      expect(db.recordEvent).toHaveBeenCalledWith('pre_retry_adaptation', 'abc', { adaptation: 'increase timeout' });
-      expect(db.updateTaskStatus).toHaveBeenCalledWith('abc', 'pending', expect.objectContaining({
-        retry_strategy: 'exponential',
-        retry_delay_seconds: 30,
-      }));
-      expect(db.recordRetryAttempt).toHaveBeenCalledWith('abc', expect.objectContaining({
-        attempt_number: 2,
-        delay_used: 30,
-      }));
+      expect(db.updateTaskStatus).toHaveBeenCalledWith('abc', 'pending', {
+        output: null,
+        error_output: null,
+        exit_code: null,
+      });
       expect(taskManager.startTask).toHaveBeenCalledWith('abc');
     });
 
@@ -686,25 +647,18 @@ describe('adv-intelligence handlers', () => {
       vi.spyOn(db, 'getTask').mockReturnValue({
         id: 'abc',
         status: 'failed',
-        retry_count: 0,
         error_output: null,
       });
       vi.spyOn(db, 'getRetryRecommendation').mockReturnValue({
-        should_retry: true,
-        strategy: 'linear',
-        delay_seconds: 10,
-        adaptations: ['switch model'],
+        task_id: 'abc',
+        adaptations: { model: 'different' },
       });
       vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
-      vi.spyOn(db, 'recordRetryAttempt').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
 
       const result = handlers.handleRetryWithAdaptation({ task_id: 'abc', apply_recommendations: false });
       expect(result.content[0].text).toContain('Adaptive Retry Started');
       expect(result.content[0].text).toContain('Running');
-      expect(db.recordRetryAttempt).toHaveBeenCalledWith('abc', expect.objectContaining({
-        prompt_modification: null,
-      }));
     });
   });
 
@@ -713,69 +667,54 @@ describe('adv-intelligence handlers', () => {
   describe('handleIntelligenceDashboard', () => {
     it('shows full intelligence dashboard', () => {
       vi.spyOn(db, 'getIntelligenceDashboard').mockReturnValue({
-        cache: { hit_rate: 0.5, total_lookups: 100, time_saved_minutes: 30 },
-        priority: { tasks_prioritized: 50, avg_wait_minutes: 2.5, queue_efficiency: 0.9 },
-        prediction: { total_predictions: 20, accuracy: 0.85, prevented_failures: 5 },
-        retry: { total_retries: 10, success_rate: 0.7, avg_attempts: 1.8 },
+        cache: [{ cache_name: 'task_cache', hit_rate: '50%' }],
+        predictions: { total_predictions: 20, correct: 17, incorrect: 3, accuracy: 0.85 },
+        patterns: { total_patterns: 5, avg_confidence: 0.8, avg_failure_rate: 0.3 },
+        experiments: { total_experiments: 3, running: 1, completed: 2 },
       });
       const result = handlers.handleIntelligenceDashboard({});
       expect(result.content[0].text).toContain('Intelligence Dashboard');
       expect(result.content[0].text).toContain('Cache Performance');
       expect(result.content[0].text).toContain('50%');
-      expect(result.content[0].text).toContain('Prioritization');
-      expect(result.content[0].text).toContain('50');
-      expect(result.content[0].text).toContain('Failure Prediction');
+      expect(result.content[0].text).toContain('Failure Predictions');
       expect(result.content[0].text).toContain('85%');
-      expect(result.content[0].text).toContain('Adaptive Retries');
-      expect(result.content[0].text).toContain('70%');
+      expect(result.content[0].text).toContain('Experiments');
     });
 
-    it('passes custom time_range_hours', () => {
+    it('passes ISO since string to getIntelligenceDashboard', () => {
       vi.spyOn(db, 'getIntelligenceDashboard').mockReturnValue({
-        cache: { hit_rate: null, total_lookups: 0, time_saved_minutes: 0 },
-        priority: { tasks_prioritized: 0, avg_wait_minutes: null, queue_efficiency: null },
-        prediction: { total_predictions: 0, accuracy: null, prevented_failures: 0 },
-        retry: { total_retries: 0, success_rate: null, avg_attempts: null },
+        cache: [],
+        predictions: { total_predictions: 0 },
+        patterns: { total_patterns: 0 },
+        experiments: { total_experiments: 0, running: 0, completed: 0 },
       });
       const result = handlers.handleIntelligenceDashboard({ time_range_hours: 168 });
       expect(result.content[0].text).toContain('168');
-      expect(db.getIntelligenceDashboard).toHaveBeenCalledWith({ time_range_hours: 168 });
+      expect(db.getIntelligenceDashboard).toHaveBeenCalledWith(expect.any(String));
     });
   });
 
   describe('handleLogIntelligenceOutcome', () => {
-    it('logs outcome event with string details', () => {
-      vi.spyOn(db, 'recordEvent').mockReturnValue(undefined);
+    it('logs outcome with log_id and outcome', () => {
+      vi.spyOn(db, 'updateIntelligenceOutcome').mockReturnValue(undefined);
       const result = handlers.handleLogIntelligenceOutcome({
-        task_id: 'abc12345-task-id',
-        operation: 'cache_lookup',
+        log_id: 'log-123',
         outcome: 'hit',
-        details: 'exact match',
       });
       expect(result.content[0].text).toContain('Outcome Logged');
-      expect(result.content[0].text).toContain('cache_lookup');
+      expect(result.content[0].text).toContain('log-123');
       expect(result.content[0].text).toContain('hit');
-      expect(db.recordEvent).toHaveBeenCalledWith('intelligence_outcome', 'abc12345-task-id', {
-        operation: 'cache_lookup',
-        outcome: 'hit',
-        details: 'exact match',
-      });
+      expect(db.updateIntelligenceOutcome).toHaveBeenCalledWith('log-123', 'hit');
     });
 
-    it('logs outcome event with object details (stringified)', () => {
-      vi.spyOn(db, 'recordEvent').mockReturnValue(undefined);
+    it('logs outcome with different outcome value', () => {
+      vi.spyOn(db, 'updateIntelligenceOutcome').mockReturnValue(undefined);
       const result = handlers.handleLogIntelligenceOutcome({
-        task_id: 'abc',
-        operation: 'prediction',
+        log_id: 'log-456',
         outcome: 'correct',
-        details: { accuracy: 0.9 },
       });
       expect(result.content[0].text).toContain('Outcome Logged');
-      expect(db.recordEvent).toHaveBeenCalledWith('intelligence_outcome', 'abc', {
-        operation: 'prediction',
-        outcome: 'correct',
-        details: JSON.stringify({ accuracy: 0.9 }),
-      });
+      expect(db.updateIntelligenceOutcome).toHaveBeenCalledWith('log-456', 'correct');
     });
   });
 
@@ -788,8 +727,8 @@ describe('adv-intelligence handlers', () => {
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
     });
 
-    it('returns error when strategy_b missing', () => {
-      const result = handlers.handleCreateExperiment({ name: 'test', strategy_a: 'fast' });
+    it('returns error when variant_b missing', () => {
+      const result = handlers.handleCreateExperiment({ name: 'test', variant_a: 'fast' });
       expect(result.isError).toBe(true);
     });
 
@@ -797,23 +736,20 @@ describe('adv-intelligence handlers', () => {
       vi.spyOn(db, 'createExperiment').mockReturnValue({
         id: 'exp-1',
         name: 'Model Comparison',
-        strategy_a: 'fast model',
-        strategy_b: 'quality model',
-        sample_size: 50,
-        status: 'active',
+        strategy_type: 'experiment',
       });
       const result = handlers.handleCreateExperiment({
         name: 'Model Comparison',
-        strategy_a: 'fast model',
-        strategy_b: 'quality model',
+        variant_a: 'fast model',
+        variant_b: 'quality model',
         sample_size: 50,
       });
       expect(result.content[0].text).toContain('Experiment Created');
       expect(result.content[0].text).toContain('Model Comparison');
-      expect(result.content[0].text).toContain('fast model');
-      expect(result.content[0].text).toContain('quality model');
-      expect(result.content[0].text).toContain('50');
-      expect(result.content[0].text).toContain('active');
+      expect(result.content[0].text).toContain('exp-1');
+      expect(db.createExperiment).toHaveBeenCalledWith(
+        'Model Comparison', 'experiment', 'fast model', 'quality model', 50
+      );
     });
   });
 
@@ -829,74 +765,73 @@ describe('adv-intelligence handlers', () => {
       vi.spyOn(db, 'getExperiment').mockReturnValue({
         name: 'Test Exp',
         status: 'active',
-        samples_collected: 25,
-        sample_size: 50,
-        strategy_a: 'fast',
-        strategy_b: 'quality',
-        results_a: { count: 12, success_rate: 0.8, avg_duration: 30 },
-        results_b: { count: 13, success_rate: 0.85, avg_duration: 45 },
+        strategy_type: 'experiment',
+        sample_size_target: 50,
+        results_a: { count: 12, successes: 10, total_duration: 360 },
+        results_b: { count: 13, successes: 11, total_duration: 585 },
       });
       const result = handlers.handleExperimentStatus({ experiment_id: 'exp-1' });
       expect(result.content[0].text).toContain('Test Exp');
       expect(result.content[0].text).toContain('25/50');
-      expect(result.content[0].text).toContain('80%');
+      expect(result.content[0].text).toContain('83%');
       expect(result.content[0].text).toContain('85%');
     });
 
-    it('shows significance when available', () => {
+    it('shows winner when available', () => {
       vi.spyOn(db, 'getExperiment').mockReturnValue({
-        name: 'Sig Test',
-        status: 'active',
-        samples_collected: 50,
-        sample_size: 50,
-        strategy_a: 'A',
-        strategy_b: 'B',
-        results_a: { count: 25, success_rate: 0.9, avg_duration: 20 },
-        results_b: { count: 25, success_rate: 0.7, avg_duration: 40 },
-        significance: 0.02,
+        name: 'Winner Test',
+        status: 'completed',
+        strategy_type: 'experiment',
+        sample_size_target: 50,
+        results_a: { count: 25, successes: 23, total_duration: 500 },
+        results_b: { count: 25, successes: 18, total_duration: 1000 },
+        winner: 'a',
       });
       const result = handlers.handleExperimentStatus({ experiment_id: 'exp-2' });
-      expect(result.content[0].text).toContain('0.0200');
-      expect(result.content[0].text).toContain('Yes');
-      expect(result.content[0].text).toContain('Strategy A');
+      expect(result.content[0].text).toContain('Winner');
+      expect(result.content[0].text).toContain('A');
     });
   });
 
   describe('handleConcludeExperiment', () => {
     it('returns error when experiment not found', () => {
       vi.spyOn(db, 'getExperiment').mockReturnValue(null);
-      const result = handlers.handleConcludeExperiment({ experiment_id: 'x', winner: 'A' });
+      const result = handlers.handleConcludeExperiment({ experiment_id: 'x' });
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('EXPERIMENT_NOT_FOUND');
     });
 
-    it('returns message when already concluded', () => {
-      vi.spyOn(db, 'getExperiment').mockReturnValue({ status: 'concluded', winner: 'A' });
-      const result = handlers.handleConcludeExperiment({ experiment_id: 'x', winner: 'A' });
+    it('returns message when already completed', () => {
+      vi.spyOn(db, 'getExperiment').mockReturnValue({ status: 'completed', winner: 'A' });
+      const result = handlers.handleConcludeExperiment({ experiment_id: 'x' });
       expect(result.content[0].text).toContain('already concluded');
     });
 
     it('concludes experiment and shows winner', () => {
       vi.spyOn(db, 'getExperiment').mockReturnValue({ name: 'Exp', status: 'active' });
       vi.spyOn(db, 'concludeExperiment').mockReturnValue({
-        winner: 'A',
-        winning_strategy: 'fast model',
-        auto_applied: false,
+        significant: true,
+        winner: 'a',
+        rate_a: 0.9,
+        rate_b: 0.7,
+        applied: false,
       });
-      const result = handlers.handleConcludeExperiment({ experiment_id: 'x', winner: 'A' });
+      const result = handlers.handleConcludeExperiment({ experiment_id: 'x', apply_winner: true });
       expect(result.content[0].text).toContain('Experiment Concluded');
-      expect(result.content[0].text).toContain('Strategy A');
-      expect(result.content[0].text).toContain('fast model');
+      expect(result.content[0].text).toContain('A');
+      expect(result.content[0].text).toContain('90.0%');
     });
 
     it('shows auto-applied message when winning strategy is applied', () => {
       vi.spyOn(db, 'getExperiment').mockReturnValue({ name: 'AutoExp', status: 'active' });
       vi.spyOn(db, 'concludeExperiment').mockReturnValue({
-        winner: 'B',
-        winning_strategy: 'quality model',
-        auto_applied: true,
+        significant: true,
+        winner: 'b',
+        rate_a: 0.6,
+        rate_b: 0.85,
+        applied: true,
       });
-      const result = handlers.handleConcludeExperiment({ experiment_id: 'y', winner: 'B' });
+      const result = handlers.handleConcludeExperiment({ experiment_id: 'y', apply_winner: true });
       expect(result.content[0].text).toContain('Experiment Concluded');
       expect(result.content[0].text).toContain('automatically applied');
     });

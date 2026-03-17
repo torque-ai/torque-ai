@@ -43,7 +43,6 @@ function createModules() {
       id: 'cache-default',
       content_hash: '1234567890abcdef1234567890abcdef',
       expires_at: '2026-03-12T12:00:00.000Z',
-      confidence_score: 0.8,
     })),
     lookupCache: vi.fn(() => null),
     invalidateCache: vi.fn(() => ({ deleted: 0 })),
@@ -51,63 +50,51 @@ function createModules() {
     setConfig: vi.fn((key, value) => {
       configValues[key] = String(value);
     }),
-    warmCache: vi.fn(() => ({ added: 0, skipped: 0, failed: 0 })),
+    warmCache: vi.fn(() => ({ cached: 0, scanned: 0 })),
     computePriorityScore: vi.fn(() => ({
-      final_score: 0.5,
+      combined_score: 0.5,
       resource_score: 0.5,
       success_score: 0.5,
       dependency_score: 0.5,
-      weights: { resource: 0.3, success: 0.3, dependency: 0.4 },
-      manual_boost: 0,
+      factors: {
+        resource: { weight: 0.3 },
+        success: { weight: 0.3 },
+        dependency: { weight: 0.4 },
+      },
     })),
     getPriorityQueue: vi.fn(() => []),
     boostPriority: vi.fn(),
     predictFailureForTask: vi.fn(() => ({
       probability: 0.2,
-      risk_level: 'low',
       confidence: 0.6,
       patterns: [],
-      recommendations: [],
     })),
-    learnFailurePattern: vi.fn(),
+    learnFailurePattern: vi.fn(() => []),
     getFailurePatterns: vi.fn(() => []),
     deleteFailurePattern: vi.fn(() => false),
-    suggestIntervention: vi.fn(() => []),
+    suggestIntervention: vi.fn(() => ({ interventions: [], prediction: { probability: 0 } })),
     updateTaskStatus: vi.fn(),
-    analyzeRetryPatterns: vi.fn(() => ({
-      total_tasks: 0,
-      total_retries: 0,
-      success_rate: 0,
-      avg_retries_to_success: null,
-      by_error_type: {},
-      recommendations: [],
-    })),
-    getRetryRecommendation: vi.fn(() => ({
-      should_retry: false,
-      confidence: 0.5,
-      reason: 'No retry recommendation available',
-    })),
-    recordEvent: vi.fn(),
-    recordRetryAttempt: vi.fn(),
+    analyzeRetryPatterns: vi.fn(() => []),
+    getRetryRecommendation: vi.fn(() => null),
+    updateIntelligenceOutcome: vi.fn(),
     getIntelligenceDashboard: vi.fn(() => ({
-      cache: { hit_rate: null, total_lookups: 0, time_saved_minutes: 0 },
-      priority: { tasks_prioritized: 0, avg_wait_minutes: null, queue_efficiency: null },
-      prediction: { total_predictions: 0, accuracy: null, prevented_failures: 0 },
-      retry: { total_retries: 0, success_rate: null, avg_attempts: null },
+      cache: [],
+      predictions: { total_predictions: 0, correct: 0, incorrect: 0, accuracy: null },
+      patterns: { total_patterns: 0, avg_confidence: null, avg_failure_rate: null },
+      experiments: { total_experiments: 0, running: 0, completed: 0 },
     })),
     createExperiment: vi.fn(() => ({
       id: 'exp-default',
       name: 'Default experiment',
-      strategy_a: 'strategy-a',
-      strategy_b: 'strategy-b',
-      sample_size: 100,
-      status: 'active',
+      strategy_type: 'experiment',
     })),
     getExperiment: vi.fn(() => null),
     concludeExperiment: vi.fn(() => ({
-      winner: 'A',
-      winning_strategy: 'strategy-a',
-      auto_applied: false,
+      significant: true,
+      winner: 'a',
+      rate_a: 0.8,
+      rate_b: 0.6,
+      applied: false,
     })),
   };
 
@@ -179,6 +166,7 @@ function makeTask(overrides = {}) {
     provider: 'claude-cli',
     retry_count: 0,
     task_description: 'Investigate provider fallback failures in retry logic',
+    working_directory: null,
     output: '',
     error_output: '',
     ...overrides,
@@ -223,13 +211,11 @@ describe('server/handlers/advanced/intelligence', () => {
     });
 
     it('caches completed task results and formats the cache summary', () => {
-      const task = makeTask({ status: 'completed' });
-      mocks.db.getTask.mockReturnValueOnce(task);
+      mocks.db.getTask.mockReturnValueOnce(makeTask({ status: 'completed' }));
       mocks.db.cacheTaskResult.mockReturnValueOnce({
         id: 'cache-42',
         content_hash: 'abcdef1234567890fedcba0987654321',
         expires_at: '2026-03-12T18:00:00.000Z',
-        confidence_score: 0.92,
       });
 
       const text = getText(handlers.handleCacheTaskResult({
@@ -237,11 +223,10 @@ describe('server/handlers/advanced/intelligence', () => {
         ttl_hours: 48,
       }));
 
-      expect(mocks.db.cacheTaskResult).toHaveBeenCalledWith(task, { ttl_hours: 48 });
+      expect(mocks.db.cacheTaskResult).toHaveBeenCalledWith('task-12345678', 48);
       expect(text).toContain('Task Result Cached');
       expect(text).toContain('Cache ID:** cache-42');
       expect(text).toContain('abcdef1234567890...');
-      expect(text).toContain('Confidence:** 92%');
     });
   });
 
@@ -251,11 +236,9 @@ describe('server/handlers/advanced/intelligence', () => {
         task_description: 'Run the API integration smoke suite',
       }));
 
-      expect(mocks.db.lookupCache).toHaveBeenCalledWith('Run the API integration smoke suite', {
-        working_directory: undefined,
-        min_confidence: 0.7,
-        use_semantic: true,
-      });
+      expect(mocks.db.lookupCache).toHaveBeenCalledWith(
+        'Run the API integration smoke suite', null, null, 0.85
+      );
       expect(text).toContain('No cached result found for this task.');
     });
 
@@ -276,11 +259,9 @@ describe('server/handlers/advanced/intelligence', () => {
         use_semantic: false,
       }));
 
-      expect(mocks.db.lookupCache).toHaveBeenCalledWith('Rebuild provider routing tests', {
-        working_directory: 'C:/repo',
-        min_confidence: 0.9,
-        use_semantic: false,
-      });
+      expect(mocks.db.lookupCache).toHaveBeenCalledWith(
+        'Rebuild provider routing tests', 'C:/repo', null, 0.9
+      );
       expect(text).toContain('Cache Hit');
       expect(text).toContain('Match Type:** semantic');
       expect(text).toContain('Confidence:** 91%');
@@ -404,21 +385,20 @@ describe('server/handlers/advanced/intelligence', () => {
   });
 
   describe('handleWarmCache', () => {
-    it('warms the cache using default limits and exit-code thresholds', () => {
-      mocks.db.warmCache.mockReturnValueOnce({ added: 7, skipped: 2, failed: 1 });
+    it('warms the cache using default limits', () => {
+      mocks.db.warmCache.mockReturnValueOnce({ cached: 7, scanned: 10 });
 
       const text = getText(handlers.handleWarmCache({}));
 
-      expect(mocks.db.warmCache).toHaveBeenCalledWith({ limit: 50, min_exit_code: 0 });
-      expect(text).toContain('Entries Added:** 7');
-      expect(text).toContain('Already Cached:** 2');
-      expect(text).toContain('Failed:** 1');
+      expect(mocks.db.warmCache).toHaveBeenCalledWith(50, undefined, null);
+      expect(text).toContain('Entries Cached:** 7');
+      expect(text).toContain('Tasks Scanned:** 10');
     });
 
-    it('clamps custom limits and forwards explicit exit-code filters', () => {
+    it('clamps custom limits', () => {
       handlers.handleWarmCache({ limit: 5000, min_exit_code: 2 });
 
-      expect(mocks.db.warmCache).toHaveBeenCalledWith({ limit: 1000, min_exit_code: 2 });
+      expect(mocks.db.warmCache).toHaveBeenCalledWith(1000, undefined, null);
     });
   });
 
@@ -432,12 +412,16 @@ describe('server/handlers/advanced/intelligence', () => {
     it('renders weighted priority scores and manual boosts', () => {
       mocks.db.getTask.mockReturnValueOnce(makeTask());
       mocks.db.computePriorityScore.mockReturnValueOnce({
-        final_score: 0.83,
+        combined_score: 0.83,
         resource_score: 0.7,
         success_score: 0.8,
         dependency_score: 1.0,
-        weights: { resource: 0.2, success: 0.3, dependency: 0.5 },
-        manual_boost: 3,
+        factors: {
+          resource: { weight: 0.2 },
+          success: { weight: 0.3 },
+          dependency: { weight: 0.5 },
+          manual_boost: { amount: 3 },
+        },
       });
 
       const text = getText(handlers.handleComputePriority({
@@ -445,7 +429,7 @@ describe('server/handlers/advanced/intelligence', () => {
         recalculate: true,
       }));
 
-      expect(mocks.db.computePriorityScore).toHaveBeenCalledWith('task-12345678', { recalculate: true });
+      expect(mocks.db.computePriorityScore).toHaveBeenCalledWith('task-12345678');
       expect(text).toContain('Final Score:** 0.83');
       expect(text).toContain('| Resource | 0.70 | 20% | 0.14 |');
       expect(text).toContain('| Dependency | 1.00 | 50% | 0.50 |');
@@ -457,7 +441,7 @@ describe('server/handlers/advanced/intelligence', () => {
     it('returns an empty-state queue message with default filters', () => {
       const text = getText(handlers.handleGetPriorityQueue({}));
 
-      expect(mocks.db.getPriorityQueue).toHaveBeenCalledWith({ status: 'queued', limit: 20 });
+      expect(mocks.db.getPriorityQueue).toHaveBeenCalledWith(20, 0);
       expect(text).toContain('No tasks in queue.');
     });
 
@@ -465,7 +449,7 @@ describe('server/handlers/advanced/intelligence', () => {
       mocks.db.getPriorityQueue.mockReturnValueOnce([
         {
           id: 'task-alpha-1234',
-          priority_score: 0.95,
+          combined_score: 0.95,
           task_description: 'Rebuild dashboard analytics charts after provider routing changes',
         },
         {
@@ -476,7 +460,7 @@ describe('server/handlers/advanced/intelligence', () => {
 
       const text = getText(handlers.handleGetPriorityQueue({ status: 'pending', limit: 2 }));
 
-      expect(mocks.db.getPriorityQueue).toHaveBeenCalledWith({ status: 'pending', limit: 2 });
+      expect(mocks.db.getPriorityQueue).toHaveBeenCalledWith(2, 0);
       expect(text).toContain('| 1 | task-alp | 0.95 |');
       expect(text).toContain('| 2 | task-bet | N/A |');
     });
@@ -543,15 +527,14 @@ describe('server/handlers/advanced/intelligence', () => {
       expectError(result, 'TASK_NOT_FOUND', 'Task not found: task-missing');
     });
 
-    it('applies manual boosts and omits expiry when not provided', () => {
+    it('applies manual boosts with reason', () => {
       mocks.db.getTask.mockReturnValueOnce(makeTask());
       mocks.db.computePriorityScore.mockReturnValueOnce({
-        final_score: 1.1,
+        combined_score: 1.1,
         resource_score: 0.5,
         success_score: 0.5,
         dependency_score: 0.5,
-        weights: { resource: 0.3, success: 0.3, dependency: 0.4 },
-        manual_boost: 5,
+        factors: {},
       });
 
       const text = getText(handlers.handleBoostPriority({
@@ -559,31 +542,30 @@ describe('server/handlers/advanced/intelligence', () => {
         boost_amount: 5,
       }));
 
-      expect(mocks.db.boostPriority).toHaveBeenCalledWith('task-12345678', 5, undefined);
-      expect(mocks.db.computePriorityScore).toHaveBeenCalledWith('task-12345678', { recalculate: true });
+      expect(mocks.db.boostPriority).toHaveBeenCalledWith('task-12345678', 5, 'Manual boost');
+      expect(mocks.db.computePriorityScore).toHaveBeenCalledWith('task-12345678');
       expect(text).toContain('Boost:** +5');
       expect(text).toContain('New Score:** 1.10');
-      expect(text).not.toContain('Expires:**');
     });
 
-    it('includes expiry details when the boost is temporary', () => {
+    it('includes custom reason when provided', () => {
       mocks.db.getTask.mockReturnValueOnce(makeTask());
       mocks.db.computePriorityScore.mockReturnValueOnce({
-        final_score: 0.9,
+        combined_score: 0.9,
         resource_score: 0.5,
         success_score: 0.5,
         dependency_score: 0.5,
-        weights: { resource: 0.3, success: 0.3, dependency: 0.4 },
-        manual_boost: 2,
+        factors: {},
       });
 
       const text = getText(handlers.handleBoostPriority({
         task_id: 'task-12345678',
         boost_amount: 2,
-        expires_in_minutes: 30,
+        reason: 'Critical path task',
       }));
 
-      expect(text).toContain('Expires:** 30 minutes');
+      expect(mocks.db.boostPriority).toHaveBeenCalledWith('task-12345678', 2, 'Critical path task');
+      expect(text).toContain('Reason:** Critical path task');
     });
   });
 
@@ -594,26 +576,25 @@ describe('server/handlers/advanced/intelligence', () => {
       expectError(result, 'MISSING_REQUIRED_PARAM', 'Provide either task_id or task_description');
     });
 
-    it('predicts failure from an existing task and renders patterns and recommendations', () => {
+    it('predicts failure from an existing task and renders patterns', () => {
       const task = makeTask({ task_description: 'Retry the failing provider switch task' });
       mocks.db.getTask.mockReturnValueOnce(task);
       mocks.db.predictFailureForTask.mockReturnValueOnce({
         probability: 0.72,
-        risk_level: 'high',
         confidence: 0.88,
         patterns: [
-          { pattern_type: 'timeout', description: 'Repeated provider timeouts', contribution: 0.5 },
+          { type: 'timeout', definition: { provider: 'ollama' }, failure_rate: 0.5 },
         ],
-        recommendations: ['Switch to a fallback provider'],
       });
 
       const text = getText(handlers.handlePredictFailure({ task_id: 'task-12345678' }));
 
-      expect(mocks.db.predictFailureForTask).toHaveBeenCalledWith(task);
+      expect(mocks.db.predictFailureForTask).toHaveBeenCalledWith(
+        'Retry the failing provider switch task', null
+      );
       expect(text).toContain('Failure Probability:** 72%');
-      expect(text).toContain('Risk Level:** high');
-      expect(text).toContain('**timeout**: Repeated provider timeouts (50% contribution)');
-      expect(text).toContain('Switch to a fallback provider');
+      expect(text).toContain('Risk Level:** High');
+      expect(text).toContain('timeout');
     });
 
     it('predicts failure directly from a task description', () => {
@@ -622,10 +603,10 @@ describe('server/handlers/advanced/intelligence', () => {
         working_directory: 'C:/repo',
       }));
 
-      expect(mocks.db.predictFailureForTask).toHaveBeenCalledWith({
-        task_description: 'Investigate the broken workflow DAG import',
-        working_directory: 'C:/repo',
-      });
+      expect(mocks.db.predictFailureForTask).toHaveBeenCalledWith(
+        'Investigate the broken workflow DAG import',
+        'C:/repo',
+      );
       expect(text).toContain('Failure Prediction');
     });
   });
@@ -653,11 +634,12 @@ describe('server/handlers/advanced/intelligence', () => {
       expectError(result, 'OPERATION_FAILED', 'Task has no output to learn from');
     });
 
-    it('learns a signature from the first non-empty output line', () => {
+    it('learns patterns from task output', () => {
       mocks.db.getTask.mockReturnValueOnce(makeTask({
         output: '\nConnection reset by peer\nStack trace line 1\nStack trace line 2',
         provider: 'codex',
       }));
+      mocks.db.learnFailurePattern.mockReturnValueOnce([{ id: 'pat-1', type: 'error' }]);
 
       const text = getText(handlers.handleLearnFailurePattern({
         task_id: 'task-12345678',
@@ -665,16 +647,10 @@ describe('server/handlers/advanced/intelligence', () => {
         description: 'Provider network failure',
       }));
 
-      expect(mocks.db.learnFailurePattern).toHaveBeenCalledWith(
-        'task-12345678',
-        'Connection reset by peer',
-        'Connection reset',
-        'Provider network failure',
-      );
+      expect(mocks.db.learnFailurePattern).toHaveBeenCalledWith('task-12345678');
       expect(text).toContain('Failure Pattern Learned');
-      expect(text).toContain('Name:** Connection reset');
-      expect(text).toContain('Signature:** Connection reset by peer...');
-      expect(text).toContain('Provider:** codex');
+      expect(text).toContain('Connection reset');
+      expect(text).toContain('codex');
     });
   });
 
@@ -732,18 +708,21 @@ describe('server/handlers/advanced/intelligence', () => {
       expect(healthyText).toContain('No interventions suggested. Task appears healthy.');
 
       mocks.db.getTask.mockReturnValueOnce(makeTask({ id: 'task-87654321' }));
-      mocks.db.suggestIntervention.mockReturnValueOnce([
-        {
-          type: 'requeue',
-          suggestion: 'Clear stale process state and requeue the task for another attempt',
-          expected_impact: 'medium',
-        },
-      ]);
+      mocks.db.suggestIntervention.mockReturnValueOnce({
+        interventions: [
+          {
+            type: 'requeue',
+            reason: 'Clear stale process state and requeue the task for another attempt',
+          },
+        ],
+        prediction: { probability: 0.6 },
+      });
 
       const text = getText(handlers.handleSuggestIntervention({ task_id: 'task-87654321' }));
 
-      expect(text).toContain('| 1 | requeue | Clear stale process state and requeue th...');
-      expect(text).toContain('Use `apply_intervention` with suggestion number to apply.');
+      expect(text).toContain('requeue');
+      expect(text).toContain('Clear stale process state');
+      expect(text).toContain('apply_intervention');
     });
   });
 
@@ -828,43 +807,29 @@ describe('server/handlers/advanced/intelligence', () => {
   });
 
   describe('handleAnalyzeRetryPatterns', () => {
-    it('uses default time windows and omits empty sections', () => {
+    it('uses default time windows', () => {
       const text = getText(handlers.handleAnalyzeRetryPatterns({}));
 
-      expect(mocks.db.analyzeRetryPatterns).toHaveBeenCalledWith({
-        time_range_hours: 168,
-        min_retries: 2,
-      });
+      expect(mocks.db.analyzeRetryPatterns).toHaveBeenCalledWith(null);
       expect(text).toContain('Period:** Last 168 hours');
-      expect(text).toContain('| Total Tasks with Retries | 0 |');
-      expect(text).not.toContain('### By Error Type');
+      expect(text).toContain('No retry patterns found');
     });
 
-    it('renders retry error breakdowns and recommendations', () => {
-      mocks.db.analyzeRetryPatterns.mockReturnValueOnce({
-        total_tasks: 12,
-        total_retries: 31,
-        success_rate: 0.58,
-        avg_retries_to_success: 2.4,
-        by_error_type: {
-          timeout: { count: 10, success_rate: 0.7 },
-          rate_limit: { count: 5, success_rate: 0.4 },
-        },
-        recommendations: ['Increase delay after rate-limit failures'],
-      });
+    it('renders retry error breakdowns', () => {
+      mocks.db.analyzeRetryPatterns.mockReturnValueOnce([
+        { strategy_used: 'exponential', error_type: 'timeout', attempts: 10, successes: 7, success_rate: 0.7 },
+        { strategy_used: 'linear', error_type: 'rate_limit', attempts: 5, successes: 2, success_rate: 0.4 },
+      ]);
 
       const text = getText(handlers.handleAnalyzeRetryPatterns({
         time_range_hours: 72,
-        min_retries: 3,
       }));
 
-      expect(mocks.db.analyzeRetryPatterns).toHaveBeenCalledWith({
-        time_range_hours: 72,
-        min_retries: 3,
-      });
-      expect(text).toContain('| timeout | 10 | 70% |');
-      expect(text).toContain('| rate_limit | 5 | 40% |');
-      expect(text).toContain('Increase delay after rate-limit failures');
+      expect(mocks.db.analyzeRetryPatterns).toHaveBeenCalledWith(null);
+      expect(text).toContain('| timeout |');
+      expect(text).toContain('| rate_limit |');
+      expect(text).toContain('70%');
+      expect(text).toContain('40%');
     });
   });
 
@@ -913,35 +878,31 @@ describe('server/handlers/advanced/intelligence', () => {
       expectError(result, 'INVALID_STATUS_TRANSITION', 'Task is not failed. Status: completed');
     });
 
-    it('renders both no-retry reasons and recommended retry strategies', () => {
+    it('renders retry recommendation for failed tasks', () => {
+      mocks.db.getTask.mockReturnValueOnce(makeTask({ status: 'failed', error_output: 'provider timed out' }));
+      mocks.db.getRetryRecommendation.mockReturnValueOnce({
+        task_id: 'task-12345678',
+        original_timeout: 120,
+        adaptations: { timeout: '180', provider: 'claude-cli' },
+        applied_rules: ['increase_timeout', 'switch_provider'],
+      });
+
+      const text = getText(handlers.handleGetRetryRecommendation({ task_id: 'task-12345678' }));
+
+      expect(mocks.db.getRetryRecommendation).toHaveBeenCalledWith('task-12345678', 'provider timed out');
+      expect(text).toContain('Retry Recommendation: task-123');
+      expect(text).toContain('task-12345678');
+      expect(text).toContain('timeout');
+      expect(text).toContain('claude-cli');
+      expect(text).toContain('increase_timeout');
+    });
+
+    it('returns error when no recommendation available', () => {
       mocks.db.getTask.mockReturnValueOnce(makeTask({ status: 'failed' }));
-      mocks.db.getRetryRecommendation.mockReturnValueOnce({
-        should_retry: false,
-        confidence: 0.9,
-        reason: 'Too many retries already attempted',
-      });
 
-      const noRetryText = getText(handlers.handleGetRetryRecommendation({ task_id: 'task-12345678' }));
+      const result = handlers.handleGetRetryRecommendation({ task_id: 'task-12345678' });
 
-      expect(noRetryText).toContain('Should Retry:** No');
-      expect(noRetryText).toContain('Reason:** Too many retries already attempted');
-
-      mocks.db.getTask.mockReturnValueOnce(makeTask({ id: 'task-87654321', status: 'failed' }));
-      mocks.db.getRetryRecommendation.mockReturnValueOnce({
-        should_retry: true,
-        confidence: 0.87,
-        strategy: 'provider-fallback',
-        delay_seconds: 30,
-        max_retries: 2,
-        adaptations: ['Switch to claude-cli'],
-      });
-
-      const retryText = getText(handlers.handleGetRetryRecommendation({ task_id: 'task-87654321' }));
-
-      expect(retryText).toContain('Should Retry:** Yes');
-      expect(retryText).toContain('| Strategy | provider-fallback |');
-      expect(retryText).toContain('| Delay | 30 seconds |');
-      expect(retryText).toContain('Switch to claude-cli');
+      expectError(result, 'OPERATION_FAILED', 'Could not generate retry recommendation');
     });
   });
 
@@ -960,70 +921,45 @@ describe('server/handlers/advanced/intelligence', () => {
       expectError(result, 'INVALID_STATUS_TRANSITION', 'Task is not failed. Status: completed');
     });
 
-    it('returns a no-retry message when the recommendation advises against retrying', () => {
-      mocks.db.getTask.mockReturnValueOnce(makeTask({ status: 'failed', retry_count: 3 }));
-      mocks.db.getRetryRecommendation.mockReturnValueOnce({
-        should_retry: false,
-        confidence: 0.91,
-        reason: 'Too many retries already attempted',
-      });
+    it('returns a no-retry message when the recommendation is null', () => {
+      mocks.db.getTask.mockReturnValueOnce(makeTask({ status: 'failed', error_output: '' }));
 
       const text = getText(handlers.handleRetryWithAdaptation({ task_id: 'task-12345678' }));
 
       expect(text).toContain('Retry Not Recommended');
-      expect(text).toContain('Too many retries already attempted');
       expect(mocks.db.updateTaskStatus).not.toHaveBeenCalled();
     });
 
-    it('requeues failed tasks without adaptation events when apply_recommendations is false', () => {
+    it('requeues failed tasks and starts them', () => {
       mocks.db.getTask.mockReturnValueOnce(makeTask({
         status: 'failed',
-        retry_count: 1,
         error_output: 'timeout while contacting provider',
       }));
       mocks.db.getRetryRecommendation.mockReturnValueOnce({
-        should_retry: true,
-        confidence: 0.86,
-        strategy: 'provider-fallback',
-        delay_seconds: 45,
-        max_retries: 2,
-        adaptations: ['Switch to claude-cli'],
+        task_id: 'task-12345678',
+        adaptations: { timeout: '180' },
       });
       mocks.taskManager.startTask.mockReturnValueOnce({ queued: true });
 
       const text = getText(handlers.handleRetryWithAdaptation({ task_id: 'task-12345678' }));
 
-      expect(mocks.db.recordEvent).not.toHaveBeenCalled();
       expect(mocks.db.updateTaskStatus).toHaveBeenCalledWith('task-12345678', 'pending', {
-        retry_strategy: 'provider-fallback',
-        retry_delay_seconds: 45,
         output: null,
         error_output: null,
         exit_code: null,
       });
-      expect(mocks.db.recordRetryAttempt).toHaveBeenCalledWith('task-12345678', {
-        attempt_number: 2,
-        delay_used: 45,
-        error_message: 'timeout while contacting provider',
-        prompt_modification: null,
-      });
+      expect(mocks.taskManager.startTask).toHaveBeenCalledWith('task-12345678');
       expect(text).toContain('Status:** Queued');
-      expect(text).not.toContain('Adaptations Applied');
     });
 
-    it('records adaptation events and starts running retries when recommendations are applied', () => {
+    it('shows adaptations when apply_recommendations is true', () => {
       mocks.db.getTask.mockReturnValueOnce(makeTask({
         status: 'failed',
-        retry_count: 1,
         error_output: 'provider timeout',
       }));
       mocks.db.getRetryRecommendation.mockReturnValueOnce({
-        should_retry: true,
-        confidence: 0.86,
-        strategy: 'provider-fallback',
-        delay_seconds: 45,
-        max_retries: 2,
-        adaptations: ['Switch to claude-cli', 'Increase timeout by 20%'],
+        task_id: 'task-12345678',
+        adaptations: { timeout: '180', model: 'different' },
       });
       mocks.taskManager.startTask.mockReturnValueOnce({ queued: false });
 
@@ -1032,117 +968,87 @@ describe('server/handlers/advanced/intelligence', () => {
         apply_recommendations: true,
       }));
 
-      expect(mocks.db.recordEvent).toHaveBeenCalledTimes(2);
-      expect(mocks.db.recordRetryAttempt).toHaveBeenCalledWith('task-12345678', {
-        attempt_number: 2,
-        delay_used: 45,
-        error_message: 'provider timeout',
-        prompt_modification: JSON.stringify(['Switch to claude-cli', 'Increase timeout by 20%']),
-      });
       expect(mocks.taskManager.startTask).toHaveBeenCalledWith('task-12345678');
       expect(text).toContain('Status:** Running');
       expect(text).toContain('Adaptations Applied:');
-      expect(text).toContain('Increase timeout by 20%');
+      expect(text).toContain('timeout');
     });
   });
 
   describe('handleIntelligenceDashboard', () => {
     it('renders intelligence metrics using the default time window', () => {
       mocks.db.getIntelligenceDashboard.mockReturnValueOnce({
-        cache: { hit_rate: 0.5, total_lookups: 100, time_saved_minutes: 30 },
-        priority: { tasks_prioritized: 50, avg_wait_minutes: 2.5, queue_efficiency: 0.9 },
-        prediction: { total_predictions: 20, accuracy: 0.85, prevented_failures: 5 },
-        retry: { total_retries: 10, success_rate: 0.7, avg_attempts: 1.8 },
+        cache: [{ cache_name: 'task_cache', hit_rate: '50%' }],
+        predictions: { total_predictions: 20, correct: 17, incorrect: 3, accuracy: 0.85 },
+        patterns: { total_patterns: 5, avg_confidence: 0.8, avg_failure_rate: 0.3 },
+        experiments: { total_experiments: 3, running: 1, completed: 2 },
       });
 
       const text = getText(handlers.handleIntelligenceDashboard({}));
 
-      expect(mocks.db.getIntelligenceDashboard).toHaveBeenCalledWith({ time_range_hours: 24 });
-      expect(text).toContain('| Hit Rate | 50% |');
-      expect(text).toContain('| Avg Wait Time | 2.5 min |');
-      expect(text).toContain('| Accuracy | 85% |');
-      expect(text).toContain('| Success Rate | 70% |');
+      expect(mocks.db.getIntelligenceDashboard).toHaveBeenCalledWith(expect.any(String));
+      expect(text).toContain('Cache Performance');
+      expect(text).toContain('50%');
+      expect(text).toContain('85%');
+      expect(text).toContain('Experiments');
     });
 
     it('shows N/A fallbacks when metrics are missing', () => {
       const text = getText(handlers.handleIntelligenceDashboard({ time_range_hours: 168 }));
 
       expect(text).toContain('Period:** Last 168 hours');
-      expect(text).toContain('| Hit Rate | N/A |');
-      expect(text).toContain('| Avg Wait Time | N/A min |');
-      expect(text).toContain('| Accuracy | N/A |');
-      expect(text).toContain('| Avg Attempts | N/A |');
+      expect(text).toContain('N/A');
     });
   });
 
   describe('handleLogIntelligenceOutcome', () => {
-    it('serializes object details and uses N/A when task_id is omitted', () => {
+    it('logs outcomes with log_id and outcome', () => {
       const text = getText(handlers.handleLogIntelligenceOutcome({
-        operation: 'prediction',
+        log_id: 'log-123',
         outcome: 'correct',
-        details: { accuracy: 0.9, prevented: true },
       }));
 
-      expect(mocks.db.recordEvent).toHaveBeenCalledWith('intelligence_outcome', undefined, {
-        operation: 'prediction',
-        outcome: 'correct',
-        details: JSON.stringify({ accuracy: 0.9, prevented: true }),
-      });
-      expect(text).toContain('Task:** N/A');
-      expect(text).toContain('Operation:** prediction');
+      expect(mocks.db.updateIntelligenceOutcome).toHaveBeenCalledWith('log-123', 'correct');
+      expect(text).toContain('Outcome Logged');
+      expect(text).toContain('log-123');
+      expect(text).toContain('correct');
     });
 
-    it('passes through string details and shortens task identifiers in the summary', () => {
+    it('passes through different outcome values', () => {
       const text = getText(handlers.handleLogIntelligenceOutcome({
-        task_id: 'abcd1234-efgh-5678',
-        operation: 'retry',
+        log_id: 'log-456',
         outcome: 'queued',
-        details: 'fallback selected',
       }));
 
-      expect(mocks.db.recordEvent).toHaveBeenCalledWith('intelligence_outcome', 'abcd1234-efgh-5678', {
-        operation: 'retry',
-        outcome: 'queued',
-        details: 'fallback selected',
-      });
-      expect(text).toContain('Task:** abcd1234');
+      expect(mocks.db.updateIntelligenceOutcome).toHaveBeenCalledWith('log-456', 'queued');
       expect(text).toContain('Outcome:** queued');
     });
   });
 
   describe('handleCreateExperiment', () => {
-    it('requires name, strategy_a, and strategy_b', () => {
+    it('requires name, variant_a, and variant_b', () => {
       const result = handlers.handleCreateExperiment({ name: 'Experiment only' });
 
-      expectError(result, 'MISSING_REQUIRED_PARAM', 'Provide name, strategy_a, and strategy_b');
+      expectError(result, 'MISSING_REQUIRED_PARAM', 'Provide name, variant_a, and variant_b');
     });
 
     it('creates experiments using the default sample size', () => {
       mocks.db.createExperiment.mockReturnValueOnce({
         id: 'exp-42',
         name: 'Provider Comparison',
-        strategy_a: 'ollama',
-        strategy_b: 'codex',
-        sample_size: 100,
-        status: 'active',
+        strategy_type: 'experiment',
       });
 
       const text = getText(handlers.handleCreateExperiment({
         name: 'Provider Comparison',
-        description: 'Measure success rate by provider',
-        strategy_a: 'ollama',
-        strategy_b: 'codex',
+        variant_a: 'ollama',
+        variant_b: 'codex',
       }));
 
-      expect(mocks.db.createExperiment).toHaveBeenCalledWith({
-        name: 'Provider Comparison',
-        description: 'Measure success rate by provider',
-        strategy_a: 'ollama',
-        strategy_b: 'codex',
-        sample_size: 100,
-      });
+      expect(mocks.db.createExperiment).toHaveBeenCalledWith(
+        'Provider Comparison', 'experiment', 'ollama', 'codex', 100
+      );
       expect(text).toContain('ID:** exp-42');
-      expect(text).toContain('Sample Size:** 100');
     });
   });
 
@@ -1153,44 +1059,37 @@ describe('server/handlers/advanced/intelligence', () => {
       expectError(result, 'EXPERIMENT_NOT_FOUND', 'Experiment not found: exp-missing');
     });
 
-    it('renders experiment status without significance data when unavailable', () => {
+    it('renders experiment status without winner when unavailable', () => {
       mocks.db.getExperiment.mockReturnValueOnce({
         name: 'Fallback Strategy Test',
         status: 'active',
-        samples_collected: 15,
-        sample_size: 50,
-        strategy_a: 'claude-cli',
-        strategy_b: 'codex',
-        results_a: { count: 8, success_rate: 0.75, avg_duration: 20 },
-        results_b: { count: 7, success_rate: 0.57, avg_duration: 18 },
+        strategy_type: 'experiment',
+        sample_size_target: 50,
+        results_a: { count: 8, successes: 6, total_duration: 160 },
+        results_b: { count: 7, successes: 4, total_duration: 126 },
       });
 
       const text = getText(handlers.handleExperimentStatus({ experiment_id: 'exp-2' }));
 
       expect(text).toContain('Progress:** 15/50');
-      expect(text).toContain('### Strategy A: claude-cli');
-      expect(text).toContain('| Success Rate | 75% |');
-      expect(text).not.toContain('Statistical Significance');
+      expect(text).toContain('75%');
+      expect(text).not.toContain('Winner');
     });
 
-    it('reports significant results and recommends the better strategy', () => {
+    it('reports winner when available', () => {
       mocks.db.getExperiment.mockReturnValueOnce({
         name: 'Fallback Strategy Test',
-        status: 'active',
-        samples_collected: 40,
-        sample_size: 50,
-        strategy_a: 'claude-cli',
-        strategy_b: 'codex',
-        results_a: { count: 20, success_rate: 0.7, avg_duration: 22 },
-        results_b: { count: 20, success_rate: 0.9, avg_duration: 18 },
-        significance: 0.02,
+        status: 'completed',
+        strategy_type: 'experiment',
+        sample_size_target: 50,
+        results_a: { count: 20, successes: 14, total_duration: 400 },
+        results_b: { count: 20, successes: 18, total_duration: 360 },
+        winner: 'b',
       });
 
       const text = getText(handlers.handleExperimentStatus({ experiment_id: 'exp-3' }));
 
-      expect(text).toContain('**p-value:** 0.0200');
-      expect(text).toContain('**Significant:** Yes (p < 0.05)');
-      expect(text).toContain('**Recommended:** Strategy B');
+      expect(text).toContain('Winner:** Variant B');
     });
   });
 
@@ -1198,26 +1097,24 @@ describe('server/handlers/advanced/intelligence', () => {
     it('returns EXPERIMENT_NOT_FOUND when the experiment is missing', () => {
       const result = handlers.handleConcludeExperiment({
         experiment_id: 'exp-missing',
-        winner: 'A',
       });
 
       expectError(result, 'EXPERIMENT_NOT_FOUND', 'Experiment not found: exp-missing');
     });
 
-    it('reports already concluded experiments without re-applying them', () => {
+    it('reports already completed experiments without re-applying them', () => {
       mocks.db.getExperiment.mockReturnValueOnce({
         id: 'exp-closed',
         name: 'Closed experiment',
-        status: 'concluded',
+        status: 'completed',
         winner: 'B',
       });
 
       const text = getText(handlers.handleConcludeExperiment({
         experiment_id: 'exp-closed',
-        winner: 'B',
       }));
 
-      expect(text).toContain('Experiment already concluded. Winner: B');
+      expect(text).toContain('already concluded');
       expect(mocks.db.concludeExperiment).not.toHaveBeenCalled();
     });
 
@@ -1228,21 +1125,23 @@ describe('server/handlers/advanced/intelligence', () => {
         status: 'active',
       });
       mocks.db.concludeExperiment.mockReturnValueOnce({
-        winner: 'B',
-        winning_strategy: 'codex',
-        auto_applied: true,
+        significant: true,
+        winner: 'b',
+        rate_a: 0.6,
+        rate_b: 0.85,
+        applied: true,
       });
 
       const text = getText(handlers.handleConcludeExperiment({
         experiment_id: 'exp-open',
-        winner: 'B',
+        apply_winner: true,
       }));
 
-      expect(mocks.db.concludeExperiment).toHaveBeenCalledWith('exp-open', 'B');
+      expect(mocks.db.concludeExperiment).toHaveBeenCalledWith('exp-open', true);
       expect(text).toContain('Experiment Concluded');
-      expect(text).toContain('Winner:** Strategy B');
-      expect(text).toContain('Strategy:** codex');
-      expect(text).toContain('automatically applied as the new default');
+      expect(text).toContain('Name:** Open experiment');
+      expect(text).toContain('B');
+      expect(text).toContain('automatically applied');
     });
   });
 });

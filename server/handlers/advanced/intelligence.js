@@ -70,7 +70,7 @@ function handleLookupCache(args) {
 
   let output = `## Cache Hit!\n\n`;
   output += `**Match Type:** ${result.match_type}\n`;
-  output += `**Confidence:** ${Math.round((result.similarity || result.confidence_score || 0) * 100)}%\n`;
+  output += `**Confidence:** ${Math.round((result.similarity || result.confidence_score || result.confidence || 0) * 100)}%\n`;
   output += `**Hit Count:** ${result.hit_count}\n`;
   output += `**Cached At:** ${new Date(result.created_at).toLocaleString()}\n\n`;
   output += `### Cached Result\n\n`;

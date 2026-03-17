@@ -97,7 +97,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
   it.each([
     'Run a security audit on token validation',
     'Perform a security scan for the API gateway',
-  ])('routes security tasks to anthropic: %s', (taskDescription) => {
+  ])('routes security tasks to default provider (anthropic demoted): %s', (taskDescription) => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
@@ -107,14 +107,14 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
 
     const result = core.analyzeTaskForRouting(taskDescription, 'C:/repo');
 
-    expect(result.provider).toBe('anthropic');
-    expect(result.reason).toContain('security task');
+    expect(result.provider).toBe('aider-ollama');
+    expect(result.reason).toContain('No rule matched');
   });
 
   it.each([
     'Update the xaml binding for the settings dialog',
     'Refactor the wpf view model hookup for the dashboard',
-  ])('routes XAML and WPF tasks to anthropic: %s', (taskDescription) => {
+  ])('routes XAML and WPF tasks to default provider (anthropic demoted): %s', (taskDescription) => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
@@ -124,8 +124,8 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
 
     const result = core.analyzeTaskForRouting(taskDescription, 'C:/repo');
 
-    expect(result.provider).toBe('anthropic');
-    expect(result.reason).toContain('XAML/WPF');
+    expect(result.provider).toBe('aider-ollama');
+    expect(result.reason).toContain('No rule matched');
   });
 
   it.each([
@@ -251,18 +251,18 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
-        anthropic_api_key: 'anthropic-key',
+        deepinfra_api_key: 'deepinfra-key',
       },
     });
 
     const result = core.analyzeTaskForRouting(
-      'Run a security audit on token validation',
+      'Analyze the architecture root cause for performance regression',
       'C:/repo',
       [],
       { override_provider: 'groq' }
     );
 
-    expect(result.provider).toBe('anthropic');
-    expect(result.reason).toContain('security task');
+    expect(result.provider).toBe('deepinfra');
+    expect(result.reason).toContain('large model');
   });
 });
