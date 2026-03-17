@@ -723,7 +723,16 @@ function processQueueInternal(options = {}) {
     }
 
     const model = task.model || serverConfig.get('ollama_model') || 'mistral:7b';
-    const selection = db.selectOllamaHostForModel(model);
+    let selection = db.selectOllamaHostForModel(model);
+
+    // If default model isn't available, try any host with any model
+    if (!selection.host && !task.model) {
+      selection = db.selectOllamaHostForModel(null);
+      if (selection.host) {
+        logger.info(`[Scheduler] Default model '${model}' unavailable, using host '${selection.host.name}' with available models`);
+      }
+    }
+
     let started = false;
 
     if (selection.host) {
