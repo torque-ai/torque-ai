@@ -16,6 +16,16 @@ try {
   filterProvidersForEconomy = null;
 }
 
+let categoryClassifier = null;
+let templateStore = null;
+try {
+  categoryClassifier = require('../routing/category-classifier');
+  templateStore = require('../routing/template-store');
+} catch (error) {
+  categoryClassifier = null;
+  templateStore = null;
+}
+
 // Health check timeout for Ollama connectivity probe (matches constants.js TASK_TIMEOUTS.HEALTH_CHECK)
 const OLLAMA_HEALTH_CHECK_TIMEOUT_MS = 5000;
 
@@ -31,6 +41,12 @@ function setDb(dbInstance) {
   // Ensure provider_health_history table exists (was ensureTable() in provider-health-history.js)
   if (db && typeof db.exec === 'function') {
     ensureHealthTable();
+  }
+  // Initialize routing template store
+  if (templateStore && typeof templateStore.setDb === 'function') {
+    templateStore.setDb(dbInstance);
+    templateStore.ensureTable();
+    templateStore.seedPresets();
   }
 }
 function setGetTask(fn) { getTaskFn = fn; }
@@ -450,6 +466,44 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     }
     return result;
   };
+
+  // Template-based routing (user-configurable category -> provider mapping)
+  if (categoryClassifier && templateStore) {
+    const category = categoryClassifier.classify(taskDescription, files);
+    const complexity = hostManagementFns?.determineTaskComplexity
+      ? hostManagementFns.determineTaskComplexity(taskDescription, files)
+      : 'normal';
+
+    const activeTemplate = templateStore.getActiveTemplate();
+    if (activeTemplate) {
+      const targetProvider = templateStore.resolveProvider(activeTemplate, category, complexity);
+      if (targetProvider) {
+        const providerConfig = getProvider(targetProvider);
+        if (providerConfig && providerConfig.enabled) {
+          const result = {
+            provider: targetProvider,
+            rule: null,
+            complexity,
+            reason: `Template '${activeTemplate.name}': ${category} -> ${targetProvider}`,
+          };
+          return maybeApplyFallback(result);
+        }
+        // Target unavailable — try default
+        const defaultProvider = templateStore.resolveProvider(activeTemplate, 'default', complexity);
+        if (defaultProvider && defaultProvider !== targetProvider) {
+          const defaultConfig = getProvider(defaultProvider);
+          if (defaultConfig && defaultConfig.enabled) {
+            return maybeApplyFallback({
+              provider: defaultProvider,
+              rule: null,
+              complexity,
+              reason: `Template '${activeTemplate.name}': ${category} -> ${targetProvider} (unavailable), fallback to default -> ${defaultProvider}`,
+            });
+          }
+        }
+      }
+    }
+  }
 
   // Helper: detect if a task is a targeted file edit (good for hashline-ollama)
   // These are tasks that reference specific files and make bounded changes
