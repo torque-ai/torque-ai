@@ -10,8 +10,6 @@
 
 'use strict';
 
-const path = require('path');
-const fs = require('fs');
 const logger = require('../logger').child({ component: 'fallback-retry' });
 const { STALL_REQUEUE_DEBOUNCE_MS, DEFAULT_FALLBACK_MODEL } = require('../constants');
 const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-routing-core');
@@ -572,8 +570,7 @@ function findNextHashlineModel(currentModel, priorErrors) {
  * Tries local model escalation before leaving the machine:
  *   1. Same model on different host (for host-related failures)
  *   2. Larger hashline-capable local model
- *   3. hashline-openai (if auth available)
- *   4. codex (always available)
+ *   3. codex (always available)
  *
  * Tracks attempts via [Hashline-Local] markers in error_output.
  * Configurable max retries via max_hashline_local_retries (default: 2).
@@ -647,33 +644,9 @@ function tryHashlineTieredFallback(taskId, task, reason) {
       }
     }
 
-    // Step 3: hashline-openai (existing cloud escalation)
-    const hashlineOpenai = db.getProvider('hashline-openai');
-    let hasOpenaiAuth = !!process.env.OPENAI_API_KEY;
-    if (!hasOpenaiAuth) {
-      try {
-        const homedir = require('os').homedir();
-        const apiAuthPath = path.join(homedir, '.codex', 'api.auth.json');
-        const authPath = path.join(homedir, '.codex', 'auth.json');
-        hasOpenaiAuth = fs.existsSync(apiAuthPath) || fs.existsSync(authPath);
-      } catch { /* ignore */ }
-    }
-    if (hashlineOpenai && hashlineOpenai.enabled && hasOpenaiAuth) {
-    logger.info(`[HashlineFallback] Escalating task ${taskId.slice(0,8)} to hashline-openai: ${reason}`);
-    db.recordFailoverEvent({ task_id: taskId, from_provider: 'hashline-ollama', to_provider: 'hashline-openai', reason, failover_type: 'provider', attempt_num: localAttempts + 1 });
-    db.updateTaskStatus(taskId, 'queued', {
-      provider: 'hashline-openai',
-      _provider_switch_reason: reason,
-      pid: null, started_at: null, ollama_host_id: null, model: null,
-      error_output: (task.error_output || '') + `\nEscalated from hashline-ollama: ${reason}`
-    });
-      dashboard.notifyTaskUpdated(taskId);
-      scheduleProcessQueue(task);
-      return true;
-    }
   }
 
-  // Step 4: codex (final fallback, always available)
+  // Step 3: codex (final fallback, always available)
   logger.info(`[HashlineFallback] Escalating task ${taskId.slice(0,8)} to codex: ${reason}`);
   db.recordFailoverEvent({ task_id: taskId, from_provider: currentProvider, to_provider: 'codex', reason, failover_type: 'provider' });
   db.updateTaskStatus(taskId, 'queued', {

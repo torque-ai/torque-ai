@@ -252,7 +252,6 @@ registerApiAdapter('hashline-ollama', HashlineOllamaProvider, {
   supportsStream: true,
   supportsAsync: true,
 });
-registerUnavailableProviderAdapter('hashline-openai');
 registerApiAdapter('ollama-strategic', OllamaStrategicProvider, {
   supportsStream: false,
   supportsAsync: false,

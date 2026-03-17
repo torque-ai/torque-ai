@@ -182,7 +182,8 @@ describe('db/provider-routing-core', () => {
 
     it('setDefaultProvider rejects unknown and disabled providers', () => {
       expect(() => core.setDefaultProvider('no-such-provider')).toThrow(/unknown provider/i);
-      expect(() => core.setDefaultProvider('hashline-openai')).toThrow(/disabled/i);
+      core.updateProvider('anthropic', { enabled: 0 });
+      expect(() => core.setDefaultProvider('anthropic')).toThrow(/disabled/i);
     });
   });
 
@@ -286,8 +287,7 @@ describe('db/provider-routing-core', () => {
       expect(result.reason).toContain('upgraded to hashline-ollama');
     });
 
-    it('upgrades simple targeted codex edits to hashline-openai when enabled', () => {
-      core.updateProvider('hashline-openai', { enabled: 1 });
+    it('keeps simple targeted codex edits on codex when no hashline cloud provider is configured', () => {
       bindCore({
         determineTaskComplexity: () => 'normal',
         routeTask: () => ({
@@ -298,8 +298,8 @@ describe('db/provider-routing-core', () => {
       });
 
       const result = core.analyzeTaskForRouting('Fix validation in src/api.ts and add jsdoc', os.tmpdir(), ['src/api.ts']);
-      expect(result.provider).toBe('hashline-openai');
-      expect(result.reason).toContain('upgraded to hashline-openai');
+      expect(result.provider).toBe('codex');
+      expect(result.reason).not.toContain('upgraded to');
     });
 
     it('routes security tasks to anthropic when api key is present and provider is enabled', () => {

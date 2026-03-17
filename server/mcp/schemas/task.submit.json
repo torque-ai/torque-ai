@@ -30,14 +30,13 @@
     },
     "provider": {
       "type": "string",
-      "description": "Execution provider (codex, claude-cli, ollama, aider-ollama, hashline-ollama, hashline-openai, anthropic, deepinfra, groq, hyperbolic). Defaults to configured default provider.",
+      "description": "Execution provider (codex, claude-cli, ollama, aider-ollama, hashline-ollama, anthropic, deepinfra, groq, hyperbolic). Defaults to configured default provider.",
       "enum": [
         "codex",
         "claude-cli",
         "ollama",
         "aider-ollama",
         "hashline-ollama",
-        "hashline-openai",
         "anthropic",
         "deepinfra",
         "groq",

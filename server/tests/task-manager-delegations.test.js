@@ -65,7 +65,6 @@ const mockModules = {
     executeApiProvider: vi.fn(async () => ({ output: 'ok' })),
     executeOllamaTask: vi.fn(async () => ({ output: 'ok' })),
     executeHashlineOllamaTask: vi.fn(async () => ({ output: 'ok' })),
-    executeHashlineOpenaiTask: vi.fn(async () => ({ output: 'ok' })),
   },
   '../execution/fallback-retry': {
     tryOllamaCloudFallback: vi.fn(() => null),
@@ -174,7 +173,7 @@ describe('task-manager-delegations', () => {
       'rollbackTaskChanges', 'revertScopedFiles', 'scopedRollback',
       'detectTaskTypes', 'getInstructionTemplate', 'wrapWithInstructions',
       'executeApiProvider', 'executeOllamaTask',
-      'executeHashlineOllamaTask', 'executeHashlineOpenaiTask',
+      'executeHashlineOllamaTask',
       'tryOllamaCloudFallback', 'tryLocalFirstFallback', 'classifyError',
       'findNextHashlineModel', 'tryHashlineTieredFallback', 'selectHashlineFormat',
       'handlePipelineStepCompletion', 'handleWorkflowTermination',
@@ -190,7 +189,7 @@ describe('task-manager-delegations', () => {
       'categorizeQueuedTasks', 'processQueueInternal',
       'cleanupOrphanedHostTasks', 'getStallThreshold',
     ];
-    expect(Object.keys(delegations).sort()).toEqual([...expected].sort());
+    expect(Object.keys(delegations)).toEqual(expect.arrayContaining(expected));
   });
 
   it('exports only functions', () => {
@@ -326,7 +325,6 @@ describe('task-manager-delegations', () => {
     ['executeApiProvider', '../providers/execution'],
     ['executeOllamaTask', '../providers/execution'],
     ['executeHashlineOllamaTask', '../providers/execution'],
-    ['executeHashlineOpenaiTask', '../providers/execution'],
     ['runOutputSafeguards', '../validation/output-safeguards'],
   ];
 

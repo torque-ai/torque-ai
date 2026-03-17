@@ -181,8 +181,6 @@ beforeAll(() => {
       'claude-cli': 45,
       hashline: 45,
       'hashline-ollama': 30,
-      'hashline-openai': 45,
-      'hashline-openai-reasoning': 90,
       deepinfra: 45,
       hyperbolic: 45,
       anthropic: 45,

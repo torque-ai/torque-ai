@@ -55,7 +55,6 @@ describe('provider adapter registry', () => {
       'codex',
       'deepinfra',
       'groq',
-      'hashline-openai',
       'hashline-ollama',
       'hyperbolic',
       'ollama',
@@ -98,26 +97,6 @@ describe('provider adapter registry', () => {
     expect(first.id).toBe('groq');
   });
 
-  it('builds unavailable transport adapters with consistent fallback behavior', async () => {
-    const adapter = getProviderAdapter('hashline-openai');
-
-    expect(adapter).toBeTruthy();
-    expect(adapter.supportsStream).toBe(false);
-    expect(adapter.supportsAsync).toBe(false);
-    expect(adapter.supportsCancellation).toBe(false);
-
-    await expect(adapter.submit('hi', 'model')).rejects.toThrow(/not implemented for v2/i);
-    await expect(adapter.stream('hi', 'model')).rejects.toThrow(/not implemented for v2/i);
-    await expect(adapter.submitAsync('hi', 'model')).rejects.toThrow(/not implemented for v2/i);
-    await expect(adapter.cancel()).resolves.toMatchObject({ cancelled: false, supported: false });
-    await expect(adapter.checkHealth()).resolves.toMatchObject({
-      available: false,
-      error: expect.stringMatching(/not implemented for v2/i),
-    });
-    await expect(adapter.listModels()).resolves.toEqual([]);
-    expect(adapter.normalizeResult({ ok: true })).toEqual({ ok: true });
-  });
-
   it('publishes provider capability matrix with expected capability flags', () => {
     const matrix = getProviderCapabilityMatrix();
 
@@ -137,11 +116,6 @@ describe('provider adapter registry', () => {
       supportsCancellation: false,
     });
     expect(matrix.codex).toMatchObject({
-      supportsStream: false,
-      supportsAsync: false,
-      supportsCancellation: false,
-    });
-    expect(matrix['hashline-openai']).toMatchObject({
       supportsStream: false,
       supportsAsync: false,
       supportsCancellation: false,

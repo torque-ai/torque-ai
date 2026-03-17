@@ -87,7 +87,6 @@ const PROVIDER_DEFAULT_TIMEOUTS = {
   'claude-cli': 30,
   'aider-ollama': 30,
   'hashline-ollama': 10,
-  'hashline-openai': 15,
   'ollama': 10,
   'anthropic': 15,
   'deepinfra': 20,

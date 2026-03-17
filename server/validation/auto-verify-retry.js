@@ -30,7 +30,6 @@ const AUTO_VERIFY_PROVIDERS = new Set([
   'hashline-ollama',
   'aider-ollama',
   'ollama',
-  'hashline-openai',
 ]);
 
 const NON_CODE_EXTENSIONS = new Set([

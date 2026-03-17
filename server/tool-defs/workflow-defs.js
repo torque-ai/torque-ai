@@ -155,7 +155,7 @@ const tools = [
               },
               provider: {
                 type: 'string',
-                enum: ['codex', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama', 'hashline-openai'],
+                enum: ['codex', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama'],
                 description: 'Optional provider override for this node'
               },
               model: {
@@ -238,7 +238,7 @@ const tools = [
         provider: {
           type: 'string',
           description: 'Execution provider for this task (overrides project default)',
-          enum: ['codex', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama', 'hashline-openai']
+          enum: ['codex', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama']
         },
         model: {
           type: 'string',

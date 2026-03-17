@@ -10,7 +10,7 @@ vi.mock('../providers/registry', () => {
   const cats = {
     ollama: 'ollama', 'aider-ollama': 'ollama', 'hashline-ollama': 'ollama',
     codex: 'codex', 'claude-cli': 'codex',
-    anthropic: 'api', groq: 'api', 'hashline-openai': 'api', hyperbolic: 'api',
+    anthropic: 'api', groq: 'api', hyperbolic: 'api',
     deepinfra: 'api', 'ollama-cloud': 'api', cerebras: 'api', 'google-ai': 'api', openrouter: 'api',
   };
   return {
@@ -169,17 +169,16 @@ describe('Queue Scheduler', () => {
         makeTask({ id: '2', provider: 'groq' }),
         makeTask({ id: '3', provider: 'hyperbolic' }),
         makeTask({ id: '4', provider: 'deepinfra' }),
-        makeTask({ id: '5', provider: 'hashline-openai' }),
-        makeTask({ id: '6', provider: 'ollama-cloud' }),
-        makeTask({ id: '7', provider: 'cerebras' }),
-        makeTask({ id: '8', provider: 'google-ai' }),
-        makeTask({ id: '9', provider: 'openrouter' }),
+        makeTask({ id: '5', provider: 'ollama-cloud' }),
+        makeTask({ id: '6', provider: 'cerebras' }),
+        makeTask({ id: '7', provider: 'google-ai' }),
+        makeTask({ id: '8', provider: 'openrouter' }),
       ];
 
       const result = scheduler.categorizeQueuedTasks(tasks, true);
 
-      expect(result.apiTasks.map((t) => t.id)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9']);
-      expect(result.apiTasks).toHaveLength(9);
+      expect(result.apiTasks.map((t) => t.id)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+      expect(result.apiTasks).toHaveLength(8);
     });
 
     it('preserves original queue order in each category', () => {
@@ -231,11 +230,10 @@ describe('Queue Scheduler', () => {
         makeTask({ id: '7', provider: 'groq' }),
         makeTask({ id: '8', provider: 'hyperbolic' }),
         makeTask({ id: '9', provider: 'deepinfra' }),
-        makeTask({ id: '10', provider: 'hashline-openai' }),
-        makeTask({ id: '11', provider: 'ollama-cloud' }),
-        makeTask({ id: '12', provider: 'cerebras' }),
-        makeTask({ id: '13', provider: 'google-ai' }),
-        makeTask({ id: '14', provider: 'openrouter' }),
+        makeTask({ id: '10', provider: 'ollama-cloud' }),
+        makeTask({ id: '11', provider: 'cerebras' }),
+        makeTask({ id: '12', provider: 'google-ai' }),
+        makeTask({ id: '13', provider: 'openrouter' }),
       ];
 
       const result = scheduler.categorizeQueuedTasks(tasks, true);
@@ -246,8 +244,8 @@ describe('Queue Scheduler', () => {
       expect(result.codexTasks).toHaveLength(2);
       expect(result.codexTasks.map((t) => t.id)).toEqual(['4', '5']);
 
-      expect(result.apiTasks).toHaveLength(9);
-      expect(result.apiTasks.map((t) => t.id)).toEqual(['6', '7', '8', '9', '10', '11', '12', '13', '14']);
+      expect(result.apiTasks).toHaveLength(8);
+      expect(result.apiTasks.map((t) => t.id)).toEqual(['6', '7', '8', '9', '10', '11', '12', '13']);
     });
 
     it('filters codex-pending tasks', () => {

@@ -88,17 +88,10 @@ function createProviderMap(overrides = {}) {
       transport: 'api',
       quota_error_patterns: '[]',
     },
-    'hashline-openai': {
-      provider: 'hashline-openai',
-      enabled: 0,
-      priority: 100,
-      transport: 'api',
-      quota_error_patterns: '[]',
-    },
     'ollama-cloud': {
       provider: 'ollama-cloud',
       enabled: 1,
-      priority: 110,
+      priority: 100,
       transport: 'api',
       quota_error_patterns: '[]',
     },

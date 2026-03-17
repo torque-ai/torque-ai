@@ -95,7 +95,7 @@ const {
   rollbackTaskChanges, revertScopedFiles, scopedRollback,
   detectTaskTypes, getInstructionTemplate, wrapWithInstructions,
   executeApiProvider, executeOllamaTask,
-  executeHashlineOllamaTask, executeHashlineOpenaiTask,
+  executeHashlineOllamaTask,
   tryOllamaCloudFallback, tryLocalFirstFallback, classifyError,
   findNextHashlineModel, tryHashlineTieredFallback, selectHashlineFormat,
   handlePipelineStepCompletion, handleWorkflowTermination,
@@ -1636,9 +1636,6 @@ function startTask(taskId) {
   } else if (provider === 'hashline-ollama') {
     recordTaskStartedAuditEvent(task, taskId, provider);
     return executeHashlineOllamaTask(task);
-  } else if (provider === 'hashline-openai') {
-    recordTaskStartedAuditEvent(task, taskId, provider);
-    return executeHashlineOpenaiTask(task);
   } else if (provider === 'aider-ollama') {
     const aiderResult = buildAiderCommand(task, resolvedFileContext, resolvedFilePaths);
     cliPath = aiderResult.cliPath;
@@ -2333,18 +2330,10 @@ Adding a method to a class — SEARCH for the closing brace and include it:
  * Now tries local model escalation before leaving the machine:
  *   1. Same model on different host (for host-related failures)
  *   2. Larger hashline-capable local model
- *   3. hashline-openai (if auth available)
- *   4. codex (always available)
+ *   3. codex (always available)
  *
  * Tracks attempts via [Hashline-Local] markers in error_output.
  * Configurable max retries via max_hashline_local_retries (default: 2).
- */
-
-/**
- * hashline-openai provider: Calls OpenAI Responses API with hashline-annotated
- * file context, parses structured edit blocks, and applies them with hash verification.
- * Uses /v1/responses (works with ChatGPT Pro OAuth tokens and API keys).
- * Falls back to regular codex provider if no auth or no files resolved.
  */
 
 // Periodic queue processor - ensures queued tasks get started even without explicit triggers
@@ -2719,8 +2708,6 @@ Object.assign(module.exports, {
   applyHashlineLiteEdits,
   selectHashlineFormat,
   findSearchMatch,
-  // Hashline-OpenAI provider (exported for testing)
-  executeHashlineOpenaiTask,
   // Hashline local fallback (exported for testing)
   tryHashlineTieredFallback,
   findNextHashlineModel,

@@ -156,10 +156,6 @@ const PROVIDER_MODELS = {
       'claude-opus-4-20250514',
     ],
   },
-  'hashline-openai': {
-    source: 'provider_api',
-    models: ['gpt-4o-mini'],
-  },
   anthropic: {
     source: 'provider_api',
     models: [
@@ -223,7 +219,6 @@ const PROVIDER_MODELS = {
 
 const PROVIDER_MODEL_CONFIG_KEYS = Object.freeze({
   codex: ['codex_api_model', 'codex_model'],
-  'hashline-openai': ['hashline_openai_model'],
 });
 
 const PROVIDER_API_KEY_CONFIG_KEYS = Object.freeze({
@@ -235,7 +230,6 @@ const PROVIDER_API_KEY_CONFIG_KEYS = Object.freeze({
   openrouter: ['openrouter_api_key'],
   deepinfra: ['deepinfra_api_key'],
   hyperbolic: ['hyperbolic_api_key'],
-  'hashline-openai': ['openai_api_key'],
 });
 
 const PROVIDER_API_KEY_ENV_KEYS = Object.freeze({
@@ -247,7 +241,6 @@ const PROVIDER_API_KEY_ENV_KEYS = Object.freeze({
   openrouter: ['OPENROUTER_API_KEY'],
   deepinfra: ['DEEPINFRA_API_KEY'],
   hyperbolic: ['HYPERBOLIC_API_KEY'],
-  'hashline-openai': ['OPENAI_API_KEY'],
 });
 
 const PROVIDER_MODEL_NAME_OVERRIDES = Object.freeze({

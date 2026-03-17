@@ -1216,35 +1216,10 @@ describe('fallback-retry module', () => {
       });
     });
 
-    it('continues hashline fallbacks to hashline-openai after local escalation attempts', () => {
+    it('falls back to codex when cloud escalation is unavailable', () => {
       db.setConfig('max_hashline_local_retries', '1');
       db.setConfig('hashline_capable_models', 'qwen2.5-coder');
-      process.env.OPENAI_API_KEY = 'hashline-openai';
-      db.getProvider = () => ({ enabled: true });
-
-      const host = registerHealthyHost('hashline-cloud', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
-      const task = createTask({
-        provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
-        ollama_host_id: host
-      });
-
-      const first = mod.tryHashlineTieredFallback(task.id, db.getTask(task.id), 'local retry');
-      expect(first).toBe(true);
-      let updated = db.getTask(task.id);
-      expect(updated.model).toBe('qwen2.5-coder:14b');
-
-      const second = mod.tryHashlineTieredFallback(task.id, db.getTask(task.id), 'after escalation');
-      expect(second).toBe(true);
-      updated = db.getTask(task.id);
-      expect(updated.provider).toBe('hashline-openai');
-      expect(updated.model).toBeNull();
-    });
-
-    it('falls back to codex when hashline-openai is unavailable', () => {
-      db.setConfig('max_hashline_local_retries', '1');
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
-      db.getProvider = (name) => (name === 'hashline-openai' ? { enabled: false } : { enabled: false });
+      db.getProvider = () => ({ enabled: false });
       delete process.env.OPENAI_API_KEY;
 
       const host = registerHealthyHost('hashline-no-openai', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
@@ -1265,46 +1240,6 @@ describe('fallback-retry module', () => {
       expect(updated.provider).toBe('codex');
       expect(updated.model).toBeNull();
       expect(updated.error_output).toContain('Escalated from hashline-ollama: still failing');
-    });
-
-    it('escalates to hashline-openai when local retries are skipped and auth is available', () => {
-      db.setConfig('max_hashline_local_retries', '0');
-      process.env.OPENAI_API_KEY = 'test-key';
-      db.getProvider = () => ({ enabled: true });
-
-      const task = createTask({
-        provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
-        error_output: 'prior error'
-      });
-
-      const ok = mod.tryHashlineTieredFallback(task.id, task, 'no edits parsed');
-
-      expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
-      expect(updated.provider).toBe('hashline-openai');
-      expect(updated.model).toBeNull();
-      expect(updated.ollama_host_id).toBeNull();
-      expect(updated.error_output).toContain('Escalated from hashline-ollama: no edits parsed');
-    });
-
-    it('escalates to codex as final fallback when cloud escalation is unavailable', () => {
-      db.setConfig('max_hashline_local_retries', '0');
-      db.getProvider = () => ({ enabled: false });
-      delete process.env.OPENAI_API_KEY;
-
-      const task = createTask({
-        provider: 'hashline-openai',
-        model: 'gpt-4o'
-      });
-
-      const ok = mod.tryHashlineTieredFallback(task.id, task, 'openai failure');
-
-      expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
-      expect(updated.provider).toBe('codex');
-      expect(updated.model).toBeNull();
-      expect(updated.error_output).toContain('Escalated from hashline-openai: openai failure');
     });
 
     it('skips fallback when task is already cancelled', () => {
@@ -1379,36 +1314,6 @@ describe('fallback-retry module', () => {
       });
     });
 
-    it('escalates hashline tasks to hashline-openai then codex as limits are reached', () => {
-      db.setConfig('max_hashline_local_retries', '1');
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
-      process.env.OPENAI_API_KEY = 'openai-key';
-      db.getProvider = () => ({ enabled: true });
-      const host = registerHealthyHost('full-hashline', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
-
-      const task = createTask({
-        provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
-        ollama_host_id: host
-      });
-
-      const first = mod.tryHashlineTieredFallback(task.id, db.getTask(task.id), 'first hashline failure');
-      expect(first).toBe(true);
-      const afterFirst = db.getTask(task.id);
-      expect(afterFirst.provider).toBe('hashline-ollama');
-      expect(afterFirst.model).toBe('qwen2.5-coder:14b');
-
-      const second = mod.tryHashlineTieredFallback(task.id, db.getTask(task.id), 'second hashline failure');
-      expect(second).toBe(true);
-      const afterSecond = db.getTask(task.id);
-      expect(afterSecond.provider).toBe('hashline-openai');
-
-      const third = mod.tryHashlineTieredFallback(task.id, db.getTask(task.id), 'third hashline failure');
-      expect(third).toBe(true);
-      const afterThird = db.getTask(task.id);
-      expect(afterThird.provider).toBe('codex');
-      expect(afterThird.error_output).toContain('Escalated from hashline-openai: third hashline failure');
-    });
   });
 
   describe('selectHashlineFormat', () => {

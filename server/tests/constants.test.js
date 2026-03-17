@@ -127,7 +127,7 @@ describe('constants.js', () => {
   describe('PROVIDER_DEFAULT_TIMEOUTS', () => {
     it('has all provider keys', () => {
       const providers = ['codex', 'claude-cli', 'aider-ollama', 'hashline-ollama',
-                         'hashline-openai', 'ollama', 'anthropic', 'groq'];
+                         'ollama', 'anthropic', 'groq'];
       for (const p of providers) {
         expect(PROVIDER_DEFAULT_TIMEOUTS).toHaveProperty(p);
       }

@@ -89,17 +89,10 @@ function createProviderMap(overrides = {}) {
       transport: 'api',
       quota_error_patterns: '[]',
     },
-    'hashline-openai': {
-      provider: 'hashline-openai',
-      enabled: 0,
-      priority: 100,
-      transport: 'api',
-      quota_error_patterns: '[]',
-    },
     'ollama-cloud': {
       provider: 'ollama-cloud',
       enabled: 1,
-      priority: 110,
+      priority: 100,
       transport: 'api',
       quota_error_patterns: '[]',
     },
@@ -498,13 +491,13 @@ describe('provider-routing-core', () => {
       const { core } = loadCore({
         db: {
           providers: {
-            'hashline-openai': { enabled: 0 },
+            anthropic: { enabled: 0 },
           },
         },
       });
 
       expect(() => core.setDefaultProvider('no-such-provider')).toThrow(/unknown provider/i);
-      expect(() => core.setDefaultProvider('hashline-openai')).toThrow(/disabled/i);
+      expect(() => core.setDefaultProvider('anthropic')).toThrow(/disabled/i);
     });
   });
 
@@ -654,7 +647,7 @@ describe('provider-routing-core', () => {
       expect(result.reason).toContain('hashline-ollama');
     });
 
-    it('upgrades targeted codex edits to hashline-openai when enabled', () => {
+    it('keeps targeted codex edits on codex when no hashline cloud provider is configured', () => {
       const hostManagement = createHostManagement({
         determineTaskComplexity: vi.fn(() => 'simple'),
         routeTask: vi.fn(() => ({
@@ -663,22 +656,15 @@ describe('provider-routing-core', () => {
           model: 'gpt-5.1',
         })),
       });
-      const { core } = loadCore({
-        hostManagement,
-        db: {
-          providers: {
-            'hashline-openai': { enabled: 1 },
-          },
-        },
-      });
+      const { core } = loadCore({ hostManagement });
 
       const result = core.analyzeTaskForRouting('Fix validation in src/api.ts and add jsdoc', 'C:/repo', [
         'src/api.ts',
       ]);
 
-      expect(result.provider).toBe('hashline-openai');
+      expect(result.provider).toBe('codex');
       expect(result.model).toBe('gpt-5.1');
-      expect(result.reason).toContain('hashline-openai');
+      expect(result.reason).not.toContain('upgraded to');
     });
 
     it('applies the configured ollama fallback when the selected rule targets an unhealthy ollama provider', () => {
@@ -1073,13 +1059,13 @@ describe('provider-routing-core', () => {
             },
           },
           providers: {
-            'hashline-openai': { enabled: 0 },
+            anthropic: { enabled: 0 },
           },
         },
       });
 
       expect(() => core.approveProviderSwitch('task-1', 'claude-cli')).toThrow(/not pending provider switch/i);
-      expect(() => core.approveProviderSwitch('task-2', 'hashline-openai')).toThrow(/not available/i);
+      expect(() => core.approveProviderSwitch('task-2', 'anthropic')).toThrow(/not available/i);
     });
 
     it('rejects provider switches and appends the rejection reason', () => {

@@ -18,7 +18,7 @@ describe('submit_task provider enum completeness', () => {
     expect(PROVIDER_DEFAULT_TIMEOUTS.hyperbolic).toBe(20);
   });
 
-  it('submit_task provider enum has exactly 14 providers', () => {
-    expect(providerEnum).toHaveLength(14);
+  it('submit_task provider enum has exactly 13 providers', () => {
+    expect(providerEnum).toHaveLength(13);
   });
 });

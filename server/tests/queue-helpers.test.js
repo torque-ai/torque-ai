@@ -53,11 +53,10 @@ describe('categorizeQueuedTasks', () => {
       { provider: 'groq', id: '7' },
       { provider: 'hyperbolic', id: '8' },
       { provider: 'deepinfra', id: '9' },
-      { provider: 'hashline-openai', id: '10' },
-      { provider: 'ollama-cloud', id: '11' },
-      { provider: 'cerebras', id: '12' },
-      { provider: 'google-ai', id: '13' },
-      { provider: 'openrouter', id: '14' },
+      { provider: 'ollama-cloud', id: '10' },
+      { provider: 'cerebras', id: '11' },
+      { provider: 'google-ai', id: '12' },
+      { provider: 'openrouter', id: '13' },
     ];
 
     const result = tm.categorizeQueuedTasks(tasks, true);
@@ -68,8 +67,8 @@ describe('categorizeQueuedTasks', () => {
     expect(result.codexTasks).toHaveLength(2);
     expect(result.codexTasks.map(t => t.id)).toEqual(['4', '5']);
 
-    expect(result.apiTasks).toHaveLength(9);
-    expect(result.apiTasks.map(t => t.id)).toEqual(['6', '7', '8', '9', '10', '11', '12', '13', '14']);
+    expect(result.apiTasks).toHaveLength(8);
+    expect(result.apiTasks.map(t => t.id)).toEqual(['6', '7', '8', '9', '10', '11', '12', '13']);
   });
 
   it('excludes codex tasks when codex disabled', () => {

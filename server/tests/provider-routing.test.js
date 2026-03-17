@@ -180,10 +180,11 @@ describe('provider-routing module', () => {
     });
 
     it('setDefaultProvider throws when provider is disabled', () => {
-      const disabled = mod.getProvider('hashline-openai');
+      mod.updateProvider('anthropic', { enabled: 0 });
+      const disabled = mod.getProvider('anthropic');
       expect(disabled).toBeTruthy();
       expect(disabled.enabled).toBe(false);
-      expect(() => mod.setDefaultProvider('hashline-openai')).toThrow(/disabled/i);
+      expect(() => mod.setDefaultProvider('anthropic')).toThrow(/disabled/i);
     });
   });
 

@@ -27,7 +27,7 @@ function loadQueueSchedulerHarness({
     getProviderInstance: vi.fn(() => ({})),
     getCategory(provider) {
       if (['codex', 'claude-cli'].includes(provider)) return 'codex';
-      if (['anthropic', 'groq', 'hyperbolic', 'deepinfra', 'hashline-openai', 'ollama-cloud', 'cerebras', 'google-ai', 'openrouter'].includes(provider)) {
+      if (['anthropic', 'groq', 'hyperbolic', 'deepinfra', 'ollama-cloud', 'cerebras', 'google-ai', 'openrouter'].includes(provider)) {
         return 'api';
       }
       return 'ollama';

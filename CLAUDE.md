@@ -27,46 +27,49 @@ Use the `/torque-*` commands to interact with TORQUE. Commands compose multiple 
 
 For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit_task`).
 
-## Provider Strategy
+## Providers
 
-TORQUE routes between **10 execution providers** across local and cloud:
+TORQUE routes between **13 execution providers**. Smart routing picks the best one automatically — you rarely need to choose manually.
 
-### Providers
+### Local (Ollama)
 
-| Provider | Type | Best For |
-|----------|------|----------|
-| **hashline-ollama** | Local | Targeted file edits (line-hash precision) |
-| **aider-ollama** | Local | Multi-file code modifications |
-| **ollama** | Local | General prompts, documentation |
-| **hashline-openai** | Cloud | Precision edits via cloud models |
-| **codex** (gpt-5.3-codex-spark) | Cloud | Greenfield code, complex multi-file tasks |
-| **claude-cli** | Cloud | Architectural decisions, complex debugging |
-| **anthropic** | Cloud | Direct API tasks |
-| **groq** | Cloud | Low-latency general tasks |
-| **deepinfra** | Cloud | High-concurrency large model inference (200 concurrent/model) |
-| **hyperbolic** | Cloud | Large model inference (70B-405B), fast output speed |
+Run on your local Ollama instance or registered LAN hosts. Free, private, no API keys needed. Smart routing picks the edit format based on task type.
 
-### Cloud Inference Providers (DeepInfra / Hyperbolic)
+| Provider | Edit Format | Best For |
+|----------|------------|----------|
+| **ollama** | Raw prompt → text response | General prompts, documentation, brainstorming |
+| **hashline-ollama** | Line-hash annotated file content | Targeted single-file edits (highest precision) |
+| **aider-ollama** | Aider SEARCH/REPLACE blocks | Multi-file code modifications |
 
-Both use OpenAI-compatible APIs and start **disabled by default**. To activate:
+All three share the same Ollama host and GPU. Configure hosts with `add_ollama_host` or let TORQUE auto-discover.
 
-1. Set env vars: `DEEPINFRA_API_KEY` and/or `HYPERBOLIC_API_KEY`
+### Cloud (Subscription CLI Tools)
+
+Run locally but require the CLI tool installed and authenticated.
+
+| Provider | Requirement | Best For |
+|----------|------------|----------|
+| **codex** | Codex CLI installed + authenticated | Greenfield code, complex multi-file tasks |
+| **claude-cli** | Claude Code CLI installed + authenticated | Architectural decisions, complex debugging |
+
+### Cloud (API — Bring Your Own Key)
+
+Call cloud LLM APIs directly using your API keys. Start disabled — set your key and enable with `update_provider`.
+
+| Provider | API Key Env Var | Best For |
+|----------|----------------|----------|
+| **anthropic** | `ANTHROPIC_API_KEY` | Direct Claude API tasks |
+| **deepinfra** | `DEEPINFRA_API_KEY` | High-concurrency batch work (200 concurrent/model) |
+| **hyperbolic** | `HYPERBOLIC_API_KEY` | Large models (70B-405B), fast output |
+| **groq** | `GROQ_API_KEY` | Low-latency general tasks |
+| **cerebras** | `CEREBRAS_API_KEY` | Fast inference |
+| **google-ai** | `GOOGLE_AI_API_KEY` | Large context (800K+ tokens) |
+| **openrouter** | `OPENROUTER_API_KEY` | Multi-model gateway |
+| **ollama-cloud** | `OLLAMA_CLOUD_API_KEY` | Remote Ollama-compatible endpoint |
+
+To enable a cloud API provider:
+1. Set the env var: `export DEEPINFRA_API_KEY=your-key`
 2. Enable: `update_provider { provider: "deepinfra", enabled: true }`
-
-**DeepInfra** — best for batch workloads and parallel execution:
-- 200 concurrent requests per model (400+ across multiple models)
-- Qwen 72B at $0.13/M input tokens, Llama 405B at $0.80/M
-- 0.17-0.30s time to first token, 320+ tok/s output
-- Default model: `Qwen/Qwen2.5-72B-Instruct`
-
-**Hyperbolic** — best for large model variety and fast throughput:
-- Pro tier (requires $5 deposit): 600 req/min general, 120 req/min for 405B
-- 70B models at $0.40/M tokens, 355-426 tok/s output
-- Default model: `Qwen/Qwen2.5-72B-Instruct`
-
-Available models (both providers): `Qwen/Qwen2.5-72B-Instruct`, `meta-llama/Llama-3.1-70B-Instruct`, `meta-llama/Llama-3.1-405B-Instruct`, `deepseek-ai/DeepSeek-R1`
-
-Override per task: `/torque-submit provider=deepinfra model=meta-llama/Llama-3.1-405B-Instruct`
 
 ### Smart Routing
 

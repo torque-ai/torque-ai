@@ -49,7 +49,6 @@ const VALID_PROVIDER_NAMES = new Set([
   'ollama',
   'aider-ollama',
   'hashline-ollama',
-  'hashline-openai',
   'anthropic',
   'groq',
   'ollama-cloud',
@@ -168,7 +167,7 @@ describe('db/schema-seeds', () => {
     const rows = db.prepare(`
       SELECT provider, capability_tags, quality_band
       FROM provider_config
-      WHERE provider IN ('codex', 'claude-cli', 'hashline-openai', 'groq')
+      WHERE provider IN ('codex', 'claude-cli', 'hashline-ollama', 'groq')
       ORDER BY provider
     `).all();
     const byProvider = Object.fromEntries(rows.map((row) => [row.provider, row]));
@@ -187,11 +186,10 @@ describe('db/schema-seeds', () => {
       'reasoning',
     ]);
     expect(byProvider['claude-cli'].quality_band).toBe('A');
-    expect(JSON.parse(byProvider['hashline-openai'].capability_tags)).toEqual([
+    expect(JSON.parse(byProvider['hashline-ollama'].capability_tags)).toEqual([
       'file_edit',
-      'reasoning',
     ]);
-    expect(byProvider['hashline-openai'].quality_band).toBe('B');
+    expect(byProvider['hashline-ollama'].quality_band).toBe('C');
     expect(JSON.parse(byProvider.groq.capability_tags)).toEqual([]);
     expect(byProvider.groq.quality_band).toBe('D');
   });

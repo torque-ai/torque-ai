@@ -63,7 +63,6 @@ function createMockDb(options = {}) {
       ollama: createProviderRow('ollama', { priority: 50 }),
       'aider-ollama': createProviderRow('aider-ollama', { priority: 60 }),
       'hashline-ollama': createProviderRow('hashline-ollama', { priority: 70 }),
-      'hashline-openai': createProviderRow('hashline-openai', { enabled: 0, priority: 80 }),
       ...clone(options.providerConfig || {}),
     },
     templateConditions: clone(options.templateConditions || []),
@@ -1333,13 +1332,17 @@ describe('provider-routing-core behaviors tied to config state', () => {
   });
 
   it('persists the default provider and rejects disabled providers', () => {
-    const { db } = createMockDb();
+    const { db } = createMockDb({
+      providerConfig: {
+        anthropic: createProviderRow('anthropic', { enabled: 0, priority: 30 }),
+      },
+    });
     const { core } = loadCoreWithDb(db);
 
     expect(core.getDefaultProvider()).toBe('codex');
     expect(core.setDefaultProvider('claude-cli')).toBe('claude-cli');
     expect(core.getDefaultProvider()).toBe('claude-cli');
-    expect(() => core.setDefaultProvider('hashline-openai')).toThrow(/disabled/i);
+    expect(() => core.setDefaultProvider('anthropic')).toThrow(/disabled/i);
   });
 
   it('passes through host-selected model overrides from complexity routing', () => {

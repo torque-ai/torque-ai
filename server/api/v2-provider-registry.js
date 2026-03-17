@@ -91,22 +91,6 @@ const PROVIDER_REGISTRY = {
       reasoning: true,
     },
   },
-  'hashline-openai': {
-    name: 'Hashline (OpenAI)',
-    transport: 'api',
-    local: false,
-    request_rate_per_minute: 60,
-    features: {
-      chat: true,
-      stream: true,
-      tools: true,
-      vision: false,
-      embeddings: true,
-      image_input: false,
-      file_edit: true,
-      reasoning: true,
-    },
-  },
   anthropic: {
     name: 'Anthropic',
     transport: 'api',

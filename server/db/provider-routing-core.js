@@ -513,19 +513,6 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
         }
       }
 
-      // HASHLINE-OPENAI UPGRADE: For simple/normal tasks routed to codex
-      // that are targeted file edits, use hashline-openai if enabled (opt-in, costs API credits).
-      if ((complexity === 'simple' || complexity === 'normal') &&
-          result.provider === 'codex' &&
-          isTargetedFileEdit(descLower)) {
-        const hashlineOpenaiProvider = getProvider('hashline-openai');
-        if (hashlineOpenaiProvider && hashlineOpenaiProvider.enabled) {
-          result.provider = 'hashline-openai';
-          result.reason += ` [upgraded to hashline-openai: targeted file edit]`;
-          logger.info('[SmartRouting] Upgraded to hashline-openai for targeted file edit');
-        }
-      }
-
       // For ollama providers, include host selection
       if (isOllamaProvider(result.provider) && result.hostId) {
         result.selectedHost = result.hostId;

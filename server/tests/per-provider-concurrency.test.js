@@ -197,7 +197,7 @@ function loadScheduler(overrides = {}) {
   installCjsModuleMock('../providers/registry', {
     getProviderInstance: vi.fn().mockReturnValue({}),
     getCategory: vi.fn((provider) => {
-      if (['groq', 'anthropic', 'deepinfra', 'hyperbolic', 'hashline-openai', 'ollama-cloud', 'cerebras', 'google-ai', 'openrouter'].includes(provider)) return 'api';
+      if (['groq', 'anthropic', 'deepinfra', 'hyperbolic', 'ollama-cloud', 'cerebras', 'google-ai', 'openrouter'].includes(provider)) return 'api';
       if (provider === 'codex' || provider === 'claude-cli') return 'codex';
       if (overrides.providerCategories && provider in overrides.providerCategories) return overrides.providerCategories[provider];
       return 'ollama';

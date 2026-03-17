@@ -10,7 +10,7 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        provider: { type: 'string', description: 'Provider to configure (codex, ollama, aider-ollama, hashline-ollama, hashline-openai, claude-cli, or "all"). Default: all', enum: ['codex', 'ollama', 'aider-ollama', 'hashline-ollama', 'hashline-openai', 'claude-cli', 'all'] },
+        provider: { type: 'string', description: 'Provider to configure (codex, ollama, aider-ollama, hashline-ollama, claude-cli, or "all"). Default: all', enum: ['codex', 'ollama', 'aider-ollama', 'hashline-ollama', 'claude-cli', 'all'] },
         stall_threshold_seconds: { type: 'number', description: 'Seconds of no output before a task is considered stalled. Recommended: 120-180 for codex, 90-120 for local LLMs.' },
         auto_resubmit: { type: 'boolean', description: 'Automatically resubmit stalled tasks (default: false). When true, stalled tasks are cancelled and resubmitted with the same description.' },
         max_resubmit_attempts: { type: 'number', description: 'Max resubmit attempts before giving up (default: 3)' }
@@ -56,7 +56,7 @@ const tools = [
       type: 'object',
       properties: {
         working_directory: { type: 'string', description: 'Project directory' },
-        provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, ollama, aider-ollama, hashline-ollama, hashline-openai)', enum: ['codex', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama', 'hashline-openai'] },
+        provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, ollama, aider-ollama, hashline-ollama)', enum: ['codex', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama'] },
         model: { type: 'string', description: 'Default model for this project' },
         verify_command: { type: 'string', description: 'Post-task verify command (e.g., "npx tsc --noEmit && npx vitest run")' },
         auto_fix: { type: 'boolean', description: 'Auto-fix type errors after task completion' },

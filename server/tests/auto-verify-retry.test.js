@@ -281,7 +281,7 @@ describe('handleAutoVerifyRetry — guards and init', () => {
     expect(ctx.status).toBe('completed');
   });
 
-  it.each(['ollama', 'aider-ollama', 'hashline-ollama', 'hashline-openai'])(
+  it.each(['ollama', 'aider-ollama', 'hashline-ollama'])(
     'runs by default for expanded auto-verify provider %s',
     async (provider) => {
       const db = createMockDb({ initialConfig: { verify_command: 'npx tsc --noEmit' } });
@@ -345,7 +345,7 @@ describe('handleAutoVerifyRetry — guards and init', () => {
     expect(ctx.status).toBe('completed');
   });
 
-  it.each(['codex', 'codex-spark', 'ollama', 'aider-ollama', 'hashline-ollama', 'hashline-openai', 'claude-cli'])(
+  it.each(['codex', 'codex-spark', 'ollama', 'aider-ollama', 'hashline-ollama', 'claude-cli'])(
     'skips when auto_verify_on_completion is explicitly disabled for provider %s',
     async (provider) => {
       const db = createMockDb({

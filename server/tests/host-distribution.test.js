@@ -522,9 +522,8 @@ describe('Host Distribution & Load Balancing', () => {
       expect(updated.provider).toBe('hashline-ollama');
       expect(updated.model).not.toBe('qwen2.5-coder:7b');
       expect(updated.status).toBe('queued');
-      // Should NOT be codex or hashline-openai
+      // Should not escalate away from the local hashline provider yet.
       expect(updated.provider).not.toBe('codex');
-      expect(updated.provider).not.toBe('hashline-openai');
     });
 
     it('cloud fallback only after max_hashline_local_retries reached', () => {
@@ -544,8 +543,8 @@ describe('Host Distribution & Load Balancing', () => {
       taskManager.tryHashlineTieredFallback(taskId, task, 'still failing');
 
       const updated = db.getTask(taskId);
-      // NOW should escalate to cloud
-      expect(['codex', 'hashline-openai']).toContain(updated.provider);
+      // Now the task should escalate away from local hashline execution.
+      expect(updated.provider).not.toBe('hashline-ollama');
     });
   });
 

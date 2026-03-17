@@ -7,7 +7,6 @@ vi.mock('../providers/registry', () => {
     'claude-cli': 'codex',
     anthropic: 'api',
     groq: 'api',
-    'hashline-openai': 'api',
     hyperbolic: 'api',
     deepinfra: 'api',
     'ollama-cloud': 'api',

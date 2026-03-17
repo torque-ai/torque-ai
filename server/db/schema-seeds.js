@@ -138,9 +138,6 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertProvider.run('hashline-ollama', 1, 5, 'api', 'api', null, JSON.stringify([
       'connection refused', 'timeout', 'ECONNREFUSED', 'model not found'
     ]), 2, now);
-  insertProvider.run('hashline-openai', 0, 8, 'api', 'api', null, JSON.stringify([
-      'rate_limit', '429', 'insufficient_quota', 'exceeded your current quota', 'server_error'
-    ]), 5, now);
   insertProvider.run('anthropic', 0, 6, 'api', 'api', null, JSON.stringify([
       'rate_limit_error', 'overloaded_error', '429', '529'
     ]), 5, now);
@@ -179,7 +176,6 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     groq: { capabilities: [], band: 'D' },
     cerebras: { capabilities: [], band: 'D' },
     'google-ai': { capabilities: [], band: 'D' },
-    'hashline-openai': { capabilities: ['file_edit', 'reasoning'], band: 'B' },
   };
 
   for (const [provider, config] of Object.entries(PROVIDER_CAPABILITIES)) {

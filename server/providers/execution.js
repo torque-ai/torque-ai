@@ -4,7 +4,7 @@
  * Thin aggregator that delegates to sub-modules:
  * - execute-api.js      — executeApiProvider (API-based providers)
  * - execute-ollama.js   — executeOllamaTask, estimateRequiredContext (plain Ollama)
- * - execute-hashline.js — executeHashlineOllamaTask, executeHashlineOpenaiTask, error-feedback helpers
+ * - execute-hashline.js — executeHashlineOllamaTask, error-feedback helpers
  * - execute-cli.js      — buildAiderOllamaCommand, buildClaudeCliCommand, buildCodexCommand, spawnAndTrackProcess
  *
  * Preserves the original init() DI interface — all dependencies are forwarded to sub-modules.
@@ -112,7 +112,6 @@ module.exports = {
   executeApiProvider: _executeApiModule.executeApiProvider,
   // From execute-hashline.js
   executeHashlineOllamaTask: _executeHashlineModule.executeHashlineOllamaTask,
-  executeHashlineOpenaiTask: _executeHashlineModule.executeHashlineOpenaiTask,
   runOllamaGenerate: _executeHashlineModule.runOllamaGenerate,
   parseAndApplyEdits: _executeHashlineModule.parseAndApplyEdits,
   runErrorFeedbackLoop: _executeHashlineModule.runErrorFeedbackLoop,

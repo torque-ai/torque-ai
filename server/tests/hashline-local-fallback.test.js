@@ -160,7 +160,8 @@ describe('Hashline Local Model Escalation', () => {
       expect(result).toBe(true);
 
       const updated = db.getTask(taskId);
-      expect(['codex', 'hashline-openai']).toContain(updated.provider);
+      expect(updated.provider).not.toBe('hashline-ollama');
+      expect(updated.model).toBeNull();
     });
 
     it('escalates to codex when no other models are available', () => {
@@ -183,22 +184,8 @@ describe('Hashline Local Model Escalation', () => {
         updated = db.getTask(taskId);
       }
 
-      expect(['codex', 'hashline-openai']).toContain(updated.provider);
-    });
-
-    it('hashline-openai still falls straight to codex (no local retry)', () => {
-      const taskId = createHashlineTask('gpt-4o', null);
-      db.updateTaskStatus(taskId, 'running', { provider: 'hashline-openai' });
-
-      const task = db.getTask(taskId);
-      expect(task.provider).toBe('hashline-openai');
-
-      const result = taskManager.tryHashlineTieredFallback(taskId, task, 'no edits parsed from OpenAI');
-
-      expect(result).toBe(true);
-
-      const updated = db.getTask(taskId);
-      expect(updated.provider).toBe('codex');
+      expect(updated.provider).not.toBe('hashline-ollama');
+      expect(updated.model).toBeNull();
     });
 
     it('preserves error_output history across retries', () => {

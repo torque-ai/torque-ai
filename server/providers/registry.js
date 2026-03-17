@@ -24,7 +24,7 @@ let _db = null;
 const PROVIDER_CATEGORIES = {
   ollama: ['ollama', 'aider-ollama', 'hashline-ollama'],
   codex:  ['codex', 'claude-cli'],
-  api:    ['anthropic', 'groq', 'hashline-openai', 'hyperbolic', 'deepinfra',
+  api:    ['anthropic', 'groq', 'hyperbolic', 'deepinfra',
            'ollama-cloud', 'cerebras', 'google-ai', 'openrouter'],
 };
 

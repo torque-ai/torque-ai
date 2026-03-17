@@ -109,7 +109,7 @@ describe('Slot claim atomicity', () => {
     const configByProvider = {
       ollama: { providerLimit: 1, providerGroup: ['ollama', 'aider-ollama', 'hashline-ollama'] },
       codex: { providerLimit: 2, providerGroup: ['codex', 'claude-cli'] },
-      anthropic: { providerLimit: 1, providerGroup: ['anthropic', 'groq', 'hashline-openai', 'hyperbolic', 'deepinfra'] },
+      anthropic: { providerLimit: 1, providerGroup: ['anthropic', 'groq', 'hyperbolic', 'deepinfra'] },
     };
     const tasks = [
       createQueuedTask({ provider: 'ollama' }),
@@ -148,7 +148,7 @@ describe('Slot claim atomicity', () => {
       .prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (?,?)')
       .get('running', ...configByProvider.codex.providerGroup).count;
     const apiRunning = db.getDbInstance()
-      .prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (?,?,?,?,?)')
+      .prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (?,?,?,?)')
       .get('running', ...configByProvider.anthropic.providerGroup).count;
 
     expect(ollamaRunning).toBe(1);

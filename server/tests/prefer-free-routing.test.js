@@ -21,7 +21,6 @@ describe('COST_FREE_PROVIDERS constant', () => {
     expect(COST_FREE_PROVIDERS).not.toContain('anthropic');
     expect(COST_FREE_PROVIDERS).not.toContain('deepinfra');
     expect(COST_FREE_PROVIDERS).not.toContain('hyperbolic');
-    expect(COST_FREE_PROVIDERS).not.toContain('hashline-openai');
   });
 
   it('is frozen', () => {

@@ -5,7 +5,7 @@ const LOGGER_PATH = require.resolve('../logger');
 const CONFIG_PATH = require.resolve('../config');
 const TRACKED_ENV_KEYS = [
   'UNIT_TEST_PROVIDER_API_KEY',
-  'HASHLINE_OPENAI_API_KEY',
+  'CLAUDE_CLI_API_KEY',
   'ANTHROPIC_API_KEY',
 ];
 const ORIGINAL_CACHE_ENTRIES = new Map([
@@ -123,7 +123,6 @@ describe('Provider Registry', () => {
       expect(registry.PROVIDER_CATEGORIES.api).toEqual([
         'anthropic',
         'groq',
-        'hashline-openai',
         'hyperbolic',
         'deepinfra',
         'ollama-cloud',
@@ -397,13 +396,13 @@ describe('Provider Registry', () => {
         }
       }
 
-      process.env.HASHLINE_OPENAI_API_KEY = 'hyphenated-env-key';
+      process.env.CLAUDE_CLI_API_KEY = 'hyphenated-env-key';
       configModule.get.mockReturnValue(null);
-      registry.registerProviderClass('hashline-openai', MockProvider);
+      registry.registerProviderClass('claude-cli', MockProvider);
 
-      const instance = registry.getProviderInstance('hashline-openai');
+      const instance = registry.getProviderInstance('claude-cli');
 
-      expect(configModule.get).toHaveBeenCalledWith('hashline_openai_api_key');
+      expect(configModule.get).toHaveBeenCalledWith('claude_cli_api_key');
       expect(instance.options).toEqual({ apiKey: 'hyphenated-env-key' });
     });
 

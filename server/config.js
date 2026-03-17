@@ -81,7 +81,6 @@ const API_KEY_ENV_VARS = {
   openrouter:       'OPENROUTER_API_KEY',
   deepinfra:        'DEEPINFRA_API_KEY',
   hyperbolic:       'HYPERBOLIC_API_KEY',
-  'hashline-openai': 'OPENAI_API_KEY',
   codex:            'OPENAI_API_KEY',
 };
 

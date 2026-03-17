@@ -96,7 +96,6 @@ function wrapWithInstructions(...args) { return _promptsModule.wrapWithInstructi
 async function executeApiProvider(...args) { return _executionModule.executeApiProvider(...args); }
 async function executeOllamaTask(...args) { return _executionModule.executeOllamaTask(...args); }
 async function executeHashlineOllamaTask(...args) { return _executionModule.executeHashlineOllamaTask(...args); }
-async function executeHashlineOpenaiTask(...args) { return _executionModule.executeHashlineOpenaiTask(...args); }
 
 // ─── execution/fallback-retry.js ──────────────────────────────────────────
 function tryOllamaCloudFallback(...args) { return _fallbackRetryModule.tryOllamaCloudFallback(...args); }
@@ -173,7 +172,7 @@ module.exports = {
   detectTaskTypes, getInstructionTemplate, wrapWithInstructions,
   // execution
   executeApiProvider, executeOllamaTask,
-  executeHashlineOllamaTask, executeHashlineOpenaiTask,
+  executeHashlineOllamaTask,
   // fallback-retry
   tryOllamaCloudFallback, tryLocalFirstFallback, classifyError,
   findNextHashlineModel, tryHashlineTieredFallback, selectHashlineFormat,

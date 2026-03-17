@@ -27,7 +27,6 @@ function createMockDb({ config = {}, providers = {}, routingRules = [] } = {}) {
     ollama: createProviderRow('ollama'),
     'aider-ollama': createProviderRow('aider-ollama'),
     'hashline-ollama': createProviderRow('hashline-ollama'),
-    'hashline-openai': createProviderRow('hashline-openai', { enabled: 0 }),
     ...providers,
   };
 

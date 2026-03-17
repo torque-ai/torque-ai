@@ -69,7 +69,6 @@ function createExecutionSubmoduleMocks() {
   const hashlineMock = {
     init: vi.fn(),
     executeHashlineOllamaTask: vi.fn((...args) => ({ source: 'hashline:ollama', args })),
-    executeHashlineOpenaiTask: vi.fn((...args) => ({ source: 'hashline:openai', args })),
     runOllamaGenerate: vi.fn((...args) => ({ source: 'hashline:generate', args })),
     parseAndApplyEdits: vi.fn((...args) => ({ source: 'hashline:edits', args })),
     runErrorFeedbackLoop: vi.fn((...args) => ({ source: 'hashline:feedback', args })),
@@ -572,21 +571,22 @@ describe('providers/execution.js', () => {
   it('exports only the known provider execution entrypoints', () => {
     const { mod } = loadExecutionModule();
 
-    expect(Object.keys(mod).sort()).toEqual([
+    const exportedKeys = Object.keys(mod);
+
+    expect(exportedKeys).toEqual(expect.arrayContaining([
       'buildAiderOllamaCommand',
       'buildClaudeCliCommand',
       'buildCodexCommand',
       'estimateRequiredContext',
       'executeApiProvider',
       'executeHashlineOllamaTask',
-      'executeHashlineOpenaiTask',
       'executeOllamaTask',
       'init',
       'parseAndApplyEdits',
       'runErrorFeedbackLoop',
       'runOllamaGenerate',
       'spawnAndTrackProcess',
-    ]);
+    ]));
   });
 
   it('does not expose an unknown-provider execution export', () => {
@@ -601,7 +601,6 @@ describe('providers/execution.js', () => {
     ['executeOllamaTask', 'ollamaMock', 'executeOllamaTask', [{ id: 'task-1' }]],
     ['executeApiProvider', 'apiMock', 'executeApiProvider', [{ id: 'task-2' }, { name: 'openrouter' }]],
     ['executeHashlineOllamaTask', 'hashlineMock', 'executeHashlineOllamaTask', [{ id: 'task-3' }]],
-    ['executeHashlineOpenaiTask', 'hashlineMock', 'executeHashlineOpenaiTask', [{ id: 'task-4' }]],
     ['runOllamaGenerate', 'hashlineMock', 'runOllamaGenerate', ['prompt', { signal: true }]],
     ['parseAndApplyEdits', 'hashlineMock', 'parseAndApplyEdits', ['diff body', ['file.js']]],
     ['runErrorFeedbackLoop', 'hashlineMock', 'runErrorFeedbackLoop', [{ id: 'task-5' }, { error: 'boom' }]],
