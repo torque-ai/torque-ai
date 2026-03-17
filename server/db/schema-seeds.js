@@ -628,6 +628,16 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('workstation_agent_port', '3460');
   setConfigDefault('workstation_cert_warning_days', '30');
   setConfigDefault('vram_overhead_factor', '0.95');
+
+  // Seed routing template presets
+  try {
+    const templateStore = require('../routing/template-store');
+    templateStore.setDb(db);
+    templateStore.ensureTable();
+    templateStore.seedPresets();
+  } catch (e) {
+    logger.debug(`Schema seed (routing templates): ${e.message}`);
+  }
 }
 
 module.exports = { seedDefaults };

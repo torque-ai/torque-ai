@@ -525,6 +525,24 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   } catch (e) {
     logger.debug(`Schema migration (workstation data migration): ${e.message}`);
   }
+
+  // Routing templates
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS routing_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        rules_json TEXT NOT NULL,
+        complexity_overrides_json TEXT,
+        preset INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (routing_templates): ${e.message}`);
+  }
 }
 
 module.exports = { runMigrations };
