@@ -461,7 +461,7 @@ function getBenchmarkStats(hostId) {
 
 // Cache: ollama_host_id → workstation_id (null = no workstation found)
 const _wsHostCache = new Map();
-const VRAM_OVERHEAD_FACTOR = 0.85; // Reserve 15% VRAM for OS/driver overhead
+const VRAM_OVERHEAD_FACTOR = 0.95; // Reserve 5% VRAM for OS/driver overhead (Ollama manages its own memory)
 
 /**
  * Find the workstation record that corresponds to an ollama_host.
