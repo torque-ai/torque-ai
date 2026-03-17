@@ -88,10 +88,12 @@ function handleActivateRoutingTemplate(args) {
 }
 
 function handleGetActiveRouting() {
+  const explicitId = templateStore.getExplicitActiveTemplateId();
   const tmpl = templateStore.getActiveTemplate();
   if (!tmpl) return makeTextResult('No active template and System Default not found', true);
   return makeTextResult({
     template: tmpl,
+    explicit: !!explicitId,
     categories: getCategories(),
   });
 }

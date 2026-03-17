@@ -59,6 +59,7 @@ export default function RoutingTemplates() {
   const [editingOverrides, setEditingOverrides] = useState({});
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [hasChanges, setHasChanges] = useState(false);
+  const [activeTemplateId, setActiveTemplateId] = useState(null);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
 
@@ -78,8 +79,11 @@ export default function RoutingTemplates() {
       setTemplates(templateList);
       setCategories(categoryList);
 
+      // Track which template is actively used for routing
+      const activeId = activeData?.template?.id || null;
+      setActiveTemplateId(activeData?.explicit ? activeId : null);
+
       // Select the active template or first available
-      const activeId = activeData?.template?.id;
       const firstId = templateList[0]?.id;
       const selectId = activeId || firstId || null;
 
@@ -200,6 +204,25 @@ export default function RoutingTemplates() {
     }
   }
 
+  async function handleActivate() {
+    if (!selectedTemplate) return;
+    try {
+      const isCurrentlyActive = activeTemplateId === selectedId;
+      if (isCurrentlyActive) {
+        // Deactivate — revert to hardcoded routing
+        await api.setActive({ template_id: null });
+        setActiveTemplateId(null);
+        toast.success('Template deactivated — using built-in routing');
+      } else {
+        await api.setActive({ template_id: selectedId });
+        setActiveTemplateId(selectedId);
+        toast.success(`Activated template '${selectedTemplate.name}' for routing`);
+      }
+    } catch (err) {
+      toast.error(`Activate failed: ${err.message}`);
+    }
+  }
+
   async function handleDelete() {
     if (!selectedTemplate || selectedTemplate.preset) return;
     try {
@@ -221,8 +244,27 @@ export default function RoutingTemplates() {
     );
   }
 
+  const activeTemplateName = activeTemplateId
+    ? templates.find((t) => t.id === activeTemplateId)?.name
+    : null;
+
   return (
     <div className="space-y-4">
+      {/* Active Status */}
+      <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border ${
+        activeTemplateName
+          ? 'bg-green-500/10 border-green-500/30'
+          : 'bg-slate-800/50 border-slate-700/50'
+      }`}>
+        <span className={`w-2.5 h-2.5 rounded-full ${activeTemplateName ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+        <span className="text-sm text-slate-300">
+          {activeTemplateName
+            ? <>Routing via template: <span className="font-medium text-green-300">{activeTemplateName}</span></>
+            : 'No template active — using built-in routing logic'
+          }
+        </span>
+      </div>
+
       {/* Template Selector Bar */}
       <div className="glass-card p-4">
         <div className="flex items-center gap-3 flex-wrap">
@@ -240,6 +282,18 @@ export default function RoutingTemplates() {
           </select>
 
           <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={handleActivate}
+              disabled={!selectedTemplate}
+              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                activeTemplateId === selectedId
+                  ? 'bg-green-600/30 border border-green-500/50 text-green-300 hover:bg-red-600/20 hover:border-red-500/30 hover:text-red-300'
+                  : 'bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-600/40'
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
+            >
+              {activeTemplateId === selectedId ? 'Deactivate' : 'Activate'}
+            </button>
+            <span className="w-px h-5 bg-slate-700" />
             <button
               onClick={handleNew}
               className="px-3 py-1.5 text-sm bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 rounded-lg hover:bg-emerald-600/40 transition-colors"
