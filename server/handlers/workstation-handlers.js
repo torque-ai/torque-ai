@@ -372,9 +372,9 @@ function fetchJson(url, timeoutMs) {
 }
 
 module.exports = {
-  listWorkstations,
-  addWorkstation,
-  removeWorkstation,
-  probeWorkstation,
-  checkWorkstationHealth,
+  handleListWorkstations: listWorkstations,
+  handleAddWorkstation: addWorkstation,
+  handleRemoveWorkstation: removeWorkstation,
+  handleProbeWorkstation: probeWorkstation,
+  handleCheckWorkstationHealth: checkWorkstationHealth,
 };
