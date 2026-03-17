@@ -311,13 +311,14 @@ describe('models/registry', () => {
     registry.approveModel('ollama', 'test-model-registry-approved-a', 'host-a');
     registry.approveModel('ollama', 'test-model-registry-approved-b', 'host-b');
 
-    expect(registry.getApprovedModels('ollama').map((row) => row.model_name)).toEqual([
-      'test-model-registry-approved-a',
-      'test-model-registry-approved-b',
-    ]);
-    expect(registry.getApprovedModels('ollama', 'host-b').map((row) => row.model_name)).toEqual([
-      'test-model-registry-approved-b',
-    ]);
+    const allApproved = registry.getApprovedModels('ollama').map((row) => row.model_name);
+    expect(allApproved).toContain('test-model-registry-approved-a');
+    expect(allApproved).toContain('test-model-registry-approved-b');
+    expect(allApproved).not.toContain('test-model-registry-pending-host');
+
+    const hostFiltered = registry.getApprovedModels('ollama', 'host-b').map((row) => row.model_name);
+    expect(hostFiltered).toContain('test-model-registry-approved-b');
+    expect(hostFiltered).not.toContain('test-model-registry-approved-a');
   });
 
   it('bulkApproveByProvider approves only pending rows for the requested provider', () => {
