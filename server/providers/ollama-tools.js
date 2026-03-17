@@ -238,7 +238,7 @@ function isCommandAllowed(command, allowlist) {
   for (const pattern of allowlist) {
     // Convert the simple glob to a regex:
     // Escape regex special chars except *, then replace * with .*
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    const escaped = pattern.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*');
     const regex = new RegExp(`^${escaped}$`);
     if (regex.test(command)) return true;
   }

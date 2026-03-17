@@ -67,3 +67,4 @@ artifacts/releases/
 server/artifacts/
 server/eng.traineddata
 dashboard/test-results/
+.superpowers/
