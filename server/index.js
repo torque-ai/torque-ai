@@ -891,6 +891,7 @@ function startMaintenanceScheduler() {
 /**
  * Start the coordination scheduler
  * C-3: Runs agent health checks, lease expiry, and lock cleanup on separate intervals
+ * H-3: Periodically records agent load metrics for online agents
  * Idempotent - safe to call multiple times
  */
 function startCoordinationScheduler() {
@@ -918,12 +919,28 @@ function startCoordinationScheduler() {
     }
   }, 30000);
 
-  // Every 5 minutes: clean up expired locks
+  // Every 5 minutes: clean up expired locks + record agent metrics
   coordinationLockInterval = setInterval(() => {
     try {
       db.cleanupExpiredLocks();
     } catch (err) {
       debugLog(`cleanupExpiredLocks error: ${err.message}`);
+    }
+
+    // H-3: Record agent load metrics for online agents
+    try {
+      const now = new Date().toISOString();
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const onlineAgents = db.listAgents({ status: 'online' });
+      for (const agent of onlineAgents) {
+        try {
+          db.recordAgentMetric(agent.id, 'current_load', agent.current_load || 0, fiveMinAgo, now);
+        } catch (metricErr) {
+          debugLog(`recordAgentMetric error for agent ${agent.id}: ${metricErr.message}`);
+        }
+      }
+    } catch (err) {
+      debugLog(`Agent metrics collection error: ${err.message}`);
     }
   }, 300000);
 }
