@@ -95,9 +95,8 @@ function getProviderInstance(name) {
     return null;
   }
 
-  const configKey = `${name.replace(/-/g, '_')}_api_key`;
-  const envKey = configKey.toUpperCase();
-  const apiKey = serverConfig.get(configKey) || process.env[envKey];
+  // Resolve key via getApiKey (env var → encrypted DB → legacy config table)
+  const apiKey = serverConfig.getApiKey(name);
 
   _instances[name] = new Constructor({ apiKey });
   return _instances[name];
