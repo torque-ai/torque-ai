@@ -24,7 +24,7 @@ const Schedules = lazy(() => import('./views/Schedules'));
 const Approvals = lazy(() => import('./views/Approvals'));
 const Coordination = lazy(() => import('./views/Coordination'));
 const FreeTier = lazy(() => import('./views/FreeTier'));
-const Strategic = lazy(() => import('./views/Strategic'));
+const Strategy = lazy(() => import('./views/Strategy'));
 
 function mergeTaskUpdates(prevTasks, incomingTasks) {
   const updates = new Map(
@@ -261,7 +261,8 @@ function AppInner() {
               <Route path="approvals" element={<Approvals />} />
               <Route path="coordination" element={<Coordination />} />
               <Route path="free-tier" element={<FreeTier />} />
-              <Route path="strategic" element={<Strategic />} />
+              <Route path="strategy" element={<Strategy />} />
+              <Route path="strategic" element={<Navigate to="/strategy" replace />} />
             </Route>
           </Routes>
         </Suspense>

@@ -1,6 +1,6 @@
 import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
-import Strategic from './Strategic';
+import Strategic from './Strategy';
 
 vi.mock('../api', () => ({
   strategic: {
@@ -8,6 +8,11 @@ vi.mock('../api', () => ({
     operations: vi.fn(),
     decisions: vi.fn(),
     providerHealth: vi.fn(),
+  },
+  routingTemplates: {
+    list: vi.fn().mockResolvedValue([]),
+    getActive: vi.fn().mockResolvedValue({ template: null }),
+    categories: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -150,13 +155,13 @@ describe('Strategic', () => {
     strategicApi.operations.mockReturnValue(new Promise(() => {}));
     strategicApi.decisions.mockReturnValue(new Promise(() => {}));
     strategicApi.providerHealth.mockReturnValue(new Promise(() => {}));
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     expect(screen.getByText('Loading...')).toBeTruthy();
   });
 
   it('renders error state on API failure', async () => {
     strategicApi.status.mockRejectedValue(new Error('Network error'));
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Failed to load strategic brain status')).toBeTruthy();
       expect(screen.getByText('Network error')).toBeTruthy();
@@ -165,7 +170,7 @@ describe('Strategic', () => {
 
   it('renders retry button on error', async () => {
     strategicApi.status.mockRejectedValue(new Error('timeout'));
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Retry')).toBeTruthy();
     });
@@ -174,30 +179,42 @@ describe('Strategic', () => {
   // --- Heading and Layout ---
 
   it('renders heading after data loads', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      expect(screen.getByText('Strategic Brain')).toBeTruthy();
+      expect(screen.getByText('Strategy')).toBeTruthy();
     });
   });
 
   it('renders subtitle text', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Routing decisions, provider health, and LLM-powered orchestration')).toBeTruthy();
     });
   });
 
   it('renders refresh button', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Refresh')).toBeTruthy();
     });
   });
 
-  // --- Stat Cards ---
+  // --- Top-Level Tab Bar ---
+
+  it('renders top-level tab buttons', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Overview')).toBeTruthy();
+      expect(screen.getByText('Decisions')).toBeTruthy();
+      expect(screen.getByText('Operations')).toBeTruthy();
+      expect(screen.getByText('Routing Templates')).toBeTruthy();
+    });
+  });
+
+  // --- Stat Cards (Overview tab, default) ---
 
   it('displays Active Provider stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Active Provider')).toBeTruthy();
       // 'deepinfra' appears in stat card, config, health card, and chain
@@ -207,35 +224,35 @@ describe('Strategic', () => {
   });
 
   it('displays LLM Calls stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('LLM Calls')).toBeTruthy();
     });
   });
 
   it('displays Fallback Rate stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Fallback Rate')).toBeTruthy();
     });
   });
 
   it('displays Tokens Used stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Tokens Used')).toBeTruthy();
     });
   });
 
   it('displays Providers Enabled stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Providers Enabled')).toBeTruthy();
     });
   });
 
   it('displays Providers Healthy stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Providers Healthy')).toBeTruthy();
     });
@@ -244,21 +261,21 @@ describe('Strategic', () => {
   // --- Active Configuration ---
 
   it('displays active configuration section', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Active Configuration')).toBeTruthy();
     });
   });
 
   it('displays model name in configuration', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('meta-llama/Llama-3.1-405B-Instruct')).toBeTruthy();
     });
   });
 
   it('displays confidence threshold in configuration', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Confidence Threshold')).toBeTruthy();
       expect(screen.getByText('40%')).toBeTruthy();
@@ -268,7 +285,7 @@ describe('Strategic', () => {
   // --- Routing Summary ---
 
   it('displays routing summary section', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Routing Summary')).toBeTruthy();
     });
@@ -277,14 +294,14 @@ describe('Strategic', () => {
   // --- Fallback Chain ---
 
   it('displays fallback chain section', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Fallback Chain')).toBeTruthy();
     });
   });
 
   it('displays all providers in the fallback chain', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       // The chain includes deepinfra, hyperbolic, ollama
       // These appear as chain nodes
@@ -295,7 +312,7 @@ describe('Strategic', () => {
   });
 
   it('displays active provider label in fallback chain footer', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText(/Active provider/)).toBeTruthy();
     });
@@ -304,25 +321,25 @@ describe('Strategic', () => {
   // --- Provider Health Cards ---
 
   it('displays provider health section', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Provider Health')).toBeTruthy();
     });
   });
 
   it('displays individual provider health cards', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Provider Health')).toBeTruthy();
     });
     // Check provider names appear in health cards
-    // 'codex' appears in both health card and decision table, so just verify at least one
+    // 'codex' appears in health card
     const codexElements = screen.getAllByText('codex');
     expect(codexElements.length).toBeGreaterThanOrEqual(1);
   });
 
   it('displays health status badges', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       // healthy appears for codex and deepinfra, warning for ollama, disabled for groq
       const healthyElements = screen.getAllByText('healthy');
@@ -331,7 +348,7 @@ describe('Strategic', () => {
   });
 
   it('displays warning status for degraded providers', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       const warningElements = screen.getAllByText('warning');
       expect(warningElements.length).toBeGreaterThanOrEqual(1);
@@ -339,7 +356,7 @@ describe('Strategic', () => {
   });
 
   it('displays disabled status for disabled providers', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       const disabledElements = screen.getAllByText('disabled');
       expect(disabledElements.length).toBeGreaterThanOrEqual(1);
@@ -347,7 +364,7 @@ describe('Strategic', () => {
   });
 
   it('displays success rate in health cards', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       // codex has 95%, appears as "95%"
       expect(screen.getByText('95%')).toBeTruthy();
@@ -355,7 +372,7 @@ describe('Strategic', () => {
   });
 
   it('displays avg latency in health cards', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       // codex avg 45s, ollama 120s=2.0m, deepinfra 30s
       expect(screen.getByText('45s')).toBeTruthy();
@@ -365,7 +382,7 @@ describe('Strategic', () => {
   });
 
   it('displays completed today count', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       // codex completed_today = 22
       expect(screen.getByText('22')).toBeTruthy();
@@ -373,7 +390,7 @@ describe('Strategic', () => {
   });
 
   it('shows "No data" for providers with no success rate', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('No data')).toBeTruthy();
     });
@@ -381,59 +398,52 @@ describe('Strategic', () => {
 
   it('shows empty provider health when no providers', async () => {
     strategicApi.providerHealth.mockResolvedValue({ providers: [] });
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('No provider health data available.')).toBeTruthy();
     });
   });
 
-  // --- Tabs ---
+  // --- Decisions Tab ---
 
-  it('renders tab buttons', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+  it('switches to Decisions tab and shows decision history', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      // 'Decision History' appears as both tab button text and table heading
-      const decisionHistoryElements = screen.getAllByText('Decision History');
-      expect(decisionHistoryElements.length).toBeGreaterThanOrEqual(1);
-      // 'Strategic Operations' only appears as tab button
-      expect(screen.getByText('Strategic Operations')).toBeTruthy();
+      expect(screen.getByText('Decisions')).toBeTruthy();
     });
-  });
 
-  it('shows Decision History tab as active by default', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
-      // Decision history table shows count
+      // Decision History heading with count
       expect(screen.getByText(/3 decisions/)).toBeTruthy();
     });
   });
 
-  // --- Decision History Table ---
-
   it('displays decision history table headers', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('Time')).toBeTruthy();
       expect(screen.getByText('Task ID')).toBeTruthy();
       expect(screen.getByText('Complexity')).toBeTruthy();
-      // 'Provider' appears in multiple sections; verify at least one exists
-      const providerElements = screen.getAllByText('Provider');
-      expect(providerElements.length).toBeGreaterThanOrEqual(1);
-      // 'Model' appears in config and table header
-      const modelElements = screen.getAllByText('Model');
-      expect(modelElements.length).toBeGreaterThanOrEqual(1);
-      // 'Status' appears in decisions table
-      const statusElements = screen.getAllByText('Status');
-      expect(statusElements.length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText('Flags')).toBeTruthy();
-      // 'Description' appears only in decisions table
-      const descElements = screen.getAllByText('Description');
-      expect(descElements.length).toBeGreaterThanOrEqual(1);
     });
   });
 
   it('displays truncated task IDs', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('task-abc')).toBeTruthy();
       expect(screen.getByText('task-def')).toBeTruthy();
@@ -442,7 +452,13 @@ describe('Strategic', () => {
   });
 
   it('displays complexity badges', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('complex')).toBeTruthy();
       expect(screen.getByText('normal')).toBeTruthy();
@@ -451,7 +467,13 @@ describe('Strategic', () => {
   });
 
   it('displays status badges in decisions', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       // completed, running, failed statuses
       const completedElements = screen.getAllByText('completed');
@@ -461,14 +483,26 @@ describe('Strategic', () => {
   });
 
   it('displays fallback flag', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('fallback')).toBeTruthy();
     });
   });
 
   it('displays review flag', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       const reviewElements = screen.getAllByText('review');
       expect(reviewElements.length).toBeGreaterThanOrEqual(1);
@@ -476,21 +510,39 @@ describe('Strategic', () => {
   });
 
   it('does not require legacy split_advisory flags in v2 decisions', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.queryByText('split')).toBeNull();
     });
   });
 
   it('displays task descriptions', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('Write comprehensive tests for the UserAuth system')).toBeTruthy();
     });
   });
 
   it('displays model names (short form)', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('gpt-5.3-codex-spark')).toBeTruthy();
       // qwen2.5-coder:32b appears for both hashline-ollama and ollama tasks
@@ -501,7 +553,13 @@ describe('Strategic', () => {
 
   it('shows empty state when no decisions', async () => {
     strategicApi.decisions.mockResolvedValue({ decisions: [] });
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('No routing decisions recorded yet.')).toBeTruthy();
     });
@@ -510,7 +568,13 @@ describe('Strategic', () => {
   // --- Sorting ---
 
   it('sorts decisions by clicking column header', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('Complexity')).toBeTruthy();
     });
@@ -527,12 +591,18 @@ describe('Strategic', () => {
   });
 
   it('toggles sort direction on second click', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Decisions')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Decisions'));
+
     await waitFor(() => {
       expect(screen.getByText('Complexity')).toBeTruthy();
     });
 
-    // Click Complexity header twice to toggle direction (Complexity is unique in headers)
+    // Click Complexity header twice to toggle direction
     fireEvent.click(screen.getByText('Complexity'));
     fireEvent.click(screen.getByText('Complexity'));
 
@@ -542,15 +612,15 @@ describe('Strategic', () => {
     });
   });
 
-  // --- Strategic Operations Tab ---
+  // --- Operations Tab ---
 
-  it('switches to Strategic Operations tab', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+  it('switches to Operations tab', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      expect(screen.getByText('Strategic Operations')).toBeTruthy();
+      expect(screen.getByText('Operations')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText('Strategic Operations'));
+    fireEvent.click(screen.getByText('Operations'));
 
     await waitFor(() => {
       expect(screen.getByText('Recent Strategic Operations')).toBeTruthy();
@@ -558,12 +628,12 @@ describe('Strategic', () => {
   });
 
   it('displays operations table after switching tabs', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      expect(screen.getByText('Strategic Operations')).toBeTruthy();
+      expect(screen.getByText('Operations')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText('Strategic Operations'));
+    fireEvent.click(screen.getByText('Operations'));
 
     await waitFor(() => {
       expect(screen.getByText(/Strategic decomposition of UserAuth/)).toBeTruthy();
@@ -573,12 +643,12 @@ describe('Strategic', () => {
 
   it('shows empty operations state when no operations', async () => {
     strategicApi.operations.mockResolvedValue({ operations: [] });
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      expect(screen.getByText('Strategic Operations')).toBeTruthy();
+      expect(screen.getByText('Operations')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText('Strategic Operations'));
+    fireEvent.click(screen.getByText('Operations'));
 
     await waitFor(() => {
       expect(screen.getByText('No strategic operations recorded yet.')).toBeTruthy();
@@ -588,7 +658,7 @@ describe('Strategic', () => {
   // --- Refresh ---
 
   it('calls all API endpoints on refresh', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategic' });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
       expect(screen.getByText('Refresh')).toBeTruthy();
     });

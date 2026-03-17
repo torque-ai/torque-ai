@@ -415,4 +415,17 @@ export const strategic = {
   providerHealth: () => requestV2('/strategic/provider-health').then(d => unwrapListPayload(d, 'providers')),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, coordination, freeTier, strategic };
+// ─── Routing Templates (v2) ──────────────────────────────────────────────────
+
+export const routingTemplates = {
+  list: (opts = {}) => requestV2('/routing/templates', opts),
+  get: (id, opts = {}) => requestV2(`/routing/templates/${id}`, opts),
+  create: (data, opts = {}) => requestV2('/routing/templates', { method: 'POST', body: JSON.stringify(data), ...opts }),
+  update: (id, data, opts = {}) => requestV2(`/routing/templates/${id}`, { method: 'PUT', body: JSON.stringify(data), ...opts }),
+  remove: (id, opts = {}) => requestV2(`/routing/templates/${id}`, { method: 'DELETE', ...opts }),
+  getActive: (opts = {}) => requestV2('/routing/active', opts),
+  setActive: (data, opts = {}) => requestV2('/routing/active', { method: 'PUT', body: JSON.stringify(data), ...opts }),
+  categories: (opts = {}) => requestV2('/routing/categories', opts),
+};
+
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, coordination, freeTier, strategic, routingTemplates };

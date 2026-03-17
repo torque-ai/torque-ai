@@ -146,7 +146,7 @@ test.beforeEach(async ({ page }) => {
 // 1. Page loads and shows heading
 // ---------------------------------------------------------------------------
 test('strategic brain page loads and shows heading', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
   await expect(
     page.locator('text=Routing decisions, provider health, and LLM-powered orchestration')
@@ -157,7 +157,7 @@ test('strategic brain page loads and shows heading', async ({ page }) => {
 // 2. Active configuration section renders
 // ---------------------------------------------------------------------------
 test('active configuration section renders with provider and model', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   const configCard = page.locator('.glass-card', { hasText: 'Active Configuration' });
   await expect(configCard).toBeVisible({ timeout: 10000 });
 
@@ -176,7 +176,7 @@ test('active configuration section renders with provider and model', async ({ pa
 // 3. Stat cards render with usage numbers
 // ---------------------------------------------------------------------------
 test('stat cards render with usage values', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h3', { hasText: 'Active Configuration' })).toBeVisible({ timeout: 10000 });
 
   // StatCards: "Active Provider", "LLM Calls", "Fallback Rate", "Tokens Used",
@@ -200,7 +200,7 @@ test('stat cards render with usage values', async ({ page }) => {
 // 4. Fallback chain renders
 // ---------------------------------------------------------------------------
 test('fallback chain renders with provider nodes', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h3', { hasText: 'Fallback Chain' })).toBeVisible({ timeout: 10000 });
 
   // The chain should have deepinfra, hyperbolic, ollama
@@ -217,7 +217,7 @@ test('fallback chain renders with provider nodes', async ({ page }) => {
 // 5. Operations table renders with task rows (behind Strategic Operations tab)
 // ---------------------------------------------------------------------------
 test('operations table renders with recent operations', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   // Wait for page to load
   await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
 
@@ -240,7 +240,7 @@ test('operations table renders with recent operations', async ({ page }) => {
 // 6. Operations table shows status badges with correct colors
 // ---------------------------------------------------------------------------
 test('operations table shows status badges with correct colors', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
 
   // Click the "Strategic Operations" tab
@@ -272,7 +272,7 @@ test('operations table shows status badges with correct colors', async ({ page }
 // 7. Operations table shows provider column
 // ---------------------------------------------------------------------------
 test('operations table shows provider names', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
 
   // Click the "Strategic Operations" tab
@@ -307,7 +307,7 @@ test('refresh button triggers re-fetch', async ({ page }) => {
     });
   });
 
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
 
   const callsBefore = apiCallCount;
@@ -324,7 +324,7 @@ test('refresh button triggers re-fetch', async ({ page }) => {
 // 9. Configuration labels are all present
 // ---------------------------------------------------------------------------
 test('configuration section shows all labels', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h3', { hasText: 'Active Configuration' })).toBeVisible({ timeout: 10000 });
 
   await expect(page.locator('text=Provider').first()).toBeVisible();
@@ -346,7 +346,7 @@ test('auto-refresh does not crash after initial load', async ({ page }) => {
     });
   });
 
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
 
   const initialCalls = apiCallCount;
@@ -370,7 +370,7 @@ test('auto-refresh does not crash after initial load', async ({ page }) => {
 // 11. Operations table has correct column headers
 // ---------------------------------------------------------------------------
 test('operations table has correct column headers', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
 
   // Click the "Strategic Operations" tab
@@ -392,7 +392,7 @@ test('operations table has correct column headers', async ({ page }) => {
 // 12. Fallback chain explanation text is present
 // ---------------------------------------------------------------------------
 test('fallback chain shows explanation text', async ({ page }) => {
-  await page.goto('/strategic');
+  await page.goto('/strategy');
   await expect(page.locator('h3', { hasText: 'Fallback Chain' })).toBeVisible({ timeout: 10000 });
 
   await expect(

@@ -18,7 +18,7 @@ const ROUTE_NAMES = {
   '/approvals': 'Approvals',
   '/coordination': 'Coordination',
   '/free-tier': 'Free Tier',
-  '/strategic': 'Strategic',
+  '/strategy': 'Strategy',
 };
 
 // Simple SVG icons as components
@@ -146,7 +146,7 @@ const navItems = [
   { to: '/approvals', icon: ApprovalIcon, label: 'Approvals' },
   { to: '/coordination', icon: CoordIcon, label: 'Coordination' },
   { to: '/free-tier', icon: FreeTierIcon, label: 'Free Tier' },
-  { to: '/strategic', icon: StrategicIcon, label: 'Strategic' },
+  { to: '/strategy', icon: StrategicIcon, label: 'Strategy' },
 ];
 
 function NavItem({ to, icon, label, collapsed }) {
