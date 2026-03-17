@@ -23,6 +23,57 @@ const v2InfrastructureHandlers = require('./v2-infrastructure-handlers');
 const remoteAgentHandlers = require('../handlers/remote-agent-handlers');
 const concurrencyHandlers = require('../handlers/concurrency-handlers');
 
+async function readJsonBody(req) {
+  if (req?.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
+    return req.body;
+  }
+
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      if (!data.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        reject(new Error('Invalid JSON'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function unwrapToolResult(result) {
+  if (!result || typeof result !== 'object') {
+    return {};
+  }
+
+  const data = { ...result };
+  delete data.content;
+  delete data.isError;
+  delete data.error_code;
+  delete data.code;
+  delete data.status;
+  delete data.details;
+  if (Object.keys(data).length > 0) {
+    return data;
+  }
+
+  const text = result?.content?.[0]?.text || '';
+  return text ? { message: text } : {};
+}
+
+function throwToolResultError(result) {
+  const error = new Error(result?.content?.[0]?.text || 'Operation failed');
+  error.code = result?.code || 'operation_failed';
+  error.status = Number.isInteger(result?.status) ? result.status : 400;
+  error.details = result?.details || {};
+  throw error;
+}
+
 // ─── Handler Lookup ──────────────────────────────────────────────────────────
 
 const V2_CP_HANDLER_LOOKUP = {
@@ -34,11 +85,7 @@ const V2_CP_HANDLER_LOOKUP = {
     res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpSetConcurrencyLimit: async (req, res, ctx) => {
-    const body = await new Promise((resolve, reject) => {
-      let data = '';
-      req.on('data', chunk => { data += chunk; });
-      req.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); } });
-    });
+    const body = await readJsonBody(req);
     const result = concurrencyHandlers.handleSetConcurrencyLimit(body);
     const text = result?.content?.[0]?.text || '';
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -53,16 +100,34 @@ const V2_CP_HANDLER_LOOKUP = {
     res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpSetEconomyMode: async (req, res, ctx) => {
-    const body = await new Promise((resolve, reject) => {
-      let data = '';
-      req.on('data', chunk => { data += chunk; });
-      req.on('end', () => { try { resolve(JSON.parse(data)); } catch { reject(new Error('Invalid JSON')); } });
-    });
+    const body = await readJsonBody(req);
     const economyHandlers = require('../handlers/economy-handlers');
     const result = economyHandlers.handleSetEconomyMode(body);
     const text = result?.content?.[0]?.text || '';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpAddProvider: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const providerCrudHandlers = require('../handlers/provider-crud-handlers');
+    const result = await providerCrudHandlers.handleAddProvider(body);
+    if (result?.isError) {
+      throwToolResultError(result);
+    }
+
+    res.writeHead(201, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+  },
+  handleV2CpRemoveProvider: async (req, res, ctx) => {
+    const body = await readJsonBody(req);
+    const providerCrudHandlers = require('../handlers/provider-crud-handlers');
+    const result = await providerCrudHandlers.handleRemoveProvider(body);
+    if (result?.isError) {
+      throwToolResultError(result);
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
   // Remote execution
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,

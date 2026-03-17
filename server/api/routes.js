@@ -654,6 +654,18 @@ const routes = [
     handlerName: 'handleV2CpSetDefaultProvider',
     middleware: buildV2Middleware(),
   },
+  {
+    method: 'POST',
+    path: '/api/v2/providers/add',
+    handlerName: 'handleV2CpAddProvider',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'POST',
+    path: '/api/v2/providers/remove',
+    handlerName: 'handleV2CpRemoveProvider',
+    middleware: buildV2Middleware(),
+  },
 
   // Provider percentiles
   {

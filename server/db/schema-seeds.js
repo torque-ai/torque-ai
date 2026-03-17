@@ -162,6 +162,19 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertProvider.run('deepinfra', 0, 9, 'api', 'api', null, JSON.stringify([
       'rate_limit', '429', 'model_not_available', 'server_error'
     ]), 50, now);
+  const providerTypes = {
+    codex: 'cloud-cli', 'claude-cli': 'cloud-cli',
+    ollama: 'ollama', 'aider-ollama': 'ollama', 'hashline-ollama': 'ollama',
+    anthropic: 'cloud-api', deepinfra: 'cloud-api', groq: 'cloud-api',
+    hyperbolic: 'cloud-api', cerebras: 'cloud-api', 'google-ai': 'cloud-api',
+    openrouter: 'cloud-api', 'ollama-cloud': 'cloud-api',
+  };
+  for (const [provider, type] of Object.entries(providerTypes)) {
+    try {
+      db.prepare('UPDATE provider_config SET provider_type = ? WHERE provider = ? AND provider_type IS NULL')
+        .run(type, provider);
+    } catch { /* ignore */ }
+  }
   const PROVIDER_CAPABILITIES = {
     codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
     'claude-cli': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },

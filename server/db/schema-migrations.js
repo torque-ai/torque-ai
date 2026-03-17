@@ -489,6 +489,34 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   safeAddColumn('ollama_hosts', 'vram_factor REAL');
   safeAddColumn('workflows', 'economy_policy TEXT DEFAULT NULL');
   safeAddColumn('project_config', 'economy_policy TEXT DEFAULT NULL');
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS model_registry (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        host_id TEXT,
+        model_name TEXT NOT NULL,
+        size_bytes INTEGER,
+        status TEXT DEFAULT 'pending',
+        first_seen_at TEXT,
+        last_seen_at TEXT,
+        approved_at TEXT,
+        approved_by TEXT,
+        UNIQUE(provider, host_id, model_name)
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_model_registry_status ON model_registry(status)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_model_registry_provider ON model_registry(provider)');
+  } catch (e) {
+    logger.debug(`Schema migration (model_registry): ${e.message}`);
+  }
+
+  safeAddColumn('provider_config', 'api_base_url TEXT');
+  safeAddColumn('provider_config', 'api_key_env_var TEXT');
+  safeAddColumn('provider_config', 'api_key_encrypted TEXT');
+  safeAddColumn('provider_config', 'provider_type TEXT');
+  safeAddColumn('provider_config', 'model_discovery TEXT');
+  safeAddColumn('provider_config', 'default_model TEXT');
 
   // Phase 2: Migrate existing host data to workstations
   try {
