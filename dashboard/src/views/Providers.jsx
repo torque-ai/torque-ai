@@ -2,27 +2,12 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud, requestV2 } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
+import { PROVIDER_HEX_COLORS } from '../constants';
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-
-const PROVIDER_COLORS = {
-  codex: '#3b82f6',
-  'claude-cli': '#8b5cf6',
-  ollama: '#22c55e',
-  'aider-ollama': '#10b981',
-  'hashline-ollama': '#14b8a6',
-  anthropic: '#f59e0b',
-  groq: '#ec4899',
-  deepinfra: '#f97316',
-  hyperbolic: '#a855f7',
-  cerebras: '#06b6d4',
-  'google-ai': '#4ade80',
-  openrouter: '#fb923c',
-  'ollama-cloud': '#34d399',
-};
 
 const CLOUD_API_PROVIDERS = new Set([
   'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai',
@@ -61,13 +46,13 @@ function groupProviders(list) {
 }
 
 const COLORS = {
-  ...PROVIDER_COLORS,
+  ...PROVIDER_HEX_COLORS,
   completed: '#22c55e',
   failed: '#ef4444',
 };
 
 function getProviderColor(name) {
-  return PROVIDER_COLORS[name] || '#6b7280';
+  return PROVIDER_HEX_COLORS[name] || '#6b7280';
 }
 
 function Sparkline({ data, color, width = 80, height = 24 }) {

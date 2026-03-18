@@ -1,7 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const logger = require('../logger').child({ component: 'policy-evaluation-store' });
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 
@@ -9,20 +9,7 @@ function setDb(dbInstance) {
   db = dbInstance;
 }
 
-function safeJsonParse(value, fallback = null) {
-  if (value === null || value === undefined) return fallback;
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    logger.warn(`[Policy] Failed to parse JSON payload: ${error.message}`);
-    return fallback;
-  }
-}
-
+// Keep the local wrapper because this store persists undefined as null.
 function safeJsonStringify(value) {
   return value === undefined ? null : JSON.stringify(value);
 }

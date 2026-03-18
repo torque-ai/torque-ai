@@ -1,24 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { routingTemplates as api } from '../api';
 import { useToast } from '../components/Toast';
+import { PROVIDER_HEX_COLORS } from '../constants';
 
 // ─── Provider Colors (hex for colored dots) ─────────────────────────────────
-
-const PROVIDER_COLORS = {
-  codex: '#3b82f6',
-  'claude-cli': '#8b5cf6',
-  ollama: '#22c55e',
-  'aider-ollama': '#10b981',
-  'hashline-ollama': '#14b8a6',
-  anthropic: '#f59e0b',
-  groq: '#ec4899',
-  deepinfra: '#f97316',
-  hyperbolic: '#a855f7',
-  cerebras: '#06b6d4',
-  'google-ai': '#4ade80',
-  openrouter: '#fb923c',
-  'ollama-cloud': '#34d399',
-};
 
 const KNOWN_PROVIDERS = [
   'ollama', 'hashline-ollama', 'aider-ollama', 'codex', 'claude-cli',
@@ -56,7 +41,7 @@ function ProviderSelect({ value, onChange, allowInherit = false }) {
     <div className="flex items-center gap-2">
       <span
         className="w-2.5 h-2.5 rounded-full shrink-0"
-        style={{ backgroundColor: (!allowInherit || value !== '__inherit__') ? (PROVIDER_COLORS[value] || '#6b7280') : '#475569' }}
+        style={{ backgroundColor: (!allowInherit || value !== '__inherit__') ? (PROVIDER_HEX_COLORS[value] || '#6b7280') : '#475569' }}
       />
       <select
         value={value}
@@ -122,7 +107,7 @@ function ChainSummary({ chain }) {
           {i > 0 && <span className="text-slate-600 text-xs">→</span>}
           <span
             className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: PROVIDER_COLORS[entry.provider] || '#6b7280' }}
+            style={{ backgroundColor: PROVIDER_HEX_COLORS[entry.provider] || '#6b7280' }}
           />
           <span className="text-xs text-slate-300">{entry.provider}</span>
         </span>

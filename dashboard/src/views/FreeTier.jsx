@@ -1,23 +1,24 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { freeTier as freeTierApi } from '../api';
 import StatCard from '../components/StatCard';
+import { PROVIDER_HEX_COLORS } from '../constants';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 
-const PROVIDER_COLORS = [
-  '#3b82f6', // blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#ef4444', // red
-  '#84cc16', // lime
+const SERIES_COLORS = [
+  PROVIDER_HEX_COLORS.codex,
+  PROVIDER_HEX_COLORS.ollama,
+  PROVIDER_HEX_COLORS.anthropic,
+  PROVIDER_HEX_COLORS['claude-cli'],
+  PROVIDER_HEX_COLORS.groq,
+  PROVIDER_HEX_COLORS.cerebras,
+  '#ef4444',
+  '#84cc16',
 ];
 
 function getProviderColor(index) {
-  return PROVIDER_COLORS[index % PROVIDER_COLORS.length];
+  return SERIES_COLORS[index % SERIES_COLORS.length];
 }
 
 function UsageBar({ used, limit, label, color = 'blue' }) {

@@ -2,6 +2,8 @@
 
 'use strict';
 
+const { safeJsonParse } = require('../utils/json');
+
 function getDb() {
   return require('../database');
 }
@@ -33,7 +35,7 @@ function getGlobalEconomyPolicy() {
   try {
     const raw = db.getConfig('economy_policy');
     if (!raw) return null;
-    return JSON.parse(raw);
+    return safeJsonParse(raw, null);
   } catch {
     return null;
   }
@@ -61,7 +63,7 @@ function getWorkflowEconomyPolicy(workflowId) {
   try {
     const wf = db.getWorkflow(workflowId);
     if (!wf || !wf.economy_policy) return null;
-    return JSON.parse(wf.economy_policy);
+    return safeJsonParse(wf.economy_policy, null);
   } catch {
     return null;
   }
@@ -75,7 +77,7 @@ function getProjectEconomyPolicy(workingDirectory) {
     const config = db.getProjectConfig(workingDirectory);
     if (!config || !config.economy_policy) return null;
     return typeof config.economy_policy === 'string'
-      ? JSON.parse(config.economy_policy)
+      ? safeJsonParse(config.economy_policy, null)
       : config.economy_policy;
   } catch {
     return null;

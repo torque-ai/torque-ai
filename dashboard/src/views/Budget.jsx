@@ -2,17 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { budget as budgetApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
+import { PROVIDER_HEX_COLORS } from '../constants';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-
-const PROVIDER_COLORS = {
-  codex: '#3b82f6',
-  'claude-cli': '#8b5cf6',
-  ollama: '#22c55e',
-  local: '#22c55e',
-};
 
 function ProgressRing({ percent, size = 80, strokeWidth = 8 }) {
   const radius = (size - strokeWidth) / 2;
@@ -378,7 +372,7 @@ export default function Budget() {
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 >
                   {pieData.map((entry, index) => (
-                    <Cell key={index} fill={PROVIDER_COLORS[entry.name] || '#6b7280'} />
+                    <Cell key={index} fill={PROVIDER_HEX_COLORS[entry.name] || '#6b7280'} />
                   ))}
                 </Pie>
                 <Tooltip

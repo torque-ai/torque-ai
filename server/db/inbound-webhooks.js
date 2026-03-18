@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const credCrypto = require('../utils/credential-crypto');
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 
@@ -146,14 +147,6 @@ function recordDelivery(deliveryId, webhookName, taskId) {
 
 function cleanupOldDeliveries(maxAgeDays = 7) {
   return db.prepare("DELETE FROM webhook_deliveries WHERE received_at < datetime('now', '-' || ? || ' days')").run(maxAgeDays);
-}
-
-/**
- * Safely parse JSON with fallback
- */
-function safeJsonParse(value, defaultValue = null) {
-  if (!value) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
 }
 
 module.exports = {

@@ -11,43 +11,12 @@
  */
 
 const logger = require('../logger').child({ component: 'workflow-engine' });
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 
 function setDb(dbInstance) {
   db = dbInstance;
-}
-
-// --- Local utility (duplicated from database.js to keep module self-contained) ---
-
-function safeJsonParse(value, defaultValue = null) {
-  if (value === null || value === undefined) {
-    return defaultValue;
-  }
-
-  // Validate size before parsing to prevent DoS via large JSON strings
-  const MAX_JSON_SIZE = 1024 * 1024; // 1MB max
-  if (typeof value === 'string' && value.length > MAX_JSON_SIZE) {
-    logger.warn(`JSON too large to parse: ${value.length} bytes exceeds ${MAX_JSON_SIZE} limit`);
-    return defaultValue;
-  }
-
-  // Quick check: if value doesn't start with { or [, it's not JSON - silently return default
-  // This prevents noisy warnings when task_template is stored as plain text
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-      return defaultValue;
-    }
-  }
-
-  try {
-    return JSON.parse(value);
-  } catch (err) {
-    // Only log if value looked like JSON but failed to parse
-    logger.warn(`JSON parse error: ${err.message}`);
-    return defaultValue;
-  }
 }
 
 // ============================================

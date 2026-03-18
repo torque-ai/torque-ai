@@ -4,6 +4,7 @@ import { workflows as workflowsApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { getRelevantModel } from '../utils/providerModels';
+import { STATUS_BG_COLORS } from '../constants';
 import { formatDuration } from '../utils/formatters';
 import { formatDistanceToNow } from 'date-fns';
 import {
@@ -12,10 +13,10 @@ import {
 } from 'recharts';
 
 const STATUS_COLORS = {
-  completed: 'bg-green-500',
-  failed: 'bg-red-500',
-  running: 'bg-blue-500',
-  pending: 'bg-slate-500',
+  completed: STATUS_BG_COLORS.completed,
+  failed: STATUS_BG_COLORS.failed,
+  running: STATUS_BG_COLORS.running,
+  pending: STATUS_BG_COLORS.pending,
   cancelled: 'bg-orange-500',
   paused: 'bg-yellow-500',
 };

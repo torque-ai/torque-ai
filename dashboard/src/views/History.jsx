@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { tasks as tasksApi, providers as providersApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
+import { STATUS_BG_COLORS } from '../constants';
 import { getRelevantModel } from '../utils/providerModels';
 import { formatDuration } from '../utils/formatters';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -13,11 +14,11 @@ const safeFormat = (dateStr, fmt) => {
 };
 
 const STATUS_BADGES = {
-  queued: 'bg-slate-500',
-  running: 'bg-blue-500',
-  completed: 'bg-green-500',
-  failed: 'bg-red-500',
-  pending_provider_switch: 'bg-orange-500',
+  queued: STATUS_BG_COLORS.queued,
+  running: STATUS_BG_COLORS.running,
+  completed: STATUS_BG_COLORS.completed,
+  failed: STATUS_BG_COLORS.failed,
+  pending_provider_switch: STATUS_BG_COLORS.pending_provider_switch,
 };
 
 const COMMON_PROVIDER_OPTIONS = [

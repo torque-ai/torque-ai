@@ -9,6 +9,7 @@ const os = require('os');
 const fs = require('fs');
 const logger = require('./logger').child({ component: 'database' });
 const { isSensitiveKey } = require('./utils/sensitive-keys');
+const { safeJsonParse } = require('./utils/json');
 const { runMigrations } = require('./db/migrations');
 const { MAX_METADATA_SIZE } = require('./constants');
 const codeAnalysis = require('./db/code-analysis');
@@ -59,43 +60,6 @@ const ALLOWED_TASK_COLUMNS = new Set([
 ]);
 
 const { VALID_CONFIG_KEYS } = require('./db/config-keys');
-
-/**
- * Safely parse JSON with error handling and size validation
- * Returns defaultValue if parsing fails or value exceeds size limit
- * @param {any} value
- * @param {any} defaultValue
- * @returns {any}
- */
-function safeJsonParse(value, defaultValue = null) {
-  if (value === null || value === undefined) {
-    return defaultValue;
-  }
-
-  // Validate size before parsing to prevent DoS via large JSON strings
-  const MAX_JSON_SIZE = 1024 * 1024; // 1MB max
-  if (typeof value === 'string' && value.length > MAX_JSON_SIZE) {
-    logger.warn(`JSON too large to parse: ${value.length} bytes exceeds ${MAX_JSON_SIZE} limit`);
-    return defaultValue;
-  }
-
-  // Quick check: if value doesn't start with { or [, it's not JSON - silently return default
-  // This prevents noisy warnings when task_template is stored as plain text
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-      return defaultValue;
-    }
-  }
-
-  try {
-    return JSON.parse(value);
-  } catch (err) {
-    // Only log if value looked like JSON but failed to parse
-    logger.warn(`JSON parse error: ${err.message}`);
-    return defaultValue;
-  }
-}
 
 /**
  * Validate column name against whitelist

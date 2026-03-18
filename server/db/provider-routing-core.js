@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'provider-routing' });
 const serverConfig = require('../config');
+const { safeJsonParse } = require('../utils/json');
 const capabilities = require('./provider-capabilities');
 const perfTracker = require('./provider-performance');
 
@@ -54,12 +55,6 @@ function setHostManagement(fns) { hostManagementFns = fns; }
 function escapePrometheusLabel(str) {
   if (typeof str !== 'string') return '';
   return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '');
-}
-
-// Local helpers (avoid circular require of database.js)
-function safeJsonParse(value, defaultValue = null) {
-  if (!value) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
 }
 
 function getConfig(key) {

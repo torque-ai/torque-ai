@@ -1,6 +1,6 @@
 'use strict';
 
-const logger = require('../logger').child({ component: 'policy-profile-store' });
+const { safeJsonParse } = require('../utils/json');
 const matchers = require('./matchers');
 
 let db;
@@ -16,20 +16,7 @@ function setGetProjectMetadata(fn) {
   getProjectMetadata = typeof fn === 'function' ? fn : null;
 }
 
-function safeJsonParse(value, fallback = null) {
-  if (value === null || value === undefined) return fallback;
-  if (typeof value !== 'string') {
-    return value;
-  }
-
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    logger.warn(`[Policy] Failed to parse JSON payload: ${error.message}`);
-    return fallback;
-  }
-}
-
+// Keep the local wrapper because this store persists undefined as null.
 function safeJsonStringify(value) {
   return value === undefined ? null : JSON.stringify(value);
 }

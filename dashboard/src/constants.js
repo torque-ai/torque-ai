@@ -36,5 +36,39 @@ export const STATUS_DOT_COLORS = {
   pending_provider_switch: 'bg-orange-400',
 };
 
+export const PROVIDER_COLORS = {
+  codex: 'text-green-400',
+  'claude-cli': 'text-purple-400',
+  ollama: 'text-blue-400',
+  'hashline-ollama': 'text-cyan-400',
+  'aider-ollama': 'text-teal-400',
+  anthropic: 'text-violet-400',
+  deepinfra: 'text-orange-400',
+  hyperbolic: 'text-amber-400',
+  groq: 'text-lime-400',
+  cerebras: 'text-emerald-400',
+  'google-ai': 'text-red-400',
+  openrouter: 'text-pink-400',
+  'ollama-cloud': 'text-sky-400',
+  local: 'text-blue-400',
+};
+
+export const PROVIDER_HEX_COLORS = {
+  codex: '#3b82f6',
+  'claude-cli': '#8b5cf6',
+  ollama: '#22c55e',
+  'aider-ollama': '#10b981',
+  'hashline-ollama': '#14b8a6',
+  anthropic: '#f59e0b',
+  groq: '#ec4899',
+  deepinfra: '#f97316',
+  hyperbolic: '#a855f7',
+  cerebras: '#06b6d4',
+  'google-ai': '#4ade80',
+  openrouter: '#fb923c',
+  'ollama-cloud': '#34d399',
+  local: '#22c55e',
+};
+
 /** Recharts hex colors for chart series */
 export const CHART_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#fb923c'];

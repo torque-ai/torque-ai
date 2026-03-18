@@ -16,6 +16,7 @@ const logger = require('../logger').child({ component: 'host-management' });
 
 const { randomUUID } = require('crypto');
 const { getOrCreateKey, encrypt, decrypt } = require('../utils/credential-crypto');
+const { safeJsonParse } = require('../utils/json');
 const hostSelection = require('./host-selection');
 const hostBenchmarking = require('./host-benchmarking');
 const modelCapabilities = require('./model-capabilities');
@@ -54,11 +55,6 @@ function setGetProjectRoot(fn) {
 function getConfig(key) {
   const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key);
   return row ? row.value : null;
-}
-
-function safeJsonParse(value, defaultValue = null) {
-  if (value === null || value === undefined) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
 }
 
 function setHostTierHint(hostId, tier) {

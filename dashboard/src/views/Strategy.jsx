@@ -1,29 +1,41 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { strategic as strategicApi } from '../api';
 import StatCard from '../components/StatCard';
+import { PROVIDER_COLORS } from '../constants';
 
 const RoutingTemplates = React.lazy(() => import('./RoutingTemplates'));
 const StrategicConfig = React.lazy(() => import('./StrategicConfig'));
 
 // ─── Color Maps ─────────────────────────────────────────────
 
-const PROVIDER_COLORS = {
-  codex: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30', dot: 'bg-blue-400' },
-  'claude-cli': { bg: 'bg-violet-500/20', text: 'text-violet-400', border: 'border-violet-500/30', dot: 'bg-violet-400' },
-  ollama: { bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/30', dot: 'bg-green-400' },
-  'aider-ollama': { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
-  'hashline-ollama': { bg: 'bg-teal-500/20', text: 'text-teal-400', border: 'border-teal-500/30', dot: 'bg-teal-400' },
-  'hashline-openai': { bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30', dot: 'bg-cyan-400' },
-  anthropic: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', dot: 'bg-amber-400' },
-  groq: { bg: 'bg-pink-500/20', text: 'text-pink-400', border: 'border-pink-500/30', dot: 'bg-pink-400' },
-  deepinfra: { bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30', dot: 'bg-orange-400' },
-  hyperbolic: { bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30', dot: 'bg-purple-400' },
+const PROVIDER_TEXT_COLORS = {
+  ...PROVIDER_COLORS,
+  codex: 'text-blue-400',
+  'claude-cli': 'text-violet-400',
+  ollama: 'text-green-400',
+  'aider-ollama': 'text-emerald-400',
+  groq: 'text-pink-400',
+  hyperbolic: 'text-purple-400',
+  'hashline-openai': 'text-cyan-400',
+};
+
+const PROVIDER_STYLES = {
+  codex: { bg: 'bg-blue-500/20', text: PROVIDER_TEXT_COLORS.codex, border: 'border-blue-500/30', dot: 'bg-blue-400' },
+  'claude-cli': { bg: 'bg-violet-500/20', text: PROVIDER_TEXT_COLORS['claude-cli'], border: 'border-violet-500/30', dot: 'bg-violet-400' },
+  ollama: { bg: 'bg-green-500/20', text: PROVIDER_TEXT_COLORS.ollama, border: 'border-green-500/30', dot: 'bg-green-400' },
+  'aider-ollama': { bg: 'bg-emerald-500/20', text: PROVIDER_TEXT_COLORS['aider-ollama'], border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
+  'hashline-ollama': { bg: 'bg-teal-500/20', text: PROVIDER_TEXT_COLORS['hashline-ollama'], border: 'border-teal-500/30', dot: 'bg-teal-400' },
+  'hashline-openai': { bg: 'bg-cyan-500/20', text: PROVIDER_TEXT_COLORS['hashline-openai'], border: 'border-cyan-500/30', dot: 'bg-cyan-400' },
+  anthropic: { bg: 'bg-amber-500/20', text: PROVIDER_TEXT_COLORS.anthropic, border: 'border-amber-500/30', dot: 'bg-amber-400' },
+  groq: { bg: 'bg-pink-500/20', text: PROVIDER_TEXT_COLORS.groq, border: 'border-pink-500/30', dot: 'bg-pink-400' },
+  deepinfra: { bg: 'bg-orange-500/20', text: PROVIDER_TEXT_COLORS.deepinfra, border: 'border-orange-500/30', dot: 'bg-orange-400' },
+  hyperbolic: { bg: 'bg-purple-500/20', text: PROVIDER_TEXT_COLORS.hyperbolic, border: 'border-purple-500/30', dot: 'bg-purple-400' },
 };
 
 const FALLBACK_PROVIDER_STYLE = { bg: 'bg-slate-500/20', text: 'text-slate-400', border: 'border-slate-500/30', dot: 'bg-slate-400' };
 
 function getProviderStyle(name) {
-  return PROVIDER_COLORS[name] || FALLBACK_PROVIDER_STYLE;
+  return PROVIDER_STYLES[name] || FALLBACK_PROVIDER_STYLE;
 }
 
 const HEALTH_STATUS_STYLES = {

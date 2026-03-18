@@ -3,12 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process'); // eslint-disable-line security/detect-child-process
+const { TORQUE_HOME, PID_FILE, API_PORT, API_URL, readPid, cleanPidFile } = require('./shared');
 
-const TORQUE_HOME = path.join(process.env.HOME || process.env.USERPROFILE || '~', '.torque');
-const PID_FILE = path.join(TORQUE_HOME, 'torque.pid');
 const SERVER_PATH = path.resolve(__dirname, '..', 'server', 'index.js');
-const API_PORT = parseInt(process.env.TORQUE_API_PORT || '3457', 10);
-const API_URL = process.env.TORQUE_API_URL || `http://127.0.0.1:${API_PORT}`;
 
 function ensureTorqueHome() {
   if (!fs.existsSync(TORQUE_HOME)) {
@@ -26,19 +23,6 @@ async function isServerRunning() {
   } catch {
     return false;
   }
-}
-
-function readPid() {
-  try {
-    const content = fs.readFileSync(PID_FILE, 'utf8').trim();
-    return parseInt(content, 10) || null;
-  } catch {
-    return null;
-  }
-}
-
-function cleanPidFile() {
-  try { fs.unlinkSync(PID_FILE); } catch { /* ignore */ }
 }
 
 async function waitForReady(timeoutMs = 10000) {
