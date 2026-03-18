@@ -22,22 +22,29 @@ const EXCLUDED_PROVIDERS = new Set(['hashline-ollama', 'aider-ollama', 'codex', 
 
 // ── Cloud providers known to support OpenAI-compatible tool calling ───────────
 
-const CLOUD_TOOL_CAPABLE = new Set(['groq', 'cerebras', 'deepinfra', 'openrouter', 'hyperbolic', 'google-ai']);
+const CLOUD_TOOL_CAPABLE = new Set(['groq', 'cerebras', 'deepinfra', 'openrouter', 'hyperbolic', 'google-ai', 'ollama-cloud']);
 
 // ── Model name prefixes (lowercased) known to support tool calling ────────────
 
 const WHITELIST_PREFIXES = [
   'qwen2.5-coder',
+  'qwen3',
+  'qwen-3',
   'codestral',
+  'devstral',
+  'deepseek',
   'llama3.1',
   'llama3.2',
+  'llama3.3',
   'llama-3.1',
   'llama-3.2',
-  'llama3.3',
   'llama-3.3',
   'mistral',
   'command-r',
   'gemma2',
+  'gemma3',
+  'gemini',
+  'kimi',
 ];
 
 // ── Module-level state (dependency injection) ─────────────────────────────────

@@ -82,6 +82,7 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(requestBody),
           'Authorization': `Bearer ${apiKey}`,
+          'Connection': 'close',
         },
         timeout: timeoutMs,
         signal,

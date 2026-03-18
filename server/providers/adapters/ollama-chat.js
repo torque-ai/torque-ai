@@ -69,6 +69,7 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
     if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
+    headers['Connection'] = 'close';
 
     const req = httpModule.request(
       {
