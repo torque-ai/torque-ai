@@ -258,6 +258,16 @@ async function runAgenticLoop({
       }
 
       // No tool calls — model is done, this is the final response
+
+      // Empty first response retry: if the very first iteration returns empty
+      // (no content, no tool calls), retry once — some providers intermittently
+      // return empty responses (cerebras observed at 50% rate)
+      if (!content.trim() && toolLog.length === 0 && iterations === 0 && !emptySummaryRetried) {
+        logger.info(`[Agentic] Empty first response (no content, no tools) — retrying`);
+        emptySummaryRetried = true;
+        continue; // retry without injecting extra messages
+      }
+
       // Empty summary retry: if model called tools but produced no text summary,
       // inject a "summarize your findings" prompt and do one more iteration
       if (!content.trim() && toolLog.length > 0 && !emptySummaryRetried) {

@@ -359,7 +359,34 @@ function createToolExecutor(workingDir, options = {}) {
                 error: true,
               };
             }
-            const newContent = content.slice(0, idx) + args.new_text + content.slice(idx + args.old_text.length);
+            // Indentation normalization: if old_text and new_text have different
+            // leading whitespace on their first line, adjust new_text to match old_text.
+            // This fixes LLMs that add extra indentation in their edits.
+            let finalNewText = args.new_text;
+            const oldFirstLine = args.old_text.split('\n')[0];
+            const newFirstLine = args.new_text.split('\n')[0];
+            const oldIndent = oldFirstLine.match(/^(\s*)/)[1];
+            const newIndent = newFirstLine.match(/^(\s*)/)[1];
+            if (oldIndent !== newIndent && args.new_text.includes('\n')) {
+              // Re-indent all lines of new_text to match old_text's indentation level
+              const newLines = args.new_text.split('\n');
+              const indentDiff = oldIndent.length - newIndent.length;
+              if (indentDiff > 0) {
+                // old_text has more indent — add spaces to new_text
+                const pad = ' '.repeat(indentDiff);
+                finalNewText = newLines.map((l, i) => i === 0 || !l.trim() ? (i === 0 ? oldIndent + l.trimStart() : l) : pad + l).join('\n');
+              } else if (indentDiff < 0) {
+                // new_text has more indent — remove extra spaces
+                const strip = Math.abs(indentDiff);
+                finalNewText = newLines.map((l, i) => {
+                  if (i === 0) return oldIndent + l.trimStart();
+                  const leading = l.match(/^(\s*)/)[1];
+                  return leading.length >= strip ? l.slice(strip) : l;
+                }).join('\n');
+              }
+              logger.info(`[Tools] edit_file: normalized indentation (old: ${oldIndent.length}, new: ${newIndent.length} → ${oldIndent.length} chars)`);
+            }
+            const newContent = content.slice(0, idx) + finalNewText + content.slice(idx + args.old_text.length);
             fs.writeFileSync(resolvedPath, newContent, 'utf-8');
             changedFiles.add(resolvedPath);
             return { result: `Edit applied to ${args.path}` };
