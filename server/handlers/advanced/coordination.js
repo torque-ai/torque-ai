@@ -8,6 +8,7 @@
 
 const crypto = require('crypto');
 const db = require('../../database');
+const coordinationDb = require('../../db/coordination');
 const serverConfig = require('../../config');
 const { validateObjectDepth, safeLimit, safeDate, requireTask, ErrorCodes, makeError } = require('../shared');
 
@@ -541,7 +542,7 @@ function handleListAgentRoutingRules(args) {
   if (enabled_only !== undefined) options.enabled = enabled_only;
   if (target_type) options.target_type = target_type;
 
-  const rules = db.listRoutingRules(options);
+  const rules = coordinationDb.listRoutingRules(options);
 
   if (rules.length === 0) {
     return {
@@ -581,7 +582,7 @@ function handleDeleteAgentRoutingRule(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'rule_id is required');
   }
 
-  const deleted = db.deleteRoutingRule(rule_id);
+  const deleted = coordinationDb.deleteRoutingRule(rule_id);
 
   if (!deleted) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Agent routing rule not found: ${rule_id}`);
