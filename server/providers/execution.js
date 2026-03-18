@@ -44,11 +44,11 @@ const PROVIDER_HOST_MAP = {
 
 const PROVIDER_DEFAULT_MODEL = {
   groq: 'llama-3.3-70b-versatile',
-  cerebras: 'llama-3.3-70b',
+  cerebras: 'qwen-3-235b-a22b-instruct-2507',
   deepinfra: 'Qwen/Qwen2.5-72B-Instruct',
-  openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
+  openrouter: 'qwen/qwen3-coder:free',
   hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
-  'ollama-cloud': 'llama3.3',
+  'ollama-cloud': 'qwen3-coder:480b',
   'google-ai': 'gemini-2.0-flash',
 };
 
@@ -161,9 +161,12 @@ function init(deps) {
  * @returns {{ chatCompletion: Function }|null}
  */
 function selectAdapter(provider) {
-  if (provider === 'ollama') return ollamaChatAdapter;
+  // Ollama-format APIs (NDJSON streaming, /api/chat)
+  if (provider === 'ollama' || provider === 'ollama-cloud') return ollamaChatAdapter;
+  // Google Gemini API
   if (provider === 'google-ai') return googleChatAdapter;
-  if (['groq', 'cerebras', 'deepinfra', 'openrouter', 'hyperbolic', 'ollama-cloud'].includes(provider)) {
+  // OpenAI-compatible APIs (JSON or SSE, /v1/chat/completions)
+  if (['groq', 'cerebras', 'deepinfra', 'openrouter', 'hyperbolic'].includes(provider)) {
     return openaiChatAdapter;
   }
   return null;

@@ -41,7 +41,7 @@ const https = require('https');
  *   usage:   { prompt_tokens: number, completion_tokens: number }
  * }>}
  */
-function chatCompletion({ host, apiKey: _ignored, model, messages, tools, options, timeoutMs, onChunk, signal }) {
+function chatCompletion({ host, apiKey, model, messages, tools, options, timeoutMs, onChunk, signal }) {
   return new Promise((resolve, reject) => {
     const url = new URL('/api/chat', host);
     const isHttps = url.protocol === 'https:';
@@ -61,16 +61,22 @@ function chatCompletion({ host, apiKey: _ignored, model, messages, tools, option
 
     const requestBody = JSON.stringify(body);
 
+    // Build headers — include Authorization for cloud Ollama (api.ollama.com)
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(requestBody),
+    };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
     const req = httpModule.request(
       {
         hostname: url.hostname,
         port: url.port || (isHttps ? 443 : 11434),
         path: url.pathname,
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(requestBody),
-        },
+        headers,
         timeout: timeoutMs,
         signal,
       },
