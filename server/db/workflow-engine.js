@@ -316,6 +316,8 @@ function reconcileStaleWorkflows(workflowId = null) {
  */
 function deleteWorkflow(workflowId) {
   const deleteOp = db.transaction(() => {
+    // Nullify task workflow_id to avoid FK violations
+    db.prepare('UPDATE tasks SET workflow_id = NULL WHERE workflow_id = ?').run(workflowId);
     db.prepare('DELETE FROM task_dependencies WHERE workflow_id = ?').run(workflowId);
     const result = db.prepare('DELETE FROM workflows WHERE id = ?').run(workflowId);
     return result.changes > 0;
@@ -338,6 +340,8 @@ function cleanupOldWorkflows(retentionDays = 30) {
 
     let deleted = 0;
     for (const wf of oldWorkflows) {
+      // Nullify task workflow_id to avoid FK violations
+      db.prepare('UPDATE tasks SET workflow_id = NULL WHERE workflow_id = ?').run(wf.id);
       db.prepare('DELETE FROM task_dependencies WHERE workflow_id = ?').run(wf.id);
       db.prepare('DELETE FROM workflows WHERE id = ?').run(wf.id);
       deleted++;

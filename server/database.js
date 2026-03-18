@@ -875,6 +875,8 @@ function updateTaskStatus(id, status, additionalFields = {}) {
     logger.warn(`[DB] Ignoring updateTaskStatus(${id}, ${status}) — database is closed`);
     return null;
   }
+  // Clone to avoid mutating the caller's object
+  additionalFields = { ...additionalFields };
   const providerSwitchReason = typeof additionalFields._provider_switch_reason === 'string'
     ? additionalFields._provider_switch_reason
     : null;
@@ -983,7 +985,16 @@ function updateTaskStatus(id, status, additionalFields = {}) {
         logger.warn(`[DB] Double-completion race: task ${id} status changed by another process (expected '${previousStatus}')`);
         return getTask(id);
       }
-      db.exec('COMMIT');
+      let committed = false;
+      try {
+        db.exec('COMMIT');
+        committed = true;
+      } catch (commitErr) {
+        if (!committed) {
+          try { db.exec('ROLLBACK'); } catch {}
+        }
+        throw commitErr;
+      }
     } catch (err) {
       if (!rolledBack) {
         try {
@@ -1017,8 +1028,15 @@ function updateTaskStatus(id, status, additionalFields = {}) {
 
     previousStatus = current.status;
     values.push(id);
-    const stmt = db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`);
-    stmt.run(...values);
+    values.push(previousStatus);
+    const stmt = db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ? AND status = ?`);
+    const result = stmt.run(...values);
+    if (result.changes === 0) {
+      // Concurrent update detected — re-read and return current state
+      const refreshed = getTask(id);
+      logger.warn(`[DB] Non-critical update race: task ${id} status changed concurrently (expected '${previousStatus}', now '${refreshed?.status}')`);
+      return refreshed;
+    }
   }
 
   if (status === 'queued' || status === 'pending' || TERMINAL_TASK_STATUSES.has(status)) {
@@ -1377,7 +1395,7 @@ function getNextQueuedTask() {
     LEFT JOIN task_priority_scores p ON t.id = p.task_id
     LEFT JOIN workflows w ON t.workflow_id = w.id
     WHERE t.status = 'queued'
-      AND t.provider != 'codex-pending'
+      AND (t.provider IS NULL OR t.provider != 'codex-pending')
     ORDER BY
       COALESCE(w.priority, 0) DESC,
       COALESCE(p.combined_score, 0) DESC,

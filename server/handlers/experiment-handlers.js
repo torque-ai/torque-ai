@@ -56,35 +56,39 @@ function handleSubmitAbTest(args) {
   };
 
   try {
-    db.createTask({
-      id: taskIdA,
-      task_description: description,
-      working_directory: workDir,
-      provider: args.provider_a,
-      model: args.model_a || null,
-      status: 'queued',
-      metadata: JSON.stringify({
-        ...sharedMetadata,
-        ab_variant: 'A',
-        ab_provider: args.provider_a,
-        ab_peer_task_id: taskIdB,
-      }),
-    });
+    const rawDb = db.getDbInstance ? db.getDbInstance() : db;
+    const createBothTasks = rawDb.transaction(() => {
+      db.createTask({
+        id: taskIdA,
+        task_description: description,
+        working_directory: workDir,
+        provider: args.provider_a,
+        model: args.model_a || null,
+        status: 'queued',
+        metadata: JSON.stringify({
+          ...sharedMetadata,
+          ab_variant: 'A',
+          ab_provider: args.provider_a,
+          ab_peer_task_id: taskIdB,
+        }),
+      });
 
-    db.createTask({
-      id: taskIdB,
-      task_description: description,
-      working_directory: workDir,
-      provider: args.provider_b,
-      model: args.model_b || null,
-      status: 'queued',
-      metadata: JSON.stringify({
-        ...sharedMetadata,
-        ab_variant: 'B',
-        ab_provider: args.provider_b,
-        ab_peer_task_id: taskIdA,
-      }),
+      db.createTask({
+        id: taskIdB,
+        task_description: description,
+        working_directory: workDir,
+        provider: args.provider_b,
+        model: args.model_b || null,
+        status: 'queued',
+        metadata: JSON.stringify({
+          ...sharedMetadata,
+          ab_variant: 'B',
+          ab_provider: args.provider_b,
+          ab_peer_task_id: taskIdA,
+        }),
+      });
     });
+    createBothTasks();
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, `Failed to create A/B tasks: ${err.message}`);
   }

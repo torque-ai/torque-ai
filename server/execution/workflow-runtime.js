@@ -130,13 +130,19 @@ function handlePlanProjectTaskCompletion(taskId) {
   const projectTask = db.getPlanProjectTask(taskId);
   if (!projectTask) return; // Not a plan project task
 
-  const project = db.getPlanProject(projectTask.project_id);
-  if (!project) return;
+  const projectId = projectTask.project_id;
 
-  // Update project completed count
-  db.updatePlanProject(projectTask.project_id, {
-    completed_tasks: project.completed_tasks + 1
+  // Atomic read-modify-write for completed_tasks counter
+  const rawDb = db.getDbInstance ? db.getDbInstance() : db;
+  const incrementCompleted = rawDb.transaction(() => {
+    const project = db.getPlanProject(projectId);
+    if (!project) return null;
+    const newCount = (project.completed_tasks || 0) + 1;
+    db.updatePlanProject(projectId, { completed_tasks: newCount });
+    return { ...project, completed_tasks: newCount };
   });
+  const project = incrementCompleted();
+  if (!project) return;
 
   // Find tasks that depend on this one
   const dependentTaskIds = db.getDependentPlanTasks(taskId);
@@ -153,9 +159,9 @@ function handlePlanProjectTaskCompletion(taskId) {
   }
 
   // Check if project is complete
-  const updatedProject = db.getPlanProject(projectTask.project_id);
+  const updatedProject = db.getPlanProject(projectId);
   if (updatedProject.completed_tasks >= updatedProject.total_tasks) {
-    db.updatePlanProject(projectTask.project_id, {
+    db.updatePlanProject(projectId, {
       status: 'completed',
       completed_at: new Date().toISOString()
     });
@@ -174,13 +180,19 @@ function handlePlanProjectTaskFailure(taskId) {
   const projectTask = db.getPlanProjectTask(taskId);
   if (!projectTask) return; // Not a plan project task
 
-  const project = db.getPlanProject(projectTask.project_id);
-  if (!project) return;
+  const projectId = projectTask.project_id;
 
-  // Update project failed count
-  db.updatePlanProject(projectTask.project_id, {
-    failed_tasks: project.failed_tasks + 1
+  // Atomic read-modify-write for failed_tasks counter
+  const rawDb = db.getDbInstance ? db.getDbInstance() : db;
+  const incrementFailed = rawDb.transaction(() => {
+    const project = db.getPlanProject(projectId);
+    if (!project) return null;
+    const newCount = (project.failed_tasks || 0) + 1;
+    db.updatePlanProject(projectId, { failed_tasks: newCount });
+    return { ...project, failed_tasks: newCount };
   });
+  const project = incrementFailed();
+  if (!project) return;
 
   // Find and block dependent tasks (recursively)
   const toBlock = new Set();
@@ -208,13 +220,13 @@ function handlePlanProjectTaskFailure(taskId) {
   }
 
   // Check if project should be marked failed (no tasks can proceed)
-  const tasks = db.getPlanProjectTasks(projectTask.project_id);
+  const tasks = db.getPlanProjectTasks(projectId);
   const canProceed = tasks.some(t =>
     ['queued', 'running', 'waiting'].includes(t.status)
   );
 
   if (!canProceed && project.completed_tasks < project.total_tasks) {
-    db.updatePlanProject(projectTask.project_id, { status: 'failed' });
+    db.updatePlanProject(projectId, { status: 'failed' });
   }
 }
 
@@ -620,7 +632,11 @@ function applyOutputInjection(taskId, workflowId) {
 
   // Only update if description actually changed
   if (description !== task.task_description) {
-    db.updateTaskStatus(taskId, task.status, { task_description: description });
+    // Use raw DB update to avoid triggering status transition guards
+    const rawDb = db.getDbInstance ? db.getDbInstance() : db.getDb ? db.getDb() : null;
+    if (rawDb) {
+      rawDb.prepare('UPDATE tasks SET task_description = ? WHERE id = ?').run(description, taskId);
+    }
   }
 }
 
@@ -857,31 +873,13 @@ function unblockTask(taskId) {
   // Handle both 'blocked' and 'waiting' statuses (waiting is used by auto-decomposed tasks)
   if (!task || !['blocked', 'waiting'].includes(task.status)) return false;
 
-  const dbHandle = db.getDbInstance?.();
-  if (!dbHandle || !dbHandle.prepare) {
-    db.updateTaskStatus(taskId, 'pending');
-    db.updateTaskStatus(taskId, 'queued');
-    return true;
-  }
-
   try {
-    dbHandle.prepare('BEGIN IMMEDIATE').run();
-
-    const current = dbHandle.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId);
-    if (!current || !['blocked', 'waiting'].includes(current.status)) {
-      dbHandle.prepare('ROLLBACK').run();
-      return false;
-    }
-
-    dbHandle.prepare('UPDATE tasks SET status = \'pending\' WHERE id = ?').run(taskId);
-    dbHandle.prepare('UPDATE tasks SET status = \'queued\' WHERE id = ?').run(taskId);
-
-    dbHandle.prepare('COMMIT').run();
+    db.updateTaskStatus(taskId, 'pending', { updated_at: new Date().toISOString() });
+    db.updateTaskStatus(taskId, 'queued', { updated_at: new Date().toISOString() });
     process.emit('torque:queue-changed');
     return true;
   } catch (err) {
     try {
-      dbHandle.prepare('ROLLBACK').run();
     } catch (_rollbackErr) {
       logger.info(`unblockTask rollback failed for ${taskId}: ${_rollbackErr.message}`);
     }
