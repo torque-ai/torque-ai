@@ -26,6 +26,7 @@ let _getProviderInstance = null;
 let _getFreeQuotaTracker = null;
 let _cleanupOrphanedRetryTimeouts = null;
 let _notifyDashboard = null;
+let _analyzeTaskForRouting = null;
 let _debounceTimer = null;
 let _stopped = false;
 let _queueChangedListener = null;
@@ -86,6 +87,7 @@ function init(deps) {
   if (deps.getProviderInstance) _getProviderInstance = deps.getProviderInstance;
   if (deps.getFreeQuotaTracker) _getFreeQuotaTracker = deps.getFreeQuotaTracker;
   if (deps.cleanupOrphanedRetryTimeouts) _cleanupOrphanedRetryTimeouts = deps.cleanupOrphanedRetryTimeouts;
+  if (deps.analyzeTaskForRouting) _analyzeTaskForRouting = deps.analyzeTaskForRouting;
   _notifyDashboard = typeof deps.notifyDashboard === 'function' ? deps.notifyDashboard : null;
 
   _stopped = false;
@@ -187,8 +189,26 @@ function categorizeQueuedTasks(queuedTasks, codexEnabled) {
   const invalidTasks = [];
 
   for (const task of queuedTasks) {
-    const provider = resolveEffectiveProvider(task);
+    let provider = resolveEffectiveProvider(task);
     if (provider === 'codex-pending') continue;
+
+    // Late-bind routing: if task has no provider (e.g., requeued orphan,
+    // retry with cleared provider), run smart routing to assign one.
+    if (!provider && typeof _analyzeTaskForRouting === 'function') {
+      try {
+        const files = Array.isArray(task.files) ? task.files : [];
+        const routeResult = _analyzeTaskForRouting(task.task_description || '', task.working_directory, files);
+        if (routeResult && routeResult.provider) {
+          provider = routeResult.provider;
+          // Persist the assignment so the task carries its provider through execution
+          db.updateTaskStatus(task.id, 'queued', { provider });
+          logger.info(`[categorize] Late-bind routed task ${(task.id || '').slice(0,8)} to ${provider} (${routeResult.reason})`);
+        }
+      } catch (routeErr) {
+        logger.info(`[categorize] Late-bind routing failed for ${(task.id || '').slice(0,8)}: ${routeErr.message}`);
+      }
+    }
+
     // Stamp effective provider on in-memory object for downstream processing
     task._effectiveProvider = provider;
 

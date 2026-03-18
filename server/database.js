@@ -998,6 +998,19 @@ function updateTaskStatus(id, status, additionalFields = {}) {
     notifyTaskStatusTransition(id, status, previousStatus, getTask(id));
   }
 
+  // Emit task:started for heartbeat notifications
+  if (status === 'running') {
+    try {
+      const { dispatchTaskEvent } = require('./hooks/event-dispatch');
+      const updatedTask = getTask(id);
+      if (updatedTask) {
+        dispatchTaskEvent('started', updatedTask);
+      }
+    } catch (e) {
+      // Non-fatal — never block status transition
+    }
+  }
+
   return getTask(id);
 }
 

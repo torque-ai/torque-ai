@@ -218,13 +218,31 @@ async function runAgenticLoop({
 
     logger.info(`[Agentic] Calling adapter iteration ${iterations + 1}, messages: ${cleanMessages.length}`);
     logger.debug(`[LOOP-TRACE] iter=${iterations + 1} calling adapter, msgs=${cleanMessages.length}, opts_keys=${Object.keys(options || {}).join(',')}`);
-    const response = await adapter.chatCompletion({
-      messages: cleanMessages,
-      tools: tools && tools.length > 0 ? tools : undefined,
-      timeoutMs: timeoutMs || 120000, // default 2 min per request
-      signal,
-      ...(options || {}),
-    });
+
+    // Retry wrapper for transient API errors (truncated JSON, 5xx, network).
+    // Up to 2 retries with exponential backoff. Non-transient errors propagate immediately.
+    let response;
+    const MAX_API_RETRIES = 2;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        response = await adapter.chatCompletion({
+          messages: cleanMessages,
+          tools: tools && tools.length > 0 ? tools : undefined,
+          timeoutMs: timeoutMs || 120000,
+          signal,
+          ...(options || {}),
+        });
+        break; // success
+      } catch (apiErr) {
+        const msg = apiErr.message || '';
+        const isTransient = /parse.*json|unexpected end|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d|502|503|429/i.test(msg);
+        if (!isTransient || attempt >= MAX_API_RETRIES) throw apiErr;
+        const delayMs = (attempt + 1) * 2000; // 2s, 4s
+        logger.info(`[Agentic] Transient API error (attempt ${attempt + 1}/${MAX_API_RETRIES + 1}): ${msg.slice(0, 100)} — retrying in ${delayMs}ms`);
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+
     logger.debug(`[LOOP-TRACE] iter=${iterations + 1} adapter returned, content_len=${(response.message.content||'').length}, tools=${response.message.tool_calls?.length || 0}`);
     logger.info(`[Agentic] Adapter returned: tool_calls=${response.message.tool_calls?.length || 0}`);
 
