@@ -304,6 +304,7 @@ function ImportModal({ onClose, onImport }) {
   const [projectName, setProjectName] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [preview, setPreview] = useState(null);
+  const [previewTasks, setPreviewTasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -323,6 +324,7 @@ function ImportModal({ onClose, onImport }) {
         dry_run: true,
       });
       setPreview(result);
+      setPreviewTasks((result.tasks || []).map((t) => ({ ...t })));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -339,6 +341,7 @@ function ImportModal({ onClose, onImport }) {
         project_name: projectName || undefined,
         working_directory: workingDirectory || undefined,
         dry_run: false,
+        tasks: previewTasks.length > 0 ? previewTasks : undefined,
       });
       onImport(result);
       onClose();
@@ -428,14 +431,25 @@ function ImportModal({ onClose, onImport }) {
 
           {preview && (
             <div className="bg-slate-900 rounded p-4">
-              <h3 className="text-white font-medium mb-2">Preview: {preview.task_count} tasks</h3>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {preview.tasks?.map((task, i) => (
-                  <div key={i} className="text-sm">
-                    <span className="text-slate-400">#{task.seq}</span>
-                    <span className="text-white ml-2">{task.description?.substring(0, 60)}...</span>
+              <h3 className="text-white font-medium mb-2">Preview: {previewTasks.length} tasks</h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {previewTasks.map((task, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm">
+                    <span className="text-slate-400 shrink-0">#{task.seq}</span>
+                    <input
+                      type="text"
+                      value={task.description || ''}
+                      onChange={(e) => {
+                        setPreviewTasks((prev) => {
+                          const next = [...prev];
+                          next[i] = { ...next[i], description: e.target.value };
+                          return next;
+                        });
+                      }}
+                      className="flex-1 bg-gray-700 text-gray-200 text-sm px-2 py-1 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+                    />
                     {task.depends_on?.length > 0 && (
-                      <span className="text-slate-500 ml-2">
+                      <span className="text-slate-500 shrink-0">
                         (depends on: {task.depends_on.join(', ')})
                       </span>
                     )}
