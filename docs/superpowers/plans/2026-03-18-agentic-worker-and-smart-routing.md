@@ -513,3 +513,103 @@ cd C:/Users/Werem/Projects/torque-public
 git add server/tests/agentic-routing.test.js
 git commit -m "test(routing): integration tests for full agentic fallback chain pipeline"
 ```
+
+---
+
+## Plan Review Fixes
+
+Issues identified by plan reviewer. All addressed below — implementers MUST read these before starting.
+
+### C1: Health filtering placement — avoid circular dependency
+
+`resolveProvider` in `template-store.js` must NOT call `isProviderHealthy` from `provider-routing-core.js` (circular require). Health filtering happens in `analyzeTaskForRouting` (Task 6), not in `resolveProvider` (Task 3).
+
+**Task 3 fix:** `resolveProvider` returns the first entry in the chain WITHOUT health filtering. It simply normalizes and returns. Health-aware selection is the caller's job.
+
+**Task 6 fix:** `analyzeTaskForRouting` iterates `resolved.chain` and skips unhealthy providers using `isProviderHealthy` (already imported in that file).
+
+### C2: model/chain data flow through task-manager.js
+
+Task 6 Step 2 is intentionally vague. Here is the concrete implementation:
+
+In `task-manager.js:resolveProviderRouting()`, after calling `analyzeTaskForRouting`:
+```js
+const routing = analyzeTaskForRouting(...);
+// Propagate model and chain to the task object
+if (routing.model) task.model = task.model || routing.model;
+if (routing.chain) {
+  let meta = parseTaskMetadata(task.metadata);
+  meta._routing_chain = routing.chain;
+  task.metadata = JSON.stringify(meta);
+}
+```
+
+In `execution.js:executeOllamaTaskWithAgentic` and `executeApiProviderWithAgentic`, read the chain:
+```js
+const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
+const chain = meta._routing_chain || null;
+```
+
+### I1: Worker logger isolation
+
+The worker uses this pattern to intercept `require('../logger')`:
+```js
+// At top of agentic-worker.js, BEFORE requiring ollama-agentic:
+const { parentPort } = require('worker_threads');
+const loggerProxy = {
+  info: (msg) => parentPort.postMessage({ type: 'log', level: 'info', message: msg }),
+  warn: (msg) => parentPort.postMessage({ type: 'log', level: 'warn', message: msg }),
+  child: () => loggerProxy, // ollama-agentic.js calls logger.child()
+};
+// Override the logger module in require cache
+require.cache[require.resolve('../logger')] = {
+  id: require.resolve('../logger'),
+  filename: require.resolve('../logger'),
+  loaded: true,
+  exports: loggerProxy,
+};
+// NOW require the modules that use logger
+const { runAgenticLoop } = require('./ollama-agentic');
+```
+
+This is the same mock injection pattern used in TORQUE's existing test files (e.g., `adapter-registry.test.js:3-5`).
+
+### I5: Git snapshot ownership in worker refactoring
+
+Task 2 must move `captureSnapshot` and `checkAndRevert` OUT of `runAgenticPipeline` into the main-thread wrapper code. The pipeline function called from the worker should NOT do git operations.
+
+Concretely: in Task 2, when replacing `runAgenticPipeline` with `spawnAgenticWorker`:
+1. Call `captureSnapshot(workingDir)` BEFORE spawning the worker (main thread)
+2. After the worker completes, call `checkAndRevert(workingDir, snapshot, ...)` (main thread)
+3. For `executeWithFallback` (Task 5), the snapshot is captured once before the loop, and `checkAndRevert` runs between each fallback attempt
+
+### I2: Worker _testMode specification
+
+The `_testMode` seam works as follows:
+```js
+// In agentic-worker.js:
+if (workerData._testMode) {
+  const { mockBehavior } = workerData;
+  if (mockBehavior === 'success') {
+    parentPort.postMessage({ type: 'progress', iteration: 1, maxIterations: 1, lastTool: 'mock' });
+    parentPort.postMessage({ type: 'result', output: 'mock output', toolLog: [], changedFiles: [], iterations: 1, tokenUsage: {} });
+  } else if (mockBehavior === 'error') {
+    parentPort.postMessage({ type: 'error', message: 'mock error' });
+  } else if (mockBehavior === 'abort') {
+    // Wait for abort message, then exit
+    parentPort.on('message', (msg) => {
+      if (msg.type === 'abort') parentPort.postMessage({ type: 'error', message: 'aborted' });
+    });
+  }
+  return; // Skip real agentic loop
+}
+```
+
+### File path corrections
+
+- Task 6 Step 3: `server/tests/provider-routing.test.js` → `server/tests/provider-routing-core.test.js`
+- Task 5 Step 3: add `const { recordProviderOutcome } = require('../db/provider-routing-core');` import to `execution.js`
+
+### Parallelization note
+
+Tasks 3-4 (template store + preset template) are independent of Tasks 1-2 (worker thread). They can be implemented in parallel for faster delivery. Task 5 (fallback retry) depends on both Phase 1 and Task 3. Tasks 6-7 depend on everything.
