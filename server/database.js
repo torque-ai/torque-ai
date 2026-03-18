@@ -55,7 +55,7 @@ const ALLOWED_TASK_COLUMNS = new Set([
   'group_id', 'paused_at', 'pause_reason', 'approval_status', 'workflow_id',
   'workflow_node_id', 'claimed_by_agent', 'required_capabilities', 'ollama_host_id',
   'provider', 'model', 'original_provider', 'provider_switched_at',
-  'mcp_instance_id', 'complexity', 'metadata'
+  'mcp_instance_id', 'complexity', 'metadata', 'task_metadata'
 ]);
 
 const { VALID_CONFIG_KEYS } = require('./db/config-keys');
