@@ -389,6 +389,33 @@ function ImportModal({ onClose, onImport }) {
           </div>
 
           <div>
+            <label className="block text-sm text-slate-400 mb-1">Upload Plan File</label>
+            <input
+              type="file"
+              accept=".md,.txt,.markdown"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                  setPlanContent(evt.target.result);
+                  if (!projectName) {
+                    setProjectName(file.name.replace(/\.(md|txt|markdown)$/, ''));
+                  }
+                };
+                reader.readAsText(file);
+              }}
+              className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm file:mr-3 file:px-3 file:py-1 file:rounded file:border-0 file:bg-slate-600 file:text-white file:text-sm file:cursor-pointer hover:file:bg-slate-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-3 text-slate-500 text-xs">
+            <div className="flex-1 border-t border-slate-600" />
+            <span>or paste markdown below</span>
+            <div className="flex-1 border-t border-slate-600" />
+          </div>
+
+          <div>
             <label className="block text-sm text-slate-400 mb-1">Plan Content (Markdown)</label>
             <textarea
               value={planContent}
