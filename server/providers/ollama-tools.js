@@ -355,11 +355,24 @@ function createToolExecutor(workingDir, options = {}) {
             return { result: `Error: Directory not found: ${args.path}`, error: true };
           }
           const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
-          const listing = entries.map(e => {
-            const suffix = e.isDirectory() ? '/' : '';
-            return `${e.name}${suffix}`;
-          }).join('\n');
-          return { result: truncateOutput(listing) || '(empty directory)' };
+          const dirs = entries.filter(e => e.isDirectory());
+          const files = entries.filter(e => !e.isDirectory());
+          const parts = [];
+          if (dirs.length > 0) {
+            parts.push(`Directories (${dirs.length}):`);
+            dirs.forEach(e => parts.push(`  ${e.name}/`));
+          }
+          if (files.length > 0) {
+            parts.push(`Files (${files.length}):`);
+            files.forEach(e => {
+              try {
+                const size = fs.statSync(path.join(resolvedPath, e.name)).size;
+                parts.push(size > 1024 ? `  ${e.name} (${(size/1024).toFixed(1)}KB)` : `  ${e.name}`);
+              } catch { parts.push(`  ${e.name}`); }
+            });
+          }
+          const listing = parts.join('\n');
+          return { result: truncateOutput(listing) || '(empty directory)', metadata: { directories: dirs.length, files: files.length } };
         }
 
         case 'search_files': {

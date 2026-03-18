@@ -55,6 +55,7 @@ const WHITELIST_PREFIXES = [
 // in the system prompt, and results come back as [TOOL_RESULTS] user messages.
 const PROMPT_INJECTION_PREFIXES = [
   'codestral',
+  // Note: mistral-large-3 supports native tools on ollama-cloud (tested 2026-03-18)
 ];
 
 // ── Module-level state (dependency injection) ─────────────────────────────────
