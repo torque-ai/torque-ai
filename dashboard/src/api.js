@@ -242,6 +242,10 @@ export const models = {
   bulkApprove: (provider) => requestV2('/models/bulk-approve', {
     method: 'POST', body: JSON.stringify({ provider }),
   }),
+  leaderboard: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return requestV2(`/providers/get-model-leaderboard${query ? '?' + query : ''}`);
+  },
 };
 
 // ─── Provider CRUD endpoints (v2) ───────────────────────────────────────────
@@ -294,6 +298,7 @@ export const budget = {
   summary: (days = 30) => requestV2(`/budget/summary?days=${days}`),
   status: () => requestV2('/budget/status'),
   set: (data) => requestV2('/budget', { method: 'POST', body: JSON.stringify(data) }),
+  forecast: (days = 30) => requestV2(`/validation/get-cost-forecast?days=${days}`),
 };
 
 // ─── Schedule endpoints (all v2) ────────────────────────────────────────────

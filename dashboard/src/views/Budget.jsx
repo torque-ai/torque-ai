@@ -39,9 +39,22 @@ function ProgressRing({ percent, size = 80, strokeWidth = 8 }) {
   );
 }
 
+const TREND_ICONS = {
+  increasing: '\u2191',
+  decreasing: '\u2193',
+  stable: '\u2192',
+};
+
+const TREND_COLORS = {
+  increasing: 'text-red-400',
+  decreasing: 'text-green-400',
+  stable: 'text-slate-400',
+};
+
 export default function Budget() {
   const [summary, setSummary] = useState(null);
   const [budgetStatus, setBudgetStatus] = useState(null);
+  const [forecast, setForecast] = useState(null);
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [chartType, setChartType] = useState('bar');
@@ -52,12 +65,14 @@ export default function Budget() {
 
   const loadData = useCallback(async () => {
     try {
-      const [s, b] = await Promise.all([
+      const [s, b, f] = await Promise.all([
         budgetApi.summary(days),
         budgetApi.status().catch(() => null),
+        budgetApi.forecast(days).catch(() => null),
       ]);
       setSummary(s);
       setBudgetStatus(b);
+      setForecast(f);
     } catch (err) {
       console.error('Failed to load budget data:', err);
       toast.error('Failed to load budget data');
@@ -123,11 +138,16 @@ export default function Budget() {
   const budgetUsed = budgetStatus?.used || budgetStatus?.budget_used || totalCost;
   const budgetPct = budgetLimit > 0 ? Math.round((budgetUsed / budgetLimit) * 100) : 0;
 
-  // Projected monthly cost based on daily average
-  const dailyAvg = dailyCosts.length > 0
-    ? dailyCosts.reduce((sum, d) => sum + (d.cost || 0), 0) / dailyCosts.length
-    : 0;
-  const projectedMonthly = dailyAvg * 30;
+  // Use server-side linear regression forecast when available, fall back to client-side naive avg
+  const dailyAvg = forecast?.daily_avg != null
+    ? forecast.daily_avg
+    : (dailyCosts.length > 0
+      ? dailyCosts.reduce((sum, d) => sum + (d.cost || 0), 0) / dailyCosts.length
+      : 0);
+  const projectedMonthly = forecast?.projected_monthly != null
+    ? forecast.projected_monthly
+    : dailyAvg * 30;
+  const trendDirection = forecast?.trend_direction || 'stable';
   const taskCount = summary?.task_count || summary?.taskCount || summary?.total_tasks || 0;
   const costPerTask = taskCount > 0 ? totalCost / taskCount : 0;
 
@@ -184,7 +204,7 @@ export default function Budget() {
         <StatCard
           label="Projected Monthly"
           value={`$${projectedMonthly.toFixed(2)}`}
-          subtext={`$${dailyAvg.toFixed(2)}/day avg`}
+          subtext={`$${dailyAvg.toFixed(2)}/day avg ${TREND_ICONS[trendDirection] || ''} ${trendDirection}`}
           gradient={budgetLimit > 0 && projectedMonthly > budgetLimit ? 'red' : 'cyan'}
           icon="\uD83D\uDCC8"
         />
