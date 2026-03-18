@@ -10,6 +10,7 @@ const INLINE_TOOL_HANDLERS = new Set([
   'unlock_tier',
 ]);
 const EXPECTED_UNMAPPED_TOOLS = new Set([
+  'reopen_workflow',
   // Tool-def names differ from handler route names (set_provider_api_key vs set_api_key)
   'set_provider_api_key', 'clear_provider_api_key',
   // Tool-def names differ from handler route names (strategic_config_* vs config_*)
