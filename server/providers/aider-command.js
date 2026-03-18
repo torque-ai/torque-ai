@@ -236,6 +236,8 @@ function buildAiderCommand(task, resolvedFileContext, resolvedFilePaths) {
     '--no-auto-lint',
     '--no-suggest-shell-commands',
     '--no-show-model-warnings',
+    '--no-detect-urls',
+    '--timeout', '120',
     '--model-metadata-file', path.join(__dirname, '..', 'aider-model-metadata.json'),
     '--exit',
     '--message', wrappedDescription
