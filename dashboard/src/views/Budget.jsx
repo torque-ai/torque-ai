@@ -19,9 +19,10 @@ function ProgressRing({ percent, size = 80, strokeWidth = 8 }) {
   const circumference = radius * 2 * Math.PI;
   const offset = circumference - (Math.min(percent, 100) / 100) * circumference;
   const color = percent >= 100 ? '#ef4444' : percent >= 80 ? '#f59e0b' : '#22c55e';
+  const percentage = Math.round(percent);
   return (
     <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="transform -rotate-90">
+      <svg width={size} height={size} className="transform -rotate-90" role="progressbar" aria-valuenow={percentage} aria-valuemin={0} aria-valuemax={100} aria-label={`Budget ${percentage}% used`}>
         <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#334155" strokeWidth={strokeWidth} />
         <circle
           cx={size / 2} cy={size / 2} r={radius}
@@ -192,7 +193,11 @@ export default function Budget() {
           gradient="blue"
           icon="\uD83D\uDCB0"
         />
-        <div onClick={() => setShowBudgetForm(!showBudgetForm)} className="cursor-pointer">
+        <button
+          type="button"
+          onClick={() => setShowBudgetForm(!showBudgetForm)}
+          className="cursor-pointer text-left w-full"
+        >
           <StatCard
             label="Budget Used"
             value={budgetLimit > 0 ? `${budgetPct}%` : 'No limit'}
@@ -200,7 +205,7 @@ export default function Budget() {
             gradient={budgetPct > 80 ? 'red' : budgetPct > 50 ? 'orange' : 'green'}
             icon="\uD83D\uDCCA"
           />
-        </div>
+        </button>
         <StatCard
           label="Projected Monthly"
           value={`$${projectedMonthly.toFixed(2)}`}
@@ -223,7 +228,7 @@ export default function Budget() {
           <h3 className="text-lg font-semibold text-white">Set Budget</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Monthly Limit ($)</label>
+              <label className="block text-sm text-slate-400 mb-1">{budgetForm.period === 'weekly' ? 'Weekly' : budgetForm.period === 'daily' ? 'Daily' : 'Monthly'} Limit ($)</label>
               <input
                 type="number"
                 step="0.01"
@@ -298,6 +303,7 @@ export default function Budget() {
             </div>
           </div>
           {dailyCosts.length > 0 ? (
+            <div role="img" aria-label={`Cost over time chart (${chartType})`}>
             <ResponsiveContainer width="100%" height={300}>
               {chartType === 'bar' ? (
                 <BarChart data={dailyCosts}>
@@ -346,6 +352,7 @@ export default function Budget() {
                 </LineChart>
               )}
             </ResponsiveContainer>
+            </div>
           ) : (
             <div className="h-[300px] flex items-center justify-center text-slate-500">
               No daily cost data available
@@ -357,6 +364,7 @@ export default function Budget() {
         <div className="glass-card p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Provider Breakdown</h3>
           {pieData.length > 0 ? (
+            <div role="img" aria-label={`Provider cost breakdown: ${pieData.map(d => `${d.name} $${Number(d.value).toFixed(2)}`).join(', ')}`}>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
@@ -380,6 +388,7 @@ export default function Budget() {
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
+            </div>
           ) : (
             <div className="h-[300px] flex items-center justify-center text-slate-500">
               No provider cost data

@@ -568,6 +568,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
                   checked={sortedTasks.length > 0 && selectedIds.size === sortedTasks.length}
                   onChange={toggleSelectAll}
                   className="rounded border-slate-600 bg-slate-800 accent-blue-500"
+                  aria-label="Select all tasks"
                 />
               </th>
               {Object.entries(SORTABLE_COLUMNS).map(([key, { label }]) => (

@@ -107,6 +107,7 @@ function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency, onSe
           onClick={(e) => { e.stopPropagation(); onToggle?.(provider.provider, !provider.enabled); }}
           className={`relative w-9 h-5 rounded-full transition-colors ${provider.enabled ? 'bg-green-600' : 'bg-slate-600'}`}
           title={provider.enabled ? 'Disable provider' : 'Enable provider'}
+          aria-label={provider.enabled ? `Disable ${provider.provider}` : `Enable ${provider.provider}`}
         >
           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${provider.enabled ? 'left-[18px]' : 'left-0.5'}`} />
         </button>
@@ -619,6 +620,7 @@ export default function Providers({ statsVersion, tasksTick }) {
         {/* Usage over time */}
         <div className="glass-card p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Usage Over Time</h3>
+          <div role="img" aria-label="Usage over time: total, completed, and failed tasks">
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={timeSeries}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -630,12 +632,14 @@ export default function Providers({ statsVersion, tasksTick }) {
               <Line type="monotone" dataKey="failed" stroke="#ef4444" strokeWidth={2} dot={false} name="Failed" />
             </LineChart>
           </ResponsiveContainer>
+          </div>
         </div>
 
         {/* Provider breakdown */}
         <div className="glass-card p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Provider Breakdown</h3>
           {pieData.length > 0 ? (
+            <div role="img" aria-label={`Provider task distribution: ${pieData.map(d => `${d.name} ${d.value}`).join(', ')}`}>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
@@ -656,6 +660,7 @@ export default function Providers({ statsVersion, tasksTick }) {
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
+            </div>
           ) : (
             <div className="h-[300px] flex items-center justify-center text-slate-500">
               No data available

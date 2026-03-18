@@ -442,6 +442,10 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                   <Fragment key={wf.id}>
                     <tr
                       onClick={() => setExpandedId(isExpanded ? null : wf.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') setExpandedId(isExpanded ? null : wf.id); }}
+                      tabIndex={0}
+                      role="button"
+                      aria-expanded={isExpanded}
                       className={`border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer transition-colors ${
                         isExpanded ? 'bg-slate-700/20' : ''
                       }`}

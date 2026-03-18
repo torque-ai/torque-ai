@@ -96,7 +96,7 @@ function AppInner() {
   const drawerTaskIdRef = useRef(null);
   drawerTaskIdRef.current = drawerTaskId;
   const relativeTimeTick = useTick(30000);
-  // eslint-disable-next-line react-hooks/purity, react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
 
   // Handle WebSocket messages

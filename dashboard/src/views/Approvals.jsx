@@ -22,6 +22,7 @@ export default function Approvals() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionInProgress, setActionInProgress] = useState(null);
+  const [lastAction, setLastAction] = useState(null);
   const [activeTab, setActiveTab] = useState('pending');
   const toast = useToast();
 
@@ -193,18 +194,18 @@ export default function Approvals() {
                     <td className="p-4">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleApprove(item.id)}
+                          onClick={() => { setLastAction('approve'); handleApprove(item.id); }}
                           disabled={actionInProgress === item.id}
                           className="text-xs px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors"
                         >
-                          {actionInProgress === item.id ? '...' : 'Approve'}
+                          {actionInProgress === item.id && lastAction === 'approve' ? 'Approving...' : 'Approve'}
                         </button>
                         <button
-                          onClick={() => handleReject(item.id)}
+                          onClick={() => { setLastAction('reject'); handleReject(item.id); }}
                           disabled={actionInProgress === item.id}
                           className="text-xs px-3 py-1.5 rounded bg-red-600/20 hover:bg-red-600/40 text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
                         >
-                          {actionInProgress === item.id ? '...' : 'Reject'}
+                          {actionInProgress === item.id && lastAction === 'reject' ? 'Rejecting...' : 'Reject'}
                         </button>
                       </div>
                     </td>

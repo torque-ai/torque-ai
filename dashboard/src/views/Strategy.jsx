@@ -59,9 +59,10 @@ function FallbackChainNode({ name, healthStatus }) {
 
   return (
     <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${style.bg} ${style.text} ${style.border} ${healthStyle.ring} ring-1`}>
-      <span className={`w-2.5 h-2.5 rounded-full ${healthStyle.dot} ${healthStatus === 'healthy' ? 'animate-pulse' : ''}`} />
+      <span className={`w-2.5 h-2.5 rounded-full ${healthStyle.dot} ${healthStatus === 'healthy' ? 'animate-pulse' : ''}`} aria-hidden="true" />
+      <span className="sr-only">{healthStatus}</span>
       <span className="text-sm font-medium capitalize">{name}</span>
-      <span className={`text-[10px] uppercase tracking-wider ${healthStyle.label}`}>
+      <span className={`text-[10px] uppercase tracking-wider ${healthStyle.label}`} aria-hidden="true">
         {healthStatus}
       </span>
     </div>

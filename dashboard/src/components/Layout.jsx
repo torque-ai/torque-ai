@@ -192,7 +192,7 @@ function ShortcutModal({ onClose }) {
     <>
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] animate-fade-in" onClick={onClose} />
       <div className="fixed inset-0 z-[61] flex items-center justify-center p-4" onClick={onClose}>
-        <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl max-w-sm w-full p-5 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl max-w-sm w-full p-5 animate-fade-in" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-white">Keyboard Shortcuts</h3>
             <button onClick={onClose} className="text-slate-400 hover:text-white p-1" aria-label="Close shortcuts">
