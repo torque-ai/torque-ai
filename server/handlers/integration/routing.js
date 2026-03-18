@@ -1026,7 +1026,8 @@ async function handleSmartSubmitTask(args) {
     routing_reason: tierRoutingResult?.reason || routingResult.reason,
     complexity: complexity,
     routing_mode: codexExhausted ? 'codex_exhausted' : (!db.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
-    tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null
+    tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
+    _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
   };
 
   if (useTierList) {
@@ -1070,7 +1071,8 @@ async function handleSmartSubmitTask(args) {
         routing_reason: routingResult.reason,
         complexity: complexity,
         routing_mode: codexExhausted ? 'codex_exhausted' : (!db.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
-        tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null
+        tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
+        _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
       })
     });
   }

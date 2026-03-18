@@ -720,39 +720,15 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     };
     const contextBudget = PROVIDER_CONTEXT_BUDGETS[provider] || 16000;
 
-    // Capture git snapshot in main thread (git ops need main process context)
-    let snapshot = null;
+    // Check if task has a routing chain (set by smart routing template resolution)
+    let chain = null;
     try {
-      snapshot = captureSnapshot(workingDir);
-    } catch (e) {
-      logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
-    }
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
+      chain = meta._routing_chain;
+    } catch { /* ignore parse errors */ }
 
-    // Resolve adapter type for the worker
-    const adapterType = provider === 'ollama-cloud' ? 'ollama'
-      : provider === 'google-ai' ? 'google'
-      : 'openai';
-
-    // Spawn worker thread for the agentic loop
-    logger.debug(`[WORKER-DEBUG] Spawning worker for API task ${taskId}, provider=${provider}, model=${model}, adapterType=${adapterType}`);
-    const workerHandle = spawnAgenticWorker({
-      adapterType,
-      adapterOptions: {
-        host,
-        apiKey,
-        model,
-        temperature: 0.3,
-      },
-      systemPrompt,
-      taskPrompt: task.task_description,
-      workingDir,
-      timeoutMs,
-      maxIterations,
-      contextBudget,
-      promptInjectedTools: false,
-      commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
-      commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
-    }, {
+    // Shared callbacks for both single-provider and fallback-chain paths
+    const workerCallbacks = {
       onProgress: (msg) => {
         try {
           db.updateTaskStatus(taskId, 'running', {
@@ -776,21 +752,90 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       onLog: (msg) => {
         logger[msg.level || 'info'](msg.message);
       },
-    });
+    };
 
-    // Wire abort: forward AbortController.abort() → worker abort message
-    const origAbortHandler = () => workerHandle.abort();
-    abortController.signal.addEventListener('abort', origAbortHandler);
+    let result;
 
-    const result = await workerHandle.promise;
+    if (chain && Array.isArray(chain) && chain.length > 1) {
+      // Multi-provider fallback chain — delegate to executeWithFallback
+      logger.info(`[Agentic] API task ${taskId} using fallback chain (${chain.length} entries): ${chain.map(e => e.provider).join(' -> ')}`);
 
-    // Git safety check in main thread (after worker completes)
-    if (snapshot && snapshot.isGitRepo) {
-      const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
-      const mode = safetyMode === 'on' ? 'enforce' : safetyMode === 'warn' ? 'warn' : 'off';
-      const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
-      if (gitReport.report) {
-        result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
+      const buildConfig = (entry) => {
+        const entryAdapterType = entry.provider === 'ollama-cloud' ? 'ollama'
+          : entry.provider === 'google-ai' ? 'google'
+          : 'openai';
+        return {
+          adapterType: entryAdapterType,
+          adapterOptions: {
+            host: PROVIDER_HOST_MAP[entry.provider] || '',
+            apiKey: resolveApiKey(entry.provider),
+            model: entry.model || PROVIDER_DEFAULT_MODEL[entry.provider] || '',
+            temperature: 0.3,
+          },
+          systemPrompt,
+          taskPrompt: task.task_description,
+          workingDir,
+          timeoutMs,
+          maxIterations,
+          contextBudget: PROVIDER_CONTEXT_BUDGETS[entry.provider] || contextBudget,
+          promptInjectedTools: needsPromptInjection(entry.model || ''),
+          commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
+          commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
+        };
+      };
+
+      result = await executeWithFallback(task, chain, buildConfig, workerCallbacks);
+      logger.info(`[Agentic] API task ${taskId} completed via chain position ${result.chainPosition}: ${result.provider}/${result.model || 'default'}`);
+    } else {
+      // Single-provider path (no chain or single-entry chain)
+      // Capture git snapshot in main thread (git ops need main process context)
+      let snapshot = null;
+      try {
+        snapshot = captureSnapshot(workingDir);
+      } catch (e) {
+        logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
+      }
+
+      // Resolve adapter type for the worker
+      const adapterType = provider === 'ollama-cloud' ? 'ollama'
+        : provider === 'google-ai' ? 'google'
+        : 'openai';
+
+      // Spawn worker thread for the agentic loop
+      logger.debug(`[WORKER-DEBUG] Spawning worker for API task ${taskId}, provider=${provider}, model=${model}, adapterType=${adapterType}`);
+      const workerHandle = spawnAgenticWorker({
+        adapterType,
+        adapterOptions: {
+          host,
+          apiKey,
+          model,
+          temperature: 0.3,
+        },
+        systemPrompt,
+        taskPrompt: task.task_description,
+        workingDir,
+        timeoutMs,
+        maxIterations,
+        contextBudget,
+        promptInjectedTools: false,
+        commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
+        commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
+      }, workerCallbacks);
+
+      // Wire abort: forward AbortController.abort() → worker abort message
+      const origAbortHandler = () => workerHandle.abort();
+      abortController.signal.addEventListener('abort', origAbortHandler);
+
+      result = await workerHandle.promise;
+
+      // Git safety check in main thread (after worker completes)
+      if (snapshot && snapshot.isGitRepo) {
+        const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
+        const mode = safetyMode === 'on' ? 'enforce' : safetyMode === 'warn' ? 'warn' : 'off';
+        const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
+        if (gitReport.report) {
+          result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
+        }
       }
     }
 
@@ -803,6 +848,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       task_metadata: JSON.stringify({
         agentic_log: result.toolLog,
         agentic_token_usage: result.tokenUsage,
+        ...(result.chainPosition ? { chain_provider: result.provider, chain_position: result.chainPosition } : {}),
       }),
     });
 

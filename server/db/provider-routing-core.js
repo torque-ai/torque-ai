@@ -464,28 +464,50 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       const complexity = hostManagementFns?.determineTaskComplexity
         ? hostManagementFns.determineTaskComplexity(taskDescription, files)
         : 'normal';
-      const targetProvider = templateStore.resolveProvider(activeTemplate, category, complexity);
-      if (targetProvider) {
-        const providerConfig = getProvider(targetProvider);
+      const resolved = templateStore.resolveProvider(activeTemplate, category, complexity);
+      if (resolved) {
+        // resolveProvider returns {provider, model, chain, toString(), valueOf()}
+        // Check primary provider availability
+        const providerConfig = getProvider(resolved.provider);
         if (providerConfig && providerConfig.enabled) {
-          const result = {
-            provider: targetProvider,
+          return maybeApplyFallback({
+            provider: resolved.provider,
+            model: resolved.model || null,
+            chain: resolved.chain,
             rule: null,
             complexity,
-            reason: `Template '${activeTemplate.name}': ${category} -> ${targetProvider}`,
-          };
-          return maybeApplyFallback(result);
+            reason: `Template '${activeTemplate.name}': ${category} -> ${resolved.provider}`,
+          });
         }
-        // Target unavailable — try default
-        const defaultProvider = templateStore.resolveProvider(activeTemplate, 'default', complexity);
-        if (defaultProvider && defaultProvider !== targetProvider) {
-          const defaultConfig = getProvider(defaultProvider);
+        // Primary unavailable — iterate chain to find next enabled provider
+        if (resolved.chain && resolved.chain.length > 1) {
+          for (let i = 1; i < resolved.chain.length; i++) {
+            const entry = resolved.chain[i];
+            const entryConfig = getProvider(entry.provider);
+            if (entryConfig && entryConfig.enabled) {
+              return maybeApplyFallback({
+                provider: entry.provider,
+                model: entry.model || null,
+                chain: resolved.chain,
+                rule: null,
+                complexity,
+                reason: `Template '${activeTemplate.name}': ${category} -> ${resolved.provider} (unavailable), chain fallback -> ${entry.provider}`,
+              });
+            }
+          }
+        }
+        // Chain exhausted — try default category
+        const defaultResolved = templateStore.resolveProvider(activeTemplate, 'default', complexity);
+        if (defaultResolved && defaultResolved.provider !== resolved.provider) {
+          const defaultConfig = getProvider(defaultResolved.provider);
           if (defaultConfig && defaultConfig.enabled) {
             return maybeApplyFallback({
-              provider: defaultProvider,
+              provider: defaultResolved.provider,
+              model: defaultResolved.model || null,
+              chain: defaultResolved.chain,
               rule: null,
               complexity,
-              reason: `Template '${activeTemplate.name}': ${category} -> ${targetProvider} (unavailable), fallback to default -> ${defaultProvider}`,
+              reason: `Template '${activeTemplate.name}': ${category} -> ${resolved.provider} (unavailable), fallback to default -> ${defaultResolved.provider}`,
             });
           }
         }

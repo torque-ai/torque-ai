@@ -1483,6 +1483,21 @@ function startTask(taskId) {
     }
   }
 
+  // === ROUTING CHAIN PROPAGATION ===
+  // If a routing chain was stored at submission time (from template-based routing),
+  // propagate model from the chain's primary entry to the task if not already set.
+  {
+    const routingMeta = parseTaskMetadata(task.metadata);
+    if (routingMeta._routing_chain && Array.isArray(routingMeta._routing_chain) && routingMeta._routing_chain.length > 0) {
+      // Find the chain entry matching the resolved provider, or use the first entry
+      const matchingEntry = routingMeta._routing_chain.find(e => e.provider === provider) || routingMeta._routing_chain[0];
+      if (matchingEntry && matchingEntry.model && !task.model) {
+        task.model = matchingEntry.model;
+        logger.debug(`[startTask] Propagated model '${matchingEntry.model}' from routing chain for task ${taskId}`);
+      }
+    }
+  }
+
   // === EXTENDED SAFEGUARD PRE-CHECKS ===
   const safeguardResult = runSafeguardPreChecks(task, taskId, provider);
   if (safeguardResult) return safeguardResult;
