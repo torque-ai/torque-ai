@@ -203,8 +203,11 @@ function transitionWorkflowStatus(workflowId, fromStatus, toStatus, additionalUp
   const fields = ['status = ?'];
   const values = [toStatus];
 
+  const ALLOWED_COLUMNS = new Set(['name', 'description', 'status', 'context', 'economy_policy', 'error_message', 'completed_at']);
+
   // Add additional updates
   for (const [key, value] of Object.entries(additionalUpdates)) {
+    if (!ALLOWED_COLUMNS.has(key)) continue;
     if (key === 'context') {
       fields.push('context = ?');
       values.push(JSON.stringify(value));
@@ -233,6 +236,9 @@ function transitionWorkflowStatus(workflowId, fromStatus, toStatus, additionalUp
   return result.changes > 0;
 }
 
+let _lastReconcile = 0;
+const RECONCILE_DEBOUNCE_MS = 30000; // 30s
+
 /**
  * List workflows with filters
  * @param {any} options
@@ -240,7 +246,11 @@ function transitionWorkflowStatus(workflowId, fromStatus, toStatus, additionalUp
  */
 function listWorkflows(options = {}) {
   // Heal stale workflows before listing so status views are accurate.
-  reconcileStaleWorkflows();
+  // Debounced to avoid hammering the DB on every list call.
+  if (Date.now() - _lastReconcile > RECONCILE_DEBOUNCE_MS) {
+    reconcileStaleWorkflows();
+    _lastReconcile = Date.now();
+  }
 
   let sql = 'SELECT * FROM workflows WHERE 1=1';
   const params = [];

@@ -308,6 +308,7 @@ async function executeOllamaTask(task) {
           error_output: (task.error_output || '') + `\nTemporarily requeued: ${slotResult.reason}`
         });
         dashboard.notifyTaskUpdated(taskId);
+        setTimeout(() => { try { processQueue(); } catch {} }, 5000);
         return { success: true, requeued: true, reason: slotResult.reason };
       }
     }
@@ -348,7 +349,7 @@ async function executeOllamaTask(task) {
         const errorMsg = `OOM Protection: ${exactSelection.reason}\n\nSuggested alternatives: ${suggestions}`;
         logger.info(`[Ollama] ${errorMsg}`);
         if (!tryOllamaCloudFallback(taskId, task, errorMsg)) {
-          db.updateTaskStatus(taskId, 'failed', {
+          safeUpdateTaskStatus(taskId, 'failed', {
             error_output: errorMsg,
             completed_at: new Date().toISOString()
           });
@@ -794,9 +795,6 @@ async function executeOllamaTask(task) {
       db.decrementHostTasks(selectedHostId);
     }
 
-    // Invalidate Ollama health cache so future routing knows it's down
-    db.invalidateOllamaHealth();
-
     // Enrich ECONNREFUSED with actionable guidance
     let errorOutput = error.message || '';
     if (error.code === 'ECONNREFUSED' || errorOutput.includes('ECONNREFUSED')) {
@@ -809,6 +807,11 @@ async function executeOllamaTask(task) {
 
     // Check if this is a connection/quota error for potential failover
     const isQuotaError = db.isProviderQuotaError('ollama', errorOutput);
+
+    // Invalidate Ollama health cache only on connection/quota failures
+    if (isQuotaError) {
+      db.invalidateOllamaHealth();
+    }
 
     if (isQuotaError) {
       // Guard: cap failover attempts to prevent infinite provider bounce (TQ-001)

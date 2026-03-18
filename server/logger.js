@@ -40,7 +40,7 @@ const REDACTION_MARKER = '[REDACTED]';
 class Logger {
   constructor(options = {}) {
     this.level = LEVELS[options.level || 'info'] || LEVELS.info;
-    this.logDir = options.logDir || path.join(__dirname);
+    this.logDir = options.logDir || process.env.TORQUE_DATA_DIR || path.join(__dirname);
     this.logFile = options.logFile || 'torque.log';
     this.maxSize = options.maxSize || 10 * 1024 * 1024; // 10MB
     this.maxFiles = options.maxFiles || 5;
@@ -212,6 +212,7 @@ class Logger {
       context: { ...this.context, ...context },
     });
     child._stream = this._stream; // Share file handle
+    // TODO: share size counter between parent and child loggers to prevent double rotation
     child._currentSize = this._currentSize;
     return child;
   }

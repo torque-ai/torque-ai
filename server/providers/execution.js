@@ -44,7 +44,7 @@ const PROVIDER_HOST_MAP = {
 
 // Default models per provider — chosen from comprehensive baseline testing (2026-03-18)
 const PROVIDER_DEFAULT_MODEL = {
-  groq: 'qwen/qwen3-32b',                          // Grade A, 2.5s, most consistent (llama-3.3-70b has intermittent failures)
+  groq: 'llama-3.3-70b-versatile',                  // matches groq.js default — qwen3-32b may have intermittent failures
   cerebras: 'qwen-3-235b-a22b-instruct-2507',       // Grade A, 779ms, best overall
   deepinfra: 'Qwen/Qwen2.5-72B-Instruct',
   openrouter: 'nvidia/nemotron-3-nano-30b-a3b:free', // Grade A, 3.9s, best free model

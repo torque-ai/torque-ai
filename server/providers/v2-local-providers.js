@@ -218,7 +218,8 @@ class BaseLocalOllamaProvider extends BaseProvider {
     return defaultModel;
   }
 
-  async _selectExecutionTarget(model, _options = {}) {
+  async _selectExecutionTarget(model, _options = {}, depth = 0) {
+    if (depth > 3) throw new Error('Model selection recursion limit reached');
     const requestedModel = sanitizeModel(model);
     let selectedModel = this._normalizeRequestedModel(requestedModel);
     const availableHosts = this._getOllamaHosts();
@@ -257,9 +258,13 @@ class BaseLocalOllamaProvider extends BaseProvider {
     }
 
     let selection = null;
+    let exactSelectionCached = null;
 
-    if (shouldPreferExact && typeof db.selectOllamaHostForModel === 'function') {
-      selection = db.selectOllamaHostForModel(selectedModel);
+    if (typeof db.selectOllamaHostForModel === 'function') {
+      exactSelectionCached = db.selectOllamaHostForModel(selectedModel);
+      if (shouldPreferExact) {
+        selection = exactSelectionCached;
+      }
     }
 
     if (!selection?.host && !hasExactVersionTag(selectedModel) && typeof db.selectHostWithModelVariant === 'function') {
@@ -269,8 +274,8 @@ class BaseLocalOllamaProvider extends BaseProvider {
       }
     }
 
-    if (!selection?.host && typeof db.selectOllamaHostForModel === 'function') {
-      selection = db.selectOllamaHostForModel(selectedModel);
+    if (!selection?.host) {
+      selection = exactSelectionCached;
     }
 
     if (!selection?.host) {
@@ -294,7 +299,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
       if (!fallback || !this._modelAvailable(fallback)) {
         throw new Error(`No ${this.providerId}-capable model available after host selection`);
       }
-      return this._selectExecutionTarget(fallback, _options);
+      return this._selectExecutionTarget(fallback, _options, depth + 1);
     }
 
     const slotRelease = this._acquireHostSlot(selection.host);

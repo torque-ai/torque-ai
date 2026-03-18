@@ -126,7 +126,7 @@ class StrategicBrain {
     const result = await provider.submit(combinedPrompt, this.model, {
       maxTokens: this.maxTokens,
       tuning: { temperature: this.temperature },
-      timeout: 5,
+      timeout: 5, // minutes — passed to provider.submit() which interprets as minutes
     });
 
     if (result?.usage) {

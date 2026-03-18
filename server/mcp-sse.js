@@ -28,9 +28,13 @@ const DEFAULT_NOTIFICATION_TEMPLATE = '[TORQUE] Task {taskId} {status}{ (}{durat
 const EVENT_AGGREGATION_WINDOW_MS = 10000; // 10s window for grouping rapid-fire events
 const MAX_SSE_SESSIONS = 50;
 
-const MCP_ALLOWED_ORIGINS = parseAllowedOrigins(
-  process.env.MCP_ALLOWED_ORIGINS ?? DEFAULT_MCP_ALLOWED_ORIGINS,
-);
+let _allowedOrigins = null;
+function getAllowedOrigins() {
+  if (!_allowedOrigins) {
+    _allowedOrigins = parseAllowedOrigins(process.env.MCP_ALLOWED_ORIGINS ?? DEFAULT_MCP_ALLOWED_ORIGINS);
+  }
+  return _allowedOrigins;
+}
 
 // Abort controller — fires on server shutdown so blocking handlers (await_task, await_workflow) can return early
 let shutdownAbort = new AbortController();
@@ -387,7 +391,7 @@ function parseAllowedOrigins(rawOrigins) {
 function resolveMcpAllowedOrigin(requestOrigin) {
   if (typeof requestOrigin !== 'string') return null;
   const normalized = requestOrigin.trim();
-  return MCP_ALLOWED_ORIGINS.has(normalized) ? normalized : null;
+  return getAllowedOrigins().has(normalized) ? normalized : null;
 }
 
 /**
@@ -901,8 +905,8 @@ function handleSubscribeTaskEvents(session, args) {
 
   // Update task filter
   if (Array.isArray(args.task_ids)) {
-    // SECURITY (M3): Check subscription limit before adding
-    if (session.taskFilter.size + args.task_ids.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
+    // SECURITY (M3): Check subscription limit before adding (check new IDs only, not cumulative)
+    if (args.task_ids.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
       return {
         content: [{
           type: 'text',
@@ -1040,16 +1044,20 @@ function handleAckNotification(session, args) {
  */
 function parseBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks = [];
+    let totalSize = 0;
     const MAX_BODY = 10 * 1024 * 1024;
     req.on('data', chunk => {
-      body += chunk;
-      if (body.length > MAX_BODY) {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY) {
         reject(new Error('Request body too large'));
         req.destroy();
+        return;
       }
+      chunks.push(chunk);
     });
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf-8');
       if (!body) return resolve(null);
       try {
         resolve(JSON.parse(body));

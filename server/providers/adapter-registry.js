@@ -100,11 +100,9 @@ function registerApiAdapter(providerId, ProviderClass, capabilities = {}) {
         apiKey = serverConfig.getApiKey(providerId);
       } catch { /* config not ready */ }
 
-      if (!provider) {
+      if (!provider || (apiKey && provider.apiKey !== apiKey) || (!apiKey && provider.apiKey)) {
+        // Reconstruct if: no provider yet, key changed, or key was removed
         provider = apiKey ? new ProviderClass({ apiKey }) : new ProviderClass();
-      } else if (apiKey && provider.apiKey !== apiKey) {
-        // Key changed — reconstruct provider
-        provider = new ProviderClass({ apiKey });
       }
       return provider;
     };

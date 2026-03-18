@@ -808,7 +808,9 @@ function processQueueInternal(options = {}) {
         continue;
       }
 
-      pendingFreeProviderOverflow.push(codexTask);
+      if (startOutcome.reason === 'capacity' || startOutcome.reason === 'no_slot') {
+        pendingFreeProviderOverflow.push(codexTask);
+      }
     }
 
     const runningOrStartedCodex = runningCodex + codexStarted;
@@ -868,7 +870,9 @@ function processQueueInternal(options = {}) {
 
     for (const nextTask of fallbackTasks) {
       // Check provider-specific limits before blindly starting
-      const provider = nextTask.provider || '';
+      const effectiveProvider = nextTask.provider || nextTask._effectiveProvider;
+      if (!effectiveProvider) continue;
+      const provider = effectiveProvider;
       const category = providerRegistry.getCategory(provider);
 
       let canStart = true;

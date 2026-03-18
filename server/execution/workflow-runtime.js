@@ -438,7 +438,7 @@ function handlePipelineStepCompletion(taskId, status) {
       if (task.output && taskDescription.includes('${prev_output}')) {
         // Limit output size to prevent huge task descriptions
         const prevOutput = task.output.slice(-5000);
-        taskDescription = taskDescription.replace(/\$\{prev_output\}/g, prevOutput);
+        taskDescription = taskDescription.replace(/\$\{prev_output\}/g, () => prevOutput);
       }
 
       const newTaskId = uuidv4();
@@ -797,7 +797,8 @@ function evaluateWorkflowDependencies(taskId, workflowId) {
       for (const otherDep of allDeps) {
         if (otherDep.depends_on_task_id === taskId) continue; // Already checked this one
 
-        const prereqStatus = otherDep.depends_on_status;
+        const prereqTask = db.getTask(otherDep.depends_on_task_id);
+        const prereqStatus = prereqTask?.status || otherDep.depends_on_status;
         if (!['completed', 'skipped'].includes(prereqStatus)) {
           allSatisfied = false;
           break;
@@ -901,7 +902,7 @@ function unblockTask(taskId) {
  * @param {string|null} alternateTaskId - Alternate task ID when action is run_alternate
  * @param {string} workflowId - Workflow ID
  */
-function applyFailureAction(taskId, action, alternateTaskId, workflowId) {
+function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDepth = 0) {
   switch (action) {
     case 'cancel':
       // Cancel this task and propagate cancellation to all dependents
@@ -917,6 +918,10 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId) {
         error_output: 'Skipped due to dependency condition not met'
       });
       // Trigger evaluation for tasks depending on this one
+      if (_skipDepth > 50) {
+        logger.warn(`[workflow] Skip propagation depth limit reached at task ${taskId}`);
+        break;
+      }
       evaluateWorkflowDependencies(taskId, workflowId);
       break;
 
@@ -926,7 +931,8 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId) {
         const allDeps = db.getTaskDependencies(taskId);
         let allSatisfied = true;
         for (const otherDep of allDeps) {
-          const prereqStatus = otherDep.depends_on_status;
+          const prereqTask = db.getTask(otherDep.depends_on_task_id);
+          const prereqStatus = prereqTask?.status || otherDep.depends_on_status;
           if (!['completed', 'skipped', 'failed'].includes(prereqStatus)) {
             allSatisfied = false;
             break;
@@ -972,7 +978,10 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId) {
  * @param {string} workflowId - Workflow ID
  * @param {string} reason - Cancellation reason
  */
-function cancelDependentTasks(taskId, workflowId, reason) {
+function cancelDependentTasks(taskId, workflowId, reason, visited = new Set()) {
+  if (visited.has(taskId)) return;
+  visited.add(taskId);
+
   // Use getTaskDependents (task_dependencies table) for correct workflow DAG traversal.
   // Previously used getDependentTasks (depends_on LIKE scan) which missed DAG edges
   // and returned rows with .id instead of .task_id, making cascade a no-op.
@@ -998,7 +1007,7 @@ function cancelDependentTasks(taskId, workflowId, reason) {
       continue;
     }
     // Recursively cancel dependents
-    cancelDependentTasks(depTaskId, workflowId, reason);
+    cancelDependentTasks(depTaskId, workflowId, reason, visited);
   }
 }
 

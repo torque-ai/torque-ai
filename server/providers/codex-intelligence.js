@@ -119,7 +119,7 @@ function runPreAnalysis(workingDir, filePaths) {
           execFileSync(npxCmd, ['tsc', '--noEmit', '--pretty', 'false'], {
             cwd: workingDir,
             encoding: 'utf8',
-            timeout: 15000,
+            timeout: 30000,
             windowsHide: true
           });
         } catch (e) {

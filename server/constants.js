@@ -82,6 +82,7 @@ const TASK_TIMEOUTS = {
   SNAPSCOPE_CAPTURE: 300000,
 };
 
+// Values are in MINUTES (not milliseconds). Convert before use: timeout * 60 * 1000
 const PROVIDER_DEFAULT_TIMEOUTS = {
   'codex': 30,
   'claude-cli': 30,

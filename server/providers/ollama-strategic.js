@@ -13,7 +13,7 @@ function buildApiErrorMessage(status, errorBody) {
 
 class OllamaStrategicProvider extends BaseProvider {
   constructor(config = {}) {
-    super({ name: 'ollama', ...config });
+    super({ name: 'ollama-strategic', ...config });
 
     const apiKeyAsHost = typeof config.apiKey === 'string' && /^https?:\/\//.test(config.apiKey)
       ? config.apiKey

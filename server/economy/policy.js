@@ -46,7 +46,11 @@ function setGlobalEconomyPolicy(policy) {
     return;
   }
 
-  const merged = { ...getDefaultPolicy(), ...policy };
+  const defaults = getDefaultPolicy();
+  const merged = { ...defaults, ...policy };
+  if (policy.provider_tiers && typeof policy.provider_tiers === 'object') {
+    merged.provider_tiers = { ...defaults.provider_tiers, ...policy.provider_tiers };
+  }
   db.setConfig('economy_policy', JSON.stringify(merged));
 }
 

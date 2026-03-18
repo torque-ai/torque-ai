@@ -876,10 +876,11 @@ function startMaintenanceScheduler() {
               priority: config.priority || 0,
               metadata: { scheduled_task_id: schedule.id, scheduled: true },
             });
+            db.markScheduledTaskRun(schedule.id); // Mark BEFORE startTask to prevent duplicate execution on crash
             taskManager.startTask(taskId);
-            db.markScheduledTaskRun(schedule.id);
             debugLog(`Executed scheduled task "${schedule.name}" -> task ${taskId}`);
           } catch (schedErr) {
+            logger.error(`Scheduled task execution failed: ${schedErr.message}`);
             debugLog(`Failed to execute scheduled task "${schedule.name}": ${schedErr.message}`);
           }
         }

@@ -78,6 +78,7 @@ class OpenRouterProvider extends BaseProvider {
   }
 
   _is429(err) {
+    if (err?.status === 429 || err?.statusCode === 429) return true;
     return err?.message?.includes('(429)') || err?.message?.includes('rate_limit') || err?.message?.includes('rate-limited');
   }
 

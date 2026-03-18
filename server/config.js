@@ -145,9 +145,10 @@ function getFloat(key, fallback) {
 function getBool(key, fallback) {
   const entry = REGISTRY[key];
   const defaultVal = entry ? entry.default : fallback;
-  const raw = get(key);
+  const raw = get(key, undefined);
   if (raw === null || raw === undefined) return defaultVal !== undefined ? defaultVal : true;
-  return raw !== '0' && raw !== 'false';
+  const s = String(raw).toLowerCase().trim();
+  return s !== '0' && s !== 'false' && s !== 'no' && s !== '';
 }
 
 /**

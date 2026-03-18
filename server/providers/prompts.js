@@ -329,13 +329,13 @@ function wrapWithInstructions(taskDescription, provider, model, context = {}) {
     logger.info(`[Prompt] Detected task types: ${taskTypes.join(', ')} - adding specialized instructions`);
   }
 
-  // Replace placeholders
+  // Replace placeholders (replaceAll ensures multiple occurrences are substituted)
   let wrapped = template
-    .replace('{TASK_DESCRIPTION}', taskDescription)
-    .replace('{FILES}', context.files ? context.files.join(', ') : 'As specified in the task')
-    .replace('{PROJECT}', context.project || 'unknown')
-    .replace('{TASK_TYPE_INSTRUCTIONS}', taskTypeInstructions)
-    .replace('{FILE_CONTEXT}', fileContextStr);
+    .replaceAll('{TASK_DESCRIPTION}', taskDescription)
+    .replaceAll('{FILES}', context.files ? context.files.join(', ') : 'As specified in the task')
+    .replaceAll('{PROJECT}', context.project || 'unknown')
+    .replaceAll('{TASK_TYPE_INSTRUCTIONS}', taskTypeInstructions)
+    .replaceAll('{FILE_CONTEXT}', fileContextStr);
 
   // Fallback: if template lacks placeholder but context exists, append
   if (fileContextStr && wrapped.indexOf(fileContextStr) === -1) {

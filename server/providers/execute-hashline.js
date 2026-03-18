@@ -402,7 +402,7 @@ async function runErrorFeedbackLoop({
       const fullPath = path.resolve(workingDir, relPath);
       try {
         const content = fs.readFileSync(fullPath, 'utf8');
-        updatedFileContextMap.set(relPath, content.split('\n'));
+        updatedFileContextMap.set(fullPath, content.split('\n'));
       } catch { /* skip */ }
     }
 
@@ -624,7 +624,8 @@ async function executeHashlineOllamaTask(task) {
         continue;
       }
       const fileLines = fileContent.split('\n');
-      fileContextMap.set(actual, fileLines);
+      const absPath = path.resolve(workingDir, actual);
+      fileContextMap.set(absPath, fileLines);
       if (fileLines.length > maxFileLines) maxFileLines = fileLines.length;
       const annotatedLines = fileLines.map((line, idx) => {
         const lineNum = String(idx + 1).padStart(3, '0');
@@ -900,6 +901,7 @@ async function executeHashlineOllamaTask(task) {
         logger.info(`[HashlineOllama] Full rewrite rejected for ${targetRel}: ${newLines} lines < 50% of original ${origLines} lines (likely truncation)`);
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         db.recordFormatSuccess(ollamaModel, editFormat, false, 'truncation_detected', duration);
+        if (selectedHostId) { try { db.decrementHostTasks(selectedHostId); } catch {} }
         tryHashlineTieredFallback(taskId, task, `Full rewrite rejected: ${newLines}/${origLines} lines (truncation safeguard)`);
         return;
       } else {
