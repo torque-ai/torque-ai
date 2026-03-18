@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { stats as statsApi, models as modelsApi } from '../api';
 import StatCard from '../components/StatCard';
+import { formatDate } from '../utils/formatters';
 import {
   BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -24,7 +25,7 @@ function formatDuration(seconds) {
   return `${m}m ${s}s`;
 }
 
-function formatDate(dateStr) {
+function formatChartDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(typeof dateStr === 'string' && dateStr.length === 10 ? dateStr + 'T12:00:00' : dateStr);
   return `${d.getMonth() + 1}/${d.getDate()}`;
@@ -225,9 +226,9 @@ export default function Models() {
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={dailyData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                    <XAxis dataKey="date" tickFormatter={formatChartDate} tick={{ fill: '#94a3b8', fontSize: 12 }} />
                     <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                    <Tooltip {...tooltipStyle} labelFormatter={formatDate} />
+                    <Tooltip {...tooltipStyle} labelFormatter={formatChartDate} />
                     <Legend />
                     {modelNames.map((name, i) => (
                       <Line key={name} type="monotone" dataKey={name}

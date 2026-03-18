@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { workflows as workflowsApi } from '../api';
 import { useToast } from '../components/Toast';
@@ -340,6 +340,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
   const { execute } = useAbortableRequest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
+  const metaCache = useRef(new Map());
 
   // Sync filter to URL
   useEffect(() => {
@@ -387,26 +388,34 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
     }
   }
 
-  // Parse workflow context for task counts
+  // Clear meta cache when workflows change
+  useEffect(() => { metaCache.current.clear(); }, [workflows]);
+
+  // Parse workflow context for task counts (memoized per workflow id)
   const getWorkflowMeta = useCallback((wf) => {
-    const ctx = typeof wf.context === 'string' ? (() => { try { return JSON.parse(wf.context); } catch { return {}; } })() : (wf.context || {});
-    const totalTasks = ctx.total_tasks || wf.total_tasks || 0;
-    const completedTasks = ctx.completed_tasks || wf.completed_tasks || 0;
-    const failedTasks = ctx.failed_tasks || wf.failed_tasks || 0;
+    if (metaCache.current.has(wf.id)) return metaCache.current.get(wf.id);
+    const meta = (() => {
+      const ctx = typeof wf.context === 'string' ? (() => { try { return JSON.parse(wf.context); } catch { return {}; } })() : (wf.context || {});
+      const totalTasks = ctx.total_tasks || wf.total_tasks || 0;
+      const completedTasks = ctx.completed_tasks || wf.completed_tasks || 0;
+      const failedTasks = ctx.failed_tasks || wf.failed_tasks || 0;
 
-    // Duration from first task start to last task end (or now if running)
-    let durationSecs = null;
-    if (wf.started_at || ctx.started_at) {
-      const start = new Date(wf.started_at || ctx.started_at);
-      const end = wf.status === 'running'
-        ? new Date(now)
-        : wf.completed_at || ctx.completed_at
-          ? new Date(wf.completed_at || ctx.completed_at)
-          : new Date(now);
-      durationSecs = (end - start) / 1000;
-    }
+      // Duration from first task start to last task end (or now if running)
+      let durationSecs = null;
+      if (wf.started_at || ctx.started_at) {
+        const start = new Date(wf.started_at || ctx.started_at);
+        const end = wf.status === 'running'
+          ? new Date(now)
+          : wf.completed_at || ctx.completed_at
+            ? new Date(wf.completed_at || ctx.completed_at)
+            : new Date(now);
+        durationSecs = (end - start) / 1000;
+      }
 
-    return { totalTasks, completedTasks, failedTasks, durationSecs, ctx };
+      return { totalTasks, completedTasks, failedTasks, durationSecs, ctx };
+    })();
+    metaCache.current.set(wf.id, meta);
+    return meta;
   }, [now]);
 
   // Client-side sort

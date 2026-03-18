@@ -2,15 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { coordination as coordinationApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
-
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  try {
-    return new Date(dateStr).toLocaleString('en-US');
-  } catch {
-    return dateStr;
-  }
-}
+import { formatDate } from '../utils/formatters';
 
 function AgentStatusBadge({ status }) {
   const colors = {

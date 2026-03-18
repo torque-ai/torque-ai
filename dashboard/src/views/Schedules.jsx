@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { schedules as schedulesApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
+import { formatDate } from '../utils/formatters';
 
 function StatusBadge({ enabled }) {
   return (
@@ -9,15 +10,6 @@ function StatusBadge({ enabled }) {
       {enabled ? 'Enabled' : 'Disabled'}
     </span>
   );
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  try {
-    return new Date(dateStr).toLocaleString('en-US');
-  } catch {
-    return dateStr;
-  }
 }
 
 function normalizeSchedulesResponse(data) {
@@ -74,10 +66,17 @@ export default function Schedules() {
     }
   }
 
+  // Simple cron format check: 5 space-separated fields
+  const isValidCron = (expr) => /^[\d*,/-]+(\s+[\d*,/-]+){4}$/.test(expr.trim());
+
   async function handleCreate(e) {
     e.preventDefault();
     if (!form.name || !form.cron_expression || !form.task_description) {
       toast.error('Name, cron expression, and task description are required');
+      return;
+    }
+    if (!isValidCron(form.cron_expression)) {
+      toast.error('Invalid cron expression — expected 5 fields');
       return;
     }
     setSubmitting(true);

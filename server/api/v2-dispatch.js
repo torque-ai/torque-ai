@@ -23,6 +23,13 @@ const v2InfrastructureHandlers = require('./v2-infrastructure-handlers');
 const remoteAgentHandlers = require('../handlers/remote-agent-handlers');
 const concurrencyHandlers = require('../handlers/concurrency-handlers');
 
+// Hoisted handler modules (avoids repeated require() inside handler functions)
+const routingHandlers = require('../handlers/routing-template-handlers');
+const strategicConfigHandlers = require('../handlers/strategic-config-handlers');
+const providerCrudHandlers = require('../handlers/provider-crud-handlers');
+const economyHandlers = require('../handlers/economy-handlers');
+const modelHandlers = require('../handlers/model-handlers');
+
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 
 async function readJsonBody(req) {
@@ -103,8 +110,8 @@ const V2_CP_HANDLER_LOOKUP = {
     res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
   },
   handleV2CpGetEconomyStatus: (req, res, ctx) => {
-    const query = require('url').parse(req.url, true).query;
-    const economyHandlers = require('../handlers/economy-handlers');
+    const url = new URL(req.url, 'http://localhost');
+    const query = Object.fromEntries(url.searchParams);
     const result = economyHandlers.handleGetEconomyStatus(query);
     const text = result?.content?.[0]?.text || '{}';
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -112,7 +119,6 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpSetEconomyMode: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const economyHandlers = require('../handlers/economy-handlers');
     const result = economyHandlers.handleSetEconomyMode(body);
     const text = result?.content?.[0]?.text || '';
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -120,7 +126,6 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpAddProvider: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const providerCrudHandlers = require('../handlers/provider-crud-handlers');
     const result = await providerCrudHandlers.handleAddProvider(body);
     if (result?.isError) {
       throwToolResultError(result);
@@ -131,7 +136,6 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpRemoveProvider: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const providerCrudHandlers = require('../handlers/provider-crud-handlers');
     const result = await providerCrudHandlers.handleRemoveProvider(body);
     if (result?.isError) {
       throwToolResultError(result);
@@ -144,7 +148,6 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpSetProviderApiKey: async (req, res, ctx) => {
     const body = await readJsonBody(req);
     const providerName = ctx.params?.provider_name || '';
-    const providerCrudHandlers = require('../handlers/provider-crud-handlers');
     const result = providerCrudHandlers.handleSetApiKey({ provider: providerName, api_key: body.api_key });
     if (result?.isError) {
       throwToolResultError(result);
@@ -154,7 +157,6 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpClearProviderApiKey: (req, res, ctx) => {
     const providerName = ctx.params?.provider_name || '';
-    const providerCrudHandlers = require('../handlers/provider-crud-handlers');
     const result = providerCrudHandlers.handleClearApiKey({ provider: providerName });
     if (result?.isError) {
       throwToolResultError(result);
@@ -164,41 +166,38 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   // Strategic Brain configuration
   handleV2CpStrategicConfigGet: (req, res, ctx) => {
-    const query = require('url').parse(req.url, true).query;
-    const handlers = require('../handlers/strategic-config-handlers');
-    const result = handlers.handleConfigGet({ working_directory: query.working_directory });
+    const url = new URL(req.url, 'http://localhost');
+    const query = Object.fromEntries(url.searchParams);
+    const result = strategicConfigHandlers.handleConfigGet({ working_directory: query.working_directory });
     if (result?.isError) { throwToolResultError(result); }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpStrategicConfigSet: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const handlers = require('../handlers/strategic-config-handlers');
-    const result = handlers.handleConfigSet({ working_directory: body.working_directory, config: body.config || body });
+    const result = strategicConfigHandlers.handleConfigSet({ working_directory: body.working_directory, config: body.config || body });
     if (result?.isError) { throwToolResultError(result); }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpStrategicConfigReset: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const handlers = require('../handlers/strategic-config-handlers');
-    const result = handlers.handleConfigReset({ working_directory: body.working_directory });
+    const result = strategicConfigHandlers.handleConfigReset({ working_directory: body.working_directory });
     if (result?.isError) { throwToolResultError(result); }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpStrategicTemplates: (req, res, ctx) => {
-    const query = require('url').parse(req.url, true).query;
-    const handlers = require('../handlers/strategic-config-handlers');
-    const result = handlers.handleConfigTemplates({ working_directory: query.working_directory });
+    const url = new URL(req.url, 'http://localhost');
+    const query = Object.fromEntries(url.searchParams);
+    const result = strategicConfigHandlers.handleConfigTemplates({ working_directory: query.working_directory });
     if (result?.isError) { throwToolResultError(result); }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpStrategicTemplateGet: (req, res, ctx) => {
     const templateName = ctx.params?.template_name || '';
-    const handlers = require('../handlers/strategic-config-handlers');
-    const configLoader = require('../orchestrator/config-loader');
+    const configLoader = require('../orchestrator/config-loader'); // inline require to avoid circular dependency
     const template = configLoader.loadTemplate(templateName);
     if (!template) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -218,14 +217,14 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   // Routing templates
   handleV2CpListRoutingTemplates: (req, res, ctx) => {
-    const routingHandlers = require('../handlers/routing-template-handlers');
+
     const result = routingHandlers.handleListRoutingTemplates();
     const text = result?.content?.[0]?.text || '[]';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpGetRoutingTemplate: (req, res, ctx) => {
-    const routingHandlers = require('../handlers/routing-template-handlers');
+
     const templateId = ctx.params?.template_id || '';
     const result = routingHandlers.handleGetRoutingTemplate({ id: templateId });
     if (result?.isError) {
@@ -237,7 +236,7 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpCreateRoutingTemplate: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const routingHandlers = require('../handlers/routing-template-handlers');
+
     const result = routingHandlers.handleSetRoutingTemplate(body);
     if (result?.isError) {
       throwToolResultError({ ...result, status: 400 });
@@ -248,7 +247,7 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpUpdateRoutingTemplate: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const routingHandlers = require('../handlers/routing-template-handlers');
+
     const templateId = ctx.params?.template_id || '';
     // Resolve template by ID first, then merge body for update
     const existing = routingHandlers.handleGetRoutingTemplate({ id: templateId });
@@ -270,7 +269,7 @@ const V2_CP_HANDLER_LOOKUP = {
     res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpDeleteRoutingTemplate: (req, res, ctx) => {
-    const routingHandlers = require('../handlers/routing-template-handlers');
+
     const templateId = ctx.params?.template_id || '';
     const result = routingHandlers.handleDeleteRoutingTemplate({ id: templateId });
     if (result?.isError) {
@@ -283,7 +282,7 @@ const V2_CP_HANDLER_LOOKUP = {
     res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
   },
   handleV2CpGetActiveRouting: (req, res, ctx) => {
-    const routingHandlers = require('../handlers/routing-template-handlers');
+
     const result = routingHandlers.handleGetActiveRouting();
     if (result?.isError) {
       throwToolResultError({ ...result, status: 404 });
@@ -294,7 +293,7 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpSetActiveRouting: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const routingHandlers = require('../handlers/routing-template-handlers');
+
     const result = routingHandlers.handleActivateRoutingTemplate({
       id: body.template_id !== undefined ? body.template_id : (body.id !== undefined ? body.id : undefined),
       name: body.template_name !== undefined ? body.template_name : (body.name !== undefined ? body.name : undefined),
@@ -307,7 +306,7 @@ const V2_CP_HANDLER_LOOKUP = {
     res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
   },
   handleV2CpListCategories: (req, res, ctx) => {
-    const routingHandlers = require('../handlers/routing-template-handlers');
+
     const result = routingHandlers.handleListRoutingCategories();
     const text = result?.content?.[0]?.text || '[]';
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -315,14 +314,14 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   // Model registry
   handleV2CpListModels: (req, res, ctx) => {
-    const modelHandlers = require('../handlers/model-handlers');
+
     const result = modelHandlers.handleListModels(req.query || {});
     const text = result?.content?.[0]?.text || '{}';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
   },
   handleV2CpListPendingModels: (req, res, ctx) => {
-    const modelHandlers = require('../handlers/model-handlers');
+
     const result = modelHandlers.handleListPendingModels();
     const text = result?.content?.[0]?.text || '{}';
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -330,7 +329,7 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpApproveModel: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const modelHandlers = require('../handlers/model-handlers');
+
     const result = modelHandlers.handleApproveModel(body);
     const text = result?.content?.[0]?.text || '';
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -338,7 +337,7 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpDenyModel: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const modelHandlers = require('../handlers/model-handlers');
+
     const result = modelHandlers.handleDenyModel(body);
     const text = result?.content?.[0]?.text || '';
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -346,7 +345,7 @@ const V2_CP_HANDLER_LOOKUP = {
   },
   handleV2CpBulkApproveModels: async (req, res, ctx) => {
     const body = await readJsonBody(req);
-    const modelHandlers = require('../handlers/model-handlers');
+
     const result = modelHandlers.handleBulkApproveModels(body);
     const text = result?.content?.[0]?.text || '';
     res.writeHead(200, { 'Content-Type': 'application/json' });

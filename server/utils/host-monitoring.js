@@ -773,7 +773,11 @@ function startTimers() {
                 let body = '';
                 res.on('data', chunk => { body += chunk; });
                 res.on('end', () => {
-                  try { wsModel.recordHealthCheck(ws.id, true, JSON.parse(body).ollama && JSON.parse(body).ollama.models); }
+                  try {
+                    const parsed = JSON.parse(body);
+                    const ollamaModels = parsed.ollama && parsed.ollama.models;
+                    wsModel.recordHealthCheck(ws.id, true, ollamaModels);
+                  }
                   catch { wsModel.recordHealthCheck(ws.id, false); }
                 });
               }).on('error', () => { wsModel.recordHealthCheck(ws.id, false); });
