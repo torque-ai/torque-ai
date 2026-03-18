@@ -55,6 +55,47 @@ function reindentNewText(newText, fileIndent) {
 }
 
 /**
+ * Find a whitespace-normalized match for old_text in file content.
+ * Strips leading whitespace from each line before comparing.
+ * Returns { startLine, lineCount, fileIndent, lineIndents } or null.
+ *   - fileIndent: leading whitespace of the first non-blank matched line
+ *   - lineIndents: per-line leading whitespace for each matched file line
+ * Throws if multiple matches found.
+ */
+function findWhitespaceNormalizedMatch(oldText, fileContent) {
+  const oldLines = oldText.split('\n').map(l => l.trimStart());
+  const fileLines = fileContent.split('\n');
+  const normalizedFileLines = fileLines.map(l => l.trimStart());
+
+  const matches = [];
+  for (let i = 0; i <= normalizedFileLines.length - oldLines.length; i++) {
+    let matched = true;
+    for (let j = 0; j < oldLines.length; j++) {
+      if (normalizedFileLines[i + j] !== oldLines[j]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) matches.push(i);
+  }
+
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    const err = new Error('multiple_normalized_matches');
+    err.code = 'MULTIPLE_MATCHES';
+    throw err;
+  }
+
+  const startLine = matches[0];
+  const matchedFileLines = fileLines.slice(startLine, startLine + oldLines.length);
+  const firstNonBlank = matchedFileLines.find(l => l.trim().length > 0);
+  const fileIndent = firstNonBlank ? firstNonBlank.match(/^(\s*)/)[1] : '';
+  const lineIndents = matchedFileLines.map(l => l.match(/^(\s*)/)[1]);
+
+  return { startLine, lineCount: oldLines.length, fileIndent, lineIndents };
+}
+
+/**
  * Tool definitions in OpenAI / Ollama function-calling format.
  */
 const TOOL_DEFINITIONS = [
@@ -353,6 +394,50 @@ function createToolExecutor(workingDir, options = {}) {
             // Replace all occurrences, return metadata.replacements count
             const occurrences = content.split(args.old_text).length - 1;
             if (occurrences === 0) {
+              // Whitespace-normalized fallback for replace_all
+              try {
+                const wsMatch = findWhitespaceNormalizedMatch(args.old_text, content);
+                if (wsMatch) {
+                  const oldLines = args.old_text.split('\n').map(l => l.trimStart());
+                  const fileLines = content.split('\n');
+                  const normalizedFileLines = fileLines.map(l => l.trimStart());
+                  let replacements = 0;
+                  const resultLines = [];
+                  let i = 0;
+                  while (i < fileLines.length) {
+                    let matched = true;
+                    if (i <= fileLines.length - oldLines.length) {
+                      for (let j = 0; j < oldLines.length; j++) {
+                        if (normalizedFileLines[i + j] !== oldLines[j]) {
+                          matched = false;
+                          break;
+                        }
+                      }
+                    } else {
+                      matched = false;
+                    }
+                    if (matched) {
+                      const firstNonBlank = fileLines.slice(i, i + oldLines.length).find(l => l.trim().length > 0);
+                      const indent = firstNonBlank ? firstNonBlank.match(/^(\s*)/)[1] : '';
+                      resultLines.push(...reindentNewText(args.new_text, indent).split('\n'));
+                      i += oldLines.length;
+                      replacements++;
+                    } else {
+                      resultLines.push(fileLines[i]);
+                      i++;
+                    }
+                  }
+                  if (replacements > 0) {
+                    fs.writeFileSync(resolvedPath, resultLines.join('\n'), 'utf-8');
+                    changedFiles.add(resolvedPath);
+                    return {
+                      result: `Edit applied to ${args.path} (${replacements} replacement${replacements !== 1 ? 's' : ''}, matched with normalized whitespace)`,
+                      metadata: { replacements },
+                    };
+                  }
+                }
+              } catch { /* fall through to error */ }
+
               const lines = content.split('\n');
               const preview = lines.slice(0, Math.min(30, lines.length)).join('\n');
               return {
@@ -368,17 +453,84 @@ function createToolExecutor(workingDir, options = {}) {
               metadata: { replacements: occurrences },
             };
           } else {
-            // Exact single-match mode
-            const idx = content.indexOf(args.old_text);
+            // Exact single-match mode.
+            // When old_text starts with whitespace, require line-boundary alignment:
+            // the match must start at the beginning of the file or immediately after
+            // a newline. This prevents '  foo();' from matching inside '    foo();'
+            // as a substring of a more-indented line.
+            const oldTextStartsWithWhitespace = /^\s/.test(args.old_text);
+            let idx = -1;
+            if (oldTextStartsWithWhitespace) {
+              let searchFrom = 0;
+              while (searchFrom <= content.length - args.old_text.length) {
+                const found = content.indexOf(args.old_text, searchFrom);
+                if (found === -1) break;
+                if (found === 0 || content[found - 1] === '\n') {
+                  idx = found;
+                  break;
+                }
+                searchFrom = found + 1;
+              }
+            } else {
+              idx = content.indexOf(args.old_text);
+            }
             if (idx === -1) {
+              // Tier 1: whitespace-normalized fallback
+              try {
+                const wsMatch = findWhitespaceNormalizedMatch(args.old_text, content);
+                if (wsMatch) {
+                  const fileLines = content.split('\n');
+                  // Re-indent new_text lines using per-line file indentation.
+                  // This preserves the exact tab/space style of each file line.
+                  const newLines = args.new_text.split('\n');
+                  const reindentedLines = newLines.map((newLine, i) => {
+                    if (!newLine.trim()) return newLine; // preserve blank lines
+                    const fileLineIndent = wsMatch.lineIndents[Math.min(i, wsMatch.lineCount - 1)];
+                    return fileLineIndent + newLine.trimStart();
+                  });
+                  const before = fileLines.slice(0, wsMatch.startLine);
+                  const after = fileLines.slice(wsMatch.startLine + wsMatch.lineCount);
+                  const newContent = [...before, ...reindentedLines, ...after].join('\n');
+                  fs.writeFileSync(resolvedPath, newContent, 'utf-8');
+                  changedFiles.add(resolvedPath);
+                  return {
+                    result: `Edit applied to ${args.path} (matched with normalized whitespace)`,
+                  };
+                }
+              } catch (wsErr) {
+                if (wsErr.code === 'MULTIPLE_MATCHES') {
+                  return {
+                    result: `Error: old_text matches multiple locations in ${args.path} after whitespace normalization. Provide more surrounding context to make the match unique.`,
+                    error: true,
+                  };
+                }
+              }
+
+              // TODO: Tier 2 fuzzy matching (Task 3)
+
               const lines = content.split('\n');
               const preview = lines.slice(0, Math.min(30, lines.length)).join('\n');
               return {
-                result: `Error: old_text not found in ${args.path}. First 30 lines:\n${preview}`,
+                result: `Error: old_text not found in ${args.path}. Include more context or check indentation. First 30 lines:\n${preview}`,
                 error: true,
               };
             }
-            const secondIdx = content.indexOf(args.old_text, idx + 1);
+            // Find second match (line-boundary-aware when old_text starts with whitespace)
+            let secondIdx = -1;
+            if (oldTextStartsWithWhitespace) {
+              let searchFrom2 = idx + 1;
+              while (searchFrom2 <= content.length - args.old_text.length) {
+                const found2 = content.indexOf(args.old_text, searchFrom2);
+                if (found2 === -1) break;
+                if (found2 === 0 || content[found2 - 1] === '\n') {
+                  secondIdx = found2;
+                  break;
+                }
+                searchFrom2 = found2 + 1;
+              }
+            } else {
+              secondIdx = content.indexOf(args.old_text, idx + 1);
+            }
             if (secondIdx !== -1) {
               return {
                 result: `Error: old_text matches multiple locations in ${args.path}. Use replace_all=true or provide more surrounding context to make the match unique.`,
@@ -607,6 +759,7 @@ module.exports = {
   parseToolCalls,
   resolveSafePath,
   reindentNewText,
+  findWhitespaceNormalizedMatch,
   IS_WINDOWS,
   MAX_FILE_READ_BYTES,
   MAX_COMMAND_TIMEOUT_MS,
