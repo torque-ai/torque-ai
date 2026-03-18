@@ -653,6 +653,8 @@ function ActionButton({ label, onClick, color, disabled = false }) {
 }
 
 function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, toast }) {
+  const [followMode, setFollowMode] = useState(true);
+  const stdoutRef = useRef(null);
   const allChunks = [...output, ...streamingOutput];
   const isStreaming = streamingOutput.length > 0;
   const stdoutText = allChunks.map(getOutputChunkText).join('');
@@ -662,12 +664,18 @@ function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, to
   const hasStdout = allChunks.length > 0;
   const hasStderr = stderrText.length > 0;
 
-  // Auto-scroll when new streaming output arrives
+  // Auto-scroll when new streaming output arrives (gated on followMode)
   useEffect(() => {
-    if (isStreaming && outputEndRef.current) {
-      outputEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (followMode && stdoutRef.current) {
+      stdoutRef.current.scrollTop = stdoutRef.current.scrollHeight;
     }
-  }, [streamingOutput.length, isStreaming, outputEndRef]);
+  }, [streamingOutput, followMode]);
+
+  const handleOutputScroll = useCallback((e) => {
+    const el = e.target;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    if (!atBottom && followMode) setFollowMode(false);
+  }, [followMode]);
 
   function copyOutput() {
     const text = [
@@ -694,7 +702,18 @@ function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, to
         )}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => outputEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+            onClick={() => setFollowMode(!followMode)}
+            className={`text-xs px-2 py-1 rounded ${followMode ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+          >
+            {followMode ? 'Follow: ON' : 'Follow: OFF'}
+          </button>
+          <button
+            onClick={() => {
+              if (stdoutRef.current) {
+                stdoutRef.current.scrollTop = stdoutRef.current.scrollHeight;
+              }
+              setFollowMode(true);
+            }}
             className="text-slate-400 hover:text-white text-xs transition-colors"
             title="Scroll to bottom"
           >
@@ -715,7 +734,7 @@ function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, to
       </div>
       <div className="space-y-4">
         {hasStdout && (
-          <pre className="bg-gray-900 text-gray-100 rounded-lg p-4 text-sm overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[60vh] overflow-y-auto">
+          <pre ref={stdoutRef} onScroll={handleOutputScroll} className="bg-gray-900 text-gray-100 rounded-lg p-4 text-sm overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[60vh] overflow-y-auto">
             {allChunks.map((chunk, i) => {
               const segments = parseAnsi(getOutputChunkText(chunk));
               return (
