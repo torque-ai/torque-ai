@@ -2,15 +2,42 @@
 
 const childProcess = require('child_process');
 
+const { EventEmitter } = require('events');
+
 const originalSpawnSync = childProcess.spawnSync;
+const originalSpawn = childProcess.spawn;
 const mockSpawnSync = vi.fn();
+const mockSpawn = vi.fn();
+
+/**
+ * Create a mock child process that emits close with given stdout/stderr/code.
+ */
+function makeMockChild(code, stdout = '', stderr = '') {
+  const child = new EventEmitter();
+  const stdoutStream = new EventEmitter();
+  const stderrStream = new EventEmitter();
+  stdoutStream.setEncoding = vi.fn();
+  stderrStream.setEncoding = vi.fn();
+  child.stdout = stdoutStream;
+  child.stderr = stderrStream;
+  child.kill = vi.fn();
+  // Emit data + close on next tick
+  process.nextTick(() => {
+    if (stdout) stdoutStream.emit('data', stdout);
+    if (stderr) stderrStream.emit('data', stderr);
+    child.emit('close', code);
+  });
+  return child;
+}
 
 function loadRoutingModule() {
   childProcess.spawnSync = mockSpawnSync;
+  childProcess.spawn = mockSpawn;
   const modPath = require.resolve('../remote/remote-test-routing');
   delete require.cache[modPath];
   const mod = require('../remote/remote-test-routing');
   childProcess.spawnSync = originalSpawnSync;
+  childProcess.spawn = originalSpawn;
   return mod;
 }
 
@@ -66,6 +93,7 @@ describe('remote-test-routing', () => {
       stdout: '',
       stderr: '',
     });
+    mockSpawn.mockReset();
 
     const routing = loadRoutingModule();
     createRemoteTestRouter = routing.createRemoteTestRouter;
@@ -386,7 +414,7 @@ describe('remote-test-routing', () => {
         getProjectFromPath: vi.fn().mockReturnValue('torque'),
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
-      mockSpawnSync.mockReturnValueOnce({ status: 0, stdout: 'a && b', stderr: '' });
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'a && b', ''));
 
       const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
       const command = 'node -e "process.stdout.write(\'a && b\')"';
@@ -394,8 +422,8 @@ describe('remote-test-routing', () => {
 
       expect(result.success).toBe(true);
       expect(result.output).toBe('a && b');
-      expect(mockSpawnSync).toHaveBeenCalledTimes(1);
-      expect(mockSpawnSync).toHaveBeenCalledWith(command, expect.objectContaining({
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn).toHaveBeenCalledWith(command, expect.objectContaining({
         cwd: '/repo',
         shell: true,
       }));
@@ -406,7 +434,7 @@ describe('remote-test-routing', () => {
         getProjectFromPath: vi.fn().mockReturnValue('torque'),
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
-      mockSpawnSync.mockReturnValueOnce({ status: 0, stdout: 'path-ok\n', stderr: '' });
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'path-ok\n', ''));
 
       const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
       const command = 'node "C:\\\\Program Files\\\\Torque Tests\\\\verify script.js"';
@@ -414,8 +442,8 @@ describe('remote-test-routing', () => {
 
       expect(result.success).toBe(true);
       expect(result.output).toBe('path-ok\n');
-      expect(mockSpawnSync).toHaveBeenCalledTimes(1);
-      expect(mockSpawnSync).toHaveBeenCalledWith(command, expect.objectContaining({
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn).toHaveBeenCalledWith(command, expect.objectContaining({
         cwd: '/repo',
         shell: true,
       }));
@@ -426,7 +454,7 @@ describe('remote-test-routing', () => {
         getProjectFromPath: vi.fn().mockReturnValue('torque'),
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
-      mockSpawnSync.mockReturnValueOnce({ status: 0, stdout: 'first\nsecond\n', stderr: '' });
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'first\nsecond\n', ''));
 
       const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
       const command = 'npm test && npm run lint';
@@ -434,8 +462,8 @@ describe('remote-test-routing', () => {
 
       expect(result.success).toBe(true);
       expect(result.output).toBe('first\nsecond\n');
-      expect(mockSpawnSync).toHaveBeenCalledTimes(1);
-      expect(mockSpawnSync).toHaveBeenCalledWith(command, expect.objectContaining({
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn).toHaveBeenCalledWith(command, expect.objectContaining({
         cwd: '/repo',
         shell: true,
       }));
@@ -446,7 +474,7 @@ describe('remote-test-routing', () => {
         getProjectFromPath: vi.fn().mockReturnValue('torque'),
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
-      mockSpawnSync.mockReturnValueOnce({ status: 1, stdout: 'failed\n', stderr: 'boom\n' });
+      mockSpawn.mockReturnValueOnce(makeMockChild(1, 'failed\n', 'boom\n'));
 
       const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
       const result = await router.runVerifyCommand('npm test && npm run lint', '/repo');
@@ -455,7 +483,7 @@ describe('remote-test-routing', () => {
       expect(result.exitCode).toBe(1);
       expect(result.output).toBe('failed\n');
       expect(result.error).toBe('boom\n');
-      expect(mockSpawnSync).toHaveBeenCalledTimes(1);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
     });
 
     it('returns success for empty verify command strings', async () => {
@@ -468,7 +496,7 @@ describe('remote-test-routing', () => {
       const result = await router.runVerifyCommand('   ', '/repo');
       expect(result.success).toBe(true);
       expect(result.exitCode).toBe(0);
-      expect(mockSpawnSync).not.toHaveBeenCalled();
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     it('passes multi-step verify commands to the remote executor unchanged', async () => {

@@ -1,6 +1,6 @@
 'use strict';
 
-const { spawnSync } = require('child_process');
+const { spawnSync, spawn } = require('child_process');
 
 const SENSITIVE_ENV_PATTERNS = [
   /^(TORQUE_AGENT_SECRET|API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH)/i,
@@ -339,25 +339,70 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       }
     }
 
-    logger.info(`[remote-routing] Running locally: ${command}`);
+    logger.info(`[remote-routing] Running locally (async): ${command}`);
     const startMs = Date.now();
-    const spawnResult = spawnSync(command, {
-      cwd,
-      encoding: 'utf8',
-      timeout: options.timeout || 120000,
-      maxBuffer: 10 * 1024 * 1024,
-      windowsHide: true,
-      shell: true,
+    const timeout = options.timeout || 300000; // 5 minutes default
+
+    const localResult = await new Promise((resolve) => {
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+      let settled = false;
+
+      const child = spawn(command, {
+        cwd,
+        windowsHide: true,
+        shell: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+
+      // Cap buffer at 10MB
+      const MAX_BUF = 10 * 1024 * 1024;
+      child.stdout.on('data', (d) => { if (stdout.length < MAX_BUF) stdout += d; });
+      child.stderr.on('data', (d) => { if (stderr.length < MAX_BUF) stderr += d; });
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try { child.kill('SIGTERM'); } catch { /* best effort */ }
+        // Force kill after 5s grace
+        setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 5000);
+      }, timeout);
+
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        resolve({
+          success: !timedOut && code === 0,
+          output: stdout,
+          error: timedOut ? `Verify command timed out after ${Math.round(timeout / 1000)}s` : stderr,
+          exitCode: timedOut ? 124 : (code ?? 1),
+          durationMs: Date.now() - startMs,
+          remote: false,
+          timedOut,
+        });
+      });
+
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        resolve({
+          success: false,
+          output: stdout,
+          error: err.message || 'spawn error',
+          exitCode: 1,
+          durationMs: Date.now() - startMs,
+          remote: false,
+          timedOut: false,
+        });
+      });
     });
 
-    return {
-      success: spawnResult.status === 0,
-      output: spawnResult.stdout || '',
-      error: spawnResult.stderr || spawnResult.error?.message || '',
-      exitCode: spawnResult.status ?? 1,
-      durationMs: Date.now() - startMs,
-      remote: false,
-    };
+    return localResult;
   }
 
   return { runRemoteOrLocal, runVerifyCommand, getRemoteConfig, getCurrentBranch };

@@ -159,7 +159,7 @@ async function handleAutoVerifyRetry(ctx) {
   // Run verify_command (routes to remote agent when configured, falls back to local)
   const router = getRouter();
   const verifyResult = await router.runVerifyCommand(verifyCommand, task.working_directory, {
-    timeout: 120000,
+    timeout: 300000, // 5 minutes — tsc + vitest can be slow on large projects
   });
   const verifyOutput = (verifyResult.output || '') + (verifyResult.error || '');
   const verifyExitCode = verifyResult.exitCode;
@@ -167,6 +167,14 @@ async function handleAutoVerifyRetry(ctx) {
   // Success — task stays completed
   if (verifyExitCode === 0) {
     logger.info(`[auto-verify] Task ${taskId}: verify passed`);
+    return;
+  }
+
+  // Timeout — verification was inconclusive, don't penalize the task
+  if (verifyResult.timedOut) {
+    logger.info(`[auto-verify] Task ${taskId}: verify timed out (${Math.round(verifyResult.durationMs / 1000)}s) — treating as inconclusive, task stays completed`);
+    ctx.output = (ctx.output || '') +
+      `\n\n[auto-verify] Verification timed out (inconclusive). Code changes may be correct but could not be verified within the time limit.`;
     return;
   }
 

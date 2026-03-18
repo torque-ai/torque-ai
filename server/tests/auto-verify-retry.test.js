@@ -376,7 +376,7 @@ describe('handleAutoVerifyRetry — verify execution', () => {
     expect(mockRunVerifyCommand).toHaveBeenCalledWith(
       'npx tsc --noEmit',
       'C:/repo/my-app',
-      expect.objectContaining({ timeout: 120000 }),
+      expect.objectContaining({ timeout: 300000 }),
     );
   });
 
