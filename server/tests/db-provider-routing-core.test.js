@@ -496,4 +496,184 @@ describe('db/provider-routing-core', () => {
       expect(core.hasHealthyOllamaHost()).toBe(true);
     });
   });
+
+  describe('per-task template routing (_routing_template in taskMetadata)', () => {
+    const templateStore = require('../routing/template-store');
+
+    // Unique suffix per describe-scope to avoid name collisions across test runs
+    let testSuffix;
+
+    function validTemplateRules(overrides = {}) {
+      return {
+        security: 'ollama',
+        xaml_wpf: 'ollama',
+        architectural: 'ollama',
+        reasoning: 'ollama',
+        large_code_gen: 'ollama',
+        documentation: 'ollama',
+        simple_generation: 'ollama',
+        targeted_file_edit: 'hashline-ollama',
+        default: 'ollama',
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      db.resetForTest(templateBuffer);
+      bindCore();
+      core.setOllamaHealthy(true);
+      db.setConfig('smart_routing_enabled', '1');
+      testSuffix = nextId('pt');
+    });
+
+    it('uses task-level template when _routing_template is a valid name', () => {
+      const name = `Test Speed ${testSuffix}`;
+      templateStore.createTemplate({
+        name,
+        rules: validTemplateRules({ default: 'codex' }),
+      });
+
+      const result = core.analyzeTaskForRouting(
+        'Generate a utility function',
+        os.tmpdir(),
+        [],
+        { taskMetadata: { _routing_template: name } },
+      );
+
+      expect(result.provider).toBe('codex');
+      expect(result.reason).toContain(`Task template '${name}'`);
+    });
+
+    it('uses task-level template when _routing_template matches by name for a specific category', () => {
+      const name = `Cloud Heavy ${testSuffix}`;
+      templateStore.createTemplate({
+        name,
+        rules: validTemplateRules({ security: 'codex' }),
+      });
+
+      // 'auth' triggers the security category in the classifier
+      const result = core.analyzeTaskForRouting(
+        'Review auth token validation',
+        os.tmpdir(),
+        [],
+        { taskMetadata: { _routing_template: name } },
+      );
+
+      expect(result.provider).toBe('codex');
+      expect(result.reason).toContain(`Task template '${name}'`);
+    });
+
+    it('falls through to normal routing when _routing_template is not set', () => {
+      const name = `All Codex ${testSuffix}`;
+      templateStore.createTemplate({
+        name,
+        rules: validTemplateRules({ default: 'codex' }),
+      });
+
+      // No _routing_template in taskMetadata — should not use the template above
+      const result = core.analyzeTaskForRouting(
+        'Update README documentation for setup',
+        os.tmpdir(),
+        [],
+        { taskMetadata: {} },
+      );
+
+      // Falls through to keyword-matched rule: 'documentation' → ollama
+      expect(result.provider).toBe('ollama');
+      expect(result.reason).not.toContain('Task template');
+    });
+
+    it('falls through to normal routing when _routing_template name is unknown', () => {
+      const result = core.analyzeTaskForRouting(
+        'Update README documentation for setup',
+        os.tmpdir(),
+        [],
+        { taskMetadata: { _routing_template: `no-such-template-${testSuffix}` } },
+      );
+
+      // Falls through to keyword rule
+      expect(result.reason).not.toContain('Task template');
+    });
+
+    it('falls through to normal routing when taskMetadata is absent entirely', () => {
+      const name = `TaskMeta Absent ${testSuffix}`;
+      templateStore.createTemplate({
+        name,
+        rules: validTemplateRules({ default: 'codex' }),
+      });
+
+      const result = core.analyzeTaskForRouting(
+        'Update README documentation for setup',
+        os.tmpdir(),
+        [],
+        {},
+      );
+
+      expect(result.reason).not.toContain('Task template');
+    });
+
+    it('uses task-level template resolved by ID (not just name)', () => {
+      const name = `ById Routing ${testSuffix}`;
+      const tmpl = templateStore.createTemplate({
+        name,
+        rules: validTemplateRules({ default: 'codex' }),
+      });
+
+      const result = core.analyzeTaskForRouting(
+        'Generate a utility function',
+        os.tmpdir(),
+        [],
+        { taskMetadata: { _routing_template: tmpl.id } },
+      );
+
+      expect(result.provider).toBe('codex');
+      expect(result.reason).toContain(`Task template '${name}'`);
+    });
+
+    it('task template takes precedence over the globally active template', () => {
+      const globalName = `Global Active ${testSuffix}`;
+      const globalTemplate = templateStore.createTemplate({
+        name: globalName,
+        rules: validTemplateRules({ default: 'ollama' }),
+      });
+      templateStore.setActiveTemplate(globalTemplate.id);
+
+      const overrideName = `Per-Task Override ${testSuffix}`;
+      templateStore.createTemplate({
+        name: overrideName,
+        rules: validTemplateRules({ default: 'codex' }),
+      });
+
+      const result = core.analyzeTaskForRouting(
+        'Generate a utility function',
+        os.tmpdir(),
+        [],
+        { taskMetadata: { _routing_template: overrideName } },
+      );
+
+      expect(result.provider).toBe('codex');
+      expect(result.reason).toContain(`Task template '${overrideName}'`);
+    });
+
+    it('falls back through chain when primary provider is disabled', () => {
+      const name = `Chain Template ${testSuffix}`;
+      templateStore.createTemplate({
+        name,
+        rules: validTemplateRules({
+          default: [{ provider: 'deepinfra' }, { provider: 'codex' }],
+        }),
+      });
+
+      // deepinfra is disabled by default; codex is enabled
+      const result = core.analyzeTaskForRouting(
+        'Generate a utility function',
+        os.tmpdir(),
+        [],
+        { taskMetadata: { _routing_template: name } },
+      );
+
+      expect(result.provider).toBe('codex');
+      expect(result.reason).toContain('chain to codex');
+    });
+  });
 });

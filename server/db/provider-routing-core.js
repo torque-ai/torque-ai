@@ -452,6 +452,49 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     return result;
   };
 
+  // Per-task routing template (overrides global active template)
+  // Callers can pass options.taskMetadata._routing_template = "Template Name" or ID
+  // to override the globally active template for this specific task.
+  const taskMeta = options.taskMetadata || {};
+  const taskTemplateName = taskMeta._routing_template;
+  if (taskTemplateName && categoryClassifier && templateStore) {
+    const taskTemplate = templateStore.resolveTemplateByNameOrId(taskTemplateName);
+    if (taskTemplate) {
+      const category = categoryClassifier.classify(taskDescription, files);
+      const complexity = hostManagementFns?.determineTaskComplexity
+        ? hostManagementFns.determineTaskComplexity(taskDescription, files)
+        : 'normal';
+      const resolved = templateStore.resolveProvider(taskTemplate, category, complexity);
+      if (resolved) {
+        const provConfig = getProvider(resolved.provider);
+        if (provConfig && provConfig.enabled) {
+          return maybeApplyFallback({
+            provider: resolved.provider,
+            model: resolved.model,
+            chain: resolved.chain,
+            rule: null,
+            complexity,
+            reason: `Task template '${taskTemplate.name}': ${category} -> ${resolved.provider}`,
+          });
+        }
+        // Primary unavailable — try chain
+        if (resolved.chain && resolved.chain.length > 1) {
+          for (let i = 1; i < resolved.chain.length; i++) {
+            const fb = resolved.chain[i];
+            const fbConfig = getProvider(fb.provider);
+            if (fbConfig && fbConfig.enabled) {
+              return maybeApplyFallback({
+                provider: fb.provider, model: fb.model, chain: resolved.chain,
+                rule: null, complexity,
+                reason: `Task template '${taskTemplate.name}': ${category} -> ${resolved.provider} (unavailable), chain to ${fb.provider}`,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Template-based routing (user-configurable category -> provider mapping)
   // Only active when a user has explicitly set a template via activate_routing_template.
   // getActiveTemplate() falls back to System Default — we skip that fallback here
