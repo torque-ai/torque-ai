@@ -33,4 +33,31 @@ describe('safe-exec', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toBe('segment-1segment-2');
   });
+
+  it('runs the fallback side of an || chain after a failure', () => {
+    const result = safeExecChain('node -e process.exit(1) || node -e process.stdout.write("fallback")', {
+      encoding: 'utf8',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('fallback');
+    expect(result.error).toBeUndefined();
+  });
+
+  it('short-circuits || chains after the first success', () => {
+    const result = safeExecChain('node -e process.stdout.write("primary") || node -e process.stdout.write("not-run")', {
+      encoding: 'utf8',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('primary');
+    expect(result.output).not.toContain('not-run');
+  });
+
+  it('supports mixed && and || short-circuit semantics', () => {
+    const result = safeExecChain('node -e process.exit(1) && node -e process.stdout.write("nope") || node -e process.stdout.write("recovered")', {
+      encoding: 'utf8',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe('recovered');
+    expect(result.output).not.toContain('nope');
+  });
 });

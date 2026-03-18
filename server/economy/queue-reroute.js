@@ -144,7 +144,22 @@ function rerouteQueuedTasks(scope, policy) {
       const oldProvider = task.provider || null;
 
       if (newProvider && newProvider !== oldProvider) {
-        database.prepare('UPDATE tasks SET provider = ?, updated_at = datetime(\'now\') WHERE id = ? AND status = \'queued\'').run(newProvider, task.id);
+        const metadata = parseMetadata(task.metadata);
+        const nextMetadata = {
+          ...metadata,
+          economy_rerouted: true,
+          economy_rerouted_at: new Date().toISOString(),
+        };
+        const originalEconomyProvider = metadata.economy_original_provider || oldProvider || task.original_provider || null;
+        if (originalEconomyProvider) {
+          nextMetadata.economy_original_provider = originalEconomyProvider;
+        }
+
+        database.prepare('UPDATE tasks SET provider = ?, metadata = ?, updated_at = datetime(\'now\') WHERE id = ? AND status = \'queued\'').run(
+          newProvider,
+          JSON.stringify(nextMetadata),
+          task.id,
+        );
         logger.info(`Economy mode: task ${task.id} re-routed ${oldProvider} -> ${newProvider}`);
         rerouted += 1;
       }
@@ -161,7 +176,55 @@ function onEconomyActivated(policy) {
 }
 
 function onEconomyDeactivated() {
-  return undefined;
+  const database = getDatabase();
+  if (!database || typeof database.prepare !== 'function') {
+    return { restored: 0, skipped: 0 };
+  }
+
+  const restoreQueuedTasks = database.transaction(() => {
+    const tasks = database.prepare(
+      'SELECT id, provider, original_provider, metadata FROM tasks WHERE status = ? AND archived = 0 ORDER BY created_at ASC'
+    ).all('queued');
+
+    let restored = 0;
+    let skipped = 0;
+
+    for (const task of tasks) {
+      const metadata = parseMetadata(task.metadata);
+      const restoreProvider = metadata.economy_original_provider || task.original_provider || null;
+      const wasEconomyRerouted = metadata.economy_rerouted === true
+        || (
+          Boolean(restoreProvider)
+          && task.provider !== restoreProvider
+          && metadata.user_provider_override !== true
+          && !metadata.free_provider_retry
+          && !metadata.free_tier_overflow
+          && !metadata.free_tier_fallback_attempted
+        );
+
+      if (!wasEconomyRerouted || !restoreProvider || restoreProvider === task.provider) {
+        skipped += 1;
+        continue;
+      }
+
+      const nextMetadata = { ...metadata };
+      delete nextMetadata.economy_rerouted;
+      delete nextMetadata.economy_original_provider;
+      delete nextMetadata.economy_rerouted_at;
+
+      database.prepare('UPDATE tasks SET provider = ?, metadata = ?, updated_at = datetime(\'now\') WHERE id = ? AND status = \'queued\'').run(
+        restoreProvider,
+        JSON.stringify(nextMetadata),
+        task.id,
+      );
+      logger.info(`Economy mode: restored task ${task.id} ${task.provider} -> ${restoreProvider}`);
+      restored += 1;
+    }
+
+    return { restored, skipped };
+  });
+
+  return restoreQueuedTasks();
 }
 
 module.exports = {

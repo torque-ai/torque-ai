@@ -73,8 +73,8 @@ function StatusBadge({ status }) {
 const DATE_PRESETS = [
   { label: 'All', value: '' },
   { label: 'Today', value: 'today' },
-  { label: 'This Week', value: 'week' },
-  { label: 'This Month', value: 'month' },
+  { label: 'Last 7 Days', value: 'week' },
+  { label: 'Last 30 Days', value: 'month' },
 ];
 
 function getDateRangeParams(range) {
@@ -271,7 +271,11 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
         ]);
         if (!isCurrent()) return;
         setTasks(data.tasks);
-        setPagination(data.pagination);
+        setPagination((prev) => ({
+          ...prev,
+          ...(data.pagination || {}),
+          totalPages: Math.ceil((data.pagination?.total || 0) / (data.pagination?.limit || 20)),
+        }));
         setProviderList(Array.isArray(providerData) ? providerData : []);
       } catch (err) {
         if (!isCurrent()) return;
@@ -369,10 +373,9 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
 
   async function handleBulkRetry() {
     const ids = [...selectedIds];
-    let ok = 0, errs = 0;
-    for (const id of ids) {
-      try { await tasksApi.retry(id); ok++; } catch { errs++; }
-    }
+    const results = await Promise.allSettled(ids.map((id) => tasksApi.retry(id)));
+    const ok = results.filter((result) => result.status === 'fulfilled').length;
+    const errs = results.length - ok;
     if (ok > 0) toast.success(`${ok} task${ok > 1 ? 's' : ''} queued for retry`);
     if (errs > 0) toast.error(`${errs} failed to retry`);
     setSelectedIds(new Set());
@@ -381,10 +384,9 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
 
   async function handleBulkCancel() {
     const ids = [...selectedIds];
-    let ok = 0, errs = 0;
-    for (const id of ids) {
-      try { await tasksApi.cancel(id); ok++; } catch { errs++; }
-    }
+    const results = await Promise.allSettled(ids.map((id) => tasksApi.cancel(id)));
+    const ok = results.filter((result) => result.status === 'fulfilled').length;
+    const errs = results.length - ok;
     if (ok > 0) toast.success(`${ok} task${ok > 1 ? 's' : ''} cancelled`);
     if (errs > 0) toast.error(`${errs} failed to cancel`);
     setSelectedIds(new Set());

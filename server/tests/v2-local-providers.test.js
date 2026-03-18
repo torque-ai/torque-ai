@@ -753,6 +753,24 @@ describe('v2-local-providers request handling', () => {
     expect(requestMock.getOptions().timeout).toBe(1200);
   });
 
+  it('defaults HTTP Ollama generate requests to port 11434 when the URL omits a port', async () => {
+    const requestMock = installRequestMock({
+      onRequest: ({ callback }) => {
+        respondWithJson(callback, 200, [JSON.stringify({ response: 'ok' })]);
+      },
+    });
+    const { providers } = loadProviders();
+    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+
+    await provider._invokeGenerate('http://ollama.local', {
+      model: 'qwen2.5-coder:7b',
+      prompt: 'test',
+      stream: false,
+    }, false);
+
+    expect(requestMock.getOptions().port).toBe(11434);
+  });
+
   it('releases reserved host slots even when submit fails', async () => {
     const host = makeHost({ url: 'http://error-host:11434' });
     installRequestMock({
@@ -1079,5 +1097,19 @@ describe('v2-local-providers health checks', () => {
     await expect(provider._fetchOllamaTags('http://slow-host:11434')).rejects.toThrow(
       'Ollama health check timeout after 2222ms',
     );
+  });
+
+  it('defaults HTTP Ollama health checks to port 11434 when the URL omits a port', async () => {
+    const getMock = installGetMock({
+      onRequest: ({ callback }) => {
+        respondWithJson(callback, 200, [JSON.stringify({ models: [] })]);
+      },
+    });
+    const { providers } = loadProviders();
+    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+
+    await provider._fetchOllamaTags('http://health-host');
+
+    expect(getMock.getOptions().port).toBe(11434);
   });
 });

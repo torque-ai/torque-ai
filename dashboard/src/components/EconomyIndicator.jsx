@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { request } from '../api';
+import { requestV2 } from '../api';
 
 const STATE_STYLES = {
   off: { dot: 'bg-green-400', label: 'Economy Off' },
@@ -29,7 +29,7 @@ export default function EconomyIndicator() {
   const panelRef = useRef(null);
 
   const loadStatus = useCallback(() => {
-    request('/v2/economy/status')
+    requestV2('/economy/status')
       .then((payload) => {
         const nextStatus = normalizeEconomyResponse(payload);
         setStatus(nextStatus);
@@ -76,7 +76,7 @@ export default function EconomyIndicator() {
       body.auto_trigger_threshold = normalizedThreshold;
     }
     setIsSaving(true);
-    request('/v2/economy/set', { method: 'POST', body: JSON.stringify(body) })
+    requestV2('/economy/set', { method: 'POST', body: JSON.stringify(body) })
       .then(() => loadStatus())
       .catch(() => {})
       .finally(() => setIsSaving(false));
@@ -86,7 +86,7 @@ export default function EconomyIndicator() {
     if (thresholdNumber === null) return;
     const body = { scope: 'global', enabled: isEnabled, auto_trigger_threshold: thresholdNumber };
     setIsSaving(true);
-    request('/v2/economy/set', { method: 'POST', body: JSON.stringify(body) })
+    requestV2('/economy/set', { method: 'POST', body: JSON.stringify(body) })
       .then(() => loadStatus())
       .catch(() => {})
       .finally(() => setIsSaving(false));

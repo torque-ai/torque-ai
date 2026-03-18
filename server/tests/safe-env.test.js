@@ -13,6 +13,9 @@ describe('safe-env', () => {
     process.env.DEEPINFRA_API_KEY = 'sk-test-deepinfra-key';
     process.env.HYPERBOLIC_API_KEY = 'sk-test-hyperbolic-key';
     process.env.GROQ_API_KEY = 'gsk-test-groq-key';
+    process.env.CEREBRAS_API_KEY = 'sk-test-cerebras-key';
+    process.env.OPENROUTER_API_KEY = 'sk-test-openrouter-key';
+    process.env.OLLAMA_CLOUD_API_KEY = 'sk-test-ollama-cloud-key';
     process.env.NODE_OPTIONS = '--require /tmp/backdoor.js';
     process.env.LD_PRELOAD = '/tmp/evil.so';
     process.env.DYLD_INSERT_LIBRARIES = '/tmp/evil.dylib';
@@ -53,6 +56,27 @@ describe('safe-env', () => {
     expect(env.ANTHROPIC_API_KEY).toBe('sk-test-anthropic-key');
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.DEEPINFRA_API_KEY).toBeUndefined();
+  });
+
+  it('includes CEREBRAS_API_KEY only for cerebras', () => {
+    const env = buildSafeEnv('cerebras');
+    expect(env.CEREBRAS_API_KEY).toBe('sk-test-cerebras-key');
+    expect(env.OPENROUTER_API_KEY).toBeUndefined();
+    expect(env.OLLAMA_CLOUD_API_KEY).toBeUndefined();
+  });
+
+  it('includes OPENROUTER_API_KEY only for openrouter', () => {
+    const env = buildSafeEnv('openrouter');
+    expect(env.OPENROUTER_API_KEY).toBe('sk-test-openrouter-key');
+    expect(env.CEREBRAS_API_KEY).toBeUndefined();
+    expect(env.OLLAMA_CLOUD_API_KEY).toBeUndefined();
+  });
+
+  it('includes OLLAMA_CLOUD_API_KEY only for ollama-cloud', () => {
+    const env = buildSafeEnv('ollama-cloud');
+    expect(env.OLLAMA_CLOUD_API_KEY).toBe('sk-test-ollama-cloud-key');
+    expect(env.OPENROUTER_API_KEY).toBeUndefined();
+    expect(env.CEREBRAS_API_KEY).toBeUndefined();
   });
 
   it('NEVER includes NODE_OPTIONS', () => {

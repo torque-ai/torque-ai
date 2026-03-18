@@ -498,6 +498,36 @@ describe('execute-api.js', () => {
       expect(deps.apiAbortControllers.has(task.id)).toBe(false);
     });
 
+    it('uses an enriched task clone without mutating the original task object', async () => {
+      const { mod } = loadSubject({
+        stuffContext: async () => ({ enrichedDescription: 'ENRICHED TASK' }),
+      });
+      const task = makeTask({
+        metadata: JSON.stringify({
+          context_files: ['C:/repo/a.js'],
+        }),
+      });
+      const originalDescription = task.task_description;
+      const deps = makeDeps([task]);
+      const provider = makeProvider({
+        submit: vi.fn(async () => ({ output: 'ok' })),
+      });
+
+      mod.init(deps);
+      await mod.executeApiProvider(task, provider);
+
+      expect(task.task_description).toBe(originalDescription);
+      expect(provider.submit).toHaveBeenCalledWith(
+        'ENRICHED TASK',
+        null,
+        expect.objectContaining({
+          timeout: 30,
+          maxTokens: 4096,
+          signal: expect.any(Object),
+        }),
+      );
+    });
+
     it('uses submitStream for streaming providers and forwards chunks to the stream store and dashboard', async () => {
       const { mod } = loadSubject();
       const task = makeTask({

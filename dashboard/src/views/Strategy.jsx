@@ -53,11 +53,15 @@ const COMPLEXITY_STYLES = {
 };
 
 function unwrapArrayPayload(payload, ...keys) {
-  if (Array.isArray(payload)) return payload;
+  const candidates = [payload, payload?.data];
 
-  for (const key of keys) {
-    if (Array.isArray(payload?.[key])) {
-      return payload[key];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+
+    for (const key of keys) {
+      if (Array.isArray(candidate?.[key])) {
+        return candidate[key];
+      }
     }
   }
 
@@ -443,7 +447,7 @@ export default function Strategic() {
         strategicApi.providerHealth(),
       ]);
       setStatus(statusData);
-      setOperations(opsData.operations || []);
+      setOperations(unwrapArrayPayload(opsData, 'operations', 'items'));
       setDecisions(unwrapArrayPayload(decisionsData, 'decisions', 'items'));
       setProviderHealth(unwrapArrayPayload(healthData, 'providers', 'items'));
       setError(null);

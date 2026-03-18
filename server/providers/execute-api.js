@@ -325,8 +325,8 @@ async function executeApiProvider(task, provider) {
       logger.debug(`Context stuffing failed for task ${taskId}, using original description: ${ctxErr.message}`);
     }
 
-    // Set in-memory so submitWithRetry (non-streaming path) also uses enriched text
-    task.task_description = effectiveDescription;
+    const taskClone = { ...task };
+    taskClone.task_description = effectiveDescription;
 
     const startTimeMs = Date.now();
     let result;
@@ -369,7 +369,7 @@ async function executeApiProvider(task, provider) {
       }
     } else {
       // Non-streaming fallback
-      result = await submitWithRetry(task, provider, model, {
+      result = await submitWithRetry(taskClone, provider, model, {
         timeout: task.timeout_minutes || 30,
         maxTokens: 4096,
         signal: controller.signal,
@@ -466,7 +466,7 @@ async function executeApiProvider(task, provider) {
       } catch { /* non-fatal */ }
     }
 
-    const freeTierFallback = getFreeTierFallback(currentTask || task);
+    const freeTierFallback = getFreeTierFallback(currentTask || taskClone);
     if (freeTierFallback) {
       requeueTaskAfterAttemptedStart(taskId, {
         provider: freeTierFallback.originalProvider,
@@ -485,7 +485,7 @@ async function executeApiProvider(task, provider) {
       return;
     }
 
-    const freeProviderRetryFallback = getFreeProviderRetryFallback(currentTask || task);
+    const freeProviderRetryFallback = getFreeProviderRetryFallback(currentTask || taskClone);
     if (freeProviderRetryFallback) {
       requeueTaskAfterAttemptedStart(taskId, {
         provider: freeProviderRetryFallback.targetProvider,

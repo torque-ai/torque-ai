@@ -721,6 +721,77 @@ describe('google-chat adapter — chatCompletion', () => {
     expect(result.usage.completion_tokens).toBe(35);
   });
 
+  it('maps each tool result back to its matching function call name', async () => {
+    requestHandler = (req, res) => {
+      const body = req._parsedBody;
+      expect(body.contents).toEqual([
+        {
+          role: 'model',
+          parts: [
+            { functionCall: { name: 'list_directory', args: { path: '.' } } },
+            { functionCall: { name: 'read_file', args: { path: 'hello.txt' } } },
+          ],
+        },
+        {
+          role: 'function',
+          parts: [{
+            functionResponse: {
+              name: 'read_file',
+              response: { result: 'hello world' },
+            },
+          }],
+        },
+        {
+          role: 'function',
+          parts: [{
+            functionResponse: {
+              name: 'list_directory',
+              response: { result: '["hello.txt"]' },
+            },
+          }],
+        },
+      ]);
+
+      writeGeminiJson(res, {
+        candidates: [{
+          content: {
+            parts: [{ text: 'Tool results accepted.' }],
+            role: 'model',
+          },
+          finishReason: 'STOP',
+        }],
+        usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 4 },
+      });
+    };
+
+    const result = await googleChatCompletion({
+      host,
+      apiKey: 'test-api-key',
+      model: 'gemini-1.5-pro',
+      messages: [
+        {
+          role: 'assistant',
+          tool_calls: [
+            {
+              id: 'call_list',
+              type: 'function',
+              function: { name: 'list_directory', arguments: { path: '.' } },
+            },
+            {
+              id: 'call_read',
+              type: 'function',
+              function: { name: 'read_file', arguments: { path: 'hello.txt' } },
+            },
+          ],
+        },
+        { role: 'tool', tool_call_id: 'call_read', content: 'hello world' },
+        { role: 'tool', tool_call_id: 'call_list', content: '["hello.txt"]' },
+      ],
+    });
+
+    expect(result.message.content).toBe('Tool results accepted.');
+  });
+
   // -------------------------------------------------------------------------
   // Test 4: rejects without API key
   // -------------------------------------------------------------------------

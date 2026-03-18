@@ -24,11 +24,22 @@ function tokenize(str) {
   let current = '';
   let inQuote = false;
   let quoteChar = '';
+  let preserveQuote = false;
   for (const ch of str) {
     if (!inQuote && (ch === '"' || ch === "'")) {
-      inQuote = true; quoteChar = ch;
+      inQuote = true;
+      quoteChar = ch;
+      preserveQuote = current.length > 0;
+      if (preserveQuote) {
+        current += ch;
+      }
     } else if (inQuote && ch === quoteChar) {
+      if (preserveQuote) {
+        current += ch;
+      }
       inQuote = false;
+      quoteChar = '';
+      preserveQuote = false;
     } else if (!inQuote && /\s/.test(ch)) {
       if (current) { tokens.push(current); current = ''; }
     } else {
@@ -40,7 +51,64 @@ function tokenize(str) {
 }
 
 /**
- * Execute a shell-like command chain split on `&&` or `||`, stopping on first failure.
+ * Split a command chain into segments and operators while respecting quotes.
+ *
+ * @param {string} str - Command string containing `&&` and/or `||`
+ * @returns {{ segments: string[], operators: string[] }} Parsed chain
+ */
+function splitChain(str) {
+  const segments = [];
+  const operators = [];
+  let current = '';
+  let inQuote = false;
+  let quoteChar = '';
+
+  for (let i = 0; i < str.length; i += 1) {
+    const ch = str[i];
+    const next = str[i + 1];
+
+    if (!inQuote && (ch === '"' || ch === "'")) {
+      inQuote = true;
+      quoteChar = ch;
+      current += ch;
+      continue;
+    }
+
+    if (inQuote && ch === quoteChar) {
+      inQuote = false;
+      quoteChar = '';
+      current += ch;
+      continue;
+    }
+
+    if (!inQuote && ((ch === '&' && next === '&') || (ch === '|' && next === '|'))) {
+      const segment = current.trim();
+      if (segment) {
+        segments.push(segment);
+      }
+      operators.push(`${ch}${next}`);
+      current = '';
+      i += 1;
+      continue;
+    }
+
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail) {
+    segments.push(tail);
+  }
+
+  if (operators.length >= segments.length) {
+    operators.length = Math.max(0, segments.length - 1);
+  }
+
+  return { segments, operators };
+}
+
+/**
+ * Execute a shell-like command chain honoring `&&` and `||` short-circuiting.
  *
  * @param {string} commandStr - Command string (segment-separated by && or ||)
  * @param {object} options - spawnSync options to apply per segment
@@ -51,18 +119,26 @@ function safeExecChain(commandStr, options = {}) {
     return { exitCode: 1, output: '', error: 'command must be a string' };
   }
 
-  const segments = commandStr
-    .split(/\s*(?:&&|\|\|)\s*/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0);
+  const { segments, operators } = splitChain(commandStr);
 
   if (segments.length === 0) {
     return { exitCode: 0, output: '', error: '' };
   }
 
   let output = '';
+  let lastExitCode = 0;
+  let lastError;
 
-  for (const segment of segments) {
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (index > 0) {
+      const operator = operators[index - 1];
+      const lastSucceeded = lastExitCode === 0 && !lastError;
+      if ((operator === '&&' && !lastSucceeded) || (operator === '||' && lastSucceeded)) {
+        continue;
+      }
+    }
+
     const args = tokenize(segment);
     const cmd = args.shift();
 
@@ -75,26 +151,27 @@ function safeExecChain(commandStr, options = {}) {
       const segmentOutput = `${toText(result.stdout)}${toText(result.stderr)}`;
       output += segmentOutput;
 
-      const exitCode = typeof result.status === 'number' ? result.status : 1;
-      if (result.error || exitCode !== 0) {
-        return {
-          exitCode,
-          output,
-          error: result.error ? result.error.message : toText(result.stderr),
-        };
-      }
+      lastExitCode = typeof result.status === 'number' ? result.status : 1;
+      lastError = result.error ? result.error.message : (lastExitCode !== 0 ? toText(result.stderr) : undefined);
     } catch (err) {
-      return {
-        exitCode: 1,
-        output,
-        error: err.message,
-      };
+      lastExitCode = 1;
+      lastError = err.message;
     }
+  }
+
+  if (lastExitCode !== 0 || lastError) {
+    return {
+      exitCode: lastExitCode || 1,
+      output,
+      error: lastError || '',
+    };
   }
 
   return { exitCode: 0, output };
 }
 
 module.exports = {
+  toText,
+  tokenize,
   safeExecChain,
 };

@@ -109,6 +109,9 @@ const mockHandlers = {
   },
 };
 
+const toolResultText = (text = '') => ({ content: [{ text }] });
+const toolResultJson = (value) => ({ content: [{ text: JSON.stringify(value) }] });
+
 // Install CJS module mocks before requiring v2-dispatch
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -150,6 +153,46 @@ installCjsModuleMock('../api/v2-workflow-handlers', mockHandlers.workflows);
 installCjsModuleMock('../api/v2-governance-handlers', mockHandlers.governance);
 installCjsModuleMock('../api/v2-analytics-handlers', mockHandlers.analytics);
 installCjsModuleMock('../api/v2-infrastructure-handlers', mockHandlers.infrastructure);
+installCjsModuleMock('../handlers/remote-agent-handlers', {
+  handleRunRemoteCommand: vi.fn(),
+  handleRunTests: vi.fn(),
+});
+installCjsModuleMock('../handlers/concurrency-handlers', {
+  handleGetConcurrencyLimits: vi.fn(() => toolResultJson({ limits: [] })),
+  handleSetConcurrencyLimit: vi.fn(() => toolResultText('ok')),
+});
+installCjsModuleMock('../handlers/routing-template-handlers', {
+  handleListRoutingTemplates: vi.fn(() => toolResultJson([])),
+  handleGetRoutingTemplate: vi.fn(() => toolResultJson({ id: 'tpl-1', name: 'Template' })),
+  handleSetRoutingTemplate: vi.fn(() => toolResultJson({ id: 'tpl-1' })),
+  handleDeleteRoutingTemplate: vi.fn(() => toolResultText('deleted')),
+  handleGetActiveRouting: vi.fn(() => toolResultJson({ id: 'tpl-1' })),
+  handleActivateRoutingTemplate: vi.fn(() => toolResultText('activated')),
+  handleListRoutingCategories: vi.fn(() => toolResultJson([])),
+});
+installCjsModuleMock('../handlers/strategic-config-handlers', {
+  handleConfigGet: vi.fn(() => toolResultJson({})),
+  handleConfigSet: vi.fn(() => ({})),
+  handleConfigReset: vi.fn(() => ({})),
+  handleConfigTemplates: vi.fn(() => toolResultJson([])),
+});
+installCjsModuleMock('../handlers/provider-crud-handlers', {
+  handleAddProvider: vi.fn(async () => ({})),
+  handleRemoveProvider: vi.fn(async () => ({})),
+  handleSetApiKey: vi.fn(() => ({})),
+  handleClearApiKey: vi.fn(() => ({})),
+});
+installCjsModuleMock('../handlers/economy-handlers', {
+  handleGetEconomyStatus: vi.fn(() => toolResultJson({ mode: 'normal' })),
+  handleSetEconomyMode: vi.fn(() => toolResultText('ok')),
+});
+installCjsModuleMock('../handlers/model-handlers', {
+  handleListModels: vi.fn(() => toolResultJson({ data: [] })),
+  handleListPendingModels: vi.fn(() => toolResultJson({ data: [] })),
+  handleApproveModel: vi.fn(() => toolResultText('approved')),
+  handleDenyModel: vi.fn(() => toolResultText('denied')),
+  handleBulkApproveModels: vi.fn(() => toolResultText('approved')),
+});
 
 // Load v2-dispatch (must happen after mocks are installed)
 let v2Dispatch;
@@ -217,6 +260,37 @@ describe('v2-dispatch module', () => {
 
     it('exports V2_CP_HANDLER_LOOKUP object', () => {
       expect(typeof v2Dispatch.V2_CP_HANDLER_LOOKUP).toBe('object');
+    });
+  });
+
+  describe('request body parsing', () => {
+    it('preserves multi-byte UTF-8 characters when a request body arrives in tiny chunks', async () => {
+      const req = mockReq('POST', '/api/v2/cp/strategic/test/compare');
+      const res = mockRes();
+      const body = { text: 'snowman ☃ and emoji 😀' };
+      const payload = Buffer.from(JSON.stringify(body), 'utf8');
+
+      const handlerPromise = v2Dispatch.V2_CP_HANDLER_LOOKUP.handleV2CpStrategicTest(req, res, {
+        params: { capability: 'compare' },
+        requestId: 'req-utf8',
+      });
+
+      for (const byte of payload) {
+        req.write(Buffer.from([byte]));
+      }
+      req.end();
+
+      await handlerPromise;
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res._body)).toEqual({
+        data: {
+          capability: 'compare',
+          status: 'dry_run_not_yet_implemented',
+          input: body,
+        },
+        meta: { request_id: 'req-utf8' },
+      });
     });
   });
 

@@ -144,6 +144,25 @@ describe('chunked-review module', () => {
       expect(functions[1].type).toBe('function');
       expect(functions[1].startLine).toBe(7);
     });
+
+    it('ignores braces inside string literals when tracking JS function depth', () => {
+      const content = [
+        'function parseTemplate() {',
+        '  const template = "{";',
+        '  return template;',
+        '}',
+        '',
+        'function second() {',
+        '  return 2;',
+        '}'
+      ].join('\n');
+      const functions = extractJSFunctions(content);
+
+      expect(functions.map((fn) => fn.name)).toEqual(['parseTemplate', 'second']);
+      expect(functions[0].endLine).toBe(4);
+      expect(functions[1].startLine).toBe(6);
+      expect(functions[1].endLine).toBe(8);
+    });
   });
 
   describe('generateReviewChunks: language and fallback behavior', () => {

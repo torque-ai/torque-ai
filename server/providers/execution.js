@@ -458,6 +458,27 @@ async function executeOllamaTaskWithAgentic(task) {
     ollamaHost = serverConfig.get('ollama_host') || 'http://localhost:11434';
   }
 
+  let releaseSelectedHostSlot = null;
+  if (selectedHostId && typeof db.tryReserveHostSlot === 'function') {
+    const reservation = db.tryReserveHostSlot(selectedHostId, resolvedModel);
+    if (!reservation?.acquired) {
+      const reason = reservation?.error
+        || reservation?.vramReason
+        || (reservation?.maxCapacity
+          ? `Ollama host at capacity (${reservation.currentLoad || 0}/${reservation.maxCapacity})`
+          : 'Unable to reserve Ollama host slot');
+      throw new Error(reason);
+    }
+
+    releaseSelectedHostSlot = () => {
+      if (typeof db.releaseHostSlot === 'function') {
+        db.releaseHostSlot(selectedHostId);
+      } else if (typeof db.decrementHostTasks === 'function') {
+        db.decrementHostTasks(selectedHostId);
+      }
+    };
+  }
+
   // Resolve working directory
   let workingDir = task.working_directory;
   if (!workingDir) workingDir = process.cwd();
@@ -624,8 +645,8 @@ async function executeOllamaTaskWithAgentic(task) {
     clearInterval(cancelCheckInterval);
     clearTimeout(timeoutHandle);
     if (apiAbortControllers) apiAbortControllers.delete(taskId);
-    if (selectedHostId) {
-      try { db.decrementHostTasks(selectedHostId); } catch { /* ignore */ }
+    if (typeof releaseSelectedHostSlot === 'function') {
+      try { releaseSelectedHostSlot(); } catch { /* ignore */ }
     }
     dashboard.notifyTaskUpdated(taskId);
     // Workflow termination in both success and failure paths
@@ -968,7 +989,7 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks) {
 
       // Revert any partial changes before retrying
       if (snapshot && snapshot.isGitRepo) {
-        try { checkAndRevert(workingDir, snapshot, '', 'enforce'); } catch { /* ignore */ }
+        try { checkAndRevert(workingDir, snapshot, task.task_description, 'enforce'); } catch { /* ignore */ }
       }
 
       // Record failure

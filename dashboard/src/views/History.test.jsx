@@ -127,12 +127,14 @@ describe('History', () => {
     expect(screen.getByText('All Providers')).toBeTruthy();
   });
 
-  it('renders date preset buttons', () => {
+  it('renders date preset buttons', async () => {
     renderWithProviders(<History />, { route: '/history' });
-    expect(screen.getByText('All')).toBeTruthy();
-    expect(screen.getByText('Today')).toBeTruthy();
-    expect(screen.getByText('This Week')).toBeTruthy();
-    expect(screen.getByText('This Month')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText('All')).toBeTruthy();
+      expect(screen.getByText('Today')).toBeTruthy();
+      expect(screen.getByText('Last 7 Days')).toBeTruthy();
+      expect(screen.getByText('Last 30 Days')).toBeTruthy();
+    });
   });
 
   it('renders sortable column headers', async () => {
@@ -157,6 +159,19 @@ describe('History', () => {
     await waitFor(() => {
       expect(screen.getByText('Previous')).toBeTruthy();
       expect(screen.getByText('Next')).toBeTruthy();
+    });
+  });
+
+  it('computes total pages from pagination total and limit', async () => {
+    tasksApi.list.mockResolvedValue({
+      tasks: mockTasks,
+      pagination: { page: 1, limit: 25, total: 51 },
+    });
+
+    renderWithProviders(<History />, { route: '/history' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Page 1 of 3 (51 total)')).toBeTruthy();
     });
   });
 
@@ -221,6 +236,65 @@ describe('History', () => {
     expect(disabledOption).toBeTruthy();
     expect(disabledOption.disabled).toBe(true);
     expect(disabledOption.textContent).toContain('(disabled)');
+  });
+
+  it('starts all selected bulk retries even if one never resolves', async () => {
+    tasksApi.list.mockResolvedValue({
+      tasks: [
+        {
+          id: 'task-failed-1',
+          status: 'failed',
+          task_description: 'First failed task',
+          provider: 'codex',
+          model: null,
+          ollama_host_name: null,
+          created_at: '2026-01-15T08:00:00Z',
+          started_at: '2026-01-15T08:00:00Z',
+          completed_at: '2026-01-15T08:01:00Z',
+        },
+        {
+          id: 'task-failed-2',
+          status: 'failed',
+          task_description: 'Second failed task',
+          provider: 'codex',
+          model: null,
+          ollama_host_name: null,
+          created_at: '2026-01-15T08:05:00Z',
+          started_at: '2026-01-15T08:05:00Z',
+          completed_at: '2026-01-15T08:06:00Z',
+        },
+      ],
+      pagination: { page: 1, limit: 25, total: 2 },
+    });
+
+    let releaseFirstRetry;
+    const firstRetry = new Promise((resolve) => {
+      releaseFirstRetry = resolve;
+    });
+
+    tasksApi.retry
+      .mockReturnValueOnce(firstRetry)
+      .mockResolvedValueOnce({});
+
+    renderWithProviders(<History />, { route: '/history' });
+
+    await waitFor(() => {
+      expect(screen.getByText('First failed task')).toBeTruthy();
+      expect(screen.getByText('Second failed task')).toBeTruthy();
+    });
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    fireEvent.click(checkboxes[1]);
+    fireEvent.click(checkboxes[2]);
+    fireEvent.click(screen.getByText('Retry Selected'));
+
+    await waitFor(() => {
+      expect(tasksApi.retry).toHaveBeenCalledTimes(2);
+      expect(tasksApi.retry).toHaveBeenCalledWith('task-failed-1');
+      expect(tasksApi.retry).toHaveBeenCalledWith('task-failed-2');
+    });
+
+    releaseFirstRetry({});
   });
 
   it('reloads tasks when sort changes and passes orderBy/orderDir', async () => {

@@ -54,10 +54,11 @@ function extractJSFunctions(content) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNum = i + 1; // 1-indexed
+    const stripped = line.replace(/(['"`])(?:(?!\1)[^\\]|\\.)*\1/g, '');
 
     // Count braces
-    const openBraces = (line.match(/\{/g) || []).length;
-    const closeBraces = (line.match(/\}/g) || []).length;
+    const openBraces = (stripped.match(/\{/g) || []).length;
+    const closeBraces = (stripped.match(/\}/g) || []).length;
 
     // Check if this line starts a new function (only when not inside another)
     if (!currentFunc || braceDepth === 0) {

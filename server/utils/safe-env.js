@@ -39,10 +39,13 @@ const PROVIDER_KEYS = {
   'claude-cli':   ['ANTHROPIC_API_KEY'],
   'aider-ollama': ['OLLAMA_HOST'],
   'anthropic':    ['ANTHROPIC_API_KEY'],
+  'cerebras':     ['CEREBRAS_API_KEY'],
   'deepinfra':    ['DEEPINFRA_API_KEY'],
   'hyperbolic':   ['HYPERBOLIC_API_KEY'],
   'groq':         ['GROQ_API_KEY'],
   'google-ai':    ['GOOGLE_AI_API_KEY'],
+  'ollama-cloud': ['OLLAMA_CLOUD_API_KEY'],
+  'openrouter':   ['OPENROUTER_API_KEY'],
 };
 
 // Variables that MUST NEVER be passed regardless of provider

@@ -251,6 +251,29 @@ describe('slot enforcement (via startTask)', () => {
     const taskStartedCalls = auditSpy.mock.calls.filter((call) => call[0] === 'task_started');
     expect(taskStartedCalls).toHaveLength(0);
   });
+
+  it('releases a claimed slot when startTask throws after claim', () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+    db.updateProvider('claude-cli', { enabled: 1 });
+
+    const spawnSpy = vi.spyOn(processLifecycle, 'spawnAndTrackProcess').mockImplementation(() => {
+      throw new Error('spawn exploded');
+    });
+    const id = createTask({ provider: 'claude-cli' });
+
+    try {
+      expect(() => tm.startTask(id)).toThrow(/spawn exploded/);
+
+      const task = db.getTask(id);
+      expect(task.status).toBe('failed');
+      expect(task.pid).toBeNull();
+      expect(task.mcp_instance_id).toBeNull();
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
 });
 
 describe('safeStartTask requeue accounting', () => {

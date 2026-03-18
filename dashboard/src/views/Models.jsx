@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { stats as statsApi, models as modelsApi } from '../api';
 import StatCard from '../components/StatCard';
-import { formatDate } from '../utils/formatters';
+import { formatDate, formatDuration } from '../utils/formatters';
 import {
   BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -15,14 +15,6 @@ const MODEL_COLORS = [
 
 function getModelColor(idx) {
   return MODEL_COLORS[idx % MODEL_COLORS.length];
-}
-
-function formatDuration(seconds) {
-  if (seconds == null) return '-';
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return `${m}m ${s}s`;
 }
 
 function formatChartDate(dateStr) {

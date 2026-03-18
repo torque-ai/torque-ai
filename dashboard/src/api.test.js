@@ -255,6 +255,33 @@ describe('api.js', () => {
       );
     });
 
+    it('forwards an external abort signal when AbortSignal.any is unavailable', async () => {
+      let fetchSignal;
+      globalThis.fetch = vi.fn().mockImplementation((_url, options) => {
+        fetchSignal = options.signal;
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          }, { once: true });
+        });
+      });
+
+      const externalController = new AbortController();
+      const originalAbortSignal = globalThis.AbortSignal;
+      vi.stubGlobal('AbortSignal', undefined);
+
+      try {
+        const pending = request('/signal', { signal: externalController.signal, timeout: 10000 });
+        externalController.abort();
+
+        await expect(pending).rejects.toThrow('Request timed out');
+        expect(fetchSignal).not.toBe(externalController.signal);
+        expect(fetchSignal.aborted).toBe(true);
+      } finally {
+        vi.stubGlobal('AbortSignal', originalAbortSignal);
+      }
+    });
+
     it('throws for 204 when response is not ok', async () => {
       const headerMap = new Map([['content-type', 'application/json']]);
       globalThis.fetch = vi.fn().mockResolvedValue({

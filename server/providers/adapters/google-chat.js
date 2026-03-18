@@ -63,7 +63,10 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
     // -----------------------------------------------------------------------
     let systemInstruction = null;
     const contents = [];
-    // Track the last function call name for pairing tool results
+    // Track function call names by tool-call id and in call order so tool results
+    // can be paired back to the correct Gemini functionResponse name.
+    const functionCallNamesById = new Map();
+    const pendingFunctionCallNames = [];
     let lastFunctionCallName = null;
 
     for (const msg of messages) {
@@ -77,7 +80,6 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
         // Track the last function call name emitted by the assistant so that
         // a subsequent 'tool' message can reference it.
         if (msg.tool_calls && msg.tool_calls.length > 0) {
-          lastFunctionCallName = msg.tool_calls[0].function.name;
           const parts = msg.tool_calls.map((tc) => ({
             functionCall: {
               name: tc.function.name,
@@ -86,6 +88,14 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
                 : (tc.function.arguments || {}),
             },
           }));
+          for (const tc of msg.tool_calls) {
+            const functionName = tc.function.name;
+            lastFunctionCallName = functionName;
+            pendingFunctionCallNames.push(functionName);
+            if (tc.id) {
+              functionCallNamesById.set(tc.id, functionName);
+            }
+          }
           contents.push({ role: 'model', parts });
         } else {
           contents.push({ role: 'model', parts: [{ text: msg.content || '' }] });
@@ -95,11 +105,21 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
 
       if (msg.role === 'tool') {
         // Map tool result to Gemini functionResponse
+        const matchedFunctionCallName = msg.tool_call_id && functionCallNamesById.has(msg.tool_call_id)
+          ? functionCallNamesById.get(msg.tool_call_id)
+          : pendingFunctionCallNames.shift();
+        if (msg.tool_call_id) {
+          functionCallNamesById.delete(msg.tool_call_id);
+        }
+        if (matchedFunctionCallName) {
+          lastFunctionCallName = matchedFunctionCallName;
+        }
+
         contents.push({
           role: 'function',
           parts: [{
             functionResponse: {
-              name: lastFunctionCallName || 'unknown',
+              name: matchedFunctionCallName || lastFunctionCallName || 'unknown',
               response: { result: msg.content },
             },
           }],

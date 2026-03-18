@@ -100,6 +100,7 @@ export default function WorkflowDAG({ tasks = [], onOpenDrawer }) {
   }, [layout]);
 
   const handleWheel = useCallback((e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     setScale((s) => Math.max(0.2, Math.min(2, s - e.deltaY * 0.001)));
   }, []);

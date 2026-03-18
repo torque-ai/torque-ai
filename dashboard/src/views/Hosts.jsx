@@ -14,13 +14,14 @@ const STATUS_STYLES = {
 
 function CapacityBar({ running, max }) {
   if (!max || max <= 0) return null;
-  const percent = Math.min(100, Math.round((running / max) * 100));
+  const runningCount = running || 0;
+  const percent = Math.min(100, Math.round(((running || 0) / (max || 1)) * 100));
   const barColor = percent >= 90 ? 'bg-red-500' : percent >= 70 ? 'bg-yellow-500' : 'bg-green-500';
   return (
     <div className="mt-3">
       <div className="flex items-center justify-between text-xs mb-1">
         <span className="text-slate-400">Capacity</span>
-        <span className="text-slate-300">{running}/{max} ({percent}%)</span>
+        <span className="text-slate-300">{runningCount}/{max} ({percent}%)</span>
       </div>
       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
         <div className={`h-full ${barColor} transition-all`} style={{ width: `${percent}%` }} />
@@ -30,13 +31,15 @@ function CapacityBar({ running, max }) {
 }
 
 function VramBar({ used, total, label = 'VRAM Usage' }) {
-  const percent = Math.min(100, Math.round((used / total) * 100));
+  if (!total || total <= 0) return null;
+  const usedAmount = used || 0;
+  const percent = Math.min(100, Math.round((usedAmount / total) * 100));
   const barColor = percent >= 90 ? 'bg-red-500' : percent >= 70 ? 'bg-yellow-500' : 'bg-green-500';
   return (
     <div>
       <div className="flex items-center justify-between text-xs mb-1">
         <span className="text-slate-400">{label}</span>
-        <span className="text-slate-300">{(used / 1024).toFixed(1)}/{(total / 1024).toFixed(1)} GB ({percent}%)</span>
+        <span className="text-slate-300">{(usedAmount / 1024).toFixed(1)}/{(total / 1024).toFixed(1)} GB ({percent}%)</span>
       </div>
       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
         <div className={`h-full ${barColor} transition-all`} style={{ width: `${percent}%` }} />

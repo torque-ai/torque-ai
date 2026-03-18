@@ -456,7 +456,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
       const transport = isHttps ? https : http;
       const requestOptions = {
         hostname: parsedUrl.hostname,
-        port: parsedUrl.port || (isHttps ? 443 : 80),
+        port: parsedUrl.port || (isHttps ? 443 : 11434),
         path: parsedUrl.pathname,
         method: 'POST',
         headers: {
@@ -657,7 +657,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
       const transport = isHttps ? https : http;
       const req = transport.get({
         hostname: parsedUrl.hostname,
-        port: parsedUrl.port || (isHttps ? 443 : 80),
+        port: parsedUrl.port || (isHttps ? 443 : 11434),
         path: parsedUrl.pathname,
         timeout: timeoutMs,
       }, (res) => {

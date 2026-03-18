@@ -643,6 +643,22 @@ describe('Strategic', () => {
     });
   });
 
+  it('unwraps operations nested under a data envelope', async () => {
+    strategicApi.operations.mockResolvedValue({ data: { operations: mockOperations } });
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Operations')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Operations'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Strategic decomposition of UserAuth/)).toBeInTheDocument();
+      expect(screen.getByText(/Strategic diagnosis of codex failure/)).toBeInTheDocument();
+    });
+  });
+
   it('shows empty operations state when no operations', async () => {
     strategicApi.operations.mockResolvedValue({ operations: [] });
     renderWithProviders(<Strategic />, { route: '/strategy' });

@@ -24,6 +24,8 @@ describe('category-classifier', () => {
       expect(classify('Analyze the root cause of the memory leak')).toBe('reasoning');
       expect(classify('Debug complex race condition in scheduler')).toBe('reasoning');
       expect(classify('Review the entire authentication flow')).toBe('reasoning');
+      expect(classify('Reasoning through the scheduler deadlock')).toBe('reasoning');
+      expect(classify('Reasoned diagnosis of the cache regression')).toBe('reasoning');
     });
 
     it('classifies large code gen tasks', () => {

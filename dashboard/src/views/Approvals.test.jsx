@@ -83,6 +83,13 @@ describe('Approvals', () => {
     });
   });
 
+  it('loads approval history on mount before switching tabs', async () => {
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+    await waitFor(() => {
+      expect(approvalsApi.getHistory).toHaveBeenCalledWith(50);
+    });
+  });
+
   it('renders subtitle text', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {

@@ -46,7 +46,7 @@ export async function requestV2(endpoint, options = {}) {
 }
 
 async function _fetch(url, options = {}) {
-  const { timeout = DEFAULT_TIMEOUT, ...fetchOptions } = options;
+  const { timeout = DEFAULT_TIMEOUT, signal: externalSignal, ...fetchOptions } = options;
   const method = String(fetchOptions.method || 'GET').toUpperCase();
   const isMutatingMethod = method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH';
   const hasFormDataBody = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
@@ -54,9 +54,22 @@ async function _fetch(url, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  const signals = [controller.signal];
-  if (options.signal) signals.push(options.signal);
-  const composedSignal = typeof AbortSignal.any === 'function' ? AbortSignal.any(signals) : controller.signal;
+  let removeExternalAbortListener = null;
+  let composedSignal = controller.signal;
+
+  if (externalSignal) {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+      composedSignal = AbortSignal.any([controller.signal, externalSignal]);
+    } else if (externalSignal.aborted) {
+      controller.abort(externalSignal.reason);
+    } else if (typeof externalSignal.addEventListener === 'function') {
+      const forwardAbort = () => controller.abort(externalSignal.reason);
+      externalSignal.addEventListener('abort', forwardAbort, { once: true });
+      removeExternalAbortListener = () => {
+        externalSignal.removeEventListener?.('abort', forwardAbort);
+      };
+    }
+  }
 
   try {
     const response = await fetch(url, {
@@ -106,6 +119,7 @@ async function _fetch(url, options = {}) {
     throw err;
   } finally {
     clearTimeout(timeoutId);
+    removeExternalAbortListener?.();
   }
 }
 

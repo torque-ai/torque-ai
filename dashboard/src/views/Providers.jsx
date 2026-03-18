@@ -3,6 +3,7 @@ import { providers as providersApi, stats as statsApi, hosts as hostsApi, concur
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import { PROVIDER_HEX_COLORS } from '../constants';
+import { formatDate } from '../utils/formatters';
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -228,10 +229,6 @@ const tooltipStyle = {
   contentStyle: { backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' },
   labelStyle: { color: '#f1f5f9' },
 };
-
-function formatDate(d) {
-  return new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
 
 export default function Providers({ statsVersion, tasksTick }) {
   const mountedRef = useRef(true);

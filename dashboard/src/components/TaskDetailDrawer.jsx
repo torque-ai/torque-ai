@@ -410,7 +410,9 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
                       {taskDescription && (
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(taskDescription).then(() => toast.success('Description copied'));
+                            navigator.clipboard.writeText(taskDescription)
+                              .then(() => toast.success('Description copied'))
+                              .catch(() => toast.error('Failed to copy description'));
                           }}
                           className="text-slate-500 hover:text-slate-300 transition-colors"
                           title="Copy description"
@@ -676,7 +678,9 @@ function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, to
       stdoutText,
       hasStderr ? `[stderr]\n${stderrText}` : '',
     ].filter(Boolean).join('\n\n');
-    navigator.clipboard.writeText(text).then(() => toast?.success('Output copied'));
+    navigator.clipboard.writeText(text)
+      .then(() => toast?.success('Output copied'))
+      .catch(() => toast?.error('Failed to copy output'));
   }
 
   if (!hasStdout && !hasStderr) {
@@ -913,7 +917,9 @@ function DiffTab({ taskId, toast }) {
   }
 
   function copyDiff() {
-    navigator.clipboard.writeText(normalizedDiff.copyText).then(() => toast?.success('Diff copied'));
+    navigator.clipboard.writeText(normalizedDiff.copyText)
+      .then(() => toast?.success('Diff copied'))
+      .catch(() => toast?.error('Failed to copy diff'));
   }
 
   return (
@@ -925,7 +931,7 @@ function DiffTab({ taskId, toast }) {
           </span>
           <span className="text-xs text-green-400">+{normalizedDiff.linesAdded}</span>
           <span className="text-xs text-red-400">-{normalizedDiff.linesRemoved}</span>
-          {diff.status === 'reviewed' && (
+          {diff?.status === 'reviewed' && (
             <span className="text-[10px] bg-green-900/50 text-green-400 px-1.5 py-0.5 rounded">Reviewed</span>
           )}
         </div>

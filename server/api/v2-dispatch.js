@@ -38,18 +38,20 @@ async function readJsonBody(req) {
   }
 
   return new Promise((resolve, reject) => {
-    let data = '';
+    const chunks = [];
     let bodySize = 0;
     req.on('data', chunk => {
-      bodySize += chunk.length;
+      const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bodySize += bufferChunk.length;
       if (bodySize > MAX_BODY_SIZE) {
         reject(new Error('Request body too large'));
         req.destroy();
         return;
       }
-      data += chunk;
+      chunks.push(bufferChunk);
     });
     req.on('end', () => {
+      const data = Buffer.concat(chunks).toString('utf8');
       if (!data.trim()) {
         resolve({});
         return;

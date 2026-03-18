@@ -355,7 +355,7 @@ function waitForPendingHandlers(timeout = 15000) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       // Remove ourselves from the list if we time out
-      closeHandlerResolvers = closeHandlerResolvers.filter(r => r !== resolve);
+      closeHandlerResolvers = closeHandlerResolvers.filter(r => r !== wrappedResolve);
       resolve(); // Don't reject — just stop waiting
     }, timeout);
     const wrappedResolve = () => { clearTimeout(timer); resolve(); };
@@ -1421,9 +1421,13 @@ function spawnAndTrackProcess(taskId, task, config) {
  * @returns {{ queued: boolean, task?: Object, rateLimited?: boolean, retryAfter?: number }}
  */
 function startTask(taskId) {
-  const task = db.getTask(taskId);
+  let task = db.getTask(taskId);
   if (!task) {
     throw new Error(`Task not found: ${taskId}`);
+  }
+  task = { ...task };
+  if (task.metadata && typeof task.metadata === 'object') {
+    task.metadata = { ...task.metadata };
   }
 
   if (task.status === 'running') {
@@ -1562,6 +1566,7 @@ function startTask(taskId) {
     }
   }
 
+  try {
   // === PROVIDER ROUTING ===
   // (resolved pre-claim so provider-aware cap enforcement is atomic)
   // === PROVIDER AVAILABILITY CHECK (post-routing) ===
@@ -1811,6 +1816,22 @@ function startTask(taskId) {
     selectedOllamaHostId, usedEditFormat, taskMetadata,
     taskType, contextTokenEstimate, baselineCommit
   });
+  } catch (err) {
+    try {
+      const currentTask = db.getTask(taskId);
+      if (currentTask && currentTask.status === 'running' && !currentTask.pid) {
+        safeUpdateTaskStatus(taskId, 'failed', {
+          error_output: err.message,
+          pid: null,
+          mcp_instance_id: null,
+          ollama_host_id: null,
+        });
+      }
+    } catch (releaseErr) {
+      logger.info(`[startTask] Failed to release claimed slot for ${taskId}: ${releaseErr.message}`);
+    }
+    throw err;
+  }
 }
 
 const { cancelTask, triggerCancellationWebhook } = createCancellationHandler({
@@ -1843,6 +1864,9 @@ function processQueue() {
 
   if (processQueueLock || (_lastProcessQueueCall && (now - _lastProcessQueueCall) < PROCESS_QUEUE_DEBOUNCE_MS)) {
     _processQueuePending = true;
+    if (_processQueueTimer) {
+      clearTimeout(_processQueueTimer);
+    }
     _processQueueTimer = setTimeout(() => {
       _processQueuePending = false;
       _processQueueTimer = null;
@@ -1995,7 +2019,7 @@ function getActualModifiedFiles(workingDir) {
     const result = execFileSync('git', ['status', '--porcelain'], {
       cwd: workingDir,
       encoding: 'utf8',
-      timeout: TASK_TIMEOUTS.FILE_WRITE,
+      timeout: TASK_TIMEOUTS.GIT_STATUS,
       maxBuffer: 1024 * 1024
     });
 
