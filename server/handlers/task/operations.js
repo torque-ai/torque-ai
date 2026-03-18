@@ -905,6 +905,26 @@ function handleOutputStats(_args) {
   result += `- **Error Size:** ${formatBytes(stats.total_error_bytes)}\n`;
   result += `- **Total:** ${formatBytes((stats.total_output_bytes || 0) + (stats.total_error_bytes || 0))}\n`;
 
+  // Error pattern analysis (L-7)
+  if (stats.error_patterns && stats.error_patterns.length > 0) {
+    result += `\n### Error Patterns\n\n`;
+    result += `| Category | Count |\n`;
+    result += `|----------|-------|\n`;
+    for (const ep of stats.error_patterns) {
+      result += `| ${ep.category} | ${ep.count} |\n`;
+    }
+  }
+
+  // Daily error trend (L-8)
+  if (stats.error_trend && stats.error_trend.length > 0) {
+    result += `\n### Error Trend (Last 7 Days)\n\n`;
+    result += `| Day | Errors |\n`;
+    result += `|-----|--------|\n`;
+    for (const et of stats.error_trend) {
+      result += `| ${et.day} | ${et.error_count} |\n`;
+    }
+  }
+
   return {
     content: [{ type: 'text', text: result }]
   };

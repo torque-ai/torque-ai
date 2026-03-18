@@ -468,7 +468,43 @@ function getOutputStats() {
     FROM tasks
     WHERE status IN ('completed', 'failed')
   `);
-  return stmt.get();
+  const base = stmt.get();
+
+  // Error pattern frequency analysis (L-7)
+  const patternStmt = db.prepare(`
+    SELECT
+      CASE
+        WHEN error_output LIKE '%timeout%' OR error_output LIKE '%timed out%' OR error_output LIKE '%ETIMEDOUT%' THEN 'timeout'
+        WHEN error_output LIKE '%out of memory%' OR error_output LIKE '%OOM%' OR error_output LIKE '%ENOMEM%' THEN 'memory'
+        WHEN error_output LIKE '%not found%' OR error_output LIKE '%ENOENT%' OR error_output LIKE '%404%' THEN 'not_found'
+        WHEN error_output LIKE '%ECONNREFUSED%' OR error_output LIKE '%ECONNRESET%' OR error_output LIKE '%connection%refused%' OR error_output LIKE '%connection%reset%' THEN 'connection'
+        WHEN error_output LIKE '%EACCES%' OR error_output LIKE '%permission denied%' OR error_output LIKE '%403%' THEN 'permission'
+        WHEN error_output LIKE '%SyntaxError%' OR error_output LIKE '%syntax error%' OR error_output LIKE '%parse error%' THEN 'syntax'
+        WHEN error_output LIKE '%rate limit%' OR error_output LIKE '%429%' OR error_output LIKE '%too many requests%' OR error_output LIKE '%quota%' THEN 'rate_limit'
+        ELSE 'other'
+      END as category,
+      COUNT(*) as count
+    FROM tasks
+    WHERE status = 'failed' AND error_output IS NOT NULL
+    GROUP BY category
+    ORDER BY count DESC
+  `);
+  const error_patterns = patternStmt.all();
+
+  // Daily error trend for last 7 days (L-8)
+  const trendStmt = db.prepare(`
+    SELECT
+      DATE(completed_at) as day,
+      COUNT(*) as error_count
+    FROM tasks
+    WHERE status = 'failed'
+      AND completed_at >= datetime('now', '-7 days')
+    GROUP BY DATE(completed_at)
+    ORDER BY day ASC
+  `);
+  const error_trend = trendStmt.all();
+
+  return { ...base, error_patterns, error_trend };
 }
 
 // ============================================
