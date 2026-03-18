@@ -49,7 +49,7 @@ const PROVIDER_DEFAULT_MODEL = {
   openrouter: 'nvidia/nemotron-3-nano-30b-a3b:free',
   hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
   'ollama-cloud': 'devstral-2:123b',
-  'google-ai': 'gemini-2.0-flash',
+  'google-ai': 'gemini-2.5-flash',
 };
 
 // ── Deps captured at init time for the agentic wrapper ────────────────

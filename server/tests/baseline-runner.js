@@ -10,6 +10,8 @@ const { runAgenticLoop } = require('../providers/ollama-agentic');
 const { createToolExecutor, TOOL_DEFINITIONS } = require('../providers/ollama-tools');
 const openaiAdapter = require('../providers/adapters/openai-chat');
 const ollamaAdapter = require('../providers/adapters/ollama-chat');
+const googleAdapter = require('../providers/adapters/google-chat');
+const { TOOL_DEFINITIONS: TOOL_DEFS_FOR_PROMPT } = require('../providers/ollama-tools');
 
 const WD = 'C:/Users/Werem/Projects/SpudgetBooks';
 const platformRule = process.platform === 'win32'
@@ -78,22 +80,54 @@ async function test(name, adapter, opts) {
       host: 'https://api.ollama.com', apiKey: config.getApiKey('ollama-cloud'),
       model: 'devstral-2:123b',
     }),
+    test('google-ai', googleAdapter, {
+      host: 'https://generativelanguage.googleapis.com',
+      apiKey: config.getApiKey('google-ai'),
+      model: 'gemini-2.5-flash',
+    }),
+    test('openrouter (free)', openaiAdapter, {
+      host: 'https://openrouter.ai/api', apiKey: config.getApiKey('openrouter'),
+      model: 'nvidia/nemotron-3-nano-30b-a3b:free', temperature: 0.3,
+    }),
   ]);
 
   // Local Ollama (sequential - shared GPU)
   await test('ollama (qwen2.5-32b)', ollamaAdapter, {
     host: 'http://192.168.1.183:11434', model: 'qwen2.5-coder:32b',
   });
-  await test('ollama (codestral)', ollamaAdapter, {
-    host: 'http://192.168.1.183:11434', model: 'codestral:22b',
-  });
 
-  // Expected to fail
-  console.log('-'.repeat(160));
-  await test('openrouter (free)', openaiAdapter, {
-    host: 'https://openrouter.ai/api', apiKey: config.getApiKey('openrouter'),
-    model: 'nvidia/nemotron-3-nano-30b-a3b:free', temperature: 0.3,
-  });
+  // Codestral needs prompt-injected tools
+  const toolDefs = TOOL_DEFS_FOR_PROMPT.map(t => JSON.stringify({
+    type: t.type, function: { name: t.function.name, description: t.function.description, parameters: t.function.parameters }
+  })).join(',');
+  const codestralSystem = '[AVAILABLE_TOOLS][' + toolDefs + '][/AVAILABLE_TOOLS]\n' + SYSTEM +
+    '\nTo call a tool, respond with ONLY a JSON array: [{"name":"tool_name","arguments":{}}]\nAfter receiving [TOOL_RESULTS], give a clear summary with the ACTUAL data returned.';
+
+  // Custom test for codestral with prompt injection
+  const csStart = Date.now();
+  try {
+    const csResult = await runAgenticLoop({
+      adapter: ollamaAdapter,
+      systemPrompt: codestralSystem,
+      taskPrompt: TASK, tools: [], promptInjectedTools: true,
+      toolExecutor: createToolExecutor(WD),
+      options: { host: 'http://192.168.1.183:11434', model: 'codestral:22b' },
+      workingDir: WD, timeoutMs: 90000, maxIterations: 5, contextBudget: 8000,
+    });
+    const ms = Date.now() - csStart;
+    const tools = csResult.toolLog.map(t => t.name).join(',') || 'none';
+    const has13 = csResult.output.includes('13');
+    const hasApp = csResult.output.includes('SpudgetBooks.App.Tests');
+    const hasDomain = csResult.output.includes('SpudgetBooks.Domain.Tests');
+    console.log(
+      'codestral (prompt-inj)'.padEnd(22) + ' | ' + String(ms).padStart(6) + 'ms | ' +
+      csResult.iterations + ' iters | ' + csResult.toolLog.length + ' tools (' + tools + ') | ' +
+      'count=' + has13 + ' names=' + (hasApp && hasDomain) + ' | ' +
+      csResult.output.replace(/\n/g, ' ').slice(0, 120)
+    );
+  } catch (e) {
+    console.log('codestral (prompt-inj)'.padEnd(22) + ' | ' + String(Date.now() - csStart).padStart(6) + 'ms | ERROR: ' + e.message.slice(0, 120));
+  }
 
   process.exit(0);
 })();
