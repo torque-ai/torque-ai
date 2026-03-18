@@ -150,6 +150,7 @@ async function runAgenticLoop({
   timeoutMs,
   maxIterations = MAX_ITERATIONS,
   contextBudget = DEFAULT_CONTEXT_BUDGET,
+  promptInjectedTools = false, // When true, tool results sent as user messages with [TOOL_RESULTS] format
   onProgress,
   onToolCall,
   signal,
@@ -275,25 +276,33 @@ async function runAgenticLoop({
     prevToolCallHash = iterHash;
 
     // Add assistant message to conversation
-    // Normalize tool_calls: only include standard fields, re-stringify arguments
-    // (APIs reject unknown fields like 'index' inside function, and require arguments as string)
-    const rawToolCalls = assistantMessage.tool_calls
-      ? assistantMessage.tool_calls.map(tc => ({
-          id: tc.id,
-          type: tc.type || 'function',
-          function: {
-            name: tc.function.name,
-            arguments: typeof tc.function.arguments === 'string'
-              ? tc.function.arguments
-              : JSON.stringify(tc.function.arguments),
-          },
-        }))
-      : undefined;
-    messages.push({
-      role: 'assistant',
-      content: assistantMessage.content || '',
-      ...(rawToolCalls ? { tool_calls: rawToolCalls } : {}),
-    });
+    if (promptInjectedTools) {
+      // For prompt-injected tools: the tool call is in the content text, push as-is
+      messages.push({
+        role: 'assistant',
+        content: assistantMessage.content || '',
+      });
+    } else {
+      // Standard: normalize tool_calls — only standard fields, re-stringify arguments
+      // (APIs reject unknown fields like 'index' inside function, and require arguments as string)
+      const rawToolCalls = assistantMessage.tool_calls
+        ? assistantMessage.tool_calls.map(tc => ({
+            id: tc.id,
+            type: tc.type || 'function',
+            function: {
+              name: tc.function.name,
+              arguments: typeof tc.function.arguments === 'string'
+                ? tc.function.arguments
+                : JSON.stringify(tc.function.arguments),
+            },
+          }))
+        : undefined;
+      messages.push({
+        role: 'assistant',
+        content: assistantMessage.content || '',
+        ...(rawToolCalls ? { tool_calls: rawToolCalls } : {}),
+      });
+    }
 
     // Execute each tool call and add results
     for (const tc of toolCalls) {
@@ -316,7 +325,11 @@ async function runAgenticLoop({
           consecutiveErrorCount++;
           if (consecutiveErrorCount >= 2) {
             // Add the error result first, then stop
-            messages.push({ role: 'tool', content: resultStr, ...(tc.id ? { tool_call_id: tc.id } : {}), _wasError: true });
+            if (promptInjectedTools) {
+              messages.push({ role: 'user', content: `[TOOL_RESULTS][{"call":{"name":"${tc.name}"},"output":${JSON.stringify(resultStr)}}][/TOOL_RESULTS]`, _wasError: true });
+            } else {
+              messages.push({ role: 'tool', content: resultStr, ...(tc.id ? { tool_call_id: tc.id } : {}), _wasError: true });
+            }
             finalOutput = `Task stopped: consecutive errors from ${tc.name} after ${iterations + 1} iterations.`;
             logger.warn(`[Agentic] Consecutive errors from ${tc.name} — stopping`);
 
@@ -361,13 +374,23 @@ async function runAgenticLoop({
       }
 
       // Add tool result to messages
-      // Include tool_call_id when available (required by OpenAI-compatible APIs)
-      messages.push({
-        role: 'tool',
-        content: resultStr,
-        ...(tc.id ? { tool_call_id: tc.id } : {}),
-        _wasError: !!error,
-      });
+      if (promptInjectedTools) {
+        // For models using prompt-injected tools (no native template support):
+        // Send results as user messages with Mistral [TOOL_RESULTS] format
+        messages.push({
+          role: 'user',
+          content: `[TOOL_RESULTS][{"call":{"name":"${tc.name}"},"output":${JSON.stringify(resultStr)}}][/TOOL_RESULTS]`,
+          _wasError: !!error,
+        });
+      } else {
+        // Standard: use tool role with tool_call_id (OpenAI-compatible APIs)
+        messages.push({
+          role: 'tool',
+          content: resultStr,
+          ...(tc.id ? { tool_call_id: tc.id } : {}),
+          _wasError: !!error,
+        });
+      }
 
       totalOutputChars += resultStr.length;
       if (totalOutputChars > MAX_TOTAL_OUTPUT_CHARS) {

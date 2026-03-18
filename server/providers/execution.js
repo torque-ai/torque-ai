@@ -22,7 +22,7 @@ const _executeCliModule = require('./execute-cli');
 
 // Agentic pipeline components
 const { runAgenticLoop } = require('./ollama-agentic');
-const { isAgenticCapable, init: initCapability } = require('./agentic-capability');
+const { isAgenticCapable, needsPromptInjection, init: initCapability } = require('./agentic-capability');
 const { createToolExecutor, TOOL_DEFINITIONS } = require('./ollama-tools');
 const { captureSnapshot, checkAndRevert } = require('./agentic-git-safety');
 const ollamaChatAdapter = require('./adapters/ollama-chat');
@@ -255,6 +255,7 @@ Working directory: ${workingDir}`;
 async function runAgenticPipeline({
   adapter, systemPrompt, task, adapterOptions, workingDir,
   timeoutMs, maxIterations, contextBudget, ollamaStreamId, signal,
+  promptInjectedTools = false,
 }) {
   const serverConfig = require('../config');
   const { db, dashboard } = _agenticDeps;
@@ -275,11 +276,13 @@ async function runAgenticPipeline({
   }
 
   // Run agentic loop
+  // For prompt-injected tools: pass empty tools array (tools are in the system prompt)
   const result = await runAgenticLoop({
     adapter,
     systemPrompt,
     taskPrompt: task.task_description,
-    tools: TOOL_DEFINITIONS,
+    tools: promptInjectedTools ? [] : TOOL_DEFINITIONS,
+    promptInjectedTools,
     toolExecutor: executor,
     options: adapterOptions,
     workingDir,
@@ -416,9 +419,21 @@ async function executeOllamaTaskWithAgentic(task) {
     repeat_penalty: tuning.repeatPenalty,
   };
 
+  // Check if model needs prompt-injected tools
+  const usePromptInjection = needsPromptInjection(resolvedModel);
+
   // Build system prompt
   const basePrompt = providerConfig.resolveSystemPrompt(resolvedModel);
-  const systemPrompt = buildAgenticSystemPrompt(basePrompt, workingDir);
+  let systemPrompt = buildAgenticSystemPrompt(basePrompt, workingDir);
+
+  // For prompt-injected tools: append tool definitions to system prompt
+  if (usePromptInjection) {
+    const toolDefs = TOOL_DEFINITIONS.map(t => JSON.stringify({
+      type: t.type, function: { name: t.function.name, description: t.function.description, parameters: t.function.parameters }
+    })).join(',');
+    systemPrompt = `[AVAILABLE_TOOLS][${toolDefs}][/AVAILABLE_TOOLS]\n${systemPrompt}\nTo call a tool, respond with ONLY a JSON array: [{"name":"tool_name","arguments":{}}]\nAfter receiving [TOOL_RESULTS], give a clear summary with the ACTUAL data returned.`;
+    logger.info(`[Agentic] Model ${resolvedModel} uses prompt-injected tools`);
+  }
 
   // Update status
   db.updateTaskStatus(taskId, 'running', {
@@ -452,6 +467,7 @@ async function executeOllamaTaskWithAgentic(task) {
       adapter,
       systemPrompt,
       task,
+      promptInjectedTools: usePromptInjection,
       adapterOptions: {
         host: ollamaHost,
         apiKey: resolveApiKey(provider),

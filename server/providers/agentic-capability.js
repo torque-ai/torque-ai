@@ -32,7 +32,7 @@ const WHITELIST_PREFIXES = [
   'qwen2.5-coder',
   'qwen3',
   'qwen-3',
-  // Note: codestral excluded — does not support tool calling via Ollama
+  'codestral',
   'devstral',
   'deepseek',
   'llama3.1',
@@ -47,6 +47,14 @@ const WHITELIST_PREFIXES = [
   'gemma3',
   'gemini',
   'kimi',
+];
+
+// ── Models that need prompt-injected tools (no native Ollama .Tools template) ─
+// These models understand tool calling but their Ollama Modelfile template
+// doesn't handle the tools parameter. Tools are injected via [AVAILABLE_TOOLS]
+// in the system prompt, and results come back as [TOOL_RESULTS] user messages.
+const PROMPT_INJECTION_PREFIXES = [
+  'codestral',
 ];
 
 // ── Module-level state (dependency injection) ─────────────────────────────────
@@ -165,4 +173,15 @@ function isAgenticCapable(provider, model) {
   return { capable: false, reason: 'model not recognized as tool-capable', source: 'default' };
 }
 
-module.exports = { init, isAgenticCapable, EXCLUDED_PROVIDERS, CLOUD_TOOL_CAPABLE, WHITELIST_PREFIXES };
+/**
+ * Check if a model needs prompt-injected tools (no native Ollama .Tools template support).
+ * @param {string} model
+ * @returns {boolean}
+ */
+function needsPromptInjection(model) {
+  if (!model) return false;
+  const modelLower = model.toLowerCase();
+  return PROMPT_INJECTION_PREFIXES.some(prefix => modelLower.startsWith(prefix.toLowerCase()));
+}
+
+module.exports = { init, isAgenticCapable, needsPromptInjection, EXCLUDED_PROVIDERS, CLOUD_TOOL_CAPABLE, WHITELIST_PREFIXES, PROMPT_INJECTION_PREFIXES };
