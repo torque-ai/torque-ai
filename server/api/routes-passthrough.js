@@ -88,6 +88,7 @@ const routes = [
   { method: 'GET', path: '/api/v2/advanced/list-routing-rules', tool: 'list_routing_rules', mapQuery: true },
   { method: 'GET', path: '/api/v2/advanced/list-agent-routing-rules', tool: 'list_agent_routing_rules', mapQuery: true },
   { method: 'DELETE', path: '/api/v2/advanced/delete-agent-routing-rule', tool: 'delete_agent_routing_rule', mapQuery: true },
+  { method: 'GET', path: '/api/v2/advanced/coordination-dashboard', tool: 'coordination_dashboard', mapQuery: true },
 
   // ─── approvals (3 routes) ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/approvals/reject-task', tool: 'reject_task', mapBody: true },
