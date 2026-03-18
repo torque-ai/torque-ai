@@ -693,10 +693,8 @@ function applyHashlineEdits(filePath, edits) {
       if (delta > 0 && delta <= 4) {
         // Count trailing brace-only lines, skipping trailing empty/whitespace lines
         let trailingBraceLines = 0;
-        let _trailingEmptyLines = 0;
         for (let k = fileLines.length - 1; k >= 0; k--) {
           if (/^\s*$/.test(fileLines[k])) {
-            _trailingEmptyLines++;
             continue;
           }
           if (/^\s*\}\s*$/.test(fileLines[k])) {

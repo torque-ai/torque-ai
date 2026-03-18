@@ -495,7 +495,7 @@ function buildV2ProviderDescriptor(provider, defaultProviderId, options = {}) {
     name: registryMeta.name,
     transport: getV2ProviderTransport(provider),
     local: Boolean(registryMeta.local),
-    enabled: Boolean(provider.enabled),
+    enabled: provider?.enabled ?? false,
     default: providerId === defaultProviderId,
     features: normalizeProviderFeatureList(registryMeta.features || {}),
     limits: buildV2ProviderLimits(provider, providerId),

@@ -136,7 +136,7 @@ function handleInstantiateTemplate(args) {
   const nodeToTaskMap = {};
   for (const taskDef of taskDefinitions) {
     const taskId = uuidv4();
-    const deps = template.dependency_graph[taskDef.node_id] || [];
+    const deps = (template.dependency_graph || {})[taskDef.node_id] || [];
     const hasDeps = deps.length > 0;
 
     db.createTask({

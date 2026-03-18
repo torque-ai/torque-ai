@@ -671,10 +671,7 @@ function resolveTaskId(id) {
   if (startsWith.length === 1) {
     return startsWith[0].id;
   }
-
-  const stmt = db.prepare('SELECT id FROM tasks WHERE id LIKE ? ORDER BY created_at DESC LIMIT 1');
-  const row = stmt.get(id + '%');
-  return row ? row.id : null;
+  return null;
 }
 
 /**

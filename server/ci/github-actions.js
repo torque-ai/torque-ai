@@ -52,7 +52,12 @@ class GitHubActionsProvider extends CIProvider {
       ],
     );
 
-    const run = JSON.parse(stdout);
+    let run;
+    try {
+      run = JSON.parse(stdout);
+    } catch (error) {
+      throw new Error(`Failed to parse GitHub Actions run response: ${error.message}`);
+    }
     return this._normalizeRun(run);
   }
 
@@ -81,7 +86,12 @@ class GitHubActionsProvider extends CIProvider {
       ],
     );
 
-    const runs = JSON.parse(stdout);
+    let runs;
+    try {
+      runs = JSON.parse(stdout);
+    } catch (error) {
+      throw new Error(`Failed to parse GitHub Actions runs response: ${error.message}`);
+    }
     if (!Array.isArray(runs)) {
       return [];
     }

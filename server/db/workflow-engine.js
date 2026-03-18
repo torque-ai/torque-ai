@@ -517,9 +517,13 @@ function getWorkflowTasks(workflowId) {
     ORDER BY created_at ASC
   `);
   return stmt.all(workflowId).map(t => {
-    if (t.tags) t.tags = JSON.parse(t.tags);
+    if (t.tags) {
+      try { t.tags = JSON.parse(t.tags); } catch { t.tags = []; }
+    }
     t.context = safeJsonParse(t.context, null);
-    if (t.files_modified) t.files_modified = JSON.parse(t.files_modified);
+    if (t.files_modified) {
+      try { t.files_modified = JSON.parse(t.files_modified); } catch { t.files_modified = []; }
+    }
     return t;
   });
 }
@@ -542,7 +546,9 @@ function getBlockedTasks(workflowId = null) {
 
   const stmt = db.prepare(sql);
   return stmt.all(...params).map(t => {
-    if (t.tags) t.tags = JSON.parse(t.tags);
+    if (t.tags) {
+      try { t.tags = JSON.parse(t.tags); } catch { t.tags = []; }
+    }
     t.context = safeJsonParse(t.context, null);
     return t;
   });

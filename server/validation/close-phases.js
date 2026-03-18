@@ -177,7 +177,7 @@ function handleBuildTestStyleCommit(ctx) {
     ctx.status = 'failed';
     ctx.errorOutput = (ctx.errorOutput || '') +
       '\n\n[BUILD VERIFICATION FAILED]\n' +
-      buildResult.error.substring(0, 2000);
+      (buildResult.error || '').substring(0, 2000);
 
     const projectConfig = db.getProjectConfig(task.project || db.getProjectFromPath(workingDir));
     if (projectConfig && projectConfig.rollback_on_build_failure) {
@@ -378,7 +378,7 @@ function handleProviderFailover(ctx) {
         ctx.status = 'queued';
         logger.info(`[Provider Failover] Task ${taskId} re-queued with ${fallbackProvider}`);
 
-        dashboard.notifyTaskUpdated(taskId);
+        dashboard?.notifyTaskUpdated?.(taskId);
         setTimeout(() => _processQueue(), failoverBackoffMs(task.retry_count || 1));
         ctx.earlyExit = true;
         return;

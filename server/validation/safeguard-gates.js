@@ -25,6 +25,7 @@ function init(nextDeps = {}) {
  * Sets ctx.earlyExit = true if auto-retry is triggered.
  */
 function handleSafeguardChecks(ctx) {
+  if (!deps?.db) return { approved: true, reason: 'No db available' };
   const { taskId, task, proc } = ctx;
   if (ctx.status !== 'completed' || !task) return;
 
@@ -75,7 +76,7 @@ function handleSafeguardChecks(ctx) {
       '\n\n[LLM SAFEGUARD FAILED - AUTO-RETRY]\n' +
       safeguardResult.issues.join('\n');
 
-    deps.taskCleanupGuard.delete(taskId);
+    deps.taskCleanupGuard?.delete(taskId);
 
     deps.safeUpdateTaskStatus(taskId, 'queued', {
       error_output: ctx.errorOutput,

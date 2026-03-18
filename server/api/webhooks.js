@@ -140,7 +140,7 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
   // Substitute {{payload.*}} in task description
   const actionConfig = webhook.action_config;
   const taskDescription = substitutePayload(
-    actionConfig.task_description || '',
+    (actionConfig?.task_description || ''),
     payload
   );
 

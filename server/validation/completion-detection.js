@@ -11,7 +11,7 @@
  * and minimum thresholds to prevent false positives.
  */
 
-const { resolveFileReferences: _unused, extractModifiedFiles } = require('../utils/file-resolution');
+const { extractModifiedFiles } = require('../utils/file-resolution');
 
 // ── Thresholds ──────────────────────────────────────────────────────────
 

@@ -6,7 +6,6 @@ const {
   failoverBackoffMs,
   MAX_BACKOFF_MS,
   BASE_BACKOFF_MS,
-  factorial,
 } = require('../utils/backoff');
 const {
   parseModelSizeB,
@@ -368,33 +367,6 @@ describe('utils-all', () => {
   });
 
   describe('utils/backoff', () => {
-    it('returns 1 for 0!', () => {
-      expect(factorial(0)).toBe(1);
-    });
-
-    it('returns 1 for 1!', () => {
-      expect(factorial(1)).toBe(1);
-    });
-
-    it('calculates larger factorials iteratively', () => {
-      expect(factorial(6)).toBe(720);
-      expect(factorial(10)).toBe(3628800);
-    });
-
-    it('throws for negative integers', () => {
-      expect(() => factorial(-1)).toThrow('factorial expects a non-negative integer');
-      expect(() => factorial(-10)).toThrow('factorial expects a non-negative integer');
-    });
-
-    it('throws for fractional values', () => {
-      expect(() => factorial(1.5)).toThrow('factorial expects a non-negative integer');
-    });
-
-    it('throws for NaN and Infinity', () => {
-      expect(() => factorial(NaN)).toThrow('factorial expects a non-negative integer');
-      expect(() => factorial(Infinity)).toThrow('factorial expects a non-negative integer');
-    });
-
     it('uses the base delay for undefined attempts', () => {
       expect(failoverBackoffMs()).toBe(BASE_BACKOFF_MS);
     });

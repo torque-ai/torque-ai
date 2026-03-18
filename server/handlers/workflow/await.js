@@ -603,9 +603,16 @@ function formatStandaloneTaskResult(task, startTime) {
   }
 
   if (task.files_modified) {
-    const files = Array.isArray(task.files_modified)
-      ? task.files_modified
-      : (typeof task.files_modified === 'string' ? JSON.parse(task.files_modified || '[]') : []);
+    let files = [];
+    if (Array.isArray(task.files_modified)) {
+      files = task.files_modified;
+    } else if (typeof task.files_modified === 'string') {
+      try {
+        files = JSON.parse(task.files_modified || '[]');
+      } catch {
+        files = [];
+      }
+    }
     if (files.length > 0) {
       out += `\n### Files Modified\n`;
       for (const f of files.slice(0, 20)) {

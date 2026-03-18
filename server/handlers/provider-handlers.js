@@ -25,6 +25,9 @@ function handleApproveProviderSwitch(args) {
   }
 
   const task = db.approveProviderSwitch(task_id, new_provider);
+  if (!task) {
+    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, 'Task not found or cannot be approved');
+  }
 
   // Process queue to start the task with new provider
   taskManager.processQueue();
@@ -55,6 +58,9 @@ function handleRejectProviderSwitch(args) {
   }
 
   const task = db.rejectProviderSwitch(task_id, reason);
+  if (!task) {
+    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, 'Task not found or cannot be approved');
+  }
 
   let output = `## Provider Switch Rejected\n\n`;
   output += `Task **${task_id}** has been marked as failed.\n\n`;

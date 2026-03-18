@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const logger = require('../logger').child({ component: 'schema-registry' });
 
 const SCHEMA_DIR = path.join(__dirname, 'schemas', 'v1');
 const schemas = new Map();
@@ -17,7 +18,13 @@ function loadSchemas() {
 
   for (const file of files) {
     const absolutePath = path.join(SCHEMA_DIR, file);
-    const parsed = JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
+    } catch (error) {
+      logger.warn(`[schema-registry] Failed to parse schema file ${file}: ${error.message}`);
+      continue;
+    }
     const schemaId = path.basename(file, '.json');
     schemas.set(schemaId, parsed);
   }

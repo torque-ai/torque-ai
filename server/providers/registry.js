@@ -13,8 +13,6 @@
 const logger = require('../logger').child({ component: 'provider-registry' });
 const serverConfig = require('../config');
 
-let _db = null;
-
 // ── Provider Category Constants ────────────────────────────────────────────
 
 /**
@@ -114,7 +112,6 @@ function resetInstances() {
 // ── Init ────────────────────────────────────────────────────────────────────
 
 function init(deps) {
-  if (deps.db) _db = deps.db;
   serverConfig.init({ db: deps.db });
 }
 

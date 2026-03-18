@@ -507,7 +507,7 @@ function handleListScheduled(args) {
   for (const s of scheduled) {
     const nextRun = s.next_run_at ? formatTime(s.next_run_at) : 'N/A';
     const runs = s.max_runs ? `${s.run_count}/${s.max_runs}` : `${s.run_count}`;
-    result += `| ${s.id.slice(0, 8)}... | ${s.name.slice(0, 20)} | ${s.schedule_type} | ${s.status} | ${nextRun} | ${runs} |\n`;
+    result += `| ${s.id.slice(0, 8)}... | ${(s.name || '').slice(0, 20)} | ${s.schedule_type} | ${s.status} | ${nextRun} | ${runs} |\n`;
   }
 
   return {

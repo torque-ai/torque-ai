@@ -161,6 +161,9 @@ function handleCostSummary(args) {
  * Estimate cost for a task description
  */
 function handleEstimateCost(args) {
+  if (!args.task_description) {
+    return makeError(ErrorCodes.VALIDATION_ERROR, 'task_description is required');
+  }
   const estimate = db.estimateCost(args.task_description, args.model || 'codex');
 
   let result = `## Cost Estimate\n\n`;
