@@ -537,20 +537,6 @@ const tools = [
     }
   },
   {
-    name: 'reopen_workflow',
-    description: 'Reopen a failed or cancelled workflow by resetting all failed/cancelled/skipped tasks to pending (or blocked if dependencies are unmet) and restarting execution. Unlike retry_workflow_from (which targets one task + its downstream dependents), this resets ALL non-completed tasks in the workflow.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        workflow_id: {
-          type: 'string',
-          description: 'ID of the failed or cancelled workflow to reopen'
-        }
-      },
-      required: ['workflow_id']
-    }
-  },
-  {
     name: 'skip_task',
     description: 'Manually skip a blocked task',
     inputSchema: {
