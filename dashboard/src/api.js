@@ -269,6 +269,7 @@ export const peekHosts = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  // TODO: migrate to requestV2 for consistency
   update: (name, data) => request(`/peek-hosts/${encodeURIComponent(name)}`, {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -280,6 +281,7 @@ export const peekHosts = {
   remove: (name) => requestV2(`/peek-hosts/${encodeURIComponent(name)}`, {
     method: 'DELETE',
   }),
+  // TODO: migrate to requestV2 for consistency
   test: (name) => request(`/peek-hosts/${encodeURIComponent(name)}/test`, {
     method: 'POST',
   }),
@@ -291,6 +293,7 @@ export const peekHosts = {
   deleteCredential: (name, type) => requestV2(`/hosts/${encodeURIComponent(name)}/credentials/${type}`, {
     method: 'DELETE',
   }),
+  // TODO: migrate to requestV2 for consistency
   testCredential: (name, type) => request(`/hosts/${encodeURIComponent(name)}/credentials/${type}/test`, {
     method: 'POST',
   }),

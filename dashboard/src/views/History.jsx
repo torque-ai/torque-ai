@@ -4,6 +4,7 @@ import { tasks as tasksApi, providers as providersApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { getRelevantModel } from '../utils/providerModels';
+import { formatDuration } from '../utils/formatters';
 import { format, formatDistanceToNow } from 'date-fns';
 
 const STATUS_BADGES = {
@@ -61,16 +62,6 @@ function StatusBadge({ status }) {
       {status?.replace(/_/g, ' ')}
     </span>
   );
-}
-
-function formatDuration(seconds) {
-  if (!seconds || seconds < 0) return '-';
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.round(seconds % 60);
-  if (hrs > 0) return `${hrs}h ${mins}m`;
-  if (mins > 0) return `${mins}m ${secs}s`;
-  return `${secs}s`;
 }
 
 const DATE_PRESETS = [

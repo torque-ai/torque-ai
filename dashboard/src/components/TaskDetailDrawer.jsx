@@ -3,16 +3,7 @@ import { tasks as tasksApi, taskLogs, providers as providersApi } from '../api';
 import { useToast } from './Toast';
 import { parseAnsi } from '../utils/ansiToHtml';
 import { getRelevantModel } from '../utils/providerModels';
-
-function formatDuration(ms) {
-  if (!ms) return '-';
-  const secs = Math.floor(ms / 1000);
-  const mins = Math.floor(secs / 60);
-  const hrs = Math.floor(mins / 60);
-  if (hrs > 0) return `${hrs}h ${mins % 60}m`;
-  if (mins > 0) return `${mins}m ${secs % 60}s`;
-  return `${secs}s`;
-}
+import { formatDurationMs } from '../utils/formatters';
 
 function formatTime(iso) {
   if (!iso) return '-';
@@ -444,7 +435,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
                         value={task.gpu_active ? 'Active' : 'Idle'}
                       />
                     )}
-                    <MetaItem label="Duration" value={formatDuration(elapsed)} />
+                    <MetaItem label="Duration" value={formatDurationMs(elapsed)} />
                     <MetaItem label="Created" value={formatTime(task.created_at)} />
                     <MetaItem label="Started" value={formatTime(task.started_at)} />
                     <MetaItem label="Completed" value={formatTime(task.completed_at)} />
@@ -995,7 +986,7 @@ function TimelineEntry({ label, time, detail, isLast, color = 'bg-blue-500', dur
           <p className="text-sm text-white font-medium">{label}</p>
           {dur != null && dur > 0 && (
             <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
-              {durationLabel}: {formatDuration(dur)}
+              {durationLabel}: {formatDurationMs(dur)}
             </span>
           )}
         </div>

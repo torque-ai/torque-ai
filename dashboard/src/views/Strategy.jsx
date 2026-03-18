@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { strategic as strategicApi } from '../api';
 import StatCard from '../components/StatCard';
-import RoutingTemplates from './RoutingTemplates';
-import StrategicConfig from './StrategicConfig';
+
+const RoutingTemplates = React.lazy(() => import('./RoutingTemplates'));
+const StrategicConfig = React.lazy(() => import('./StrategicConfig'));
 
 // ─── Color Maps ─────────────────────────────────────────────
 
@@ -618,10 +619,10 @@ export default function Strategic() {
       {topTab === 'operations' && <OperationsTable operations={operations} />}
 
       {/* Routing Templates Tab */}
-      {topTab === 'routing' && <RoutingTemplates />}
+      {topTab === 'routing' && <Suspense fallback={<div className="text-slate-400 p-4">Loading...</div>}><RoutingTemplates /></Suspense>}
 
       {/* Configuration Tab */}
-      {topTab === 'config' && <StrategicConfig />}
+      {topTab === 'config' && <Suspense fallback={<div className="text-slate-400 p-4">Loading...</div>}><StrategicConfig /></Suspense>}
     </div>
   );
 }

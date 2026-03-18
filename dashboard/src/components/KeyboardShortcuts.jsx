@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const SHORTCUTS = [
@@ -27,6 +27,7 @@ const NAV_KEYS = {
 export function useKeyboardShortcuts({ onRefresh } = {}) {
   const [showHelp, setShowHelp] = useState(false);
   const [pendingG, setPendingG] = useState(false);
+  const pendingGTimerRef = useRef(null);
   const navigate = useNavigate();
 
   const handleKeyDown = useCallback((e) => {
@@ -38,6 +39,7 @@ export function useKeyboardShortcuts({ onRefresh } = {}) {
     }
 
     // ? — toggle help overlay
+    // Note: e.key === '?' already implies shiftKey on QWERTY; the second check covers non-QWERTY layouts
     if (e.key === '?' || (e.shiftKey && e.key === '/')) {
       e.preventDefault();
       setShowHelp((v) => !v);
@@ -67,7 +69,7 @@ export function useKeyboardShortcuts({ onRefresh } = {}) {
     // g prefix for navigation
     if (e.key === 'g' && !pendingG) {
       setPendingG(true);
-      setTimeout(() => setPendingG(false), 1000);
+      pendingGTimerRef.current = setTimeout(() => setPendingG(false), 1000);
       return;
     }
 
@@ -85,6 +87,8 @@ export function useKeyboardShortcuts({ onRefresh } = {}) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
+
+  useEffect(() => () => { if (pendingGTimerRef.current) clearTimeout(pendingGTimerRef.current); }, []);
 
   return { showHelp, setShowHelp, pendingG };
 }
