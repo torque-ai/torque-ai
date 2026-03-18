@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const { CATEGORIES } = require('./category-classifier');
+const logger = require('../logger').child({ component: 'template-store' });
 
 const PRESETS_DIR = path.join(__dirname, 'templates');
 const MAX_NAME_LENGTH = 100;
@@ -38,7 +39,13 @@ function seedPresets() {
     VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
   `);
   for (const file of files) {
-    const data = JSON.parse(fs.readFileSync(path.join(PRESETS_DIR, file), 'utf8'));
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(path.join(PRESETS_DIR, file), 'utf8'));
+    } catch (error) {
+      logger.warn(`[template-store] Failed to parse preset ${file}: ${error.message}`);
+      continue;
+    }
     const id = `preset-${path.basename(file, '.json')}`;
     upsert.run(id, data.name, data.description || '', JSON.stringify(data.rules), JSON.stringify(data.complexity_overrides || {}));
   }
@@ -234,6 +241,15 @@ function setActiveTemplate(templateId) {
   db.prepare("INSERT OR REPLACE INTO config (key, value) VALUES ('active_routing_template', ?)").run(templateId);
 }
 
+function resolveTemplateByNameOrId(value) {
+  if (!value || !db) return null;
+  const byId = getTemplate(value);
+  if (byId) return byId;
+  const byName = getTemplateByName(value);
+  if (byName) return byName;
+  return null;
+}
+
 function resolveChain(template, category, complexity) {
   if (!template || !template.rules) return null;
 
@@ -268,7 +284,7 @@ function resolveProvider(template, category, complexity) {
 
 module.exports = {
   setDb, ensureTable, seedPresets,
-  listTemplates, getTemplate, getTemplateByName,
+  listTemplates, getTemplate, getTemplateByName, resolveTemplateByNameOrId,
   createTemplate, updateTemplate, deleteTemplate,
   getActiveTemplate, getExplicitActiveTemplateId, setActiveTemplate,
   resolveChain, resolveProvider, validateTemplate,
