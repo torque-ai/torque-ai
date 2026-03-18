@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const logger = require('../logger').child({ component: 'ollama-tools' });
+const { lineSimilarity } = require('../utils/hashline-parser');
 
 // Safety limits
 const MAX_FILE_READ_BYTES = 512 * 1024; // 512KB per file read
@@ -93,6 +94,65 @@ function findWhitespaceNormalizedMatch(oldText, fileContent) {
   const lineIndents = matchedFileLines.map(l => l.match(/^(\s*)/)[1]);
 
   return { startLine, lineCount: oldLines.length, fileIndent, lineIndents };
+}
+
+/**
+ * Find a fuzzy match for old_text in file content using line-by-line Levenshtein similarity.
+ * Requires: avg similarity >= 0.80, every line >= 0.50, ambiguity gap (second-best < 0.70).
+ * @param {string} oldText - Text to search for
+ * @param {string} fileContent - Full file content
+ * @returns {{ startLine: number, lineCount: number, fileIndent: string, score: number } | null}
+ */
+function findFuzzyMatch(oldText, fileContent) {
+  const searchLines = oldText.split('\n');
+  const fileLines = fileContent.split('\n');
+
+  // Performance guard
+  if (fileLines.length > 2000 || searchLines.length > 50) return null;
+  if (searchLines.length === 0 || fileLines.length === 0) return null;
+
+  let bestScore = 0;
+  let bestStart = -1;
+  let secondBestScore = 0;
+
+  for (let i = 0; i <= fileLines.length - searchLines.length; i++) {
+    let totalSim = 0;
+    let minSim = 1;
+    for (let j = 0; j < searchLines.length; j++) {
+      const sim = lineSimilarity(searchLines[j], fileLines[i + j]);
+      totalSim += sim;
+      if (sim < minSim) minSim = sim;
+    }
+    const avgSim = totalSim / searchLines.length;
+
+    // Track second-best at >= 0.70 for ambiguity detection,
+    // but only accept best match if it also passes minSim >= 0.50
+    if (avgSim >= 0.70) {
+      if (avgSim > bestScore && minSim >= 0.5) {
+        secondBestScore = bestScore;
+        bestScore = avgSim;
+        bestStart = i;
+      } else if (avgSim > secondBestScore) {
+        secondBestScore = avgSim;
+      }
+    }
+  }
+
+  if (bestStart === -1) return null;
+
+  // Ambiguity gap: second-best must be < 0.70
+  if (secondBestScore >= 0.70) return null;
+
+  const firstNonBlank = fileLines.slice(bestStart, bestStart + searchLines.length)
+    .find(l => l.trim().length > 0);
+  const fileIndent = firstNonBlank ? firstNonBlank.match(/^(\s*)/)[1] : '';
+
+  return {
+    startLine: bestStart,
+    lineCount: searchLines.length,
+    fileIndent,
+    score: bestScore,
+  };
 }
 
 /**
@@ -506,7 +566,20 @@ function createToolExecutor(workingDir, options = {}) {
                 }
               }
 
-              // TODO: Tier 2 fuzzy matching (Task 3)
+              // Tier 2: fuzzy matching
+              const fuzzyMatch = findFuzzyMatch(args.old_text, content);
+              if (fuzzyMatch) {
+                const fileLines = content.split('\n');
+                const reindented = reindentNewText(args.new_text, fuzzyMatch.fileIndent);
+                const before = fileLines.slice(0, fuzzyMatch.startLine);
+                const after = fileLines.slice(fuzzyMatch.startLine + fuzzyMatch.lineCount);
+                const newContent = [...before, ...reindented.split('\n'), ...after].join('\n');
+                fs.writeFileSync(resolvedPath, newContent, 'utf-8');
+                changedFiles.add(resolvedPath);
+                return {
+                  result: `Edit applied to ${args.path} (fuzzy match at ${(fuzzyMatch.score * 100).toFixed(1)}% similarity)`,
+                };
+              }
 
               const lines = content.split('\n');
               const preview = lines.slice(0, Math.min(30, lines.length)).join('\n');
@@ -760,6 +833,7 @@ module.exports = {
   resolveSafePath,
   reindentNewText,
   findWhitespaceNormalizedMatch,
+  findFuzzyMatch,
   IS_WINDOWS,
   MAX_FILE_READ_BYTES,
   MAX_COMMAND_TIMEOUT_MS,
