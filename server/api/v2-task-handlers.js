@@ -25,6 +25,16 @@ const {
 const { parseBody } = require('./middleware');
 
 let _taskManager = null;
+const ALLOWED_ORDER_COLUMNS = new Set([
+  'created_at',
+  'updated_at',
+  'started_at',
+  'completed_at',
+  'priority',
+  'status',
+  'provider',
+]);
+const ALLOWED_ORDER_DIRECTIONS = new Set(['asc', 'desc']);
 
 function init(taskManager) {
   _taskManager = taskManager;
@@ -233,6 +243,12 @@ async function handleListTasks(req, res) {
   if (query.search) filters.search = query.search;
   if (query.from) filters.from_date = query.from;
   if (query.to) filters.to_date = query.to;
+  if (query.orderBy && !ALLOWED_ORDER_COLUMNS.has(query.orderBy)) {
+    return sendError(res, requestId, 'validation_error', 'Invalid orderBy column', 400, undefined, req);
+  }
+  if (query.orderDir && !ALLOWED_ORDER_DIRECTIONS.has(query.orderDir)) {
+    return sendError(res, requestId, 'validation_error', 'Invalid orderDir', 400, undefined, req);
+  }
   if (query.orderBy) filters.orderBy = query.orderBy;
   if (query.orderDir) filters.orderDir = query.orderDir;
   if (query.tags) {

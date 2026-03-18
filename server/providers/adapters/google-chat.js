@@ -53,7 +53,6 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
 
   return new Promise((resolve, reject) => {
     const url = new URL(`/v1beta/models/${encodeURIComponent(model)}:generateContent`, baseHost);
-    url.searchParams.set('key', apiKey);
 
     const isHttps = url.protocol === 'https:';
     const httpModule = isHttps ? https : http;
@@ -164,6 +163,7 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(requestBody),
+          'X-Goog-Api-Key': apiKey,
         },
         timeout: timeoutMs,
         signal,

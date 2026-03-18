@@ -11,6 +11,7 @@
  */
 
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const Database = require('better-sqlite3');
@@ -104,6 +105,44 @@ function createTestDb() {
   return db;
 }
 
+function requestAgent({ method = 'GET', pathname = '/', headers = {}, body = null, timeout = 5000 }) {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: testPort,
+      path: pathname,
+      method,
+      headers: {
+        ...(payload ? {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        } : {}),
+        ...headers,
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode,
+          body: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+      res.on('error', reject);
+    });
+
+    req.setTimeout(timeout, () => {
+      req.destroy(new Error(`Request to ${pathname} timed out after ${timeout}ms`));
+    });
+
+    req.on('error', reject);
+
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
 // ── Tests ─────────────────────────────────────────────────────
 
 describe('Remote Agent Integration', { timeout: 30000 }, () => {
@@ -138,6 +177,31 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
     });
   });
 
+  describe('probe authentication', () => {
+    it('should reject unauthenticated probe requests', async () => {
+      const response = await requestAgent({ pathname: '/probe' });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'Unauthorized: missing or invalid X-Torque-Secret header',
+      });
+    });
+
+    it('should return capabilities for authenticated probe requests', async () => {
+      const response = await requestAgent({
+        pathname: '/probe',
+        headers: { 'X-Torque-Secret': TEST_SECRET },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toMatchObject({
+        platform: expect.any(String),
+        arch: expect.any(String),
+        capabilities: expect.any(Object),
+      });
+    });
+  });
+
   // ── 2. Run a whitelisted command ────────────────────────────
 
   describe('run a whitelisted command', () => {
@@ -155,6 +219,32 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
       expect(result.exitCode).toBe(0);
       expect(typeof result.durationMs).toBe('number');
       expect(result.durationMs).toBeGreaterThan(0);
+    });
+  });
+
+  describe('environment filtering', () => {
+    it('should only forward allowlisted request env vars to child processes', async () => {
+      const env = {
+        SECRET_TOKEN: 'blocked',
+        TORQUE_ALLOWED: 'allowed',
+        OLLAMA_HOST: 'http://127.0.0.1:11434',
+      };
+      const readEnvVar = async (name) => client.run(
+        'node',
+        ['-e', `console.log(process.env.${name})`],
+        { cwd: tmpDir, env, timeout: 10000 }
+      );
+
+      const secretResult = await readEnvVar('SECRET_TOKEN');
+      const torqueResult = await readEnvVar('TORQUE_ALLOWED');
+      const ollamaResult = await readEnvVar('OLLAMA_HOST');
+
+      expect(secretResult.success).toBe(true);
+      expect(secretResult.output.trim()).toBe('undefined');
+      expect(torqueResult.success).toBe(true);
+      expect(torqueResult.output.trim()).toBe('allowed');
+      expect(ollamaResult.success).toBe(true);
+      expect(ollamaResult.output.trim()).toBe('http://127.0.0.1:11434');
     });
   });
 
@@ -177,6 +267,23 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
       await expect(
         client.run('node', ['-e', 'console.log(1)'], { cwd: '/tmp/not-allowed', timeout: 5000 })
       ).rejects.toThrow(/Run failed \(400\)|Path not allowed/);
+    });
+
+    it('should reject sync requests outside project_root', async () => {
+      const response = await requestAgent({
+        method: 'POST',
+        pathname: '/sync',
+        headers: { 'X-Torque-Secret': TEST_SECRET },
+        body: {
+          project: '../outside-root',
+          branch: 'main',
+        },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(JSON.parse(response.body)).toMatchObject({
+        error: 'Path outside project root',
+      });
     });
   });
 

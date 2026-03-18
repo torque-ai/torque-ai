@@ -179,7 +179,7 @@ describe('policy shadow rollout', () => {
     expect(result.results[0]).toMatchObject({
       policy_id: 'policy-submit-shadow-rule',
       outcome: 'fail',
-      mode: 'block',
+      mode: 'shadow',
     });
   });
 
@@ -187,6 +187,7 @@ describe('policy shadow rollout', () => {
     setFlagReader({
       policy_engine_enabled: '1',
       policy_engine_shadow_only: '0',
+      policy_block_mode_enabled: '1',
     });
     seedPolicy({
       profileId: 'policy-submit-live-profile',
@@ -203,7 +204,6 @@ describe('policy shadow rollout', () => {
     expect(result.shadow).toBe(false);
     expect(result.blocked).toBe(true);
     expect(result.summary).toMatchObject({
-      failed: 1,
       blocked: 1,
     });
     expect(result.results[0]).toMatchObject({

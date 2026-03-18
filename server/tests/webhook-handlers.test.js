@@ -1,4 +1,5 @@
-const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const db = require('../database');
+const { setupTestDb, teardownTestDb, safeTool, getText, resetTables } = require('./vitest-setup');
 
 describe('Webhook Handlers', () => {
   beforeAll(() => { setupTestDb('webhook-handlers'); });
@@ -681,6 +682,35 @@ describe('Webhook Handlers', () => {
       expect(result.isError).toBe(true);
       expect(getText(result)).toContain('not configured');
     });
+
+    it('rejects internal webhook hosts before fetch', async () => {
+      resetTables('integration_config');
+      db.saveIntegrationConfig({
+        id: 'slack-internal',
+        integration_type: 'slack',
+        enabled: true,
+        config: {
+          webhook_url: 'https://2130706433/services/test',
+          default_channel: '#alerts',
+        },
+      });
+
+      const originalFetch = global.fetch;
+      let fetchCalled = false;
+      global.fetch = async () => {
+        fetchCalled = true;
+        return { ok: true };
+      };
+
+      try {
+        const result = await safeTool('notify_slack', { message: 'Test notification' });
+        expect(result.isError).toBe(true);
+        expect(getText(result)).toContain('Webhook URL points to internal host');
+        expect(fetchCalled).toBe(false);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
   });
 
   describe('notify_discord', () => {
@@ -698,6 +728,34 @@ describe('Webhook Handlers', () => {
       const result = await safeTool('notify_discord', { message: 'Test notification' });
       expect(result.isError).toBe(true);
       expect(getText(result)).toContain('not configured');
+    });
+
+    it('rejects internal webhook hosts before fetch', async () => {
+      resetTables('integration_config');
+      db.saveIntegrationConfig({
+        id: 'discord-internal',
+        integration_type: 'discord',
+        enabled: true,
+        config: {
+          webhook_url: 'https://0x7f000001/api/webhooks/test',
+        },
+      });
+
+      const originalFetch = global.fetch;
+      let fetchCalled = false;
+      global.fetch = async () => {
+        fetchCalled = true;
+        return { ok: true };
+      };
+
+      try {
+        const result = await safeTool('notify_discord', { message: 'Test notification' });
+        expect(result.isError).toBe(true);
+        expect(getText(result)).toContain('Webhook URL points to internal host');
+        expect(fetchCalled).toBe(false);
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
   });
 });

@@ -159,6 +159,10 @@ describe('Cost Tracking Module', () => {
         expect(Array.isArray(result)).toBe(true);
       }
     });
+
+    it('rejects invalid periods', () => {
+      expect(() => db.getCostByPeriod('year', 5)).toThrow('Invalid period');
+    });
   });
 
   describe('estimateCost', () => {

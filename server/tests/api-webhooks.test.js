@@ -181,6 +181,15 @@ describe('api/webhooks.verifyWebhookSignature', () => {
     expect(mod.verifyWebhookSignature('wrong-secret', body, signPayload('right-secret', body))).toBe(false);
   });
 
+  it('rejects empty or null webhook secrets', () => {
+    const { mod } = createSubject();
+    const body = '{"event":"build"}';
+    const signature = signPayload('real-secret', body);
+
+    expect(mod.verifyWebhookSignature('', body, signature)).toBe(false);
+    expect(mod.verifyWebhookSignature(null, body, signature)).toBe(false);
+  });
+
   it('rejects signatures whose digest length does not match', () => {
     const { mod } = createSubject();
 

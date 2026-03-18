@@ -40,6 +40,7 @@ function getSystemMetrics() {
 }
 
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB
+const ALLOWED_ENV_VARS = new Set(['NODE_ENV', 'DEBUG', 'PATH', 'HOME', 'USERPROFILE', 'TEMP', 'TMP']);
 
 /**
  * Promise-based JSON body parser. Collects request body chunks and parses as JSON.
@@ -109,7 +110,7 @@ function createServer(overrideConfig = {}) {
   // Build the allowed commands Set from config
   const allowedCommands = new Set(mergedConfig.allowed_commands || []);
 
-  function serverAuthenticate(req, res) {
+  function serverAuthenticate(req, res, config = mergedConfig) {
     const secret = req.headers['x-torque-secret'];
     if (!secret || typeof secret !== 'string') {
       res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -118,7 +119,7 @@ function createServer(overrideConfig = {}) {
     }
     // Timing-safe comparison to prevent timing attacks on LAN
     const a = Buffer.from(secret, 'utf8');
-    const b = Buffer.from(mergedConfig.secret, 'utf8');
+    const b = Buffer.from(config.secret, 'utf8');
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid X-Torque-Secret header' }));
@@ -167,10 +168,14 @@ function createServer(overrideConfig = {}) {
 
     // Clamp timeout to 10 minutes max
     const effectiveTimeout = Math.min(timeout_ms || 30000, 600000);
+    const safeEnv = {};
+    for (const [k, v] of Object.entries(env || {})) {
+      if (ALLOWED_ENV_VARS.has(k) || k.startsWith('TORQUE_') || k.startsWith('OLLAMA_')) safeEnv[k] = v;
+    }
 
     const child = spawn(command, args, {
       cwd,
-      env: { ...process.env, ...env },
+      env: { ...process.env, ...safeEnv },
       windowsHide: true,
       shell: process.platform === 'win32',
     });
@@ -243,6 +248,11 @@ function createServer(overrideConfig = {}) {
     }
 
     const projectPath = path.join(mergedConfig.project_root, project);
+    if (!isPathAllowed(projectPath, mergedConfig.project_root)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Path outside project root' }));
+      return;
+    }
     const startTime = Date.now();
 
     try {
@@ -395,8 +405,9 @@ function createServer(overrideConfig = {}) {
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
 
-    // Public endpoints (no auth required — used during registration)
+    // Registration helper endpoints
     if (req.method === 'GET' && pathname === '/probe') {
+      if (!serverAuthenticate(req, res, mergedConfig)) return;
       const caps = detectCapabilities();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ platform: os.platform(), arch: os.arch(), capabilities: caps }));

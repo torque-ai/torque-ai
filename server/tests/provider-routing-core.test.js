@@ -789,8 +789,8 @@ describe('provider-routing-core', () => {
       expect(result.reason).toContain("Matched extension rule 'csharp-rule'");
     });
 
-    it('matches regex rules and skips invalid regex patterns', () => {
-      const { core } = loadCore({
+    it('matches regex rules and skips invalid or unsafe regex patterns', () => {
+      const { core, loggerChild } = loadCore({
         db: {
           rules: [
             {
@@ -801,11 +801,18 @@ describe('provider-routing-core', () => {
               priority: 1,
             },
             {
+              name: 'unsafe',
+              rule_type: 'regex',
+              pattern: 'x'.repeat(201),
+              target_provider: 'codex',
+              priority: 2,
+            },
+            {
               name: 'ticket-id',
               rule_type: 'regex',
               pattern: 'foo\\d+',
               target_provider: 'claude-cli',
-              priority: 2,
+              priority: 3,
             },
           ],
         },
@@ -815,6 +822,7 @@ describe('provider-routing-core', () => {
 
       expect(result.provider).toBe('claude-cli');
       expect(result.reason).toContain("Matched regex rule 'ticket-id'");
+      expect(loggerChild.warn).toHaveBeenCalledWith(expect.stringContaining('Unsafe regex pattern skipped:'));
     });
 
     it('can filter rule evaluation to enabled extension rules only', () => {

@@ -1,5 +1,5 @@
 const Database = require('better-sqlite3');
-const { createTables, ensureAuditLogChainColumns } = require('../db/schema-tables');
+const { createTables, ensureAuditLogChainColumns, ensureTableColumns } = require('../db/schema-tables');
 
 const EXPECTED_TABLES = [
   "tasks",
@@ -624,6 +624,20 @@ describe('db/schema-tables', () => {
     expect(getColumns('audit_log').map((column) => column.name)).toEqual(columnsAfterFirstRun);
     expect(columnsAfterFirstRun.filter((name) => name === 'previous_hash')).toHaveLength(1);
     expect(columnsAfterFirstRun.filter((name) => name === 'chain_hash')).toHaveLength(1);
+  });
+
+  it('ensureTableColumns rejects invalid table names', () => {
+    expect(() => ensureTableColumns(db, 'tasks; DROP TABLE tasks; --', ['safe_col TEXT'])).toThrow(
+      'Invalid table name: tasks; DROP TABLE tasks; --'
+    );
+  });
+
+  it('ensureTableColumns rejects invalid column definitions', () => {
+    createTables(db, logger);
+
+    expect(() => ensureTableColumns(db, 'pack_registry', ['oops TEXT; DROP TABLE tasks; --'])).toThrow(
+      'Invalid column definition: oops TEXT; DROP TABLE tasks; --'
+    );
   });
 
   it('table column constraints match the schema contract', () => {

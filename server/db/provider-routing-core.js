@@ -5,6 +5,7 @@ const fs = require('fs');
 const logger = require('../logger').child({ component: 'provider-routing' });
 const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
+const { isSafeRegex } = require('../utils/safe-regex');
 const capabilities = require('./provider-capabilities');
 const perfTracker = require('./provider-performance');
 
@@ -674,6 +675,10 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     } else if (rule.rule_type === 'regex') {
       // Full regex matching
       try {
+        if (!isSafeRegex(rule.pattern)) {
+          logger.warn('Unsafe regex pattern skipped: ' + rule.pattern);
+          continue;
+        }
         const regex = new RegExp(rule.pattern, 'i');
         if (regex.test(taskDescription)) {
           return maybeApplyFallback({

@@ -603,9 +603,10 @@ describe('google-chat adapter — chatCompletion', () => {
   it('maps Gemini functionCall parts to standard tool_calls format', async () => {
     requestHandler = (req, res) => {
       expect(req.method).toBe('POST');
-      // URL should contain model name and API key
+      // URL should contain model name only; the API key must stay out of the query string
       expect(req.url).toContain('gemini-1.5-pro');
-      expect(req.url).toContain('key=test-api-key');
+      expect(req.url).not.toContain('key=test-api-key');
+      expect(req.headers['x-goog-api-key']).toBe('test-api-key');
       // Verify tools were sent in Gemini format
       const body = req._parsedBody;
       expect(Array.isArray(body.tools)).toBe(true);

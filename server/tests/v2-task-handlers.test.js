@@ -491,6 +491,50 @@ describe('api/v2-task-handlers.handleListTasks', () => {
     expect(getLastList().total).toBe(47);
   });
 
+  it('rejects invalid orderBy values before querying the database', async () => {
+    const res = createRes();
+    const req = createReq({
+      query: {
+        orderBy: 'created_at; DROP TABLE tasks; --',
+      },
+    });
+
+    await handlers.handleListTasks(req, res);
+
+    expect(mockDb.listTasks).not.toHaveBeenCalled();
+    expect(getLastError()).toEqual({
+      res,
+      requestId: 'req-123',
+      code: 'validation_error',
+      message: 'Invalid orderBy column',
+      status: 400,
+      details: undefined,
+      req,
+    });
+  });
+
+  it('rejects invalid orderDir values before querying the database', async () => {
+    const res = createRes();
+    const req = createReq({
+      query: {
+        orderDir: 'descending',
+      },
+    });
+
+    await handlers.handleListTasks(req, res);
+
+    expect(mockDb.listTasks).not.toHaveBeenCalled();
+    expect(getLastError()).toEqual({
+      res,
+      requestId: 'req-123',
+      code: 'validation_error',
+      message: 'Invalid orderDir',
+      status: 400,
+      details: undefined,
+      req,
+    });
+  });
+
   it('treats archived status like the legacy dashboard route', async () => {
     const req = createReq({ query: { status: 'archived', offset: '40', limit: '10' } });
 

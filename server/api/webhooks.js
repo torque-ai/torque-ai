@@ -17,6 +17,7 @@ function setFreeTierTrackerGetter(getter) { _freeTierTrackerGetter = getter; }
  */
 function verifyWebhookSignature(secret, body, signatureHeader) {
   if (!signatureHeader) return false;
+  if (!secret || secret.length === 0) return false;
 
   // Extract the hex digest (strip "sha256=" prefix if present)
   const parts = signatureHeader.split('=');

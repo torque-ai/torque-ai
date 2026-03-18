@@ -105,7 +105,7 @@ function listInboundWebhooks() {
 
   return rows.map(row => ({
     ...row,
-    secret: decryptSecret(row.secret),
+    secret: row.secret ? '••••••••' : null,
     action_config: safeJsonParse(row.action_config, {}),
     enabled: !!row.enabled,
   }));

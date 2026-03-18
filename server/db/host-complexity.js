@@ -6,6 +6,67 @@
 
 let db;
 
+const DOC_PATTERNS = [
+  'write.*adr', 'write.*runbook', 'write.*guide', 'document the',
+  'write.*spec', 'troubleshooting guide', 'data model.*document',
+  'migration strategy.*document', 'document.*catalog',
+  'write.*readme', 'create.*readme', 'update.*readme',
+  'write.*documentation', 'write.*usage', 'write.*changelog',
+  'explain.*how.*works', 'describe.*usage'
+];
+
+const TEST_PATTERNS = [
+  'write.*test', 'write.*xunit', 'add.*test'
+];
+
+const STUB_FILL_PATTERNS = [
+  'fill in.*method', 'fill in.*stub', 'fill in.*bodies', 'fill .+ in .+\\.\\w+',
+  'replace.*not implemented', 'replace.*throw.*not implemented',
+  'fill.*skeleton', 'implement.*stub'
+];
+
+const MULTI_STEP_PATTERNS = [
+  'and wire', 'and connect', 'and register',
+  'wire the', 'wire it', 'wire to',
+  'implement.*system', 'implement.*pipeline',
+  'build.*with.*integration', 'implement.*with.*dependency'
+];
+
+const SIMPLE_CODE_GEN_PATTERNS = [
+  'create a class', 'create a service', 'create a component',
+  'create a method', 'create a function', 'create a test',
+  'create a \\w+ function',
+  'create a \\w+ class',
+  'create a \\w+service', 'create a \\w+class',
+  'create \\w+ class', 'create \\w+ service',
+  'add a method', 'add a property', 'add an endpoint',
+  'add a field', 'add a constructor',
+  'implement.*interface', 'implement.*method',
+  'implement the.*method', 'implement the.*interface',
+  'create a helper', 'create a utility', 'create a dto',
+  'add.*handler', 'add.*validator'
+];
+
+const COMPLEX_CODE_GEN_PATTERNS = [
+  'implement ', 'build a ', 'build an ', 'build the ',
+  'add real-time', 'add transaction', 'add role-based', 'add.*workflow',
+  'create.*viewmodel', 'create.*view',
+  'create.*entity',
+  'implement.*service',
+  'build.*api', 'build.*endpoint'
+];
+
+function compileRegexPatterns(patterns) {
+  return patterns.map((pattern) => new RegExp(pattern));
+}
+
+const DOC_REGEXES = compileRegexPatterns(DOC_PATTERNS);
+const TEST_REGEXES = compileRegexPatterns(TEST_PATTERNS);
+const STUB_FILL_REGEXES = compileRegexPatterns(STUB_FILL_PATTERNS);
+const MULTI_STEP_REGEXES = compileRegexPatterns(MULTI_STEP_PATTERNS);
+const SIMPLE_CODE_GEN_REGEXES = compileRegexPatterns(SIMPLE_CODE_GEN_PATTERNS);
+const COMPLEX_CODE_GEN_REGEXES = compileRegexPatterns(COMPLEX_CODE_GEN_PATTERNS);
+
 function setDb(instance) {
   db = instance;
 }
@@ -36,52 +97,26 @@ function determineTaskComplexity(taskDescription, files = []) {
     }
   }
 
-  const docPatterns = [
-    'write.*adr', 'write.*runbook', 'write.*guide', 'document the',
-    'write.*spec', 'troubleshooting guide', 'data model.*document',
-    'migration strategy.*document', 'document.*catalog',
-    'write.*readme', 'create.*readme', 'update.*readme',
-    'write.*documentation', 'write.*usage', 'write.*changelog',
-    'explain.*how.*works', 'describe.*usage'
-  ];
-
-  for (const pattern of docPatterns) {
-    if (new RegExp(pattern).test(desc)) {
+  for (const regex of DOC_REGEXES) {
+    if (regex.test(desc)) {
       return 'simple';
     }
   }
 
-  const testPatterns = [
-    'write.*test', 'write.*xunit', 'add.*test'
-  ];
-
-  for (const pattern of testPatterns) {
-    if (new RegExp(pattern).test(desc)) {
+  for (const regex of TEST_REGEXES) {
+    if (regex.test(desc)) {
       return 'normal';
     }
   }
 
-  const stubFillPatterns = [
-    'fill in.*method', 'fill in.*stub', 'fill in.*bodies', 'fill .+ in .+\\.\\w+',
-    'replace.*not implemented', 'replace.*throw.*not implemented',
-    'fill.*skeleton', 'implement.*stub'
-  ];
-
-  for (const pattern of stubFillPatterns) {
-    if (new RegExp(pattern).test(desc)) {
+  for (const regex of STUB_FILL_REGEXES) {
+    if (regex.test(desc)) {
       return 'normal';
     }
   }
 
-  const multiStepPatterns = [
-    'and wire', 'and connect', 'and register',
-    'wire the', 'wire it', 'wire to',
-    'implement.*system', 'implement.*pipeline',
-    'build.*with.*integration', 'implement.*with.*dependency'
-  ];
-
-  for (const pattern of multiStepPatterns) {
-    if (new RegExp(pattern).test(desc)) {
+  for (const regex of MULTI_STEP_REGEXES) {
+    if (regex.test(desc)) {
       return 'complex';
     }
   }
@@ -92,38 +127,14 @@ function determineTaskComplexity(taskDescription, files = []) {
     return 'complex';
   }
 
-  const simpleCodeGenPatterns = [
-    'create a class', 'create a service', 'create a component',
-    'create a method', 'create a function', 'create a test',
-    'create a \\w+ function',
-    'create a \\w+ class',
-    'create a \\w+service', 'create a \\w+class',
-    'create \\w+ class', 'create \\w+ service',
-    'add a method', 'add a property', 'add an endpoint',
-    'add a field', 'add a constructor',
-    'implement.*interface', 'implement.*method',
-    'implement the.*method', 'implement the.*interface',
-    'create a helper', 'create a utility', 'create a dto',
-    'add.*handler', 'add.*validator'
-  ];
-
-  for (const pattern of simpleCodeGenPatterns) {
-    if (new RegExp(pattern).test(desc)) {
+  for (const regex of SIMPLE_CODE_GEN_REGEXES) {
+    if (regex.test(desc)) {
       return 'normal';
     }
   }
 
-  const complexCodeGenPatterns = [
-    'implement ', 'build a ', 'build an ', 'build the ',
-    'add real-time', 'add transaction', 'add role-based', 'add.*workflow',
-    'create.*viewmodel', 'create.*view',
-    'create.*entity',
-    'implement.*service',
-    'build.*api', 'build.*endpoint'
-  ];
-
-  for (const pattern of complexCodeGenPatterns) {
-    if (new RegExp(pattern).test(desc)) {
+  for (const regex of COMPLEX_CODE_GEN_REGEXES) {
+    if (regex.test(desc)) {
       return 'complex';
     }
   }

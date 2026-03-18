@@ -126,6 +126,17 @@ describe('handlers/shared.js utilities', () => {
       expect(shared.isInternalHost('https://example.com')).toBe(false);
     });
 
+    it('treats non-standard private IP encodings as internal', () => {
+      expect(shared.isInternalHost('http://2130706433')).toBe(true);
+      expect(shared.isInternalHost('http://0x7f000001')).toBe(true);
+      expect(shared.isInternalHost('http://0177.0.0.1')).toBe(true);
+    });
+
+    it('accepts bare public hostnames and rejects bare local IPv6 hosts', () => {
+      expect(shared.isInternalHost('hooks.slack.com')).toBe(false);
+      expect(shared.isInternalHost('fd12:3456:789a::1')).toBe(true);
+    });
+
     it('defaults malformed URLs to internal for safety', () => {
       expect(shared.isInternalHost('not-a-url')).toBe(true);
     });

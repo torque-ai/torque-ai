@@ -31,6 +31,7 @@ const {
 } = require('../handlers/policy-handlers');
 
 let _taskManager = null;
+const VALID_ACTIONS = new Set(['pause', 'resume', 'retry']);
 
 function init(taskManager) {
   _taskManager = taskManager;
@@ -407,8 +408,7 @@ async function handlePlanProjectAction(req, res) {
   const projectId = req.params?.project_id;
   const action = req.params?.action;
 
-  const validActions = new Set(['pause', 'resume', 'retry']);
-  if (!action || !validActions.has(action)) {
+  if (!action || !VALID_ACTIONS.has(action)) {
     return sendError(res, requestId, 'validation_error', `Invalid action: ${action}. Must be one of: pause, resume, retry`, 400);
   }
 

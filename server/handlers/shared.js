@@ -70,8 +70,36 @@ function isValidUrl(url) {
 // Mitigation: document in SECURITY.md, recommend firewall rules.
 function isInternalHost(url) {
   try {
-    const parsed = new URL(url);
-    const hostname = parsed.hostname.toLowerCase();
+    if (typeof url !== 'string') {
+      return true;
+    }
+
+    const input = url.trim();
+    if (!input) {
+      return true;
+    }
+
+    let hostname;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input)) {
+      hostname = new URL(input).hostname.toLowerCase();
+    } else if (/^\[[^\]]+\](?::\d+)?$/.test(input)) {
+      hostname = input.match(/^\[([^\]]+)\]/)[1].toLowerCase();
+    } else if (/^[^/:]+:\d+$/.test(input)) {
+      hostname = input.replace(/:\d+$/, '').toLowerCase();
+    } else {
+      hostname = input.toLowerCase();
+    }
+
+    if (!hostname) {
+      return true;
+    }
+
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(input) &&
+        !hostname.includes('.') &&
+        !hostname.includes(':') &&
+        hostname !== 'localhost') {
+      return true;
+    }
 
     if (hostname === 'localhost' || hostname === '127.0.0.1' ||
         hostname === '::1' || hostname === '[::1]') {
@@ -82,19 +110,22 @@ function isInternalHost(url) {
     }
 
     // SECURITY: Detect IPv6-mapped IPv4 addresses (::ffff:x.x.x.x) and re-check the embedded IPv4
-    const ipv6MappedMatch = hostname.replace(/^\[|\]$/g, '').match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+    const bareHostname = hostname.replace(/^\[|\]$/g, '');
+    const ipv6MappedMatch = bareHostname.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
     if (ipv6MappedMatch) {
       // Recursively check the embedded IPv4 address
       return isInternalHost(`http://${ipv6MappedMatch[1]}/`);
     }
 
     // SECURITY: Block IPv6 loopback, link-local, and unique local addresses
-    const bareHostname = hostname.replace(/^\[|\]$/g, '');
     if (bareHostname === '::1') return true;
     if (bareHostname.startsWith('fe80:')) return true;   // link-local
-    if (bareHostname.startsWith('fc00:') || bareHostname.startsWith('fd')) return true; // unique local (ULA)
+    if (bareHostname.startsWith('fc00:') || (/^fd[0-9a-f]{2}:/i).test(bareHostname)) return true; // unique local (ULA)
+    if (/^\d{8,}$/.test(bareHostname)) return true;
+    if (/^0x[0-9a-f]+$/i.test(bareHostname)) return true;
+    if (/^0\d+\./.test(bareHostname)) return true;
 
-    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    const ipv4Match = bareHostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
     if (ipv4Match) {
       const [, a, b, c] = ipv4Match.map(Number);
       if (a === 10) return true;
@@ -111,7 +142,7 @@ function isInternalHost(url) {
       if (a >= 224) return true;
     }
 
-    if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') {
+    if (bareHostname === '169.254.169.254' || bareHostname === 'metadata.google.internal') {
       return true;
     }
 
@@ -121,7 +152,7 @@ function isInternalHost(url) {
       /^metadata\./i,
     ];
     for (const pattern of internalPatterns) {
-      if (pattern.test(hostname)) return true;
+      if (pattern.test(bareHostname)) return true;
     }
 
     return false;

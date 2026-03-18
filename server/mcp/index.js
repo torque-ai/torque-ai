@@ -281,8 +281,8 @@ function readSessionId(req) {
 function readRole(req) {
   const roleHeader = req.headers['x-mcp-role'];
   const rawRole = Array.isArray(roleHeader) ? roleHeader[0] : roleHeader;
-  const normalized = String(rawRole || 'operator').trim().toLowerCase();
-  return normalized || 'operator';
+  const normalized = String(rawRole || 'viewer').trim().toLowerCase();
+  return normalized || 'viewer';
 }
 
 function getToolRateLimit(toolName) {

@@ -231,6 +231,17 @@ describe('Inbound Webhooks DB Module', () => {
       const result = mod.listInboundWebhooks();
       expect(result[0].enabled).toBe(true);
     });
+
+    it('masks webhook secrets in list responses', () => {
+      mod.createInboundWebhook({
+        name: 'masked-secret',
+        secret: 'super-secret',
+        action_config: { task_description: 'Test' },
+      });
+
+      const result = mod.listInboundWebhooks();
+      expect(result[0].secret).toBe('••••••••');
+    });
   });
 
   describe('deleteInboundWebhook', () => {

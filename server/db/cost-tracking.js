@@ -12,6 +12,13 @@
 
 const logger = require('../logger').child({ component: 'cost-tracking' });
 
+const VALID_COST_PERIOD_FORMATS = Object.freeze({
+  hour: '%Y-%m-%d %H:00',
+  day: '%Y-%m-%d',
+  week: '%Y-W%W',
+  month: '%Y-%m',
+});
+
 let db;
 let getTaskFn;
 
@@ -288,37 +295,24 @@ function getTokenUsageSummary(options = {}) {
 }
 
 function getCostByPeriod(period = 'day', limit = 30) {
-  let dateFormat;
-  switch (period) {
-    case 'hour':
-      dateFormat = '%Y-%m-%d %H:00';
-      break;
-    case 'day':
-      dateFormat = '%Y-%m-%d';
-      break;
-    case 'week':
-      dateFormat = '%Y-W%W';
-      break;
-    case 'month':
-      dateFormat = '%Y-%m';
-      break;
-    default:
-      dateFormat = '%Y-%m-%d';
+  const fmt = VALID_COST_PERIOD_FORMATS[period];
+  if (!fmt) {
+    throw new Error('Invalid period');
   }
 
   const stmt = db.prepare(`
     SELECT
-      strftime('${dateFormat}', recorded_at) as period,
+      strftime(?, recorded_at) as period,
       COUNT(DISTINCT task_id) as tasks,
       SUM(total_tokens) as tokens,
       SUM(estimated_cost_usd) as cost
     FROM token_usage
-    GROUP BY strftime('${dateFormat}', recorded_at)
+    GROUP BY strftime(?, recorded_at)
     ORDER BY period DESC
     LIMIT ?
   `);
 
-  return stmt.all(limit);
+  return stmt.all(fmt, fmt, limit);
 }
 
 function estimateCost(taskDescription, model = 'codex') {

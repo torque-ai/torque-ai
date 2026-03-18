@@ -144,6 +144,7 @@ let readlineInterface = null;
 // Track shutdown state to prevent multiple shutdown attempts
 let shutdownState = 'running'; // 'running' | 'shutting-down' | 'orphan-mode' | 'done'
 let slotPullScheduler = null;
+let shutdownTimer = null;
 
 // Track if we're in orphan mode (MCP disconnected but tasks still running)
 let _isOrphanMode = false;
@@ -226,6 +227,10 @@ async function gracefulShutdown(signal) {
     debugLog(`Shutdown already in progress (received ${signal})`);
     return;
   }
+  if (shutdownTimer) {
+    clearTimeout(shutdownTimer);
+    shutdownTimer = null;
+  }
   shutdownState = 'shutting-down';
 
   const isConnectionLoss = signal === 'stdin-close';
@@ -298,6 +303,10 @@ async function gracefulShutdown(signal) {
 
   const performShutdown = () => {
     try {
+      if (shutdownTimer) {
+        clearTimeout(shutdownTimer);
+        shutdownTimer = null;
+      }
       // Stop PID heartbeat
       stopPidHeartbeat();
       // Clean up orphan mode interval if active
@@ -384,7 +393,8 @@ async function gracefulShutdown(signal) {
     if (typeof mcpSse.setShuttingDown === 'function') {
       mcpSse.setShuttingDown(true);
     }
-    setTimeout(() => {
+    shutdownTimer = setTimeout(() => {
+      shutdownTimer = null;
       performShutdown();
     }, SHUTDOWN_TIMEOUT_MS);
     return;
@@ -1461,6 +1471,10 @@ const _testing = {
     if (orphanCheckInterval) {
       clearInterval(orphanCheckInterval);
       orphanCheckInterval = null;
+    }
+    if (shutdownTimer) {
+      clearTimeout(shutdownTimer);
+      shutdownTimer = null;
     }
     if (mcpPlatform) {
       mcpPlatform.stop();

@@ -122,6 +122,18 @@ describe('checkAuth', () => {
     expect(middleware.checkAuth(req)).toBe(true);
   });
 
+  it('accepts a matching Authorization bearer token', () => {
+    getConfigSpy.mockImplementation((key) => (key === 'api_key' ? 'secret-key' : null));
+
+    const req = createMockRequest({
+      headers: {
+        authorization: 'Bearer secret-key',
+      },
+    });
+
+    expect(middleware.checkAuth(req)).toBe(true);
+  });
+
   it('rejects missing or mismatched x-torque-key headers', () => {
     getConfigSpy.mockImplementation((key) => (key === 'api_key' ? 'secret-key' : null));
 
@@ -129,6 +141,11 @@ describe('checkAuth', () => {
     expect(middleware.checkAuth(createMockRequest({
       headers: {
         'x-torque-key': 'wrong-key',
+      },
+    }))).toBe(false);
+    expect(middleware.checkAuth(createMockRequest({
+      headers: {
+        authorization: 'Bearer wrong-key',
       },
     }))).toBe(false);
   });

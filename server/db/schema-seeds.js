@@ -592,12 +592,12 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   const existingComplexityRules = db.prepare('SELECT COUNT(*) as count FROM complexity_routing').get();
   if (existingComplexityRules.count === 0) {
       const now = new Date().toISOString();
-      db.exec(`
+      db.prepare(`
         INSERT INTO complexity_routing (name, complexity, target_provider, target_host, model, priority, enabled, created_at) VALUES
-        ('Complex tasks to Codex', 'complex', 'codex', NULL, NULL, 1, 1, '${now}'),
-        ('Normal tasks to hashline', 'normal', 'hashline-ollama', NULL, 'qwen2.5-coder:32b', 2, 1, '${now}'),
-        ('Simple tasks to hashline', 'simple', 'hashline-ollama', NULL, 'qwen2.5-coder:32b', 3, 1, '${now}')
-      `);
+        ('Complex tasks to Codex', 'complex', 'codex', NULL, NULL, 1, 1, ?),
+        ('Normal tasks to hashline', 'normal', 'hashline-ollama', NULL, 'qwen2.5-coder:32b', 2, 1, ?),
+        ('Simple tasks to hashline', 'simple', 'hashline-ollama', NULL, 'qwen2.5-coder:32b', 3, 1, ?)
+      `).run(now, now, now);
     }
   try {
       const seedStmt = db.prepare(`INSERT OR IGNORE INTO model_capabilities

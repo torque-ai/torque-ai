@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const logger = require('../logger').child({ component: 'ollama-tools' });
+const { isSafeRegex } = require('../utils/safe-regex');
 const { lineSimilarity } = require('../utils/hashline-parser');
 
 // Safety limits
@@ -391,13 +392,13 @@ function isCommandAllowed(command, allowlist) {
  *
  * @param {string} workingDir - The working directory for all tool operations
  * @param {Object} [options]
- * @param {string} [options.commandMode='unrestricted'] - 'unrestricted' | 'allowlist'
+ * @param {string} [options.commandMode='allowlist'] - 'unrestricted' | 'allowlist'
  * @param {string[]} [options.commandAllowlist=[]] - Allowed command patterns when commandMode='allowlist'
  * @returns {{ execute(name: string, args: Object): { result: string, error?: boolean, metadata?: Object }, changedFiles: Set }}
  */
 function createToolExecutor(workingDir, options = {}) {
   const changedFiles = new Set();
-  const commandMode = options.commandMode || 'unrestricted';
+  const commandMode = options.commandMode || 'allowlist';
   const commandAllowlist = options.commandAllowlist || [];
 
   function execute(toolName, args) {
@@ -673,6 +674,10 @@ function createToolExecutor(workingDir, options = {}) {
         case 'search_files': {
           const { resolvedPath } = resolveSafePath(args.path || '.', workingDir);
           const globFilter = args.glob || '*';
+
+          if (!isSafeRegex(args.pattern)) {
+            return { error: 'Unsafe regex pattern' };
+          }
 
           let regex;
           try {

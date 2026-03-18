@@ -475,6 +475,7 @@ describe('mcp gateway http transport', () => {
     const { response } = await dispatchRequest(handler, {
       method: 'POST',
       url: '/tools/call',
+      headers: { 'x-mcp-role': 'operator' },
       body: {
         tool: 'torque.task.submit',
         arguments: {
@@ -704,6 +705,27 @@ describe('mcp gateway http transport', () => {
     });
   });
 
+  it('defaults callers without x-mcp-role to viewer permissions', async () => {
+    const { handler } = await bootGateway();
+
+    const { response } = await dispatchRequest(handler, {
+      method: 'POST',
+      url: '/tools/call',
+      body: {
+        tool: 'torque.task.submit',
+        arguments: { task: 'blocked by default viewer' },
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.getJson()).toMatchObject({
+      ok: false,
+      error: {
+        code: 'POLICY_FORBIDDEN',
+      },
+    });
+  });
+
   it('blocks non-admin callers from admin-only tools', async () => {
     const { handler } = await bootGateway();
 
@@ -742,6 +764,7 @@ describe('mcp gateway http transport', () => {
     const { response } = await dispatchRequest(handler, {
       method: 'POST',
       url: '/tools/call',
+      headers: { 'x-mcp-role': 'operator' },
       body: {
         tool: 'torque.task.submit',
         arguments: { task: 'ship sprint' },
@@ -1003,7 +1026,7 @@ describe('mcp gateway http transport', () => {
     const request = {
       method: 'POST',
       url: '/tools/call',
-      headers: { 'x-mcp-actor': 'alice', 'x-session-id': 'sess-1' },
+      headers: { 'x-mcp-role': 'operator', 'x-mcp-actor': 'alice', 'x-session-id': 'sess-1' },
       body: {
         tool: 'torque.task.submit',
         arguments: {
@@ -1039,7 +1062,7 @@ describe('mcp gateway http transport', () => {
     const request = {
       method: 'POST',
       url: '/tools/call',
-      headers: { 'x-mcp-actor': 'alice', 'x-session-id': 'sess-1' },
+      headers: { 'x-mcp-role': 'operator', 'x-mcp-actor': 'alice', 'x-session-id': 'sess-1' },
       body: {
         tool: 'torque.task.submit',
         arguments: {
@@ -1073,7 +1096,7 @@ describe('mcp gateway http transport', () => {
     const request = {
       method: 'POST',
       url: '/tools/call',
-      headers: { 'x-mcp-actor': 'alice', 'x-session-id': 'sess-1' },
+      headers: { 'x-mcp-role': 'operator', 'x-mcp-actor': 'alice', 'x-session-id': 'sess-1' },
       body: {
         tool: 'torque.task.submit',
         arguments: {

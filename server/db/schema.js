@@ -3,6 +3,7 @@
 const path = require('path');
 const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../constants');
 const logger = require('../logger').child({ component: 'schema' });
+const { safeAddColumn } = require('../database');
 const { createTables } = require('./schema-tables');
 const { seedDefaults } = require('./schema-seeds');
 const { runMigrations } = require('./schema-migrations');
@@ -30,19 +31,7 @@ function resolveSafeAddColumn(db, injectedSafeAddColumn) {
     return injectedSafeAddColumn;
   }
 
-  return (tableName, columnDef) => {
-    try {
-      db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnDef}`);
-    } catch (e) {
-      if (e.message && e.message.includes('duplicate column')) {
-        return false;
-      }
-      logger.debug(`Schema migration (${tableName}): ${e.message}`);
-      return false;
-    }
-
-    return true;
-  };
+  return (tableName, columnDef) => safeAddColumn(tableName, columnDef);
 }
 
 function applySchema(db, helpers = {}) {
@@ -54,15 +43,15 @@ function applySchema(db, helpers = {}) {
     DATA_DIR = path.join(process.cwd(), '.local', 'share', 'torque'),
   } = helpers;
 
-  const safeAddColumn = resolveSafeAddColumn(db, injectedSafeAddColumn);
+  const resolvedSafeAddColumn = resolveSafeAddColumn(db, injectedSafeAddColumn);
   createTables(db, logger);
-  applyPolicyOverrideTrackingSchema(db, safeAddColumn);
-  runMigrations(db, logger, safeAddColumn, {
+  applyPolicyOverrideTrackingSchema(db, resolvedSafeAddColumn);
+  runMigrations(db, logger, resolvedSafeAddColumn, {
     getConfig,
     setConfig,
     setConfigDefault,
   });
-  seedDefaults(db, logger, safeAddColumn, {
+  seedDefaults(db, logger, resolvedSafeAddColumn, {
     DATA_DIR,
     truncationThreshold: Math.abs(FILE_SIZE_TRUNCATION_THRESHOLD),
     setConfigDefault,

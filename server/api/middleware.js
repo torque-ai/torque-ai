@@ -263,7 +263,10 @@ function checkAuth(req, options = {}) {
 
   if (!expectedKey) return true; // No key configured = auth disabled
 
-  const apiKey = req.headers['x-torque-key'];
+  const apiKey = req.headers['x-torque-key']
+    || (req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7)
+      : null);
   const a = crypto.createHash('sha256').update(apiKey || '').digest();
   const b = crypto.createHash('sha256').update(expectedKey || '').digest();
 

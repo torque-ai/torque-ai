@@ -376,6 +376,14 @@ describe('search_files (pure Node.js)', () => {
     const res = execute('search_files', { pattern: 'implicit path test' });
     expect(res.result).toContain('implicit path test');
   });
+
+  it('rejects unsafe regex patterns', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'file.txt', 'hello world');
+    const { execute } = createToolExecutor(dir);
+    const res = execute('search_files', { pattern: 'a'.repeat(201), path: dir });
+    expect(res).toEqual({ error: 'Unsafe regex pattern' });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -409,12 +417,12 @@ describe('list_directory', () => {
 // ---------------------------------------------------------------------------
 
 describe('run_command command sandbox', () => {
-  it('unrestricted mode (default) allows any command', () => {
+  it('default command mode blocks commands until allowlisted', () => {
     const dir = makeTempDir();
     const { execute } = createToolExecutor(dir);
     const res = execute('run_command', { command: 'node -e "process.stdout.write(\'hello\')"' });
-    expect(res.error).toBeUndefined();
-    expect(res.result).toContain('hello');
+    expect(res.error).toBe(true);
+    expect(res.result).toMatch(/not in allowlist/i);
   });
 
   it('allowlist mode blocks command not in allowlist', () => {
@@ -473,7 +481,9 @@ describe('run_command command sandbox', () => {
   it('unrestricted mode runs command in working directory', () => {
     const dir = makeTempDir();
     writeFile(dir, 'sentinel.txt', 'sentinel');
-    const { execute } = createToolExecutor(dir);
+    const { execute } = createToolExecutor(dir, {
+      commandMode: 'unrestricted',
+    });
     // List current directory — should see sentinel.txt
     const cmd = process.platform === 'win32' ? 'dir /b' : 'ls';
     const res = execute('run_command', { command: cmd });
@@ -482,7 +492,9 @@ describe('run_command command sandbox', () => {
 
   it('captures stderr in failed command output', () => {
     const dir = makeTempDir();
-    const { execute } = createToolExecutor(dir);
+    const { execute } = createToolExecutor(dir, {
+      commandMode: 'unrestricted',
+    });
     const res = execute('run_command', { command: 'node -e "process.stderr.write(\'err msg\'); process.exit(1)"' });
     expect(res.error).toBe(true);
     expect(res.result).toContain('err msg');

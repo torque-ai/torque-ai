@@ -60,6 +60,14 @@ const ALLOWED_TASK_COLUMNS = new Set([
 ]);
 
 const { VALID_CONFIG_KEYS } = require('./db/config-keys');
+const TRANSACTION_RESULT_SENTINEL = 'TORQUE_TRANSACTION_RESULT';
+
+function createTransactionResultError(result) {
+  const error = new Error(TRANSACTION_RESULT_SENTINEL);
+  error.code = TRANSACTION_RESULT_SENTINEL;
+  error.result = result;
+  return error;
+}
 
 /**
  * Validate column name against whitelist
@@ -894,75 +902,50 @@ function updateTaskStatus(id, status, additionalFields = {}) {
   const isCriticalTransition = ['completed', 'failed', 'cancelled', 'skipped', 'running'].includes(status);
 
   if (isCriticalTransition) {
-    // Wrap in transaction for atomicity
-    // Note: db.exec() here is better-sqlite3's SQL exec, not child_process.exec
-    db.exec('BEGIN IMMEDIATE');
-    let rolledBack = false;
     try {
-      // Verify task exists and hasn't already transitioned
-      const current = db.prepare('SELECT status FROM tasks WHERE id = ?').get(id);
-      if (!current) {
-        db.exec('ROLLBACK');
-        rolledBack = true;
-        throw new Error(`Task not found: ${id}`);
-      }
-      // Prevent double-completion or invalid transitions
-      // But still allow updating additional fields when status matches
-      if (current.status === status && Object.keys(additionalFields).length === 0) {
-        db.exec('ROLLBACK');
-        rolledBack = true;
-        return getTask(id); // Already in target state with no additional fields, no-op
-      }
-      if (TERMINAL_TASK_STATUSES.has(current.status) && !['pending', 'queued', 'waiting'].includes(status)) {
-        db.exec('ROLLBACK');
-        rolledBack = true;
-        // If softFail is enabled, return current task state instead of throwing
-        if (softFail) {
-          logger.warn(`[DB] Soft-fail: task ${id} already in terminal state '${current.status}', skipping transition to '${status}'`);
-          return getTask(id);
+      const criticalTransition = db.transaction(() => {
+        // Verify task exists and hasn't already transitioned
+        const current = db.prepare('SELECT status FROM tasks WHERE id = ?').get(id);
+        if (!current) {
+          throw new Error(`Task not found: ${id}`);
         }
-        throw new Error(`Cannot transition task ${id} from ${current.status} to ${status}`);
-      }
-      previousStatus = current.status;
 
-      if (status === 'cancelled' && previousStatus === 'running') setCompletedAt = true;
-      if (status === 'skipped') setCompletedAt = true;
-      if (setCompletedAt) {
-        updates.push('completed_at = ?');
-        values.push(new Date().toISOString());
-      }
-      values.push(id);
-      values.push(previousStatus);
-
-      const stmt = db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ? AND status = ?`);
-      const result = stmt.run(...values);
-      if (result.changes === 0) {
-        db.exec('ROLLBACK');
-        rolledBack = true;
-        logger.warn(`[DB] Double-completion race: task ${id} status changed by another process (expected '${previousStatus}')`);
-        return getTask(id);
-      }
-      let committed = false;
-      try {
-        db.exec('COMMIT');
-        committed = true;
-      } catch (commitErr) {
-        if (!committed) {
-          try { db.exec('ROLLBACK'); } catch {}
+        // Prevent double-completion or invalid transitions
+        // But still allow updating additional fields when status matches
+        if (current.status === status && Object.keys(additionalFields).length === 0) {
+          throw createTransactionResultError(getTask(id));
         }
-        throw commitErr;
-      }
+        if (TERMINAL_TASK_STATUSES.has(current.status) && !['pending', 'queued', 'waiting'].includes(status)) {
+          // If softFail is enabled, return current task state instead of throwing
+          if (softFail) {
+            logger.warn(`[DB] Soft-fail: task ${id} already in terminal state '${current.status}', skipping transition to '${status}'`);
+            throw createTransactionResultError(getTask(id));
+          }
+          throw new Error(`Cannot transition task ${id} from ${current.status} to ${status}`);
+        }
+
+        previousStatus = current.status;
+
+        if (status === 'cancelled' && previousStatus === 'running') setCompletedAt = true;
+        if (status === 'skipped') setCompletedAt = true;
+        if (setCompletedAt) {
+          updates.push('completed_at = ?');
+          values.push(new Date().toISOString());
+        }
+        values.push(id);
+        values.push(previousStatus);
+
+        const stmt = db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ? AND status = ?`);
+        const result = stmt.run(...values);
+        if (result.changes === 0) {
+          logger.warn(`[DB] Double-completion race: task ${id} status changed by another process (expected '${previousStatus}')`);
+          throw createTransactionResultError(getTask(id));
+        }
+      });
+      criticalTransition.immediate();
     } catch (err) {
-      if (!rolledBack) {
-        try {
-          db.exec('ROLLBACK');
-        } catch (rollbackErr) {
-          // Log rollback failures - this indicates a serious database issue
-          logger.error(`CRITICAL: Rollback failed for task ${id}: ${rollbackErr.message}`);
-          logger.error(`Original error: ${err.message}`);
-          // Re-throw a combined error to indicate the severe state
-          throw new Error(`Transaction error (${err.message}) AND rollback failed (${rollbackErr.message})`);
-        }
+      if (err?.code === TRANSACTION_RESULT_SENTINEL) {
+        return err.result;
       }
       throw err;
     }
@@ -1219,7 +1202,7 @@ function deleteTasks(status) {
  * Delete all child records for a specific task ID from all FK-linked tables.
  */
 function _cleanOrphanedTaskChildren(taskId) {
-  const childTables = [
+  const childTables = Object.freeze([
     'pipeline_steps', 'token_usage', 'retry_history', 'task_file_changes', 'task_file_writes',
     'task_streams', 'task_checkpoints', 'task_event_subscriptions', 'task_events',
     'task_suggestions', 'approval_requests', 'peek_recovery_approvals', 'task_comments', 'resource_usage',
@@ -1232,7 +1215,7 @@ function _cleanOrphanedTaskChildren(taskId) {
     'type_verification_results', 'build_error_analysis', 'similar_file_search',
     'task_complexity_scores', 'auto_rollbacks', 'xaml_validation_results',
     'xaml_consistency_results', 'smoke_test_results'
-  ];
+  ]);
   for (const table of childTables) {
     try { db.prepare(`DELETE FROM ${table} WHERE task_id = ?`).run(taskId); } catch (_e) { void _e; /* skip */ }
   }
@@ -1409,133 +1392,128 @@ function tryClaimTaskSlot(
   const shouldCheckProviderLimit = Boolean(finalProvider && numericProviderLimit !== null);
   const shouldCheckSecondaryProviderLimit = Boolean(normalizedSecondaryGroup.length > 0 && numericSecondaryProviderLimit !== null);
 
-  db.prepare('BEGIN IMMEDIATE').run();
   try {
-    // Get current running count
-    const runningCount = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ?').get('running').count;
+    const claimTransaction = db.transaction(() => {
+      // Get current running count
+      const runningCount = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ?').get('running').count;
 
-    if (runningCount >= maxConcurrent) {
-      db.prepare('ROLLBACK').run();
-      return { success: false, reason: 'at_capacity', runningCount };
-    }
+      if (runningCount >= maxConcurrent) {
+        throw createTransactionResultError({ success: false, reason: 'at_capacity', runningCount });
+      }
 
-    if (shouldCheckProviderLimit) {
-      const providerRunning = normalizedGroup.length > 0
-        ? db.prepare(
-          `SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (${normalizedGroup.map(() => '?').join(',')})`
-        ).get('running', ...normalizedGroup).count
-        : db.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider = ?')
-          .get('running', finalProvider).count;
-      if (providerRunning >= numericProviderLimit) {
-        db.prepare('ROLLBACK').run();
-        return {
+      if (shouldCheckProviderLimit) {
+        const providerRunning = normalizedGroup.length > 0
+          ? db.prepare(
+            `SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (${normalizedGroup.map(() => '?').join(',')})`
+          ).get('running', ...normalizedGroup).count
+          : db.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider = ?')
+            .get('running', finalProvider).count;
+        if (providerRunning >= numericProviderLimit) {
+          throw createTransactionResultError({
+            success: false,
+            reason: 'provider_at_capacity',
+            providerRunningCount: providerRunning,
+            providerLimit: numericProviderLimit,
+            limitScope: normalizedGroup.length > 0 ? 'provider_group' : 'provider',
+          });
+        }
+      }
+
+      if (shouldCheckSecondaryProviderLimit) {
+        const secondaryProviderRunning = db.prepare(
+          `SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (${normalizedSecondaryGroup.map(() => '?').join(',')})`
+        ).get('running', ...normalizedSecondaryGroup).count;
+        if (secondaryProviderRunning >= numericSecondaryProviderLimit) {
+          throw createTransactionResultError({
+            success: false,
+            reason: 'provider_at_capacity',
+            providerRunningCount: secondaryProviderRunning,
+            providerLimit: numericSecondaryProviderLimit,
+            limitScope: 'category',
+          });
+        }
+      }
+
+      // Get the task to verify it exists and is in correct state
+      const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+      if (!task) {
+        throw createTransactionResultError({ success: false, reason: 'not_found' });
+      }
+
+      if (task.status === 'running') {
+        throw createTransactionResultError({ success: false, reason: 'already_running' });
+      }
+
+      if (task.status !== 'queued' && task.status !== 'pending') {
+        throw createTransactionResultError({ success: false, reason: 'invalid_status', status: task.status });
+      }
+
+      if (task.approval_status && task.approval_status !== 'approved' && task.approval_status !== 'not_required') {
+        throw createTransactionResultError({
           success: false,
-          reason: 'provider_at_capacity',
-          providerRunningCount: providerRunning,
-          providerLimit: numericProviderLimit,
-          limitScope: normalizedGroup.length > 0 ? 'provider_group' : 'provider',
-        };
+          reason: 'approval_not_approved',
+          approval_status: task.approval_status,
+        });
       }
-    }
 
-    if (shouldCheckSecondaryProviderLimit) {
-      const secondaryProviderRunning = db.prepare(
-        `SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (${normalizedSecondaryGroup.map(() => '?').join(',')})`
-      ).get('running', ...normalizedSecondaryGroup).count;
-      if (secondaryProviderRunning >= numericSecondaryProviderLimit) {
-        db.prepare('ROLLBACK').run();
-        return {
-          success: false,
-          reason: 'provider_at_capacity',
-          providerRunningCount: secondaryProviderRunning,
-          providerLimit: numericSecondaryProviderLimit,
-          limitScope: 'category',
-        };
+      const providerSwitchFields = {};
+      if (finalProvider) {
+        try {
+          applyProviderSwitchEnrichment(task, finalProvider, providerSwitchFields);
+        } catch (err) {
+          logger.info(`[DB] Provider switch metadata enrichment failed during slot claim for ${taskId}: ${err.message}`);
+        }
       }
-    }
 
-    // Get the task to verify it exists and is in correct state
-    const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
-    if (!task) {
-      db.prepare('ROLLBACK').run();
-      return { success: false, reason: 'not_found' };
-    }
+      const updateClauses = ['status = ?', 'started_at = ?'];
+      const updateValues = ['running', new Date().toISOString()];
 
-    if (task.status === 'running') {
-      db.prepare('ROLLBACK').run();
-      return { success: false, reason: 'already_running' };
-    }
-
-    if (task.status !== 'queued' && task.status !== 'pending') {
-      db.prepare('ROLLBACK').run();
-      return { success: false, reason: 'invalid_status', status: task.status };
-    }
-
-    if (task.approval_status && task.approval_status !== 'approved' && task.approval_status !== 'not_required') {
-      db.prepare('ROLLBACK').run();
-      return { success: false, reason: 'approval_not_approved', approval_status: task.approval_status };
-    }
-
-    const providerSwitchFields = {};
-    if (finalProvider) {
-      try {
-        applyProviderSwitchEnrichment(task, finalProvider, providerSwitchFields);
-      } catch (err) {
-        logger.info(`[DB] Provider switch metadata enrichment failed during slot claim for ${taskId}: ${err.message}`);
+      if (mcpInstanceId) {
+        updateClauses.push('mcp_instance_id = ?');
+        updateValues.push(mcpInstanceId);
       }
-    }
-
-    const updateClauses = ['status = ?', 'started_at = ?'];
-    const updateValues = ['running', new Date().toISOString()];
-
-    if (mcpInstanceId) {
-      updateClauses.push('mcp_instance_id = ?');
-      updateValues.push(mcpInstanceId);
-    }
-    if (finalProvider) {
-      updateClauses.push('provider = ?');
-      updateValues.push(finalProvider);
-    }
-    for (const [key, value] of Object.entries(providerSwitchFields)) {
-      validateColumnName(key, ALLOWED_TASK_COLUMNS);
-      updateClauses.push(`${key} = ?`);
-      if (key === 'metadata') {
-        updateValues.push(value === undefined || value === null ? null : (typeof value === 'string' ? value : JSON.stringify(value)));
-      } else {
-        updateValues.push(value);
+      if (finalProvider) {
+        updateClauses.push('provider = ?');
+        updateValues.push(finalProvider);
       }
-    }
-
-    // Atomically update to running status and stamp owning MCP instance
-    const claimUpdate = db.prepare(
-      `UPDATE tasks SET ${updateClauses.join(', ')} WHERE id = ? AND status IN ('queued', 'pending')`
-    ).run(...updateValues, taskId);
-    if (claimUpdate.changes === 0) {
-      const latestTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
-      db.prepare('ROLLBACK').run();
-      if (!latestTask) {
-        return { success: false, reason: 'not_found' };
+      for (const [key, value] of Object.entries(providerSwitchFields)) {
+        validateColumnName(key, ALLOWED_TASK_COLUMNS);
+        updateClauses.push(`${key} = ?`);
+        if (key === 'metadata') {
+          updateValues.push(value === undefined || value === null ? null : (typeof value === 'string' ? value : JSON.stringify(value)));
+        } else {
+          updateValues.push(value);
+        }
       }
-      if (latestTask.status === 'running') {
-        return { success: false, reason: 'already_running' };
+
+      // Atomically update to running status and stamp owning MCP instance
+      const claimUpdate = db.prepare(
+        `UPDATE tasks SET ${updateClauses.join(', ')} WHERE id = ? AND status IN ('queued', 'pending')`
+      ).run(...updateValues, taskId);
+      if (claimUpdate.changes === 0) {
+        const latestTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+        if (!latestTask) {
+          throw createTransactionResultError({ success: false, reason: 'not_found' });
+        }
+        if (latestTask.status === 'running') {
+          throw createTransactionResultError({ success: false, reason: 'already_running' });
+        }
+        throw createTransactionResultError({ success: false, reason: 'invalid_status', status: latestTask.status });
       }
-      return { success: false, reason: 'invalid_status', status: latestTask.status };
-    }
 
-    // Return the updated task
-    const updatedTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
-    if (updatedTask) {
-      updatedTask.auto_approve = Boolean(updatedTask.auto_approve);
-      updatedTask.context = safeJsonParse(updatedTask.context, null);
-    }
+      // Return the updated task
+      const updatedTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+      if (updatedTask) {
+        updatedTask.auto_approve = Boolean(updatedTask.auto_approve);
+        updatedTask.context = safeJsonParse(updatedTask.context, null);
+      }
 
-    db.prepare('COMMIT').run();
-    return { success: true, task: updatedTask };
+      return { success: true, task: updatedTask };
+    });
+    return claimTransaction.immediate();
   } catch (error) {
-    try {
-      db.prepare('ROLLBACK').run();
-    } catch (_rollbackError) {
-      void _rollbackError;
+    if (error?.code === TRANSACTION_RESULT_SENTINEL) {
+      return error.result;
     }
     throw error;
   }

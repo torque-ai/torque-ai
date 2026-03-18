@@ -6,6 +6,7 @@ const database = require('../database');
 const matchers = require('./matchers');
 const profileStore = require('./profile-store');
 const evaluationStore = require('./evaluation-store');
+const { enforceMode, isEngineEnabled } = require('./shadow-enforcer');
 const architectureAdapter = require('./adapters/architecture');
 const featureFlagAdapter = require('./adapters/feature-flag');
 const refactorDebtAdapter = require('./adapters/refactor-debt');
@@ -110,6 +111,14 @@ function resolvePolicyDbHandle() {
     return database.getDb();
   }
   return null;
+}
+
+function initPolicyEngineDb() {
+  const db = resolvePolicyDbHandle();
+  if (typeof evaluationStore.setDb === 'function') {
+    evaluationStore.setDb(db);
+  }
+  return db;
 }
 
 function normalizeArchitectureBoundarySeed(boundary = {}, defaultProject = null) {
@@ -881,6 +890,7 @@ function evaluateSinglePolicy(rule, context, options = {}) {
 }
 
 function evaluatePolicies(input = {}) {
+  initPolicyEngineDb();
   const stage = normalizeStage(input.stage);
   const target = normalizeTarget(input.target_type || input.targetType, input.target_id || input.targetId);
   const evaluatedAt = input.evaluated_at || new Date().toISOString();
@@ -923,8 +933,12 @@ function evaluatePolicies(input = {}) {
   const suppressedResults = [];
 
   for (const rule of effectiveRules) {
+    const effectiveMode = isEngineEnabled() ? enforceMode(rule.mode) : rule.mode;
+    const effectiveRule = effectiveMode === rule.mode
+      ? rule
+      : { ...rule, mode: effectiveMode };
     const hasOverride = overrideMap.has(rule.id);
-    const result = evaluateSinglePolicy(rule, evaluationContext, {
+    const result = evaluateSinglePolicy(effectiveRule, evaluationContext, {
       batch_id: evaluationBatchId,
       evaluated_at: evaluatedAt,
       persist: input.persist !== false,

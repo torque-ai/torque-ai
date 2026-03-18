@@ -1037,6 +1037,10 @@ async function handleNotifySlack(args) {
   };
 
   try {
+    if (isInternalHost(new URL(webhookUrl).hostname)) {
+      return makeError(ErrorCodes.VALIDATION_ERROR, 'Webhook URL points to internal host');
+    }
+
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1097,6 +1101,10 @@ async function handleNotifyDiscord(args) {
   };
 
   try {
+    if (isInternalHost(new URL(webhookUrl).hostname)) {
+      return makeError(ErrorCodes.VALIDATION_ERROR, 'Webhook URL points to internal host');
+    }
+
     const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
