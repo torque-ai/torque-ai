@@ -62,21 +62,6 @@ const TEST_PROMPTS = {
 Include full type definitions and JSDoc comments.`
 };
 
-// Models to benchmark (desktop has larger models)
-const _DESKTOP_MODELS = [
-  'qwen2.5-coder:32b',
-  'codestral:22b',
-  'deepseek-coder-v2:16b',
-  'phi3:14b'
-];
-
-const _LAPTOP_MODELS = [
-  'qwen2.5-coder:7b',
-  'starcoder2:7b',
-  'deepseek-coder:6.7b',
-  'phi4-mini:latest'
-];
-
 /**
  * Make HTTP GET request to Ollama API
  * @param {string} host - Base URL of the Ollama host
@@ -657,9 +642,8 @@ module.exports = {
 // Help text
 /**
  * Display help information for benchmark tool usage
- * @param {boolean} [showFull] - Whether to show full help text (optional)
  */
-function showHelp(showFull = false) {
+function showHelp() {
   console.log(`
 TORQUE Performance Benchmark Tool
 
@@ -685,18 +669,6 @@ Examples:
   node benchmark.js --host=http://192.168.1.100:11434 --full
   node benchmark.js --model=qwen2.5-coder:32b --gpu --gpu-layers=-1,60,80,99
 `);
-  
-  if (showFull) {
-    console.log(`
-Additional Options:
-  --no-color           Disable colored output
-  --log-level=<level>  Set log level (debug/info/warn/error)
-  --output=<file>      Write results to file instead of console
-  --no-verify          Skip model compatibility verification
-  --no-parallel        Disable parallel benchmarking
-  --timeout=<ms>       Set global request timeout (default: 300000ms)
-`);
-  }
 }
 
 // Run if called directly

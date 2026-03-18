@@ -36,9 +36,9 @@ const FILE_INDEX_EXTENSIONS = new Set([
 // --- LLM Artifact Patterns ---
 
 const LLM_ARTIFACT_PATTERNS = [
-  /<<<__newText__>>>/g,
-  /<<<__oldText__>>>/g,
-  /<<<__endText__>>>/g,
+  /<<<__newText__>>>/,
+  /<<<__oldText__>>>/,
+  /<<<__endText__>>>/,
 ];
 
 // --- Base LLM Rules (shared across provider prompts) ---

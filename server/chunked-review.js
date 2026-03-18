@@ -49,8 +49,6 @@ function extractJSFunctions(content) {
     /^\s*(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\w+\s*=>/,
     // Class declaration
     /^\s*class\s+(\w+)/,
-    // Object method shorthand: methodName() { or async methodName() {
-    /^\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{/,
   ];
 
   for (let i = 0; i < lines.length; i++) {
@@ -499,18 +497,6 @@ function generateReviewChunks(filePath, tokenLimit = DEFAULT_CONTEXT_LIMIT) {
  * @param {number} chunkInfo.tokenLimit - Token limit
  * @returns {Array} - Array of task objects
  */
-/**
- * Generate review task descriptions for each chunk
- * @param {string} filePath - Path to the file
- * @param {string} baseTask - Base task description
- * @param {Object} chunkInfo - Chunking information object
- * @param {Array} chunkInfo.chunks - Array of chunk objects
- * @param {boolean} chunkInfo.needsChunking - Whether chunking is needed
- * @param {number} chunkInfo.totalTokens - Total token count
- * @param {number} chunkInfo.totalLines - Total line count
- * @param {number} chunkInfo.tokenLimit - Token limit
- * @returns {Array} - Array of task objects
- */
 function generateChunkTasks(filePath, baseTask, chunkInfo) {
   if (!chunkInfo.needsChunking) {
     return [{
@@ -552,9 +538,6 @@ function generateChunkTasks(filePath, baseTask, chunkInfo) {
   return tasks;
 }
 
-/**
- * Create an aggregation task to combine chunk review results
- */
 /**
  * Create an aggregation task to combine chunk review results
  * @param {string} filePath - Path to the file

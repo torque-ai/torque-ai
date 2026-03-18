@@ -44,7 +44,7 @@ async function handleStartAudit(req, res) {
       source_dirs: body.source_dirs || null,
       ignore_dirs: body.ignore_dirs || null,
       ignore_patterns: body.ignore_patterns || null,
-      dry_run: body.dry_run || false,
+      dry_run: body.dry_run ?? false,
     });
 
     if (result.error) {

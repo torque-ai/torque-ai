@@ -78,7 +78,7 @@ function buildTaskResponse(task) {
     exit_code: task.exit_code ?? null,
     priority: task.priority || 0,
     auto_approve: Boolean(task.auto_approve),
-    timeout_minutes: task.timeout_minutes || null,
+    timeout_minutes: task.timeout_minutes ?? null,
     progress_percent: task.progress_percent || 0,
     ollama_host_id: task.ollama_host_id || null,
     files_modified: filesModified,

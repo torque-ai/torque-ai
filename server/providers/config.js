@@ -217,9 +217,11 @@ function resolveOllamaTuning(opts = {}) {
   }
 
   // Ensure correct types (guard against NaN from JSON config)
-  temperature = parseFloat(temperature) || 0.3;
+  const parsed = parseFloat(temperature);
+  temperature = Number.isFinite(parsed) ? parsed : 0.3;
   numCtx = parseInt(numCtx) || PROVIDER_DEFAULTS.OLLAMA_DEFAULT_CONTEXT;
-  numPredict = parseInt(numPredict) || -1;
+  const parsedNP = parseInt(numPredict);
+  numPredict = Number.isFinite(parsedNP) ? parsedNP : -1;
   topP = parseFloat(topP) || 0.9;
   topK = parseInt(topK) || 40;
   repeatPenalty = parseFloat(repeatPenalty) || 1.1;

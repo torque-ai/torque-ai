@@ -835,7 +835,8 @@ function handleSetupPrecommitHook(args) {
 // ============================================
 
 function handleGetCostSummary(args) {
-  const days = parseInt(args.days) || 30;
+  const parsed = parseInt(args.days, 10);
+  const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
   const summary = db.getCostSummary(args.provider, days);
   return {
     content: [{

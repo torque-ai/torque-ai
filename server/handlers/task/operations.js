@@ -117,8 +117,8 @@ function handleListTags(_args) {
  */
 async function handleCheckTaskProgress(args) {
   try {
-  
-  const waitSeconds = args.wait_seconds || 5;
+
+  const waitSeconds = Math.min(args.wait_seconds ?? 5, 300);
 
   // Snapshot 1
   const running1 = db.listTasks({ status: 'running', limit: 20 });

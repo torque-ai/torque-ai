@@ -174,7 +174,7 @@ function listPolicyEvaluations(options = {}) {
   let appliedLimit = false;
   if (options.limit !== undefined) {
     sql += ' LIMIT ?';
-    params.push(Math.max(1, Number(options.limit || 50)));
+    params.push(Math.max(1, Number(options.limit ?? 50)));
     appliedLimit = true;
   }
   if (options.offset !== undefined) {

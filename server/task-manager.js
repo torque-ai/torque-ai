@@ -69,7 +69,7 @@ const _taskFinalizer = require('./execution/task-finalizer');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
 const _completionPipeline = require('./execution/completion-pipeline');
 const _processLifecycle = require('./execution/process-lifecycle');
-const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking } = _processLifecycle;
+const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking, cleanupChildProcessListeners } = _processLifecycle;
 const debugLifecycle = require('./execution/debug-lifecycle');
 const _processStreams = require('./execution/process-streams');
 const _commandBuilders = require('./execution/command-builders');
@@ -567,7 +567,6 @@ function extractJsFunctionBoundaries(filePath) {
  * @returns {string[]} Array of absolute paths that were created or already existed
  */
 function ensureTargetFilesExist(workingDir, filePaths) {
-  const fs = require('fs');
   const resolvedPaths = [];
 
   for (const relPath of filePaths) {
@@ -845,15 +844,6 @@ function cleanupOrphanedRetryTimeouts() {
   }
 }
 
-/**
- * Clean up event listeners on a child process to prevent memory leaks.
- * Facade — canonical implementation lives in execution/process-lifecycle.js.
- */
-function cleanupChildProcessListeners(child) {
-  const { cleanupChildProcessListeners: _cleanup } = require('./execution/process-lifecycle');
-  return _cleanup(child);
-}
-
 // Maximum output buffer size (10MB) to prevent memory exhaustion
 const MAX_OUTPUT_BUFFER = 10 * 1024 * 1024;
 
@@ -934,7 +924,6 @@ function resolveWindowsCmdToNode(cmdPath) {
     let fullCmdPath = cmdPath;
     if (!path.isAbsolute(cmdPath)) {
       // Search PATH for the .cmd file using execFileSync (no shell injection)
-      const { execFileSync } = require('child_process');
       try {
         fullCmdPath = execFileSync('where.exe', [cmdPath], { encoding: 'utf-8' }).trim().split('\n')[0].trim();
       } catch {
@@ -1145,8 +1134,8 @@ function handleNoFileChangeDetection(ctx) {
   ctx.errorOutput = (ctx.errorOutput || '') +
     `\n\n[NO FILES MODIFIED] Task expected code changes but aider produced only conversational output (${reason}).`;
 
-  const retryCount = (task.retry_count || 0);
-  const maxRetries = (task.max_retries || 0);
+  const retryCount = (task.retry_count ?? 0);
+  const maxRetries = (task.max_retries ?? 2);
   const taskMeta = parseTaskMetadata(task.metadata);
   if (retryCount < maxRetries && !taskMeta.user_provider_override) {
     logger.info(`[No-File-Change] Auto-retrying task ${taskId} via local-first fallback (attempt ${retryCount + 1}/${maxRetries})`);
@@ -1809,7 +1798,6 @@ function startTask(taskId) {
   // made between sessions, causing false-positive validation failures.
   let baselineCommit = null;
   if (!skipGitInCloseHandler) try {
-    const { execFileSync } = require('child_process');
     baselineCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: options.cwd, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS, windowsHide: true
     }).trim();
@@ -2003,7 +1991,6 @@ const {
 function getActualModifiedFiles(workingDir) {
   if (skipGitInCloseHandler) return null;
   try {
-    const { execFileSync } = require('child_process');
     // SECURITY: Using execFileSync with array args (safe from injection)
     const result = execFileSync('git', ['status', '--porcelain'], {
       cwd: workingDir,

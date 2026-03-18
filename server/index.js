@@ -161,18 +161,6 @@ let stdioHeartbeatInterval = null;
 let activeRequestCount = 0;
 const SHUTDOWN_TIMEOUT_MS = 5000; // Max wait time for in-flight requests
 
-// Request ID counter for tracking
-let requestIdCounter = 0;
-
-/**
- * Generate unique request ID for tracking and debugging
- */
-function _generateRequestId() {
-  const timestamp = Date.now().toString(36);
-  const counter = (++requestIdCounter).toString(36).padStart(4, '0');
-  return `req_${timestamp}_${counter}`;
-}
-
 // Error rate limiting - track recent errors to prevent log flooding
 const errorRateTracker = new Map();
 const ERROR_RATE_WINDOW_MS = 60000; // 1 minute window
@@ -1481,7 +1469,6 @@ module.exports = {
   getTools,
   callTool,
   debugLog,
-  _generateRequestId,
   _shouldLogError,
   startErrorRateCleanup,
   parsePidRecord,

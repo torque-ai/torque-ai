@@ -302,7 +302,7 @@ function handleRetryTask(args) {
     working_directory: originalTask.working_directory,
     timeout_minutes: originalTask.timeout_minutes,
     auto_approve: originalTask.auto_approve,
-    priority: originalTask.priority + 1, // Slightly higher priority for retries
+    priority: (originalTask.priority ?? 0) + 1, // Slightly higher priority for retries
     template_name: originalTask.template_name,
     context: { retry_of: args.task_id }
   });
