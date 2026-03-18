@@ -1,3 +1,8 @@
+/**
+ * Task category classifier for routing template resolution.
+ * Maps task descriptions and file lists to routing categories.
+ */
+
 'use strict';
 
 const CATEGORIES = [

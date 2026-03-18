@@ -1,3 +1,5 @@
+/** MCP + REST handlers for Strategic Brain configuration */
+
 'use strict';
 
 const logger = require('../logger').child({ component: 'strategic-config' });

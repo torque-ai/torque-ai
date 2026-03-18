@@ -226,19 +226,6 @@ function handleGenerateFeatureTasks(args) {
     logger.debug('[automation-batch-orchestration] non-critical error parsing fields from route file:', err.message || err);
   }
 
-  // Read NotificationBridge for event union pattern
-  const notifBridgePath = path.join(systemsDir, 'NotificationBridge.ts');
-  let _lastNotifEvent = '';
-  try {
-    const nbContent = fs.readFileSync(notifBridgePath, 'utf8');
-    const notifMatches = [...nbContent.matchAll(/"\w+"/g)];
-    if (notifMatches.length > 0) {
-      _lastNotifEvent = notifMatches[notifMatches.length - 1][0];
-    }
-  } catch (err) {
-    logger.debug('[automation-batch-orchestration] non-critical error parsing scene fields from route file:', err.message || err);
-  }
-
   // Extract user-provided specs
   const typesSpec = args.types_spec || '';
   const eventsSpec = args.events_spec || '';

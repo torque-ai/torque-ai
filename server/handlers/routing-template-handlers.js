@@ -1,3 +1,5 @@
+/** MCP + REST handlers for routing template CRUD */
+
 'use strict';
 
 const templateStore = require('../routing/template-store');

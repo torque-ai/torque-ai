@@ -122,7 +122,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
 
   async _execute(task, model, options = {}, stream = false) {
     const startTime = Date.now();
-    const prompt = sanitizeModel(task);
+    const prompt = String(task ?? '').trim();
     const resolved = await this._selectExecutionTarget(model, options);
     const releaseSlot = resolved.slotRelease;
 
@@ -136,7 +136,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
       );
 
       const usage = this._normalizeUsage(result.usage || {}, resolved.model, Date.now() - startTime);
-      const output = sanitizeModel(result.response);
+      const output = String(result.response ?? '').trim();
 
       return {
         output,

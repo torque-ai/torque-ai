@@ -167,7 +167,6 @@ function runPreAnalysis(workingDir, filePaths) {
 /**
  * Extract key exported symbols from file content.
  * @param {string} content - File content
- * @param {string} ext - File extension
  * @returns {string[]} Array of symbol identifiers like "fn:myFunc", "class:MyClass"
  */
 function extractKeyExports(content) {

@@ -1,3 +1,5 @@
+/** Template CRUD, preset loading, active resolution */
+
 'use strict';
 
 const { randomUUID } = require('crypto');
