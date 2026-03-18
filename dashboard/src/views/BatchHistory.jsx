@@ -548,7 +548,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
               </>
             ) : sortedWorkflows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-slate-500">
+                <td colSpan={6} className="p-8 text-center text-slate-500">
                   {statusFilter ? `No ${statusFilter} workflows found` : 'No workflows found'}
                 </td>
               </tr>

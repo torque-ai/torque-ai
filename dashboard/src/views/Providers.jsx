@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud, requestV2 } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
@@ -217,9 +217,8 @@ function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency, onSe
                 disabled={!keyValue.trim() || keyLoading}
                 onClick={async () => {
                   setKeyLoading(true);
-                  try { await onSetApiKey?.(provider.provider, keyValue.trim()); } finally { setKeyLoading(false); }
-                  setKeyValue('');
-                  setShowKeyInput(false);
+                  try { await onSetApiKey?.(provider.provider, keyValue.trim()); }
+                  finally { setKeyLoading(false); setKeyValue(''); setShowKeyInput(false); }
                 }}
                 className="text-xs text-green-400 hover:text-green-300 disabled:opacity-40"
               >
@@ -249,6 +248,8 @@ function formatDate(d) {
 }
 
 export default function Providers({ statsVersion, tasksTick }) {
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   const [providersList, setProvidersList] = useState([]);
   const [timeSeries, setTimeSeries] = useState([]);
   const [trends, setTrends] = useState(null);
@@ -346,8 +347,8 @@ export default function Providers({ statsVersion, tasksTick }) {
       addToast.success('API key saved — validating...');
       loadData();
       // Re-fetch after health check has time to complete
-      setTimeout(() => loadData(), 5000);
-      setTimeout(() => loadData(), 15000);
+      setTimeout(() => { if (mountedRef.current) loadData(); }, 5000);
+      setTimeout(() => { if (mountedRef.current) loadData(); }, 15000);
     } catch (err) {
       addToast.error(`Failed to save key: ${err.message}`);
     }

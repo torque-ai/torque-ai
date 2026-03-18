@@ -87,6 +87,7 @@ function AppInner() {
   });
   const [hostActivity, setHostActivity] = useState(null);
   const [streamingOutput, setStreamingOutput] = useState([]); // live output chunks from WebSocket
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [statsVersion, setStatsVersion] = useState(0);
   const [tasksTick, setTasksTick] = useState(0);
   const [wsStats, setWsStats] = useState(null);
@@ -138,7 +139,10 @@ function AppInner() {
       case 'task:output':
         // Forward streamed output to the drawer if it's for the open task
         if (message.data?.taskId === drawerTaskIdRef.current) {
-          setStreamingOutput((prev) => [...prev, message.data.chunk]);
+          setStreamingOutput((prev) => {
+            const next = [...prev, message.data.chunk];
+            return next.length > 10000 ? next.slice(-10000) : next;
+          });
         }
         break;
       default:
@@ -147,6 +151,12 @@ function AppInner() {
   }, []);
 
   const { isConnected, isReconnecting, instanceId, shortId, subscribe, unsubscribe } = useWebSocket(handleMessage);
+
+  // Guard Onboarding against flash before initial load completes
+  useEffect(() => {
+    const timeout = setTimeout(() => setInitialLoadDone(true), 3000);
+    return () => clearTimeout(timeout);
+  }, []);
 
   // Poll host activity via REST as fallback — WebSocket delivers hosts:activity-updated in real-time
   useEffect(() => {
@@ -242,7 +252,7 @@ function AppInner() {
                 element={
                   <>
                     <Kanban tasks={tasks} onOpenDrawer={openDrawer} hostActivity={hostActivity} statsVersion={statsVersion} tasksTick={tasksTick} wsStats={wsStats} />
-                    {!isOnboardingDismissed && tasks.length === 0 && (
+                    {!isOnboardingDismissed && initialLoadDone && tasks.length === 0 && (
                       <Onboarding onDismiss={dismissOnboarding} />
                     )}
                   </>

@@ -25,21 +25,22 @@ export default function Approvals() {
   const [activeTab, setActiveTab] = useState('pending');
   const toast = useToast();
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (tab) => {
     try {
+      const currentTab = tab ?? activeTab;
       const [pendingData, historyData] = await Promise.all([
         approvalsApi.listPending(),
-        approvalsApi.getHistory(50),
+        currentTab === 'history' ? approvalsApi.getHistory(50) : Promise.resolve(null),
       ]);
       setPending(pendingData);
-      setHistory(historyData);
+      if (historyData !== null) setHistory(historyData);
     } catch (err) {
       console.error('Failed to load approvals:', err);
       toast.error('Failed to load approvals');
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, activeTab]);
 
   useEffect(() => {
     loadData();
@@ -129,7 +130,7 @@ export default function Approvals() {
           )}
         </button>
         <button
-          onClick={() => setActiveTab('history')}
+          onClick={() => { setActiveTab('history'); loadData('history'); }}
           className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
             activeTab === 'history'
               ? 'border-blue-500 text-blue-400'

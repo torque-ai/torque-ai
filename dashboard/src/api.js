@@ -54,6 +54,10 @@ async function _fetch(url, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+  const signals = [controller.signal];
+  if (options.signal) signals.push(options.signal);
+  const composedSignal = typeof AbortSignal.any === 'function' ? AbortSignal.any(signals) : controller.signal;
+
   try {
     const response = await fetch(url, {
       headers: {
@@ -61,7 +65,7 @@ async function _fetch(url, options = {}) {
         ...(isMutatingMethod ? { 'X-Requested-With': 'XMLHttpRequest' } : {}),
         ...fetchOptions.headers,
       },
-      signal: controller.signal,
+      signal: composedSignal,
       ...fetchOptions,
     });
 

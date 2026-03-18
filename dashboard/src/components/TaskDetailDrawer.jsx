@@ -313,7 +313,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
     a.href = url;
     a.download = `task-${taskId.substring(0, 8)}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   }
 
   if (!taskId) return null;
@@ -655,9 +655,9 @@ function ActionButton({ label, onClick, color, disabled = false }) {
 function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, toast }) {
   const [followMode, setFollowMode] = useState(true);
   const stdoutRef = useRef(null);
-  const allChunks = [...output, ...streamingOutput];
+  const allChunks = useMemo(() => [...(output || []), ...(streamingOutput || [])], [output, streamingOutput]);
   const isStreaming = streamingOutput.length > 0;
-  const stdoutText = allChunks.map(getOutputChunkText).join('');
+  const stdoutText = useMemo(() => allChunks.filter(c => !c.isStderr).map(c => getOutputChunkText(c)).join(''), [allChunks]);
   const stderrText = normalizeTextValue(errorOutput);
   const lineCount = [stdoutText, stderrText].filter(Boolean).join('\n').split('\n').length;
   const stderrLineCount = stderrText ? stderrText.split('\n').length : 0;

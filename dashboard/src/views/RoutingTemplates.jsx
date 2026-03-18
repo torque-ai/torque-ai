@@ -61,6 +61,7 @@ export default function RoutingTemplates() {
   const [hasChanges, setHasChanges] = useState(false);
   const [activeTemplateId, setActiveTemplateId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const toast = useToast();
 
   // ─── Data Loading ───────────────────────────────────────────────────
@@ -98,6 +99,7 @@ export default function RoutingTemplates() {
       }
     } catch (err) {
       toast.error(`Failed to load templates: ${err.message}`);
+      setLoadError(err.message);
     } finally {
       setLoading(false);
     }
@@ -250,6 +252,9 @@ export default function RoutingTemplates() {
 
   return (
     <div className="space-y-4">
+      {loadError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-300 text-sm">{loadError}</div>
+      )}
       {/* Active Status */}
       <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border ${
         activeTemplateName

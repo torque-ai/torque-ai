@@ -243,7 +243,10 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
       if (e.key === 'Escape') { setShowShortcuts(false); setShowStatus(false); return; }
       const routes = ['/', '/projects', '/history', '/batches', '/providers', '/hosts', '/budget'];
       const num = parseInt(e.key);
-      if (num >= 1 && num <= routes.length) { navigate(routes[num - 1]); }
+      if (num >= 1 && num <= 8) {
+        if (num > routes.length) return;
+        navigate(routes[num - 1]);
+      }
     }
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);

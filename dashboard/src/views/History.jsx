@@ -153,7 +153,7 @@ function exportCSV(tasks) {
   a.href = url;
   a.download = `torque-tasks-${format(new Date(), 'yyyy-MM-dd')}.csv`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 100);
 }
 
 function getDurationColor(seconds) {
@@ -288,7 +288,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
 
   useEffect(() => {
     loadTasks();
-    const pollInterval = setInterval(loadTasks, 5000);
+    const pollInterval = setInterval(loadTasks, 30000); // 30s fallback — WebSocket events provide real-time updates
     return () => clearInterval(pollInterval);
   }, [loadTasks]);
 
