@@ -243,27 +243,27 @@ describe('getActiveTemplate / setActiveTemplate', () => {
 describe('resolveProvider', () => {
   it('returns base rule for category', () => {
     const tmpl = mod.getTemplateByName('System Default');
-    expect(mod.resolveProvider(tmpl, 'security', 'normal')).toBe('ollama-cloud');
-    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal')).toBe('codex');
+    expect(mod.resolveProvider(tmpl, 'security', 'normal').provider).toBe('ollama-cloud');
+    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal').provider).toBe('codex');
   });
 
   it('applies complexity override when present', () => {
     const tmpl = mod.getTemplateByName('Cost Saver');
     // base rule for large_code_gen is 'ollama'
-    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal')).toBe('ollama');
+    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal').provider).toBe('ollama');
     // complexity override for 'complex' is 'codex'
-    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'complex')).toBe('codex');
+    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'complex').provider).toBe('codex');
   });
 
   it('falls back to base rule when complexity has no override', () => {
     const tmpl = mod.getTemplateByName('Cost Saver');
     // 'simple' is not overridden for large_code_gen in cost-saver
-    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'simple')).toBe('ollama');
+    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'simple').provider).toBe('ollama');
   });
 
   it('falls back to default for unknown category', () => {
     const tmpl = mod.getTemplateByName('System Default');
-    expect(mod.resolveProvider(tmpl, 'unknown_category', 'normal')).toBe('ollama');
+    expect(mod.resolveProvider(tmpl, 'unknown_category', 'normal').provider).toBe('ollama');
   });
 
   it('returns null for null template', () => {

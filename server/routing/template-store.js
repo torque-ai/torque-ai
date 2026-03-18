@@ -91,8 +91,23 @@ function validateTemplate(data) {
       }
     }
     for (const [key, value] of Object.entries(data.rules)) {
-      if (typeof value !== 'string' || value.trim().length === 0) {
-        errors.push(`rules.${key} must be a non-empty string`);
+      if (typeof value === 'string') {
+        if (value.trim().length === 0) {
+          errors.push(`rules.${key} must be non-empty`);
+        }
+      } else if (Array.isArray(value)) {
+        if (value.length === 0) {
+          errors.push(`rules.${key} chain must have at least one entry`);
+        } else if (value.length > 7) {
+          errors.push(`rules.${key} chain exceeds maximum length of 7`);
+        }
+        for (const entry of value) {
+          if (!entry || typeof entry !== 'object' || !entry.provider || typeof entry.provider !== 'string') {
+            errors.push(`rules.${key} chain entry must have a provider string`);
+          }
+        }
+      } else {
+        errors.push(`rules.${key} must be a string or array of {provider, model?} objects`);
       }
     }
   }
@@ -100,9 +115,28 @@ function validateTemplate(data) {
     const validComplexity = new Set(['simple', 'normal', 'complex']);
     for (const [cat, overrides] of Object.entries(data.complexity_overrides)) {
       if (typeof overrides !== 'object') continue;
-      for (const level of Object.keys(overrides)) {
+      for (const [level, value] of Object.entries(overrides)) {
         if (!validComplexity.has(level)) {
           errors.push(`complexity_overrides.${cat}.${level} is not a valid complexity level`);
+          continue;
+        }
+        if (typeof value === 'string') {
+          if (value.trim().length === 0) {
+            errors.push(`complexity_overrides.${cat}.${level} must be non-empty`);
+          }
+        } else if (Array.isArray(value)) {
+          if (value.length === 0) {
+            errors.push(`complexity_overrides.${cat}.${level} chain must have at least one entry`);
+          } else if (value.length > 7) {
+            errors.push(`complexity_overrides.${cat}.${level} chain exceeds maximum length of 7`);
+          }
+          for (const entry of value) {
+            if (!entry || typeof entry !== 'object' || !entry.provider || typeof entry.provider !== 'string') {
+              errors.push(`complexity_overrides.${cat}.${level} chain entry must have a provider string`);
+            }
+          }
+        } else {
+          errors.push(`complexity_overrides.${cat}.${level} must be a string or array of {provider, model?} objects`);
         }
       }
     }
@@ -198,14 +232,36 @@ function setActiveTemplate(templateId) {
   db.prepare("INSERT OR REPLACE INTO config (key, value) VALUES ('active_routing_template', ?)").run(templateId);
 }
 
-function resolveProvider(template, category, complexity) {
+function resolveChain(template, category, complexity) {
   if (!template || !template.rules) return null;
+
+  let value;
   if (template.complexity_overrides && template.complexity_overrides[category]) {
     const override = template.complexity_overrides[category][complexity];
-    if (override) return override;
+    if (override !== undefined && override !== null) value = override;
   }
-  if (template.rules[category]) return template.rules[category];
-  return template.rules.default || null;
+  if (value === undefined) value = template.rules[category];
+  if (value === undefined) value = template.rules.default;
+  if (value === undefined || value === null) return null;
+
+  if (typeof value === 'string') return [{ provider: value }];
+  if (Array.isArray(value)) return value;
+  return null;
+}
+
+function resolveProvider(template, category, complexity) {
+  if (!template || !template.rules) return null;
+  const chain = resolveChain(template, category, complexity);
+  if (!chain || chain.length === 0) return null;
+
+  const selected = chain[0]; // First entry (no health filtering here — caller's job)
+  return {
+    provider: selected.provider,
+    model: selected.model || null,
+    chain,
+    toString() { return selected.provider; },
+    valueOf() { return selected.provider; },
+  };
 }
 
 module.exports = {
@@ -213,5 +269,5 @@ module.exports = {
   listTemplates, getTemplate, getTemplateByName,
   createTemplate, updateTemplate, deleteTemplate,
   getActiveTemplate, getExplicitActiveTemplateId, setActiveTemplate,
-  resolveProvider, validateTemplate,
+  resolveChain, resolveProvider, validateTemplate,
 };
