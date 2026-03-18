@@ -9,7 +9,6 @@ const realTools = require('../tools');
 
 const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier'];
 const EXPECTED_UNMAPPED_TOOL_NAMES = [
-  'reopen_workflow',
   'set_provider_api_key', 'clear_provider_api_key',
   'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
 ];
