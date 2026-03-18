@@ -14,6 +14,10 @@ const fs = require('fs');
 const { ErrorCodes, makeError, isPathTraversalSafe } = require('./shared');
 const logger = require('../logger').child({ component: 'automation-ts-tools' });
 
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // ─── Universal Tools ────────────────────────────────────────────────────────
 
 /**
@@ -45,7 +49,7 @@ function handleAddTsInterfaceMembers(args) {
   const duplicates = [];
   for (const m of members) {
     const name = m.name;
-    const keyPattern = new RegExp(`^\\s*${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:`, 'm');
+    const keyPattern = new RegExp(`^\\s*${escapeRegex(name)}\\s*:`, 'm');
     if (keyPattern.test(content)) duplicates.push(name);
   }
   if (duplicates.length > 0) {
@@ -53,7 +57,7 @@ function handleAddTsInterfaceMembers(args) {
   }
 
   // Find the interface by name (supports 'export interface X {' and 'interface X {')
-  const interfacePattern = new RegExp(`(?:export\\s+)?interface\\s+${interfaceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{`);
+  const interfacePattern = new RegExp(`(?:export\\s+)?interface\\s+${escapeRegex(interfaceName)}\\s*(?:extends[^{]*)?\\{`);
   const ifaceMatch = interfacePattern.exec(content);
   if (!ifaceMatch) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not find interface ${interfaceName} in ${filePath}`);
@@ -290,7 +294,7 @@ function handleAddTsUnionMembers(args) {
   }
 
   // Find the target union type declaration, then its last `| "xxx"` entry
-  const typeStartPattern = new RegExp(`(?:export\\s+)?type\\s+${typeName}\\s*=`);
+  const typeStartPattern = new RegExp(`(?:export\\s+)?type\\s+${escapeRegex(typeName)}\\s*=`);
   const typeStartMatch = typeStartPattern.exec(content);
   if (!typeStartMatch) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not find type '${typeName}' in ${filePath}`);
@@ -395,7 +399,7 @@ function handleAddTsEnumMembers(args) {
 
   // Check for duplicates
   const duplicates = members.filter(m => {
-    const pattern = new RegExp(`\\b${m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=`);
+    const pattern = new RegExp(`\\b${escapeRegex(m.name)}\\s*=`);
     return pattern.test(content);
   });
   if (duplicates.length > 0) {
@@ -403,7 +407,7 @@ function handleAddTsEnumMembers(args) {
   }
 
   // Find the enum
-  const enumPattern = new RegExp(`(?:export\\s+)?enum\\s+${enumName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{`);
+  const enumPattern = new RegExp(`(?:export\\s+)?enum\\s+${escapeRegex(enumName)}\\s*\\{`);
   const enumMatch = enumPattern.exec(content);
   if (!enumMatch) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not find enum ${enumName} in ${filePath}`);
@@ -845,7 +849,7 @@ function handleAddTsMethodToClass(args) {
 
   let content = fs.readFileSync(filePath, 'utf8');
 
-  const classPattern = new RegExp(`(?:export\\s+)?class\\s+${className}\\b`);
+  const classPattern = new RegExp(`(?:export\\s+)?class\\s+${escapeRegex(className)}\\b`);
   const classMatch = classPattern.exec(content);
   if (!classMatch) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Class '${className}' not found in ${filePath}`);
@@ -855,7 +859,7 @@ function handleAddTsMethodToClass(args) {
   const methodName = methodNameMatch ? methodNameMatch[1] : null;
 
   if (methodName) {
-    const existingPattern = new RegExp(`\\b${methodName}\\s*[(<]`);
+    const existingPattern = new RegExp(`\\b${escapeRegex(methodName)}\\s*[(<]`);
     const classBody = content.slice(classMatch.index);
     if (existingPattern.test(classBody)) {
       return { content: [{ type: 'text', text: `Skipped: method '${methodName}' already exists in class '${className}'` }] };
@@ -892,7 +896,7 @@ function handleAddTsMethodToClass(args) {
     }
   } else if (position.startsWith('after_method:')) {
     const afterName = position.slice('after_method:'.length);
-    const afterPattern = new RegExp(`\\b${afterName}\\s*[(<]`);
+    const afterPattern = new RegExp(`\\b${escapeRegex(afterName)}\\s*[(<]`);
     const bodySlice = content.slice(classStartBrace, classEndBrace);
     const afterMatch = afterPattern.exec(bodySlice);
     if (afterMatch) {
@@ -948,7 +952,7 @@ function handleReplaceTsMethodBody(args) {
 
   let content = fs.readFileSync(filePath, 'utf8');
 
-  const classPattern = new RegExp(`(?:export\\s+)?class\\s+${className}\\b`);
+  const classPattern = new RegExp(`(?:export\\s+)?class\\s+${escapeRegex(className)}\\b`);
   const classMatch = classPattern.exec(content);
   if (!classMatch) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Class '${className}' not found in ${filePath}`);
@@ -975,7 +979,7 @@ function handleReplaceTsMethodBody(args) {
   }
 
   const classBody = content.slice(classStartBrace, classEndBrace + 1);
-  const methodPattern = new RegExp(`((?:public|private|protected|static|async|get|set|\\s)*)\\b(${methodName})\\s*([(<])`);
+  const methodPattern = new RegExp(`((?:public|private|protected|static|async|get|set|\\s)*)\\b(${escapeRegex(methodName)})\\s*([(<])`);
   const methodMatch = methodPattern.exec(classBody);
   if (!methodMatch) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Method '${methodName}' not found in class '${className}'`);
@@ -1046,7 +1050,7 @@ function handleAddImportStatement(args) {
 
   const modulePath = moduleMatch[1];
 
-  const existingPattern = new RegExp(`from\\s+['"]${modulePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]`);
+  const existingPattern = new RegExp(`from\\s+['"]${escapeRegex(modulePath)}['"]`);
   if (existingPattern.test(content)) {
     return {
       content: [{

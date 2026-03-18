@@ -163,12 +163,14 @@ async function handleSubmitTask(req, res) {
     });
 
     // Context-stuff: resolve files for eligible providers before starting
-    if (CONTEXT_STUFFING_PROVIDERS.has(provider) && body.context_stuff !== false) {
+    const workingDirectory = body.working_directory;
+    // Don't fall back to process.cwd() — require explicit working directory for context stuffing
+    if (CONTEXT_STUFFING_PROVIDERS.has(provider) && body.context_stuff !== false && workingDirectory) {
       try {
         const depth = body.context_depth || 1;
         const scanResult = resolveContextFiles({
           taskDescription: description,
-          workingDirectory: body.working_directory || process.cwd(),
+          workingDirectory,
           files: Array.isArray(body.files) ? body.files.filter(f => typeof f === 'string') : [],
           contextDepth: depth,
         });
@@ -504,7 +506,7 @@ async function handleCommitTask(req, res) {
 
     // Parse MCP response to extract commit info
     const text = result?.content?.[0]?.text || '';
-    const shaMatch = text.match(/([a-f0-9]{7,40})/);
+    const shaMatch = text.match(/\b([a-f0-9]{7,40})\b/);
 
     sendSuccess(res, requestId, {
       task_id: taskId,

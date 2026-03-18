@@ -187,11 +187,17 @@ function normalizeError(err, req) {
     details = { context: 'request_body' };
   } else if (typeof err?.code === 'string') {
     code = err.code;
-    message = err.message || DEFAULT_ERROR_MESSAGE;
+    message = DEFAULT_ERROR_MESSAGE; // Don't leak internal error messages
+    if (err.message && err.message !== DEFAULT_ERROR_MESSAGE) {
+      try { require('../logger').debug(`[v2-middleware] Internal error: ${err.message}`); } catch {}
+    }
     status = Number.isInteger(err.status) ? err.status : defaultStatusForCode(code);
     details = coerceDetails(err.details);
   } else if (err instanceof Error) {
-    message = err.message || DEFAULT_ERROR_MESSAGE;
+    if (err.message && err.message !== DEFAULT_ERROR_MESSAGE) {
+      try { require('../logger').debug(`[v2-middleware] Internal error: ${err.message}`); } catch {}
+    }
+    message = DEFAULT_ERROR_MESSAGE; // Don't leak internal error messages
     details = coerceDetails(err.details);
     status = Number.isInteger(err.status) ? err.status : 500;
   }

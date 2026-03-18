@@ -26,7 +26,7 @@ let _db;
 function db() { return _db || (_db = require('../database')); }
 
 function hasShellMetacharacters(value) {
-  return /[;&$`]/.test(value);
+  return /[;&$`|><\n\r]/.test(value);
 }
 
 function normalizeCommitPath(filePath, workingDir) {

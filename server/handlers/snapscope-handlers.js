@@ -16,7 +16,12 @@ const { ErrorCodes, makeError } = require('./shared');
 const logger = require('../logger').child({ component: 'snapscope-handlers' });
 
 const SNAPSCOPE_CLI_PROJECT = process.env.SNAPSCOPE_CLI_PROJECT || '';
-const SNAPSCOPE_EXE = path.join(SNAPSCOPE_CLI_PROJECT,
+const resolvedProject = path.resolve(SNAPSCOPE_CLI_PROJECT);
+// Validate the resolved path doesn't escape expected directories
+if (resolvedProject.includes('..')) {
+  throw new Error('SNAPSCOPE_CLI_PROJECT contains path traversal sequences');
+}
+const SNAPSCOPE_EXE = path.join(resolvedProject,
   'bin/Debug/net8.0-windows10.0.22621.0/SnapScope.Cli.exe');
 
 // ─── Pre-build logic ─────────────────────────────────────────────────────────
