@@ -593,6 +593,13 @@ function generateIdempotencyKey(operation, params) {
 
 // Idempotency cache
 const idempotencyCache = new Map();
+const _idempotencyCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of idempotencyCache) {
+    if (now - entry.timestamp > 3600000) idempotencyCache.delete(key);
+  }
+}, 300000);
+_idempotencyCleanupInterval.unref();
 const IDEMPOTENCY_WINDOW_MS = 5 * 60 * 1000;
 
 function checkIdempotency(key) {

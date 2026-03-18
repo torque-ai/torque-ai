@@ -100,6 +100,7 @@ function startPidHeartbeat(startedAt) {
       // Non-fatal — PID file may be inaccessible
     }
   }, PID_HEARTBEAT_INTERVAL_MS);
+  pidHeartbeatInterval.unref();
 }
 
 /**
@@ -210,6 +211,7 @@ function startErrorRateCleanup() {
       }
     }
   }, ERROR_RATE_WINDOW_MS);
+  errorRateCleanupInterval.unref();
 }
 
 /**
@@ -286,6 +288,7 @@ async function gracefulShutdown(signal) {
             debugLog(`[Orphan mode] ${currentRunning} task(s) still running...`);
           }
         }, 30000); // Check every 30 seconds
+        orphanCheckInterval.unref();
       }
 
       return;
@@ -628,6 +631,7 @@ function init() {
       // Don't let queue check errors crash the server
     }
   }, 5000); // Check every 5 seconds
+  queueProcessingInterval.unref();
 
   // Initialize CI watcher
   try {
@@ -879,6 +883,7 @@ function startMaintenanceScheduler() {
       debugLog(`Maintenance scheduler error: ${err.message}`);
     }
   }, 60000); // Check every minute
+  maintenanceInterval.unref();
 }
 
 /**
@@ -911,6 +916,7 @@ function startCoordinationScheduler() {
       debugLog(`expireStaleLeases error: ${err.message}`);
     }
   }, 30000);
+  coordinationAgentInterval.unref();
 
   // Every 5 minutes: clean up expired locks + record agent metrics
   coordinationLockInterval = setInterval(() => {
@@ -936,6 +942,7 @@ function startCoordinationScheduler() {
       debugLog(`Agent metrics collection error: ${err.message}`);
     }
   }, 300000);
+  coordinationLockInterval.unref();
 }
 
 /**

@@ -691,6 +691,7 @@ function startIdleCheck() {
       idleCheckInterval = null;
     }
   }, 60000); // Check every minute
+  idleCheckInterval.unref();
 }
 
 // ─── Exports ───────────────────────────────────────────────────────────

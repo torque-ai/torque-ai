@@ -80,7 +80,7 @@ function getToolNamesForTier(tier) {
 }
 
 // Backward-compat: CORE_TOOL_NAMES is now Tier 1 (reduced from 78 to ~25)
-const CORE_TOOL_NAMES = TIER_1;
+const CORE_TOOL_NAMES = [...TIER_1];
 
 // Extended set for 'extended' mode (Tier 1 + 2, same as old CORE_TOOL_NAMES)
 const EXTENDED_TOOL_NAMES = [...TIER_1, ...TIER_2];

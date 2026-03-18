@@ -11,13 +11,6 @@ const { randomUUID } = require('crypto');
 const db = require('../database');
 const { sendJson } = require('./middleware');
 
-const SECURITY_HEADERS = {
-  'X-Frame-Options': 'DENY',
-  'X-Content-Type-Options': 'nosniff',
-  'X-XSS-Protection': '1; mode=block',
-  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-};
-
 // ─── Response Envelope ────────────────────────────────────────────────────
 
 function buildMeta(requestId) {
@@ -180,5 +173,4 @@ module.exports = {
   buildTaskDetailResponse,
   buildWorkflowResponse,
   buildWorkflowDetailResponse,
-  SECURITY_HEADERS,
 };

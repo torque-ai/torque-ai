@@ -1237,3 +1237,6 @@ const routes = [
 ];
 
 module.exports = routes;
+module.exports.buildV2Middleware = buildV2Middleware;
+module.exports.validateDecodedParamField = validateDecodedParamField;
+module.exports.handleOpenApiSpec = handleOpenApiSpec;

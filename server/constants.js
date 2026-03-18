@@ -56,6 +56,7 @@ const BASE_LLM_RULES = `### CRITICAL RULES:
 
 // --- Timeout Constants ---
 
+// All values in milliseconds unless noted
 const TASK_TIMEOUTS = {
   GIT_STATUS: 5000,
   GIT_DIFF: 10000,
@@ -82,9 +83,10 @@ const TASK_TIMEOUTS = {
   SNAPSCOPE_CAPTURE: 300000,
 };
 
-// Values are in MINUTES (not milliseconds). Convert before use: timeout * 60 * 1000
+// All values in MINUTES
 const PROVIDER_DEFAULT_TIMEOUTS = {
   'codex': 30,
+  'codex-spark': 30,
   'claude-cli': 30,
   'aider-ollama': 30,
   'hashline-ollama': 10,

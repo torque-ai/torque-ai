@@ -4,8 +4,8 @@ const { randomUUID } = require('crypto');
 const db = require('../database');
 const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('../constants');
 const adapterRegistry = require('../providers/adapter-registry');
+const { buildV2Middleware, validateDecodedParamField } = require('./routes');
 const { sendJson } = require('./middleware');
-const { requestId, validateRequest } = require('./v2-middleware');
 
 const V2_MOUNT_PATH = '/api/v2';
 const V2_PROVIDER_ROUTE_HANDLER_NAMES = new Set([
@@ -22,62 +22,6 @@ const {
   PROVIDER_LOCAL_IDS,
   V2_TRANSPORTS,
 } = require('./v2-provider-registry');
-
-function buildV2Middleware(schema = {}) {
-  return [requestId, validateRequest(schema)];
-}
-
-function validateDecodedParamField(field, label = field) {
-  return (params = {}) => {
-    const rawValue = typeof params?.[field] === 'string' ? params[field] : '';
-
-    if (!rawValue.trim()) {
-      return {
-        valid: false,
-        errors: [{
-          field,
-          code: 'missing',
-          message: `\`${field}\` is required`,
-        }],
-        value: {},
-      };
-    }
-
-    try {
-      const decodedValue = decodeURIComponent(rawValue).trim();
-      if (!decodedValue) {
-        return {
-          valid: false,
-          errors: [{
-            field,
-            code: 'type',
-            message: `\`${field}\` must be a non-empty string`,
-          }],
-          value: {},
-        };
-      }
-
-      return {
-        valid: true,
-        errors: [],
-        value: {
-          ...params,
-          [field]: decodedValue,
-        },
-      };
-    } catch {
-      return {
-        valid: false,
-        errors: [{
-          field,
-          code: 'encoding',
-          message: `Invalid ${label} encoding`,
-        }],
-        value: {},
-      };
-    }
-  };
-}
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -648,6 +592,8 @@ function createV2Router(options = {}) {
 module.exports = {
   V2_MOUNT_PATH,
   V2_PROVIDER_ROUTE_HANDLER_NAMES,
+  buildV2Middleware,
+  validateDecodedParamField,
   escapeRegExp,
   normalizeMountPath,
   resolveRouteRequestId,

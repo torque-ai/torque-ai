@@ -12,6 +12,7 @@ const tools = require('./tools');
 const { handleToolCall } = tools;
 const db = require('./database');
 const serverConfig = require('./config');
+const { API_KEY_ENV_VARS } = serverConfig;
 const logger = require('./logger').child({ component: 'api-server' });
 const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('./constants');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
@@ -230,17 +231,6 @@ const PROVIDER_API_KEY_CONFIG_KEYS = Object.freeze({
   openrouter: ['openrouter_api_key'],
   deepinfra: ['deepinfra_api_key'],
   hyperbolic: ['hyperbolic_api_key'],
-});
-
-const PROVIDER_API_KEY_ENV_KEYS = Object.freeze({
-  anthropic: ['ANTHROPIC_API_KEY'],
-  groq: ['GROQ_API_KEY'],
-  cerebras: ['CEREBRAS_API_KEY'],
-  'google-ai': ['GOOGLE_AI_API_KEY'],
-  'ollama-cloud': ['OLLAMA_CLOUD_API_KEY'],
-  openrouter: ['OPENROUTER_API_KEY'],
-  deepinfra: ['DEEPINFRA_API_KEY'],
-  hyperbolic: ['HYPERBOLIC_API_KEY'],
 });
 
 const PROVIDER_MODEL_NAME_OVERRIDES = Object.freeze({
@@ -840,11 +830,9 @@ function isV2ProviderApiKeyConfigured(providerId) {
     }
   }
 
-  const envKeys = PROVIDER_API_KEY_ENV_KEYS[providerId] || [];
-  for (const key of envKeys) {
-    if (typeof process.env[key] === 'string' && process.env[key].trim()) {
-      return true;
-    }
+  const envKey = API_KEY_ENV_VARS[providerId];
+  if (typeof envKey === 'string' && typeof process.env[envKey] === 'string' && process.env[envKey].trim()) {
+    return true;
   }
 
   return false;

@@ -54,10 +54,12 @@ async function handleHealthz(req, res, _context = {}) {
   let ollamaStatus = 'unknown';
   try {
     const healthPromise = handleToolCall('check_ollama_health', { force_check: false });
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('timeout')), 5000),
-    );
+    let timeoutHandle = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(() => reject(new Error('timeout')), 5000);
+    });
     const health = await Promise.race([healthPromise, timeoutPromise]);
+    clearTimeout(timeoutHandle);
     const healthText = health?.content?.[0]?.text || '';
     ollamaStatus = /\bhealthy\b/.test(healthText) && !healthText.includes('unhealthy') ? 'healthy' : 'unhealthy';
   } catch (e) {

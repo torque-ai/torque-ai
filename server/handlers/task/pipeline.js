@@ -19,10 +19,6 @@ const { escapeRegExp, safeLimit,
         MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_TASK_LENGTH, MAX_BATCH_SIZE, ErrorCodes, makeError, requireTask } = require('../shared');
 const { formatTime } = require('./utils');
 
-function isQueuedStartResult(result) {
-  return Boolean(result && typeof result === 'object' && result.queued === true);
-}
-
 // ── Git utilities ──────────────────────────────────────────
 
 function execGit(gitArgs, cwd) {
@@ -462,7 +458,7 @@ function handleRunPipeline(args) {
 
     db.updatePipelineStep(firstStep.id, {
       task_id: taskId,
-      status: isQueuedStartResult(startResult) ? 'queued' : 'running',
+      status: startResult?.queued === true ? 'queued' : 'running',
     });
   }
 
