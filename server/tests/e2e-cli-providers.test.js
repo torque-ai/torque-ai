@@ -24,19 +24,25 @@ describe('E2E: CLI provider execution', () => {
     if (ctx) {
       await teardownE2eDb(ctx);
     }
-    ctx = setupE2eDb('cli-providers');
 
     // Mock child_process.spawn at the module level
     // task-manager.js imports spawn at the top, so we need to intercept it
+    // before requiring task-manager/process-lifecycle for this test.
     const childProcess = require('child_process');
     originalSpawn = childProcess.spawn;
     spawnMock = vi.fn().mockImplementation(() => {
       const child = createMockChild();
       // Store on mock for test access
+      if (!spawnMock._children) spawnMock._children = [];
+      spawnMock._children.push(child);
       spawnMock._lastChild = child;
       return child;
     });
     childProcess.spawn = spawnMock;
+
+    delete require.cache[require.resolve('../task-manager')];
+    delete require.cache[require.resolve('../execution/process-lifecycle')];
+    ctx = setupE2eDb('cli-providers');
 
     // Also set OPENAI_API_KEY so codex doesn't warn
     if (!process.env.OPENAI_API_KEY) {
@@ -82,12 +88,7 @@ describe('E2E: CLI provider execution', () => {
 
     // Get the mock child that was created
     const child = spawnMock._lastChild;
-    if (!child) {
-      // Provider might have been routed elsewhere; check task status
-      const task = ctx.db.getTask(taskId);
-      expect(['running', 'queued', 'completed', 'failed']).toContain(task.status);
-      return;
-    }
+    expect(child).toBeDefined();
 
     // Simulate Codex writing output and exiting successfully
     simulateSuccess(child, 'Created hello.js with hello() function\n');
@@ -108,10 +109,14 @@ describe('E2E: CLI provider execution', () => {
     });
 
     const startResult = ctx.tm.startTask(taskId);
-    if (startResult && startResult.queued) return;
+    if (startResult?.queued) {
+      const task = ctx.db.getTask(taskId);
+      expect(task.status).toBe('queued');
+      return;
+    }
 
     const child = spawnMock._lastChild;
-    if (!child) return;
+    expect(child).toBeDefined();
 
     simulateFailure(child, '', 'Error: API rate limit exceeded', 1);
 
@@ -130,21 +135,23 @@ describe('E2E: CLI provider execution', () => {
     });
 
     const startResult = ctx.tm.startTask(taskId);
-    if (startResult && startResult.queued) return;
+    if (startResult?.queued) {
+      const task = ctx.db.getTask(taskId);
+      expect(task.status).toBe('queued');
+      return;
+    }
 
     const child = spawnMock._lastChild;
-    if (!child) return;
+    expect(child).toBeDefined();
 
     simulateSuccess(child, 'Done\n');
     await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
 
     // Verify spawn was called with the working directory
-    if (spawnMock.mock.calls.length > 0) {
-      const spawnOpts = spawnMock.mock.calls[0][2]; // 3rd arg = options
-      if (spawnOpts && spawnOpts.cwd) {
-        expect(spawnOpts.cwd).toBe(testWorkDir);
-      }
-    }
+    expect(spawnMock).toHaveBeenCalled();
+    const spawnOpts = spawnMock.mock.calls[0][2]; // 3rd arg = options
+    expect(spawnOpts).toBeDefined();
+    expect(spawnOpts.cwd).toBe(testWorkDir);
   });
 
   it('Aider-Ollama: provider recorded correctly', async () => {
@@ -162,16 +169,23 @@ describe('E2E: CLI provider execution', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    const _startResult = ctx.tm.startTask(taskId);
+    const startResult = ctx.tm.startTask(taskId);
+    if (startResult?.queued) {
+      const task = ctx.db.getTask(taskId);
+      expect(task.status).toBe('queued');
+      expect(task.provider).toBe('aider-ollama');
+      await mock.stop();
+      return;
+    }
 
     // Aider tasks use spawn, so check if spawn was called
     const child = spawnMock._lastChild;
-    if (child) {
-      simulateSuccess(child, 'Applied changes\n');
-      await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
-    }
+    expect(child).toBeDefined();
+    simulateSuccess(child, 'Applied changes\n');
+    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
 
     const task = ctx.db.getTask(taskId);
+    expect(task.provider).toBe('aider-ollama');
     expect(['running', 'completed', 'failed', 'queued']).toContain(task.status);
 
     await mock.stop();
@@ -188,13 +202,16 @@ describe('E2E: CLI provider execution', () => {
     });
 
     const startResult = ctx.tm.startTask(taskId);
-    if (startResult && startResult.queued) return;
+    if (startResult?.queued) {
+      const task = ctx.db.getTask(taskId);
+      expect(task.status).toBe('queued');
+      return;
+    }
 
     const child = spawnMock._lastChild;
-    if (child) {
-      simulateSuccess(child, 'Architecture looks good\n');
-      await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
-    }
+    expect(child).toBeDefined();
+    simulateSuccess(child, 'Architecture looks good\n');
+    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
 
     const task = ctx.db.getTask(taskId);
     expect(['running', 'completed', 'failed', 'queued']).toContain(task.status);
@@ -234,17 +251,20 @@ describe('E2E: CLI provider execution', () => {
     });
 
     const startResult = ctx.tm.startTask(taskId);
-    if (startResult && startResult.queued) return;
+    if (startResult?.queued) {
+      const task = ctx.db.getTask(taskId);
+      expect(task.status).toBe('queued');
+      return;
+    }
 
     // Don't simulate completion — verify the task is in running state
     const task = ctx.db.getTask(taskId);
-    expect(['running', 'queued']).toContain(task.status);
+    expect(task.status).toBe('running');
 
     // Clean up by simulating the process exit
     const child = spawnMock._lastChild;
-    if (child) {
-      simulateFailure(child, '', 'Timed out', 124);
-      await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
-    }
+    expect(child).toBeDefined();
+    simulateFailure(child, '', 'Timed out', 124);
+    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
   });
 });

@@ -411,7 +411,7 @@ async function handleSetBudget(req, res) {
 
   const budgetUsd = parseFloat(body.budget_usd);
   if (!budgetUsd || budgetUsd <= 0) {
-    return sendError(res, requestId, 'validation_error', 'budget_usd must be a positive number', 400);
+    return sendError(res, requestId, 'validation_error', 'budget_usd must be a positive number', 400, undefined, req);
   }
 
   try {

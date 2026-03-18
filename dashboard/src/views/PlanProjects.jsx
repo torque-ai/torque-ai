@@ -353,8 +353,14 @@ function ImportModal({ onClose, onImport }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-slate-800 rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-slate-800 rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-white">Import Plan</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">
@@ -531,7 +537,10 @@ export default function PlanProjects() {
 
   useEffect(() => {
     loadProjects();
-    const interval = setInterval(loadProjects, 5000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadProjects();
+    }, 30000);
     return () => clearInterval(interval);
   }, [loadProjects]);
 

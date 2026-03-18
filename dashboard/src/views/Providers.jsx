@@ -299,7 +299,10 @@ export default function Providers({ statsVersion, tasksTick }) {
 
   // Fallback polling at 120s in case WebSocket is disconnected
   useEffect(() => {
-    const pollInterval = setInterval(loadData, 120000);
+    const pollInterval = setInterval(() => {
+      if (document.hidden) return;
+      loadData();
+    }, 120000);
     return () => clearInterval(pollInterval);
   }, [loadData]);
 
@@ -494,6 +497,7 @@ export default function Providers({ statsVersion, tasksTick }) {
             className="px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 text-sm rounded-lg hover:bg-indigo-600/40"
           >{showAddProvider ? 'Cancel' : 'Add Provider'}</button>
           <select
+            aria-label="Filter provider stats by time range"
             value={days}
             onChange={(e) => setDays(parseInt(e.target.value))}
             className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
@@ -518,6 +522,7 @@ export default function Providers({ statsVersion, tasksTick }) {
         <div className="glass-card p-6 mb-8">
           <div className="flex items-center gap-4 mb-6">
             <select
+              aria-label="Compare provider A"
               value={compareA}
               onChange={(e) => setCompareA(e.target.value)}
               className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 flex-1"
@@ -531,6 +536,7 @@ export default function Providers({ statsVersion, tasksTick }) {
             </select>
             <span className="text-slate-500 font-bold text-lg">vs</span>
             <select
+              aria-label="Compare provider B"
               value={compareB}
               onChange={(e) => setCompareB(e.target.value)}
               className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 flex-1"

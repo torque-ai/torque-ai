@@ -249,17 +249,17 @@ describe('FreeTier', () => {
       const initialCalls = freeTierApi.status.mock.calls.length;
       expect(initialCalls).toBeGreaterThanOrEqual(1);
 
-      // Advance 10 seconds — should trigger interval refresh
+      // Advance 30 seconds — should trigger interval refresh
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(10000);
+        await vi.advanceTimersByTimeAsync(30000);
       });
       expect(freeTierApi.status.mock.calls.length).toBeGreaterThan(initialCalls);
 
       const afterFirstInterval = freeTierApi.status.mock.calls.length;
 
-      // Advance another 10 seconds
+      // Advance another 30 seconds
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(10000);
+        await vi.advanceTimersByTimeAsync(30000);
       });
       expect(freeTierApi.status.mock.calls.length).toBeGreaterThan(afterFirstInterval);
     } finally {

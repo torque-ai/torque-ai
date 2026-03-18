@@ -1,12 +1,12 @@
 /**
  * Mock Ollama HTTP server for deterministic testing.
- * Returns canned responses for /api/generate, /api/tags, /api/show, /api/ps.
+ * Returns canned responses for /api/generate, /api/chat, /api/tags, /api/show, /api/ps.
  *
  * Supports mutable per-test controls:
  *   setGenerateResponse(fn|string) — change response between tests
  *   setGenerateDelay(ms) — configurable chunk delay for stall tests
  *   setFailGenerate(bool) — toggle failure mode
- *   setStatusCode(code) — set HTTP status code for /api/generate
+ *   setStatusCode(code) — set HTTP status code for /api/generate and /api/chat
  */
 const http = require('http');
 
@@ -26,6 +26,50 @@ function createMockOllama(options = {}) {
   let models = options.models || MODELS;
 
   const requestLog = [];
+
+  function resolveResponse(parsed) {
+    return typeof generateResponse === 'function' ? generateResponse(parsed) : generateResponse;
+  }
+
+  function toGenerateText(response) {
+    if (response && typeof response === 'object' && !Array.isArray(response)) {
+      if (typeof response.response === 'string') return response.response;
+      if (typeof response.content === 'string') return response.content;
+      if (response.message && typeof response.message.content === 'string') {
+        return response.message.content;
+      }
+    }
+    return String(response ?? '');
+  }
+
+  function toChatMessage(response) {
+    if (response && typeof response === 'object' && !Array.isArray(response)) {
+      if (response.message && typeof response.message === 'object') {
+        return {
+          role: response.message.role || 'assistant',
+          content: response.message.content ?? '',
+          ...(response.message.tool_calls ? { tool_calls: response.message.tool_calls } : {}),
+        };
+      }
+
+      return {
+        role: response.role || 'assistant',
+        content: response.content ?? response.response ?? '',
+        ...(response.tool_calls ? { tool_calls: response.tool_calls } : {}),
+      };
+    }
+
+    return { role: 'assistant', content: String(response ?? '') };
+  }
+
+  function splitTextIntoChunks(text) {
+    const words = text.split(' ');
+    return [
+      words.slice(0, Math.ceil(words.length / 3)).join(' ') + ' ',
+      words.slice(Math.ceil(words.length / 3), Math.ceil(2 * words.length / 3)).join(' ') + ' ',
+      words.slice(Math.ceil(2 * words.length / 3)).join(' '),
+    ];
+  }
 
   const server = http.createServer((req, res) => {
     let body = '';
@@ -68,7 +112,7 @@ function createMockOllama(options = {}) {
         return;
       }
 
-      if (req.url === '/api/generate' && req.method === 'POST') {
+      if ((req.url === '/api/generate' || req.url === '/api/chat') && req.method === 'POST') {
         if (failGenerate) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'mock generation failure' }));
@@ -76,28 +120,76 @@ function createMockOllama(options = {}) {
         }
 
         setTimeout(() => {
-          res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-          if (parsed.stream === false || !parsed.stream) {
-            res.end(JSON.stringify({
-              model: parsed.model || DEFAULT_MODEL,
-              response: typeof generateResponse === 'function' ? generateResponse(parsed) : generateResponse,
-              done: true,
-              total_duration: 1000000000,
-              load_duration: 100000000,
-              prompt_eval_count: 10,
-              eval_count: 50,
-            }));
+          const model = parsed.model || DEFAULT_MODEL;
+          const response = resolveResponse(parsed);
+
+          if (req.url === '/api/generate') {
+            if (parsed.stream === false) {
+              res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                model,
+                response: toGenerateText(response),
+                done: true,
+                total_duration: 1000000000,
+                load_duration: 100000000,
+                prompt_eval_count: 10,
+                eval_count: 50,
+              }));
+            } else {
+              const text = toGenerateText(response);
+              const [chunk1, chunk2, chunk3] = splitTextIntoChunks(text);
+              res.writeHead(statusCode, { 'Content-Type': 'application/x-ndjson' });
+              res.write(JSON.stringify({ model, response: chunk1, done: false }) + '\n');
+              res.write(JSON.stringify({ model, response: chunk2, done: false }) + '\n');
+              res.write(JSON.stringify({ model, response: chunk3, done: true, total_duration: 1000000000, eval_count: 50 }) + '\n');
+              res.end();
+            }
           } else {
-            // Streaming: send 3 chunks then done
-            const text = typeof generateResponse === 'function' ? generateResponse(parsed) : generateResponse;
-            const words = text.split(' ');
-            const chunk1 = words.slice(0, Math.ceil(words.length / 3)).join(' ') + ' ';
-            const chunk2 = words.slice(Math.ceil(words.length / 3), Math.ceil(2 * words.length / 3)).join(' ') + ' ';
-            const chunk3 = words.slice(Math.ceil(2 * words.length / 3)).join(' ');
-            res.write(JSON.stringify({ model: parsed.model, response: chunk1, done: false }) + '\n');
-            res.write(JSON.stringify({ model: parsed.model, response: chunk2, done: false }) + '\n');
-            res.write(JSON.stringify({ model: parsed.model, response: chunk3, done: true, total_duration: 1000000000, eval_count: 50 }) + '\n');
-            res.end();
+            const message = toChatMessage(response);
+            if (parsed.stream === false) {
+              res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                model,
+                message,
+                done: true,
+                total_duration: 1000000000,
+                load_duration: 100000000,
+                prompt_eval_count: 10,
+                eval_count: 50,
+              }));
+            } else {
+              const [chunk1, chunk2, chunk3] = splitTextIntoChunks(message.content || '');
+              res.writeHead(statusCode, { 'Content-Type': 'application/x-ndjson' });
+              res.write(JSON.stringify({
+                model,
+                message: {
+                  role: message.role || 'assistant',
+                  content: chunk1,
+                  ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}),
+                },
+                done: false,
+              }) + '\n');
+              res.write(JSON.stringify({
+                model,
+                message: {
+                  role: message.role || 'assistant',
+                  content: chunk2,
+                },
+                done: false,
+              }) + '\n');
+              res.write(JSON.stringify({
+                model,
+                message: {
+                  role: message.role || 'assistant',
+                  content: chunk3,
+                },
+                done: true,
+                total_duration: 1000000000,
+                prompt_eval_count: 10,
+                eval_count: 50,
+              }) + '\n');
+              res.end();
+            }
           }
         }, generateDelay);
         return;

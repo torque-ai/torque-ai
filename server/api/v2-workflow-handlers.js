@@ -33,14 +33,14 @@ async function handleCreateWorkflow(req, res) {
 
   const name = (body.name || '').trim();
   if (!name) {
-    return sendError(res, requestId, 'validation_error', 'name is required', 400);
+    return sendError(res, requestId, 'validation_error', 'name is required', 400, undefined, req);
   }
   if (name.length > 200) {
-    return sendError(res, requestId, 'validation_error', 'name must be 200 characters or less', 400);
+    return sendError(res, requestId, 'validation_error', 'name must be 200 characters or less', 400, undefined, req);
   }
 
   if (!Array.isArray(body.tasks) || body.tasks.length === 0) {
-    return sendError(res, requestId, 'validation_error', 'tasks must be a non-empty array', 400);
+    return sendError(res, requestId, 'validation_error', 'tasks must be a non-empty array', 400, undefined, req);
   }
 
   try {
@@ -211,7 +211,7 @@ async function handleAddWorkflowTask(req, res) {
 
   const description = (body.task || body.task_description || '').trim();
   if (!description) {
-    return sendError(res, requestId, 'validation_error', 'task or task_description is required', 400);
+    return sendError(res, requestId, 'validation_error', 'task or task_description is required', 400, undefined, req);
   }
 
   try {
@@ -286,7 +286,7 @@ async function handleCreateFeatureWorkflow(req, res) {
   const body = req.body || await parseBody(req);
 
   if (!body.feature_name && !body.name) {
-    return sendError(res, requestId, 'validation_error', 'feature_name is required', 400);
+    return sendError(res, requestId, 'validation_error', 'feature_name is required', 400, undefined, req);
   }
 
   try {

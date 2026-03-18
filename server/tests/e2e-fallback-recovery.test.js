@@ -26,31 +26,26 @@ describe('E2E: Fallback and recovery', () => {
     if (ctx) await teardownE2eDb(ctx);
   });
 
-  it('no healthy hosts: ollama task fails or gets queued', async () => {
-    // Don't register any hosts — should fail or be queued
+  it('no healthy hosts: ollama task fails when the fallback host is unreachable', async () => {
+    // Don't register any hosts and force single-host fallback to an unreachable port
+    ctx.db.setConfig('ollama_host', 'http://127.0.0.1:1');
+    for (const provider of ['hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']) {
+      ctx.db.updateProvider?.(provider, { enabled: 0 });
+    }
+
     const taskId = createTestTask(ctx.db, {
       description: 'Test no hosts available',
       provider: 'ollama',
       model: 'codellama:latest',
+      timeout: 0.01,
     });
 
-    try {
-      const result = ctx.tm.startTask(taskId);
-      if (result && result.queued) {
-        const task = ctx.db.getTask(taskId);
-        expect(task.status).toBe('queued');
-      }
-    } catch {
-      // error is expected when no hosts available
-    }
+    const startResult = ctx.tm.startTask(taskId);
+    expect(startResult?.queued).not.toBe(true);
 
-    const task = ctx.db.getTask(taskId);
-    // When no hosts exist, the task should either:
-    // - fail immediately (thrown error caught by startTask internals)
-    // - be queued for later retry
-    // - complete with an error in output (cloud fallback attempted)
-    // All are valid behaviors depending on configuration
-    expect(['failed', 'queued', 'running']).toContain(task.status);
+    const task = await waitForTaskStatus(ctx.db, taskId, ['failed'], 3000);
+    expect(task.status).toBe('failed');
+    expect(task.error_output).toMatch(/Could not connect to Ollama|timeout/i);
   });
 
   it('host at max capacity: task is requeued', async () => {
@@ -64,8 +59,7 @@ describe('E2E: Fallback and recovery', () => {
     const hosts = ctx.db.listOllamaHosts();
     const host = hosts.find(h => h.url === info.url);
     if (host) {
-      // Simulate host at capacity by claiming slots
-      ctx.db.run?.('UPDATE ollama_hosts SET running_tasks = max_concurrent WHERE id = ?', [host.id]);
+      ctx.db.incrementHostTasks(host.id);
     }
 
     const taskId = createTestTask(ctx.db, {
@@ -74,18 +68,10 @@ describe('E2E: Fallback and recovery', () => {
       model: 'codellama:latest',
     });
 
-    try {
-      const result = ctx.tm.startTask(taskId);
-      // If it returns with queued, check
-      if (result && result.queued) {
-        const task = ctx.db.getTask(taskId);
-        expect(task.status).toBe('queued');
-      }
-    } catch {
-      // May fail — check task status
-      const task = ctx.db.getTask(taskId);
-      expect(task.status).toBe('queued');
-    }
+    const startResult = await Promise.resolve(ctx.tm.startTask(taskId));
+    const task = ctx.db.getTask(taskId);
+    expect(task.status).toBe('queued');
+    expect(startResult?.queued === true || startResult?.requeued === true).toBe(true);
 
     await mock.stop();
   });
@@ -154,6 +140,7 @@ describe('E2E: Fallback and recovery', () => {
 
   it('task max concurrent applies globally', () => {
     // Set max concurrent to 2
+    ctx.db.setConfig('auto_compute_max_concurrent', '0');
     ctx.db.setConfig('max_concurrent', '2');
 
     const taskId1 = createTestTask(ctx.db, {
@@ -179,16 +166,9 @@ describe('E2E: Fallback and recovery', () => {
     ctx.db.updateTaskStatus(taskId2, 'running');
 
     // Try to start task 3 — should be queued due to max_concurrent
-    try {
-      const result = ctx.tm.startTask(taskId3);
-      if (result && result.queued) {
-        const task = ctx.db.getTask(taskId3);
-        expect(task.status).toBe('queued');
-      }
-    } catch {
-      // May fail with "at capacity" — that's the expected behavior
-      const task = ctx.db.getTask(taskId3);
-      expect(task.status).toBe('queued');
-    }
+    const startResult = ctx.tm.startTask(taskId3);
+    const task = ctx.db.getTask(taskId3);
+    expect(task.status).toBe('queued');
+    expect(startResult?.queued).toBe(true);
   });
 });

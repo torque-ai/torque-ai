@@ -12,6 +12,8 @@
 const path = require('path');
 const fs = require('fs');
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
+const { checkFileQuality } = require('../validation/post-task');
+const { CONVERSATIONAL_REFUSAL_PATTERN } = require('../task-manager');
 
 let ctx;
 
@@ -37,32 +39,11 @@ export class MyService {
 }
 `.trim());
 
-    // checkFileQuality is in the post-task validation module
-    // Import it from the validation module
-    let checkFileQuality;
-    try {
-      const postTask = require('../validation/post-task');
-      checkFileQuality = postTask.checkFileQuality;
-    } catch {
-      // Fallback: try from task-manager
-      checkFileQuality = ctx.tm.checkFileQuality;
-    }
-
-    if (!checkFileQuality) {
-      // Function might not be directly exported — test the concept via DB
-      // Record the file content and check for quality markers
-      const content = fs.readFileSync(filePath, 'utf-8');
-      expect(content).toContain('Not implemented');
-      expect(content).toContain('TODO');
-      return;
-    }
-
     const result = checkFileQuality(filePath);
-    expect(result).toBeDefined();
-    // Should flag stub/placeholder content
-    if (result.issues) {
-      expect(result.issues.length).toBeGreaterThan(0);
-    }
+    expect(result.valid).toBe(false);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.stringContaining('placeholder/stub content'),
+    ]));
   });
 
   it('checkFileQuality passes valid code', () => {
@@ -85,34 +66,12 @@ export function fibonacci(n: number): number {
 }
 `.trim());
 
-    let checkFileQuality;
-    try {
-      const postTask = require('../validation/post-task');
-      checkFileQuality = postTask.checkFileQuality;
-    } catch {
-      checkFileQuality = ctx.tm.checkFileQuality;
-    }
-
-    if (!checkFileQuality) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      expect(content).not.toContain('TODO');
-      expect(content).not.toContain('Not implemented');
-      return;
-    }
-
     const result = checkFileQuality(filePath);
-    if (result.issues) {
-      // Valid code should have no issues (or minimal)
-      const criticalIssues = result.issues.filter(i => i.severity === 'error');
-      expect(criticalIssues.length).toBe(0);
-    }
+    expect(result.valid).toBe(true);
+    expect(result.issues).toEqual([]);
   });
 
   it('detects conversational refusal patterns in LLM output', () => {
-    // The conversational refusal pattern used in task-manager.js (line ~5635)
-    // and providers/execution.js for aider-ollama post-processing
-    const conversationalRefusal = /\b(I'm ready to|share the files|provide more information|which files you want)\b/i;
-
     const refusalOutputs = [
       "I'm ready to help you! Please share the files you'd like me to modify.",
       "Could you provide more information about what you need?",
@@ -126,11 +85,11 @@ export function fibonacci(n: number): number {
     ];
 
     for (const output of refusalOutputs) {
-      expect(conversationalRefusal.test(output)).toBe(true);
+      expect(CONVERSATIONAL_REFUSAL_PATTERN.test(output)).toBe(true);
     }
 
     for (const output of validOutputs) {
-      expect(conversationalRefusal.test(output)).toBe(false);
+      expect(CONVERSATIONAL_REFUSAL_PATTERN.test(output)).toBe(false);
     }
   });
 
@@ -141,51 +100,36 @@ export function fibonacci(n: number): number {
       "const data = [\n  // ... remaining items ...\n];",
     ];
 
-    let runLLMSafeguards;
-    try {
-      const postTask = require('../validation/post-task');
-      runLLMSafeguards = postTask.runLLMSafeguards;
-    } catch {
-      runLLMSafeguards = ctx.tm.runLLMSafeguards;
-    }
+    for (const [index, output] of truncatedOutputs.entries()) {
+      const filePath = path.join(ctx.testDir, `truncated-${index}.ts`);
+      fs.writeFileSync(filePath, output);
 
-    if (!runLLMSafeguards) {
-      for (const output of truncatedOutputs) {
-        const hasTruncation = /\.{3}\s*(rest|remaining|truncated)/i.test(output) ||
-                             /\[truncated/i.test(output);
-        expect(hasTruncation).toBe(true);
-      }
-      return;
-    }
-
-    for (const output of truncatedOutputs) {
-      const result = runLLMSafeguards(output);
-      expect(result).toBeDefined();
+      const result = checkFileQuality(filePath, { isNewFile: true });
+      expect(result.valid).toBe(false);
+      expect(result.issues).toEqual(expect.arrayContaining([
+        expect.stringContaining('placeholder/stub content'),
+      ]));
     }
   });
 
   it('baseline comparison detects significant file size decrease', () => {
-    // Simulate a file that shrinks significantly (>50% reduction)
-    const filePath = path.join(ctx.testDir, 'shrink.ts');
+    const relativePath = 'shrink.ts';
+    const filePath = path.join(ctx.testDir, relativePath);
 
     // Original content: substantial
     const originalContent = Array(100).fill('export const line = "data";').join('\n');
     fs.writeFileSync(filePath, originalContent);
 
-    // Capture baseline
-    const originalSize = fs.statSync(filePath).size;
-    const originalLines = originalContent.split('\n').length;
+    ctx.db.captureFileBaseline(relativePath, ctx.testDir);
 
     // Simulate shrunk content
     const shrunkContent = 'export const line = "data";';
     fs.writeFileSync(filePath, shrunkContent);
 
-    const newSize = fs.statSync(filePath).size;
-    const newLines = shrunkContent.split('\n').length;
-
-    // The decrease should be flagged
-    const decreasePercent = ((originalSize - newSize) / originalSize) * 100;
-    expect(decreasePercent).toBeGreaterThan(50);
-    expect(originalLines).toBeGreaterThan(newLines * 2);
+    const comparison = ctx.db.compareFileToBaseline(relativePath, ctx.testDir);
+    expect(comparison.hasBaseline).toBe(true);
+    expect(comparison.isSignificantlyShrunk).toBe(true);
+    expect(comparison.sizeChangePercent).toBeLessThan(-50);
+    expect(comparison.lineDelta).toBeLessThan(0);
   });
 });

@@ -1033,6 +1033,7 @@ export default function Hosts({ hostActivity }) {
     loadWorkstations();
     loadPeekHosts();
     const interval = setInterval(() => {
+      if (document.hidden) return;
       loadHosts();
       loadWorkstations();
       loadPeekHosts();

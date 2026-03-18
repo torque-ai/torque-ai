@@ -368,31 +368,14 @@ describe('TDA-01: Movement narrative on auto-routed reroute', () => {
 // --- Queue processing sovereignty ---
 
 describe('TDA-01: Queue processing — overflow sovereignty', () => {
-  it('Codex overflow should skip user-override tasks', () => {
-    // The processQueueInternal function should check user_provider_override
-    // before rerouting codex tasks to local LLM on overflow
-    // Line reference: queue-scheduler.js ~446
-    // "processQueue: skipping overflow for user-override Codex task"
-    // This test verifies the log message pattern exists in the codebase
-    expect(true).toBe(true); // Placeholder — verified via grep
-  });
+  it.todo('Codex overflow should skip user-override tasks');
 });
 
 
 // --- Provider change in startTask ---
 
 describe('TDA-01: startTask — provider identity preservation', () => {
-  it('resolveProviderRouting should not reroute user-override from aider-ollama to ollama for review tasks', () => {
-    // resolveProviderRouting lines 1291-1299 reroute review tasks
-    // from aider-ollama to ollama, but should check isUserOverride first
-    // This is already correct in the code: line 1291 checks !isUserOverride
-    expect(true).toBe(true); // Verified via code review
-  });
+  it.todo('resolveProviderRouting should not reroute user-override from aider-ollama to ollama for review tasks');
 
-  it('API provider instance fallback should fail for user overrides instead of silently switching to codex', () => {
-    // task-manager.js lines 1610-1617: when API provider has no instance
-    // and user_provider_override is set, it should fail the task
-    // This is already correct: line 1613 checks taskMetadata.user_provider_override
-    expect(true).toBe(true); // Verified via code review
-  });
+  it.todo('API provider instance fallback should fail for user overrides instead of silently switching to codex');
 });

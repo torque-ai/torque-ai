@@ -41,7 +41,10 @@ export default function Schedules() {
 
   useEffect(() => {
     loadSchedules();
-    const interval = setInterval(loadSchedules, 15000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadSchedules();
+    }, 60000);
     return () => clearInterval(interval);
   }, [loadSchedules]);
 

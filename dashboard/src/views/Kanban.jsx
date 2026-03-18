@@ -458,6 +458,7 @@ const KanbanColumn = memo(function KanbanColumn({
               {count != null ? count : tasks.length}
             </span>
             <select
+              aria-label="Sort tasks"
               value={sortKey}
               onChange={(e) => onSortChange(e.target.value)}
               onClick={(e) => e.stopPropagation()}

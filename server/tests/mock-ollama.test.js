@@ -51,6 +51,32 @@ describe('Mock Ollama Server', () => {
     expect(data.done).toBe(true);
   });
 
+  it('streams /api/generate by default when stream is omitted', async () => {
+    const res = await fetch(`${url}/api/generate`, {
+      method: 'POST',
+      body: JSON.stringify({ model: 'codellama', prompt: 'hello' }),
+    });
+    expect(res.status).toBe(200);
+    const lines = (await res.text()).trim().split('\n').map(line => JSON.parse(line));
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    expect(lines.at(-1).done).toBe(true);
+  });
+
+  it('responds to /api/chat', async () => {
+    const res = await fetch(`${url}/api/chat`, {
+      method: 'POST',
+      body: JSON.stringify({
+        model: 'codellama',
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: false,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.message.content).toContain('mock');
+    expect(data.done).toBe(true);
+  });
+
   it('responds to /api/show', async () => {
     const res = await fetch(`${url}/api/show`, {
       method: 'POST',

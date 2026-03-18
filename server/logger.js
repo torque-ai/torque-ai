@@ -54,6 +54,11 @@ class Logger {
   _getStream() {
     if (!this._stream) {
       const filePath = path.join(this.logDir, this.logFile);
+      try {
+        fs.mkdirSync(this.logDir, { recursive: true });
+      } catch {
+        return null;
+      }
       // SECURITY: check for symlink attack before opening
       try {
         const lstat = fs.lstatSync(filePath);
@@ -74,6 +79,9 @@ class Logger {
         }
       } catch { /* directory doesn't exist yet, will be created */ }
       this._stream = fs.createWriteStream(filePath, { flags: 'a' });
+      this._stream.on('error', () => {
+        this._stream = null;
+      });
     }
     return this._stream;
   }

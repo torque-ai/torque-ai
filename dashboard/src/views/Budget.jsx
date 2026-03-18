@@ -78,7 +78,10 @@ export default function Budget() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadData();
+    }, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 
@@ -168,6 +171,7 @@ export default function Budget() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="heading-lg text-white">Budget & Costs</h2>
         <select
+          aria-label="Filter budget stats by time range"
           value={days}
           onChange={(e) => { setDays(parseInt(e.target.value)); setLoading(true); }}
           className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"

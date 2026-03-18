@@ -304,7 +304,10 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
   useEffect(() => {
     loadWorkflows();
     // Auto-refresh every 30s for running workflows
-    const id = setInterval(loadWorkflows, 30000);
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      loadWorkflows();
+    }, 30000);
     return () => clearInterval(id);
   }, [loadWorkflows]);
 

@@ -379,13 +379,11 @@ describe('Coordination', () => {
     });
   });
 
-  it('falls back to claims length when dashboard has no tasks_claimed_24h', async () => {
+  it('shows N/A when dashboard has no tasks_claimed_24h', async () => {
     coordinationApi.getDashboard.mockResolvedValue({});
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      // Falls back to claims.length = 2; "2" appears for both Tasks Claimed and Routing Rules
-      const twoElements = screen.getAllByText('2');
-      expect(twoElements.length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByText('N/A')).toBeTruthy();
     });
   });
 });

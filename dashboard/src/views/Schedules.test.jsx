@@ -46,6 +46,7 @@ describe('Schedules', () => {
     schedulesApi.create.mockResolvedValue({ id: 'sched-new' });
     schedulesApi.toggle.mockResolvedValue({});
     schedulesApi.delete.mockResolvedValue({});
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -360,12 +361,11 @@ describe('Schedules', () => {
     });
   });
 
-  it('shows dash for null next_run date', async () => {
+  it('shows N/A for null run dates', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      // Weekly Cleanup has null next_run and last_run — both render as '-'
-      const dashes = screen.getAllByText('-');
-      expect(dashes.length).toBeGreaterThanOrEqual(2);
+      const unavailableValues = screen.getAllByText('N/A');
+      expect(unavailableValues.length).toBeGreaterThanOrEqual(2);
     });
   });
 

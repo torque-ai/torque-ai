@@ -34,9 +34,10 @@ vi.mock('../api', () => ({
   hosts: {
     list: vi.fn(),
   },
+  requestV2: vi.fn(),
 }));
 
-import { providers as providersApi, stats as statsApi, hosts as hostsApi } from '../api';
+import { providers as providersApi, stats as statsApi, hosts as hostsApi, requestV2 } from '../api';
 
 const mockProvidersList = [
   {
@@ -78,6 +79,7 @@ describe('Providers', () => {
         { date: '2026-03-10', ollama_total: 7, codex_total: 3, ollama_success_rate: 86, codex_success_rate: 100 },
       ],
     });
+    requestV2.mockResolvedValue(null);
   });
 
   afterEach(() => {

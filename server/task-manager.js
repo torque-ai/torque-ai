@@ -1114,6 +1114,8 @@ function handleFuzzyRepair(ctx) {
  * Phase 4: Detect no-file-change aider tasks, trigger local fallback.
  * Sets ctx.earlyExit = true if fallback is triggered.
  */
+const CONVERSATIONAL_REFUSAL_PATTERN = /\b(I'm ready to|share the files|provide more information|which files you want)\b/i;
+
 function handleNoFileChangeDetection(ctx) {
   const { taskId, proc, task } = ctx;
   if (ctx.status !== 'completed' || !task || task.provider !== 'aider-ollama') return;
@@ -1123,8 +1125,7 @@ function handleNoFileChangeDetection(ctx) {
   const noFilesChanged = !actuallyModified || actuallyModified.length === 0;
   const taskDesc = task.task_description || '';
   const codeGenVerbs = /\b(implement|build|create|wire|add|write|generate|make)\b/i;
-  const conversationalRefusal = /\b(I'm ready to|share the files|provide more information|which files you want)\b/i;
-  const hasRefusal = conversationalRefusal.test(proc.output || '');
+  const hasRefusal = CONVERSATIONAL_REFUSAL_PATTERN.test(proc.output || '');
 
   if (!(noFilesChanged && (codeGenVerbs.test(taskDesc) || hasRefusal))) return;
 
@@ -2773,6 +2774,7 @@ Object.assign(module.exports, {
   handleProjectDependencyResolution,
   detectOutputCompletion,
   detectSuccessFromOutput,
+  CONVERSATIONAL_REFUSAL_PATTERN,
   recordModelOutcome,
   recordProviderHealth,
   // Internal state (exported for testing only)

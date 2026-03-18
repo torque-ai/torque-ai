@@ -651,40 +651,35 @@ describe('process-lifecycle', () => {
 
   // ── killOrphanByPid ──
   describe('killOrphanByPid', () => {
-    it('sends SIGTERM then SIGKILL for orphan PID on non-Windows platform', () => {
-      if (process.platform === 'win32') {
-        expect(true).toBe(true);
-        return;
-      }
+    if (process.platform === 'win32') {
+      it.todo('sends SIGTERM then SIGKILL for orphan PID on non-Windows platform - Windows implementation needed');
+      it.todo('swallows ESRCH from orphan SIGTERM without scheduling SIGKILL - Windows implementation needed');
+    } else {
+      it('sends SIGTERM then SIGKILL for orphan PID on non-Windows platform', () => {
+        const processKillSpy = vi.spyOn(process, 'kill');
+        processKillSpy.mockImplementation(() => undefined);
 
-      const processKillSpy = vi.spyOn(process, 'kill');
-      processKillSpy.mockImplementation(() => undefined);
-
-      lifecycle.killOrphanByPid(9001, 'orphan-task', 50);
-      expect(processKillSpy).toHaveBeenCalledWith(9001, 'SIGTERM');
-      vi.advanceTimersByTime(50);
-      expect(processKillSpy).toHaveBeenCalledWith(9001, 'SIGKILL');
-      processKillSpy.mockRestore();
-    });
-
-    it('swallows ESRCH from orphan SIGTERM without scheduling SIGKILL', () => {
-      if (process.platform === 'win32') {
-        expect(true).toBe(true);
-        return;
-      }
-
-      const processKillSpy = vi.spyOn(process, 'kill');
-      processKillSpy.mockImplementation(() => {
-        const err = new Error('no such process');
-        err.code = 'ESRCH';
-        throw err;
+        lifecycle.killOrphanByPid(9001, 'orphan-task', 50);
+        expect(processKillSpy).toHaveBeenCalledWith(9001, 'SIGTERM');
+        vi.advanceTimersByTime(50);
+        expect(processKillSpy).toHaveBeenCalledWith(9001, 'SIGKILL');
+        processKillSpy.mockRestore();
       });
 
-      expect(() => lifecycle.killOrphanByPid(9002, 'orphan-task', 50)).not.toThrow();
-      expect(processKillSpy).toHaveBeenCalledWith(9002, 'SIGTERM');
-      expect(processKillSpy).toHaveBeenCalledTimes(1);
-      processKillSpy.mockRestore();
-    });
+      it('swallows ESRCH from orphan SIGTERM without scheduling SIGKILL', () => {
+        const processKillSpy = vi.spyOn(process, 'kill');
+        processKillSpy.mockImplementation(() => {
+          const err = new Error('no such process');
+          err.code = 'ESRCH';
+          throw err;
+        });
+
+        expect(() => lifecycle.killOrphanByPid(9002, 'orphan-task', 50)).not.toThrow();
+        expect(processKillSpy).toHaveBeenCalledWith(9002, 'SIGTERM');
+        expect(processKillSpy).toHaveBeenCalledTimes(1);
+        processKillSpy.mockRestore();
+      });
+    }
 
     it('returns early when no pid is provided', () => {
       const processKillSpy = vi.spyOn(process, 'kill');
@@ -697,17 +692,16 @@ describe('process-lifecycle', () => {
 
   // ── pauseProcess ──
   describe('pauseProcess', () => {
-    it('uses SIGSTOP on non-Windows processes', () => {
-      if (process.platform === 'win32') {
-        expect(true).toBe(true);
-        return;
-      }
-
-      const mockChild = createSpyableChild();
-      const pauseResult = lifecycle.pauseProcess({ process: mockChild }, 'task-1');
-      expect(pauseResult).toBeUndefined();
-      expect(mockChild.kill).toHaveBeenCalledWith('SIGSTOP');
-    });
+    if (process.platform === 'win32') {
+      it.todo('uses SIGSTOP on non-Windows processes - Windows implementation needed');
+    } else {
+      it('uses SIGSTOP on non-Windows processes', () => {
+        const mockChild = createSpyableChild();
+        const pauseResult = lifecycle.pauseProcess({ process: mockChild }, 'task-1');
+        expect(pauseResult).toBeUndefined();
+        expect(mockChild.kill).toHaveBeenCalledWith('SIGSTOP');
+      });
+    }
 
     it('no-ops when proc is null', () => {
       expect(() => lifecycle.pauseProcess(null, 'task-1')).not.toThrow();

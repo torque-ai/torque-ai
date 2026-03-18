@@ -460,7 +460,10 @@ export default function Strategic() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 15000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadData();
+    }, 15000);
     return () => clearInterval(interval);
   }, [loadData]);
 

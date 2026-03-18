@@ -13,6 +13,7 @@
 
 const routes = require('./routes');
 const { normalizeError } = require('./v2-middleware');
+const { sendJson } = require('./middleware');
 
 // V2 handler modules (initialized by api-server.core.js in the same process)
 const v2TaskHandlers = require('./v2-task-handlers');
@@ -101,30 +102,26 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpGetConcurrencyLimits: (req, res, ctx) => {
     const result = concurrencyHandlers.handleGetConcurrencyLimits();
     const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpSetConcurrencyLimit: async (req, res, ctx) => {
     const body = await readJsonBody(req);
     const result = concurrencyHandlers.handleSetConcurrencyLimit(body);
     const text = result?.content?.[0]?.text || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpGetEconomyStatus: (req, res, ctx) => {
     const url = new URL(req.url, 'http://localhost');
     const query = Object.fromEntries(url.searchParams);
     const result = economyHandlers.handleGetEconomyStatus(query);
     const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpSetEconomyMode: async (req, res, ctx) => {
     const body = await readJsonBody(req);
     const result = economyHandlers.handleSetEconomyMode(body);
     const text = result?.content?.[0]?.text || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpAddProvider: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -133,8 +130,7 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError(result);
     }
 
-    res.writeHead(201, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }, 201, req);
   },
   handleV2CpRemoveProvider: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -143,8 +139,7 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError(result);
     }
 
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }, 200, req);
   },
   // Provider API key management
   handleV2CpSetProviderApiKey: async (req, res, ctx) => {
@@ -154,8 +149,7 @@ const V2_CP_HANDLER_LOOKUP = {
     if (result?.isError) {
       throwToolResultError(result);
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpClearProviderApiKey: (req, res, ctx) => {
     const providerName = ctx.params?.provider_name || '';
@@ -163,8 +157,7 @@ const V2_CP_HANDLER_LOOKUP = {
     if (result?.isError) {
       throwToolResultError(result);
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }, 200, req);
   },
   // Strategic Brain configuration
   handleV2CpStrategicConfigGet: (req, res, ctx) => {
@@ -172,58 +165,50 @@ const V2_CP_HANDLER_LOOKUP = {
     const query = Object.fromEntries(url.searchParams);
     const result = strategicConfigHandlers.handleConfigGet({ working_directory: query.working_directory });
     if (result?.isError) { throwToolResultError(result); }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpStrategicConfigSet: async (req, res, ctx) => {
     const body = await readJsonBody(req);
     const result = strategicConfigHandlers.handleConfigSet({ working_directory: body.working_directory, config: body.config || body });
     if (result?.isError) { throwToolResultError(result); }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpStrategicConfigReset: async (req, res, ctx) => {
     const body = await readJsonBody(req);
     const result = strategicConfigHandlers.handleConfigReset({ working_directory: body.working_directory });
     if (result?.isError) { throwToolResultError(result); }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpStrategicTemplates: (req, res, ctx) => {
     const url = new URL(req.url, 'http://localhost');
     const query = Object.fromEntries(url.searchParams);
     const result = strategicConfigHandlers.handleConfigTemplates({ working_directory: query.working_directory });
     if (result?.isError) { throwToolResultError(result); }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: unwrapToolResult(result), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpStrategicTemplateGet: (req, res, ctx) => {
     const templateName = ctx.params?.template_name || '';
     const configLoader = require('../orchestrator/config-loader'); // inline require to avoid circular dependency
     const template = configLoader.loadTemplate(templateName);
     if (!template) {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: { code: 'TEMPLATE_NOT_FOUND', message: `Template not found: ${templateName}` }, meta: { request_id: ctx.requestId } }));
+      sendJson(res, { error: { code: 'TEMPLATE_NOT_FOUND', message: `Template not found: ${templateName}` }, meta: { request_id: ctx.requestId } }, 404, req);
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: template, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: template, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpStrategicTest: async (req, res, ctx) => {
     const capability = ctx.params?.capability || '';
     const body = await readJsonBody(req);
     // Dry-run: use the existing strategic handlers with a dry-run flag
     // For now, return a placeholder indicating the feature
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: { capability, status: 'dry_run_not_yet_implemented', input: body }, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: { capability, status: 'dry_run_not_yet_implemented', input: body }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   // Routing templates
   handleV2CpListRoutingTemplates: (req, res, ctx) => {
 
     const result = routingHandlers.handleListRoutingTemplates();
     const text = result?.content?.[0]?.text || '[]';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpGetRoutingTemplate: (req, res, ctx) => {
 
@@ -233,8 +218,7 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 404 });
     }
     const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpCreateRoutingTemplate: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -244,8 +228,7 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 400 });
     }
     const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(201, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 201, req);
   },
   handleV2CpUpdateRoutingTemplate: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -267,8 +250,7 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 400 });
     }
     const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpDeleteRoutingTemplate: (req, res, ctx) => {
 
@@ -280,8 +262,7 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status });
     }
     const text = result?.content?.[0]?.text || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpGetActiveRouting: (req, res, ctx) => {
 
@@ -290,8 +271,7 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 404 });
     }
     const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpSetActiveRouting: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -304,54 +284,47 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 404 });
     }
     const text = result?.content?.[0]?.text || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpListCategories: (req, res, ctx) => {
 
     const result = routingHandlers.handleListRoutingCategories();
     const text = result?.content?.[0]?.text || '[]';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   // Model registry
   handleV2CpListModels: (req, res, ctx) => {
 
     const result = modelHandlers.handleListModels(req.query || {});
     const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpListPendingModels: (req, res, ctx) => {
 
     const result = modelHandlers.handleListPendingModels();
     const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpApproveModel: async (req, res, ctx) => {
     const body = await readJsonBody(req);
 
     const result = modelHandlers.handleApproveModel(body);
     const text = result?.content?.[0]?.text || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpDenyModel: async (req, res, ctx) => {
     const body = await readJsonBody(req);
 
     const result = modelHandlers.handleDenyModel(body);
     const text = result?.content?.[0]?.text || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpBulkApproveModels: async (req, res, ctx) => {
     const body = await readJsonBody(req);
 
     const result = modelHandlers.handleBulkApproveModels(body);
     const text = result?.content?.[0]?.text || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: { message: text }, meta: { request_id: ctx.requestId } }));
+    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   // Remote execution
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
@@ -598,8 +571,7 @@ async function dispatchV2(req, res) {
       // Use v2 error normalization for consistent responses
       const { status, body } = normalizeError(err, req);
       if (!res.headersSent) {
-        res.writeHead(status, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(body));
+        sendJson(res, body, status, req);
       }
       return true;
     }

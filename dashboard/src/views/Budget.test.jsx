@@ -23,6 +23,7 @@ vi.mock('../api', () => ({
   budget: {
     summary: vi.fn(),
     status: vi.fn(),
+    forecast: vi.fn(),
   },
 }));
 
@@ -50,6 +51,7 @@ describe('Budget', () => {
   beforeEach(() => {
     budgetApi.summary.mockResolvedValue(mockSummary);
     budgetApi.status.mockResolvedValue(mockBudgetStatus);
+    budgetApi.forecast.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -59,6 +61,7 @@ describe('Budget', () => {
   it('renders loading state initially', () => {
     budgetApi.summary.mockReturnValue(new Promise(() => {}));
     budgetApi.status.mockReturnValue(new Promise(() => {}));
+    budgetApi.forecast.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Budget />, { route: '/budget' });
     expect(screen.getByText('Loading...')).toBeTruthy();
   });

@@ -143,6 +143,25 @@ function requestAgent({ method = 'GET', pathname = '/', headers = {}, body = nul
   });
 }
 
+async function waitForRunningTasks(minRunningTasks, { timeoutMs = 1000, intervalMs = 50 } = {}) {
+  const start = Date.now();
+  let lastRunningTasks = 0;
+
+  while (Date.now() - start < timeoutMs) {
+    const response = await requestAgent({
+      pathname: '/health',
+      headers: { 'X-Torque-Secret': TEST_SECRET },
+      timeout: timeoutMs,
+    });
+    const health = JSON.parse(response.body);
+    lastRunningTasks = health.running_tasks || 0;
+    if (lastRunningTasks >= minRunningTasks) return health;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(`Agent never reached ${minRunningTasks} running task(s); last observed ${lastRunningTasks}`);
+}
+
 // ── Tests ─────────────────────────────────────────────────────
 
 describe('Remote Agent Integration', { timeout: 30000 }, () => {
@@ -317,7 +336,7 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
       });
 
       // Wait for the first request to be picked up by the agent
-      await new Promise((r) => setTimeout(r, 200));
+      await waitForRunningTasks(1);
 
       // Second concurrent request should be rejected at capacity
       await expect(

@@ -36,7 +36,10 @@ export default function Approvals() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 10000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadData();
+    }, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 

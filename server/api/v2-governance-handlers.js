@@ -103,14 +103,14 @@ async function handleApprovalDecision(req, res) {
   const approvalId = req.params?.approval_id;
 
   if (!approvalId) {
-    return sendError(res, requestId, 'validation_error', 'approval_id is required', 400);
+    return sendError(res, requestId, 'validation_error', 'approval_id is required', 400, undefined, req);
   }
 
   const body = req.body || await parseBody(req);
   const decision = (typeof body.decision === 'string' ? body.decision : '').trim().toLowerCase();
 
   if (!decision || !['approved', 'rejected'].includes(decision)) {
-    return sendError(res, requestId, 'validation_error', 'decision must be "approved" or "rejected"', 400);
+    return sendError(res, requestId, 'validation_error', 'decision must be "approved" or "rejected"', 400, undefined, req);
   }
 
   if (!db.decideApproval) {
@@ -146,13 +146,13 @@ async function handleCreateSchedule(req, res) {
 
   const name = (body.name || '').trim();
   if (!name) {
-    return sendError(res, requestId, 'validation_error', 'name is required', 400);
+    return sendError(res, requestId, 'validation_error', 'name is required', 400, undefined, req);
   }
   if (!body.cron_expression) {
-    return sendError(res, requestId, 'validation_error', 'cron_expression is required', 400);
+    return sendError(res, requestId, 'validation_error', 'cron_expression is required', 400, undefined, req);
   }
   if (!body.task_description) {
-    return sendError(res, requestId, 'validation_error', 'task_description is required', 400);
+    return sendError(res, requestId, 'validation_error', 'task_description is required', 400, undefined, req);
   }
 
   try {
@@ -409,7 +409,7 @@ async function handlePlanProjectAction(req, res) {
   const action = req.params?.action;
 
   if (!action || !VALID_ACTIONS.has(action)) {
-    return sendError(res, requestId, 'validation_error', `Invalid action: ${action}. Must be one of: pause, resume, retry`, 400);
+    return sendError(res, requestId, 'validation_error', `Invalid action: ${action}. Must be one of: pause, resume, retry`, 400, undefined, req);
   }
 
   const project = db.getPlanProject ? db.getPlanProject(projectId) : null;
@@ -476,7 +476,7 @@ async function handleImportPlan(req, res) {
   const body = req.body || await parseBody(req);
 
   if (!body.plan_content) {
-    return sendError(res, requestId, 'validation_error', 'plan_content is required', 400);
+    return sendError(res, requestId, 'validation_error', 'plan_content is required', 400, undefined, req);
   }
 
   try {
@@ -520,7 +520,7 @@ async function handleListBenchmarks(req, res) {
   const hostId = query.host_id || query.hostId;
 
   if (!hostId) {
-    return sendError(res, requestId, 'validation_error', 'host_id is required', 400);
+    return sendError(res, requestId, 'validation_error', 'host_id is required', 400, undefined, req);
   }
 
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 10, 1), 1000);
@@ -545,7 +545,7 @@ async function handleApplyBenchmark(req, res) {
 
   const hostId = body.host_id || body.hostId;
   if (!hostId) {
-    return sendError(res, requestId, 'validation_error', 'host_id is required', 400);
+    return sendError(res, requestId, 'validation_error', 'host_id is required', 400, undefined, req);
   }
 
   try {
@@ -576,10 +576,10 @@ async function handleCreateProjectTuning(req, res) {
 
   const projectPath = (body.project_path || body.projectPath || '').trim();
   if (!projectPath) {
-    return sendError(res, requestId, 'validation_error', 'project_path is required', 400);
+    return sendError(res, requestId, 'validation_error', 'project_path is required', 400, undefined, req);
   }
   if (!body.settings || typeof body.settings !== 'object') {
-    return sendError(res, requestId, 'validation_error', 'settings object is required', 400);
+    return sendError(res, requestId, 'validation_error', 'settings object is required', 400, undefined, req);
   }
 
   try {
@@ -598,7 +598,7 @@ async function handleDeleteProjectTuning(req, res) {
   const projectPath = req.params?.project_path;
 
   if (!projectPath) {
-    return sendError(res, requestId, 'validation_error', 'project_path is required', 400);
+    return sendError(res, requestId, 'validation_error', 'project_path is required', 400, undefined, req);
   }
 
   try {

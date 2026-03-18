@@ -289,7 +289,10 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
 
   useEffect(() => {
     loadTasks();
-    const pollInterval = setInterval(loadTasks, 30000); // 30s fallback — WebSocket events provide real-time updates
+    const pollInterval = setInterval(() => {
+      if (document.hidden) return;
+      loadTasks();
+    }, 30000); // 30s fallback — WebSocket events provide real-time updates
     return () => clearInterval(pollInterval);
   }, [loadTasks]);
 
@@ -486,6 +489,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           className="flex-1 bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
         />
         <select
+          aria-label="Filter by status"
           value={filters.status}
           onChange={(e) => setFilters({ ...filters, status: e.target.value })}
           className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
@@ -498,6 +502,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           <option value="pending_provider_switch">Pending Switch</option>
         </select>
         <select
+          aria-label="Filter by provider"
           value={filters.provider}
           onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
           className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
@@ -508,6 +513,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           <option value="ollama">Ollama</option>
         </select>
         <select
+          aria-label="Filter by tag"
           value={filters.tag}
           onChange={(e) => setFilters({ ...filters, tag: e.target.value })}
           className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"

@@ -144,78 +144,21 @@ module.exports = { greet, farewell };
 
   // ── File Path Validation ─────────────────────────────────
   describe('isValidFilePath', () => {
-    // isValidFilePath is not directly exported, but extractModifiedFiles uses it internally.
-    // We test extractModifiedFiles which exercises isValidFilePath.
-    it('is available as a function', () => {
-      // Check if it's exported - it may be internal only
-      if (typeof tm.isValidFilePath === 'function') {
-        expect(tm.isValidFilePath('src/app.ts')).toBe(true);
-      } else {
-        // Skip - tested indirectly via extractModifiedFiles
-        expect(true).toBe(true);
-      }
-    });
+    it.todo('isValidFilePath not exported');
   });
 
   // ── Shell Safety ─────────────────────────────────────────
   describe('isShellSafe', () => {
-    // isShellSafe may not be exported directly
-    it('check export availability', () => {
-      if (typeof tm.isShellSafe === 'function') {
-        expect(tm.isShellSafe('safe-string')).toBe(true);
-        expect(tm.isShellSafe('$(evil)')).toBe(false);
-        expect(tm.isShellSafe('hello; rm -rf /')).toBe(false);
-        expect(tm.isShellSafe('`backtick`')).toBe(false);
-        expect(tm.isShellSafe(null)).toBe(true);
-        expect(tm.isShellSafe('')).toBe(true);
-      } else {
-        expect(true).toBe(true);
-      }
-    });
+    it.todo('isShellSafe not exported');
   });
 
   // ── Extract Modified Files ───────────────────────────────
   describe('extractModifiedFiles', () => {
-    // extractModifiedFiles may not be exported
-    it('check export availability and test if exported', () => {
-      if (typeof tm.extractModifiedFiles !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
-      const output = `
-Created file src/newFile.ts
-Modified src/existing.js
-Applied edit to src/component.tsx
-Writing to config/settings.json
-`;
-      const files = tm.extractModifiedFiles(output);
-      expect(Array.isArray(files)).toBe(true);
-      expect(files.length).toBeGreaterThan(0);
-    });
-
-    it('extracts files from plain-language written-to summaries', () => {
-      if (typeof tm.extractModifiedFiles !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
-      const output = `
-Baseline snapshot has been written to:
-artifacts/inspection/runner-status-integrity.md
-`;
-      const files = tm.extractModifiedFiles(output);
-      expect(files).toContain('artifacts/inspection/runner-status-integrity.md');
-    });
+    it.todo('extractModifiedFiles not exported');
   });
 
   describe('detectSuccessFromOutput', () => {
     it('detects codex success markers even when they are earlier than the final 2KB', () => {
-      if (typeof tm.detectSuccessFromOutput !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
       const output = [
         'Success. Updated the following files:',
         'M src/runner.js',
@@ -227,11 +170,6 @@ artifacts/inspection/runner-status-integrity.md
     });
 
     it('detects plain-language file writes when the transcript includes the written path', () => {
-      if (typeof tm.detectSuccessFromOutput !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
       const output = [
         'Baseline snapshot has been written to:',
         'artifacts/inspection/runner-status-integrity.md',
@@ -243,11 +181,6 @@ artifacts/inspection/runner-status-integrity.md
     });
 
     it('detects diff-only codex transcripts as successful work', () => {
-      if (typeof tm.detectSuccessFromOutput !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
       const output = [
         'Some planning text',
         'diff --git a/server/handlers/workflow-handlers.js b/server/handlers/workflow-handlers.js',
@@ -261,11 +194,6 @@ artifacts/inspection/runner-status-integrity.md
     });
 
     it('rejects Codex API errors even when success patterns are present', () => {
-      if (typeof tm.detectSuccessFromOutput !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
       const output = [
         'mcp startup: ready: torque, pixellab',
         'ERROR: {"detail":"The \'codex\' model is not supported when using Codex with a ChatGPT account."}',
@@ -278,11 +206,6 @@ artifacts/inspection/runner-status-integrity.md
     });
 
     it('rejects model-not-found errors', () => {
-      if (typeof tm.detectSuccessFromOutput !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
       const output = [
         'Error: model "gpt-99" not found on this server',
         'diff --git a/file.js b/file.js',
@@ -292,56 +215,33 @@ artifacts/inspection/runner-status-integrity.md
     });
 
     it('rejects invalid API key errors', () => {
-      if (typeof tm.detectSuccessFromOutput !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
       const output = 'Error: Invalid API key provided. Success. Updated the following files:';
 
       expect(tm.detectSuccessFromOutput(output, 'deepinfra')).toBe(false);
     });
 
     it('rejects authentication failed errors', () => {
-      if (typeof tm.detectSuccessFromOutput !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
       const output = 'Authentication failed: token expired\nAll 5 tests passed';
 
       expect(tm.detectSuccessFromOutput(output, 'hyperbolic')).toBe(false);
     });
 
     it('rejects insufficient quota errors', () => {
-      if (typeof tm.detectSuccessFromOutput !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
       const output = 'Error: insufficient_quota - you have exceeded your billing limit\nfile update:';
 
       expect(tm.detectSuccessFromOutput(output, 'deepinfra')).toBe(false);
+    });
+
+    it('detects shared test-pass summaries once the provider threshold is met', () => {
+      const output = `${'x'.repeat(2100)}\n12 passed, 0 failed`;
+
+      expect(tm.detectSuccessFromOutput(output, 'unknown-provider')).toBe(true);
     });
   });
 
   // ── Context Estimation ───────────────────────────────────
   describe('estimateRequiredContext', () => {
-    // May not be exported
-    it('check export and test if available', () => {
-      if (typeof tm.estimateRequiredContext !== 'function') {
-        expect(true).toBe(true);
-        return;
-      }
-
-      // Simple task → small context
-      const simple = tm.estimateRequiredContext('fix a typo in readme');
-      expect(simple.contextSize).toBeLessThanOrEqual(8192);
-
-      // Complex task → larger context
-      const complex = tm.estimateRequiredContext('refactor the entire authentication system across all files');
-      expect(complex.contextSize).toBeGreaterThanOrEqual(8192);
-    });
+    it.todo('estimateRequiredContext not exported');
   });
 
   // ── Instruction Templates ────────────────────────────────

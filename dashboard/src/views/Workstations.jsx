@@ -284,7 +284,10 @@ export default function Workstations() {
 
   useEffect(() => {
     loadWorkstations();
-    const interval = setInterval(loadWorkstations, 10000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadWorkstations();
+    }, 10000);
     return () => clearInterval(interval);
   }, [loadWorkstations]);
 

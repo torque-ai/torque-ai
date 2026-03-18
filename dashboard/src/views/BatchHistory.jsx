@@ -376,7 +376,10 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
 
   // Fallback polling at 120s in case WebSocket is disconnected
   useEffect(() => {
-    const id = setInterval(loadWorkflows, 120000);
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      loadWorkflows();
+    }, 120000);
     return () => clearInterval(id);
   }, [loadWorkflows]);
 
@@ -477,6 +480,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
         <h2 className="heading-lg text-white">Batches</h2>
         <div className="flex items-center gap-3">
           <select
+            aria-label="Filter batches by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"

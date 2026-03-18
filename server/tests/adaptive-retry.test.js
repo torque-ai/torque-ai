@@ -93,6 +93,7 @@ describe('adaptive-retry module', () => {
       }
 
       const results = mod.analyzeRetryPatterns();
+      expect(results.length).toBeGreaterThan(0);
       if (results.length > 0) {
         expect(results[0].strategy_used).toBe('exponential');
         expect(results[0].success_rate).toBeDefined();

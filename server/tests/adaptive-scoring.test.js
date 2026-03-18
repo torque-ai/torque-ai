@@ -35,8 +35,8 @@ function rawDb() {
 }
 
 describe('Adaptive Scoring', () => {
-  beforeAll(() => setup());
-  afterAll(() => teardown());
+  beforeEach(() => setup());
+  afterEach(() => teardown());
 
   describe('recordTaskOutcome', () => {
     it('records a successful outcome', () => {
@@ -57,9 +57,9 @@ describe('Adaptive Scoring', () => {
       const rows = rawDb().prepare(
         'SELECT * FROM model_task_outcomes WHERE model_name = ?'
       ).all('qwen2.5-coder:32b');
-      expect(rows.length).toBe(2);
-      expect(rows[1].success).toBe(0);
-      expect(rows[1].failure_category).toBe('test_failure');
+      expect(rows.length).toBe(1);
+      expect(rows[0].success).toBe(0);
+      expect(rows[0].failure_category).toBe('test_failure');
     });
 
     it('records outcome with null language', () => {
@@ -81,16 +81,18 @@ describe('Adaptive Scoring', () => {
 
   describe('computeAdaptiveScores', () => {
     it('returns null with fewer than 5 outcomes', () => {
-      // qwen3:8b has only 2 outcomes from above
+      mod.recordTaskOutcome('qwen3:8b', 'docs', null, true, 10.0);
+      mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'python', true, null);
+
       expect(mod.computeAdaptiveScores('qwen3:8b')).toBeNull();
     });
 
     it('returns per-task-type success rates with 5+ outcomes', () => {
-      // Add more outcomes for qwen2.5-coder:32b to reach 5+
+      mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', true, 45.2);
+      mod.recordTaskOutcome('qwen2.5-coder:32b', 'testing', 'javascript', false, 30.0, 'test_failure');
       mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', true, 40);
       mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', true, 35);
       mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', false, 50);
-      // Now has 5 total: 3 code_gen success + 1 code_gen fail + 1 testing fail = 5
 
       const scores = mod.computeAdaptiveScores('qwen2.5-coder:32b');
       expect(scores).toBeTruthy();

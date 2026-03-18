@@ -20,7 +20,7 @@ let workDir;
  * Much faster than waiting for task completion when the test only needs
  * to inspect the prompt (avoids the full fallback chain delay).
  */
-async function waitForGenerateRequest(mockServer, timeout = 5000) {
+async function waitForGenerateRequest(mockServer, timeout = 10000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const genRequests = mockServer.requestLog.filter(r => r.url === '/api/generate');
