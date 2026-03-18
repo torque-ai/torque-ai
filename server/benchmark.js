@@ -192,8 +192,8 @@ async function runBenchmark(host, model, prompt, options = {}) {
     const promptTokens = response.prompt_eval_count || 0;
     const outputTokens = response.eval_count || 0;
 
-    const tokensPerSecond = outputTokens / evalDuration;
-    const promptTokensPerSecond = promptTokens / promptEvalDuration;
+    const tokensPerSecond = evalDuration > 0 ? outputTokens / evalDuration : 0;
+    const promptTokensPerSecond = promptEvalDuration > 0 ? promptTokens / promptEvalDuration : 0;
 
     return {
       success: true,

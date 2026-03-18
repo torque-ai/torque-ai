@@ -298,7 +298,7 @@ function buildV2FailurePayload({
 function buildV2InferenceTaskOptions(payload, providerId) {
   const timeoutMinutes = Object.prototype.hasOwnProperty.call(payload, 'timeout_ms')
     ? Number(payload.timeout_ms) / 60000
-    : getV2ProviderDefaultTimeoutMs(providerId) / 1000;
+    : getV2ProviderDefaultTimeoutMs(providerId) / 60000;
 
   const options = {
     timeout: Number.isFinite(timeoutMinutes) && timeoutMinutes > 0 ? timeoutMinutes : 5,
@@ -522,7 +522,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         sendV2Error(
           res,
           requestId,
-          'stream_not_supported',
+          'async_not_supported',
           `Async inference is not supported for provider: ${currentAttempt.provider}`,
           400,
           failureDetails,
@@ -576,7 +576,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           providerId: currentAttempt.provider,
           model: taskModel,
           taskResult,
-          requestId,
+          status: taskResult.status || 'completed',
           routeReason: currentAttempt.reason,
           transport: currentAttempt.transport,
           attempts: executionPlan,
@@ -743,7 +743,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           providerId: currentAttempt.provider,
           model: taskModel,
           taskResult,
-          requestId,
+          status: taskResult.status || 'completed',
           routeReason: currentAttempt.reason,
           transport: currentAttempt.transport,
           attempts: executionPlan,

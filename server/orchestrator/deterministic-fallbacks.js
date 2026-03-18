@@ -161,12 +161,13 @@ function fallbackReview({ validation_failures, file_size_delta_pct, config }) {
   const totalChecks = hasCriteria ? Math.max(criteria.length, failures.length) : Math.max(failures.length, 1);
   const passedChecks = totalChecks - warnings.length;
   const score = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 100;
+  const clampedScore = Math.max(0, Math.min(100, score));
 
   if (strictMode && warnings.length > 0) {
     return {
       decision: 'reject',
       reason: `Strict mode: ${warnings.length} warning(s) present`,
-      quality_score: score,
+      quality_score: clampedScore,
       warnings: warnings.map((warning) => warning.rule),
       criteria_checked: criteria,
       source: 'deterministic',
@@ -174,11 +175,11 @@ function fallbackReview({ validation_failures, file_size_delta_pct, config }) {
     };
   }
 
-  if (hasCriteria && score < autoApproveThreshold) {
+  if (hasCriteria && clampedScore < autoApproveThreshold) {
     return {
       decision: 'reject',
-      reason: `Score ${score} below auto-approve threshold ${autoApproveThreshold}`,
-      quality_score: score,
+      reason: `Score ${clampedScore} below auto-approve threshold ${autoApproveThreshold}`,
+      quality_score: clampedScore,
       warnings: warnings.map((warning) => warning.rule),
       criteria_checked: criteria,
       source: 'deterministic',
@@ -189,7 +190,7 @@ function fallbackReview({ validation_failures, file_size_delta_pct, config }) {
   return {
     decision: 'approve',
     reason: critical.length === 0 ? 'No critical issues' : undefined,
-    quality_score: score,
+    quality_score: clampedScore,
     warnings: warnings.map((warning) => warning.rule),
     criteria_checked: criteria,
     source: 'deterministic',

@@ -514,7 +514,7 @@ function handleGetProviderPercentiles(args) {
     };
   }
 
-  const p = (arr, pct) => arr[Math.floor(arr.length * pct / 100)] || null;
+  const p = (arr, pct) => arr[Math.min(arr.length - 1, Math.floor(arr.length * pct / 100))] || null;
   const p50 = p(durations, 50);
   const p75 = p(durations, 75);
   const p90 = p(durations, 90);

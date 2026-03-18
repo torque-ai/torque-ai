@@ -56,7 +56,7 @@ function buildTimeSeries(days, provider) {
       completed,
       failed,
       success_rate: total > 0
-        ? Math.round((completed / (completed + failed || 1)) * 100)
+        ? Math.round((completed / ((completed + failed) || 1)) * 100)
         : 0,
     });
   }
@@ -191,6 +191,7 @@ async function handleModelStats(req, res) {
     const rows = sqlDb.prepare(`
       SELECT model, provider,
         COUNT(*) as total,
+        COUNT(*) as task_count,
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
         AVG(CASE WHEN completed_at IS NOT NULL AND started_at IS NOT NULL
@@ -216,9 +217,9 @@ async function handleModelStats(req, res) {
       m.failed += row.failed;
       if (!m.last_used || row.last_used > m.last_used) m.last_used = row.last_used;
       if (row.avg_duration_seconds != null) {
-        m.avg_duration_seconds = m.avg_duration_seconds != null
-          ? (m.avg_duration_seconds + row.avg_duration_seconds) / 2
-          : row.avg_duration_seconds;
+        m._totalDuration = (m._totalDuration || 0) + row.avg_duration_seconds * row.task_count;
+        m._totalCount = (m._totalCount || 0) + row.task_count;
+        m.avg_duration_seconds = m._totalDuration / m._totalCount;
       }
     }
 

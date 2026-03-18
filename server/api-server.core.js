@@ -321,9 +321,9 @@ function getV2ProviderDefaultTimeoutMs(providerId) {
   const timeoutSeconds = PROVIDER_DEFAULT_TIMEOUTS[providerId];
   const safeSeconds = Number(timeoutSeconds);
   if (Number.isFinite(safeSeconds) && safeSeconds > 0) {
-    return safeSeconds * 1000;
+    return safeSeconds * 60 * 1000;
   }
-  return 30000;
+  return 30 * 60 * 1000;
 }
 
 function getV2ProviderQueueDepth(providerId) {
@@ -1191,8 +1191,8 @@ function validateV2TimeoutMs(payload, errors) {
     collectValidationError(errors, 'timeout_ms', 'type', '`timeout_ms` must be an integer');
     return;
   }
-  if (timeout <= 0 || timeout > 600000) {
-    collectValidationError(errors, 'timeout_ms', 'range', '`timeout_ms` must be between 1 and 600000');
+  if (timeout <= 0 || timeout > 1800000) {
+    collectValidationError(errors, 'timeout_ms', 'range', '`timeout_ms` must be between 1 and 1800000');
   }
 }
 
