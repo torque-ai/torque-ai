@@ -1,6 +1,6 @@
 {
   "name": "All Local",
-  "description": "Never leave Ollama — maximum privacy, zero cost",
+  "description": "Local Ollama for everything — maximum privacy, codex escape hatch for complex failures",
   "rules": {
     "security": "ollama",
     "xaml_wpf": "ollama",
@@ -12,5 +12,9 @@
     "targeted_file_edit": "hashline-ollama",
     "default": "ollama"
   },
-  "complexity_overrides": {}
+  "complexity_overrides": {
+    "architectural": { "complex": "codex" },
+    "reasoning": { "complex": "codex" },
+    "large_code_gen": { "complex": "codex" }
+  }
 }

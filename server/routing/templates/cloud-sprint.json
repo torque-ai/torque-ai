@@ -1,16 +1,52 @@
 {
   "name": "Cloud Sprint",
-  "description": "Maximum speed — fastest free cloud models for every category (sub-2s target)",
+  "description": "Maximum speed — cerebras for everything, codex fallback for failures",
   "rules": {
-    "security": "cerebras",
-    "xaml_wpf": "cerebras",
-    "architectural": "cerebras",
-    "reasoning": "cerebras",
-    "large_code_gen": "cerebras",
-    "documentation": "groq",
-    "simple_generation": "cerebras",
-    "targeted_file_edit": "cerebras",
-    "default": "cerebras"
+    "security": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "codex"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+    ],
+    "xaml_wpf": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "codex"}
+    ],
+    "architectural": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "codex"},
+      {"provider": "groq", "model": "qwen/qwen3-32b"}
+    ],
+    "reasoning": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "codex"},
+      {"provider": "groq", "model": "qwen/qwen3-32b"}
+    ],
+    "large_code_gen": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "codex"},
+      {"provider": "groq", "model": "qwen/qwen3-32b"}
+    ],
+    "documentation": [
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash-lite"}
+    ],
+    "simple_generation": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+    ],
+    "targeted_file_edit": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "codex"}
+    ],
+    "default": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "codex"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+    ]
   },
   "complexity_overrides": {}
 }

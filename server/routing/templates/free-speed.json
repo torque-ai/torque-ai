@@ -1,30 +1,31 @@
 {
   "name": "Free Speed",
-  "description": "Lowest latency — sub-second models with fast fallbacks",
+  "description": "Lowest latency — sub-second free models first, codex safety net for hard failures",
   "rules": {
     "security": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "groq", "model": "openai/gpt-oss-120b"},
-      {"provider": "groq", "model": "moonshotai/kimi-k2-instruct"}
+      {"provider": "codex"}
     ],
     "xaml_wpf": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "codex"}
     ],
     "architectural": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "groq", "model": "qwen/qwen3-32b"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash-lite"}
+      {"provider": "codex"}
     ],
     "reasoning": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "groq", "model": "qwen/qwen3-32b"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+      {"provider": "codex"}
     ],
     "large_code_gen": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "groq", "model": "qwen/qwen3-32b"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+      {"provider": "codex"}
     ],
     "documentation": [
       {"provider": "groq", "model": "openai/gpt-oss-120b"},
@@ -38,13 +39,13 @@
     "targeted_file_edit": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "groq", "model": "openai/gpt-oss-120b"},
-      {"provider": "groq", "model": "moonshotai/kimi-k2-instruct"}
+      {"provider": "codex"}
     ],
     "default": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "groq", "model": "openai/gpt-oss-120b"},
       {"provider": "groq", "model": "qwen/qwen3-32b"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash-lite"}
+      {"provider": "codex"}
     ]
   },
   "complexity_overrides": {}
