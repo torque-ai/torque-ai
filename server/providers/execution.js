@@ -10,10 +10,17 @@
  * Also hosts the agentic tool-calling pipeline that wraps Ollama and cloud API
  * providers with adapter-agnostic tool calling (Task 8 integration).
  *
+ * Agentic tasks now run in isolated worker_threads via spawnAgenticWorker()
+ * to prevent the agentic loop from starving the main-thread event loop
+ * (4 HTTP servers + synchronous DB ops).
+ *
  * Preserves the original init() DI interface — all dependencies are forwarded to sub-modules.
  */
 
 'use strict';
+
+const { Worker } = require('worker_threads');
+const path = require('path');
 
 const _executeApiModule = require('./execute-api');
 const _executeOllamaModule = require('./execute-ollama');
@@ -236,9 +243,68 @@ ${platformRule}
 Working directory: ${workingDir}`;
 }
 
+// ============================================================
+// Worker-based agentic execution
+// ============================================================
+
+/**
+ * Spawn a worker_threads worker that runs the agentic loop in isolation.
+ *
+ * The worker communicates back via postMessage with a typed protocol:
+ *   progress, toolCall, chunk, log, result, error
+ *
+ * @param {Object} config - workerData passed to agentic-worker.js
+ * @param {Object} [callbacks] - optional message handlers
+ * @param {Function} [callbacks.onProgress]
+ * @param {Function} [callbacks.onToolCall]
+ * @param {Function} [callbacks.onChunk]
+ * @param {Function} [callbacks.onLog]
+ * @returns {{ promise: Promise, abort: Function, terminate: Function, worker: Worker }}
+ */
+function spawnAgenticWorker(config, callbacks = {}) {
+  const { onProgress, onToolCall, onChunk, onLog } = callbacks;
+  let settled = false;
+
+  const worker = new Worker(
+    path.join(__dirname, 'agentic-worker.js'),
+    { workerData: config }
+  );
+
+  const abort = () => worker.postMessage({ type: 'abort' });
+  const terminate = () => worker.terminate();
+
+  const promise = new Promise((resolve, reject) => {
+    worker.on('message', (msg) => {
+      if (settled) return;
+      switch (msg.type) {
+        case 'progress': if (onProgress) onProgress(msg); break;
+        case 'toolCall': if (onToolCall) onToolCall(msg); break;
+        case 'chunk': if (onChunk) onChunk(msg); break;
+        case 'log': if (onLog) onLog(msg); break;
+        case 'result': settled = true; resolve(msg); break;
+        case 'error': settled = true; reject(new Error(msg.message)); break;
+      }
+    });
+    worker.on('error', (err) => {
+      if (!settled) { settled = true; reject(err); }
+    });
+    worker.on('exit', (code) => {
+      if (!settled && code !== 0) {
+        settled = true;
+        reject(new Error(`Worker exited with code ${code}`));
+      }
+    });
+  });
+
+  return { promise, abort, terminate, worker };
+}
+
 /**
  * Run the full agentic pipeline: create executor, capture git snapshot,
  * run the agentic loop, check/revert unauthorized changes, store metadata.
+ *
+ * @deprecated Use spawnAgenticWorker() instead. Retained for backward compatibility
+ * with any code that references runAgenticPipeline directly.
  *
  * @param {Object} params
  * @param {Object} params.adapter - Chat adapter
@@ -467,24 +533,73 @@ async function executeOllamaTaskWithAgentic(task) {
     const maxIterations = parseInt(serverConfig.get('agentic_max_iterations') || '10');
     const contextBudget = tuning.numCtx ? Math.floor(tuning.numCtx * 0.8) : 16000;
 
-    const result = await runAgenticPipeline({
-      adapter,
-      systemPrompt,
-      task,
-      promptInjectedTools: usePromptInjection,
+    // Capture git snapshot in main thread (git ops need main process context)
+    let snapshot = null;
+    try {
+      snapshot = captureSnapshot(workingDir);
+    } catch (e) {
+      logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
+    }
+
+    // Spawn worker thread for the agentic loop
+    const workerHandle = spawnAgenticWorker({
+      adapterType: 'ollama',
       adapterOptions: {
         host: ollamaHost,
         apiKey: resolveApiKey(provider),
         model: resolvedModel,
         ...tuningOptions,
       },
+      systemPrompt,
+      taskPrompt: task.task_description,
       workingDir,
       timeoutMs,
       maxIterations,
       contextBudget,
-      ollamaStreamId,
-      signal: abortController.signal,
+      promptInjectedTools: usePromptInjection,
+      commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
+      commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
+    }, {
+      onProgress: (msg) => {
+        try {
+          db.updateTaskStatus(taskId, 'running', {
+            progress_percent: Math.min(85, 10 + Math.floor((msg.iteration / msg.maxIterations) * 75)),
+            output: `[Agentic: iteration ${msg.iteration}/${msg.maxIterations}, last tool: ${msg.lastTool || 'none'}]`,
+          });
+          dashboard.notifyTaskUpdated(taskId);
+        } catch { /* ignore */ }
+      },
+      onToolCall: (msg) => {
+        try {
+          dashboard.notifyTaskOutput(taskId, `[tool:${msg.name}] ${msg.result?.slice(0, 50) || 'ok'}\n`);
+        } catch { /* ignore */ }
+      },
+      onChunk: (msg) => {
+        try {
+          db.addStreamChunk(ollamaStreamId, msg.text, 'stdout');
+          dashboard.notifyTaskOutput(taskId, msg.text);
+        } catch { /* ignore */ }
+      },
+      onLog: (msg) => {
+        logger[msg.level || 'info'](msg.message);
+      },
     });
+
+    // Wire abort: forward AbortController.abort() → worker abort message
+    const origAbortHandler = () => workerHandle.abort();
+    abortController.signal.addEventListener('abort', origAbortHandler);
+
+    const result = await workerHandle.promise;
+
+    // Git safety check in main thread (after worker completes)
+    if (snapshot && snapshot.isGitRepo) {
+      const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
+      const mode = safetyMode === 'on' ? 'enforce' : safetyMode === 'warn' ? 'warn' : 'off';
+      const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
+      if (gitReport.report) {
+        result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
+      }
+    }
 
     // Store result + metadata in a single status update (avoid double-complete race)
     safeUpdateTaskStatus(taskId, 'completed', {
@@ -498,7 +613,7 @@ async function executeOllamaTaskWithAgentic(task) {
       }),
     });
 
-    logger.info(`[Agentic] Ollama task ${taskId} completed: ${result.iterations} iterations, ${result.toolLog.length} tool calls, ${result.changedFiles.length} files changed`);
+    logger.info(`[Agentic] Ollama task ${taskId} completed: ${result.iterations} iterations, ${(result.toolLog || []).length} tool calls, ${(result.changedFiles || []).length} files changed`);
 
   } catch (error) {
     logger.info(`[Agentic] Ollama task ${taskId} failed: ${error.message}`);
@@ -607,23 +722,78 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     };
     const contextBudget = PROVIDER_CONTEXT_BUDGETS[provider] || 16000;
 
-    const result = await runAgenticPipeline({
-      adapter,
-      systemPrompt,
-      task,
+    // Capture git snapshot in main thread (git ops need main process context)
+    let snapshot = null;
+    try {
+      snapshot = captureSnapshot(workingDir);
+    } catch (e) {
+      logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
+    }
+
+    // Resolve adapter type for the worker
+    const adapterType = provider === 'ollama-cloud' ? 'ollama'
+      : provider === 'google-ai' ? 'google'
+      : 'openai';
+
+    // Spawn worker thread for the agentic loop
+    const workerHandle = spawnAgenticWorker({
+      adapterType,
       adapterOptions: {
         host,
         apiKey,
         model,
         temperature: 0.3,
       },
+      systemPrompt,
+      taskPrompt: task.task_description,
       workingDir,
       timeoutMs,
       maxIterations,
       contextBudget,
-      ollamaStreamId,
-      signal: abortController.signal,
+      promptInjectedTools: false,
+      commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
+      commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
+    }, {
+      onProgress: (msg) => {
+        try {
+          db.updateTaskStatus(taskId, 'running', {
+            progress_percent: Math.min(85, 10 + Math.floor((msg.iteration / msg.maxIterations) * 75)),
+            output: `[Agentic: iteration ${msg.iteration}/${msg.maxIterations}, last tool: ${msg.lastTool || 'none'}]`,
+          });
+          dashboard.notifyTaskUpdated(taskId);
+        } catch { /* ignore */ }
+      },
+      onToolCall: (msg) => {
+        try {
+          dashboard.notifyTaskOutput(taskId, `[tool:${msg.name}] ${msg.result?.slice(0, 50) || 'ok'}\n`);
+        } catch { /* ignore */ }
+      },
+      onChunk: (msg) => {
+        try {
+          db.addStreamChunk(ollamaStreamId, msg.text, 'stdout');
+          dashboard.notifyTaskOutput(taskId, msg.text);
+        } catch { /* ignore */ }
+      },
+      onLog: (msg) => {
+        logger[msg.level || 'info'](msg.message);
+      },
     });
+
+    // Wire abort: forward AbortController.abort() → worker abort message
+    const origAbortHandler = () => workerHandle.abort();
+    abortController.signal.addEventListener('abort', origAbortHandler);
+
+    const result = await workerHandle.promise;
+
+    // Git safety check in main thread (after worker completes)
+    if (snapshot && snapshot.isGitRepo) {
+      const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
+      const mode = safetyMode === 'on' ? 'enforce' : safetyMode === 'warn' ? 'warn' : 'off';
+      const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
+      if (gitReport.report) {
+        result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
+      }
+    }
 
     // Store result + metadata in a single status update (avoid double-complete race)
     safeUpdateTaskStatus(taskId, 'completed', {
@@ -637,7 +807,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       }),
     });
 
-    logger.info(`[Agentic] API task ${taskId} completed: ${result.iterations} iterations, ${result.toolLog.length} tool calls, ${result.changedFiles.length} files changed`);
+    logger.info(`[Agentic] API task ${taskId} completed: ${result.iterations} iterations, ${(result.toolLog || []).length} tool calls, ${(result.changedFiles || []).length} files changed`);
 
   } catch (error) {
     logger.info(`[Agentic] API task ${taskId} failed: ${error.message}`);
@@ -667,6 +837,8 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
 
 module.exports = {
   init,
+  // Worker spawner (for tests and direct use)
+  spawnAgenticWorker,
   // From execute-ollama.js (wrapped with agentic interceptor)
   estimateRequiredContext: _executeOllamaModule.estimateRequiredContext,
   executeOllamaTask: executeOllamaTaskWithAgentic,
@@ -682,4 +854,6 @@ module.exports = {
   buildClaudeCliCommand: _executeCliModule.buildClaudeCliCommand,
   buildCodexCommand: _executeCliModule.buildCodexCommand,
   spawnAndTrackProcess: _executeCliModule.spawnAndTrackProcess,
+  // Legacy backward compat
+  runAgenticPipeline,
 };
