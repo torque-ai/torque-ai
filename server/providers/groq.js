@@ -44,6 +44,7 @@ class GroqProvider extends BaseProvider {
       timeoutId = setTimeout(() => controller.abort(), timeout);
       abortHandler = () => controller.abort();
       if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
+      if (options.signal?.aborted) controller.abort();
 
       const body = {
         model: selectedModel,
@@ -132,6 +133,7 @@ class GroqProvider extends BaseProvider {
       timeoutId = setTimeout(() => controller.abort(), timeout);
       abortHandler = () => controller.abort();
       if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
+      if (options.signal?.aborted) controller.abort();
 
       const body = {
         model: selectedModel,

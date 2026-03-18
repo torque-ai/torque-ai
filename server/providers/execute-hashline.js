@@ -134,6 +134,7 @@ async function runOllamaGenerate({ ollamaHost, ollamaModel, prompt, systemPrompt
   let response;
   try {
     response = await new Promise((resolve, reject) => {
+      let resolved = false;
       const req = httpModule.request({
         hostname: url.hostname,
         port: url.port || (isHttps ? 443 : 11434),
@@ -197,7 +198,7 @@ async function runOllamaGenerate({ ollamaHost, ollamaModel, prompt, systemPrompt
           }
 
           if (parsed.done) {
-            resolve({ status: res.statusCode, data: { response: fullResponse } });
+            if (!resolved) { resolved = true; resolve({ status: res.statusCode, data: { response: fullResponse } }); }
           }
         };
 
@@ -223,9 +224,9 @@ async function runOllamaGenerate({ ollamaHost, ollamaModel, prompt, systemPrompt
           }
 
           if (fullResponse) {
-            resolve({ status: res.statusCode, data: { response: fullResponse } });
+            if (!resolved) { resolved = true; resolve({ status: res.statusCode, data: { response: fullResponse } }); }
           } else {
-            resolve({ status: res.statusCode, data: { response: '', error: 'Empty response' } });
+            if (!resolved) { resolved = true; resolve({ status: res.statusCode, data: { response: '', error: 'Empty response' } }); }
           }
         });
       });
@@ -457,6 +458,13 @@ async function executeHashlineOllamaTask(task) {
   const taskId = task.id;
   const workingDir = task.working_directory || process.cwd();
   let terminalCompleted = false;
+
+  let cancelCheckInterval = setInterval(() => {
+    try {
+      const cur = db.getTask(taskId);
+      if (!cur || cur.status === 'cancelled' || cur.status === 'failed') clearInterval(cancelCheckInterval);
+    } catch {}
+  }, 5000);
 
   // Resolve files from task description
   let resolvedFiles = [];
@@ -1054,6 +1062,7 @@ async function executeHashlineOllamaTask(task) {
     }
 
   } catch (error) {
+    if (cancelCheckInterval) clearInterval(cancelCheckInterval);
     logger.info(`[HashlineOllama] Task ${taskId} failed: ${error.message}`);
 
     if (selectedHostId) {
@@ -1073,6 +1082,7 @@ async function executeHashlineOllamaTask(task) {
     tryHashlineTieredFallback(taskId, task, error.message || 'unknown error');
   }
 
+  if (cancelCheckInterval) clearInterval(cancelCheckInterval);
   if (terminalCompleted) {
     handleWorkflowTermination(taskId);
   }

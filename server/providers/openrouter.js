@@ -295,7 +295,7 @@ class OpenRouterProvider extends BaseProvider {
       throw lastError || new Error('All OpenRouter fallback models exhausted (rate-limited)');
     } catch (err) {
       if (err.name === 'AbortError') {
-        return { output: '', status: 'timeout', usage: { tokens: 0, cost: 0, duration_ms: Date.now() - startTime } };
+        return { output: '', status: options.signal?.aborted ? 'cancelled' : 'timeout', usage: { tokens: 0, cost: 0, duration_ms: Date.now() - startTime } };
       }
       throw err;
     } finally {
@@ -343,7 +343,7 @@ class OpenRouterProvider extends BaseProvider {
       throw lastError || new Error('All OpenRouter fallback models exhausted (rate-limited)');
     } catch (err) {
       if (err.name === 'AbortError') {
-        return { output: '', status: 'timeout', usage: { tokens: 0, cost: 0, duration_ms: Date.now() - startTime } };
+        return { output: '', status: options.signal?.aborted ? 'cancelled' : 'timeout', usage: { tokens: 0, cost: 0, duration_ms: Date.now() - startTime } };
       }
       throw err;
     } finally {

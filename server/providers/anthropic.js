@@ -45,6 +45,7 @@ class AnthropicProvider extends BaseProvider {
       abortHandler = () => controller.abort();
       // Forward external cancel signal (from execute-api.js) to our abort controller
       if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
+      if (options.signal?.aborted) controller.abort();
 
       const body = {
         model: selectedModel,
@@ -137,6 +138,7 @@ class AnthropicProvider extends BaseProvider {
       timeoutId = setTimeout(() => controller.abort(), timeout);
       abortHandler = () => controller.abort();
       if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
+      if (options.signal?.aborted) controller.abort();
 
       const body = {
         model: selectedModel,

@@ -67,10 +67,10 @@ function init(deps) {
 }
 
 // Proxy helpers
-function tryReserveHostSlotWithFallback(...args) { return _tryReserveHostSlotWithFallback(...args); }
-function markTaskCleanedUp(...args) { return _markTaskCleanedUp(...args); }
+function tryReserveHostSlotWithFallback(...args) { if (!_tryReserveHostSlotWithFallback) throw new Error('execute-cli not initialized'); return _tryReserveHostSlotWithFallback(...args); }
+function markTaskCleanedUp(...args) { if (!_markTaskCleanedUp) throw new Error('execute-cli not initialized'); return _markTaskCleanedUp(...args); }
 function processQueue(...args) { return _processQueue ? _processQueue(...args) : undefined; }
-function finalizeTask(...args) { return _finalizeTask(...args); }
+function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cli not initialized'); return _finalizeTask(...args); }
 
 /**
  * Build aider-ollama CLI command specification.
@@ -608,7 +608,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
   try {
     const { execFileSync } = require('child_process');
     baselineCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: options.cwd, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS, windowsHide: true
+      cwd: options.cwd, encoding: 'utf-8', timeout: 15000, windowsHide: true
     }).trim();
   } catch (e) {
     logger.info(`[TaskManager] Could not capture baseline HEAD for task ${taskId}: ${e.message}`);
@@ -760,6 +760,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
                 if (err) {
                   logger.info(`[Completion] taskkill failed for task ${taskId}: ${err.message}`);
                 }
+                setTimeout(() => { if (capturedProc && capturedProc.process && !capturedProc.process.killed) capturedProc.process.emit('close', 1, null); }, 1000);
                 // RB-013: Emit synthetic close event so the close-phase pipeline
                 // handles validation, build checks, and status terminalization.
                 // The markTaskCleanedUp guard in the close handler prevents double-fire.
@@ -767,7 +768,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
                   const yetRunning = runningProcesses.get(taskId);
                   if (yetRunning && yetRunning === capturedProc && yetRunning.completionDetected) {
                     logger.info(`[Completion] Task ${taskId} emitting synthetic close after taskkill.`);
-                    capturedProc.process.emit('close', 0);
+                    capturedProc.process.emit('close', 1, null);
                   }
                 }, 2000);
               });
@@ -877,11 +878,12 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
                 const { execFile } = require('child_process');
                 execFile('taskkill', ['/F', '/T', '/PID', String(pid)], (killErr) => {
                   if (killErr) logger.info(`[Completion] taskkill failed for task ${taskId}: ${killErr.message}`);
+                  setTimeout(() => { if (capturedProc && capturedProc.process && !capturedProc.process.killed) capturedProc.process.emit('close', 1, null); }, 1000);
                   setTimeout(() => {
                     const yetRunning = runningProcesses.get(taskId);
                     if (yetRunning && yetRunning === capturedProc && yetRunning.completionDetected) {
                       logger.info(`[Completion] Task ${taskId} emitting synthetic close after stderr taskkill.`);
-                      capturedProc.process.emit('close', 0);
+                      capturedProc.process.emit('close', 1, null);
                     }
                   }, 2000);
                 });
