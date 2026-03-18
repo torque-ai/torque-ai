@@ -212,6 +212,7 @@ async function runAgenticLoop({
       return clean;
     });
 
+    logger.info(`[Agentic] Calling adapter iteration ${iterations + 1}, messages: ${cleanMessages.length}`);
     const response = await adapter.chatCompletion({
       messages: cleanMessages,
       tools: tools && tools.length > 0 ? tools : undefined,
@@ -219,6 +220,7 @@ async function runAgenticLoop({
       signal,
       ...(options || {}),
     });
+    logger.info(`[Agentic] Adapter returned: tool_calls=${response.message.tool_calls?.length || 0}`);
 
     const assistantMessage = response.message;
 

@@ -304,6 +304,7 @@ async function runAgenticPipeline({
   });
 
   // Check and revert unauthorized git changes
+  logger.info(`[Agentic] Pipeline complete, checking git safety`);
   if (snapshot && snapshot.isGitRepo) {
     const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
     // Map 'on' to 'enforce' for the git safety module
@@ -314,6 +315,7 @@ async function runAgenticPipeline({
     }
   }
 
+  logger.info(`[Agentic] Returning: output=${result.output?.length || 0} bytes, tools=${result.toolLog?.length || 0}, files=${result.changedFiles?.length || 0}`);
   return result;
 }
 
