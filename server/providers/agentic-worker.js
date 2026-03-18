@@ -99,6 +99,13 @@ async function main() {
   // -------------------------------------------------------------------------
   // Real mode
   // -------------------------------------------------------------------------
+  // Force disable HTTP keep-alive globally in this worker
+  // to prevent connection reuse issues between adapter calls
+  const http = require('http');
+  const https = require('https');
+  http.globalAgent = new http.Agent({ keepAlive: false });
+  https.globalAgent = new https.Agent({ keepAlive: false });
+
   const adapter = adapters[adapterType];
   if (!adapter) {
     parentPort.postMessage({ type: 'error', message: `Unknown adapter type: ${adapterType}` });
@@ -142,10 +149,11 @@ async function main() {
       iterations: result.iterations,
       tokenUsage: result.tokenUsage,
     });
-    process.exit(0);
+    // Don't process.exit(0) — let the event loop drain so the message is delivered.
+    // The worker thread will exit naturally when nothing is left to do.
   } catch (err) {
     parentPort.postMessage({ type: 'error', message: err.message || String(err) });
-    process.exit(1);
+    // Don't process.exit(1) — let the message deliver, then the worker exits naturally.
   }
 }
 

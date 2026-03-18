@@ -25,7 +25,7 @@ const MAX_CACHE_ENTRIES = 50;
 
 function evictOldest() {
   if (fileCache.size <= MAX_CACHE_ENTRIES) return;
-  // Evict least recently used (first inserted)
+  // Note: uses FIFO eviction (insertion order). Consider LRU for better cache hit rates.
   const firstKey = fileCache.keys().next().value;
   if (firstKey) fileCache.delete(firstKey);
 }

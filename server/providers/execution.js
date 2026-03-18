@@ -192,26 +192,8 @@ function resolveApiKey(provider) {
   // 1. Environment variables (highest priority)
   // 2. Encrypted keys in provider_config.api_key_encrypted
   // 3. Legacy DB config table
-  try {
-    const serverConfig = require('../config');
-    if (typeof serverConfig.getApiKey === 'function') {
-      return serverConfig.getApiKey(provider);
-    }
-  } catch { /* fall through to legacy lookup */ }
-
-  // Legacy fallback if config.js doesn't have getApiKey
   const serverConfig = require('../config');
-  const envMap = {
-    groq: 'GROQ_API_KEY',
-    cerebras: 'CEREBRAS_API_KEY',
-    deepinfra: 'DEEPINFRA_API_KEY',
-    openrouter: 'OPENROUTER_API_KEY',
-    hyperbolic: 'HYPERBOLIC_API_KEY',
-    'google-ai': 'GOOGLE_AI_API_KEY',
-    'ollama-cloud': 'OLLAMA_CLOUD_API_KEY',
-  };
-  const configKey = `${provider.replace(/-/g, '_')}_api_key`;
-  return serverConfig.get(configKey) || process.env[envMap[provider]] || null;
+  return serverConfig.getApiKey(provider);
 }
 
 /**
@@ -276,6 +258,7 @@ function spawnAgenticWorker(config, callbacks = {}) {
   const promise = new Promise((resolve, reject) => {
     worker.on('message', (msg) => {
       if (settled) return;
+      if (msg.type === 'result' || msg.type === 'error') logger.debug(`[MAIN-RECV] ${msg.type} from worker`);
       switch (msg.type) {
         case 'progress': if (onProgress) onProgress(msg); break;
         case 'toolCall': if (onToolCall) onToolCall(msg); break;
@@ -530,7 +513,7 @@ async function executeOllamaTaskWithAgentic(task) {
   try {
     logger.info(`[Agentic] Starting Ollama task ${taskId} with model ${resolvedModel} on ${ollamaHost}`);
 
-    const maxIterations = parseInt(serverConfig.get('agentic_max_iterations') || '10');
+    const maxIterations = parseInt(serverConfig.get('agentic_max_iterations') || '10', 10);
     const contextBudget = tuning.numCtx ? Math.floor(tuning.numCtx * 0.8) : 16000;
 
     // Capture git snapshot in main thread (git ops need main process context)
@@ -542,6 +525,7 @@ async function executeOllamaTaskWithAgentic(task) {
     }
 
     // Spawn worker thread for the agentic loop
+    logger.debug(`[WORKER-DEBUG] Spawning worker for Ollama task ${taskId}, model=${resolvedModel}, host=${ollamaHost}`);
     const workerHandle = spawnAgenticWorker({
       adapterType: 'ollama',
       adapterOptions: {
@@ -650,11 +634,14 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   const serverConfig = require('../config');
   const provider = task.provider || '';
   const model = task.model || PROVIDER_DEFAULT_MODEL[provider] || '';
+  logger.debug(`[API-WRAP] provider=${provider} model=${model} taskId=${task.id}`);
 
   // Check capability
   const capability = isAgenticCapable(provider, model);
+  logger.debug(`[API-WRAP] capable=${capability.capable} reason=${capability.reason} hasDeps=${!!_agenticDeps}`);
 
   if (!capability.capable || !_agenticDeps) {
+    logger.debug(`[API-WRAP] FALLBACK to legacy`);
     return _executeApiModule.executeApiProvider(task, providerInstance);
   }
 
@@ -713,7 +700,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   try {
     logger.info(`[Agentic] Starting API task ${taskId} with provider ${provider}, model ${model}`);
 
-    const maxIterations = parseInt(serverConfig.get('agentic_max_iterations') || '10');
+    const maxIterations = parseInt(serverConfig.get('agentic_max_iterations') || '10', 10);
 
     // Derive context budget from provider capabilities
     const PROVIDER_CONTEXT_BUDGETS = {
@@ -736,6 +723,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       : 'openai';
 
     // Spawn worker thread for the agentic loop
+    logger.debug(`[WORKER-DEBUG] Spawning worker for API task ${taskId}, provider=${provider}, model=${model}, adapterType=${adapterType}`);
     const workerHandle = spawnAgenticWorker({
       adapterType,
       adapterOptions: {

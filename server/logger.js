@@ -96,6 +96,7 @@ class Logger {
       const basePath = path.join(this.logDir, this.logFile);
 
       // Shift existing rotated files
+      // Note: when maxFiles is 1, the current file is renamed to .1 with no rotation
       for (let i = this.maxFiles - 1; i >= 1; i--) {
         const from = `${basePath}.${i}`;
         const to = `${basePath}.${i + 1}`;

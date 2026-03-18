@@ -36,7 +36,7 @@ function handleListPendingModels() {
 
 function handleApproveModel(args) {
   if (!args.provider || !args.model_name) {
-    return textResult('Error: provider and model_name are required');
+    return { isError: true, content: [{ type: 'text', text: 'Error: provider and model_name are required' }] };
   }
 
   try {
@@ -44,13 +44,13 @@ function handleApproveModel(args) {
     registry.approveModel(args.provider, args.model_name, args.host_id || null);
     return textResult(`Model '${args.model_name}' approved for provider '${args.provider}'`);
   } catch (err) {
-    return textResult(`Error approving model: ${err.message}`);
+    return { isError: true, content: [{ type: 'text', text: `Error approving model: ${err.message}` }] };
   }
 }
 
 function handleDenyModel(args) {
   if (!args.provider || !args.model_name) {
-    return textResult('Error: provider and model_name are required');
+    return { isError: true, content: [{ type: 'text', text: 'Error: provider and model_name are required' }] };
   }
 
   try {
@@ -58,7 +58,7 @@ function handleDenyModel(args) {
     registry.denyModel(args.provider, args.model_name, args.host_id || null);
     return textResult(`Model '${args.model_name}' denied for provider '${args.provider}'`);
   } catch (err) {
-    return textResult(`Error denying model: ${err.message}`);
+    return { isError: true, content: [{ type: 'text', text: `Error denying model: ${err.message}` }] };
   }
 }
 

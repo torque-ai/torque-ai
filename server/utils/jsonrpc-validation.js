@@ -58,7 +58,7 @@ function validateJsonRpcRequest(request) {
 function makeJsonRpcError(id, error, detail) {
   return {
     jsonrpc: '2.0',
-    id: id || null,
+    id: id !== undefined ? id : null,
     error: {
       code: error.code,
       message: detail ? `${error.message}: ${detail}` : error.message,

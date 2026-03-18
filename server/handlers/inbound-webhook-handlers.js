@@ -8,7 +8,8 @@
 const crypto = require('crypto');
 const { makeError, ErrorCodes } = require('./error-codes');
 
-const db = () => require('../database');
+let _db;
+function db() { return _db || (_db = require('../database')); }
 
 // ============================================
 // INBOUND WEBHOOK HANDLERS

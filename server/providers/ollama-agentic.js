@@ -214,6 +214,7 @@ async function runAgenticLoop({
     });
 
     logger.info(`[Agentic] Calling adapter iteration ${iterations + 1}, messages: ${cleanMessages.length}`);
+    logger.debug(`[LOOP-TRACE] iter=${iterations + 1} calling adapter, msgs=${cleanMessages.length}, opts_keys=${Object.keys(options || {}).join(',')}`);
     const response = await adapter.chatCompletion({
       messages: cleanMessages,
       tools: tools && tools.length > 0 ? tools : undefined,
@@ -221,6 +222,7 @@ async function runAgenticLoop({
       signal,
       ...(options || {}),
     });
+    logger.debug(`[LOOP-TRACE] iter=${iterations + 1} adapter returned, content_len=${(response.message.content||'').length}, tools=${response.message.tool_calls?.length || 0}`);
     logger.info(`[Agentic] Adapter returned: tool_calls=${response.message.tool_calls?.length || 0}`);
 
     const assistantMessage = response.message;

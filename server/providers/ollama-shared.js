@@ -62,12 +62,16 @@ function findBestAvailableModel(filterFn) {
   if (!db || typeof db.getAggregatedModels !== 'function') return null;
   try {
     let allModels = db.getAggregatedModels();
-    if (filterFn) allModels = allModels.filter(m => filterFn(m.name));
+    if (filterFn) allModels = allModels.filter(m => {
+      const name = typeof m === 'string' ? m : m?.name;
+      return filterFn(name);
+    });
     if (allModels.length === 0) return null;
     const ranked = allModels
       .map(m => {
-        const sizeMatch = (m.name || '').toLowerCase().match(/(\d+)b/);
-        return { name: m.name, size: sizeMatch ? parseInt(sizeMatch[1], 10) : 0 };
+        const name = typeof m === 'string' ? m : m?.name;
+        const sizeMatch = (name || '').toLowerCase().match(/(\d+)b/);
+        return { name, size: sizeMatch ? parseInt(sizeMatch[1], 10) : 0 };
       })
       .sort((a, b) => b.size - a.size); // largest first
     return ranked[0].name;

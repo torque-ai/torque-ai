@@ -491,7 +491,7 @@ async function executeOllamaTask(task) {
 
     // Add seed for reproducibility if set
     if (seed) {
-      options.seed = parseInt(seed);
+      options.seed = parseInt(seed, 10);
     }
 
     // Extract and read files referenced in the task description

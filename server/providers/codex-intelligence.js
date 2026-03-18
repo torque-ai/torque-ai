@@ -148,7 +148,7 @@ function runPreAnalysis(workingDir, filePaths) {
       const stat = fs.statSync(fullPath);
       const content = fs.readFileSync(fullPath, 'utf8');
       const lineCount = content.split('\n').length;
-      const exports = extractKeyExports(content, path.extname(filePath));
+      const exports = extractKeyExports(content);
 
       result.fileInfo.push({
         path: filePath,

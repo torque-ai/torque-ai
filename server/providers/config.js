@@ -90,16 +90,17 @@ function resolveOllamaTuning(opts = {}) {
       ? String(baseDefaults.temperature)
       : (globalTemperatureRaw || String(baseDefaults.temperature))
   );
-  let numCtx = adaptiveCtx ? adaptiveCtx.contextSize : parseInt(db.getConfig('ollama_num_ctx') || String(PROVIDER_DEFAULTS.OLLAMA_DEFAULT_CONTEXT));
+  let numCtx = adaptiveCtx ? adaptiveCtx.contextSize : parseInt(db.getConfig('ollama_num_ctx') || String(PROVIDER_DEFAULTS.OLLAMA_DEFAULT_CONTEXT), 10);
   let topP = parseFloat(db.getConfig('ollama_top_p') || '0.9');
   let repeatPenalty = parseFloat(db.getConfig('ollama_repeat_penalty') || '1.1');
   let numPredict = parseInt(
     shouldUseHashlineNumPredictDefault
       ? String(baseDefaults.numPredict)
-      : (globalNumPredictRaw || String(baseDefaults.numPredict))
+      : (globalNumPredictRaw || String(baseDefaults.numPredict)),
+    10
   );
-  let topK = parseInt(db.getConfig('ollama_top_k') || '40');
-  let mirostat = parseInt(db.getConfig('ollama_mirostat') || '0');
+  let topK = parseInt(db.getConfig('ollama_top_k') || '40', 10);
+  let mirostat = parseInt(db.getConfig('ollama_mirostat') || '0', 10);
   const mirostatTau = parseFloat(db.getConfig('ollama_mirostat_tau') || '5.0');
   const mirostatEta = parseFloat(db.getConfig('ollama_mirostat_eta') || '0.1');
   const seed = db.getConfig('ollama_seed');
@@ -107,8 +108,8 @@ function resolveOllamaTuning(opts = {}) {
   // Hardware params (execute-ollama only)
   let numGpu = -1, numThread = 0, keepAlive = '5m';
   if (includeHardware) {
-    numGpu = parseInt(db.getConfig('ollama_num_gpu') || '-1');
-    numThread = parseInt(db.getConfig('ollama_num_thread') || '0');
+    numGpu = parseInt(db.getConfig('ollama_num_gpu') || '-1', 10);
+    numThread = parseInt(db.getConfig('ollama_num_thread') || '0', 10);
     keepAlive = db.getConfig('ollama_keep_alive') || '5m';
   }
 
