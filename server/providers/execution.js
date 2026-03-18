@@ -447,6 +447,9 @@ async function executeOllamaTaskWithAgentic(task) {
   const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
   const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
   const abortController = new AbortController();
+  // Register abort controller so cancelTask() can find and abort agentic tasks
+  const apiAbortControllers = _agenticDeps.apiAbortControllers || (_executeApiModule && _executeApiModule._apiAbortControllers);
+  if (apiAbortControllers) apiAbortControllers.set(taskId, abortController);
   const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
   const cancelCheckInterval = setInterval(() => {
     try {
@@ -507,6 +510,7 @@ async function executeOllamaTaskWithAgentic(task) {
   } finally {
     clearInterval(cancelCheckInterval);
     clearTimeout(timeoutHandle);
+    if (apiAbortControllers) apiAbortControllers.delete(taskId);
     if (selectedHostId) {
       try { db.decrementHostTasks(selectedHostId); } catch { /* ignore */ }
     }
@@ -577,6 +581,9 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
   const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
   const abortController = new AbortController();
+  // Register abort controller for cancellation support
+  const apiAbortControllers2 = _agenticDeps.apiAbortControllers || (_executeApiModule && _executeApiModule._apiAbortControllers);
+  if (apiAbortControllers2) apiAbortControllers2.set(taskId, abortController);
   const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
   const cancelCheckInterval = setInterval(() => {
     try {
@@ -593,6 +600,13 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
 
     const maxIterations = parseInt(serverConfig.get('agentic_max_iterations') || '10');
 
+    // Derive context budget from provider capabilities
+    const PROVIDER_CONTEXT_BUDGETS = {
+      'google-ai': 200000, 'deepinfra': 64000, 'hyperbolic': 64000,
+      'groq': 32000, 'cerebras': 6000, 'openrouter': 64000, 'ollama-cloud': 64000,
+    };
+    const contextBudget = PROVIDER_CONTEXT_BUDGETS[provider] || 16000;
+
     const result = await runAgenticPipeline({
       adapter,
       systemPrompt,
@@ -606,7 +620,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       workingDir,
       timeoutMs,
       maxIterations,
-      contextBudget: 16000,
+      contextBudget,
       ollamaStreamId,
       signal: abortController.signal,
     });
@@ -635,6 +649,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   } finally {
     clearInterval(cancelCheckInterval);
     clearTimeout(timeoutHandle);
+    if (apiAbortControllers2) apiAbortControllers2.delete(taskId);
     dashboard.notifyTaskUpdated(taskId);
     // Workflow termination in both success and failure paths
     if (typeof handleWorkflowTermination === 'function') {

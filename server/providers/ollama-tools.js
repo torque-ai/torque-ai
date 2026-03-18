@@ -291,6 +291,9 @@ function createToolExecutor(workingDir, options = {}) {
         }
 
         case 'write_file': {
+          if (typeof args.content !== 'string') {
+            return { result: null, error: 'content must be a string' };
+          }
           const { resolvedPath, allowed } = resolveSafePath(args.path, workingDir);
           if (!allowed) {
             return {

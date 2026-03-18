@@ -305,7 +305,8 @@ async function runAgenticLoop({
     }
 
     // Execute each tool call and add results
-    for (const tc of toolCalls) {
+    for (let tcIdx = 0; tcIdx < toolCalls.length; tcIdx++) {
+      const tc = toolCalls[tcIdx];
       if (signal?.aborted) {
         throw new Error('Task cancelled');
       }
@@ -345,6 +346,14 @@ async function runAgenticLoop({
             if (onToolCall) onToolCall(tc.name, tc.arguments, execResult);
             totalOutputChars += resultStr.length;
 
+            // Push placeholder results for unexecuted tool calls to maintain valid conversation
+            for (let j = tcIdx + 1; j < toolCalls.length; j++) {
+              if (promptInjectedTools) {
+                messages.push({ role: 'user', content: `[TOOL_RESULTS][{"call":{"name":"${toolCalls[j].name}"},"output":"[skipped — early stop]"}][/TOOL_RESULTS]` });
+              } else {
+                messages.push({ role: 'tool', content: '[skipped — early stop]', ...(toolCalls[j].id ? { tool_call_id: toolCalls[j].id } : {}) });
+              }
+            }
             // Signal outer loop to stop
             earlyStop = true;
             break;
