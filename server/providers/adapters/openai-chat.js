@@ -84,6 +84,7 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
           'Authorization': `Bearer ${apiKey}`,
           'Connection': 'close',
         },
+        agent: false, // Disable keep-alive to prevent connection reuse issues
         timeout: timeoutMs,
         signal,
       },
