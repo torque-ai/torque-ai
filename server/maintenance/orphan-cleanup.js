@@ -92,6 +92,9 @@ const PROVIDER_STALL_CONFIG_KEYS = {
   'openrouter': 'stall_threshold_openrouter',
 };
 
+// Track tasks that have already received a stall warning (prevent duplicates)
+const _stallWarningEmitted = new Set();
+
 // ---- Zombie check state ----
 let zombieCheckCycle = 0;
 
@@ -471,6 +474,27 @@ function checkStalledTasks(autoCancel = false) {
       }
     }
 
+    // Emit stall warning at 80% of threshold (once per task)
+    const stallThreshold = activity.stallThreshold;
+    if (!isStalled && stallThreshold !== null && !_stallWarningEmitted.has(taskId)) {
+      const warningThreshold = stallThreshold * 0.8;
+      if (activity.lastActivitySeconds >= warningThreshold) {
+        _stallWarningEmitted.add(taskId);
+        try {
+          const { taskEvents } = require('../hooks/event-dispatch');
+          taskEvents.emit('task:stall_warning', {
+            taskId,
+            provider: proc?.provider || 'unknown',
+            elapsed: activity.lastActivitySeconds,
+            threshold: Math.round(stallThreshold),
+            description: proc?.description || ''
+          });
+        } catch (e) {
+          // Non-fatal
+        }
+      }
+    }
+
     // isStalled is false if threshold is null (provider excluded)
     if (isStalled) {
       stalledTasks.push({
@@ -521,6 +545,7 @@ function cleanupOrphanedHostTasks(hostId, hostName) {
         if (proc.startupTimeoutHandle) clearTimeout(proc.startupTimeoutHandle);
         runningProcesses.delete(task.id);
         stallRecoveryAttempts.delete(task.id);
+        _stallWarningEmitted.delete(task.id);
       }
 
       // Mark task as failed with clear error message

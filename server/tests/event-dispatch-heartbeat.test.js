@@ -71,3 +71,33 @@ describe('task:started event', () => {
     taskEvents.removeListener('task:started', handler);
   });
 });
+
+// ──────────────────────────────────────────────────────────────
+// task:stall_warning event — emitted at 80% of stall threshold
+// ──────────────────────────────────────────────────────────────
+
+describe('task:stall_warning event', () => {
+  test('task:stall_warning event has correct shape', async () => {
+    const { taskEvents } = await import('../hooks/event-dispatch.js');
+    const handler = vi.fn();
+    taskEvents.on('task:stall_warning', handler);
+
+    taskEvents.emit('task:stall_warning', {
+      taskId: 'test-stall-warn',
+      provider: 'ollama',
+      elapsed: 144,
+      threshold: 180,
+      description: 'Test task'
+    });
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: 'test-stall-warn',
+        elapsed: 144,
+        threshold: 180
+      })
+    );
+
+    taskEvents.removeListener('task:stall_warning', handler);
+  });
+});
