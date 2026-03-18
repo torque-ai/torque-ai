@@ -445,6 +445,32 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
         fallbackApplied: true
       };
     }
+
+    // Context overflow guard: estimate prompt size and reroute if it would exceed
+    // local LLM context window. The desc + file count is a rough proxy for the
+    // full prompt that execute-hashline/execute-ollama will build.
+    if (isOllamaProvider(result.provider) && !isUserOverride) {
+      const descTokens = Math.ceil((taskDescription || '').length / 4);
+      const fileCount = (files || []).length;
+      // Each referenced file adds ~500–2000 tokens of context (path + relevant content).
+      // Conservative estimate: 800 tokens per file for context stuffing.
+      const estimatedFileTokens = fileCount * 800;
+      const estimatedTotal = descTokens + estimatedFileTokens;
+      const localCtxLimit = serverConfig.getInt('ollama_max_ctx', 32768);
+      // Reroute if estimated tokens would exceed 70% of context (leave room for response)
+      if (estimatedTotal > localCtxLimit * 0.7) {
+        logger.info(`[SmartRouting] Context overflow guard: ~${estimatedTotal} estimated tokens exceeds 70% of ${localCtxLimit} limit for ${result.provider} — rerouting to ${ollamaFallbackProvider}`);
+        return {
+          provider: ollamaFallbackProvider,
+          rule: result.rule,
+          reason: `${result.reason} [context overflow: ~${estimatedTotal} tokens > ${localCtxLimit} limit, rerouted to ${ollamaFallbackProvider}]`,
+          originalProvider: result.provider,
+          fallbackApplied: true,
+          contextOverflow: true,
+        };
+      }
+    }
+
     return result;
   };
 
@@ -694,7 +720,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   }
 
   // No rule matched, use default smart routing provider
-  const defaultSmartProvider = getDatabaseConfig('smart_routing_default_provider') || 'aider-ollama';
+  const defaultSmartProvider = getDatabaseConfig('smart_routing_default_provider') || 'hashline-ollama';
   const result = maybeApplyFallback({
     provider: defaultSmartProvider,
     rule: null,
@@ -785,21 +811,23 @@ function getProviderFallbackChain(provider, options) {
 
   if (!chain) {
     // Local-first fallback chains — try local providers before cloud
+    // hashline-ollama is the primary local edit provider (82% success rate).
+    // aider-ollama is legacy (11% success) and demoted in all chains.
     const defaultChains = {
-      'codex':           ['claude-cli', 'deepinfra', 'ollama-cloud', 'aider-ollama', 'ollama'],
-      'claude-cli':      ['codex', 'deepinfra', 'ollama-cloud', 'aider-ollama', 'ollama'],
-      'groq':            ['ollama-cloud', 'deepinfra', 'claude-cli', 'aider-ollama', 'ollama'],
+      'codex':           ['claude-cli', 'deepinfra', 'ollama-cloud', 'hashline-ollama', 'ollama'],
+      'claude-cli':      ['codex', 'deepinfra', 'ollama-cloud', 'hashline-ollama', 'ollama'],
+      'groq':            ['ollama-cloud', 'deepinfra', 'claude-cli', 'hashline-ollama', 'ollama'],
       'ollama-cloud':    ['cerebras', 'deepinfra', 'groq', 'codex', 'claude-cli'],
       'cerebras':        ['google-ai', 'groq', 'ollama-cloud', 'deepinfra', 'codex'],
       'google-ai':       ['openrouter', 'groq', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
       'openrouter':      ['google-ai', 'groq', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
-      'hyperbolic':      ['deepinfra', 'ollama-cloud', 'claude-cli', 'codex', 'aider-ollama'],
-      'deepinfra':       ['ollama-cloud', 'hyperbolic', 'claude-cli', 'codex', 'aider-ollama'],
-      'ollama':          ['aider-ollama', 'hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
-      'aider-ollama':    ['ollama', 'hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
-      'hashline-ollama': ['aider-ollama', 'ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
+      'hyperbolic':      ['deepinfra', 'ollama-cloud', 'claude-cli', 'codex', 'hashline-ollama'],
+      'deepinfra':       ['ollama-cloud', 'hyperbolic', 'claude-cli', 'codex', 'hashline-ollama'],
+      'ollama':          ['hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
+      'aider-ollama':    ['hashline-ollama', 'ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
+      'hashline-ollama': ['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
     };
-    chain = defaultChains[provider] || ['aider-ollama', 'ollama', 'deepinfra', 'codex', 'claude-cli'];
+    chain = defaultChains[provider] || ['hashline-ollama', 'ollama', 'deepinfra', 'codex', 'claude-cli'];
   }
 
   // Filter to cloud-only if requested (used by Ollama→cloud fallback paths)

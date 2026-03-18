@@ -893,7 +893,7 @@ describe('provider-routing-core', () => {
         'claude-cli',
         'deepinfra',
         'ollama-cloud',
-        'aider-ollama',
+        'hashline-ollama',
         'ollama',
       ]);
     });
