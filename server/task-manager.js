@@ -2605,7 +2605,7 @@ _queueScheduler.init({
   getProviderInstance: (name) => providerRegistry.getProviderInstance(name),
   getFreeQuotaTracker,
   cleanupOrphanedRetryTimeouts,
-  analyzeTaskForRouting,
+  analyzeTaskForRouting: db.analyzeTaskForRouting,
   notifyDashboard: (taskId, updates = {}) => {
     if (!taskId) return;
     const payload = updates && typeof updates === 'object' ? updates : {};
