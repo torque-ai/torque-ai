@@ -26,6 +26,13 @@ const REDACT_PATTERNS = [
   { regex: /Basic\s+[A-Za-z0-9+/=]{8,}/gi, replacement: 'Basic [REDACTED]' },
   { regex: /whsec_[A-Za-z0-9_-]+/gi, replacement: '[REDACTED]' },
   { regex: /"secret"\s*:\s*"[^"]+"/gi, replacement: '"secret": "[REDACTED]"' },
+  // Google AI API keys
+  /AIza[0-9A-Za-z_-]{35}/g,
+  // AWS access keys
+  /AKIA[0-9A-Z]{16}/g,
+  // GitHub tokens
+  /gh[ps]_[A-Za-z0-9_]{36,}/g,
+  /github_pat_[A-Za-z0-9_]{22,}/g,
 ];
 
 const REDACTION_MARKER = '[REDACTED]';

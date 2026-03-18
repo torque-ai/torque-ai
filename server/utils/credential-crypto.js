@@ -80,6 +80,9 @@ function getOrCreateKey() {
 
   try {
     fs.writeFileSync(keyPath, generatedKey, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    const fd = fs.openSync(keyPath, 'r');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
     _cachedKey = generatedKey;
     return _cachedKey;
   } catch (error) {

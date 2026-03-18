@@ -42,7 +42,7 @@ const PROVIDER_KEYS = {
   'deepinfra':    ['DEEPINFRA_API_KEY'],
   'hyperbolic':   ['HYPERBOLIC_API_KEY'],
   'groq':         ['GROQ_API_KEY'],
-  'google-ai':    ['GOOGLE_AI_API_KEY', 'GOOGLE_API_KEY'],
+  'google-ai':    ['GOOGLE_AI_API_KEY'],
 };
 
 // Variables that MUST NEVER be passed regardless of provider

@@ -2,7 +2,7 @@
  * Google AI Studio Provider for TORQUE
  *
  * Cloud inference via Google's Gemini API (generativelanguage.googleapis.com).
- * Free tier with rate limits. Uses API key as query parameter.
+ * Free tier with rate limits. Uses API key in X-Goog-Api-Key header.
  *
  * Free tier limits (Gemini 2.0 Flash): 15 RPM, 1M TPM, 1500 RPD
  */
@@ -51,10 +51,10 @@ class GoogleAIProvider extends BaseProvider {
         body.generationConfig.temperature = options.tuning.temperature;
       }
 
-      const url = `${this.baseUrl}/v1beta/models/${selectedModel}:generateContent?key=${this.apiKey}`;
+      const url = `${this.baseUrl}/v1beta/models/${selectedModel}:generateContent`;
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.apiKey },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -133,10 +133,10 @@ class GoogleAIProvider extends BaseProvider {
         body.generationConfig.temperature = options.tuning.temperature;
       }
 
-      const url = `${this.baseUrl}/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse&key=${this.apiKey}`;
+      const url = `${this.baseUrl}/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse`;
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.apiKey },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -230,8 +230,8 @@ class GoogleAIProvider extends BaseProvider {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       const response = await fetch(
-        `${this.baseUrl}/v1beta/models?key=${this.apiKey}`,
-        { signal: controller.signal }
+        `${this.baseUrl}/v1beta/models`,
+        { headers: { 'X-Goog-Api-Key': this.apiKey }, signal: controller.signal }
       );
       clearTimeout(timeoutId);
       if (!response.ok) {

@@ -18,6 +18,7 @@ const logger = typeof _baseLogger.child === 'function'
   : _baseLogger;
 
 let db = null;
+let _decryptWarnedProviders = null;
 
 // ── Config Registry ──────────────────────────────────────────────────────
 // Maps config keys to { default, type, envVar, description }
@@ -203,8 +204,13 @@ function getApiKey(provider) {
         if (decrypted) return decrypted;
       }
     }
-  } catch {
-    // decryption failed, db not ready, or module not loaded — fall through
+  } catch (err) {
+    // Only warn once per provider to avoid log spam
+    if (!_decryptWarnedProviders) _decryptWarnedProviders = new Set();
+    if (!_decryptWarnedProviders.has(provider)) {
+      _decryptWarnedProviders.add(provider);
+      try { require('./logger').warn(`[config] Failed to load decryption for provider ${provider}: ${err?.message || 'unknown'}`); } catch {}
+    }
   }
 
   // 3. DB config table (legacy)

@@ -809,6 +809,14 @@ function pushNotification(notification) {
  */
 function persistSubscription(sessionId, session) {
   try {
+    // Validate session ownership: ensure sessionId maps to an active session
+    const knownSession = sessions.get(sessionId);
+    if (!knownSession || knownSession !== session) {
+      // Session not owned by this connection — do not persist
+      logger.warn(`[mcp-sse] Refusing to persist subscription for unowned session ${sessionId}`);
+      return;
+    }
+
     const rawDb = db.getDbInstance && db.getDbInstance();
     if (!rawDb) return;
 
