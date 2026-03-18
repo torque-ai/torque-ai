@@ -64,6 +64,7 @@ export default function Schedules() {
   }
 
   async function handleDelete(id) {
+    if (!window.confirm('Delete this schedule? This action is irreversible.')) return;
     try {
       await schedulesApi.delete(id);
       toast.success('Schedule deleted');

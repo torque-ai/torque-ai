@@ -48,8 +48,9 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
       })
       .catch((err) => {
         console.error('Failed to load providers:', err);
+        toast.error('Failed to load providers');
       });
-  }, []);
+  }, [toast]);
 
   // Load Ollama host models on mount
   useEffect(() => {
@@ -69,8 +70,9 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
       })
       .catch((err) => {
         console.error('Failed to load host models:', err);
+        toast.error('Failed to load host models');
       });
-  }, []);
+  }, [toast]);
 
   // Update available models when provider changes
   useEffect(() => {
@@ -163,6 +165,7 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
           className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y"
           required
         />
+        <p className="text-xs text-slate-500 mt-1">{task.length} characters</p>
       </div>
 
       {/* Provider + Model + Working Directory row */}

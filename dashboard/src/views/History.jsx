@@ -7,6 +7,11 @@ import { getRelevantModel } from '../utils/providerModels';
 import { formatDuration } from '../utils/formatters';
 import { format, formatDistanceToNow } from 'date-fns';
 
+const safeFormat = (dateStr, fmt) => {
+  try { return dateStr ? format(new Date(dateStr), fmt) : 'N/A'; }
+  catch { return 'Invalid date'; }
+};
+
 const STATUS_BADGES = {
   queued: 'bg-slate-500',
   running: 'bg-blue-500',
@@ -386,6 +391,9 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   }
 
   // Client-side sort
+  // Note: Client-side sort applies to the current page only.
+  // Server-side sort (orderBy/orderDir) handles cross-page ordering.
+  // This local sort provides responsive UI while the server-sorted page loads.
   const sortedTasks = useMemo(() => {
     if (!tasks.length) return tasks;
     const sorted = [...tasks];
@@ -655,7 +663,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
                         ? formatDuration((now - new Date(task.started_at).getTime()) / 1000)
                         : '-'}
                   </td>
-                  <td className="p-4 text-slate-400 text-sm" title={task.created_at ? format(new Date(task.created_at), 'MMM d, yyyy HH:mm:ss') : ''}>
+                  <td className="p-4 text-slate-400 text-sm" title={task.created_at ? safeFormat(task.created_at, 'MMM d, yyyy HH:mm:ss') : ''}>
                     {task.created_at
                       ? formatDistanceToNow(new Date(task.created_at), { addSuffix: true })
                       : '-'}

@@ -44,9 +44,12 @@ export default function Coordination() {
         coordinationApi.listClaims(),
       ]);
       setDashboard(dashData);
-      setAgents(agentsData.agents || []);
-      setRules(rulesData.rules || []);
-      setClaims(claimsData.claims || []);
+      const agents = Array.isArray(agentsData) ? agentsData : (agentsData?.agents || agentsData?.data || []);
+      const rules = Array.isArray(rulesData) ? rulesData : (rulesData?.rules || rulesData?.data || []);
+      const claims = Array.isArray(claimsData) ? claimsData : (claimsData?.claims || claimsData?.data || []);
+      setAgents(agents);
+      setRules(rules);
+      setClaims(claims);
     } catch (err) {
       console.error('Failed to load coordination data:', err);
       toast.error('Failed to load coordination data');
@@ -62,7 +65,7 @@ export default function Coordination() {
   }, [loadData]);
 
   const activeAgents = agents.filter((a) => a.status === 'active').length;
-  const tasksClaimed = dashboard?.tasks_claimed_24h ?? claims.length;
+  const tasksClaimed = dashboard?.tasks_claimed_24h ?? null;
   const failovers = dashboard?.failovers_24h ?? 0;
 
   if (loading) {
@@ -83,7 +86,7 @@ export default function Coordination() {
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <StatCard label="Active Agents" value={activeAgents} gradient="green" />
-        <StatCard label="Tasks Claimed (24h)" value={tasksClaimed} gradient="blue" />
+        <StatCard label="Tasks Claimed (24h)" value={tasksClaimed ?? 'N/A'} gradient="blue" />
         <StatCard label="Failovers (24h)" value={failovers} gradient="orange" />
         <StatCard label="Routing Rules" value={rules.length} gradient="purple" />
       </div>

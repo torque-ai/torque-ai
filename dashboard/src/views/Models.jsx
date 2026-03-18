@@ -39,6 +39,7 @@ export default function Models() {
   const [data, setData] = useState(null);
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'leaderboard'
   const [leaderboard, setLeaderboard] = useState([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
@@ -47,9 +48,10 @@ export default function Models() {
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    setError(null);
     statsApi.models(days).then(d => {
       if (!cancelled) { setData(d); setLoading(false); }
-    }).catch(() => { if (!cancelled) setLoading(false); });
+    }).catch((err) => { if (!cancelled) { setError(err.message); setLoading(false); } });
     return () => { cancelled = true; };
   }, [days]);
 
@@ -71,6 +73,7 @@ export default function Models() {
   }, [activeTab, days]);
 
   if (loading) return <div className="p-6 text-slate-400">Loading model stats...</div>;
+  if (error) return <div className="p-6"><div className="text-red-400 text-sm">{error}</div></div>;
   if (!data || !data.models?.length) return <div className="p-6 text-slate-400">No model data for the last {days} days.</div>;
 
   const { models, dailySeries } = data;

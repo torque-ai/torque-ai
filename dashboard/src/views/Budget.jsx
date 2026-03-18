@@ -90,9 +90,9 @@ export default function Budget() {
 
   async function handleSaveBudget(e) {
     e.preventDefault();
-    const usd = parseFloat(budgetForm.budget_usd);
-    if (!usd || usd <= 0) {
-      toast.error('Budget must be a positive number');
+    const usd = Number(budgetForm.budget_usd);
+    if (!Number.isFinite(usd) || usd <= 0) {
+      toast.error('Invalid budget amount');
       return;
     }
     setSavingBudget(true);

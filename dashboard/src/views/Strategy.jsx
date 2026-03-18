@@ -619,9 +619,11 @@ export default function Strategic() {
       {topTab === 'operations' && <OperationsTable operations={operations} />}
 
       {/* Routing Templates Tab */}
+      {/* Lazy-loaded and only mounted on active tab — data fetching deferred until visible */}
       {topTab === 'routing' && <Suspense fallback={<div className="text-slate-400 p-4">Loading...</div>}><RoutingTemplates /></Suspense>}
 
       {/* Configuration Tab */}
+      {/* Lazy-loaded and only mounted on active tab — data fetching deferred until visible */}
       {topTab === 'config' && <Suspense fallback={<div className="text-slate-400 p-4">Loading...</div>}><StrategicConfig /></Suspense>}
     </div>
   );

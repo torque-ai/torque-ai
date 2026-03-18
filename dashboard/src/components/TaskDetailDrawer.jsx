@@ -339,7 +339,9 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
             </span>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(taskId).then(() => toast.success('Task ID copied'));
+                navigator.clipboard.writeText(taskId)
+                  .then(() => toast.success('Copied task ID'))
+                  .catch(() => toast.error('Failed to copy — clipboard access denied'));
               }}
               className="text-slate-500 hover:text-slate-300 transition-colors"
               title="Copy full task ID"
