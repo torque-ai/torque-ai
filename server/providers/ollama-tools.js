@@ -184,8 +184,14 @@ function matchGlob(filename, globPattern) {
  * @param {string[]} results - Accumulator for matches (mutated in place)
  * @param {number} maxMatches - Cap on total matches
  */
-function searchRecursive(dir, regex, globFilter, results, maxMatches) {
+function searchRecursive(dir, regex, globFilter, results, maxMatches, visited = new Set()) {
   if (results.length >= maxMatches) return;
+
+  // Symlink cycle detection: resolve real path and skip if already visited
+  let realDir;
+  try { realDir = fs.realpathSync(dir); } catch { return; }
+  if (visited.has(realDir)) return;
+  visited.add(realDir);
 
   let entries;
   try {
@@ -201,7 +207,7 @@ function searchRecursive(dir, regex, globFilter, results, maxMatches) {
     if (entry.isDirectory()) {
       // Skip hidden directories and common noise dirs
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      searchRecursive(fullPath, regex, globFilter, results, maxMatches);
+      searchRecursive(fullPath, regex, globFilter, results, maxMatches, visited);
     } else if (entry.isFile()) {
       if (!matchGlob(entry.name, globFilter)) continue;
 
@@ -235,6 +241,14 @@ function searchRecursive(dir, regex, globFilter, results, maxMatches) {
  * @returns {boolean} true if the command is allowed
  */
 function isCommandAllowed(command, allowlist) {
+  // Refuse particularly dangerous commands even with wildcard allowlist
+  if (allowlist.includes('*')) {
+    const ALWAYS_BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
+    const cmdLower = command.toLowerCase();
+    if (ALWAYS_BLOCKED.some(b => cmdLower.includes(b))) {
+      return false;
+    }
+  }
   for (const pattern of allowlist) {
     // Convert the simple glob to a regex:
     // Escape regex special chars except *, then replace * with .*

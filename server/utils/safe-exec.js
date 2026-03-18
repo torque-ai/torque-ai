@@ -13,9 +13,36 @@ function toText(value) {
 }
 
 /**
- * Execute a shell-like command chain split on `&&`, stopping on first failure.
+ * Split a command string respecting quoted strings.
+ * Handles both single and double quotes.
  *
- * @param {string} commandStr - Command string (segment-separated by &&)
+ * @param {string} str - Command string to tokenize
+ * @returns {string[]} Array of tokens
+ */
+function tokenize(str) {
+  const tokens = [];
+  let current = '';
+  let inQuote = false;
+  let quoteChar = '';
+  for (const ch of str) {
+    if (!inQuote && (ch === '"' || ch === "'")) {
+      inQuote = true; quoteChar = ch;
+    } else if (inQuote && ch === quoteChar) {
+      inQuote = false;
+    } else if (!inQuote && /\s/.test(ch)) {
+      if (current) { tokens.push(current); current = ''; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+/**
+ * Execute a shell-like command chain split on `&&` or `||`, stopping on first failure.
+ *
+ * @param {string} commandStr - Command string (segment-separated by && or ||)
  * @param {object} options - spawnSync options to apply per segment
  * @returns {{ exitCode: number, output: string, error?: string }} Execution result
  */
@@ -25,7 +52,7 @@ function safeExecChain(commandStr, options = {}) {
   }
 
   const segments = commandStr
-    .split('&&')
+    .split(/\s*(?:&&|\|\|)\s*/)
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0);
 
@@ -36,7 +63,7 @@ function safeExecChain(commandStr, options = {}) {
   let output = '';
 
   for (const segment of segments) {
-    const args = segment.split(/\s+/);
+    const args = tokenize(segment);
     const cmd = args.shift();
 
     try {

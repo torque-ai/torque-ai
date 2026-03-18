@@ -243,6 +243,13 @@ function copyChangedFiles(worktreePath, sourceDir, taskId, statusOutput) {
       const srcFile = path.join(worktreePath, filePath);
       const destFile = path.join(sourceDir, filePath);
 
+      // Security: validate srcFile is within worktree
+      const resolvedSrc = path.resolve(srcFile);
+      if (!resolvedSrc.startsWith(path.resolve(worktreePath) + path.sep)) {
+        logger.warn(`[git-worktree] Skipping file outside worktree: ${filePath}`);
+        continue;
+      }
+
       // Security: prevent path traversal via crafted filePath
       const rel = path.relative(sourceDir, destFile);
       if (rel.startsWith('..') || path.isAbsolute(rel)) {

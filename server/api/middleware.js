@@ -222,9 +222,11 @@ function parseBody(req) {
  */
 function sendJson(res, data, status = 200, req = null) {
   const body = JSON.stringify(data);
+  const dashboardPort = process.env.TORQUE_DASHBOARD_PORT || '3456';
+  const corsOrigin = `http://127.0.0.1:${dashboardPort}`;
   const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': 'http://127.0.0.1:3456',
+    'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Headers': 'Content-Type, X-Torque-Key, X-Request-ID',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     ...SECURITY_HEADERS,
@@ -262,10 +264,10 @@ function checkAuth(req, options = {}) {
   if (!expectedKey) return true; // No key configured = auth disabled
 
   const apiKey = req.headers['x-torque-key'];
-  const a = Buffer.from(apiKey || '');
-  const b = Buffer.from(expectedKey || '');
+  const a = crypto.createHash('sha256').update(apiKey || '').digest();
+  const b = crypto.createHash('sha256').update(expectedKey || '').digest();
 
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+  if (!crypto.timingSafeEqual(a, b)) {
     return false;
   }
 

@@ -8,6 +8,7 @@
  * These return { data, meta } envelopes via v2-control-plane helpers.
  */
 
+const crypto = require('crypto');
 const db = require('../database');
 const { VALID_CONFIG_KEYS } = require('../db/config-keys');
 const { isSensitiveKey, redactValue, redactConfigObject } = require('../utils/sensitive-keys');
@@ -115,7 +116,9 @@ async function handleApprovalDecision(req, res) {
     return sendError(res, requestId, 'not_implemented', 'Approval system not available', 501, {}, req);
   }
 
-  const result = db.decideApproval(approvalId, decision, body.decided_by || 'v2-api');
+  const decidedBy = String(body.decided_by || 'v2-api').slice(0, 100).replace(/[^a-zA-Z0-9_\-@. ]/g, '');
+
+  const result = db.decideApproval(approvalId, decision, decidedBy);
   if (!result) {
     return sendError(res, requestId, 'approval_not_found', `Approval not found: ${approvalId}`, 404, {}, req);
   }
@@ -123,7 +126,7 @@ async function handleApprovalDecision(req, res) {
   sendSuccess(res, requestId, {
     approval_id: approvalId,
     decision,
-    decided_by: body.decided_by || 'v2-api',
+    decided_by: decidedBy,
   }, 200, req);
 }
 
@@ -480,7 +483,7 @@ async function handleImportPlan(req, res) {
     const os = require('os');
     const path = require('path');
 
-    const tempFile = path.join(os.tmpdir(), `plan-${Date.now()}.md`);
+    const tempFile = path.join(os.tmpdir(), `plan-${crypto.randomUUID()}.md`);
     fs.writeFileSync(tempFile, body.plan_content);
 
     try {
@@ -995,6 +998,9 @@ async function handleSetConfig(req, res) {
   }
   if (value === undefined || value === null) {
     return sendError(res, requestId, 'validation_error', 'value is required', 400, {}, req);
+  }
+  if (typeof value === 'string' && value.length > 65536) {
+    return sendError(res, requestId, 'validation_error', 'Config value exceeds maximum length (64KB)', 400, {}, req);
   }
 
   try {

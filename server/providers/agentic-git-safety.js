@@ -17,6 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const logger = require('../logger');
 
 /** Max ms to wait for any git subprocess — prevents hanging in non-repo dirs. */
 const GIT_TIMEOUT_MS = 8000;
@@ -106,7 +107,10 @@ function isAuthorized(filePath, taskDescription) {
   // Normalize separators and strip trailing slash (directory entries)
   const normalized = filePath.replace(/\\/g, '/').replace(/\/$/, '');
   const parts = normalized.split('/').filter(Boolean);
-  for (const part of parts) {
+  // Require matched components to be at least 8 chars to prevent false positives
+  // (e.g. "src" or "lib" matching unrelated task descriptions)
+  const components = parts.filter(c => c.length >= 8);
+  for (const part of components) {
     if (part && desc.includes(part.toLowerCase())) return true;
   }
   return false;
@@ -148,8 +152,9 @@ function captureSnapshot(workingDir) {
       untrackedFiles: parseUntrackedFiles(statusOutput),
       isGitRepo: true,
     };
-  } catch {
-    return { dirtyFiles: new Set(), untrackedFiles: new Set(), isGitRepo: false };
+  } catch (err) {
+    logger.warn(`[git-safety] Snapshot capture failed for ${workingDir}: ${err.message} — git safety checks will be skipped for this task`);
+    return { dirtyFiles: new Set(), untrackedFiles: new Set(), isGitRepo: false, _snapshotFailed: true };
   }
 }
 
@@ -169,6 +174,11 @@ function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce')
 
   if (!snapshot.isGitRepo) {
     return { reverted: [], kept: [], report: '' };
+  }
+
+  if (snapshot._snapshotFailed) {
+    logger.warn(`[git-safety] Skipping revert — snapshot capture had failed for ${workingDir}`);
+    return { reverted: [], kept: [], report: 'Skipped: snapshot capture failed' };
   }
 
   // Capture fresh state

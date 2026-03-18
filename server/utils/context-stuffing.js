@@ -122,6 +122,13 @@ async function stuffContext({ contextFiles, workingDirectory, taskDescription, p
       logger.debug(`Skipping sensitive file: ${path.basename(filePath)}`);
       continue;
     }
+    // SECURITY: validate file path is within the working directory
+    const resolvedPath = path.resolve(filePath);
+    const resolvedWd = path.resolve(workingDirectory || '.');
+    if (!resolvedPath.startsWith(resolvedWd + path.sep) && resolvedPath !== resolvedWd) {
+      logger.warn(`[context-stuffing] Skipping file outside working directory: ${filePath}`);
+      continue;
+    }
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       const relativePath = path.relative(workingDirectory, filePath).replace(/\\/g, '/');

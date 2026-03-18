@@ -23,6 +23,8 @@ const v2InfrastructureHandlers = require('./v2-infrastructure-handlers');
 const remoteAgentHandlers = require('../handlers/remote-agent-handlers');
 const concurrencyHandlers = require('../handlers/concurrency-handlers');
 
+const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
+
 async function readJsonBody(req) {
   if (req?.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
     return req.body;
@@ -30,7 +32,16 @@ async function readJsonBody(req) {
 
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', chunk => { data += chunk; });
+    let bodySize = 0;
+    req.on('data', chunk => {
+      bodySize += chunk.length;
+      if (bodySize > MAX_BODY_SIZE) {
+        reject(new Error('Request body too large'));
+        req.destroy();
+        return;
+      }
+      data += chunk;
+    });
     req.on('end', () => {
       if (!data.trim()) {
         resolve({});
@@ -492,18 +503,7 @@ function parseQuery(url) {
   const queryIndex = url.indexOf('?');
   if (queryIndex === -1) return {};
   const queryString = url.slice(queryIndex + 1);
-  const params = {};
-  for (const pair of queryString.split('&')) {
-    const eqIdx = pair.indexOf('=');
-    const key = eqIdx === -1 ? pair : pair.slice(0, eqIdx);
-    const value = eqIdx === -1 ? '' : pair.slice(eqIdx + 1);
-    if (key) {
-      try {
-        params[decodeURIComponent(key)] = value ? decodeURIComponent(value) : '';
-      } catch { /* skip malformed */ }
-    }
-  }
-  return params;
+  return Object.fromEntries(new URL('http://x?' + queryString).searchParams);
 }
 
 // ─── Middleware runner (Express-style next() pattern) ────────────────────────
