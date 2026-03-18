@@ -364,8 +364,12 @@ function findPlaceholderArtifacts(workingDir, modifiedFiles = []) {
       .filter(Boolean)
   );
 
+  // Skip build output directories — compiled/minified assets trigger false positives
+  const BUILD_OUTPUT_PATTERNS = /(?:^|\/)(?:dist|build|out|\.next|\.nuxt|node_modules)\//;
+
   for (const entry of getGitStatusEntries(workingDir)) {
     if (!entry || entry.isDeleted || !entry.filePath) continue;
+    if (BUILD_OUTPUT_PATTERNS.test(entry.filePath)) continue;
 
     const fullPath = path.join(workingDir, entry.filePath);
     const candidates = expandArtifactCandidatePaths(fullPath, entry.filePath);
