@@ -328,9 +328,10 @@ describe('detectSandboxReverts', () => {
     });
 
     detectSandboxReverts(ctx);
-    expect(ctx.errorOutput).toContain('[SANDBOX REVERT WARNING]');
+    expect(ctx.errorOutput).toContain('[SANDBOX REVERT]');
     expect(ctx.errorOutput).toContain('data.ts');
     expect(ctx.errorOutput).toContain('existing error');
+    expect(ctx.errorOutput).toContain('auto-restored from HEAD');
   });
 
   it('does not change ctx.status (advisory only)', () => {
@@ -438,6 +439,55 @@ describe('detectSandboxReverts', () => {
 
     detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined(); // no reverts detected (diff fails = null)
+  });
+
+  it('auto-restores reverted files from HEAD', () => {
+    const dir = createGitRepo();
+    const original = Array.from({ length: 20 }, (_, i) => `line${i}`).join('\n') + '\n';
+    commitFile(dir, 'restored.ts', original);
+
+    // Simulate codex writing a stale version
+    fs.writeFileSync(path.join(dir, 'restored.ts'), 'line0\n');
+
+    const ctx = makeCtx({
+      working_directory: dir,
+      filesModified: ['restored.ts'],
+      task: { working_directory: dir },
+    });
+
+    detectSandboxReverts(ctx);
+
+    // File should be restored to HEAD content (normalize line endings for Windows)
+    const content = fs.readFileSync(path.join(dir, 'restored.ts'), 'utf8').replace(/\r\n/g, '\n');
+    expect(content).toBe(original);
+
+    // Restored file should be removed from filesModified
+    expect(ctx.filesModified).not.toContain('restored.ts');
+    expect(ctx.errorOutput).toContain('auto-restored from HEAD');
+  });
+
+  it('preserves non-reverted files in filesModified after auto-restore', () => {
+    const dir = createGitRepo();
+    const bigContent = Array.from({ length: 20 }, (_, i) => `fn${i}`).join('\n') + '\n';
+    commitFile(dir, 'reverted.js', bigContent);
+    commitFile(dir, 'newfile.js', 'original\n');
+
+    // Revert one, legitimately modify the other
+    fs.writeFileSync(path.join(dir, 'reverted.js'), 'fn0\n');
+    fs.writeFileSync(path.join(dir, 'newfile.js'), 'original\nnewline added\n');
+
+    const ctx = makeCtx({
+      working_directory: dir,
+      filesModified: ['reverted.js', 'newfile.js'],
+      task: { working_directory: dir },
+    });
+
+    detectSandboxReverts(ctx);
+
+    // reverted.js should be auto-restored and removed from filesModified
+    expect(ctx.filesModified).not.toContain('reverted.js');
+    // newfile.js should still be in filesModified (it was a legitimate change)
+    expect(ctx.filesModified).toContain('newfile.js');
   });
 
   it('falls back to task.provider when proc.provider is missing', () => {

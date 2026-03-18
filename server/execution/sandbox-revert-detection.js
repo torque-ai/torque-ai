@@ -147,13 +147,42 @@ function detectSandboxReverts(ctx) {
     .map((r) => `  - ${r.file} (+${r.added}/-${r.removed})`)
     .join('\n');
 
-  const warning = `\n\n[SANDBOX REVERT WARNING] ${reverted.length} file(s) may have been reverted by Codex sandbox:\n${fileList}\nThese files had more lines removed than added relative to HEAD, suggesting the sandbox started from a stale commit.`;
-
-  ctx.errorOutput = (ctx.errorOutput || '') + warning;
-
   logger.info(
     `[SandboxRevertDetection] Task ${ctx.taskId}: detected ${reverted.length} potential revert(s): ${reverted.map((r) => r.file).join(', ')}`
   );
+
+  // Auto-restore reverted files from HEAD — safe because HEAD has the correct
+  // state including all previously committed changes, and the codex task's new
+  // changes to non-reverted files are preserved.
+  const restored = [];
+  for (const r of reverted) {
+    try {
+      execFileSync('git', ['checkout', 'HEAD', '--', r.file], {
+        cwd: workingDir,
+        encoding: 'utf8',
+        timeout: TASK_TIMEOUTS.GIT_DIFF,
+        windowsHide: true,
+      });
+      restored.push(r.file);
+      logger.info(`[SandboxRevertDetection] Auto-restored ${r.file} from HEAD`);
+    } catch (restoreErr) {
+      logger.info(`[SandboxRevertDetection] Failed to restore ${r.file}: ${restoreErr.message}`);
+    }
+  }
+
+  // Remove restored files from filesModified — they're back to HEAD state
+  if (restored.length > 0 && Array.isArray(ctx.filesModified)) {
+    const restoredSet = new Set(restored);
+    ctx.filesModified = ctx.filesModified.filter(f => !restoredSet.has(f));
+  }
+
+  const restoredNote = restored.length > 0
+    ? `\n${restored.length} file(s) auto-restored from HEAD.`
+    : '\nAuto-restore failed — manual restore needed: git checkout HEAD -- <files>';
+
+  const warning = `\n\n[SANDBOX REVERT] ${reverted.length} file(s) were reverted by Codex sandbox:\n${fileList}${restoredNote}`;
+
+  ctx.errorOutput = (ctx.errorOutput || '') + warning;
 }
 
 module.exports = {
