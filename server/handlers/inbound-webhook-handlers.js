@@ -150,8 +150,95 @@ function handleDeleteInboundWebhook(args) {
   };
 }
 
+/**
+ * Test an inbound webhook (dry-run)
+ * Shows what WOULD happen when triggered, without actually creating a task.
+ */
+function handleTestInboundWebhook(args) {
+  const { webhook_name, payload } = args;
+
+  if (!webhook_name || typeof webhook_name !== 'string' || webhook_name.trim().length === 0) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'webhook_name is required and must be a non-empty string');
+  }
+
+  const webhook = db().getInboundWebhook(webhook_name.trim());
+  if (!webhook) {
+    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Inbound webhook '${webhook_name.trim()}' not found`);
+  }
+
+  if (!webhook.enabled) {
+    return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Inbound webhook '${webhook_name.trim()}' is disabled. Enable it before testing.`);
+  }
+
+  // Parse action_config
+  const actionConfig = typeof webhook.action_config === 'string'
+    ? JSON.parse(webhook.action_config)
+    : (webhook.action_config || {});
+
+  // Build test payload with defaults
+  const testPayload = payload || {
+    repository: 'example/repo',
+    branch: 'main',
+    commit: 'abc1234',
+    author: 'test-user',
+    message: 'Test commit message',
+  };
+
+  // Apply {{payload.*}} variable substitution
+  let resolvedDescription = actionConfig.task_description || '(no task_description in action_config)';
+  resolvedDescription = resolvedDescription.replace(/\{\{payload\.([^}]+)\}\}/g, (match, key) => {
+    // Support nested keys like payload.repository.name via dot notation
+    const parts = key.split('.');
+    let value = testPayload;
+    for (const part of parts) {
+      if (value && typeof value === 'object') {
+        value = value[part];
+      } else {
+        value = undefined;
+        break;
+      }
+    }
+    return value !== undefined ? String(value) : match;
+  });
+
+  const lines = [
+    '## Inbound Webhook Test (Dry Run)',
+    '',
+    `**Webhook:** ${webhook.name}`,
+    `**Source Type:** ${webhook.source_type}`,
+    `**Trigger Type:** ${actionConfig.trigger_type || 'standard'}`,
+    `**Enabled:** Yes`,
+    '',
+    '### Resolved Task Description',
+    '```',
+    resolvedDescription,
+    '```',
+    '',
+    '### Action Config',
+    `- **Provider:** ${actionConfig.provider || '(smart routing)'}`,
+    `- **Model:** ${actionConfig.model || '(default)'}`,
+    `- **Tags:** ${actionConfig.tags || '(none)'}`,
+    `- **Working Directory:** ${actionConfig.working_directory || '(none)'}`,
+    '',
+    '### Test Payload Used',
+    '```json',
+    JSON.stringify(testPayload, null, 2),
+    '```',
+    '',
+    '*This is a dry run. No task was created.*',
+  ];
+
+  return {
+    content: [{
+      type: 'text',
+      text: lines.join('\n'),
+    }],
+  };
+}
+
 module.exports = {
   handleCreateInboundWebhook,
   handleListInboundWebhooks,
   handleDeleteInboundWebhook,
+  handleTestInboundWebhook,
 };

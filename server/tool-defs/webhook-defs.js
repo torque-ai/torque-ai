@@ -433,6 +433,24 @@ const tools = [
     }
   },
   {
+    name: 'test_inbound_webhook',
+    description: 'Dry-run test an inbound webhook. Shows what WOULD happen when triggered, including resolved task description after {{payload.*}} substitution, without actually creating a task.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        webhook_name: {
+          type: 'string',
+          description: 'Name of the inbound webhook to test'
+        },
+        payload: {
+          type: 'object',
+          description: 'Optional test payload for {{payload.*}} variable substitution (default: sample values)'
+        }
+      },
+      required: ['webhook_name']
+    }
+  },
+  {
     name: 'manage_webhook',
     description: 'Unified webhook management. Actions: add/list/remove/test/logs/stats (outbound), create_inbound/list_inbound/delete_inbound, notify_slack/notify_discord, quick_setup.',
     inputSchema: {
@@ -440,7 +458,7 @@ const tools = [
       properties: {
         action: {
           type: 'string',
-          enum: ['add', 'list', 'remove', 'test', 'logs', 'stats', 'quick_setup', 'notify_slack', 'notify_discord', 'create_inbound', 'list_inbound', 'delete_inbound'],
+          enum: ['add', 'list', 'remove', 'test', 'logs', 'stats', 'quick_setup', 'notify_slack', 'notify_discord', 'create_inbound', 'list_inbound', 'delete_inbound', 'test_inbound'],
           description: 'Operation to perform'
         },
         // Outbound webhook params (add/remove/test/logs)
@@ -468,6 +486,9 @@ const tools = [
         model: { type: 'string', description: 'Model for created tasks' },
         tags: { type: 'string', description: 'Comma-separated tags' },
         working_directory: { type: 'string', description: 'Working directory for created tasks' },
+        // Test inbound params
+        webhook_name: { type: 'string', description: 'Inbound webhook name (for test_inbound)' },
+        payload: { type: 'object', description: 'Test payload for {{payload.*}} substitution (for test_inbound)' },
       },
       required: ['action']
     }

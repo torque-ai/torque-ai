@@ -1193,6 +1193,7 @@ const MANAGE_WEBHOOK_DISPATCH = {
   create_inbound:  (args) => inboundHandlers.handleCreateInboundWebhook(args),
   list_inbound:    (args) => inboundHandlers.handleListInboundWebhooks(args),
   delete_inbound:  (args) => inboundHandlers.handleDeleteInboundWebhook(args),
+  test_inbound:    (args) => inboundHandlers.handleTestInboundWebhook(args),
 };
 
 async function handleManageWebhook(args) {
