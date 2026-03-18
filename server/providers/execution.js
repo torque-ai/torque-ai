@@ -19,7 +19,6 @@
 
 'use strict';
 
-const { Worker } = require('worker_threads');
 const path = require('path');
 
 const _executeApiModule = require('./execute-api');
@@ -37,6 +36,10 @@ const openaiChatAdapter = require('./adapters/openai-chat');
 const googleChatAdapter = require('./adapters/google-chat');
 
 const logger = require('../logger').child({ component: 'execution-agentic' });
+
+// ── Lazy reference to recordProviderOutcome from provider-routing-core ──
+// Loaded in init() to avoid circular-require during startup.
+let _recordProviderOutcome = null;
 
 // ── Cloud provider base URL map (for OpenAI-compatible adapters) ───────
 const PROVIDER_HOST_MAP = {
@@ -76,6 +79,12 @@ function init(deps) {
     processQueue: deps.processQueue,
     handleWorkflowTermination: deps.handleWorkflowTermination,
   };
+
+  // Import recordProviderOutcome from provider-routing-core if available
+  try {
+    const routingCore = require('../db/provider-routing-core');
+    _recordProviderOutcome = routingCore.recordProviderOutcome;
+  } catch { /* module may not be ready */ }
 
   // Initialize capability detection with DB + serverConfig
   initCapability({ db: deps.db, serverConfig: require('../config') });
@@ -247,6 +256,8 @@ function spawnAgenticWorker(config, callbacks = {}) {
   const { onProgress, onToolCall, onChunk, onLog } = callbacks;
   let settled = false;
 
+  // Lazy lookup — allows vi.spyOn(require('worker_threads'), 'Worker') to intercept
+  const { Worker } = require('worker_threads');
   const worker = new Worker(
     path.join(__dirname, 'agentic-worker.js'),
     { workerData: config }
@@ -820,6 +831,110 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
 }
 
 // ============================================================
+// Fallback retry loop
+// ============================================================
+
+/**
+ * Internal helper — delegates to _recordProviderOutcome when loaded.
+ * Silently no-ops if the module is not available yet.
+ *
+ * @param {string} provider
+ * @param {boolean} success
+ */
+function recordProviderOutcome(provider, success) {
+  if (_recordProviderOutcome) _recordProviderOutcome(provider, success);
+}
+
+/**
+ * Returns true for transient / rate-limit / infrastructure errors that should
+ * trigger a provider fallback retry.  Returns false for permanent errors (bad
+ * request, auth failure, tool logic errors) where retrying the same prompt on
+ * another provider would not help.
+ *
+ * @param {Error} error
+ * @returns {boolean}
+ */
+function isRetryableError(error) {
+  const msg = (error.message || '').toLowerCase();
+  return /429|503|timeout|timed out|econnrefused|econnreset|quota|rate.limit|overloaded|provider returned error/.test(msg);
+}
+
+/**
+ * Execute a task against a provider chain, falling back to the next entry
+ * whenever a retryable error occurs.
+ *
+ * A git snapshot is captured ONCE before the first attempt.  Any partial
+ * changes are reverted between attempts so each provider starts from a clean
+ * state.  On success the normal git-safety check is applied (warn/enforce/off
+ * per server config).
+ *
+ * @param {Object} task                          — task record
+ * @param {Array<{provider:string,model?:string}>} chain — ordered fallback list
+ * @param {function(entry): Object} buildWorkerConfig — builds workerData for spawnAgenticWorker
+ * @param {Object} callbacks                     — {onProgress, onToolCall, onChunk, onLog}
+ * @returns {Promise<Object>} result augmented with .provider, .model, .chainPosition
+ */
+async function executeWithFallback(task, chain, buildWorkerConfig, callbacks) {
+  const workingDir = task.working_directory || process.cwd();
+
+  // Capture git snapshot ONCE before any attempts
+  let snapshot = null;
+  try { snapshot = captureSnapshot(workingDir); } catch { /* non-git dir */ }
+
+  let lastError = null;
+
+  for (let i = 0; i < chain.length; i++) {
+    const entry = chain[i];
+    const config = buildWorkerConfig(entry);
+
+    logger.info(`[Routing] Trying ${entry.provider}/${entry.model || 'default'} (${i + 1}/${chain.length})`);
+
+    let workerHandle;
+    try {
+      workerHandle = spawnAgenticWorker(config, callbacks);
+      const result = await workerHandle.promise;
+
+      // Success — run git safety and return
+      if (snapshot && snapshot.isGitRepo) {
+        const serverConfig = require('../config');
+        const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
+        const mode = safetyMode === 'warn' ? 'warn' : safetyMode === 'off' ? 'off' : 'enforce';
+        const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
+        if (gitReport.report) result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
+      }
+
+      // Record success
+      try { recordProviderOutcome(entry.provider, true); } catch { /* non-critical */ }
+
+      return { ...result, provider: entry.provider, model: entry.model, chainPosition: i + 1 };
+
+    } catch (error) {
+      lastError = error;
+
+      // Terminate the stuck worker
+      if (workerHandle) try { workerHandle.terminate(); } catch { /* ignore */ }
+
+      // Revert any partial changes before retrying
+      if (snapshot && snapshot.isGitRepo) {
+        try { checkAndRevert(workingDir, snapshot, '', 'enforce'); } catch { /* ignore */ }
+      }
+
+      // Record failure
+      try { recordProviderOutcome(entry.provider, false); } catch { /* non-critical */ }
+
+      if (!isRetryableError(error) || i === chain.length - 1) {
+        logger.info(`[Routing] ${entry.provider} failed (non-retryable or last in chain): ${error.message}`);
+        throw error;
+      }
+
+      logger.info(`[Routing] Fallback: ${entry.provider}/${entry.model || 'default'} failed (${error.message.slice(0, 80)}), trying next (${i + 2}/${chain.length})`);
+    }
+  }
+
+  throw lastError || new Error('All providers in chain failed');
+}
+
+// ============================================================
 // Module exports — re-export all functions from sub-modules
 // ============================================================
 
@@ -827,6 +942,9 @@ module.exports = {
   init,
   // Worker spawner (for tests and direct use)
   spawnAgenticWorker,
+  // Fallback retry loop
+  isRetryableError,
+  executeWithFallback,
   // From execute-ollama.js (wrapped with agentic interceptor)
   estimateRequiredContext: _executeOllamaModule.estimateRequiredContext,
   executeOllamaTask: executeOllamaTaskWithAgentic,

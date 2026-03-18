@@ -301,3 +301,204 @@ describe('validateTemplate — chain format', () => {
     expect(result.errors.some(e => /chain must have at least one entry/i.test(e))).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// isRetryableError
+// ---------------------------------------------------------------------------
+
+const { isRetryableError, executeWithFallback } = require('../providers/execution');
+
+describe('isRetryableError', () => {
+  it('returns true for "429 Too Many Requests"', () => {
+    expect(isRetryableError(new Error('429 Too Many Requests'))).toBe(true);
+  });
+
+  it('returns true for "timeout"', () => {
+    expect(isRetryableError(new Error('Request timeout after 30000ms'))).toBe(true);
+  });
+
+  it('returns true for "timed out"', () => {
+    expect(isRetryableError(new Error('Connection timed out'))).toBe(true);
+  });
+
+  it('returns true for "ECONNREFUSED"', () => {
+    expect(isRetryableError(new Error('connect ECONNREFUSED 127.0.0.1:11434'))).toBe(true);
+  });
+
+  it('returns true for "quota exceeded"', () => {
+    expect(isRetryableError(new Error('quota exceeded for this billing period'))).toBe(true);
+  });
+
+  it('returns true for "rate limit"', () => {
+    expect(isRetryableError(new Error('rate limit reached, retry after 60s'))).toBe(true);
+  });
+
+  it('returns true for "overloaded"', () => {
+    expect(isRetryableError(new Error('server overloaded, try again later'))).toBe(true);
+  });
+
+  it('returns true for "503"', () => {
+    expect(isRetryableError(new Error('503 Service Unavailable'))).toBe(true);
+  });
+
+  it('returns true for "Provider returned error"', () => {
+    expect(isRetryableError(new Error('Provider returned error: upstream issue'))).toBe(true);
+  });
+
+  it('returns false for "400 Bad Request"', () => {
+    expect(isRetryableError(new Error('400 Bad Request: invalid payload'))).toBe(false);
+  });
+
+  it('returns false for "401 Unauthorized"', () => {
+    expect(isRetryableError(new Error('401 Unauthorized: invalid API key'))).toBe(false);
+  });
+
+  it('returns false for "old_text not found"', () => {
+    expect(isRetryableError(new Error('old_text not found in file'))).toBe(false);
+  });
+
+  it('returns false for generic task logic errors', () => {
+    expect(isRetryableError(new Error('Cannot read property of undefined'))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeWithFallback
+// ---------------------------------------------------------------------------
+
+describe('executeWithFallback', () => {
+  // spawnAgenticWorker uses the Worker constructor from worker_threads.
+  // We intercept it via vi.spyOn so we can control outcomes per test.
+
+  const EventEmitter = require('events');
+
+  /**
+   * Build a simple buildWorkerConfig adapter that returns a minimal config.
+   * The actual worker is mocked so the content doesn't matter.
+   */
+  function simpleBuildWorkerConfig(entry) {
+    return {
+      adapterType: 'openai',
+      adapterOptions: { provider: entry.provider, model: entry.model || 'default' },
+      systemPrompt: 'test',
+      taskPrompt: 'do the thing',
+      workingDir: process.cwd(),
+      timeoutMs: 30000,
+      maxIterations: 10,
+      contextBudget: 16000,
+      promptInjectedTools: false,
+      commandMode: 'unrestricted',
+      commandAllowlist: [],
+    };
+  }
+
+  /**
+   * Build a fake Worker constructor (must be a real constructor function, not an
+   * arrow function, because execution.js uses `new Worker(...)`).
+   * The returned instance emits the given message on the next tick.
+   */
+  function makeFakeWorkerCtor(msgOrError) {
+    return function FakeWorker() {
+      const em = new EventEmitter();
+      this.postMessage = () => {};
+      this.terminate = vi.fn();
+      this.on = (ev, h) => em.on(ev, h);
+      setImmediate(() => em.emit('message', msgOrError));
+    };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('first provider succeeds → returns result with chainPosition=1', async () => {
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      makeFakeWorkerCtor({ type: 'result', output: 'success output', toolLog: [], tokenUsage: {} })
+    );
+
+    const chain = [{ provider: 'deepinfra', model: 'Qwen/Qwen2.5-72B-Instruct' }];
+    const task = { id: 'test-1', task_description: 'test task', working_directory: null };
+
+    const result = await executeWithFallback(task, chain, simpleBuildWorkerConfig, {});
+
+    expect(result.chainPosition).toBe(1);
+    expect(result.provider).toBe('deepinfra');
+    expect(result.output).toBe('success output');
+  });
+
+  it('first provider fails (429), second succeeds → returns with chainPosition=2', async () => {
+    let callCount = 0;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function FakeWorker() {
+      callCount++;
+      const em = new EventEmitter();
+      this.postMessage = () => {};
+      this.terminate = vi.fn();
+      this.on = (ev, h) => em.on(ev, h);
+      const msg = callCount === 1
+        ? { type: 'error', message: '429 Too Many Requests' }
+        : { type: 'result', output: 'fallback output', toolLog: [], tokenUsage: {} };
+      setImmediate(() => em.emit('message', msg));
+    });
+
+    const chain = [
+      { provider: 'cerebras', model: 'fast-model' },
+      { provider: 'ollama', model: 'qwen2.5-coder:32b' },
+    ];
+    const task = { id: 'test-2', task_description: 'test task', working_directory: null };
+
+    const result = await executeWithFallback(task, chain, simpleBuildWorkerConfig, {});
+
+    expect(result.chainPosition).toBe(2);
+    expect(result.provider).toBe('ollama');
+    expect(result.output).toBe('fallback output');
+    expect(callCount).toBe(2);
+  });
+
+  it('first provider fails (400, non-retryable) → throws immediately without trying next', async () => {
+    let callCount = 0;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function FakeWorker() {
+      callCount++;
+      const em = new EventEmitter();
+      this.postMessage = () => {};
+      this.terminate = vi.fn();
+      this.on = (ev, h) => em.on(ev, h);
+      setImmediate(() => em.emit('message', { type: 'error', message: '400 Bad Request: malformed prompt' }));
+    });
+
+    const chain = [
+      { provider: 'deepinfra', model: 'Qwen/Qwen2.5-72B-Instruct' },
+      { provider: 'ollama', model: 'qwen2.5-coder:32b' },
+    ];
+    const task = { id: 'test-3', task_description: 'test task', working_directory: null };
+
+    await expect(executeWithFallback(task, chain, simpleBuildWorkerConfig, {}))
+      .rejects.toThrow('400 Bad Request: malformed prompt');
+
+    // Should only try the first provider — non-retryable error stops the chain
+    expect(callCount).toBe(1);
+  });
+
+  it('all providers fail → throws last error', async () => {
+    let callCount = 0;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function FakeWorker() {
+      const myCount = ++callCount;
+      const em = new EventEmitter();
+      this.postMessage = () => {};
+      this.terminate = vi.fn();
+      this.on = (ev, h) => em.on(ev, h);
+      setImmediate(() => em.emit('message', { type: 'error', message: `429 provider ${myCount} failed` }));
+    });
+
+    const chain = [
+      { provider: 'cerebras' },
+      { provider: 'deepinfra' },
+      { provider: 'ollama' },
+    ];
+    const task = { id: 'test-4', task_description: 'test task', working_directory: null };
+
+    await expect(executeWithFallback(task, chain, simpleBuildWorkerConfig, {}))
+      .rejects.toThrow('429 provider 3 failed');
+
+    expect(callCount).toBe(3);
+  });
+});
