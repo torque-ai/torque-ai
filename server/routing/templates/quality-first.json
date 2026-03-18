@@ -1,15 +1,15 @@
 {
   "name": "Quality First",
-  "description": "Cloud models for reasoning, code generation, and architecture",
+  "description": "Biggest free models for maximum accuracy — 675B to 1T parameter models",
   "rules": {
     "security": "ollama-cloud",
     "xaml_wpf": "ollama-cloud",
-    "architectural": "codex",
-    "reasoning": "codex",
-    "large_code_gen": "codex",
+    "architectural": "ollama-cloud",
+    "reasoning": "ollama-cloud",
+    "large_code_gen": "ollama-cloud",
     "documentation": "ollama-cloud",
-    "simple_generation": "ollama",
-    "targeted_file_edit": "hashline-ollama",
+    "simple_generation": "cerebras",
+    "targeted_file_edit": "cerebras",
     "default": "ollama-cloud"
   },
   "complexity_overrides": {}

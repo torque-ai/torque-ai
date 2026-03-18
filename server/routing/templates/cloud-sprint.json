@@ -1,16 +1,16 @@
 {
   "name": "Cloud Sprint",
-  "description": "Maximum speed — everything to cloud providers",
+  "description": "Maximum speed — fastest free cloud models for every category (sub-2s target)",
   "rules": {
-    "security": "codex",
-    "xaml_wpf": "codex",
-    "architectural": "codex",
-    "reasoning": "codex",
-    "large_code_gen": "codex",
+    "security": "cerebras",
+    "xaml_wpf": "cerebras",
+    "architectural": "cerebras",
+    "reasoning": "cerebras",
+    "large_code_gen": "cerebras",
     "documentation": "groq",
-    "simple_generation": "groq",
-    "targeted_file_edit": "hashline-ollama",
-    "default": "codex"
+    "simple_generation": "cerebras",
+    "targeted_file_edit": "cerebras",
+    "default": "cerebras"
   },
   "complexity_overrides": {}
 }

@@ -1,6 +1,6 @@
 {
   "name": "Cost Saver",
-  "description": "Everything local except complex code generation",
+  "description": "Local Ollama first, free cloud fallback only for complex tasks",
   "rules": {
     "security": "ollama",
     "xaml_wpf": "ollama",
@@ -13,6 +13,8 @@
     "default": "ollama"
   },
   "complexity_overrides": {
-    "large_code_gen": { "complex": "codex" }
+    "large_code_gen": { "complex": "ollama-cloud" },
+    "reasoning": { "complex": "cerebras" },
+    "architectural": { "complex": "ollama-cloud" }
   }
 }

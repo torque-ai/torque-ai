@@ -1,16 +1,19 @@
 {
   "name": "System Default",
-  "description": "Balanced routing — local for simple tasks, free cloud for complex work",
+  "description": "Balanced free routing — cerebras for speed, ollama-cloud for heavy tasks, local for simple",
   "rules": {
-    "security": "ollama-cloud",
-    "xaml_wpf": "ollama-cloud",
+    "security": "cerebras",
+    "xaml_wpf": "cerebras",
     "architectural": "ollama-cloud",
     "reasoning": "ollama-cloud",
-    "large_code_gen": "codex",
-    "documentation": "ollama",
-    "simple_generation": "ollama",
-    "targeted_file_edit": "hashline-ollama",
-    "default": "ollama"
+    "large_code_gen": "ollama-cloud",
+    "documentation": "groq",
+    "simple_generation": "cerebras",
+    "targeted_file_edit": "cerebras",
+    "default": "cerebras"
   },
-  "complexity_overrides": {}
+  "complexity_overrides": {
+    "targeted_file_edit": { "complex": "ollama-cloud" },
+    "large_code_gen": { "simple": "cerebras" }
+  }
 }

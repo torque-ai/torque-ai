@@ -1,0 +1,51 @@
+{
+  "name": "Free Speed",
+  "description": "Lowest latency — sub-second models with fast fallbacks",
+  "rules": {
+    "security": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "groq", "model": "moonshotai/kimi-k2-instruct"}
+    ],
+    "xaml_wpf": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+    ],
+    "architectural": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash-lite"}
+    ],
+    "reasoning": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+    ],
+    "large_code_gen": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+    ],
+    "documentation": [
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash-lite"}
+    ],
+    "simple_generation": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+    ],
+    "targeted_file_edit": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "groq", "model": "moonshotai/kimi-k2-instruct"}
+    ],
+    "default": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash-lite"}
+    ]
+  },
+  "complexity_overrides": {}
+}
