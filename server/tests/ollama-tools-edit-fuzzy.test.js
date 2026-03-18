@@ -214,3 +214,61 @@ describe('edit_file fuzzy fallback (Tier 2)', () => {
     expect(written).toBe('      const value = transform();\n      return value;');
   });
 });
+
+describe('edit_file cascade (exact > whitespace > fuzzy)', () => {
+  it('prefers exact over whitespace when exact matches', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'cascade.js', '  foo();\n    foo();');
+    const { execute: exec } = createToolExecutor(dir);
+    const result = exec('edit_file', {
+      path: 'cascade.js',
+      old_text: '  foo();',
+      new_text: '  bar();',
+    });
+    expect(result.result).toBe('Edit applied to cascade.js');
+    expect(result.result).not.toContain('normalized');
+    expect(result.result).not.toContain('fuzzy');
+  });
+
+  it('prefers whitespace over fuzzy when whitespace matches', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'cascade2.js', '    doWork();');
+    const { execute: exec } = createToolExecutor(dir);
+    const result = exec('edit_file', {
+      path: 'cascade2.js',
+      old_text: '  doWork();',
+      new_text: '  doBetter();',
+    });
+    expect(result.result).toContain('normalized whitespace');
+    expect(result.result).not.toContain('fuzzy');
+  });
+
+  it('replace_all with whitespace fallback but no fuzzy', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'ra.js', '\tlog(x);');
+    const { execute: exec } = createToolExecutor(dir);
+    const result = exec('edit_file', {
+      path: 'ra.js',
+      old_text: '  log(x);',
+      new_text: '  log(y);',
+      replace_all: true,
+    });
+    expect(result.error).toBeFalsy();
+    expect(result.result).toContain('1 replacement');
+    expect(result.result).toContain('normalized whitespace');
+  });
+
+  it('error message suggests more context when all tiers fail', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'nope.js', 'completely different content');
+    const { execute: exec } = createToolExecutor(dir);
+    const result = exec('edit_file', {
+      path: 'nope.js',
+      old_text: 'this does not exist anywhere',
+      new_text: 'replacement',
+    });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('not found');
+    expect(result.result).toContain('context');
+  });
+});
