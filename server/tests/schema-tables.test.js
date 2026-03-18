@@ -773,4 +773,13 @@ describe('db/schema-tables', () => {
     const fixtureCatalogForeignKeys = getForeignKeys('peek_fixture_catalog');
     expect(fixtureCatalogForeignKeys.some((foreignKey) => foreignKey.table === 'peek_fixture_catalog' && foreignKey.from === 'parent_fixture_id')).toBe(true);
   });
+
+  test('tasks table has partial_output column', () => {
+    createTables(db, logger);
+    const info = db.pragma('table_info(tasks)');
+    const col = info.find(c => c.name === 'partial_output');
+    expect(col).toBeDefined();
+    expect(col.type).toBe('TEXT');
+    expect(col.dflt_value).toBeNull();
+  });
 });

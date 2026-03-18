@@ -262,7 +262,9 @@ function createTables(db, logger) {
         -- Provider support (codex, claude-cli)
         provider TEXT DEFAULT 'codex',
         original_provider TEXT,
-        provider_switched_at TEXT
+        provider_switched_at TEXT,
+        -- Heartbeat: partial output from streaming providers
+        partial_output TEXT
       )
     `);
   db.exec(`

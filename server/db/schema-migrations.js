@@ -561,6 +561,9 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
 
   // L-6: IANA timezone support for cron schedules
   safeAddColumn('scheduled_tasks', 'timezone TEXT DEFAULT NULL');
+
+  // Heartbeat: partial output capture for streaming providers
+  safeAddColumn('tasks', 'partial_output TEXT DEFAULT NULL');
 }
 
 module.exports = { runMigrations };
