@@ -15,7 +15,7 @@ const crypto = require('crypto');
 const logger = require('../logger').child({ component: 'ollama-agentic' });
 const { parseToolCalls } = require('./ollama-tools');
 
-const MAX_ITERATIONS = 10;
+const MAX_ITERATIONS = 15;
 const MAX_TOTAL_OUTPUT_CHARS = 512 * 1024; // 512KB total conversation log
 const DEFAULT_CONTEXT_BUDGET = 16000;      // ~16k tokens (rough: chars / 4)
 const ARGUMENTS_PREVIEW_MAX = 500;
@@ -182,6 +182,9 @@ async function runAgenticLoop({
   // Parse failure recovery: track if we already injected a correction
   let parseFailureCorrectionInjected = false;
 
+  // Empty summary retry: track if we already prompted for a summary
+  let emptySummaryRetried = false;
+
   // Early termination flag — set inside inner loops to break the outer loop
   let earlyStop = false;
 
@@ -255,6 +258,21 @@ async function runAgenticLoop({
       }
 
       // No tool calls — model is done, this is the final response
+      // Empty summary retry: if model called tools but produced no text summary,
+      // inject a "summarize your findings" prompt and do one more iteration
+      if (!content.trim() && toolLog.length > 0 && !emptySummaryRetried) {
+        logger.info(`[Agentic] Empty summary after ${toolLog.length} tool calls — injecting summarization prompt`);
+        messages.push({
+          role: 'assistant',
+          content: '',
+        });
+        messages.push({
+          role: 'user',
+          content: 'You called tools but did not provide a summary. Please summarize your findings based on the tool results above. Include the actual data returned by the tools.',
+        });
+        emptySummaryRetried = true;
+        continue; // one retry
+      }
       finalOutput = content;
       logger.info(`[Agentic] Model finished after ${iterations + 1} iterations (${toolLog.length} tool calls)`);
       break;

@@ -524,7 +524,10 @@ async function executeOllamaTaskWithAgentic(task) {
   try {
     logger.info(`[Agentic] Starting Ollama task ${taskId} with model ${resolvedModel} on ${ollamaHost}`);
 
-    const maxIterations = parseInt(serverConfig.get('agentic_max_iterations') || '10', 10);
+    // Category-aware max iterations: complex tasks get more room
+    const baseMaxIter = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
+    const taskComplexity = task.complexity || 'normal';
+    const maxIterations = taskComplexity === 'complex' ? Math.max(baseMaxIter, 20) : baseMaxIter;
     const contextBudget = tuning.numCtx ? Math.floor(tuning.numCtx * 0.8) : 16000;
 
     // Capture git snapshot in main thread (git ops need main process context)
@@ -711,7 +714,10 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   try {
     logger.info(`[Agentic] Starting API task ${taskId} with provider ${provider}, model ${model}`);
 
-    const maxIterations = parseInt(serverConfig.get('agentic_max_iterations') || '10', 10);
+    // Category-aware max iterations: complex tasks get more room
+    const baseMaxIter2 = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
+    const taskComplexity2 = task.complexity || 'normal';
+    const maxIterations = taskComplexity2 === 'complex' ? Math.max(baseMaxIter2, 20) : baseMaxIter2;
 
     // Derive context budget from provider capabilities
     const PROVIDER_CONTEXT_BUDGETS = {
