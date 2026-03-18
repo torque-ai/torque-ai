@@ -813,14 +813,16 @@ function getProviderFallbackChain(provider, options) {
     // Local-first fallback chains — try local providers before cloud
     // hashline-ollama is the primary local edit provider (82% success rate).
     // aider-ollama is legacy (11% success) and demoted in all chains.
+    // groq removed from fallback chains — its tool calling fails on multi-step
+    // tasks (only reliable for single-tool-call docs/simple tasks via smart routing).
     const defaultChains = {
       'codex':           ['claude-cli', 'deepinfra', 'ollama-cloud', 'hashline-ollama', 'ollama'],
       'claude-cli':      ['codex', 'deepinfra', 'ollama-cloud', 'hashline-ollama', 'ollama'],
-      'groq':            ['ollama-cloud', 'deepinfra', 'claude-cli', 'hashline-ollama', 'ollama'],
-      'ollama-cloud':    ['cerebras', 'deepinfra', 'groq', 'codex', 'claude-cli'],
-      'cerebras':        ['google-ai', 'groq', 'ollama-cloud', 'deepinfra', 'codex'],
-      'google-ai':       ['openrouter', 'groq', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
-      'openrouter':      ['google-ai', 'groq', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
+      'groq':            ['ollama-cloud', 'cerebras', 'deepinfra', 'claude-cli', 'hashline-ollama'],
+      'ollama-cloud':    ['cerebras', 'deepinfra', 'codex', 'claude-cli'],
+      'cerebras':        ['google-ai', 'ollama-cloud', 'deepinfra', 'codex'],
+      'google-ai':       ['openrouter', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
+      'openrouter':      ['google-ai', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
       'hyperbolic':      ['deepinfra', 'ollama-cloud', 'claude-cli', 'codex', 'hashline-ollama'],
       'deepinfra':       ['ollama-cloud', 'hyperbolic', 'claude-cli', 'codex', 'hashline-ollama'],
       'ollama':          ['hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
