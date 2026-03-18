@@ -82,11 +82,12 @@ function parseTaskMeta(task) {
 function getUnassignedQueuedTasks(limit = 200) {
   if (!_db) return [];
   try {
-    // Include tasks with stale provider assignments (provider set but status still queued).
-    // This happens when execution code requeues a task without clearing provider.
-    return _db.getDbInstance().prepare(
-      "SELECT t.*, COALESCE(w.priority, 0) as workflow_priority FROM tasks t LEFT JOIN workflows w ON t.workflow_id = w.id WHERE t.status = 'queued' ORDER BY COALESCE(w.priority, 0) DESC, t.priority DESC, t.created_at ASC LIMIT ?"
-    ).all(limit);
+    // Use module wrapper instead of raw DB access
+    const tasks = _db.listQueuedTasksLightweight
+      ? _db.listQueuedTasksLightweight(limit)
+      : _db.listTasks ? _db.listTasks({ status: 'queued', limit }) : [];
+    // Filter for unassigned (provider IS NULL) in JS
+    return (Array.isArray(tasks) ? tasks : []).filter(t => !t.provider);
   } catch { return []; }
 }
 
@@ -101,7 +102,7 @@ function findBestTaskForProvider(provider, excludeIds) {
     const eligible = meta.eligible_providers || [];
     const required = meta.capability_requirements || [];
     const qualityTier = meta.quality_tier || 'normal';
-    if (!eligible.includes(provider)) continue;
+    if (eligible.length > 0 && !eligible.includes(provider)) continue;
     if (!required.every(r => providerCaps.has(r))) continue;
     if (!capabilities.passesQualityGate(band, qualityTier)) {
       const createdAt = task.created_at ? new Date(task.created_at).getTime() : Date.now();

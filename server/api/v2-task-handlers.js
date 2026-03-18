@@ -186,8 +186,13 @@ async function handleSubmitTask(req, res) {
       }
     }
 
+    if (!_taskManager) {
+      return sendError(res, requestId, 'operation_failed', 'Task manager not initialized', 503, {}, req);
+    }
     const result = _taskManager.startTask(taskId);
     if (result?.blocked) {
+      // Clean up the task record that was created before the block was detected
+      try { db.deleteTask(taskId); } catch {}
       return sendError(res, requestId, 'task_blocked', result.reason || 'Task blocked by policy', 403, {}, req);
     }
     const task = db.getTask(taskId);
@@ -343,9 +348,13 @@ async function handleRetryTask(req, res) {
   try {
     const newTaskId = uuidv4();
     const taskMetadata = parseTaskMetadata(task);
-    const retryProvider = typeof taskMetadata.original_provider === 'string' && taskMetadata.original_provider.trim()
-      ? taskMetadata.original_provider.trim()
-      : task.provider;
+    // If original task was smart-routed (no user override), clear provider so smart routing re-evaluates
+    const wasSmartRouted = !taskMetadata?.original_provider && !taskMetadata?.user_provider_override;
+    const retryProvider = wasSmartRouted ? null : (
+      typeof taskMetadata.original_provider === 'string' && taskMetadata.original_provider.trim()
+        ? taskMetadata.original_provider.trim()
+        : task.provider
+    );
     const providerValidation = retryProvider ? getProviderValidation(retryProvider) : { valid: true };
     if (!providerValidation.valid) {
       return sendError(res, requestId, providerValidation.code, providerValidation.message, providerValidation.status, {}, req);
@@ -382,8 +391,13 @@ async function handleRetryTask(req, res) {
       metadata: JSON.stringify(retryMetadata),
     });
 
+    if (!_taskManager) {
+      return sendError(res, requestId, 'operation_failed', 'Task manager not initialized', 503, {}, req);
+    }
     const result = _taskManager.startTask(newTaskId);
     if (result?.blocked) {
+      // Clean up the task record that was created before the block was detected
+      try { db.deleteTask(newTaskId); } catch {}
       return sendError(res, requestId, 'task_blocked', result.reason || 'Task blocked by policy', 403, {}, req);
     }
     const newTask = db.getTask(newTaskId);

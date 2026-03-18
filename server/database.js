@@ -885,18 +885,14 @@ function updateTaskStatus(id, status, additionalFields = {}) {
     additionalFields.provider = normalizeProviderValue(additionalFields.provider);
   }
 
-  // Slot-pull fix: when requeuing a task, clear the provider so the slot-pull
-  // scheduler can re-discover it. Without this, tasks requeued by execution
-  // code (VRAM guard, host unavailable, etc.) remain invisible to slot-pull
-  // because its query requires provider IS NULL.
-  if (status === 'queued' && !Object.prototype.hasOwnProperty.call(additionalFields, 'provider')) {
-    try {
-      const schedulingMode = typeof getConfig === 'function' ? getConfig('scheduling_mode') : null;
-      if (schedulingMode === 'slot-pull') {
-        additionalFields.provider = null;
-      }
-    } catch { /* non-fatal */ }
+  // When requeuing a task, clear the provider so routing can re-evaluate.
+  // In slot-pull mode: the scheduler requires provider IS NULL to discover tasks.
+  // In legacy mode: clear provider so smart routing can re-evaluate placement.
+  // Callers that need to preserve provider should set _preserveProvider flag.
+  if (status === 'queued' && !Object.prototype.hasOwnProperty.call(additionalFields, 'provider') && !additionalFields._preserveProvider) {
+    additionalFields.provider = null;
   }
+  delete additionalFields._preserveProvider;
 
   const updates = ['status = ?'];
   const values = [status];

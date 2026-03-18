@@ -144,7 +144,7 @@ function rerouteQueuedTasks(scope, policy) {
       const oldProvider = task.provider || null;
 
       if (newProvider && newProvider !== oldProvider) {
-        database.prepare('UPDATE tasks SET provider = ? WHERE id = ?').run(newProvider, task.id);
+        database.prepare('UPDATE tasks SET provider = ?, updated_at = datetime(\'now\') WHERE id = ? AND status = \'queued\'').run(newProvider, task.id);
         logger.info(`Economy mode: task ${task.id} re-routed ${oldProvider} -> ${newProvider}`);
         rerouted += 1;
       }
