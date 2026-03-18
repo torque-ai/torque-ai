@@ -1055,7 +1055,7 @@ async function handleSmartSubmitTask(args) {
       task_description: task,
       working_directory: workingDirectory,
       status: 'queued',
-      provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+      provider: selectedProvider,  // Use the routing-resolved provider (was null — broke template routing)
       model: taskModel,
       timeout_minutes: effectiveTimeout,
       priority: priority || 0,
