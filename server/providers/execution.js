@@ -228,8 +228,8 @@ RULES:
 3. ONLY modify files explicitly mentioned in the task. Do NOT touch unrelated files.
 4. If a build/test fails for reasons UNRELATED to your change, report the failure and stop. Do NOT try to fix pre-existing issues.
 5. If a tool call fails, try ONE alternative approach. If that also fails, report the error and stop.
-6. When done, respond with a brief summary of what you did and what changed.
-7. Be efficient — you have limited iterations. Read the file, make the edit, verify if needed, done.
+6. When done, respond with a COMPLETE summary that includes the actual data from tool results. Do NOT just say "I called list_directory" — include the actual file/folder names, counts, and content you found.
+7. Be efficient — you have limited iterations. Do ONLY what the task asks. If the task says "list directory", just call list_directory once and report. Do NOT write files, run commands, or do extra work unless explicitly asked.
 ${platformRule}
 
 Working directory: ${workingDir}`;

@@ -22,7 +22,9 @@ const EXCLUDED_PROVIDERS = new Set(['hashline-ollama', 'aider-ollama', 'codex', 
 
 // ── Cloud providers known to support OpenAI-compatible tool calling ───────────
 
-const CLOUD_TOOL_CAPABLE = new Set(['groq', 'cerebras', 'deepinfra', 'openrouter', 'hyperbolic', 'google-ai', 'ollama-cloud']);
+// Note: openrouter excluded — free tier models don't support tool calling.
+// Enable via agentic_provider_openrouter=1 config if using paid models.
+const CLOUD_TOOL_CAPABLE = new Set(['groq', 'cerebras', 'deepinfra', 'hyperbolic', 'google-ai', 'ollama-cloud']);
 
 // ── Model name prefixes (lowercased) known to support tool calling ────────────
 
@@ -30,7 +32,7 @@ const WHITELIST_PREFIXES = [
   'qwen2.5-coder',
   'qwen3',
   'qwen-3',
-  'codestral',
+  // Note: codestral excluded — does not support tool calling via Ollama
   'devstral',
   'deepseek',
   'llama3.1',
