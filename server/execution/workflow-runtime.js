@@ -799,7 +799,11 @@ function evaluateWorkflowDependencies(taskId, workflowId) {
 
         const prereqTask = db.getTask(otherDep.depends_on_task_id);
         const prereqStatus = prereqTask?.status || otherDep.depends_on_status;
-        if (!['completed', 'skipped'].includes(prereqStatus)) {
+        // A dep is satisfied if it completed/was skipped, OR if it failed/was
+        // cancelled but the dependency edge's on_fail policy is 'continue'.
+        const depSatisfied = ['completed', 'skipped'].includes(prereqStatus)
+          || (['failed', 'cancelled'].includes(prereqStatus) && otherDep.on_fail === 'continue');
+        if (!depSatisfied) {
           allSatisfied = false;
           break;
         }
@@ -875,8 +879,8 @@ function unblockTask(taskId) {
   if (!task || !['blocked', 'waiting'].includes(task.status)) return false;
 
   try {
-    db.updateTaskStatus(taskId, 'pending', { updated_at: new Date().toISOString() });
-    db.updateTaskStatus(taskId, 'queued', { updated_at: new Date().toISOString() });
+    db.updateTaskStatus(taskId, 'pending');
+    db.updateTaskStatus(taskId, 'queued');
     process.emit('torque:queue-changed');
     return true;
   } catch (err) {

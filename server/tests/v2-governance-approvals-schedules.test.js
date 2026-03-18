@@ -14,6 +14,7 @@ const mockDb = {
   listPendingApprovals: vi.fn(),
   getApprovalHistory: vi.fn(),
   decideApproval: vi.fn(),
+  getScheduledTask: vi.fn(),
   listScheduledTasks: vi.fn(),
   createCronScheduledTask: vi.fn(),
   toggleScheduledTask: vi.fn(),
@@ -145,6 +146,7 @@ function resetMockDefaults() {
   mockDb.listPendingApprovals = vi.fn().mockReturnValue([]);
   mockDb.getApprovalHistory = vi.fn().mockReturnValue([]);
   mockDb.decideApproval = vi.fn().mockReturnValue(true);
+  mockDb.getScheduledTask = vi.fn().mockReturnValue(null);
   mockDb.listScheduledTasks = vi.fn().mockReturnValue([]);
   mockDb.createCronScheduledTask = vi.fn().mockImplementation((name, cronExpression, taskDescription, options) => ({
     id: 'schedule-1',
@@ -572,7 +574,7 @@ describe('api/v2-governance-handlers approvals and schedules', () => {
   });
 
   describe('handleGetSchedule', () => {
-    it('returns a schedule by id with string coercion', async () => {
+    it('returns a schedule by id using direct lookup', async () => {
       const schedule = {
         id: 42,
         name: 'Numeric schedule',
@@ -581,13 +583,12 @@ describe('api/v2-governance-handlers approvals and schedules', () => {
       const { req, res } = createMockContext({
         params: { schedule_id: '42' },
       });
-      mockDb.listScheduledTasks.mockReturnValue([
-        { id: 1, name: 'Other' },
-        schedule,
-      ]);
+      mockDb.getScheduledTask.mockReturnValue(schedule);
 
       await handlers.handleGetSchedule(req, res);
 
+      expect(mockDb.getScheduledTask).toHaveBeenCalledWith('42');
+      expect(mockDb.listScheduledTasks).not.toHaveBeenCalled();
       expectSuccessEnvelope(res, schedule);
     });
 
@@ -598,6 +599,7 @@ describe('api/v2-governance-handlers approvals and schedules', () => {
 
       await handlers.handleGetSchedule(req, res);
 
+      expect(mockDb.getScheduledTask).toHaveBeenCalledWith('missing');
       expectErrorEnvelope(res, {
         code: 'schedule_not_found',
         message: 'Schedule not found: missing',

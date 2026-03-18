@@ -1757,6 +1757,8 @@ describe('API Server endpoints', () => {
   });
 
   it('POST /api/v2/inference supports streaming and emits SSE chunk/completion events', async () => {
+    const previousDashboardPort = process.env.TORQUE_DASHBOARD_PORT;
+    process.env.TORQUE_DASHBOARD_PORT = '4567';
     const streamSpy = vi.fn(async (_prompt, _model, options = {}) => {
       options.onChunk?.('first');
       options.onChunk?.('second');
@@ -1789,60 +1791,69 @@ describe('API Server endpoints', () => {
       return null;
     });
 
-    const response = await dispatchRequest(requestHandler, {
-      method: 'POST',
-      url: '/api/v2/inference',
-      body: { prompt: 'stream this', stream: true },
-    });
+    try {
+      const response = await dispatchRequest(requestHandler, {
+        method: 'POST',
+        url: '/api/v2/inference',
+        body: { prompt: 'stream this', stream: true },
+      });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.headers['Content-Type']).toContain('text/event-stream');
-    expect(response.body).toContain('event: status');
-    expect(response.body).toContain('event: chunk');
-    expect(response.body).toContain('event: completion');
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['Content-Type']).toContain('text/event-stream');
+      expect(response.headers['Access-Control-Allow-Origin']).toBe('http://127.0.0.1:4567');
+      expect(response.body).toContain('event: status');
+      expect(response.body).toContain('event: chunk');
+      expect(response.body).toContain('event: completion');
 
-    const events = parseSseEvents(response);
-    expect(events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          event: 'status',
-          data: expect.objectContaining({ status: 'running' }),
-        }),
-        expect.objectContaining({
-          event: 'chunk',
-          data: expect.objectContaining({ chunk: 'first', sequence: 1 }),
-        }),
-        expect.objectContaining({
-          event: 'chunk',
-          data: expect.objectContaining({ chunk: 'second', sequence: 2 }),
-        }),
-        expect.objectContaining({
-          event: 'completion',
-          data: expect.objectContaining({
-            status: 'completed',
-            result: expect.objectContaining({
-              content: 'full response',
+      const events = parseSseEvents(response);
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: 'status',
+            data: expect.objectContaining({ status: 'running' }),
+          }),
+          expect.objectContaining({
+            event: 'chunk',
+            data: expect.objectContaining({ chunk: 'first', sequence: 1 }),
+          }),
+          expect.objectContaining({
+            event: 'chunk',
+            data: expect.objectContaining({ chunk: 'second', sequence: 2 }),
+          }),
+          expect.objectContaining({
+            event: 'completion',
+            data: expect.objectContaining({
+              status: 'completed',
+              result: expect.objectContaining({
+                content: 'full response',
+              }),
             }),
           }),
-        }),
-      ]),
-    );
-    const usageCalls = getRecordProviderUsageCalls();
-    expect(usageCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          provider: 'codex',
-          transport: 'api',
-          taskId: null,
-          retry_count: 0,
-          success: true,
-          failure_reason: null,
-          elapsed_ms: expect.any(Number),
-          duration_seconds: expect.any(Number),
-        }),
-      ]),
-    );
-    expect(usageCalls.filter((call) => call.provider === 'codex').length).toBe(1);
+        ]),
+      );
+      const usageCalls = getRecordProviderUsageCalls();
+      expect(usageCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            provider: 'codex',
+            transport: 'api',
+            taskId: null,
+            retry_count: 0,
+            success: true,
+            failure_reason: null,
+            elapsed_ms: expect.any(Number),
+            duration_seconds: expect.any(Number),
+          }),
+        ]),
+      );
+      expect(usageCalls.filter((call) => call.provider === 'codex').length).toBe(1);
+    } finally {
+      if (previousDashboardPort === undefined) {
+        delete process.env.TORQUE_DASHBOARD_PORT;
+      } else {
+        process.env.TORQUE_DASHBOARD_PORT = previousDashboardPort;
+      }
+    }
   });
 
   it('GET /api/v2/tasks/{task_id}/events returns completion event for async task', async () => {

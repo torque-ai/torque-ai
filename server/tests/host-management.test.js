@@ -1045,15 +1045,14 @@ describe('host-management module', () => {
     });
 
     it('returns no-config when ollama_host config is missing', () => {
-      // db.init() seeds ollama_host config, so clear it
-      rawDb().prepare("DELETE FROM config WHERE key = 'ollama_host'").run();
+      db.setConfig('ollama_host', '');
       const result = mod.migrateToMultiHost();
       expect(result.migrated).toBe(false);
       expect(result.reason).toContain('No existing ollama_host config');
     });
 
     it('migrates from single-host config', () => {
-      rawDb().prepare("INSERT OR REPLACE INTO config (key, value) VALUES ('ollama_host', 'http://localhost:11434')").run();
+      db.setConfig('ollama_host', 'http://localhost:11434');
       const result = mod.migrateToMultiHost();
       expect(result.migrated).toBe(true);
       expect(result.hostId).toBe('default');

@@ -78,6 +78,10 @@ function createWhereClause(conditions) {
   }
 }
 
+function escapeLikePattern(value) {
+  return String(value).replace(/[%_]/g, '\\$&')
+}
+
 function createAuditRun({ project_path, categories, provider, workflow_id }) {
   assertDbInitialized()
 
@@ -149,7 +153,7 @@ function updateAuditRun(id, fields = {}) {
       SET ${updates.join(', ')}
       WHERE id = ?
     `)
-    return statement.run(params).changes
+    return statement.run(...params).changes
   } catch (error) {
     logger.error({ error, id, fields }, 'Failed to update audit run')
     throw error
@@ -294,7 +298,8 @@ function getFindings({
     conditions.push({ clause: 'false_positive = ?', params: [toBooleanInt(false_positive, 'false_positive')] })
   }
   if (file_path !== undefined) {
-    conditions.push({ clause: 'file_path LIKE ?', params: [`%${file_path}%`] })
+    const escapedFilePath = escapeLikePattern(file_path)
+    conditions.push({ clause: "file_path LIKE ? ESCAPE '\\'", params: [`%${escapedFilePath}%`] })
   }
 
   const { whereClause, params } = createWhereClause(conditions)
@@ -353,7 +358,7 @@ function updateFinding(id, updates = {}) {
       WHERE id = ?
     `)
 
-    const result = updateStatement.run(params)
+    const result = updateStatement.run(...params)
     if (result.changes === 0) return null
 
     const findStatement = db.prepare('SELECT * FROM audit_findings WHERE id = ?')
@@ -467,7 +472,7 @@ function incrementAuditRunCounters(id, { total_findings = 0, parse_failures = 0 
       SET ${updates.join(', ')}
       WHERE id = ?
     `)
-    return statement.run(params).changes
+    return statement.run(...params).changes
   } catch (error) {
     logger.error({ error, id }, 'Failed to increment audit run counters')
     throw error

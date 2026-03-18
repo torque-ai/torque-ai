@@ -175,8 +175,9 @@ async function handleGetSchedule(req, res) {
   const requestId = resolveRequestId(req);
   const scheduleId = req.params?.schedule_id;
 
-  const schedules = db.listScheduledTasks ? db.listScheduledTasks() : [];
-  const schedule = schedules.find(s => String(s.id) === String(scheduleId));
+  const schedule = db.getScheduledTask
+    ? db.getScheduledTask(scheduleId)
+    : (db.listScheduledTasks ? (db.listScheduledTasks() || []).find(s => String(s.id) === String(scheduleId)) : null);
   if (!schedule) {
     return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
   }

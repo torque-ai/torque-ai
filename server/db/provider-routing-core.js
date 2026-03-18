@@ -34,6 +34,12 @@ let db;
 let getTaskFn;
 let hostManagementFns;
 let lastEffectiveMaxConcurrentWarningKey = null;
+const getDatabaseConfig = (...args) => {
+  if (typeof db?.getConfig === 'function') {
+    return db.getConfig(...args);
+  }
+  return require('../database').getConfig(...args);
+};
 
 const DEFAULT_GLOBAL_MAX_CONCURRENT = 20;
 
@@ -55,12 +61,6 @@ function setHostManagement(fns) { hostManagementFns = fns; }
 function escapePrometheusLabel(str) {
   if (typeof str !== 'string') return '';
   return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '');
-}
-
-function getConfig(key) {
-  if (!db || (db.open === false)) return null;
-  const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key);
-  return row ? row.value : null;
 }
 
 function setConfig(key, value) {
@@ -139,12 +139,12 @@ function getEnabledProviderMaxConcurrentSum() {
 
 function getEffectiveMaxConcurrent(options = {}) {
   const configuredMaxConcurrent = parsePositiveInt(
-    options.configuredMaxConcurrent ?? getConfig('max_concurrent'),
+    options.configuredMaxConcurrent ?? getDatabaseConfig('max_concurrent'),
     DEFAULT_GLOBAL_MAX_CONCURRENT,
   );
   const autoComputeMaxConcurrent = options.autoComputeMaxConcurrent !== undefined
     ? Boolean(options.autoComputeMaxConcurrent)
-    : parseOptOutBool(getConfig('auto_compute_max_concurrent'), true);
+    : parseOptOutBool(getDatabaseConfig('auto_compute_max_concurrent'), true);
   const providerLimitSum = options.providerLimitSum !== undefined
     ? parsePositiveInt(options.providerLimitSum, 0)
     : getEnabledProviderMaxConcurrentSum();
@@ -221,7 +221,7 @@ function updateProvider(providerId, config) {
  * @returns {any}
  */
 function getDefaultProvider() {
-  return getConfig('default_provider') || 'codex';
+  return getDatabaseConfig('default_provider') || 'codex';
 }
 
 /**
@@ -257,7 +257,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   const { skipHealthCheck = false, isUserOverride = false, preferFree = false } = options;
 
   // Check if smart routing is enabled
-  const smartRoutingEnabled = getConfig('smart_routing_enabled') === '1';
+  const smartRoutingEnabled = getDatabaseConfig('smart_routing_enabled') === '1';
   if (!smartRoutingEnabled) {
     return {
       provider: getDefaultProvider(),
@@ -341,7 +341,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     // No free providers available — fall through to normal routing with a warning
     logger.warn('[SmartRouting] prefer_free requested but no free providers available, falling through to normal routing');
   }
-  const ollamaFallbackProvider = getConfig('ollama_fallback_provider') || 'codex';
+  const ollamaFallbackProvider = getDatabaseConfig('ollama_fallback_provider') || 'codex';
 
   const descLower = (taskDescription || '').toLowerCase();
 
@@ -689,7 +689,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   }
 
   // No rule matched, use default smart routing provider
-  const defaultSmartProvider = getConfig('smart_routing_default_provider') || 'aider-ollama';
+  const defaultSmartProvider = getDatabaseConfig('smart_routing_default_provider') || 'aider-ollama';
   const result = maybeApplyFallback({
     provider: defaultSmartProvider,
     rule: null,
@@ -769,7 +769,7 @@ const LOCAL_PROVIDERS = ['ollama', 'aider-ollama', 'hashline-ollama'];
  */
 function getProviderFallbackChain(provider, options) {
   // Check for user-configured fallback chain first
-  const customChainJson = getConfig(`fallback_chain_${provider}`);
+  const customChainJson = getDatabaseConfig(`fallback_chain_${provider}`);
   let chain;
   if (customChainJson) {
     try {
@@ -983,7 +983,7 @@ function isProviderQuotaError(providerId, errorOutput) {
  * @returns {boolean}
  */
 function isCodexExhausted() {
-  return getConfig('codex_exhausted') === '1';
+  return getDatabaseConfig('codex_exhausted') === '1';
 }
 
 /**
@@ -1059,7 +1059,7 @@ function detectWSL2HostIP() {
 function findOllamaBinary() {
 
   // Check configured path first
-  const configuredPath = getConfig('ollama_binary_path');
+  const configuredPath = getDatabaseConfig('ollama_binary_path');
   if (configuredPath && fs.existsSync(configuredPath)) {
     try {
       const stats = fs.statSync(configuredPath);
@@ -1147,7 +1147,7 @@ async function waitForOllamaReady(timeoutMs) {
   const startTime = Date.now();
   const pollInterval = 500; // Check every 500ms
 
-  const ollamaHost = getConfig('ollama_host') || 'http://localhost:11434';
+  const ollamaHost = getDatabaseConfig('ollama_host') || 'http://localhost:11434';
   const url = new URL('/api/tags', ollamaHost);
   const client = url.protocol === 'https:' ? https : http;
 
@@ -1188,7 +1188,7 @@ async function attemptOllamaStart() {
     return false;
   }
 
-  const autoStartEnabled = getConfig('ollama_auto_start_enabled') === '1';
+  const autoStartEnabled = getDatabaseConfig('ollama_auto_start_enabled') === '1';
   if (!autoStartEnabled) {
     return false;
   }
@@ -1222,7 +1222,7 @@ async function attemptOllamaStart() {
       }
 
       // Update host to use Windows IP
-      const currentHost = getConfig('ollama_host') || 'http://localhost:11434';
+      const currentHost = getDatabaseConfig('ollama_host') || 'http://localhost:11434';
       if (currentHost.includes('localhost') || currentHost.includes('127.0.0.1')) {
         const newHost = `http://${wslHostIP}:11434`;
         setConfig('ollama_host', newHost);
@@ -1244,7 +1244,7 @@ async function attemptOllamaStart() {
     }
 
     // Wait for Ollama to be ready
-    const timeoutMs = parseInt(getConfig('ollama_auto_start_timeout_ms') || '15000');
+    const timeoutMs = parseInt(getDatabaseConfig('ollama_auto_start_timeout_ms') || '15000');
     logger.info(`[Ollama] Waiting up to ${timeoutMs}ms for Ollama to start...`);
 
     const isReady = await waitForOllamaReady(timeoutMs);
@@ -1272,12 +1272,12 @@ async function attemptOllamaStart() {
  * @returns {boolean} True when host settings were updated.
  */
 function autoConfigureWSL2Host() {
-  const autoDetect = getConfig('ollama_auto_detect_wsl_host');
+  const autoDetect = getDatabaseConfig('ollama_auto_detect_wsl_host');
   // Default to enabled if not set
   if (autoDetect !== '0') {
     const wslHostIP = detectWSL2HostIP();
     if (wslHostIP) {
-      const currentHost = getConfig('ollama_host') || 'http://localhost:11434';
+      const currentHost = getDatabaseConfig('ollama_host') || 'http://localhost:11434';
       if (currentHost.includes('localhost') || currentHost.includes('127.0.0.1')) {
         const newHost = `http://${wslHostIP}:11434`;
         setConfig('ollama_host', newHost);
@@ -1304,7 +1304,7 @@ async function checkOllamaHealth(forceCheck = false) {
   // Auto-detect WSL2 host on first check
   autoConfigureWSL2Host();
 
-  const ollamaHost = getConfig('ollama_host') || 'http://localhost:11434';
+  const ollamaHost = getDatabaseConfig('ollama_host') || 'http://localhost:11434';
   const http = require('http');
   const https = require('https');
   const url = new URL('/api/tags', ollamaHost);
@@ -1334,7 +1334,7 @@ async function checkOllamaHealth(forceCheck = false) {
   }
 
   // Not healthy - try auto-start if enabled
-  const autoStartEnabled = getConfig('ollama_auto_start_enabled') === '1';
+  const autoStartEnabled = getDatabaseConfig('ollama_auto_start_enabled') === '1';
   if (autoStartEnabled && !ollamaAutoStartInProgress) {
     logger.warn('[Ollama] Health check failed, attempting auto-start...');
     const started = await attemptOllamaStart();

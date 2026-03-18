@@ -989,8 +989,9 @@ function listWorkflowTemplates(options = {}) {
   const params = [];
 
   if (options.filter) {
-    sql += ' WHERE name LIKE ?';
-    params.push(`%${options.filter}%`);
+    const escaped = String(options.filter).replace(/[%_]/g, '\\$&');
+    sql += ` WHERE name LIKE ? ESCAPE '\\'`;
+    params.push(`%${escaped}%`);
   }
 
   sql += ' ORDER BY name ASC';
@@ -1064,13 +1065,14 @@ function getWorkflowHistory(workflowId) {
 
   // L-10: Merge workflow-level events from coordination_events table
   try {
+    const safeId = String(workflowId).replace(/[%_]/g, '\\$&');
     const coordEvents = db.prepare(`
       SELECT event_type, details, created_at
       FROM coordination_events
       WHERE event_type IN ('workflow_started', 'workflow_paused', 'workflow_cancelled')
-        AND details LIKE ?
+        AND details LIKE ? ESCAPE '\\'
       ORDER BY created_at ASC
-    `).all(`%"workflow_id":"${workflowId}"%`);
+    `).all(`%"workflow_id":"${safeId}"%`);
 
     for (const ce of coordEvents) {
       let parsed = null;

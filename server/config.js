@@ -91,7 +91,7 @@ const API_KEY_ENV_VARS = {
  * Get a config value with resolution: env var → DB → registry default → fallback.
  * @param {string} key - Config key name
  * @param {*} [fallback] - Fallback if not found anywhere
- * @returns {string|null}
+ * @returns {*}
  */
 function get(key, fallback) {
   // 1. Check env var override if registered
@@ -108,7 +108,7 @@ function get(key, fallback) {
   }
 
   // 3. Registry default
-  if (entry && entry.default !== undefined) return String(entry.default);
+  if (entry && entry.default !== undefined) return entry.default;
 
   // 4. Explicit fallback
   return fallback !== undefined ? fallback : null;
@@ -120,7 +120,7 @@ function get(key, fallback) {
 function getInt(key, fallback) {
   const entry = REGISTRY[key];
   const defaultVal = (entry && entry.default !== undefined) ? entry.default : fallback;
-  const raw = get(key);
+  const raw = get(key, fallback);
   if (raw === null || raw === undefined) return defaultVal !== undefined ? defaultVal : 0;
   const parsed = parseInt(raw, 10);
   return isNaN(parsed) ? (defaultVal !== undefined ? defaultVal : 0) : parsed;
@@ -146,7 +146,7 @@ function getBool(key, fallback) {
   const entry = REGISTRY[key];
   const defaultVal = entry ? entry.default : fallback;
   const raw = get(key, undefined);
-  if (raw === null || raw === undefined) return defaultVal !== undefined ? defaultVal : true;
+  if (raw === null || raw === undefined) return defaultVal !== undefined ? defaultVal : false;
   const s = String(raw).toLowerCase().trim();
   return s !== '0' && s !== 'false' && s !== 'no' && s !== '';
 }
@@ -156,8 +156,7 @@ function getBool(key, fallback) {
  * Use for features requiring setup (API keys, external services).
  */
 function isOptIn(key) {
-  const raw = get(key);
-  return raw === '1' || raw === 'true';
+  return getBool(key, false);
 }
 
 /**

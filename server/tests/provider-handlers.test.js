@@ -30,6 +30,7 @@ const mockDb = {
   getBestFormatForModel: vi.fn(),
   getFormatSuccessRatesSummary: vi.fn(),
   getHealthTrend: vi.fn(),
+  listTasks: vi.fn(),
 };
 
 const mockTaskManager = {
@@ -90,6 +91,7 @@ function resetMocks() {
     days,
     trend: 'stable',
   }));
+  mockDb.listTasks.mockReturnValue([]);
   mockDb.getModelLeaderboard.mockReturnValue([]);
 
   mockDashboard.start.mockResolvedValue({
@@ -487,6 +489,39 @@ describe('provider-handlers.js', () => {
           success_rate: 0.92,
         },
       ]);
+    });
+  });
+
+  describe('handleGetProviderPercentiles', () => {
+    it('uses listTasks with from_date and formats percentile output', () => {
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-03-18T12:00:00.000Z'));
+      mockDb.listTasks.mockReturnValue([
+        {
+          started_at: '2026-03-18T11:00:00.000Z',
+          completed_at: '2026-03-18T11:00:10.000Z',
+        },
+        {
+          started_at: '2026-03-18T10:00:00.000Z',
+          completed_at: '2026-03-18T10:00:40.000Z',
+        },
+      ]);
+
+      try {
+        const result = handlers.handleGetProviderPercentiles({ provider: 'ollama', days: 7 });
+
+        expect(mockDb.listTasks).toHaveBeenCalledWith({
+          provider: 'ollama',
+          from_date: '2026-03-11T12:00:00.000Z',
+          limit: 1000,
+        });
+        expect(mockDb.listTasks.mock.calls[0][0]).not.toHaveProperty('since');
+        expect(getText(result)).toContain('Provider Percentiles: ollama');
+        expect(getText(result)).toContain('Sample Size:** 2 completed tasks');
+        expect(getText(result)).toContain('| Min | 10s |');
+        expect(getText(result)).toContain('| P50 (median) | 40s |');
+      } finally {
+        nowSpy.mockRestore();
+      }
     });
   });
 });

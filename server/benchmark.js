@@ -533,7 +533,7 @@ async function main() {
   } else if (parsed.hostId) {
     // Look up host by ID from TORQUE
     const hosts = getConfiguredHosts();
-    const found = hosts.find(h => h.id === parsed.hostId || h.name.toLowerCase() === parsed.hostId.toLowerCase());
+    const found = hosts.find(h => String(h.id) === String(parsed.hostId) || h.name.toLowerCase() === parsed.hostId.toLowerCase());
     if (!found) {
       console.error(`Host "${parsed.hostId}" not found. Use --list-hosts to see available hosts.`);
       process.exit(1);

@@ -25,6 +25,12 @@ const hostComplexity = require('./host-complexity');
 let db;
 let getTaskFn;
 let getProjectRootFn;
+const getDatabaseConfig = (...args) => {
+  if (typeof db?.getConfig === 'function') {
+    return db.getConfig(...args);
+  }
+  return require('../database').getConfig(...args);
+};
 
 // Throttled log helpers — canonical implementation in host-benchmarking.js
 const { logThrottledModelRefreshFailure, clearThrottledModelRefreshFailure } = hostBenchmarking;
@@ -49,12 +55,6 @@ function setGetTask(fn) {
 
 function setGetProjectRoot(fn) {
   getProjectRootFn = fn;
-}
-
-// Local helpers (avoid circular require of database.js)
-function getConfig(key) {
-  const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key);
-  return row ? row.value : null;
 }
 
 function setHostTierHint(hostId, tier) {
@@ -264,14 +264,14 @@ function getHostSettings(hostId) {
 
   // Global defaults
   const globalSettings = {
-    num_gpu: parseInt(getConfig('ollama_num_gpu') || '-1'),
-    num_thread: parseInt(getConfig('ollama_num_thread') || '0'),
-    keep_alive: getConfig('ollama_keep_alive') || '5m',
-    num_ctx: parseInt(getConfig('ollama_num_ctx') || '8192'),
-    temperature: parseFloat(getConfig('ollama_temperature') || '0.3'),
-    top_p: parseFloat(getConfig('ollama_top_p') || '0.9'),
-    top_k: parseInt(getConfig('ollama_top_k') || '40'),
-    mirostat: parseInt(getConfig('ollama_mirostat') || '0')
+    num_gpu: parseInt(getDatabaseConfig('ollama_num_gpu') || '-1'),
+    num_thread: parseInt(getDatabaseConfig('ollama_num_thread') || '0'),
+    keep_alive: getDatabaseConfig('ollama_keep_alive') || '5m',
+    num_ctx: parseInt(getDatabaseConfig('ollama_num_ctx') || '8192'),
+    temperature: parseFloat(getDatabaseConfig('ollama_temperature') || '0.3'),
+    top_p: parseFloat(getDatabaseConfig('ollama_top_p') || '0.9'),
+    top_k: parseInt(getDatabaseConfig('ollama_top_k') || '40'),
+    mirostat: parseInt(getDatabaseConfig('ollama_mirostat') || '0')
   };
 
   // Parse host-specific settings
@@ -417,12 +417,12 @@ function getMergedProjectTuning(workingDirectory) {
 
   // Global defaults from config
   const globalSettings = {
-    temperature: parseFloat(getConfig('ollama_temperature') || '0.3'),
-    num_ctx: parseInt(getConfig('ollama_num_ctx') || '8192'),
-    top_p: parseFloat(getConfig('ollama_top_p') || '0.9'),
-    top_k: parseInt(getConfig('ollama_top_k') || '40'),
-    mirostat: parseInt(getConfig('ollama_mirostat') || '0'),
-    repeat_penalty: parseFloat(getConfig('ollama_repeat_penalty') || '1.1'),
+    temperature: parseFloat(getDatabaseConfig('ollama_temperature') || '0.3'),
+    num_ctx: parseInt(getDatabaseConfig('ollama_num_ctx') || '8192'),
+    top_p: parseFloat(getDatabaseConfig('ollama_top_p') || '0.9'),
+    top_k: parseInt(getDatabaseConfig('ollama_top_k') || '40'),
+    mirostat: parseInt(getDatabaseConfig('ollama_mirostat') || '0'),
+    repeat_penalty: parseFloat(getDatabaseConfig('ollama_repeat_penalty') || '1.1'),
   };
 
   if (!projectTuning) return globalSettings;
@@ -462,7 +462,7 @@ function getBenchmarkStats(hostId) {
 // Cache: ollama_host_id → workstation_id (null = no workstation found)
 const _wsHostCache = new Map();
 function getVramOverheadFactor() {
-  const configured = getConfig('vram_overhead_factor');
+  const configured = getDatabaseConfig('vram_overhead_factor');
   if (configured) {
     const val = parseFloat(configured);
     if (val >= 0.5 && val <= 1.0) return val;
@@ -1161,7 +1161,7 @@ function migrateToMultiHost() {
   }
 
   // Get existing single-host config
-  const existingUrl = getConfig('ollama_host');
+  const existingUrl = getDatabaseConfig('ollama_host');
   if (!existingUrl) {
     return { migrated: false, reason: 'No existing ollama_host config' };
   }

@@ -458,6 +458,29 @@ describe('Workflow Engine Module', () => {
       expect(Array.isArray(templates)).toBe(true);
     });
 
+    it('escapes LIKE metacharacters when filtering template names', () => {
+      const id = Date.now();
+      const literalId = `tmpl-like-literal-${id}`;
+      const wildcardId = `tmpl-like-wildcard-${id}`;
+
+      db.createWorkflowTemplate({
+        id: literalId,
+        name: `Template ${id} %_ literal`,
+        task_definitions: [],
+        dependency_graph: {},
+      });
+      db.createWorkflowTemplate({
+        id: wildcardId,
+        name: `Template ${id} ab literal`,
+        task_definitions: [],
+        dependency_graph: {},
+      });
+
+      const templates = db.listWorkflowTemplates({ filter: `${id} %_` });
+
+      expect(templates.map(t => t.id)).toEqual([literalId]);
+    });
+
     it('finds template by name', () => {
       const id = `tmpl-name-${Date.now()}`;
       db.createWorkflowTemplate({

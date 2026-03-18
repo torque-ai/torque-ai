@@ -1055,11 +1055,12 @@ function buildV2TaskPayload(task, requestId, statusOverride = null) {
 }
 
 function sendV2SseHeaders(res, req = null) {
+  const dashboardPort = serverConfig.getPort('dashboard') || 3456;
   const headers = {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
-    'Access-Control-Allow-Origin': 'http://127.0.0.1:3456',
+    'Access-Control-Allow-Origin': `http://127.0.0.1:${dashboardPort}`,
     'Access-Control-Allow-Headers': 'Content-Type, X-Torque-Key, X-Request-ID',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     ...SECURITY_HEADERS,

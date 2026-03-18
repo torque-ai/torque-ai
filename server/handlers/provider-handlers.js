@@ -496,8 +496,8 @@ function handleGetProviderPercentiles(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'days must be a positive number');
   }
 
-  const since = new Date(Date.now() - days * 86400000).toISOString();
-  const tasks = db.listTasks({ provider, since, limit: 1000 });
+  const fromDate = new Date(Date.now() - days * 86400000).toISOString();
+  const tasks = db.listTasks({ provider, from_date: fromDate, limit: 1000 });
   const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
 
   const durations = taskList

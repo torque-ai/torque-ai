@@ -41,7 +41,7 @@ describe('server/config.js — unified config resolution', () => {
     });
 
     it('returns registry default when DB returns null', () => {
-      expect(config.get('dashboard_port')).toBe('3456');
+      expect(config.get('dashboard_port')).toBe(3456);
     });
 
     it('returns explicit fallback when key not in registry or DB', () => {
@@ -124,6 +124,10 @@ describe('server/config.js — unified config resolution', () => {
     it('returns true for any other truthy value', () => {
       mockDb.getConfig.mockReturnValue('1');
       expect(config.getBool('smart_routing_enabled')).toBe(true);
+    });
+
+    it('returns false for missing unregistered keys', () => {
+      expect(config.getBool('missing_bool')).toBe(false);
     });
   });
 

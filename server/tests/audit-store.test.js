@@ -236,6 +236,47 @@ describe('audit-store', () => {
     expect(updatedFinding.false_positive).toBe(1)
   })
 
+  it('getFindings escapes LIKE metacharacters in file_path filters', () => {
+    const runId = store.createAuditRun({
+      project_path: '/tmp/project-like-filter',
+      categories: ['quality'],
+      provider: 'mock-provider',
+      workflow_id: 'wf-like-filter'
+    })
+    const literalMarker = `literal-${Date.now()}`
+    const [literalFindingId] = store.insertFindings([
+      {
+        audit_run_id: runId,
+        file_path: `/src/${literalMarker}-%_.js`,
+        line_start: 1,
+        line_end: 1,
+        category: 'quality',
+        severity: 2,
+        confidence: 80,
+        title: 'Literal marker finding'
+      },
+      {
+        audit_run_id: runId,
+        file_path: `/src/${literalMarker}-ab.js`,
+        line_start: 2,
+        line_end: 2,
+        category: 'quality',
+        severity: 2,
+        confidence: 80,
+        title: 'Wildcard false positive candidate'
+      }
+    ])
+
+    const results = store.getFindings({
+      audit_run_id: runId,
+      file_path: `${literalMarker}-%_`
+    })
+
+    expect(results.total).toBe(1)
+    expect(results.findings).toHaveLength(1)
+    expect(results.findings[0].id).toBe(literalFindingId)
+  })
+
   it('getAuditSummary returns aggregated counts', () => {
     const runId = store.createAuditRun({
       project_path: '/tmp/project-summary',

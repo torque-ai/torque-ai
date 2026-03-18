@@ -1402,6 +1402,30 @@ describe('workflow-runtime', () => {
       expect(db.getTask(c).status).toBe('blocked');
     });
 
+    it('continue: conditionPassed path respects on_fail continue for failed other deps', () => {
+      // Bug scenario: C depends on A (on_fail: continue) and B (on_fail: skip).
+      // A already failed, B just completed. evaluateWorkflowDependencies(B)
+      // enters conditionPassed=true and must recognize A's 'failed' status
+      // as satisfied because C→A has on_fail: 'continue'.
+      const wfId = createWorkflow({ name: 'runtime-continue-other-dep' });
+      const a = createWorkflowTask(wfId, 'A', 'pending');
+      const b = createWorkflowTask(wfId, 'B', 'pending');
+      const c = createWorkflowTask(wfId, 'C', 'blocked');
+
+      // Both are already terminal before we evaluate
+      db.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 1 });
+      db.updateTaskStatus(b, 'completed', { output: 'b-ok', exit_code: 0 });
+
+      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'continue' });
+      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
+
+      // Evaluate from B's completion — this enters conditionPassed=true path
+      // and must check A (failed) with on_fail: continue → satisfied
+      mod.evaluateWorkflowDependencies(b, wfId);
+
+      expect(['pending', 'queued']).toContain(db.getTask(c).status);
+    });
+
     it('run_alternate action skips original task and unblocks alternate', () => {
       const wfId = createWorkflow({ name: 'runtime-onfail-alt' });
       const a = createWorkflowTask(wfId, 'A', 'failed');
