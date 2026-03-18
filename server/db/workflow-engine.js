@@ -1073,6 +1073,32 @@ function getWorkflowHistory(workflowId) {
     }
   }
 
+  // L-10: Merge workflow-level events from coordination_events table
+  try {
+    const coordEvents = db.prepare(`
+      SELECT event_type, details, created_at
+      FROM coordination_events
+      WHERE event_type IN ('workflow_started', 'workflow_paused', 'workflow_cancelled')
+        AND details LIKE ?
+      ORDER BY created_at ASC
+    `).all(`%"workflow_id":"${workflowId}"%`);
+
+    for (const ce of coordEvents) {
+      let parsed = null;
+      try { parsed = JSON.parse(ce.details); } catch { /* ignore */ }
+      // Only include events for this workflow
+      if (parsed && parsed.workflow_id === workflowId) {
+        events.push({
+          timestamp: ce.created_at,
+          type: ce.event_type,
+          details: parsed
+        });
+      }
+    }
+  } catch {
+    // coordination_events table may not exist in test environments — non-critical
+  }
+
   // Sort by timestamp
   events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 

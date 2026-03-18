@@ -962,6 +962,15 @@ function handleRunWorkflow(args) {
     return startResult.error;
   }
 
+  // L-10: Record workflow-level event
+  try {
+    db.recordCoordinationEvent('workflow_started', null, null, JSON.stringify({
+      workflow_id: workflow.id,
+      workflow_name: workflow.name,
+      total_tasks: startResult.tasks.length
+    }));
+  } catch (_e) { /* non-critical */ }
+
   let output = `## Workflow Started\n\n`;
   output += `**Workflow:** ${workflow.name}\n`;
   output += `**ID:** ${args.workflow_id}\n`;
@@ -1093,6 +1102,16 @@ function handleCancelWorkflow(args) {
     completed_at: new Date().toISOString()
   });
 
+  // L-10: Record workflow-level event
+  try {
+    db.recordCoordinationEvent('workflow_cancelled', null, null, JSON.stringify({
+      workflow_id: args.workflow_id,
+      workflow_name: workflow.name,
+      tasks_cancelled: cancelled,
+      reason: args.reason || null
+    }));
+  } catch (_e) { /* non-critical */ }
+
   let output = `## Workflow Cancelled\n\n`;
   output += `**Workflow:** ${workflow.name}\n`;
   output += `**Tasks Cancelled:** ${cancelled}\n`;
@@ -1118,6 +1137,14 @@ function handlePauseWorkflow(args) {
   }
 
   db.updateWorkflow(args.workflow_id, { status: 'paused' });
+
+  // L-10: Record workflow-level event
+  try {
+    db.recordCoordinationEvent('workflow_paused', null, null, JSON.stringify({
+      workflow_id: args.workflow_id,
+      workflow_name: workflow.name
+    }));
+  } catch (_e) { /* non-critical */ }
 
   let output = `## Workflow Paused\n\n`;
   output += `**Workflow:** ${workflow.name}\n`;
