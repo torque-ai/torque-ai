@@ -928,6 +928,25 @@ const tools = [
       }
     }
   },
+  {
+    name: 'get_provider_percentiles',
+    description: 'Get duration percentile metrics (P50/P75/P90/P95/P99) for a provider. Useful for SLA monitoring and performance analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        provider: {
+          type: 'string',
+          description: 'Provider ID (e.g., codex, ollama, deepinfra)'
+        },
+        days: {
+          type: 'number',
+          description: 'Number of days of history to analyze (default: 7)',
+          default: 7
+        }
+      },
+      required: ['provider']
+    }
+  },
   // ── Unified tuning management tool (Phase 3.2 consolidation) ──
   {
     name: 'manage_tuning',

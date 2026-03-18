@@ -474,6 +474,67 @@ function handleGetModelLeaderboard(args) {
   return { content: [{ type: 'text', text: JSON.stringify(leaderboard, null, 2) }] };
 }
 
+/**
+ * Get provider duration percentile metrics (P50/P75/P90/P95/P99)
+ * @param {Object} args - Handler arguments.
+ * @returns {Object} Response payload.
+ */
+function handleGetProviderPercentiles(args) {
+  const { provider, days = 7 } = args;
+
+  if (!provider) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider is required');
+  }
+
+  if (typeof days !== 'number' || days < 1) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'days must be a positive number');
+  }
+
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const tasks = db.listTasks({ provider, since, limit: 1000 });
+  const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
+
+  const durations = taskList
+    .filter(t => t.completed_at && t.started_at)
+    .map(t => (new Date(t.completed_at) - new Date(t.started_at)) / 1000)
+    .sort((a, b) => a - b);
+
+  if (durations.length === 0) {
+    return {
+      content: [{
+        type: 'text',
+        text: `## Provider Percentiles: ${provider}\n\n**Period:** Last ${days} days\n\nNo completed tasks with duration data found.`
+      }]
+    };
+  }
+
+  const p = (arr, pct) => arr[Math.floor(arr.length * pct / 100)] || null;
+  const p50 = p(durations, 50);
+  const p75 = p(durations, 75);
+  const p90 = p(durations, 90);
+  const p95 = p(durations, 95);
+  const p99 = p(durations, 99);
+  const min = durations[0];
+  const max = durations[durations.length - 1];
+
+  const fmt = (s) => s !== null ? `${Math.round(s)}s` : 'N/A';
+
+  let output = `## Provider Percentiles: ${provider}\n\n`;
+  output += `**Period:** Last ${days} days\n`;
+  output += `**Sample Size:** ${durations.length} completed tasks\n\n`;
+  output += `| Percentile | Duration |\n`;
+  output += `|------------|----------|\n`;
+  output += `| Min | ${fmt(min)} |\n`;
+  output += `| P50 (median) | ${fmt(p50)} |\n`;
+  output += `| P75 | ${fmt(p75)} |\n`;
+  output += `| P90 | ${fmt(p90)} |\n`;
+  output += `| P95 | ${fmt(p95)} |\n`;
+  output += `| P99 | ${fmt(p99)} |\n`;
+  output += `| Max | ${fmt(max)} |\n`;
+
+  return { content: [{ type: 'text', text: output }] };
+}
+
 const ollamaHostHandlers = require('./provider-ollama-hosts');
 const tuningHandlers = require('./provider-tuning');
 
@@ -491,6 +552,7 @@ module.exports = {
   handleGetFormatSuccessRates,
   handleGetProviderHealthTrends,
   handleGetModelLeaderboard,
+  handleGetProviderPercentiles,
   ...ollamaHostHandlers,
   ...tuningHandlers,
 };
