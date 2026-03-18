@@ -98,6 +98,7 @@ describe('advanced/scheduling handlers', () => {
           timeout_minutes: 30,
         },
         enabled: true,
+        timezone: null,
       });
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('OPERATION_FAILED');
@@ -132,6 +133,7 @@ describe('advanced/scheduling handlers', () => {
           timeout_minutes: 45,
         },
         enabled: true,
+        timezone: null,
       });
 
       const text = getText(result);
