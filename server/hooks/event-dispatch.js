@@ -26,6 +26,12 @@ const logger = require('../logger').child({ component: 'event-dispatch' });
 const taskEvents = new EventEmitter();
 taskEvents.setMaxListeners(100); // Multiple await_workflow calls may listen concurrently
 
+/** Terminal events — task has reached a final state */
+const TERMINAL_EVENTS = ['completed', 'failed', 'cancelled', 'skipped'];
+
+/** Non-terminal notable events — interesting state changes worth reporting */
+const NOTABLE_EVENTS = ['started', 'stall_warning', 'retry', 'fallback'];
+
 function isTaskRecord(task) {
   return !!task && typeof task === 'object' && !Array.isArray(task);
 }
@@ -363,6 +369,8 @@ function stopRetentionPolicy() {
 startRetentionPolicy();
 
 module.exports = {
+  TERMINAL_EVENTS,
+  NOTABLE_EVENTS,
   persistTaskEvent,
   dispatchTaskEvent,
   taskEvents,
