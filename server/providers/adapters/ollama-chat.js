@@ -47,10 +47,35 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
     const isHttps = url.protocol === 'https:';
     const httpModule = isHttps ? https : http;
 
+    // Clean messages for Ollama API:
+    // 1. Strip tool_call_id from tool messages (Ollama doesn't use it, ollama-cloud rejects it)
+    // 2. Parse stringified arguments back to objects (Ollama requires objects, not JSON strings)
+    const cleanedMessages = messages.map(m => {
+      if (m.role === 'tool' && m.tool_call_id) {
+        const { tool_call_id, ...clean } = m;
+        return clean;
+      }
+      if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+        return {
+          ...m,
+          tool_calls: m.tool_calls.map(tc => ({
+            ...tc,
+            function: {
+              ...tc.function,
+              arguments: typeof tc.function.arguments === 'string'
+                ? (() => { try { return JSON.parse(tc.function.arguments); } catch { return tc.function.arguments; } })()
+                : tc.function.arguments,
+            },
+          })),
+        };
+      }
+      return m;
+    });
+
     // Build request body — think:false suppresses qwen3 extended thinking
     const body = {
       model,
-      messages,
+      messages: cleanedMessages,
       stream: true,
       think: false,
       options: options || {},
