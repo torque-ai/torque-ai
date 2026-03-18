@@ -48,7 +48,7 @@ const PROVIDER_DEFAULT_MODEL = {
   deepinfra: 'Qwen/Qwen2.5-72B-Instruct',
   openrouter: 'qwen/qwen3-coder:free',
   hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
-  'ollama-cloud': 'qwen3-coder:480b',
+  'ollama-cloud': 'devstral-2:123b',
   'google-ai': 'gemini-2.0-flash',
 };
 
