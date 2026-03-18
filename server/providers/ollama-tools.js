@@ -29,6 +29,32 @@ const MAX_OUTPUT_BYTES = 128 * 1024;     // 128KB per tool result
 const IS_WINDOWS = process.platform === 'win32';
 
 /**
+ * Re-indent new_text to match the file's indentation at the match point.
+ * Uses prefix-replacement (not character-count delta) to handle mixed tabs/spaces.
+ * @param {string} newText - The replacement text
+ * @param {string} fileIndent - Leading whitespace of the matched region's first non-blank line
+ * @returns {string} Re-indented text
+ */
+function reindentNewText(newText, fileIndent) {
+  const lines = newText.split('\n');
+  const firstNonBlank = lines.find(l => l.trim().length > 0);
+  if (!firstNonBlank) return newText;
+  const newIndent = firstNonBlank.match(/^(\s*)/)[1];
+
+  if (newIndent === fileIndent) return newText;
+
+  return lines.map(line => {
+    if (!line.trim()) return line;
+    if (line.startsWith(newIndent)) {
+      return fileIndent + line.slice(newIndent.length);
+    }
+    const lineIndent = line.match(/^(\s*)/)[1];
+    const common = Math.min(lineIndent.length, newIndent.length);
+    return fileIndent + line.slice(common);
+  }).join('\n');
+}
+
+/**
  * Tool definitions in OpenAI / Ollama function-calling format.
  */
 const TOOL_DEFINITIONS = [
@@ -580,6 +606,7 @@ module.exports = {
   executeTool,       // legacy compat
   parseToolCalls,
   resolveSafePath,
+  reindentNewText,
   IS_WINDOWS,
   MAX_FILE_READ_BYTES,
   MAX_COMMAND_TIMEOUT_MS,
