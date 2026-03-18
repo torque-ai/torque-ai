@@ -107,9 +107,10 @@ function isAuthorized(filePath, taskDescription) {
   // Normalize separators and strip trailing slash (directory entries)
   const normalized = filePath.replace(/\\/g, '/').replace(/\/$/, '');
   const parts = normalized.split('/').filter(Boolean);
-  // Require matched components to be at least 8 chars to prevent false positives
-  // (e.g. "src" or "lib" matching unrelated task descriptions)
-  const components = parts.filter(c => c.length >= 8);
+  // Require matched components to be at least 5 chars to prevent false positives
+  // from very short dir names (e.g. "src", "lib", "bin") while still matching
+  // filenames like "main.cs" (7), "App.cs" (6), "index.ts" (8)
+  const components = parts.filter(c => c.length >= 5);
   for (const part of components) {
     if (part && desc.includes(part.toLowerCase())) return true;
   }
