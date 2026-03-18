@@ -577,7 +577,86 @@ describe('runAgenticLoop — callbacks', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Test 12: MAX_ITERATIONS exported constant
+// Test 12: tool_call → text (mixed sequence — common real-world pattern)
+// ---------------------------------------------------------------------------
+
+describe('runAgenticLoop — tool_call followed by text response (common pattern)', () => {
+  it('executes tool, receives result, then final text response', async () => {
+    // First iteration: model returns a tool call
+    // Second iteration: model returns a text response (final answer)
+    const adapter = mockAdapter([
+      toolCallResponse('read_file', { path: 'src/index.js' }),
+      textResponse('I read the file. The implementation looks correct.'),
+    ]);
+    const executor = mockToolExecutor({
+      read_file: { result: 'const x = 42;', metadata: {} },
+    });
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'You are a code reviewer.',
+      taskPrompt: 'Review the implementation.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+    });
+
+    // Tool was executed
+    expect(result.toolLog).toHaveLength(1);
+    expect(result.toolLog[0].name).toBe('read_file');
+    expect(result.toolLog[0].error).toBe(false);
+
+    // Final output is the text response, not a tool call
+    expect(result.output).toContain('I read the file.');
+
+    // Loop ran exactly 2 iterations (1 tool call + 1 final text)
+    expect(result.iterations).toBe(2);
+
+    // No files were changed (read-only tool)
+    expect(result.changedFiles).toHaveLength(0);
+  });
+
+  it('carries tool result content into the conversation context', async () => {
+    // Verify that the tool result is visible in the messages passed to the second adapter call
+    let secondCallMessages = null;
+    let callCount = 0;
+
+    const responses = [
+      toolCallResponse('read_file', { path: 'config.json' }),
+      textResponse('The config file has been processed.'),
+    ];
+
+    const spyAdapter = {
+      chatCompletion: async (opts) => {
+        callCount++;
+        if (callCount === 2) {
+          secondCallMessages = JSON.parse(JSON.stringify(opts.messages));
+        }
+        return responses[Math.min(callCount - 1, responses.length - 1)];
+      },
+    };
+
+    const executor = mockToolExecutor({
+      read_file: { result: '{"version": "1.0", "debug": false}' },
+    });
+
+    await runAgenticLoop({
+      adapter: spyAdapter,
+      systemPrompt: 'sys',
+      taskPrompt: 'read config',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+    });
+
+    // The second call should include a tool-role message with the result
+    expect(secondCallMessages).not.toBeNull();
+    const toolResultMsg = secondCallMessages.find(m => m.role === 'tool');
+    expect(toolResultMsg).toBeDefined();
+    expect(toolResultMsg.content).toContain('"version"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test 14: MAX_ITERATIONS exported constant
 // ---------------------------------------------------------------------------
 
 describe('MAX_ITERATIONS export', () => {

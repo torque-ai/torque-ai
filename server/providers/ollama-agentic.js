@@ -439,5 +439,6 @@ async function runAgenticLoop({
 
 module.exports = {
   runAgenticLoop,
+  truncateOldestToolResults,
   MAX_ITERATIONS,
 };
