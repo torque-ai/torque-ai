@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { planProjects as projectsApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
+import WorkflowDAG from '../components/WorkflowDAG';
 
 const STATUS_TABS = [
   { value: '', label: 'All' },
@@ -136,6 +137,7 @@ function TaskRow({ task }) {
 function ProjectDetail({ projectId, onBack, onAction }) {
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [taskViewMode, setTaskViewMode] = useState(null); // null = auto-detect, 'graph' | 'table'
   const { execute } = useAbortableRequest();
 
   const loadProject = useCallback(() => {
@@ -167,6 +169,22 @@ function ProjectDetail({ projectId, onBack, onAction }) {
   }
 
   const statusColor = STATUS_COLORS[project.status] || 'bg-slate-500';
+
+  // Transform tasks for WorkflowDAG: map sequence_number to node_id, parse depends_on
+  const dagTasks = (project.tasks || []).map((task) => {
+    let deps = task.depends_on || [];
+    if (typeof deps === 'string') {
+      try { deps = JSON.parse(deps); } catch { deps = []; }
+    }
+    return {
+      ...task,
+      node_id: String(task.sequence_number || task.task_id),
+      depends_on: Array.isArray(deps) ? deps.map(String) : [],
+      description: task.task_description || task.description,
+    };
+  });
+  const hasDeps = dagTasks.some((t) => t.depends_on.length > 0);
+  const effectiveViewMode = taskViewMode || (hasDeps ? 'graph' : 'table');
 
   return (
     <div className="p-6">
@@ -240,12 +258,42 @@ function ProjectDetail({ projectId, onBack, onAction }) {
       </div>
 
       <div className="bg-slate-800 rounded-lg p-6">
-        <h3 className="text-lg font-medium text-white mb-4">Tasks</h3>
-        <div className="divide-y divide-slate-700">
-          {project.tasks?.map((task) => (
-            <TaskRow key={task.task_id} task={task} />
-          ))}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-medium text-white">Tasks</h3>
+          {project.tasks?.length > 0 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setTaskViewMode('graph')}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  (taskViewMode || (hasDeps ? 'graph' : 'table')) === 'graph'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-700 text-slate-400 hover:text-white'
+                }`}
+              >
+                Graph
+              </button>
+              <button
+                onClick={() => setTaskViewMode('table')}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  (taskViewMode || (hasDeps ? 'graph' : 'table')) === 'table'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-700 text-slate-400 hover:text-white'
+                }`}
+              >
+                Table
+              </button>
+            </div>
+          )}
         </div>
+        {effectiveViewMode === 'graph' ? (
+          <WorkflowDAG tasks={dagTasks} />
+        ) : (
+          <div className="divide-y divide-slate-700">
+            {project.tasks?.map((task) => (
+              <TaskRow key={task.task_id} task={task} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
