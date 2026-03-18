@@ -22,9 +22,9 @@ const EXCLUDED_PROVIDERS = new Set(['hashline-ollama', 'aider-ollama', 'codex', 
 
 // ── Cloud providers known to support OpenAI-compatible tool calling ───────────
 
-// Note: openrouter excluded — free tier models don't support tool calling.
-// Enable via agentic_provider_openrouter=1 config if using paid models.
-const CLOUD_TOOL_CAPABLE = new Set(['groq', 'cerebras', 'deepinfra', 'hyperbolic', 'google-ai', 'ollama-cloud']);
+// Note: openrouter free models have intermittent tool support (rate-limited).
+// nemotron-3-nano-30b-a3b:free confirmed working. Falls back to legacy if tools fail.
+const CLOUD_TOOL_CAPABLE = new Set(['groq', 'cerebras', 'deepinfra', 'hyperbolic', 'google-ai', 'ollama-cloud', 'openrouter']);
 
 // ── Model name prefixes (lowercased) known to support tool calling ────────────
 

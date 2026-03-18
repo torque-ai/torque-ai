@@ -13,7 +13,7 @@
 | groq | llama-3.3-70b-versatile | openai-chat | 1274ms | 2 | 1 (list_directory) | No | Yes | A- |
 | ollama-cloud | devstral-2:123b | ollama-chat | 3769ms | 2 | 1 (list_directory) | Yes (13) | Yes | A |
 | ollama (local) | qwen2.5-coder:32b | ollama-chat | 60366ms | 2 | 1 (list_directory) | Yes (13) | Yes | B |
-| openrouter | qwen/qwen3-coder:free | openai-chat | N/A | N/A | N/A | N/A | N/A | F |
+| openrouter | nemotron-3-nano-30b:free | openai-chat | 4929ms | 2 | 1 (list_directory) | Yes (13) | Yes | A |
 | codestral (local) | codestral:22b | ollama-chat | 67ms | 1 | 0 | No | No | Excluded |
 | google-ai | gemini-2.0-flash | google-chat | N/A | N/A | N/A | N/A | N/A | Blocked |
 
@@ -41,11 +41,11 @@
 - After prompt tuning, properly focused: 2 iterations instead of original 5
 - Before fix: went off-task (wrote files, ran commands, 5 iterations)
 
-### openrouter (Grade F)
-- Free tier models (`:free` suffix) do not support tool calling
-- "Provider returned error" on all tested free models
-- Requires paid credits for tool-capable models
-- Removed from CLOUD_TOOL_CAPABLE — falls back to legacy text-only
+### openrouter (Grade A)
+- `nvidia/nemotron-3-nano-30b-a3b:free` supports tool calling on the free tier
+- Earlier failures were transient rate limiting, not fundamental incompatibility
+- 4.9s response time, accurate count and all folder names
+- Re-added to CLOUD_TOOL_CAPABLE with nemotron as default model
 
 ### codestral (Excluded)
 - codestral:22b via Ollama does not support tool calling

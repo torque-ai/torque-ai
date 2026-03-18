@@ -46,7 +46,7 @@ const PROVIDER_DEFAULT_MODEL = {
   groq: 'llama-3.3-70b-versatile',
   cerebras: 'qwen-3-235b-a22b-instruct-2507',
   deepinfra: 'Qwen/Qwen2.5-72B-Instruct',
-  openrouter: 'qwen/qwen3-coder:free',
+  openrouter: 'nvidia/nemotron-3-nano-30b-a3b:free',
   hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
   'ollama-cloud': 'devstral-2:123b',
   'google-ai': 'gemini-2.0-flash',
