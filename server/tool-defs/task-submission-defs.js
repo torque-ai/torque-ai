@@ -89,6 +89,10 @@ module.exports = [
             "repeat_penalty": { "type": "number" },
             "num_predict": { "type": "number" }
           }
+        },
+        "routing_template": {
+          "type": "string",
+          "description": "Name or ID of a routing template (e.g. 'Cost Saver', 'Quality First', 'Free Agentic'). Controls the provider+model fallback chain. Available: System Default, Quality First, Cost Saver, Cloud Sprint, Free Agentic, Free Speed, All Local."
         }
       },
       "required": [

@@ -268,7 +268,7 @@ async function handleSmartSubmitTask(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Arguments object is required');
   }
   
-  const { task, working_directory, files: rawFiles, model, timeout_minutes, priority, provider, override_provider: legacyOverrideProvider, tuning, context_stuff, context_depth, prefer_free } = args;
+  const { task, working_directory, files: rawFiles, model, timeout_minutes, priority, provider, override_provider: legacyOverrideProvider, tuning, context_stuff, context_depth, prefer_free, routing_template } = args;
   // Support both 'provider' (standard) and legacy 'override_provider' alias
   const override_provider = provider || legacyOverrideProvider;
   const files = Array.isArray(rawFiles) ? rawFiles : (rawFiles ? [String(rawFiles)] : undefined);
@@ -330,7 +330,10 @@ async function handleSmartSubmitTask(args) {
     await db.checkOllamaHealth(true);
 
     // Use smart routing (will use freshly updated health status for fallback decisions)
-    routingResult = db.analyzeTaskForRouting(task, working_directory, files, { preferFree: !!prefer_free });
+    routingResult = db.analyzeTaskForRouting(task, working_directory, files, {
+      preferFree: !!prefer_free,
+      taskMetadata: routing_template ? { _routing_template: routing_template } : undefined,
+    });
     selectedProvider = routingResult.provider;
 
     // Log routing decision for debugging
@@ -1028,6 +1031,7 @@ async function handleSmartSubmitTask(args) {
     routing_mode: codexExhausted ? 'codex_exhausted' : (!db.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
     _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
+    _routing_template: routing_template || undefined,
   };
 
   if (useTierList) {
@@ -1073,6 +1077,7 @@ async function handleSmartSubmitTask(args) {
         routing_mode: codexExhausted ? 'codex_exhausted' : (!db.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
         _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
+        _routing_template: routing_template || undefined,
       })
     });
   }

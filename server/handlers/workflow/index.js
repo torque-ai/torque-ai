@@ -100,6 +100,9 @@ function buildWorkflowTaskMetadata(taskLike) {
   if (taskLike.provider) {
     metaObj.user_provider_override = true;
   }
+  if (taskLike.routing_template) {
+    metaObj._routing_template = taskLike.routing_template;
+  }
   return metaObj;
 }
 
@@ -625,14 +628,20 @@ function handleCreateWorkflow(args) {
     );
   }
 
+  const workflowContext = args.routing_template ? { _routing_template: args.routing_template } : undefined;
   db.createWorkflow({
     id: workflowId,
     name: trimmedName,
     description: args.description,
     working_directory: args.working_directory,
-    priority: args.priority
+    priority: args.priority,
+    context: workflowContext
   });
-  createSeededWorkflowTasks(workflowId, args.working_directory, normalizedTasks.tasks);
+  // Propagate workflow-level routing_template to seeded tasks that don't have their own
+  const seededTasks = args.routing_template
+    ? normalizedTasks.tasks.map(t => t.routing_template ? t : { ...t, routing_template: args.routing_template })
+    : normalizedTasks.tasks;
+  createSeededWorkflowTasks(workflowId, args.working_directory, seededTasks);
 
   let output = `## Workflow Created\n\n`;
   output += `**ID:** ${workflowId}\n`;
@@ -716,6 +725,10 @@ function handleAddWorkflowTask(args) {
   // Inherit working_directory from workflow when not explicitly set on the task
   const taskWorkingDirectory = args.working_directory || workflow.working_directory;
 
+  // Inherit routing_template from workflow context when not explicitly set on the task
+  const workflowContext = (workflow.context && typeof workflow.context === 'object') ? workflow.context : {};
+  const resolvedRoutingTemplate = args.routing_template || workflowContext._routing_template || null;
+
   // Build metadata with context_from and provider override flag
   const policyTask = {
     id: taskId,
@@ -728,6 +741,7 @@ function handleAddWorkflowTask(args) {
     provider: args.provider,
     model: args.model,
     context_from: Array.isArray(args.context_from) ? args.context_from.slice() : [],
+    routing_template: resolvedRoutingTemplate || undefined,
   };
   const policyResult = evaluateWorkflowTaskSubmissionPolicy(policyTask, args.workflow_id, workflow.working_directory);
   if (policyResult?.blocked === true) {

@@ -494,6 +494,10 @@ const tools = [
             mirostat: { type: 'number', description: 'Override mirostat for this task (0, 1, 2)' },
             num_predict: { type: 'number', description: 'Override max tokens for this task' }
           }
+        },
+        routing_template: {
+          type: 'string',
+          description: "Name or ID of a routing template (e.g. 'Cost Saver', 'Quality First', 'Free Agentic'). Controls the provider+model fallback chain. Available: System Default, Quality First, Cost Saver, Cloud Sprint, Free Agentic, Free Speed, All Local."
         }
       },
       required: ['task']

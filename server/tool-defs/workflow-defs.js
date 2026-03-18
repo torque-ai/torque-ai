@@ -174,6 +174,10 @@ const tools = [
         working_directory: {
           type: 'string',
           description: 'Default working directory for tasks in this workflow. Tasks inherit this if they do not specify their own.'
+        },
+        routing_template: {
+          type: 'string',
+          description: 'Default routing template for all tasks in this workflow.'
         }
       },
       required: ['name', 'tasks']
@@ -248,6 +252,10 @@ const tools = [
           type: 'array',
           items: { type: 'string' },
           description: 'Array of node_ids whose outputs should be auto-injected as "Prior step results:" context when this task is unblocked'
+        },
+        routing_template: {
+          type: 'string',
+          description: 'Routing template for this task (overrides workflow default).'
         }
       },
       required: ['workflow_id', 'task_description', 'node_id']

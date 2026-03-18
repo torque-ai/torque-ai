@@ -189,6 +189,7 @@ function handleSubmitTask(args) {
       context_stuff: args.context_stuff,
       context_depth: args.context_depth,
       tuning: args.tuning,
+      routing_template: args.routing_template,
     });
   }
 
@@ -280,6 +281,9 @@ function handleSubmitTask(args) {
     : (args.provider
       ? { user_provider_override: true, intended_provider: providerName }
       : { intended_provider: providerName });
+  if (args.routing_template) {
+    metadata._routing_template = args.routing_template;
+  }
 
   // F9: Early model availability check — warn if requested model not found on any host
   if (args.model) {
