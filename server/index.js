@@ -584,10 +584,28 @@ function init() {
           // and may take 5-15 minutes; the 30s startup grace is too aggressive.
           // Only orphan if running time exceeds the task timeout.
           if (runningTime > timeoutMs) {
-            markStartupOrphanFailed(task, {
-              error_output: `Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive`,
-              completed_at: new Date().toISOString()
-            });
+            // Auto-requeue orphaned tasks instead of failing — the work was interrupted
+            // by a dead MCP session, not by a code error. A fresh attempt will likely succeed.
+            const retryCount = task.retry_count || 0;
+            const maxRetries = task.max_retries != null ? task.max_retries : 2;
+            if (retryCount < maxRetries) {
+              debugLog(`Orphaned task ${task.id} from dead instance ${task.mcp_instance_id} — requeuing (attempt ${retryCount + 1}/${maxRetries})`);
+              db.updateTaskStatus(task.id, 'queued', {
+                error_output: `Task requeued — owning instance ${task.mcp_instance_id} is no longer alive (auto-retry ${retryCount + 1}/${maxRetries})`,
+                retry_count: retryCount + 1,
+                mcp_instance_id: null, // Clear owner so any instance can pick it up
+                provider: null, // Clear provider so routing can re-evaluate
+              });
+              if (task.ollama_host_id) {
+                try { db.decrementHostTasks(task.ollama_host_id); } catch { /* host may not exist */ }
+              }
+              orphansCleaned++;
+            } else {
+              markStartupOrphanFailed(task, {
+                error_output: `Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive (max retries exhausted)`,
+                completed_at: new Date().toISOString()
+              });
+            }
           }
         }
         // Instance is alive — leave task alone, sibling session is handling it
