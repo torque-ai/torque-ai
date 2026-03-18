@@ -486,11 +486,18 @@ function parseToolCalls(message) {
   }
   if (tagMatches.length > 0) return tagMatches;
 
-  // Priority 3: Raw JSON object with "name" and "arguments" keys
+  // Priority 3: Raw JSON object or array with "name" and "arguments" keys
   try {
     const parsed = JSON.parse(content);
-    if (parsed.name && typeof parsed.name === 'string') {
-      return [{ name: parsed.name, arguments: parsed.arguments || {} }];
+    // Single object: {"name": "...", "arguments": {...}}
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.name && typeof parsed.name === 'string') {
+      return [{ id: parsed.id, name: parsed.name, arguments: parsed.arguments || {} }];
+    }
+    // Array of objects: [{"name": "...", "arguments": {...}}, ...]
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].name) {
+      return parsed.filter(tc => tc.name && typeof tc.name === 'string').map(tc => ({
+        id: tc.id, name: tc.name, arguments: tc.arguments || {},
+      }));
     }
   } catch { /* not JSON */ }
 
