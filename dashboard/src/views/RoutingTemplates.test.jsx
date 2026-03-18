@@ -38,14 +38,29 @@ describe('RoutingTemplates', () => {
   it('renders template selector with presets and user templates', async () => {
     render(<RoutingTemplates />);
     await waitFor(() => {
-      expect(screen.getByText(/System Default/)).toBeTruthy();
+      expect(screen.getByText(/System Default/)).toBeInTheDocument();
     });
   });
 
   it('renders category rows', async () => {
     render(<RoutingTemplates />);
     await waitFor(() => {
-      expect(screen.getByText(/Security/)).toBeTruthy();
+      expect(screen.getByText(/Security/)).toBeInTheDocument();
+    });
+  });
+
+  it('renders activate button', async () => {
+    render(<RoutingTemplates />);
+    await waitFor(() => {
+      expect(screen.getByText(/Activate/i)).toBeInTheDocument();
+    });
+  });
+
+  it('renders New and Duplicate buttons', async () => {
+    render(<RoutingTemplates />);
+    await waitFor(() => {
+      expect(screen.getByText('New')).toBeInTheDocument();
+      expect(screen.getByText('Duplicate')).toBeInTheDocument();
     });
   });
 });

@@ -364,6 +364,9 @@ describe('execute-ollama.js', () => {
       });
 
       expect(safeUpdate).toHaveBeenCalledWith(taskId, 'completed', expect.anything());
+      // TODO: verify request was sent to pre-routed host URL
+      // The mock Ollama server does not expose lastRequest or a URL capture mechanism,
+      // so we cannot assert the exact host URL used without refactoring the mock setup.
     });
 
     it('calls cloud fallback or fails when no host has the requested model', async () => {

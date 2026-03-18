@@ -137,7 +137,7 @@ test.beforeEach(async ({ page }) => {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ data: {}, meta: {} }),
     });
   });
 });
@@ -315,8 +315,8 @@ test('refresh button triggers re-fetch', async ({ page }) => {
   await expect(refreshBtn).toBeVisible();
   await refreshBtn.click();
 
-  // Wait for the API to be called again
-  await page.waitForTimeout(1000);
+  // Wait for the API to be called again after refresh click
+  await page.waitForResponse(url => url.url().includes('/strategic/'), { timeout: 5000 });
   expect(apiCallCount).toBeGreaterThan(callsBefore);
 });
 
@@ -352,7 +352,7 @@ test('auto-refresh does not crash after initial load', async ({ page }) => {
   const initialCalls = apiCallCount;
 
   // Wait for at least one auto-refresh cycle (Strategic interval is 15s)
-  await page.waitForTimeout(16000);
+  await page.waitForRequest(url => url.url().includes('/strategic/'), { timeout: 20000 });
 
   // Should have made additional calls
   expect(apiCallCount).toBeGreaterThan(initialCalls);

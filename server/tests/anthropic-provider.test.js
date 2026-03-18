@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const AnthropicProvider = require('../providers/anthropic.js');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
 
+// Note: Anthropic provider is opt-in (not seeded by default since 2026-03-17).
+// These tests verify the provider class works correctly when explicitly added by users.
 describe('AnthropicProvider', () => {
   let provider;
 
