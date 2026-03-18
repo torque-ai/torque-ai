@@ -558,6 +558,9 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
 
   // Agentic tool-calling: structured task metadata (tool log, token usage)
   safeAddColumn('tasks', 'task_metadata TEXT');
+
+  // L-6: IANA timezone support for cron schedules
+  safeAddColumn('scheduled_tasks', 'timezone TEXT DEFAULT NULL');
 }
 
 module.exports = { runMigrations };

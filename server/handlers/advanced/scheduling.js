@@ -23,7 +23,8 @@ function handleCreateCronSchedule(args) {
     working_directory,
     auto_approve = false,
     timeout_minutes = 30,
-    enabled = true
+    enabled = true,
+    timezone
   } = args;
 
   try {
@@ -36,13 +37,17 @@ function handleCreateCronSchedule(args) {
         auto_approve,
         timeout_minutes
       },
-      enabled
+      enabled,
+      timezone: timezone || null
     });
 
     let output = `## Scheduled Task Created\n\n`;
     output += `**Name:** ${schedule.name}\n`;
     output += `**ID:** ${schedule.id}\n`;
     output += `**Cron:** \`${cron_expression}\`\n`;
+    if (schedule.timezone) {
+      output += `**Timezone:** ${schedule.timezone}\n`;
+    }
     output += `**Status:** ${schedule.enabled ? 'Enabled' : 'Disabled'}\n`;
     output += `**Next Run:** ${schedule.next_run_at ? new Date(schedule.next_run_at).toLocaleString() : 'Not scheduled'}\n\n`;
     output += `**Task:** ${task}\n`;

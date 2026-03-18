@@ -140,6 +140,10 @@ const tools = [
           type: 'boolean',
           description: 'Whether the schedule is enabled',
           default: true
+        },
+        timezone: {
+          type: 'string',
+          description: 'IANA timezone for cron evaluation (e.g., "America/New_York", "Europe/London"). If omitted, uses server local time.'
         }
       },
       required: ['name', 'cron_expression', 'task']

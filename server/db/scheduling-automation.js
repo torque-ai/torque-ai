@@ -1225,7 +1225,7 @@ function parseCronExpression(expression) {
  * - This matches standard cron behavior where a date can match either field
  * Returns null on invalid cron expression instead of throwing
  */
-function calculateNextRun(cronExpression, fromDate = new Date()) {
+function calculateNextRun(cronExpression, fromDate = new Date(), timezone = null) {
   let cron;
   try {
     cron = parseCronExpression(cronExpression);
@@ -1236,6 +1236,46 @@ function calculateNextRun(cronExpression, fromDate = new Date()) {
   const next = new Date(fromDate);
   next.setSeconds(0);
   next.setMilliseconds(0);
+
+  // Helper to get date components in the target timezone using Intl.DateTimeFormat
+  let getDateParts;
+  if (timezone) {
+    try {
+      // Validate timezone by creating a formatter — throws on invalid IANA timezone
+      const fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric', month: 'numeric', day: 'numeric',
+        hour: 'numeric', minute: 'numeric', second: 'numeric',
+        hour12: false,
+      });
+      getDateParts = (date) => {
+        const parts = {};
+        for (const { type, value } of fmt.formatToParts(date)) {
+          parts[type] = parseInt(value, 10);
+        }
+        return {
+          minute: parts.minute,
+          hour: parts.hour === 24 ? 0 : parts.hour,
+          day: parts.day,
+          month: parts.month,
+          dayOfWeek: new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay(),
+        };
+      };
+    } catch {
+      // Invalid timezone — fall back to local time
+      getDateParts = null;
+    }
+  }
+
+  if (!getDateParts) {
+    getDateParts = (date) => ({
+      minute: date.getMinutes(),
+      hour: date.getHours(),
+      day: date.getDate(),
+      month: date.getMonth() + 1,
+      dayOfWeek: date.getDay(),
+    });
+  }
 
   // Determine day matching mode
   // Per cron spec: if both day-of-month and day-of-week are restricted (not '*'),
@@ -1249,11 +1289,12 @@ function calculateNextRun(cronExpression, fromDate = new Date()) {
   for (let i = 0; i < 1440 * 366; i++) { // Check up to 366 days
     next.setMinutes(next.getMinutes() + 1);
 
-    const minute = next.getMinutes();
-    const hour = next.getHours();
-    const day = next.getDate();
-    const month = next.getMonth() + 1;
-    const dayOfWeek = next.getDay();
+    const p = getDateParts(next);
+    const minute = p.minute;
+    const hour = p.hour;
+    const day = p.day;
+    const month = p.month;
+    const dayOfWeek = p.dayOfWeek;
     const normalizedDayOfWeek = dayOfWeek % 7;
 
     // Check minute, hour, and month (always AND logic)
@@ -1423,8 +1464,9 @@ function createCronScheduledTask(data) {
   // Validate cron expression
   parseCronExpression(data.cron_expression);
 
-  // Calculate next run
-  const nextRun = calculateNextRun(data.cron_expression);
+  // Calculate next run (timezone-aware if provided)
+  const timezone = data.timezone || null;
+  const nextRun = calculateNextRun(data.cron_expression, new Date(), timezone);
 
   const scheduleId = uuidv4();
   const taskConfig = data.task_config || {};
@@ -1432,8 +1474,8 @@ function createCronScheduledTask(data) {
   const stmt = db.prepare(`
     INSERT INTO scheduled_tasks (
       id, name, task_description, working_directory, timeout_minutes,
-      auto_approve, schedule_type, cron_expression, next_run_at, enabled, created_at, task_config, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      auto_approve, schedule_type, cron_expression, next_run_at, enabled, created_at, task_config, updated_at, timezone
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -1449,13 +1491,15 @@ function createCronScheduledTask(data) {
     data.enabled !== false ? 1 : 0,
     now,
     JSON.stringify(taskConfig),
-    now
+    now,
+    timezone
   );
 
   return {
     id: scheduleId,
     name: data.name,
     cron_expression: data.cron_expression,
+    timezone: timezone,
     task_config: taskConfig,
     enabled: data.enabled !== false,
     next_run_at: nextRun ? nextRun.toISOString() : null
@@ -1478,7 +1522,7 @@ function toggleScheduledTask(id, enabled) {
   // If enabling, recalculate next run
   let nextRun = schedule.next_run_at;
   if (newEnabled && !schedule.enabled) {
-    const next = calculateNextRun(schedule.cron_expression);
+    const next = calculateNextRun(schedule.cron_expression, new Date(), schedule.timezone || null);
     nextRun = next ? next.toISOString() : null;
   }
 
@@ -1556,13 +1600,19 @@ function updateScheduledTask(id, updates) {
     params.push(updates.name);
   }
 
+  if (updates.timezone !== undefined) {
+    fields.push('timezone = ?');
+    params.push(updates.timezone || null);
+  }
+
   if (updates.cron_expression !== undefined) {
     parseCronExpression(updates.cron_expression);
     fields.push('cron_expression = ?');
     params.push(updates.cron_expression);
 
-    // Recalculate next run
-    const nextRun = calculateNextRun(updates.cron_expression);
+    // Recalculate next run (use updated timezone if provided, else fetch existing schedule's timezone)
+    const tz = updates.timezone !== undefined ? (updates.timezone || null) : null;
+    const nextRun = calculateNextRun(updates.cron_expression, new Date(), tz);
     fields.push('next_run_at = ?');
     params.push(nextRun ? nextRun.toISOString() : null);
   }
@@ -1630,7 +1680,7 @@ function markScheduledTaskRun(id) {
   const schedule = getScheduledTask(id);
   if (!schedule) return null;
 
-  const nextRun = calculateNextRun(schedule.cron_expression, now);
+  const nextRun = calculateNextRun(schedule.cron_expression, now, schedule.timezone || null);
 
   const stmt = db.prepare(`
     UPDATE scheduled_tasks
