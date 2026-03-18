@@ -274,14 +274,14 @@ describe('provider-handlers main-file handlers', () => {
       expect(result.isError).toBeFalsy();
       expect(mockDb.getHealthTrend).toHaveBeenCalledWith('ollama', 7);
       expect(result.content[0].type).toBe('text');
-      expect(JSON.parse(result.content[0].text)).toEqual({
+      expect(JSON.parse(result.content[0].text)).toEqual([{
         provider: 'ollama',
         days: 7,
         trend: 'improving',
         window_count: 4,
         previous_failure_rate: 0.4,
         recent_failure_rate: 0.1,
-      });
+      }]);
     });
 
     it('returns all configured provider trends when provider is omitted', () => {

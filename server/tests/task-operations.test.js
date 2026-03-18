@@ -650,22 +650,34 @@ describe('task-operations handlers', () => {
 
     it('cancels tasks with process killing', () => {
       vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'listTasks').mockReturnValue([
-        { id: 'task-running-1' },
-        { id: 'task-running-2' },
-      ]);
+      vi.spyOn(db, 'listTasks').mockImplementation((options = {}) => {
+        if (options.status === 'running') {
+          return [
+            { id: 'task-running-1' },
+            { id: 'task-running-2' },
+          ];
+        }
+        return [];
+      });
       vi.spyOn(taskManager, 'cancelTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'batchCancelTasks').mockReturnValue(3);
+      vi.spyOn(db, 'batchCancelTasks').mockReturnValue(0);
       vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchCancel({ status: 'running' });
       expect(result.content[0].text).toContain('Batch Cancel Complete');
+      expect(result.content[0].text).toContain('Tasks Cancelled:** 2');
       expect(result.content[0].text).toContain('Running Processes Killed');
       expect(taskManager.cancelTask).toHaveBeenCalledTimes(2);
     });
 
     it('skips process killing when status is queued', () => {
       vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(db, 'listTasks').mockImplementation((options = {}) => {
+        if (options.status === 'queued') {
+          return Array.from({ length: 5 }, (_, index) => ({ id: `task-queued-${index + 1}` }));
+        }
+        return [];
+      });
       vi.spyOn(db, 'batchCancelTasks').mockReturnValue(5);
       vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
 
@@ -685,10 +697,21 @@ describe('task-operations handlers', () => {
 
     it('continues bulk cancellation when cancelling one running task throws', () => {
       vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'listTasks').mockReturnValue([
-        { id: 'task-running-1' },
-        { id: 'task-running-2' },
-      ]);
+      vi.spyOn(db, 'listTasks')
+        .mockImplementationOnce(() => [
+          { id: 'task-running-1' },
+          { id: 'task-running-2' },
+        ])
+        .mockImplementationOnce(() => [
+          { id: 'task-running-1' },
+        ])
+        .mockImplementationOnce(() => [
+          { id: 'task-queued-1' },
+          { id: 'task-queued-2' },
+        ])
+        .mockImplementationOnce(() => [
+          { id: 'task-pending-1' },
+        ]);
       vi.spyOn(taskManager, 'cancelTask')
         .mockImplementationOnce(() => {
           throw new Error('already gone');

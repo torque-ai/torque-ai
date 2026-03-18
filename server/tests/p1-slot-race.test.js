@@ -156,4 +156,45 @@ describe('Slot claim atomicity', () => {
     expect(apiRunning).toBe(1);
     expect(ollamaRunning + codexRunning + apiRunning).toBe(4);
   });
+
+  it('does not report success when the task is already started before the guarded claim update runs', () => {
+    const taskId = createQueuedTask({ provider: 'ollama' });
+    const rawDb = db.getDbInstance();
+    const originalPrepare = rawDb.prepare;
+    const boundPrepare = rawDb.prepare.bind(rawDb);
+    let interleavedStartExecuted = false;
+
+    rawDb.prepare = (sql) => {
+      const stmt = boundPrepare(sql);
+      if (!sql.startsWith('UPDATE tasks SET') || !sql.includes('WHERE id = ? AND status IN (\'queued\', \'pending\')')) {
+        return stmt;
+      }
+      return new Proxy(stmt, {
+        get(target, prop) {
+          if (prop === 'run') {
+            return (...args) => {
+              if (!interleavedStartExecuted) {
+                interleavedStartExecuted = true;
+                boundPrepare('UPDATE tasks SET status = ?, started_at = ? WHERE id = ?')
+                  .run('running', new Date().toISOString(), taskId);
+              }
+              return target.run(...args);
+            };
+          }
+          const value = target[prop];
+          return typeof value === 'function' ? value.bind(target) : value;
+        }
+      });
+    };
+
+    try {
+      const claim = claimSlot(taskId, 10, 'ollama', null, ['ollama']);
+      expect(interleavedStartExecuted).toBe(true);
+      expect(claim.success).toBe(false);
+      expect(claim.reason).toBe('already_running');
+      expect(db.getTask(taskId).status).toBe('pending');
+    } finally {
+      rawDb.prepare = originalPrepare;
+    }
+  });
 });

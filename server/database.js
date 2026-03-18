@@ -1507,7 +1507,20 @@ function tryClaimTaskSlot(
     }
 
     // Atomically update to running status and stamp owning MCP instance
-    db.prepare(`UPDATE tasks SET ${updateClauses.join(', ')} WHERE id = ?`).run(...updateValues, taskId);
+    const claimUpdate = db.prepare(
+      `UPDATE tasks SET ${updateClauses.join(', ')} WHERE id = ? AND status IN ('queued', 'pending')`
+    ).run(...updateValues, taskId);
+    if (claimUpdate.changes === 0) {
+      const latestTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+      db.prepare('ROLLBACK').run();
+      if (!latestTask) {
+        return { success: false, reason: 'not_found' };
+      }
+      if (latestTask.status === 'running') {
+        return { success: false, reason: 'already_running' };
+      }
+      return { success: false, reason: 'invalid_status', status: latestTask.status };
+    }
 
     // Return the updated task
     const updatedTask = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);

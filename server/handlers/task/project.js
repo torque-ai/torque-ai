@@ -894,7 +894,7 @@ function handleDeleteBudget(args) {
   }
   const result = db.deleteBudget(budget_id);
   if (!result.deleted) {
-    return makeError(ErrorCodes.NOT_FOUND, `Budget not found: ${budget_id}`);
+    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Budget not found: ${budget_id}`);
   }
   return {
     content: [{ type: 'text', text: `Budget ${budget_id} deleted.` }]

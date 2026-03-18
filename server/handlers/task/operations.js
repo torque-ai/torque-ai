@@ -572,6 +572,28 @@ function handlePauseScheduled(args) {
  * causing zombie processes that held host slots and consumed resources indefinitely.
  * Now properly kills running processes via taskManager.cancelTask() before bulk-updating.
  */
+function listTasksForBatchCancel(options = {}, statuses = []) {
+  const results = [];
+  const normalizedStatuses = [...new Set(
+    statuses.filter((status) => typeof status === 'string' && status.trim())
+  )];
+
+  for (const status of normalizedStatuses) {
+    let offset = 0;
+    const limit = 1000;
+    while (true) {
+      const page = db.listTasks({ ...options, status, limit, offset });
+      results.push(...page);
+      if (page.length < limit) {
+        break;
+      }
+      offset += page.length;
+    }
+  }
+
+  return results;
+}
+
 function handleBatchCancel(args) {
   // Input validation
   if (args.status !== undefined && typeof args.status !== 'string') {
@@ -621,23 +643,32 @@ function handleBatchCancel(args) {
   // tasks via cancelTask() which kills processes, frees slots, and triggers processQueue().
   // cancelTask() also updates DB status to 'cancelled', so batchCancelTasks() below
   // won't double-cancel them (its WHERE clause requires status IN running/queued/pending).
-  let processesKilled = 0;
+  const cancelledTaskIds = new Set();
+  const killedTaskIds = new Set();
   if (!args.status || args.status === 'running') {
-    const runningTasks = db.listTasks({ ...options, status: 'running', limit: 500 });
+    const runningTasks = listTasksForBatchCancel(options, ['running']);
     for (const task of runningTasks) {
       try {
         taskManager.cancelTask(task.id, 'Batch cancel');
-        processesKilled++;
-        } catch (err) {
-          // Task may have already completed between query and cancel — continue
-          logger.debug('[task-operations] non-critical error cancelling task in bulk:', err.message || err);
-        }
+        killedTaskIds.add(task.id);
+        cancelledTaskIds.add(task.id);
+      } catch (err) {
+        // Task may have already completed between query and cancel — continue
+        logger.debug('[task-operations] non-critical error cancelling task in bulk:', err.message || err);
+      }
     }
   }
 
-  // Bulk-update remaining queued/pending tasks (running ones already cancelled above)
-  const bulkCancelled = db.batchCancelTasks(options);
-  const totalCancelled = processesKilled + bulkCancelled;
+  const bulkCandidateStatuses = args.status ? [args.status] : ['running', 'queued', 'pending'];
+  const bulkCandidates = listTasksForBatchCancel(options, bulkCandidateStatuses);
+  for (const task of bulkCandidates) {
+    cancelledTaskIds.add(task.id);
+  }
+
+  // Bulk-update any remaining matching tasks, including running tasks we did not kill directly.
+  db.batchCancelTasks(options);
+  const processesKilled = killedTaskIds.size;
+  const totalCancelled = cancelledTaskIds.size;
 
   // Update operation with results
   db.updateBulkOperation(operationId, {

@@ -413,6 +413,16 @@ describe('handler:task-project', () => {
     expect(getText(result)).toContain('Budget budget-1 deleted.');
   });
 
+  it('handleDeleteBudget returns RESOURCE_NOT_FOUND when budget is missing', () => {
+    vi.spyOn(db, 'deleteBudget').mockReturnValue({ deleted: false });
+
+    const result = handlers.handleDeleteBudget({ budget_id: 'budget-missing' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
+    expect(getText(result)).toContain('Budget not found: budget-missing');
+  });
+
   it('handleSetDefaultLimits writes provided defaults and renders current values', () => {
     const setConfigSpy = vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
     const getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation((key) => {

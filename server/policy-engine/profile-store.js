@@ -50,6 +50,7 @@ function mergePlainObjects(baseValue, overrideValue) {
 function normalizeEnabled(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'object' && value !== null) return false;
   if (typeof value === 'string') {
     return !['0', 'false', 'off', 'disabled'].includes(value.trim().toLowerCase());
   }

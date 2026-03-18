@@ -134,14 +134,14 @@ describe('handleGetProviderHealthTrends', () => {
     expect(mockDb.listProviders).not.toHaveBeenCalled();
     expect(mockDb.getHealthTrend).toHaveBeenCalledWith('ollama', 7);
     expect(mockDb.getHealthHistory).toHaveBeenCalledWith('ollama', 7);
-    expect(JSON.parse(result.content[0].text)).toEqual({
+    expect(JSON.parse(result.content[0].text)).toEqual([{
       provider: 'ollama',
       days: 7,
       trend: 'improving',
       window_count: 4,
       previous_failure_rate: 0.4,
       recent_failure_rate: 0.1,
-    });
+    }]);
   });
 
   it('returns trends for all providers when no provider arg is given', () => {
@@ -189,14 +189,14 @@ describe('handleGetProviderHealthTrends', () => {
     const result = handleGetProviderHealthTrends({ provider: 'hashline-ollama', days: 14 });
 
     expectMcpTextResponse(result);
-    expect(JSON.parse(result.content[0].text)).toEqual({
+    expect(JSON.parse(result.content[0].text)).toEqual([{
       provider: 'hashline-ollama',
       days: 14,
       trend: 'insufficient_data',
       window_count: 0,
       previous_failure_rate: null,
       recent_failure_rate: null,
-    });
+    }]);
   });
 
   it('uses default days=30 when days is not specified', () => {
@@ -204,7 +204,8 @@ describe('handleGetProviderHealthTrends', () => {
     const parsed = JSON.parse(result.content[0].text);
 
     expectMcpTextResponse(result);
-    expect(parsed.days).toBe(30);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].days).toBe(30);
     expect(mockDb.getHealthHistory).toHaveBeenCalledWith('codex', 30);
   });
 

@@ -531,7 +531,7 @@ describe('evaluatePolicies — single rule evaluation', () => {
 
     expect(result.results[0].outcome).toBe('fail');
     expect(result.results[0].message).toContain('required evidence failed');
-    expect(result.summary.failed).toBe(1);
+    expect(result.summary.failed).toBe(0);
     expect(result.summary.blocked).toBe(1);
   });
 
@@ -1692,7 +1692,7 @@ describe('evaluatePolicies — multiple rules', () => {
 
     expect(result.total_results).toBe(3);
     expect(result.summary.passed).toBe(1);
-    expect(result.summary.failed).toBe(1);
+    expect(result.summary.failed).toBe(0);
     expect(result.summary.warned).toBe(1);
     expect(result.summary.skipped).toBe(1);
   });
@@ -1961,6 +1961,7 @@ describe('summarizePolicyResults', () => {
       { outcome: 'fail', mode: 'block' },
       { outcome: 'fail', mode: 'warn' },
       { outcome: 'fail', mode: 'advisory' },
+      { outcome: 'fail' },
       { outcome: 'degraded' },
       { outcome: 'skipped' },
       { outcome: 'overridden' },
@@ -1968,7 +1969,7 @@ describe('summarizePolicyResults', () => {
     const summary = engine.summarizePolicyResults(results);
     expect(summary).toEqual({
       passed: 2,
-      failed: 3,
+      failed: 1,
       warned: 2,
       blocked: 1,
       degraded: 1,

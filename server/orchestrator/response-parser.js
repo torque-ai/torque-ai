@@ -1,7 +1,7 @@
 'use strict';
 
 function extractFromFence(text) {
-  const fenceMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+  const fenceMatch = text.match(/```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```/);
   if (fenceMatch) {
     try {
       return JSON.parse(fenceMatch[1].trim());

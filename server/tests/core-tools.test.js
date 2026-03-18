@@ -184,8 +184,8 @@ describe('getToolNamesForTier()', () => {
     expect(names).toEqual([...TIER_1, ...TIER_2]);
   });
 
-  it('tier 3 returns null (all tools, no filter)', () => {
-    expect(getToolNamesForTier(3)).toBeNull();
+  it('tier 3 returns the full combined tool list', () => {
+    expect(getToolNamesForTier(3)).toEqual([...TIER_1, ...TIER_2]);
   });
 });
 

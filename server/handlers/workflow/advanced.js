@@ -397,8 +397,11 @@ function handleRetryWorkflowFrom(args) {
   // Reset tasks
   let resetCount = 0;
   for (const taskId of toReset) {
-    const t = db.getTask(taskId);
-    if (t) {
+    const taskToReset = db.getTask(taskId);
+    if (taskToReset?.status === 'running') {
+      continue;
+    }
+    if (taskToReset) {
       const hasDeps = deps.some(d => d.task_id === taskId);
       db.updateTaskStatus(taskId, hasDeps ? 'blocked' : 'pending');
       resetCount++;

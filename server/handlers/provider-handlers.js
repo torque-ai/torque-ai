@@ -454,8 +454,8 @@ function handleGetProviderHealthTrends(args = {}) {
   }
 
   const result = providerName
-    ? db.getHealthTrend(providerName, days)
-    : db.listProviders().map((entry) => db.getHealthTrend(entry.provider, days));
+    ? [db.getHealthTrend(providerName, days)].filter(Boolean)
+    : db.listProviders().map((entry) => db.getHealthTrend(entry.provider, days)).filter(Boolean);
 
   return { content: [{ type: 'text', text: JSON.stringify(result) }] };
 }

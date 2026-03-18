@@ -580,7 +580,7 @@ describe('policy-engine/engine', () => {
       severity: 'error',
     });
     expect(result.results[0].message).toContain('required evidence failed');
-    expect(result.summary.failed).toBe(1);
+    expect(result.summary.failed).toBe(0);
     expect(result.summary.blocked).toBe(1);
   });
 
@@ -607,7 +607,7 @@ describe('policy-engine/engine', () => {
       mode: 'warn',
       severity: 'warning',
     });
-    expect(result.summary.failed).toBe(1);
+    expect(result.summary.failed).toBe(0);
     expect(result.summary.warned).toBe(1);
   });
 
@@ -1030,10 +1030,11 @@ describe('policy-engine/engine', () => {
       { outcome: 'fail', mode: 'warn' },
       { outcome: 'fail', mode: 'block' },
       { outcome: 'fail', mode: 'advisory' },
+      { outcome: 'fail' },
     ]);
 
     expect(summary).toMatchObject({
-      failed: 3,
+      failed: 1,
       warned: 2,
       blocked: 1,
     });

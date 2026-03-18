@@ -816,6 +816,52 @@ describe('workflow advanced handlers', () => {
       expect(dbMock.updateTaskStatus).toHaveBeenCalledTimes(2);
       expect(getText(result)).toContain('**Tasks Reset:** 2');
     });
+
+    it('skips downstream tasks that are already running', () => {
+      const taskState = {
+        'task-a': makeTask({
+          id: 'task-a',
+          workflow_id: 'wf-1',
+          workflow_node_id: 'A',
+          status: 'failed',
+        }),
+        'task-b': makeTask({
+          id: 'task-b',
+          workflow_id: 'wf-1',
+          workflow_node_id: 'B',
+          status: 'running',
+        }),
+        'task-c': makeTask({
+          id: 'task-c',
+          workflow_id: 'wf-1',
+          workflow_node_id: 'C',
+          status: 'failed',
+        }),
+      };
+
+      dbMock.getWorkflow.mockReturnValue(makeWorkflow({ id: 'wf-1' }));
+      dbMock.getTask.mockImplementation((taskId) => taskState[taskId] || null);
+      dbMock.getWorkflowDependencies.mockReturnValue([
+        { task_id: 'task-b', depends_on_task_id: 'task-a' },
+        { task_id: 'task-c', depends_on_task_id: 'task-b' },
+      ]);
+      dbMock.updateTaskStatus.mockImplementation((taskId, status) => {
+        if (taskState[taskId]) {
+          taskState[taskId].status = status;
+        }
+      });
+      dbMock.getWorkflowTasks.mockImplementation(() => Object.values(taskState));
+
+      const result = handlers.handleRetryWorkflowFrom({
+        workflow_id: 'wf-1',
+        from_task_id: 'task-a',
+      });
+
+      expect(dbMock.updateTaskStatus).toHaveBeenCalledWith('task-a', 'pending');
+      expect(dbMock.updateTaskStatus).not.toHaveBeenCalledWith('task-b', 'blocked');
+      expect(dbMock.updateTaskStatus).toHaveBeenCalledWith('task-c', 'blocked');
+      expect(getText(result)).toContain('**Tasks Reset:** 2');
+    });
   });
 
   describe('handleSkipTask', () => {

@@ -479,6 +479,36 @@ describe('policy-engine/profile-store', () => {
     });
   });
 
+  describe('normalizeEnabled', () => {
+    it('treats non-null objects as disabled', () => {
+      const effective = profileStore.buildEffectiveRule(
+        {
+          id: 'rule-object-enabled',
+          mode: 'block',
+          enabled: true,
+          matcher: {},
+          required_evidence: [],
+          actions: [],
+          override_policy: {},
+          tags: [],
+        },
+        {
+          id: 'binding-object-enabled',
+          binding_json: {
+            enabled: { value: true },
+          },
+        },
+        {
+          id: 'profile-object-enabled',
+          defaults: { mode: 'block' },
+          policy_overrides: {},
+        },
+      );
+
+      expect(effective.enabled).toBe(false);
+    });
+  });
+
   describe('profiles', () => {
     it('listPolicyProfiles returns an empty array when no profiles exist', () => {
       expect(profileStore.listPolicyProfiles()).toEqual([]);

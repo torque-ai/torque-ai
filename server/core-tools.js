@@ -76,7 +76,7 @@ const TIER_2 = [
 function getToolNamesForTier(tier) {
   if (tier <= 1) return [...TIER_1];
   if (tier <= 2) return [...TIER_1, ...TIER_2];
-  return null; // tier 3+ = all tools (no filter)
+  return [...TIER_1, ...TIER_2];
 }
 
 // Backward-compat: CORE_TOOL_NAMES is now Tier 1 (reduced from 78 to ~25)

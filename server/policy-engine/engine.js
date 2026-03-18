@@ -700,16 +700,22 @@ function summarizePolicyResults(results) {
   };
 
   for (const result of results) {
-    if (result.outcome === 'pass') summary.passed += 1;
-    if (result.outcome === 'fail') summary.failed += 1;
-    if (result.outcome === 'degraded') summary.degraded += 1;
-    if (result.outcome === 'skipped') summary.skipped += 1;
-    if (result.outcome === 'overridden') summary.overridden += 1;
-    if (result.outcome === 'fail' && (result.mode === 'warn' || result.mode === 'advisory')) {
-      summary.warned += 1;
-    }
-    if (result.outcome === 'fail' && result.mode === 'block') {
-      summary.blocked += 1;
+    if (result.outcome === 'pass') {
+      summary.passed += 1;
+    } else if (result.outcome === 'fail') {
+      if (result.mode === 'block') {
+        summary.blocked += 1;
+      } else if (result.mode === 'warn' || result.mode === 'advisory') {
+        summary.warned += 1;
+      } else {
+        summary.failed += 1;
+      }
+    } else if (result.outcome === 'degraded') {
+      summary.degraded += 1;
+    } else if (result.outcome === 'skipped') {
+      summary.skipped += 1;
+    } else if (result.outcome === 'overridden') {
+      summary.overridden += 1;
     }
   }
 

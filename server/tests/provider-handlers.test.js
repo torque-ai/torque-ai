@@ -449,13 +449,13 @@ describe('provider-handlers.js', () => {
       });
 
       expect(mockDb.getHealthTrend).toHaveBeenCalledWith('ollama', 7);
-      expect(JSON.parse(getText(result))).toEqual({
+      expect(JSON.parse(getText(result))).toEqual([{
         provider: 'ollama',
         days: 7,
         trend: 'improving',
         previous_failure_rate: 0.4,
         recent_failure_rate: 0.1,
-      });
+      }]);
     });
   });
 

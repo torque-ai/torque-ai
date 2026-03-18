@@ -17,6 +17,10 @@ describe('response-parser', () => {
       expect(extractJson('```\n{"key": "value"}\n```')).toEqual({ key: 'value' });
     });
 
+    it('extracts JSON from CRLF code fences', () => {
+      expect(extractJson('```json\r\n{"key": "value"}\r\n```')).toEqual({ key: 'value' });
+    });
+
     it('extracts first JSON object when multiple exist', () => {
       expect(extractJson('First: {"a": 1} and second: {"b": 2}')).toEqual({ a: 1 });
     });
@@ -51,6 +55,10 @@ describe('response-parser', () => {
 
     it('extracts array from code fence', () => {
       expect(extractJsonArray('```json\n[{"id": 1}]\n```')).toEqual([{ id: 1 }]);
+    });
+
+    it('extracts array from CRLF code fence', () => {
+      expect(extractJsonArray('```json\r\n[{"id": 1}]\r\n```')).toEqual([{ id: 1 }]);
     });
 
     it('returns null for non-array JSON', () => {
