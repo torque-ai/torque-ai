@@ -755,6 +755,7 @@ function trackEventForAggregation(sessionId, event) {
   // Reset the flush timer on each new event
   if (buf.timer) clearTimeout(buf.timer);
   buf.timer = setTimeout(() => flushAggregation(sessionId), EVENT_AGGREGATION_WINDOW_MS);
+  if (TRACKED_INTERVALS) TRACKED_INTERVALS.add(buf.timer);
 
   return group.count >= 3;
 }
@@ -1346,8 +1347,11 @@ async function handleHttpRequest(req, res) {
       if (existingSession.keepaliveTimer) {
         clearTrackedInterval(existingSession.keepaliveTimer);
       }
-      if (existingSession.res && !existingSession.res.writableEnded) {
-        existingSession.res.end();
+      // Assign new res BEFORE ending old to avoid a window where the session has no active response stream.
+      const oldRes = existingSession.res;
+      existingSession.res = res; // assign new FIRST
+      if (oldRes && !oldRes.writableEnded) {
+        try { oldRes.end(); } catch {} // then close old
       }
     }
 

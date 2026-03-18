@@ -141,7 +141,7 @@ let coordinationLockInterval = null;
 let readlineInterface = null;
 
 // Track shutdown state to prevent multiple shutdown attempts
-let isShuttingDown = false;
+let shutdownState = 'running'; // 'running' | 'shutting-down' | 'orphan-mode' | 'done'
 let slotPullScheduler = null;
 
 // Track if we're in orphan mode (MCP disconnected but tasks still running)
@@ -232,11 +232,11 @@ function startErrorRateCleanup() {
 async function gracefulShutdown(signal) {
   debugLog(`gracefulShutdown called with signal: ${signal}`);
 
-  if (isShuttingDown) {
+  if (shutdownState === 'shutting-down' || shutdownState === 'done') {
     debugLog(`Shutdown already in progress (received ${signal})`);
     return;
   }
-  isShuttingDown = true;
+  shutdownState = 'shutting-down';
 
   const isConnectionLoss = signal === 'stdin-close';
 
@@ -282,7 +282,7 @@ async function gracefulShutdown(signal) {
 
       // Enter orphan mode - server stays alive to monitor running tasks
       _isOrphanMode = true;
-      isShuttingDown = false; // Allow future shutdown attempts
+      shutdownState = 'orphan-mode'; // Allow future shutdown attempts
 
       // Start periodic check to exit once all tasks complete
       if (!orphanCheckInterval) {
@@ -370,6 +370,7 @@ async function gracefulShutdown(signal) {
       if (slotPullScheduler && typeof slotPullScheduler.stopHeartbeat === 'function') {
         slotPullScheduler.stopHeartbeat();
       }
+      // cancelTasks: true for explicit shutdown (SIGTERM, API), false for orphan-complete and stdin-close
       // Only cancel tasks on intentional shutdown (SIGINT/SIGTERM), not on connection loss or orphan-complete
       const cancelTasks = !isConnectionLoss && signal !== 'orphan-complete';
       taskManager.shutdown({ cancelTasks });
@@ -441,10 +442,13 @@ function killStaleInstance() {
 
     // Verify the stale PID is still the same TORQUE process before killing.
     try {
-      const command = process.platform === 'win32'
-        ? `wmic process where "ProcessId=${oldPid}" get CommandLine /format:list`
-        : `ps -p ${oldPid} -o args=`;
-      const commandLine = String(childProcess.execSync(command, { encoding: 'utf8' })).toLowerCase();
+      let commandLine;
+      if (process.platform === 'win32') {
+        commandLine = childProcess.execSync(`tasklist /FI "PID eq ${oldPid}" /FO CSV /V /NH`, { encoding: 'utf-8', timeout: 5000 });
+      } else {
+        commandLine = String(childProcess.execSync(`ps -p ${oldPid} -o args=`, { encoding: 'utf8' }));
+      }
+      commandLine = String(commandLine).toLowerCase();
 
       if (!commandLine.includes('torque')) {
         process.stderr.write(`[TORQUE] Kill guard: PID ${oldPid} now maps to non-TORQUE process, skipping stale cleanup\n`);
@@ -1298,7 +1302,7 @@ function main() {
     }
 
     // F4: Reject requests during shutdown — prevents new task submissions while draining
-    if (isShuttingDown) {
+    if (shutdownState === 'shutting-down' || shutdownState === 'done') {
       let reqId = null;
       try { reqId = JSON.parse(trimmedLine)?.id || null; } catch { /* ignore parse error */ }
       const errResponse = JSON.stringify({ jsonrpc: '2.0', id: reqId, error: { code: -32000, message: 'Server is shutting down — task submission rejected' } });
@@ -1466,7 +1470,7 @@ const _testing = {
       mcpPlatform.stop();
       mcpPlatform = null;
     }
-    isShuttingDown = false;
+    shutdownState = 'running';
     _isOrphanMode = false;
   },
 };

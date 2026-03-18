@@ -1072,6 +1072,9 @@ function checkWorkflowCompletion(workflowId) {
         logger.warn(`[Workflow] Conflict auto-merge failed for ${workflowId}: ${err.message}`);
       }
     }
+    // Clean up terminal guards now that the workflow has reached a final state
+    terminalGuards.delete(workflowId);
+    terminalPending.delete(workflowId);
     // Notify dashboard of workflow completion
     if (_dashboard) {
       if (_dashboard.notifyWorkflowUpdated) _dashboard.notifyWorkflowUpdated(workflowId);
@@ -1091,6 +1094,9 @@ function checkWorkflowCompletion(workflowId) {
         status: 'failed',
         completed_at: new Date().toISOString()
       });
+      // Clean up terminal guards now that the workflow has reached a final state (deadlock)
+      terminalGuards.delete(workflowId);
+      terminalPending.delete(workflowId);
       // Notify dashboard of workflow deadlock
       if (_dashboard && _dashboard.notifyWorkflowUpdated) {
         _dashboard.notifyWorkflowUpdated(workflowId);
