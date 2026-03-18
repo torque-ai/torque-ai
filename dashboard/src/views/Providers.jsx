@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud } from '../api';
+import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud, requestV2 } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import {
@@ -258,6 +258,7 @@ export default function Providers({ statsVersion, tasksTick }) {
   const [viewMode, setViewMode] = useState('overview'); // 'overview' | 'compare'
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
+  const [codexExhausted, setCodexExhausted] = useState(false);
   const addToast = useToast();
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [newProvider, setNewProvider] = useState({ name: '', provider_type: 'cloud-api', api_base_url: '', max_concurrent: 3 });
@@ -287,16 +288,18 @@ export default function Providers({ statsVersion, tasksTick }) {
 
   const loadData = useCallback(async () => {
     try {
-      const [providersData, timeSeriesData, hostsData, trendsData] = await Promise.all([
+      const [providersData, timeSeriesData, hostsData, trendsData, codexCfg] = await Promise.all([
         providersApi.list(),
         statsApi.timeseries({ days }),
         hostsApi.list().catch(() => []),
         providersApi.trends(days).catch(() => null),
+        requestV2('/config/codex_exhausted').catch(() => null),
       ]);
       setProvidersList(providersData);
       setTimeSeries(timeSeriesData);
       setHostCount(Array.isArray(hostsData) ? hostsData.length : 0);
       setTrends(trendsData);
+      setCodexExhausted(codexCfg?.value === '1' || codexCfg === '1');
     } catch (err) {
       console.error('Failed to load provider data:', err);
       addToast.error('Failed to load provider data');
@@ -438,6 +441,13 @@ export default function Providers({ statsVersion, tasksTick }) {
 
   return (
     <div className="p-6">
+      {/* Codex exhaustion banner */}
+      {codexExhausted && (
+        <div className="mb-4 p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200">
+          <span className="font-semibold">Codex Quota Exhausted</span> — All tasks routing to local LLM. Recovery probe runs every 15 minutes.
+        </div>
+      )}
+
       {/* Add Provider Form */}
       {showAddProvider && (
         <div className="glass-card p-5 mb-6">
