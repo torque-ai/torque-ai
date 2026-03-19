@@ -362,7 +362,7 @@ function getV2ProviderStatus(provider, providerId) {
   if (!provider || !provider.enabled) return 'disabled';
 
   const health = getV2ProviderHealth(providerId);
-  const total = (health?.successes || 0) + (health?.failures || 0);
+  const total = (health?.successes ?? 0) + (health?.failures ?? 0);
 
   if (total >= 3 && !isV2ProviderHealthy(providerId)) {
     return 'unavailable';

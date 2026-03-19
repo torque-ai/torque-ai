@@ -764,7 +764,7 @@ async function handleProviderTrends(req, res) {
       for (const p of providers) {
         const dayData = providerSeries[p.provider]?.[idx] || {};
         const total = (dayData.completed || 0) + (dayData.failed || 0);
-        entry[`${p.provider}_total`] = dayData.total || 0;
+        entry[`${p.provider}_total`] = dayData.total ?? 0;
         entry[`${p.provider}_completed`] = dayData.completed || 0;
         entry[`${p.provider}_failed`] = dayData.failed || 0;
         entry[`${p.provider}_success_rate`] = total > 0

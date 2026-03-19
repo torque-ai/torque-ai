@@ -364,9 +364,9 @@ async function handleBudgetSummary(req, res) {
     let taskCount = 0;
     const byProvider = {};
     for (const row of providerRows || []) {
-      totalCost += row.total_cost || 0;
-      taskCount += row.task_count || 0;
-      byProvider[row.provider] = row.total_cost || 0;
+      totalCost += row.total_cost ?? 0;
+      taskCount += row.task_count ?? 0;
+      byProvider[row.provider] = row.total_cost ?? 0;
     }
 
     let daily = [];
@@ -500,7 +500,7 @@ async function handleProviderHealth(req, res) {
         ? Math.round((health.successes / (health.successes + health.failures)) * 100) : null,
       successes_1h: health.successes,
       failures_1h: health.failures,
-      tasks_today: dayStats.total_tasks || 0,
+      tasks_today: dayStats.total_tasks ?? 0,
       completed_today: dayStats.successful_tasks || 0,
       failed_today: dayStats.failed_tasks || 0,
       avg_duration_seconds: dayStats.avg_duration_seconds || 0,
