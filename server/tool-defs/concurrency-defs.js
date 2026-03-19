@@ -23,7 +23,7 @@ const tools = [
           description: 'Identifier: provider name, workstation name, or host ID. Not needed for vram_factor scope.',
         },
         max_concurrent: {
-          type: 'integer',
+          type: 'number',
           description: 'Maximum concurrent tasks (1-100, or 0 for unlimited on hosts). Used with provider/workstation/host scopes.',
         },
         vram_factor: {

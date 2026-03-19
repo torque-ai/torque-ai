@@ -180,7 +180,10 @@ module.exports = [
           ],
           "description": "Delete ALL tasks with this status (bulk delete). Use with caution."
         }
-      }
+      },
+      "required": [
+        "task_id"
+      ]
     }
   },
   {
@@ -598,7 +601,9 @@ module.exports = [
           "description": "Default working directory for imported tasks"
         }
       },
-      "required": []
+      "required": [
+        "file_path"
+      ]
     }
   },
   {

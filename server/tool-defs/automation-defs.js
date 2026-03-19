@@ -56,7 +56,7 @@ const tools = [
       type: 'object',
       properties: {
         working_directory: { type: 'string', description: 'Project directory' },
-        provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, ollama, aider-ollama, hashline-ollama)', enum: ['codex', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama'] },
+        provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, ollama, ollama-cloud, aider-ollama, hashline-ollama, anthropic, cerebras, deepinfra, google-ai, groq, hyperbolic, openrouter)', enum: ['codex', 'claude-cli', 'ollama', 'ollama-cloud', 'aider-ollama', 'hashline-ollama', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'] },
         model: { type: 'string', description: 'Default model for this project' },
         verify_command: { type: 'string', description: 'Post-task verify command (e.g., "npx tsc --noEmit && npx vitest run")' },
         auto_fix: { type: 'boolean', description: 'Auto-fix type errors after task completion' },
@@ -557,7 +557,7 @@ const tools = [
         working_directory: { type: 'string', description: 'Working directory for the task' },
         provider: { type: 'string', description: 'Override provider (default: auto-route via smart_submit)' },
         model: { type: 'string', description: 'Override model' },
-        tags: { type: 'string', description: 'Comma-separated tags' }
+        tags: { type: 'array', items: { type: 'string' }, description: 'Tags for the task' }
       },
       required: ['template_name']
     }

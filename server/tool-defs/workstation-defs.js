@@ -37,6 +37,7 @@ const tools = [
         name: { type: 'string', description: 'Workstation name to remove' },
         id: { type: 'string', description: 'Workstation ID to remove' },
       },
+      required: ['name'],
     },
   },
   {

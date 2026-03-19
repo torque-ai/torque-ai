@@ -532,7 +532,7 @@ const tools = [
         },
         priority: {
           type: 'number',
-          description: 'Task priority (lower = higher priority). Default: 0'
+          description: 'Task priority (higher = processed first). Default: 0'
         }
       },
       required: ['file_path']

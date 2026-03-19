@@ -622,7 +622,9 @@ module.exports = [
           "default": true
         }
       },
-      "required": []
+      "required": [
+        "file_path"
+      ]
     }
   },
   {

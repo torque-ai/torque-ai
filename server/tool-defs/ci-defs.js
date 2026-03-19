@@ -45,7 +45,8 @@ const tools = [
           description: 'Run diagnosis automatically once the run completes (default: true)',
           default: true
         }
-      }
+      },
+      required: ['run_id']
     }
   },
   {
@@ -177,7 +178,8 @@ const tools = [
           description: 'CI provider name (default: github-actions)',
           default: 'github-actions'
         }
-      }
+      },
+      required: ['repo']
     }
   },
   {
