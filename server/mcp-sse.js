@@ -16,7 +16,8 @@ const { TOOLS, handleToolCall } = require('./tools');
 const db = require('./database');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'mcp-sse' });
-const { validateJsonRpcRequest, JSON_RPC_ERRORS } = require('./utils/jsonrpc-validation');
+const { validateJsonRpcRequest } = require('./utils/jsonrpc-validation');
+const mcpProtocol = require('./mcp-protocol');
 
 const JSONRPC_VERSION = '2.0';
 const KEEPALIVE_INTERVAL_MS = 30000; // 30 seconds
@@ -55,11 +56,6 @@ const notificationMetrics = {
   deliveryErrors: 0,
   lastDeliveryAt: null,
   deadSessionsCleaned: 0,
-};
-
-const SERVER_INFO = {
-  name: 'torque',
-  version: '2.0.0',
 };
 
 // Single source of truth — shared with index.js
@@ -1082,148 +1078,47 @@ function parseBody(req) {
 
 /**
  * Handle an MCP JSON-RPC request within an SSE session.
+ * Delegates initialize, tools/list, and tools/call to the shared mcp-protocol handler.
+ * SSE-specific tools (subscribe, notifications, ack) are intercepted before delegation.
  */
 async function handleMcpRequest(request, session) {
   const { method, params } = request;
 
-  switch (method) {
-    case 'initialize':
-      const initializeResponse = {
-        protocolVersion: '2024-11-05',
-        capabilities: {
-          tools: {},
-        },
-        serverInfo: SERVER_INFO,
-      };
-      const _economyTimer = setTimeout(() => {
-        TRACKED_INTERVALS.delete(_economyTimer);
-        try {
-          const economyPolicy = require('./economy/policy');
-          const globalPolicy = economyPolicy.getGlobalEconomyPolicy();
-          if (globalPolicy && globalPolicy.enabled) {
-            const filtered = economyPolicy.filterProvidersForEconomy(globalPolicy);
-            sendJsonRpcNotification(session, 'notifications/message', {
-              level: 'info',
-              logger: 'torque',
-              data: {
-                type: 'economy_status',
-                enabled: true,
-                trigger: globalPolicy.trigger || 'manual',
-                scope: 'global',
-                reason: globalPolicy.reason || null,
-                blocked_providers: filtered ? filtered.blocked : [],
-                preferred_providers: filtered ? filtered.preferred : [],
-              },
-            });
-          }
-        } catch (err) {
-          logger.debug('Economy notification skipped: ' + err.message);
-        }
-      }, 0);
-      TRACKED_INTERVALS.add(_economyTimer);
-      return initializeResponse;
-
-    case 'tools/list': {
-      let tools;
-      if (session.toolMode === 'core' || session.toolMode === 'extended') {
-        const allowedNames = session.toolMode === 'core' ? CORE_TOOL_NAMES : EXTENDED_TOOL_NAMES;
-        const filteredTools = [];
-        for (const name of allowedNames) {
-          const tool = TOOLS.find(t => t.name === name);
-          if (tool) filteredTools.push(tool);
-        }
-        tools = filteredTools;
-      } else {
-        tools = TOOLS;
-      }
-      // Append SSE-only tools (available in both core and full modes)
-      return { tools: [...tools, ...SSE_TOOLS] };
+  // SSE-only tools need the full session context — intercept before delegation
+  if (method === 'tools/call' && params != null && typeof params === 'object' && !Array.isArray(params)) {
+    const name = params.name;
+    if (name && SSE_TOOL_NAMES.has(name)) {
+      const normalizedArgs = params.arguments || {};
+      if (name === 'subscribe_task_events') return handleSubscribeTaskEvents(session, normalizedArgs);
+      if (name === 'check_notifications') return handleCheckNotifications(session);
+      if (name === 'ack_notification') return handleAckNotification(session, normalizedArgs);
     }
-
-    case 'tools/call': {
-      const toolCallParams = params == null ? {} : params;
-      if (typeof toolCallParams !== 'object' || Array.isArray(toolCallParams)) {
-        throw {
-          code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
-          message: JSON_RPC_ERRORS.INVALID_PARAMS.message,
-        };
-      }
-
-      const { name, arguments: args } = toolCallParams;
-      if (args != null && (typeof args !== 'object' || Array.isArray(args))) {
-        throw {
-          code: JSON_RPC_ERRORS.INVALID_PARAMS.code,
-          message: JSON_RPC_ERRORS.INVALID_PARAMS.message,
-        };
-      }
-      const normalizedArgs = args || {};
-
-      // SSE-only tools — handle locally with session context
-      if (SSE_TOOL_NAMES.has(name)) {
-        if (name === 'subscribe_task_events') {
-          return handleSubscribeTaskEvents(session, normalizedArgs);
-        }
-        if (name === 'check_notifications') {
-          return handleCheckNotifications(session);
-        }
-        if (name === 'ack_notification') {
-          return handleAckNotification(session, normalizedArgs);
-        }
-      }
-
-      // Enforce toolMode at execution boundary (RB-073)
-      if (session.toolMode !== 'full' && !SSE_TOOL_NAMES.has(name)) {
-        const allowedNames = session.toolMode === 'core' ? CORE_TOOL_NAMES : EXTENDED_TOOL_NAMES;
-        if (!allowedNames.includes(name)) {
-          return {
-            content: [{ type: 'text', text: `Tool '${name}' is not available in ${session.toolMode} mode. Call 'unlock_all_tools' to access all tools.` }],
-            isError: true,
-          };
-        }
-      }
-
-      try {
-        // Pass shutdown signal so blocking handlers can return early.
-        // Clone to avoid mutating the original args object (which may be reused or logged).
-        const argsWithSignal = { ...normalizedArgs, __shutdownSignal: shutdownAbort.signal };
-        const result = await handleToolCall(name, argsWithSignal);
-
-        if (result && (result.__unlock_all_tools || result.__unlock_tier)) {
-          const newMode = result.__unlock_all_tools ? 'full'
-            : (result.__unlock_tier <= 1 ? 'core' : result.__unlock_tier <= 2 ? 'extended' : 'full');
-          if (newMode !== session.toolMode) {
-            session.toolMode = newMode;
-            // Notify client that tools list has changed
-            sendJsonRpcNotification(session, 'notifications/tools/list_changed');
-          }
-          return { content: result.content };
-        }
-
-        const subscriptionTarget = buildSubscriptionTargetFromResult(result);
-        if (subscriptionTarget) {
-          applySubscriptionTargetToSession(session, subscriptionTarget);
-          return mergeSubscriptionTargetIntoResult(result, subscriptionTarget);
-        }
-
-        return result;
-      } catch (err) {
-        return {
-          content: [{ type: 'text', text: `Error: ${err.message || err}` }],
-          isError: true,
-        };
-      }
-    }
-
-    case 'notifications/initialized':
-    case 'notifications/cancelled':
-      return null;
-
-    default:
-      throw {
-        code: -32601,
-        message: `Method not found: ${method}`,
-      };
   }
+
+  // Delegate to shared protocol handler
+  const result = await mcpProtocol.handleRequest(request, session);
+
+  // SSE transport-specific post-processing: notify client when tool mode changed
+  if (session._toolsChanged) {
+    session._toolsChanged = false;
+    sendJsonRpcNotification(session, 'notifications/tools/list_changed');
+  }
+
+  // Append SSE-only tools to tools/list responses
+  if (method === 'tools/list' && result && result.tools && SSE_TOOLS) {
+    result.tools = [...result.tools, ...SSE_TOOLS];
+  }
+
+  // Auto-subscribe session to tasks returned by tool calls
+  if (method === 'tools/call' && result) {
+    const subscriptionTarget = buildSubscriptionTargetFromResult(result);
+    if (subscriptionTarget) {
+      applySubscriptionTargetToSession(session, subscriptionTarget);
+      return mergeSubscriptionTargetIntoResult(result, subscriptionTarget);
+    }
+  }
+
+  return result;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -1575,6 +1470,47 @@ function start(options = {}) {
     }
     // Fresh abort controller for this server lifecycle
     shutdownAbort = new AbortController();
+
+    // Initialize shared protocol handler with SSE-aware tool dispatch
+    mcpProtocol.init({
+      tools: TOOLS,
+      coreToolNames: Array.isArray(CORE_TOOL_NAMES) ? CORE_TOOL_NAMES : [...CORE_TOOL_NAMES],
+      extendedToolNames: Array.isArray(EXTENDED_TOOL_NAMES) ? EXTENDED_TOOL_NAMES : [...EXTENDED_TOOL_NAMES],
+      handleToolCall: async (name, args, _session) => {
+        // Pass shutdown signal so blocking handlers can return early
+        const argsWithSignal = { ...args, __shutdownSignal: shutdownAbort ? shutdownAbort.signal : undefined };
+        return handleToolCall(name, argsWithSignal);
+      },
+      onInitialize: (session) => {
+        // Economy policy notification — fire async after initialize response is sent
+        const _economyTimer = setTimeout(() => {
+          TRACKED_INTERVALS.delete(_economyTimer);
+          try {
+            const economyPolicy = require('./economy/policy');
+            const globalPolicy = economyPolicy.getGlobalEconomyPolicy();
+            if (globalPolicy && globalPolicy.enabled) {
+              const filtered = economyPolicy.filterProvidersForEconomy(globalPolicy);
+              sendJsonRpcNotification(session, 'notifications/message', {
+                level: 'info',
+                logger: 'torque',
+                data: {
+                  type: 'economy_status',
+                  enabled: true,
+                  trigger: globalPolicy.trigger || 'manual',
+                  scope: 'global',
+                  reason: globalPolicy.reason || null,
+                  blocked_providers: filtered ? filtered.blocked : [],
+                  preferred_providers: filtered ? filtered.preferred : [],
+                },
+              });
+            }
+          } catch (err) {
+            logger.debug('Economy notification skipped: ' + err.message);
+          }
+        }, 0);
+        TRACKED_INTERVALS.add(_economyTimer);
+      },
+    });
 
     ssePort = options.port || serverConfig.getInt('mcp_sse_port', 3458);
 
