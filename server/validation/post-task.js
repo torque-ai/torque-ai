@@ -754,6 +754,10 @@ function checkSyntax(workingDir, modifiedFiles) {
       if (ext === '.cs') {
         // C# - check for basic syntax issues
         const content = fs.readFileSync(fullPath, 'utf8');
+        // Limitation: brace counting includes braces inside string literals,
+        // verbatim strings, comments, and preprocessor regions. A file with
+        // balanced braces in strings but asymmetric structural braces could
+        // be a false-negative (or vice-versa). This is a heuristic check only.
         const openBraces = (content.match(/\{/g) || []).length;
         const closeBraces = (content.match(/\}/g) || []).length;
         if (openBraces !== closeBraces) {
@@ -1110,8 +1114,26 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
     } else if (fs.existsSync(path.join(workingDir, 'build.gradle'))) {
       buildCommand = 'gradle build -q';
     } else {
-      // Check for .NET projects
-      const csprojFiles = fs.readdirSync(workingDir).filter(f => f.endsWith('.csproj') || f.endsWith('.sln'));
+      // Check for .NET projects — scan recursively (up to 2 levels) to catch
+      // solutions where .csproj files are nested under a src/ subdirectory.
+      const findCsFiles = (dir, depth = 0) => {
+        if (depth > 2) return [];
+        try {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          const found = entries
+            .filter(e => e.isFile() && (e.name.endsWith('.csproj') || e.name.endsWith('.sln')))
+            .map(e => e.name);
+          if (found.length > 0) return found;
+          for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+              const nested = findCsFiles(path.join(dir, entry.name), depth + 1);
+              if (nested.length > 0) return nested;
+            }
+          }
+        } catch { /* ignore unreadable dirs */ }
+        return [];
+      };
+      const csprojFiles = findCsFiles(workingDir);
       if (csprojFiles.length > 0) {
         buildCommand = 'dotnet build --no-restore';
       }
