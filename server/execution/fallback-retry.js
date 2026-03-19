@@ -151,6 +151,15 @@ function tryOllamaCloudFallback(taskId, task, errorMsg) {
     retry_count: (task.retry_count || 0) + 1,
     error_output: `[Ollama→Cloud] ${errorMsg}\nFalling back to ${fallbackProvider}`
   });
+  try {
+    const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+    const updatedTask = db.getTask(taskId);
+    if (updatedTask) {
+      dispatchTaskEvent('fallback', updatedTask);
+    }
+  } catch (e) {
+    // Non-fatal
+  }
   dashboard.notifyTaskUpdated(taskId);
   _processQueue();
   return true;
@@ -311,6 +320,15 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
       metadata: JSON.stringify(metadata),
       error_output: priorErrors + `\n[Local-First] Trying provider ${nextProvider}\n`
     });
+    try {
+      const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+      const updatedTask = db.getTask(taskId);
+      if (updatedTask) {
+        dispatchTaskEvent('fallback', updatedTask);
+      }
+    } catch (e) {
+      // Non-fatal
+    }
     dashboard.notifyTaskUpdated(taskId);
     _processQueue();
     return true;
@@ -655,6 +673,15 @@ function tryHashlineTieredFallback(taskId, task, reason) {
     pid: null, started_at: null, ollama_host_id: null, model: null,
     error_output: (task.error_output || '') + `\nEscalated from ${currentProvider}: ${reason}`
   });
+  try {
+    const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+    const updatedTask = db.getTask(taskId);
+    if (updatedTask) {
+      dispatchTaskEvent('fallback', updatedTask);
+    }
+  } catch (e) {
+    // Non-fatal
+  }
   dashboard.notifyTaskUpdated(taskId);
   scheduleProcessQueue(task);
   return true;

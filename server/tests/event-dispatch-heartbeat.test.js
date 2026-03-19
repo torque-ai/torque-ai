@@ -101,3 +101,33 @@ describe('task:stall_warning event', () => {
     taskEvents.removeListener('task:stall_warning', handler);
   });
 });
+
+// ──────────────────────────────────────────────────────────────
+// task:fallback event — emitted when a task is rerouted to another provider
+// ──────────────────────────────────────────────────────────────
+
+describe('task:fallback event', () => {
+  test('task:fallback event shape is correct via dispatchTaskEvent', async () => {
+    const { taskEvents, dispatchTaskEvent } = await import('../hooks/event-dispatch.js');
+    const handler = vi.fn();
+    taskEvents.on('task:fallback', handler);
+
+    const mockTask = {
+      id: 'test-fallback-1',
+      status: 'pending',
+      provider: 'deepinfra',
+      original_provider: 'ollama',
+      task_description: 'Test fallback task'
+    };
+    dispatchTaskEvent('fallback', mockTask);
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'test-fallback-1' })
+    );
+
+    taskEvents.removeListener('task:fallback', handler);
+  });
+});
