@@ -17,7 +17,7 @@ Add **heartbeat yields** to both await tools. The tool returns periodically with
 - **Behavior model:** Inform + act (Claude can autonomously cancel/resubmit based on heartbeat data) with escalation to user when Claude genuinely needs human input.
 - **Interval:** Fixed timer (default 5 minutes) plus immediate return on notable events.
 - **Partial output:** Included when available. DB-backed with throttled writes (10s flush interval). Survives server restarts.
-- **Phased delivery:** Heartbeat infrastructure first (Phase 1), partial output capture per-provider second (Phase 2). Heartbeats are valuable even without partial output.
+- **Phased delivery:** Phase 1 (heartbeat infrastructure) and Phase 2 (partial output capture) are both complete. Phase 2 used a single `addStreamChunk()` integration point instead of per-provider rollout.
 
 ## New Parameter
 
@@ -115,17 +115,17 @@ Queue position changes — low signal, high noise.
 
 **Phase 1 (this spec):** Heartbeat infrastructure, notable events, scheduled heartbeats. Partial output field exists but may be NULL for all providers initially. Heartbeats say "No output captured yet" when NULL.
 
-**Phase 2 (follow-up):** Instrument each streaming provider to write partial output. Provider-by-provider rollout: ollama first (simplest HTTP streaming), then aider-ollama, then cloud API providers.
+**Phase 2 (COMPLETED):** All providers capture partial output via a single integration point in `addStreamChunk()` (webhooks-streaming.js). The per-provider rollout originally planned here was unnecessary — all providers already converge on `addStreamChunk()`. See `docs/superpowers/specs/2026-03-18-partial-output-streaming-design.md`.
 
 ### Provider Capabilities
 
-| Provider | Streams During Execution? | Mechanism | Phase |
-|----------|--------------------------|-----------|-------|
-| ollama / hashline-ollama | Yes | HTTP streaming chunks | Phase 2a |
-| aider-ollama | Yes | Process stdout pipe | Phase 2b |
-| codex | No | Sandbox buffers until exit | N/A (always NULL) |
-| claude-cli | No | CLI subprocess buffers | N/A (always NULL) |
-| Cloud API (deepinfra, etc.) | Yes | SSE / chunked HTTP | Phase 2c |
+| Provider | Streams During Execution? | Mechanism | Status |
+|----------|--------------------------|-----------|--------|
+| ollama / hashline-ollama | Yes | HTTP streaming chunks | Captured |
+| aider-ollama | Yes | Process stdout pipe | Captured |
+| codex | No | Sandbox buffers until exit | NULL until completion |
+| claude-cli | No | CLI subprocess buffers | NULL until completion |
+| Cloud API (deepinfra, etc.) | Yes | SSE / chunked HTTP | Captured |
 
 ### Storage
 
