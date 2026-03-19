@@ -369,15 +369,18 @@ function searchRecursive(dir, regex, globFilter, results, maxMatches, visited = 
  * @returns {boolean} true if the command is allowed
  */
 function isCommandAllowed(command, allowlist) {
-  // Refuse particularly dangerous commands even with wildcard allowlist
-  if (allowlist.includes('*')) {
-    const ALWAYS_BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
-    const cmdLower = command.toLowerCase();
-    if (ALWAYS_BLOCKED.some(b => cmdLower.includes(b))) {
-      return false;
-    }
+  // ALWAYS check dangerous commands regardless of allowlist mode
+  const ALWAYS_BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
+  const cmdLower = command.toLowerCase();
+  if (ALWAYS_BLOCKED.some(b => cmdLower.includes(b))) {
+    return false;
+  }
+  // Reject shell metacharacters to prevent injection (e.g. "npm test; rm -rf /")
+  if (/[;|&`$(){}!<>]/.test(command)) {
+    return false;
   }
   for (const pattern of allowlist) {
+    if (pattern === '*') return true;
     // Convert the simple glob to a regex:
     // Escape regex special chars except *, then replace * with .*
     const escaped = pattern.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*');
@@ -683,12 +686,16 @@ function createToolExecutor(workingDir, options = {}) {
           }
 
           try {
-            const output = execSync(args.command, {
+            const parts = args.command.split(/\s+/);
+            const executable = parts[0];
+            const cmdArgs = parts.slice(1);
+            const { execFileSync } = require('child_process');
+            const output = execFileSync(executable, cmdArgs, {
               cwd: workingDir,
               timeout: MAX_COMMAND_TIMEOUT_MS,
               maxBuffer: MAX_OUTPUT_BYTES * 2,
               encoding: 'utf-8',
-              shell: true, // Node picks platform shell automatically (cmd.exe on Win, /bin/sh on Unix)
+              shell: false,
             });
             return { result: truncateOutput(output) || '(no output)' };
           } catch (e) {
