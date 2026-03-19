@@ -35,6 +35,8 @@ const { RemoteAgentRegistry } = require('./remote/agent-registry');
 const { MCPPlatform, isPlatformEnabled } = require('./mcp/platform');
 const logger = require('./logger').child({ component: 'mcp-stdio' });
 const mcpProtocol = require('./mcp-protocol');
+const timerRegistry = require('./timer-registry');
+const eventBus = require('./event-bus');
 
 // Virtual session for stdio transport (single-client)
 const stdioSession = { toolMode: 'core' };
@@ -94,13 +96,13 @@ function writePidRecord(startedAt) {
 function startPidHeartbeat(startedAt) {
   stopPidHeartbeat(); // clear any existing
   writePidRecord(startedAt);
-  pidHeartbeatInterval = setInterval(() => {
+  pidHeartbeatInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
       writePidRecord(startedAt);
     } catch {
       // Non-fatal — PID file may be inaccessible
     }
-  }, PID_HEARTBEAT_INTERVAL_MS);
+  }, PID_HEARTBEAT_INTERVAL_MS));
   pidHeartbeatInterval.unref();
 }
 
@@ -109,6 +111,7 @@ function startPidHeartbeat(startedAt) {
  */
 function stopPidHeartbeat() {
   if (pidHeartbeatInterval) {
+    timerRegistry.remove(pidHeartbeatInterval);
     clearInterval(pidHeartbeatInterval);
     pidHeartbeatInterval = null;
   }
@@ -211,14 +214,14 @@ function _shouldLogError(errorKey) {
 // Lazy start for error rate cleanup (called from main() to avoid running at require-time)
 function startErrorRateCleanup() {
   if (errorRateCleanupInterval) return;
-  errorRateCleanupInterval = setInterval(() => {
+  errorRateCleanupInterval = timerRegistry.trackInterval(setInterval(() => {
     const now = Date.now();
     for (const [key, tracker] of errorRateTracker) {
       if (now - tracker.firstSeen > ERROR_RATE_WINDOW_MS * 2) {
         errorRateTracker.delete(key);
       }
     }
-  }, ERROR_RATE_WINDOW_MS);
+  }, ERROR_RATE_WINDOW_MS));
   errorRateCleanupInterval.unref();
 }
 
@@ -278,6 +281,7 @@ async function gracefulShutdown(signal) {
         readlineInterface = null;
       }
       if (stdioHeartbeatInterval) {
+        timerRegistry.remove(stdioHeartbeatInterval);
         clearInterval(stdioHeartbeatInterval);
         stdioHeartbeatInterval = null;
       }
@@ -288,10 +292,11 @@ async function gracefulShutdown(signal) {
 
       // Start periodic check to exit once all tasks complete
       if (!orphanCheckInterval) {
-        orphanCheckInterval = setInterval(() => {
+        orphanCheckInterval = timerRegistry.trackInterval(setInterval(() => {
           const currentRunning = taskManager.getRunningTaskCount();
           if (currentRunning === 0) {
             debugLog(`All tasks completed - exiting orphan mode`);
+            timerRegistry.remove(orphanCheckInterval);
             clearInterval(orphanCheckInterval);
             orphanCheckInterval = null;
             _isOrphanMode = false;
@@ -299,7 +304,7 @@ async function gracefulShutdown(signal) {
           } else {
             debugLog(`[Orphan mode] ${currentRunning} task(s) still running...`);
           }
-        }, 30000); // Check every 30 seconds
+        }, 30000)); // Check every 30 seconds
         orphanCheckInterval.unref();
       }
 
@@ -316,43 +321,8 @@ async function gracefulShutdown(signal) {
       }
       // Stop PID heartbeat
       stopPidHeartbeat();
-      // Clean up orphan mode interval if active
-      if (orphanCheckInterval) {
-        clearInterval(orphanCheckInterval);
-        orphanCheckInterval = null;
-      }
-      if (maintenanceInterval) {
-        clearInterval(maintenanceInterval);
-        maintenanceInterval = null;
-      }
-      // Clean up coordination scheduler intervals
-      if (coordinationAgentInterval) {
-        clearInterval(coordinationAgentInterval);
-        coordinationAgentInterval = null;
-      }
-      if (coordinationLockInterval) {
-        clearInterval(coordinationLockInterval);
-        coordinationLockInterval = null;
-      }
-      // Clean up error rate cleanup interval
-      if (errorRateCleanupInterval) {
-        clearInterval(errorRateCleanupInterval);
-        errorRateCleanupInterval = null;
-      }
-      // P91: Clean up queue processing interval
-      if (queueProcessingInterval) {
-        clearInterval(queueProcessingInterval);
-        queueProcessingInterval = null;
-      }
-      if (providerQuotaInferenceInterval) {
-        clearInterval(providerQuotaInferenceInterval);
-        providerQuotaInferenceInterval = null;
-      }
-      // Clean up stdio heartbeat
-      if (stdioHeartbeatInterval) {
-        clearInterval(stdioHeartbeatInterval);
-        stdioHeartbeatInterval = null;
-      }
+      // Clear all tracked intervals (maintenance, coordination, queue, quota, stdio heartbeat, orphan check, error rate)
+      timerRegistry.clearAll();
       // Close readline interface to release stdin file descriptor and event listeners
       if (readlineInterface) {
         readlineInterface.close();
@@ -665,9 +635,10 @@ function init() {
   // are never permanently stuck. Most tasks are still started by event-driven
   // calls; this is a fallback for missed events.
   if (queueProcessingInterval) {
+    timerRegistry.remove(queueProcessingInterval);
     clearInterval(queueProcessingInterval);
   }
-  queueProcessingInterval = setInterval(() => {
+  queueProcessingInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
       const queuedCount = db.listTasks({ status: 'queued', limit: 1 }).length;
       if (queuedCount > 0) {
@@ -676,7 +647,7 @@ function init() {
     } catch {
       // Don't let queue check errors crash the server
     }
-  }, 5000); // Check every 5 seconds
+  }, 5000)); // Check every 5 seconds
   queueProcessingInterval.unref();
 
   // Initialize CI watcher
@@ -789,9 +760,9 @@ function init() {
     handleToolCall: async (name, args, _session) => callTool(name, args),
   });
 
-  // Listen for torque:shutdown event from tools.js (e.g., restart_server)
+  // Listen for shutdown event from tools.js (e.g., restart_server)
   // This avoids circular dependency between tools.js and index.js
-  process.on('torque:shutdown', (reason) => {
+  eventBus.onShutdown((reason) => {
     debugLog(`torque:shutdown event received: ${reason}`);
     gracefulShutdown(reason || 'torque:shutdown');
   });
@@ -826,12 +797,13 @@ function startMaintenanceScheduler() {
   // Clear existing interval to prevent duplicate schedulers
   // This handles cases where the module is reloaded or init is called multiple times
   if (maintenanceInterval) {
+    timerRegistry.remove(maintenanceInterval);
     clearInterval(maintenanceInterval);
     maintenanceInterval = null;
   }
 
   // Check for due maintenance tasks every minute
-  maintenanceInterval = setInterval(() => {
+  maintenanceInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
       const dueTasks = db.getDueMaintenanceTasks();
 
@@ -939,7 +911,7 @@ function startMaintenanceScheduler() {
     } catch (err) {
       debugLog(`Maintenance scheduler error: ${err.message}`);
     }
-  }, 60000); // Check every minute
+  }, 60000)); // Check every minute
   maintenanceInterval.unref();
 }
 
@@ -952,16 +924,18 @@ function startMaintenanceScheduler() {
 function startCoordinationScheduler() {
   // Clear existing intervals to prevent duplicates
   if (coordinationAgentInterval) {
+    timerRegistry.remove(coordinationAgentInterval);
     clearInterval(coordinationAgentInterval);
     coordinationAgentInterval = null;
   }
   if (coordinationLockInterval) {
+    timerRegistry.remove(coordinationLockInterval);
     clearInterval(coordinationLockInterval);
     coordinationLockInterval = null;
   }
 
   // Every 30 seconds: check offline agents and expire stale leases
-  coordinationAgentInterval = setInterval(() => {
+  coordinationAgentInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
       db.checkOfflineAgents();
     } catch (err) {
@@ -972,11 +946,11 @@ function startCoordinationScheduler() {
     } catch (err) {
       debugLog(`expireStaleLeases error: ${err.message}`);
     }
-  }, 30000);
+  }, 30000));
   coordinationAgentInterval.unref();
 
   // Every 5 minutes: clean up expired locks + record agent metrics
-  coordinationLockInterval = setInterval(() => {
+  coordinationLockInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
       db.cleanupExpiredLocks();
     } catch (err) {
@@ -998,7 +972,7 @@ function startCoordinationScheduler() {
     } catch (err) {
       debugLog(`Agent metrics collection error: ${err.message}`);
     }
-  }, 300000);
+  }, 300000));
   coordinationLockInterval.unref();
 }
 
@@ -1029,6 +1003,7 @@ function runProviderQuotaInferenceCycle() {
 
 function startProviderQuotaInferenceTimer() {
   if (providerQuotaInferenceInterval) {
+    timerRegistry.remove(providerQuotaInferenceInterval);
     clearInterval(providerQuotaInferenceInterval);
     providerQuotaInferenceInterval = null;
   }
@@ -1039,13 +1014,13 @@ function startProviderQuotaInferenceTimer() {
     debugLog(`[Quota Inference] ${err.message}`);
   }
 
-  providerQuotaInferenceInterval = setInterval(() => {
+  providerQuotaInferenceInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
       runProviderQuotaInferenceCycle();
     } catch (err) {
       debugLog(`[Quota Inference] ${err.message}`);
     }
-  }, PROVIDER_QUOTA_INFERENCE_INTERVAL_MS);
+  }, PROVIDER_QUOTA_INFERENCE_INTERVAL_MS));
   providerQuotaInferenceInterval.unref();
 }
 
@@ -1290,7 +1265,7 @@ function main() {
   // Start stdio heartbeat — send JSON-RPC notification every 30s to keep
   // the MCP connection alive during long idle periods.
   // Notifications have no `id` field so MCP clients silently ignore unknown ones.
-  stdioHeartbeatInterval = setInterval(() => {
+  stdioHeartbeatInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
       const heartbeat = JSON.stringify({
         jsonrpc: JSONRPC_VERSION,
@@ -1301,11 +1276,12 @@ function main() {
     } catch {
       // stdout closed — stop heartbeat
       if (stdioHeartbeatInterval) {
+        timerRegistry.remove(stdioHeartbeatInterval);
         clearInterval(stdioHeartbeatInterval);
         stdioHeartbeatInterval = null;
       }
     }
-  }, 30000);
+  }, 30000));
 
   // Process incoming lines
   readlineInterface.on('line', async (line) => {
@@ -1458,38 +1434,15 @@ const _testing = {
   getMcpPlatform: () => mcpPlatform,
   resetForTest() {
     stopPidHeartbeat();
-    if (maintenanceInterval) {
-      clearInterval(maintenanceInterval);
-      maintenanceInterval = null;
-    }
-    if (coordinationAgentInterval) {
-      clearInterval(coordinationAgentInterval);
-      coordinationAgentInterval = null;
-    }
-    if (coordinationLockInterval) {
-      clearInterval(coordinationLockInterval);
-      coordinationLockInterval = null;
-    }
-    if (queueProcessingInterval) {
-      clearInterval(queueProcessingInterval);
-      queueProcessingInterval = null;
-    }
-    if (providerQuotaInferenceInterval) {
-      clearInterval(providerQuotaInferenceInterval);
-      providerQuotaInferenceInterval = null;
-    }
-    if (stdioHeartbeatInterval) {
-      clearInterval(stdioHeartbeatInterval);
-      stdioHeartbeatInterval = null;
-    }
-    if (errorRateCleanupInterval) {
-      clearInterval(errorRateCleanupInterval);
-      errorRateCleanupInterval = null;
-    }
-    if (orphanCheckInterval) {
-      clearInterval(orphanCheckInterval);
-      orphanCheckInterval = null;
-    }
+    timerRegistry.clearAll();
+    maintenanceInterval = null;
+    coordinationAgentInterval = null;
+    coordinationLockInterval = null;
+    queueProcessingInterval = null;
+    providerQuotaInferenceInterval = null;
+    stdioHeartbeatInterval = null;
+    errorRateCleanupInterval = null;
+    orphanCheckInterval = null;
     if (shutdownTimer) {
       clearTimeout(shutdownTimer);
       shutdownTimer = null;
