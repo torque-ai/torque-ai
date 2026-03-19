@@ -535,6 +535,104 @@ function scanDirectory(dirPath, rootDir, sourceFiles, testFiles, testPattern) {
   }
 }
 
+// ─── Test Station Config File Writing ─────────────────────────────────────────
+
+/**
+ * Read a JSON file, returning fallback on missing/corrupt files.
+ */
+function readJsonSafe(filePath, fallback) {
+  try {
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+  } catch { /* corrupt JSON — start fresh */ }
+  return fallback;
+}
+
+/**
+ * Write test station config files for a project.
+ *
+ * Writes:
+ * 1. .torque-test.json — shared config (transport, verify_command, etc.)
+ * 2. .torque-test.local.json — personal SSH details (host, user, key_path)
+ * 3. Adds .torque-test.local.json to .gitignore if SSH fields are set
+ * 4. Installs Claude Code guard hook in .claude/settings.json for SSH transport
+ *
+ * All file writes are non-fatal. Merges with existing files when present.
+ */
+function writeTestStationConfig(workingDir, args, configUpdate) {
+  const hasSSH = !!(args.test_station_host || args.test_station_user ||
+    args.test_station_project_path || args.test_station_key_path);
+  const transport = hasSSH ? 'ssh' : 'local';
+
+  // 1. Write .torque-test.json — merge with existing
+  const sharedPath = path.join(workingDir, '.torque-test.json');
+  const existing = readJsonSafe(sharedPath, {});
+  const sharedConfig = {
+    ...existing,
+    version: existing.version || 1,
+    transport,
+  };
+  // Only set defaults if not already present in existing file
+  if (sharedConfig.timeout_seconds === undefined) sharedConfig.timeout_seconds = 300;
+  if (sharedConfig.sync_before_run === undefined) sharedConfig.sync_before_run = true;
+  // Apply verify_command from args or configUpdate
+  if (args.verify_command !== undefined) {
+    sharedConfig.verify_command = args.verify_command;
+  } else if (configUpdate.verify_command !== undefined) {
+    sharedConfig.verify_command = configUpdate.verify_command;
+  }
+  fs.writeFileSync(sharedPath, JSON.stringify(sharedConfig, null, 2) + '\n');
+
+  // 2. Write .torque-test.local.json if SSH fields are provided — merge with existing
+  if (hasSSH) {
+    const localPath = path.join(workingDir, '.torque-test.local.json');
+    const existingLocal = readJsonSafe(localPath, {});
+    const localConfig = { ...existingLocal };
+    if (args.test_station_host !== undefined) localConfig.host = args.test_station_host;
+    if (args.test_station_user !== undefined) localConfig.user = args.test_station_user;
+    if (args.test_station_project_path !== undefined) localConfig.project_path = args.test_station_project_path;
+    if (args.test_station_key_path !== undefined) localConfig.key_path = args.test_station_key_path;
+    fs.writeFileSync(localPath, JSON.stringify(localConfig, null, 2) + '\n');
+
+    // 3. Add .torque-test.local.json to .gitignore if not already there
+    const gitignorePath = path.join(workingDir, '.gitignore');
+    let gitignoreContent = '';
+    try {
+      if (fs.existsSync(gitignorePath)) {
+        gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
+      }
+    } catch { /* ignore */ }
+    const lines = gitignoreContent.split('\n').map(l => l.trim());
+    if (!lines.includes('.torque-test.local.json')) {
+      const separator = gitignoreContent.length > 0 && !gitignoreContent.endsWith('\n') ? '\n' : '';
+      fs.writeFileSync(gitignorePath, gitignoreContent + separator + '.torque-test.local.json\n');
+    }
+
+    // 4. Install Claude Code guard hook in .claude/settings.json for SSH transport
+    const claudeDir = path.join(workingDir, '.claude');
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    fs.mkdirSync(claudeDir, { recursive: true });
+    const existingSettings = readJsonSafe(settingsPath, {});
+    if (!existingSettings.hooks) existingSettings.hooks = {};
+    if (!Array.isArray(existingSettings.hooks.PreToolUse)) existingSettings.hooks.PreToolUse = [];
+
+    // Check if hook already installed
+    const alreadyInstalled = existingSettings.hooks.PreToolUse.some(
+      h => h.matcher === 'Bash' && h.hooks && h.hooks.some(
+        hk => hk.command && hk.command.includes('torque-test-guard')
+      )
+    );
+    if (!alreadyInstalled) {
+      existingSettings.hooks.PreToolUse.push({
+        matcher: 'Bash',
+        hooks: [{ type: 'command', command: 'scripts/torque-test-guard.sh' }],
+      });
+    }
+    fs.writeFileSync(settingsPath, JSON.stringify(existingSettings, null, 2) + '\n');
+  }
+}
+
 // ─── Feature 4: Per-Project Provider Defaults ────────────────────────────────
 
 function handleSetProjectDefaults(args) {
@@ -610,9 +708,40 @@ function handleSetProjectDefaults(args) {
     changes.push(`Prefer remote tests: ${args.prefer_remote_tests ? 'enabled' : 'disabled'}`);
   }
 
+  // Test station fields
+  if (args.test_station_host !== undefined) {
+    db().safeAddColumn('project_config', 'test_station_host TEXT');
+    configUpdate.test_station_host = args.test_station_host || null;
+    changes.push(`Test station host: ${args.test_station_host || '(cleared)'}`);
+  }
+  if (args.test_station_user !== undefined) {
+    db().safeAddColumn('project_config', 'test_station_user TEXT');
+    configUpdate.test_station_user = args.test_station_user || null;
+    changes.push(`Test station user: ${args.test_station_user || '(cleared)'}`);
+  }
+  if (args.test_station_project_path !== undefined) {
+    db().safeAddColumn('project_config', 'test_station_project_path TEXT');
+    configUpdate.test_station_project_path = args.test_station_project_path || null;
+    changes.push(`Test station project path: ${args.test_station_project_path || '(cleared)'}`);
+  }
+  if (args.test_station_key_path !== undefined) {
+    db().safeAddColumn('project_config', 'test_station_key_path TEXT');
+    configUpdate.test_station_key_path = args.test_station_key_path || null;
+    changes.push(`Test station key path: ${args.test_station_key_path || '(cleared)'}`);
+  }
+
   // Use existing setProjectConfig API
   if (Object.keys(configUpdate).length > 0) {
     db().setProjectConfig(project, configUpdate);
+  }
+
+  // Write test station config files
+  if (workingDir) {
+    try {
+      writeTestStationConfig(workingDir, args, configUpdate);
+    } catch (e) {
+      // Non-fatal — DB config is the primary store
+    }
   }
 
   // Persist step_providers via project_metadata (no schema migration needed)
@@ -1084,6 +1213,8 @@ module.exports = {
   handleListTaskTemplates,
   handleSubmitFromTemplate,
   handleDeleteTaskTemplate,
+  // Test station config writing (exported for testing)
+  writeTestStationConfig,
   // Re-exported from automation-batch-orchestration.js
   ...batchOrchestration,
   // Re-exported from automation-ts-tools.js
