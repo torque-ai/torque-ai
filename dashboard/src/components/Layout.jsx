@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
 import SessionSwitcher from './SessionSwitcher';
 import EconomyIndicator from './EconomyIndicator';
+import HealthDots from './HealthDots';
 
 const ROUTE_NAMES = {
   '/': 'Kanban',
@@ -227,6 +228,10 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
             <NavItem key={item.to} {...item} collapsed={collapsed} />
           ))}
         </nav>
+
+        <div className={`px-3 ${collapsed ? 'md:px-1.5' : ''}`}>
+          <HealthDots />
+        </div>
 
         {/* Collapse toggle - desktop only */}
         <button

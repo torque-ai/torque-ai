@@ -197,12 +197,14 @@ describe('App', () => {
       expect(screen.getAllByText('Kanban').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('History').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Providers').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('Hosts').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('Budget').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('Projects').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('Batches').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('Models').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Workflows').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Infrastructure').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Operations').length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByText('Hosts')).toBeNull();
+      expect(screen.queryByText('Budget')).toBeNull();
+      expect(screen.queryByText('Projects')).toBeNull();
+      expect(screen.queryByText('Batches')).toBeNull();
+      expect(screen.queryByText('Models')).toBeNull();
     });
   });
 

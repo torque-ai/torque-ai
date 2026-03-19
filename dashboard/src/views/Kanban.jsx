@@ -5,6 +5,8 @@ import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { getRelevantModel } from '../utils/providerModels';
 import StatCard from '../components/StatCard';
 import TaskSubmitForm from '../components/TaskSubmitForm';
+import HealthBar from '../components/HealthBar';
+import ActivityPanel from '../components/ActivityPanel';
 import {
   LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -125,6 +127,73 @@ function normalizeStuckTasks(stuckData) {
     pending_approval: stuckData.pending_approval ?? { tasks: [] },
     pending_switch: stuckData.pending_switch ?? { tasks: [] },
   };
+}
+
+function getTaskActivityTarget(task) {
+  if (task.ollama_host_name) return task.ollama_host_name;
+  if (task.ollama_host_id) return task.ollama_host_id;
+  return task.provider || 'scheduler';
+}
+
+function buildTaskActivityEvent(task, previousTask) {
+  const shortId = task.id?.substring(0, 8) || 'unknown';
+  const target = getTaskActivityTarget(task);
+  const timestamp = new Date().toISOString();
+
+  if (previousTask?.provider && previousTask.provider !== task.provider) {
+    return {
+      type: 'task_update',
+      message: `Task ${shortId} reassigned from ${previousTask.provider} to ${task.provider || 'scheduler'}`,
+      timestamp,
+      severity: 'info',
+    };
+  }
+
+  switch (task.status) {
+    case 'completed':
+      return {
+        type: 'task_complete',
+        message: `Task ${shortId} completed on ${target}`,
+        timestamp,
+        severity: 'success',
+      };
+    case 'failed':
+      return {
+        type: 'task_fail',
+        message: `Task ${shortId} failed on ${target}`,
+        timestamp,
+        severity: 'error',
+      };
+    case 'running':
+      return {
+        type: 'task_update',
+        message: `Task ${shortId} started on ${target}`,
+        timestamp,
+        severity: 'info',
+      };
+    case 'cancelled':
+      return {
+        type: 'task_update',
+        message: `Task ${shortId} was cancelled on ${target}`,
+        timestamp,
+        severity: 'warning',
+      };
+    case 'pending_provider_switch':
+      return {
+        type: 'task_update',
+        message: `Task ${shortId} is pending provider switch on ${target}`,
+        timestamp,
+        severity: 'warning',
+      };
+    case 'queued':
+    default:
+      return {
+        type: 'task_update',
+        message: `Task ${shortId} queued on ${target}`,
+        timestamp,
+        severity: 'info',
+      };
+  }
 }
 
 // Self-ticking queue wait time with color coding
@@ -525,6 +594,8 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   const [stuckTasks, setStuckTasks] = useState(null);
   const [qualityStats, setQualityStats] = useState(null);
   const [activityData, setActivityData] = useState([]);
+  const [activityLog, setActivityLog] = useState([]);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [staleData, setStaleData] = useState(false);
   const [compact, setCompact] = useState(() => {
@@ -551,6 +622,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   const searchTimerRef = useRef(null);
   const prevTaskMapRef = useRef(new Map());
   const prevLiveIdsRef = useRef(new Set()); // Track WS-pushed task IDs for deletion detection (RB-056)
+  const hasInitializedLiveTasksRef = useRef(false);
   const failCountRef = useRef(0);
   const [lastRefreshed, setLastRefreshed] = useState(null);
   const [showSubmitForm, setShowSubmitForm] = useState(false);
@@ -560,6 +632,13 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   const [reassigningIds, setReassigningIds] = useState(new Set());
   const toast = useToast();
   const { execute } = useAbortableRequest();
+  const appendActivityEvents = useCallback((events) => {
+    if (!Array.isArray(events) || events.length === 0) return;
+    setActivityLog((prev) => [...events, ...prev].slice(0, 100));
+  }, []);
+  const toggleActivityPanel = useCallback(() => {
+    setActivityOpen((value) => !value);
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -750,6 +829,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
 
   useEffect(() => {
     const currentLiveIds = new Set((liveTasks || []).map(t => t.id));
+    const isInitialLiveSnapshot = !hasInitializedLiveTasksRef.current;
 
     // Detect tasks removed from the WS-managed prop (deleted) — RB-056
     const deletedIds = new Set();
@@ -766,15 +846,25 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       if (deletedIds.size > 0) {
         setAllTasks((prev) => prev.filter(t => !deletedIds.has(t.id)));
       }
+      hasInitializedLiveTasksRef.current = true;
       return;
     }
 
     // Detect changed tasks for flash animation
     const changedIds = new Set();
+    const activityEvents = [];
     for (const t of liveTasks) {
       const prev = prevTaskMapRef.current.get(t.id);
-      if (!prev || prev.status !== t.status || prev.quality_score !== t.quality_score) {
+      const statusChanged = prev?.status !== t.status;
+      const qualityChanged = prev?.quality_score !== t.quality_score;
+      const providerChanged = prev?.provider !== t.provider;
+
+      if (!prev || statusChanged || qualityChanged) {
         changedIds.add(t.id);
+      }
+
+      if (!isInitialLiveSnapshot && (!prev || statusChanged || providerChanged)) {
+        activityEvents.unshift(buildTaskActivityEvent(t, prev));
       }
     }
     if (changedIds.size > 0) {
@@ -798,7 +888,10 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       for (const t of merged) prevTaskMapRef.current.set(t.id, t);
       return merged;
     });
-  }, [liveTasks]);
+
+    appendActivityEvents(activityEvents);
+    hasInitializedLiveTasksRef.current = true;
+  }, [appendActivityEvents, liveTasks]);
 
   useEffect(() => {
     setQueuedProviderSelections((prev) => {
@@ -957,6 +1050,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   }, [overview, wsStats]);
 
   const [cancellingIds, setCancellingIds] = useState(new Set());
+  const mainContentClassName = activityOpen ? 'flex-1 overflow-auto pr-[300px]' : 'flex-1 overflow-auto';
 
   async function handleCancelStuck(taskId) {
     setCancellingIds((prev) => new Set([...prev, taskId]));
@@ -978,30 +1072,35 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
 
   if (loading) {
     return (
-      <div className="p-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="glass-card p-4 animate-pulse">
-              <div className="h-3 w-20 bg-slate-700 rounded mb-2" />
-              <div className="h-6 w-12 bg-slate-700 rounded" />
+      <div className="flex">
+        <div className={mainContentClassName}>
+          <div className="p-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="glass-card p-4 animate-pulse">
+                  <div className="h-3 w-20 bg-slate-700 rounded mb-2" />
+                  <div className="h-6 w-12 bg-slate-700 rounded" />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div className="flex gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="flex-1 min-w-[240px]">
-              <div className="h-4 w-16 bg-slate-700 rounded mb-3 animate-pulse" />
-              <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-2 min-h-[400px]">
-                {[...Array(3)].map((_, j) => (
-                  <div key={j} className="bg-slate-700/40 rounded-lg p-3 mb-2 animate-pulse">
-                    <div className="h-3 w-full bg-slate-600 rounded mb-2" />
-                    <div className="h-2 w-2/3 bg-slate-600 rounded" />
+            <div className="flex gap-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex-1 min-w-[240px]">
+                  <div className="h-4 w-16 bg-slate-700 rounded mb-3 animate-pulse" />
+                  <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-2 min-h-[400px]">
+                    {[...Array(3)].map((_, j) => (
+                      <div key={j} className="bg-slate-700/40 rounded-lg p-3 mb-2 animate-pulse">
+                        <div className="h-3 w-full bg-slate-600 rounded mb-2" />
+                        <div className="h-2 w-2/3 bg-slate-600 rounded" />
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
+        <ActivityPanel events={activityLog} isOpen={activityOpen} onToggle={toggleActivityPanel} />
       </div>
     );
   }
@@ -1013,7 +1112,9 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     : null;
 
   return (
-    <div className="p-6">
+    <div className="flex">
+      <div className={mainContentClassName}>
+        <div className="p-6">
       {/* Stale data warning */}
       {staleData && (
         <div className="mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-amber-950/50 border border-amber-600/40 text-amber-300 text-sm">
@@ -1187,6 +1288,8 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         />
       )}
 
+      <HealthBar />
+
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {/* Today summary: count + success rate + quality merged */}
@@ -1341,7 +1444,10 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
             onReassignProvider={handleReassignProvider}
           />
         ))}
+        </div>
       </div>
+      </div>
+      <ActivityPanel events={activityLog} isOpen={activityOpen} onToggle={toggleActivityPanel} />
     </div>
   );
 }
