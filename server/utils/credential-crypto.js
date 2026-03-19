@@ -10,6 +10,9 @@ const KEY_LENGTH_BYTES = 32;
 const KEY_LENGTH_HEX = KEY_LENGTH_BYTES * 2;
 const IV_LENGTH_BYTES = 16;
 
+// NOTE: _cachedKey is stored as a hex string. JavaScript strings are immutable
+// and not manually zeroable — the GC determines when the memory is freed.
+// For stronger key hygiene, a Buffer could be used and zeroed on shutdown.
 let _cachedKey = null;
 
 /**
@@ -64,6 +67,9 @@ function getOrCreateKey() {
   const dataDir = resolveDataDir();
   const keyPath = path.join(dataDir, 'secret.key');
 
+  // TOCTOU note: existsSync + readFileSync is not atomic. If the key file is
+  // deleted between the check and the read, readFileSync throws — which is
+  // acceptable here because the caller (getOrCreateKey) does not swallow it.
   if (fs.existsSync(keyPath)) {
     _cachedKey = normalizeKey(fs.readFileSync(keyPath, 'utf8'), keyPath);
     try {

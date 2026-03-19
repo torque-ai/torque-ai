@@ -68,7 +68,10 @@ function handleSafeguardChecks(ctx) {
   const maxRetries = (task.max_retries || 0);
   if (retryCount < maxRetries) {
     logger.info(`[Safeguard] Auto-retrying task ${taskId} (attempt ${retryCount + 1}/${maxRetries}) after safeguard failure`);
-    if (safeguardFiles.length > 0) {
+    // Only roll back if the config-driven path above did not already do so.
+    // Both paths call scopedRollback — git checkout is idempotent so a second
+    // call is safe, but it generates redundant log noise and git work.
+    if (safeguardFiles.length > 0 && !rollbackOnSafeguard) {
       deps.scopedRollback(taskId, workingDir, 'Safeguard P87');
     }
 

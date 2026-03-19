@@ -78,6 +78,12 @@ function redactSecrets(text) {
   const { SECRET_PATTERNS } = require('../validation/output-safeguards');
   let redacted = text;
   for (const pattern of SECRET_PATTERNS) {
+    // Reset lastIndex before use. String.replace() resets it for sticky/global
+    // regexes, but explicit reset guards against state from a previous call.
+    // Note: if this function is ever called from multiple concurrent async
+    // contexts sharing the same SECRET_PATTERNS array, the mutation of
+    // lastIndex between the reset and the replace could race. Currently safe
+    // because Node.js event-loop execution is single-threaded per tick.
     pattern.lastIndex = 0;
     redacted = redacted.replace(pattern, '[REDACTED]');
   }

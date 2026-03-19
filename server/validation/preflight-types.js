@@ -269,7 +269,10 @@ function _fuzzyMatch(query, candidates) {
       return candidate;
     }
 
-    // Simple character overlap score
+    // Simple character overlap score (character presence, not frequency).
+    // This over-counts repeated characters: e.g., 'aaa' vs 'a' scores 3/3.
+    // Acceptable for short type-name matching but would need a frequency-aware
+    // approach (e.g., intersection of character multisets) for longer strings.
     let matches = 0;
     const shorter = queryLower.length < candLower.length ? queryLower : candLower;
     const longer = queryLower.length < candLower.length ? candLower : queryLower;

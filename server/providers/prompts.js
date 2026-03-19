@@ -310,6 +310,10 @@ function wrapWithInstructions(taskDescription, provider, model, context = {}) {
     logger.info(`[Prompt] Adding large-model guidance for ${model}`);
   }
 
+  // NOTE: A large cloud model (e.g., deepinfra 70B) will receive both
+  // large-model and cloud-model instruction blocks. Ensure these two blocks
+  // are complementary, not contradictory. If they conflict, prefer cloud-model
+  // since it is the more specific context.
   if (isCloudProvider) {
     taskTypeInstructions += TASK_TYPE_INSTRUCTIONS['cloud-model'] || '';
     logger.info(`[Prompt] Adding cloud-model guidance for provider ${provider}`);

@@ -38,6 +38,9 @@ function readGitDiffFiles(workingDirectory) {
   const commands = [
     ['diff', '--name-only'],
     ['diff', '--name-only', '--cached'],
+    // 'HEAD~1 HEAD' fails in single-commit repos (no parent). The try/catch below
+    // silently skips failed commands, so this is safe — the first two commands
+    // will have already returned if there are working-tree or staged changes.
     ['diff', '--name-only', 'HEAD~1', 'HEAD'],
   ];
 

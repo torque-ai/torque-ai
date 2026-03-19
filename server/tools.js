@@ -337,7 +337,7 @@ const RESTART_RESPONSE_GRACE_MS = 1500;
 
 function handleRestartServer(args) {
   const reason = args.reason || 'Manual restart requested';
-  const logger = require('./logger');
+  // Use module-level logger (not a re-require) to avoid shadowing the top-level binding.
   const taskManager = require('./task-manager');
   const db = require('./database');
 
@@ -363,6 +363,12 @@ function handleRestartServer(args) {
       sibling_running: siblingRunning
     };
   }
+
+  // Return success to the caller BEFORE triggering shutdown. This is intentional:
+  // the MCP response must be flushed to the client before the process exits.
+  // The setTimeout gives the response time to be sent, then triggers shutdown.
+  // Note: rapid consecutive restart calls will each schedule a shutdown timeout.
+  // The torque:shutdown handler is idempotent (no-op on second call), so this is safe.
 
   // Trigger full graceful shutdown via process event (avoids circular dependency with index.js)
   setTimeout(() => {
@@ -438,7 +444,12 @@ async function handleToolCall(name, args) {
     return result;
   }
 
-  throw { code: -32602, message: `Unknown tool: ${name}` };
+  // Throw a proper Error (not a plain object) so the stack trace is preserved.
+  // Sanitize the tool name in the message to prevent log injection.
+  const safeName = String(name || '').replace(/[\r\n\t]/g, '_').slice(0, 128);
+  const err = new Error(`Unknown tool: ${safeName}`);
+  err.code = -32602;
+  throw err;
 }
 
 module.exports = {

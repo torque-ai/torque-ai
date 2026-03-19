@@ -289,6 +289,10 @@ function getTaskContextTokenEstimate(taskMetadata, contextText) {
 // Legacy getters below delegate to registry for backward compatibility
 let freeQuotaTracker = null;
 
+// NOTE: getFreeQuotaTracker uses a lazy singleton. Node.js is single-threaded
+// so there is no concurrent-init race in the event loop, but if this function
+// is ever called from multiple worker threads the `if (!freeQuotaTracker)`
+// check would not be atomic. Currently safe — only called from the main thread.
 function getFreeQuotaTracker() {
   if (!freeQuotaTracker) {
     const limits = db.getProviderRateLimits ? db.getProviderRateLimits() : [];

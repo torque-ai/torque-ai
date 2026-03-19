@@ -270,6 +270,8 @@ function getServiceUrl(service) {
       if (!hostname) {
         return null;
       }
+      // Note: URL fragments (#...) are intentionally dropped — they have no
+      // meaning in an HTTP API base URL and would be rejected by Node's http module.
       return `${parsed.protocol || 'http:'}//${hostname}:${port}${pathname}${parsed.search || ''}`;
     } catch {
       if (!host) {

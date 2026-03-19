@@ -427,6 +427,10 @@ function parseHashlineEdits(output) {
   // === FALLBACK 1: JSON-formatted edit blocks (deepseek-coder-v2 style) ===
   if (edits.length === 0) {
     try {
+      // Broad regex: matches the first [ or { to the last ] or } in the string.
+      // This is intentionally permissive to handle LLM responses that embed JSON
+      // inside prose. It can produce false positives on non-JSON content, but
+      // the JSON.parse guard below rejects invalid matches.
       const jsonMatch = cleaned.match(/(\[[\s\S]*\]|\{[\s\S]*\})/)
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[1]);

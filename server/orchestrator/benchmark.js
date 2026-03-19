@@ -29,8 +29,16 @@ class BenchmarkHarness {
   toCsv() {
     const fields = ['task_name', 'source', 'duration_ms', 'tokens', 'cost', 'confidence', 'quality_score', 'timestamp'];
     const header = fields.join(',');
+    // Escape CSV fields: wrap in double-quotes and escape internal double-quotes.
+    const escapeCsv = (v) => {
+      const s = v !== undefined && v !== null ? String(v) : '';
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
     const rows = this.results.map((r) =>
-      fields.map((f) => (r[f] !== undefined && r[f] !== null ? String(r[f]) : '')).join(',')
+      fields.map((f) => escapeCsv(r[f])).join(',')
     );
     return [header, ...rows].join('\n');
   }

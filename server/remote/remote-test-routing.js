@@ -317,6 +317,9 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
 
           logger.info(`[remote-routing] Running remotely: ${command}`);
           const safeEnv = filterSensitiveEnv(options.env);
+          // `command` may be a compound shell string (e.g. "npx vitest run --reporter=json").
+          // The `undefined` second argument passes no extra args — the client.run
+          // implementation is expected to execute the command string via a shell.
           const result = await client.run(command, undefined, {
             cwd: remoteConfig.remotePath,
             env: safeEnv,

@@ -124,6 +124,9 @@ function isAgenticCapable(provider, model) {
 
   if (_db && model) {
     try {
+      // Raw _db.prepare() used here because the database abstraction layer does
+      // not expose an agentic-probe query helper. The query is read-only and
+      // fully parameterized — no user input reaches the SQL.
       const row = _db.prepare(
         'SELECT supports_tools FROM agentic_model_probes WHERE model_name = ? AND provider = ?'
       ).get(model, provider);

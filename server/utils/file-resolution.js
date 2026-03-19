@@ -61,7 +61,7 @@ function isValidFilePath(str) {
 
   // Must not contain XML/HTML tags or common code fragments
   if (str.includes('<') || str.includes('>') || str.includes('</')) return false;
-  if (str.includes('///') || str.includes('//')) return false;  // Comments
+  if (str.includes('///') || str.includes('//')) return false;  // Comments (also rejects UNC paths like \\server\share — acceptable for this use-case)
   if (str.includes('(') || str.includes(')')) return false;  // Method calls
   if (str.includes('{') || str.includes('}')) return false;  // Code blocks
   if (str.includes('=')) return false;  // Assignments

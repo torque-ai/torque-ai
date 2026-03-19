@@ -174,6 +174,10 @@ async function runTestMode(behavior, maxIter) {
         iterations: 1,
         tokenUsage: { prompt_tokens: 10, completion_tokens: 5 },
       });
+      // NOTE: process.exit() immediately after postMessage() may discard the
+      // message before the parent's message channel drains it. In practice this
+      // works because the worker_threads channel is synchronous on the sender
+      // side, but setting the exit inside setImmediate() would be safer.
       process.exit(0);
       break;
     }

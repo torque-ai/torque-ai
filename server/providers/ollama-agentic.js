@@ -175,7 +175,10 @@ async function runAgenticLoop({
   let prevToolCallHash = null;
   let stuckCount = 0;
 
-  // Consecutive error detection (cross-iteration only)
+  // Per-tool consecutive error detection (cross-iteration only).
+  // Tracks consecutive failures from the SAME tool across separate iterations —
+  // not a general consecutive-error counter. Resets on any successful tool call
+  // or when a different tool errors.
   let lastErrorToolName = null;
   let lastErrorIteration = -1;
   let consecutiveErrorCount = 0;
