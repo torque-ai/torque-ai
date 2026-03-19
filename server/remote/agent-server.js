@@ -106,17 +106,30 @@ function isAuthorized(req, secret) {
   return crypto.timingSafeEqual(a, b);
 }
 
+const BLOCKED_ENV_VARS = new Set([
+  'LD_PRELOAD', 'LD_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES', 'DYLD_FRAMEWORK_PATH',
+  'NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE', 'PYTHONSTARTUP', 'RUBYOPT',
+]);
+const ALLOWED_ENV_VARS = new Set([
+  'NODE_ENV', 'DEBUG', 'HOME', 'USERPROFILE', 'TEMP', 'TMP', 'PATH',
+]);
+const ALLOWED_PREFIXES = ['TORQUE_', 'OLLAMA_'];
+
 function normalizeEnv(extraEnv = {}) {
   const merged = { ...process.env };
   for (const [key, value] of Object.entries(extraEnv || {})) {
-    if (value === undefined || value === null) {
-      delete merged[key];
-      continue;
-    }
+    if (BLOCKED_ENV_VARS.has(key)) continue;
+    if (!ALLOWED_ENV_VARS.has(key) && !ALLOWED_PREFIXES.some(p => key.startsWith(p))) continue;
+    if (value === undefined || value === null) { delete merged[key]; continue; }
     merged[key] = String(value);
   }
   return merged;
 }
+
+const DEFAULT_ALLOWED_COMMANDS = new Set([
+  'node', 'npm', 'npx', 'git', 'dotnet', 'cargo', 'python', 'python3', 'pip', 'pip3',
+  'vitest', 'jest', 'mocha', 'tsc', 'eslint',
+]);
 
 const SHELL_METACHAR_RE = /[;|&`$(){}!<>]/;
 
@@ -189,6 +202,8 @@ function terminateChild(child) {
   }
 }
 
+const MAX_CAPTURE_BYTES = 10 * 1024 * 1024; // 10MB
+
 function spawnAndCapture(command, args, options = {}) {
   const timeout = Number(options.timeout ?? DEFAULT_TIMEOUT_MS);
 
@@ -224,10 +239,16 @@ function spawnAndCapture(command, args, options = {}) {
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString('utf8');
+      if (stdout.length > MAX_CAPTURE_BYTES) {
+        stdout = '[...truncated...]\n' + stdout.slice(-MAX_CAPTURE_BYTES);
+      }
     });
 
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString('utf8');
+      if (stderr.length > MAX_CAPTURE_BYTES) {
+        stderr = '[...truncated...]\n' + stderr.slice(-MAX_CAPTURE_BYTES);
+      }
     });
 
     child.on('error', (error) => {
@@ -394,6 +415,14 @@ function validateRunRequest(body, state) {
 
   if (!command) {
     throw createHttpError('Missing required field: command', 400);
+  }
+
+  const executable = path.basename(command).replace(/\.(cmd|exe|bat)$/i, '');
+  const allowedCommands = state && state.config && state.config.allowed_commands
+    ? new Set(state.config.allowed_commands)
+    : DEFAULT_ALLOWED_COMMANDS;
+  if (!allowedCommands.has(executable)) {
+    throw createHttpError(`Command not allowed: ${executable}. Allowed: ${[...allowedCommands].join(', ')}`, 403);
   }
 
   if (body.args !== undefined && !Array.isArray(body.args)) {
@@ -690,11 +719,16 @@ if (require.main === module) {
 }
 
 module.exports = {
+  ALLOWED_ENV_VARS,
+  ALLOWED_PREFIXES,
+  BLOCKED_ENV_VARS,
+  DEFAULT_ALLOWED_COMMANDS,
   DEFAULT_HOST,
   DEFAULT_PORT,
   DEFAULT_TIMEOUT_MS,
   FORCE_KILL_DELAY_MS,
   MAX_BODY_BYTES,
+  MAX_CAPTURE_BYTES,
   createAgentServer,
   createHttpError,
   createServer,
