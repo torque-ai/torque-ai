@@ -125,15 +125,20 @@ function handlePostCompletion(ctx) {
     });
   }
 
-  // Record provider usage
+  // Record provider usage.
+  // Use the final task status (not exit code) as the success indicator: a task with
+  // exit code 0 but status 'failed' (e.g., output validation failure) should be
+  // recorded as a failure, and vice versa.
   try {
     const duration = task && task.started_at
       ? Math.round((Date.now() - new Date(task.started_at).getTime()) / 1000)
       : null;
+    const finalStatus = ctx.status || (code === 0 ? 'completed' : 'failed');
+    const usageSuccess = finalStatus === 'completed';
     deps.db.recordProviderUsage(task?.provider || 'codex', taskId, {
       duration_seconds: duration,
-      success: code === 0,
-      error_type: ctx.status === 'pending_provider_switch' ? 'quota' : (code !== 0 ? 'failure' : null)
+      success: usageSuccess,
+      error_type: finalStatus === 'pending_provider_switch' ? 'quota' : (!usageSuccess ? 'failure' : null)
     });
   } catch (usageErr) {
     logger.info('Failed to record provider usage:', usageErr.message);
