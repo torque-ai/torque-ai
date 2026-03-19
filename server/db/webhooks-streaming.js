@@ -497,6 +497,58 @@ function getStreamTaskId(streamId) {
   return _streamToTask.get(streamId) || null;
 }
 
+// ============================================================
+// Partial Output Ring Buffer (Phase 2 Task 2)
+// ============================================================
+
+/**
+ * In-memory ring buffer accumulating streaming output per task.
+ * Periodically flushed to tasks.partial_output so that heartbeat
+ * check-ins can report real task progress.
+ */
+const _partialOutputBuffers = new Map(); // taskId → { buffer, lastFlushAt, streamId }
+const FLUSH_INTERVAL_MS = 10000;         // 10 seconds
+const MAX_BUFFER_SIZE = 32 * 1024;       // 32 KB
+
+/**
+ * Return the current partial output buffer for a task, or null.
+ * @param {string} taskId
+ * @returns {string|null}
+ */
+function getPartialOutputBuffer(taskId) {
+  const entry = _partialOutputBuffers.get(taskId);
+  return entry ? entry.buffer : null;
+}
+
+/**
+ * Write the accumulated buffer to tasks.partial_output in the DB.
+ * Non-fatal — never blocks chunk processing.
+ * @param {string} taskId
+ * @param {string} buffer
+ */
+function flushPartialOutput(taskId, buffer) {
+  try {
+    db.prepare('UPDATE tasks SET partial_output = ? WHERE id = ?').run(buffer, taskId);
+  } catch (e) {
+    // Non-fatal — never block chunk processing
+  }
+}
+
+/**
+ * Truncate a buffer to MAX_BUFFER_SIZE, preferring a newline boundary.
+ * @param {string} buffer
+ * @returns {string}
+ */
+function truncateBuffer(buffer) {
+  if (buffer.length <= MAX_BUFFER_SIZE) return buffer;
+  const excess = buffer.length - MAX_BUFFER_SIZE;
+  const newlineIdx = buffer.indexOf('\n', excess);
+  if (newlineIdx !== -1) {
+    return buffer.slice(newlineIdx + 1);
+  }
+  return buffer.slice(-MAX_BUFFER_SIZE);
+}
+
 // Stream storage limits to prevent unbounded growth
 const MAX_STREAM_CHUNKS = 10000;        // Maximum chunks per stream
 const MAX_STREAM_SIZE_BYTES = 10 * 1024 * 1024; // 10MB per stream
@@ -555,7 +607,40 @@ function addStreamChunk(streamId, chunkData, chunkType = 'stdout') {
     return next_seq;
   });
 
-  return transaction();
+  const seqResult = transaction();
+
+  // --- Partial output accumulation (outside transaction) ---
+  try {
+    let taskId = _streamToTask.get(streamId);
+    if (!taskId) {
+      // DB fallback for post-restart orphaned streams
+      const row = db.prepare('SELECT task_id FROM task_streams WHERE id = ?').get(streamId);
+      if (row) {
+        taskId = row.task_id;
+        _streamToTask.set(streamId, taskId);
+      }
+    }
+    if (taskId) {
+      let entry = _partialOutputBuffers.get(taskId);
+      if (!entry) {
+        entry = { buffer: '', lastFlushAt: Date.now(), streamId };
+        _partialOutputBuffers.set(taskId, entry);
+      }
+      // Use truncatedData (post-truncation variable) to match stream_chunks storage
+      entry.buffer += (typeof truncatedData === 'string' ? truncatedData : String(truncatedData));
+      entry.buffer = truncateBuffer(entry.buffer);
+
+      const now = Date.now();
+      if (now - entry.lastFlushAt >= FLUSH_INTERVAL_MS) {
+        flushPartialOutput(taskId, entry.buffer);
+        entry.lastFlushAt = now;
+      }
+    }
+  } catch (e) {
+    // Non-fatal — never block chunk processing
+  }
+
+  return seqResult;
 }
 
 /**
@@ -1099,6 +1184,7 @@ module.exports = {
   createTaskStream,
   getOrCreateTaskStream,
   getStreamTaskId,
+  getPartialOutputBuffer,
   addStreamChunk,
   getStreamChunks,
   getLatestStreamChunks,

@@ -101,3 +101,171 @@ describe('streamToTask cache', () => {
     expect(mod.getStreamTaskId(streamId2)).toBe(taskId2);
   });
 });
+
+// ============================================================
+// Phase 2 Task 2: Partial output accumulator tests
+// ============================================================
+
+/**
+ * Helper: read partial_output directly from the DB for a given taskId.
+ */
+function getPartialOutputFromDb(taskId) {
+  const raw = db.getDb ? db.getDb() : db.getDbInstance();
+  const row = raw.prepare('SELECT partial_output FROM tasks WHERE id = ?').get(taskId);
+  return row ? row.partial_output : null;
+}
+
+describe('partial output accumulator', () => {
+  test('chunks are accumulated in buffer', () => {
+    const taskId = `acc-task-1-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    mod.addStreamChunk(streamId, 'Hello ');
+    mod.addStreamChunk(streamId, 'World');
+
+    const buf = mod.getPartialOutputBuffer(taskId);
+    expect(buf).toContain('Hello ');
+    expect(buf).toContain('World');
+  });
+
+  test('stderr chunks are also accumulated', () => {
+    const taskId = `acc-task-2-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    mod.addStreamChunk(streamId, 'stdout line\n', 'stdout');
+    mod.addStreamChunk(streamId, 'stderr line\n', 'stderr');
+
+    const buf = mod.getPartialOutputBuffer(taskId);
+    expect(buf).toContain('stdout line');
+    expect(buf).toContain('stderr line');
+  });
+
+  test('buffer respects 32 KB cap', () => {
+    const taskId = `acc-task-3-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    // Write 40+ KB of data in multiple chunks
+    const chunkSize = 4096;
+    const numChunks = 12; // 12 * 4096 = 49152 bytes > 32KB
+    for (let i = 0; i < numChunks; i++) {
+      mod.addStreamChunk(streamId, 'X'.repeat(chunkSize) + '\n');
+    }
+
+    const buf = mod.getPartialOutputBuffer(taskId);
+    expect(buf.length).toBeLessThanOrEqual(32 * 1024);
+  });
+
+  test('ring buffer truncates at newline boundary', () => {
+    const taskId = `acc-task-4-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    // Write numbered lines that exceed 32 KB total
+    const lines = [];
+    for (let i = 0; i < 500; i++) {
+      const line = `Line ${String(i).padStart(4, '0')}: ${'A'.repeat(100)}\n`;
+      lines.push(line);
+      mod.addStreamChunk(streamId, line);
+    }
+
+    const buf = mod.getPartialOutputBuffer(taskId);
+    expect(buf.length).toBeLessThanOrEqual(32 * 1024);
+
+    // Buffer should start at a line boundary (first char should be 'L' for "Line")
+    expect(buf[0]).toBe('L');
+
+    // Buffer should contain recent lines but not the oldest ones
+    expect(buf).toContain('Line 0499');
+    expect(buf).not.toContain('Line 0000');
+  });
+
+  test('ring buffer fallback when no newlines', () => {
+    const taskId = `acc-task-5-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    // Write 40 KB without newlines
+    mod.addStreamChunk(streamId, 'Z'.repeat(40 * 1024));
+
+    const buf = mod.getPartialOutputBuffer(taskId);
+    expect(buf.length).toBeLessThanOrEqual(32 * 1024);
+    // Should be exactly 32 KB (tail slice)
+    expect(buf.length).toBe(32 * 1024);
+    expect(buf).toBe('Z'.repeat(32 * 1024));
+  });
+
+  test('flush writes to DB after 10 seconds', () => {
+    vi.useFakeTimers();
+    try {
+      const taskId = `acc-task-6-${randomUUID()}`;
+      makeTask(taskId);
+      const streamId = mod.createTaskStream(taskId, 'output');
+
+      // Add initial chunk — buffer created with lastFlushAt = Date.now()
+      mod.addStreamChunk(streamId, 'chunk-A\n');
+
+      // Advance time by 11 seconds
+      vi.advanceTimersByTime(11000);
+
+      // Add another chunk — this triggers the flush check
+      mod.addStreamChunk(streamId, 'chunk-B\n');
+
+      // partial_output should now be written to DB
+      const output = getPartialOutputFromDb(taskId);
+      expect(output).toContain('chunk-A');
+      expect(output).toContain('chunk-B');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('flush does NOT fire before 10 seconds', () => {
+    vi.useFakeTimers();
+    try {
+      const taskId = `acc-task-7-${randomUUID()}`;
+      makeTask(taskId);
+      const streamId = mod.createTaskStream(taskId, 'output');
+
+      mod.addStreamChunk(streamId, 'chunk-A\n');
+
+      // Advance only 5 seconds
+      vi.advanceTimersByTime(5000);
+
+      mod.addStreamChunk(streamId, 'chunk-B\n');
+
+      // partial_output should still be NULL — flush hasn't fired
+      const output = getPartialOutputFromDb(taskId);
+      expect(output).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('unknown streamId skips accumulation without corrupting buffer state', () => {
+    // When the _streamToTask cache doesn't contain the mapping and the DB
+    // fallback also doesn't find a task_id, the accumulator should gracefully
+    // skip without affecting buffers for other tasks.
+    const taskId = `acc-task-8-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    // Add a valid chunk to build up some buffer state
+    mod.addStreamChunk(streamId, 'valid-data\n');
+
+    // The existing addStreamChunk throws on FK violation for unknown streams.
+    // Verify the accumulator doesn't corrupt existing buffers even if
+    // an error occurs in the transaction for a different stream.
+    try {
+      mod.addStreamChunk('nonexistent-stream-id-xyz', 'bad data');
+    } catch {
+      // Expected — FK constraint violation from the INSERT transaction
+    }
+
+    // Original task's buffer should be unaffected
+    const buf = mod.getPartialOutputBuffer(taskId);
+    expect(buf).toContain('valid-data');
+  });
+});
