@@ -421,12 +421,12 @@ describeV('await verify routing', () => {
     } catch { /* ignore */ }
   });
 
-  itV('handleAwaitTask uses bash + torque-test.sh when script exists in working directory', async () => {
-    // Create the test runner script in the temp dir
-    const scriptsDir = path.join(tmpDir, 'scripts');
-    fs.mkdirSync(scriptsDir, { recursive: true });
-    const scriptPath = path.join(scriptsDir, 'torque-test.sh');
-    fs.writeFileSync(scriptPath, '#!/bin/bash\n"$@"\n', 'utf8');
+  itV('handleAwaitTask routes through torque-remote when it is on PATH', async () => {
+    // Simulate torque-remote being available on PATH by making execFileSync('which', ...) succeed
+    viV.spyOn(require('child_process'), 'execFileSync').mockImplementation((cmd, args) => {
+      if (cmd === 'which' && args[0] === 'torque-remote') return '';
+      throw new Error('unexpected execFileSync call');
+    });
 
     const taskId = createTestTask({ status: 'running', working_directory: tmpDir });
 
@@ -446,21 +446,25 @@ describeV('await verify routing', () => {
     expectV(textOfResult(result)).toContain('### Verify Command');
     expectV(textOfResult(result)).toContain('Passed');
 
-    // Should invoke bash with the script, not sh/cmd
+    // Should invoke torque-remote with the verify command as argument
     expectV(awaitMocks.executeValidatedCommandSync).toHaveBeenCalledWith(
-      'bash',
-      expectV.arrayContaining([scriptPath]),
+      'torque-remote',
+      expectV.arrayContaining(['npx vitest run']),
       expectV.objectContaining({ cwd: tmpDir })
     );
-    // Should NOT call with sh or cmd for verify
+    // Should NOT call sh or cmd for verify
     const verifyCalls = awaitMocks.executeValidatedCommandSync.mock.calls.filter(
       ([cmd]) => cmd === 'sh' || cmd === 'cmd'
     );
     expectV(verifyCalls.length).toBe(0);
   });
 
-  itV('handleAwaitTask falls back to direct execution when torque-test.sh is absent', async () => {
-    // No scripts/torque-test.sh in tmpDir
+  itV('handleAwaitTask falls back to direct execution when torque-remote is not on PATH', async () => {
+    // Simulate torque-remote not available — execFileSync('which', ...) throws
+    viV.spyOn(require('child_process'), 'execFileSync').mockImplementation(() => {
+      throw new Error('not found');
+    });
+
     const taskId = createTestTask({ status: 'running', working_directory: tmpDir });
 
     const promise = handlers.handleAwaitTask({
@@ -479,20 +483,24 @@ describeV('await verify routing', () => {
     expectV(textOfResult(result)).toContain('### Verify Command');
     expectV(textOfResult(result)).toContain('Passed');
 
-    // Should invoke sh or cmd (platform-dependent fallback), NOT bash with a script
+    // Should invoke sh or cmd (platform-dependent fallback), NOT torque-remote
     expectV(awaitMocks.executeValidatedCommandSync).toHaveBeenCalledWith(
       expectV.stringMatching(/^(cmd|sh)$/),
       expectV.arrayContaining(['npx vitest run']),
       expectV.objectContaining({ cwd: tmpDir })
     );
+    const torqueRemoteCalls = awaitMocks.executeValidatedCommandSync.mock.calls.filter(
+      ([cmd]) => cmd === 'torque-remote'
+    );
+    expectV(torqueRemoteCalls.length).toBe(0);
   });
 
-  itV('handleAwaitWorkflow uses bash + torque-test.sh when script exists', async () => {
-    // Create the test runner script
-    const scriptsDir = path.join(tmpDir, 'scripts');
-    fs.mkdirSync(scriptsDir, { recursive: true });
-    const scriptPath = path.join(scriptsDir, 'torque-test.sh');
-    fs.writeFileSync(scriptPath, '#!/bin/bash\n"$@"\n', 'utf8');
+  itV('handleAwaitWorkflow routes through torque-remote when it is on PATH', async () => {
+    // Simulate torque-remote available
+    viV.spyOn(require('child_process'), 'execFileSync').mockImplementation((cmd, args) => {
+      if (cmd === 'which' && args[0] === 'torque-remote') return '';
+      throw new Error('unexpected execFileSync call');
+    });
 
     const wfId = randomUUID();
     db.createWorkflow({
@@ -533,19 +541,23 @@ describeV('await verify routing', () => {
     const text = textOfResult(result);
     expectV(text).toContain('### Verification');
 
-    // safeExecChain should be called with bash + script in the command string
+    // safeExecChain should be called with torque-remote prefixed command
     expectV(awaitMocks.safeExecChain).toHaveBeenCalledWith(
-      expectV.stringContaining('bash'),
+      expectV.stringContaining('torque-remote'),
       expectV.objectContaining({ cwd: tmpDir })
     );
     expectV(awaitMocks.safeExecChain).toHaveBeenCalledWith(
-      expectV.stringContaining(scriptPath),
+      expectV.stringContaining('npx vitest run'),
       expectV.any(Object)
     );
   });
 
-  itV('handleAwaitWorkflow falls back to direct command when torque-test.sh is absent', async () => {
-    // No scripts/torque-test.sh in tmpDir
+  itV('handleAwaitWorkflow falls back to direct command when torque-remote is not on PATH', async () => {
+    // Simulate torque-remote not available
+    viV.spyOn(require('child_process'), 'execFileSync').mockImplementation(() => {
+      throw new Error('not found');
+    });
+
     const wfId = randomUUID();
     db.createWorkflow({
       id: wfId,
@@ -585,7 +597,7 @@ describeV('await verify routing', () => {
     const text = textOfResult(result);
     expectV(text).toContain('### Verification');
 
-    // safeExecChain should be called with the original verify_command (no bash script prefix)
+    // safeExecChain should be called with the original verify_command (no torque-remote prefix)
     expectV(awaitMocks.safeExecChain).toHaveBeenCalledWith(
       'npx vitest run',
       expectV.objectContaining({ cwd: tmpDir })

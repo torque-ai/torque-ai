@@ -2,7 +2,6 @@
  * Workflow await / polling handlers (non-blocking yield-on-completion)
  */
 
-const fs = require('fs');
 const path = require('path');
 const db = require('../../database');
 const {
@@ -682,9 +681,13 @@ function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
     }
     try {
       const cwd = args.working_directory || workflow.working_directory || process.cwd();
-      const scriptPath = path.join(cwd, 'scripts', 'torque-test.sh');
-      const effectiveCommand = fs.existsSync(scriptPath)
-        ? `bash ${scriptPath} ${args.verify_command}`
+      let hasTorqueRemote = false;
+      try {
+        require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore' });
+        hasTorqueRemote = true;
+      } catch {}
+      const effectiveCommand = hasTorqueRemote
+        ? `torque-remote ${args.verify_command}`
         : args.verify_command;
       const verifyResult = safeExecChain(effectiveCommand, {
         cwd,
@@ -917,13 +920,17 @@ async function handleAwaitTask(args) {
           const cwd = args.working_directory || task.working_directory;
           if (cwd) {
             try {
-              const scriptPath = path.join(cwd, 'scripts', 'torque-test.sh');
+              let hasTorqueRemote = false;
+              try {
+                require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore' });
+                hasTorqueRemote = true;
+              } catch {}
+
               let verifyResult;
-              if (fs.existsSync(scriptPath)) {
-                // Route through test runner — respects test station config
+              if (hasTorqueRemote) {
                 verifyResult = executeValidatedCommandSync(
-                  'bash',
-                  [scriptPath, args.verify_command],
+                  'torque-remote',
+                  [args.verify_command],
                   {
                     profile: 'safe_verify',
                     source: 'await_task',
