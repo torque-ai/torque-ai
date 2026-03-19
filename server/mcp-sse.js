@@ -1290,6 +1290,24 @@ async function handleHttpRequest(req, res) {
     if (!existingSession) {
       sessions.set(sessionId, session);
       addSessionToTaskSubscriptions(sessionId, session.taskFilter);
+
+      // Auto-register session as coordination agent
+      try {
+        const coord = require('./db/coordination');
+        coord.registerAgent({
+          id: sessionId,
+          name: 'claude-code@unknown',
+          agent_type: 'mcp-session',
+          capabilities: ['submit', 'await', 'workflow'],
+          max_concurrent: 10,
+          priority: 0,
+          metadata: { transport: 'sse', connected_at: new Date().toISOString() },
+        });
+        coord.recordCoordinationEvent('session_connected', sessionId, null, null);
+      } catch (e) {
+        // Non-fatal — coordination is additive
+      }
+
       debugLog(`Session connected: ${sessionId} (${sessions.size} active)${restored ? ' [restored]' : ''}`, {
         requestId,
         sessionId,
@@ -1360,6 +1378,15 @@ async function handleHttpRequest(req, res) {
           if (aggrBuf.timer) clearTimeout(aggrBuf.timer);
           aggregationBuffers.delete(sessionId);
         }
+        // Mark coordination agent offline
+        try {
+          const coord = require('./db/coordination');
+          coord.updateAgent(sessionId, { status: 'offline' });
+          coord.recordCoordinationEvent('session_disconnected', sessionId, null, null);
+        } catch (e) {
+          // Non-fatal
+        }
+
         debugLog(`Session disconnected: ${sessionId} (${sessions.size} active)`, {
           requestId,
           sessionId,
@@ -1477,9 +1504,25 @@ function start(options = {}) {
       tools: TOOLS,
       coreToolNames: Array.isArray(CORE_TOOL_NAMES) ? CORE_TOOL_NAMES : [...CORE_TOOL_NAMES],
       extendedToolNames: Array.isArray(EXTENDED_TOOL_NAMES) ? EXTENDED_TOOL_NAMES : [...EXTENDED_TOOL_NAMES],
-      handleToolCall: async (name, args, _session) => {
-        // Pass shutdown signal so blocking handlers can return early
-        const argsWithSignal = { ...args, __shutdownSignal: shutdownAbort ? shutdownAbort.signal : undefined };
+      handleToolCall: async (name, args, session) => {
+        const argsWithSignal = {
+          ...args,
+          __shutdownSignal: shutdownAbort ? shutdownAbort.signal : undefined,
+          __sessionId: session?.id || null,
+        };
+
+        // Lazy agent name update on first tool call with working_directory
+        if (args.working_directory && session && !session._nameUpdated) {
+          try {
+            const projectName = require('path').basename(args.working_directory);
+            const coord = require('./db/coordination');
+            coord.updateAgent(session.id, { name: `claude-code@${projectName}` });
+            session._nameUpdated = true;
+          } catch (e) {
+            // Non-fatal
+          }
+        }
+
         return handleToolCall(name, argsWithSignal);
       },
       onInitialize: (session) => {
