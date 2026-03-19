@@ -513,6 +513,9 @@ function init() {
     // Enforce foreign key constraints (off by default in SQLite)
     db.pragma('foreign_keys = ON');
 
+    // Inject DB into config-core early (before applySchema/seedDefaults needs setConfigDefault)
+    configCore.setDb(db);
+
     // Schema definitions (extracted to db/schema.js)
     const { applySchema } = require('./db/schema');
     applySchema(db, { safeAddColumn, getConfig, setConfig, setConfigDefault, DATA_DIR });
