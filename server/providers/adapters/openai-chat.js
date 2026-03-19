@@ -30,6 +30,7 @@ const https = require('https');
  * @param {string}      params.host        - Provider base URL (e.g. "https://api.groq.com")
  * @param {string}      params.apiKey      - Bearer API key (required — throws if absent)
  * @param {string}      params.model       - Model name (e.g. "llama-3.3-70b-versatile")
+ * @param {string}      [params.providerName] - Provider key for quota header capture
  * @param {Array}       params.messages    - Chat messages array ({ role, content })
  * @param {Array}       [params.tools]     - Tool definitions (omitted when empty/null)
  * @param {Object}      [params.options]   - Generation options (temperature, etc.)
@@ -42,7 +43,7 @@ const https = require('https');
  *   usage:   { prompt_tokens: number, completion_tokens: number }
  * }>}
  */
-function chatCompletion({ host, apiKey, model, messages, tools, options, timeoutMs, onChunk, signal }) {
+function chatCompletion({ host, apiKey, model, providerName, messages, tools, options, timeoutMs, onChunk, signal }) {
   if (!apiKey) {
     return Promise.reject(new Error('API key required for OpenAI-compatible provider'));
   }
@@ -96,6 +97,13 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
         });
 
         res.on('end', () => {
+          try {
+            if (providerName) {
+              const { getQuotaStore } = require('../../db/provider-quotas');
+              getQuotaStore().updateFromHeaders(providerName, res.headers);
+            }
+          } catch {}
+
           try {
             if (!useStreaming) {
               // Non-streaming: parse single JSON response

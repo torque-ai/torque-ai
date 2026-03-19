@@ -1974,6 +1974,7 @@ const ROUTE_HANDLER_LOOKUP = {
   handleGetFreeTierStatus,
   handleGetFreeTierHistory,
   handleGetFreeTierAutoScale,
+  handleGetProviderQuotas,
   // V2 Control-Plane: Tasks
   handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
   handleV2CpListTasks: v2TaskHandlers.handleListTasks,
@@ -2170,6 +2171,15 @@ async function handleGetFreeTierStatus(_req, res, _context = {}) {
     sendJson(res, { status: 'ok', providers: tracker.getStatus() }, 200, _req);
   } catch (err) {
     sendJson(res, { error: err.message }, 500, _req);
+  }
+}
+
+async function handleGetProviderQuotas(req, res, _context = {}) {
+  try {
+    const quotas = require('./db/provider-quotas').getQuotaStore().getAllQuotas();
+    sendJson(res, quotas, 200, req);
+  } catch (err) {
+    sendJson(res, { error: err.message }, 500, req);
   }
 }
 

@@ -63,7 +63,18 @@ class CerebrasProvider extends BaseProvider {
         signal: controller.signal,
       });
 
+      try {
+        const { getQuotaStore } = require('../db/provider-quotas');
+        getQuotaStore().updateFromHeaders('cerebras', response.headers);
+      } catch {}
+
       if (!response.ok) {
+        if (response.status === 429) {
+          try {
+            const { getQuotaStore } = require('../db/provider-quotas');
+            getQuotaStore().record429('cerebras');
+          } catch {}
+        }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
         throw new Error(buildErrorMessage('Cerebras', response.status, errorBody, retryAfterSeconds));
@@ -144,7 +155,18 @@ class CerebrasProvider extends BaseProvider {
         signal: controller.signal,
       });
 
+      try {
+        const { getQuotaStore } = require('../db/provider-quotas');
+        getQuotaStore().updateFromHeaders('cerebras', response.headers);
+      } catch {}
+
       if (!response.ok) {
+        if (response.status === 429) {
+          try {
+            const { getQuotaStore } = require('../db/provider-quotas');
+            getQuotaStore().record429('cerebras');
+          } catch {}
+        }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
         throw new Error(buildErrorMessage('Cerebras streaming', response.status, errorBody, retryAfterSeconds));

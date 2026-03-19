@@ -59,7 +59,18 @@ class GroqProvider extends BaseProvider {
         signal: controller.signal,
       });
 
+      try {
+        const { getQuotaStore } = require('../db/provider-quotas');
+        getQuotaStore().updateFromHeaders('groq', response.headers);
+      } catch {}
+
       if (!response.ok) {
+        if (response.status === 429) {
+          try {
+            const { getQuotaStore } = require('../db/provider-quotas');
+            getQuotaStore().record429('groq');
+          } catch {}
+        }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
         throw new Error(buildErrorMessage('Groq', response.status, errorBody, retryAfterSeconds));
@@ -146,7 +157,18 @@ class GroqProvider extends BaseProvider {
         signal: controller.signal,
       });
 
+      try {
+        const { getQuotaStore } = require('../db/provider-quotas');
+        getQuotaStore().updateFromHeaders('groq', response.headers);
+      } catch {}
+
       if (!response.ok) {
+        if (response.status === 429) {
+          try {
+            const { getQuotaStore } = require('../db/provider-quotas');
+            getQuotaStore().record429('groq');
+          } catch {}
+        }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
         throw new Error(buildErrorMessage('Groq streaming', response.status, errorBody, retryAfterSeconds));

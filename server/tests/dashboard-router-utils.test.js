@@ -490,6 +490,7 @@ describe('dashboard/router', () => {
       ['GET', '/api/tasks', 'tasks', 'handleListTasks', true],
       ['GET', '/api/tasks/task-1/diff', 'tasks', 'handleTaskDiff', true],
       ['POST', '/api/providers/openai/toggle', 'infrastructure', 'handleProviderToggle', true],
+      ['GET', '/api/provider-quotas', 'infrastructure', 'handleProviderQuotas', false],
       ['GET', '/api/hosts/activity', 'infrastructure', 'handleHostActivity', false],
       ['GET', '/api/workflows/wf-1/history', 'analytics', 'handleGetWorkflowHistory', true],
       ['POST', '/api/plan-projects/import', 'admin', 'handleImportPlanApi', true],

@@ -473,6 +473,18 @@ function handleListProviders(req, res, query) {
 }
 
 /**
+ * GET /api/provider-quotas - Current in-memory provider quota state
+ */
+function handleProviderQuotas(req, res) {
+  try {
+    const quotas = require('../../db/provider-quotas').getQuotaStore().getAllQuotas();
+    sendJson(res, quotas);
+  } catch (err) {
+    sendError(res, err.message, 500);
+  }
+}
+
+/**
  * GET /api/providers/:id/stats - Provider statistics
  */
 function handleProviderStats(req, res, query, providerId) {
@@ -963,6 +975,7 @@ module.exports = {
   handleDeleteHost,
   // Providers
   handleListProviders,
+  handleProviderQuotas,
   handleProviderStats,
   handleProviderPercentiles,
   handleProviderTrends,

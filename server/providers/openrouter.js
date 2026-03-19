@@ -123,7 +123,18 @@ class OpenRouterProvider extends BaseProvider {
         signal: controller.signal,
       });
 
+      try {
+        const { getQuotaStore } = require('../db/provider-quotas');
+        getQuotaStore().updateFromHeaders('openrouter', response.headers);
+      } catch {}
+
       if (!response.ok) {
+        if (response.status === 429) {
+          try {
+            const { getQuotaStore } = require('../db/provider-quotas');
+            getQuotaStore().record429('openrouter');
+          } catch {}
+        }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
         let message = `OpenRouter API error (${response.status}): ${errorBody}`;
@@ -189,7 +200,18 @@ class OpenRouterProvider extends BaseProvider {
         signal: controller.signal,
       });
 
+      try {
+        const { getQuotaStore } = require('../db/provider-quotas');
+        getQuotaStore().updateFromHeaders('openrouter', response.headers);
+      } catch {}
+
       if (!response.ok) {
+        if (response.status === 429) {
+          try {
+            const { getQuotaStore } = require('../db/provider-quotas');
+            getQuotaStore().record429('openrouter');
+          } catch {}
+        }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
         let message = `OpenRouter streaming error (${response.status}): ${errorBody}`;

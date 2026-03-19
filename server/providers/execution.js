@@ -348,7 +348,7 @@ function spawnAgenticWorker(config, callbacks = {}) {
  * @param {Object} params.adapter - Chat adapter
  * @param {string} params.systemPrompt - Full system prompt (already built)
  * @param {Object} params.task - Task record
- * @param {Object} params.adapterOptions - Options to pass to adapter (host, apiKey, model, plus tuning)
+ * @param {Object} params.adapterOptions - Options to pass to adapter (host, apiKey, model, providerName, plus tuning)
  * @param {string} params.workingDir - Working directory
  * @param {number} params.timeoutMs - Timeout in ms
  * @param {number} params.maxIterations - Max loop iterations
@@ -619,6 +619,7 @@ async function executeOllamaTaskWithAgentic(task) {
       adapterOptions: {
         host: ollamaHost,
         apiKey: resolveApiKey(provider),
+        providerName: provider,
         model: resolvedModel,
         ...tuningOptions,
       },
@@ -852,6 +853,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           adapterOptions: {
             host: PROVIDER_HOST_MAP[entry.provider] || '',
             apiKey: resolveApiKey(entry.provider),
+            providerName: entry.provider,
             model: entry.model || PROVIDER_DEFAULT_MODEL[entry.provider] || '',
             temperature: 0.3,
           },
@@ -891,6 +893,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         adapterOptions: {
           host,
           apiKey,
+          providerName: provider,
           model,
           temperature: 0.3,
         },

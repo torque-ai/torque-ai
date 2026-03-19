@@ -7,6 +7,9 @@ const CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
 const DATABASE_MODULE_PATH = require.resolve('../database');
 const CONFIG_MODULE_PATH = require.resolve('../config');
+const CATEGORY_CLASSIFIER_MODULE_PATH = require.resolve('../routing/category-classifier');
+const TEMPLATE_STORE_MODULE_PATH = require.resolve('../routing/template-store');
+const PROVIDER_QUOTAS_MODULE_PATH = require.resolve('../db/provider-quotas');
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -321,6 +324,9 @@ function resetModuleCache() {
   delete require.cache[LOGGER_MODULE_PATH];
   delete require.cache[DATABASE_MODULE_PATH];
   delete require.cache[CONFIG_MODULE_PATH];
+  delete require.cache[CATEGORY_CLASSIFIER_MODULE_PATH];
+  delete require.cache[TEMPLATE_STORE_MODULE_PATH];
+  delete require.cache[PROVIDER_QUOTAS_MODULE_PATH];
 }
 
 function loadCore(overrides = {}) {
@@ -347,6 +353,9 @@ function loadCore(overrides = {}) {
   const serverConfigMock = require('../config');
   serverConfigMock.init({ db });
   installCjsModuleMock('../config', serverConfigMock);
+  for (const [modulePath, exportsValue] of Object.entries(overrides.moduleMocks || {})) {
+    installCjsModuleMock(modulePath, exportsValue);
+  }
 
   const core = require('../db/provider-routing-core');
   core.setDb(db);
@@ -864,6 +873,59 @@ describe('provider-routing-core', () => {
 
       expect(result.provider).toBe('claude-cli');
       expect(result.reason).toContain("Matched extension rule 'enabled-ext'");
+    });
+
+    it('skips quota-exhausted providers in active template fallback chains', () => {
+      const { createQuotaStore } = require('../db/provider-quotas');
+      const quotaStore = createQuotaStore();
+      quotaStore.updateFromHeaders('cerebras', {
+        'x-ratelimit-limit-requests': '30',
+        'x-ratelimit-remaining-requests': '0',
+      });
+
+      const activeTemplate = { id: 'tmpl-1', name: 'Quota Template' };
+      const categoryClassifierMock = {
+        classify: vi.fn(() => 'backend'),
+      };
+      const templateStoreMock = {
+        getExplicitActiveTemplateId: vi.fn(() => activeTemplate.id),
+        getTemplate: vi.fn((templateId) => (templateId === activeTemplate.id ? activeTemplate : null)),
+        resolveProvider: vi.fn(() => ({
+          provider: 'groq',
+          model: null,
+          chain: [
+            { provider: 'groq', model: null },
+            { provider: 'cerebras', model: 'cerebras/llama-4-scout' },
+            { provider: 'openrouter', model: 'openrouter/auto' },
+          ],
+        })),
+      };
+
+      const { core, loggerChild } = loadCore({
+        db: {
+          providers: {
+            groq: { enabled: 0 },
+            cerebras: { enabled: 1, priority: 45 },
+            openrouter: { enabled: 1, priority: 46 },
+          },
+          rules: [],
+        },
+        moduleMocks: {
+          '../routing/category-classifier': categoryClassifierMock,
+          '../routing/template-store': templateStoreMock,
+          '../db/provider-quotas': { getQuotaStore: () => quotaStore },
+        },
+      });
+
+      const result = core.analyzeTaskForRouting('Investigate provider failover path', 'C:/repo');
+
+      expect(result).toMatchObject({
+        provider: 'openrouter',
+        model: 'openrouter/auto',
+      });
+      expect(result.reason).toContain("Template 'Quota Template': backend -> groq (unavailable), chain fallback -> openrouter");
+      expect(loggerChild.info).toHaveBeenCalledWith('[SmartRouting] Skipping cerebras — quota exhausted');
+      expect(templateStoreMock.resolveProvider).toHaveBeenCalledWith(activeTemplate, 'backend', 'normal');
     });
 
     it('uses the smart routing default provider when no rule matches', () => {

@@ -28,6 +28,16 @@ try {
   templateStore = null;
 }
 
+let _quotaStore = null;
+function getQuotaStoreIfAvailable() {
+  if (!_quotaStore) {
+    try {
+      _quotaStore = require('./provider-quotas').getQuotaStore();
+    } catch {}
+  }
+  return _quotaStore;
+}
+
 // Health check timeout for Ollama connectivity probe (matches constants.js TASK_TIMEOUTS.HEALTH_CHECK)
 const OLLAMA_HEALTH_CHECK_TIMEOUT_MS = 5000;
 
@@ -510,6 +520,11 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
             const fb = resolved.chain[i];
             const fbConfig = getProvider(fb.provider);
             if (fbConfig && fbConfig.enabled) {
+              const qs = getQuotaStoreIfAvailable();
+              if (qs && qs.isExhausted(fb.provider)) {
+                logger.info('[SmartRouting] Skipping ' + fb.provider + ' — quota exhausted');
+                continue;
+              }
               return maybeApplyFallback({
                 provider: fb.provider, model: fb.model, chain: resolved.chain,
                 rule: null, complexity,
@@ -555,6 +570,11 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
             const entry = resolved.chain[i];
             const entryConfig = getProvider(entry.provider);
             if (entryConfig && entryConfig.enabled) {
+              const qs = getQuotaStoreIfAvailable();
+              if (qs && qs.isExhausted(entry.provider)) {
+                logger.info('[SmartRouting] Skipping ' + entry.provider + ' — quota exhausted');
+                continue;
+              }
               return maybeApplyFallback({
                 provider: entry.provider,
                 model: entry.model || null,

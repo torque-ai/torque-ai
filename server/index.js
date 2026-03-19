@@ -156,6 +156,12 @@ let errorRateCleanupInterval = null;
 // P91: Periodic queue processing interval (safety net for stuck tasks)
 let queueProcessingInterval = null;
 
+const PROVIDER_QUOTA_INFERENCE_INTERVAL_MS = 5 * 60 * 1000;
+const PROVIDER_QUOTA_INFERENCE_LIMITS = Object.freeze({
+  'google-ai': { rpm: 15 },
+});
+let providerQuotaInferenceInterval = null;
+
 // Stdio heartbeat interval — keeps MCP connection alive during long idle periods
 let stdioHeartbeatInterval = null;
 
@@ -336,6 +342,10 @@ async function gracefulShutdown(signal) {
       if (queueProcessingInterval) {
         clearInterval(queueProcessingInterval);
         queueProcessingInterval = null;
+      }
+      if (providerQuotaInferenceInterval) {
+        clearInterval(providerQuotaInferenceInterval);
+        providerQuotaInferenceInterval = null;
       }
       // Clean up stdio heartbeat
       if (stdioHeartbeatInterval) {
@@ -677,6 +687,9 @@ function init() {
   // Start coordination scheduler (agent health, lease expiry, lock cleanup)
   startCoordinationScheduler();
 
+  // Refresh quota state for providers that do not expose rate-limit headers.
+  startProviderQuotaInferenceTimer();
+
   // Auto-start dashboard (doesn't open browser automatically)
   const dashboardPort = serverConfig.getInt('dashboard_port', 3456);
   dashboard.start({ port: dashboardPort, openBrowser: false, taskManager }).then(dashResult => {
@@ -971,6 +984,53 @@ function startCoordinationScheduler() {
     }
   }, 300000);
   coordinationLockInterval.unref();
+}
+
+function runProviderQuotaInferenceCycle() {
+  const quotaStore = require('./db/provider-quotas').getQuotaStore();
+  const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
+  if (!rawDb || typeof rawDb.prepare !== 'function') return;
+
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const tokenRow = rawDb
+    .prepare('SELECT SUM(total_tokens) as total FROM token_usage WHERE recorded_at > ?')
+    .get(hourAgo);
+  const tokensLastHour = Number(tokenRow?.total) || 0;
+
+  for (const [provider, limits] of Object.entries(PROVIDER_QUOTA_INFERENCE_LIMITS)) {
+    const existing = quotaStore.getQuota(provider);
+    if (existing && existing.source === 'headers') continue;
+
+    const tasks = db.listTasks({ provider, from_date: hourAgo, status: 'completed', limit: 1000 });
+    const taskList = Array.isArray(tasks) ? tasks : (tasks?.tasks || []);
+
+    quotaStore.updateFromInference(provider, {
+      tasksLastHour: taskList.length,
+      tokensLastHour,
+    }, limits);
+  }
+}
+
+function startProviderQuotaInferenceTimer() {
+  if (providerQuotaInferenceInterval) {
+    clearInterval(providerQuotaInferenceInterval);
+    providerQuotaInferenceInterval = null;
+  }
+
+  try {
+    runProviderQuotaInferenceCycle();
+  } catch (err) {
+    debugLog(`[Quota Inference] ${err.message}`);
+  }
+
+  providerQuotaInferenceInterval = setInterval(() => {
+    try {
+      runProviderQuotaInferenceCycle();
+    } catch (err) {
+      debugLog(`[Quota Inference] ${err.message}`);
+    }
+  }, PROVIDER_QUOTA_INFERENCE_INTERVAL_MS);
+  providerQuotaInferenceInterval.unref();
 }
 
 /**
@@ -1456,9 +1516,13 @@ const _testing = {
   startPidHeartbeat,
   stopPidHeartbeat,
   getPidHeartbeatInterval: () => pidHeartbeatInterval,
+  getProviderQuotaInferenceInterval: () => providerQuotaInferenceInterval,
   PID_FILE,
   PID_HEARTBEAT_INTERVAL_MS,
   PID_HEARTBEAT_STALE_MS,
+  PROVIDER_QUOTA_INFERENCE_INTERVAL_MS,
+  runProviderQuotaInferenceCycle,
+  startProviderQuotaInferenceTimer,
   getMcpPlatform: () => mcpPlatform,
   resetForTest() {
     stopPidHeartbeat();
@@ -1477,6 +1541,10 @@ const _testing = {
     if (queueProcessingInterval) {
       clearInterval(queueProcessingInterval);
       queueProcessingInterval = null;
+    }
+    if (providerQuotaInferenceInterval) {
+      clearInterval(providerQuotaInferenceInterval);
+      providerQuotaInferenceInterval = null;
     }
     if (stdioHeartbeatInterval) {
       clearInterval(stdioHeartbeatInterval);
@@ -1519,6 +1587,7 @@ module.exports = {
   init,
   startMaintenanceScheduler,
   startCoordinationScheduler,
+  startProviderQuotaInferenceTimer,
   getAutoArchiveStatuses,
   getAgentRegistry,
   _testing,

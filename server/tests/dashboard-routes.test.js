@@ -208,6 +208,7 @@ describe('dashboard/router', () => {
     const endpointExamples = [
       ['GET', '/api/tasks'],
       ['GET', '/api/providers'],
+      ['GET', '/api/provider-quotas'],
       ['GET', '/api/stats/overview'],
       ['GET', '/api/hosts'],
       ['GET', '/api/workflows'],

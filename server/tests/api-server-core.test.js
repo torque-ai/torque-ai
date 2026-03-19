@@ -568,6 +568,27 @@ describe('captured request handler dispatch', () => {
     expect(response.statusCode).toBe(200);
   });
 
+  it('returns provider quota data for GET /api/provider-quotas', async () => {
+    const quotaStore = require('../db/provider-quotas').getQuotaStore();
+    quotaStore.updateFromInference('google-ai', { tasksLastHour: 4, tokensLastHour: 120 }, { rpm: 15 });
+
+    const response = await dispatchRequest(requestHandler, {
+      method: 'GET',
+      url: '/api/provider-quotas',
+    });
+
+    expect(handleToolCallSpy).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(200);
+    expect(parseJsonBody(response)).toEqual(expect.objectContaining({
+      'google-ai': expect.objectContaining({
+        source: 'inference',
+        limits: expect.objectContaining({
+          rpm: expect.objectContaining({ limit: 15, remaining: 11 }),
+        }),
+      }),
+    }));
+  });
+
   it('serves the generated OpenAPI spec without invoking tool dispatch', async () => {
     const response = await dispatchRequest(requestHandler, {
       method: 'GET',

@@ -71,7 +71,108 @@ function Sparkline({ data, color, width = 80, height = 24 }) {
   );
 }
 
-function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency, onSetApiKey, onClearApiKey }) {
+function formatQuotaDisplay(value, limit) {
+  if (value == null || limit == null) return '?/?';
+  if (limit >= 10000) {
+    return `${Math.round(value / 1000)}K/${Math.round(limit / 1000)}K`;
+  }
+  return `${value}/${limit}`;
+}
+
+function getQuotaPercent(remaining, limit) {
+  if (remaining == null || !limit) return 0;
+  return Math.max(0, Math.min(100, Math.round((remaining / limit) * 100)));
+}
+
+function getQuotaColorClass(percent) {
+  if (percent > 50) return 'bg-green-500';
+  if (percent >= 10) return 'bg-yellow-500';
+  return 'bg-red-500';
+}
+
+function formatResetCountdown(resetsAt) {
+  if (!resetsAt) return 'unknown';
+  const resetMs = new Date(resetsAt).getTime() - Date.now();
+  if (!Number.isFinite(resetMs)) return 'unknown';
+  if (resetMs <= 0) return '0s';
+  const totalSeconds = Math.ceil(resetMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0 && seconds > 0) return `${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
+function formatUpdatedAgo(lastUpdated) {
+  if (!lastUpdated) return 'never';
+  const diffSeconds = Math.max(0, Math.round((Date.now() - new Date(lastUpdated).getTime()) / 1000));
+  if (!Number.isFinite(diffSeconds)) return 'never';
+  return `${diffSeconds}s`;
+}
+
+function QuotaBar({ label, remaining, limit }) {
+  if (remaining == null || !limit) return null;
+  const percent = getQuotaPercent(remaining, limit);
+  const colorClass = getQuotaColorClass(percent);
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-8 text-slate-500">{label}</span>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700">
+        <div
+          className={`h-full rounded-full transition-all ${colorClass}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <span className="w-20 text-right tabular-nums text-slate-400">
+        {formatQuotaDisplay(remaining, limit)}
+      </span>
+    </div>
+  );
+}
+
+function QuotaStatusBadge({ quota }) {
+  if (!quota) {
+    return (
+      <span
+        className="h-2.5 w-2.5 rounded-full bg-slate-500"
+        title="No quota data"
+        aria-label="No quota data"
+      />
+    );
+  }
+
+  const status = quota?.status || 'gray';
+  const bgColor = {
+    green: 'bg-green-500',
+    yellow: 'bg-yellow-500',
+    red: 'bg-red-500',
+    gray: 'bg-slate-500',
+  }[status] || 'bg-slate-500';
+
+  const tooltipLines = [];
+  if (quota?.limits?.rpm) {
+    tooltipLines.push(`RPM: ${formatQuotaDisplay(quota.limits.rpm.remaining, quota.limits.rpm.limit)}`);
+  }
+  if (quota?.limits?.tpm) {
+    tooltipLines.push(`TPM: ${formatQuotaDisplay(quota.limits.tpm.remaining, quota.limits.tpm.limit)}`);
+  }
+  if (quota?.limits?.daily) {
+    tooltipLines.push(`Day: ${formatQuotaDisplay(quota.limits.daily.remaining, quota.limits.daily.limit)}`);
+  }
+  const resetAt = quota?.limits?.rpm?.resetsAt || quota?.limits?.tpm?.resetsAt || quota?.limits?.daily?.resetsAt;
+  tooltipLines.push(`Reset: ${formatResetCountdown(resetAt)}`);
+  const tooltip = tooltipLines.length > 0 ? tooltipLines.join('\n') : 'No quota data';
+
+  return (
+    <span
+      className={`h-2.5 w-2.5 rounded-full ${bgColor}`}
+      title={tooltip}
+      aria-label={tooltip}
+    />
+  );
+}
+
+function ProviderCard({ provider, quota, sparkData, onToggle, onUpdateConcurrency, onSetApiKey, onClearApiKey }) {
   const color = getProviderColor(provider.provider);
   const dailyCounts = sparkData?.map((d) => d[provider.provider] || 0) || [];
   const [showKeyInput, setShowKeyInput] = useState(false);
@@ -80,6 +181,9 @@ function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency, onSe
   const isCloudProvider = CLOUD_API_PROVIDERS.has(provider.provider) ||
     provider.provider_type === 'cloud-api' || provider.provider_type === 'custom';
   const envVarName = ENV_VAR_NAMES[provider.provider] || '';
+  const hasQuotaData = Boolean(
+    quota && (quota.limits?.rpm?.limit || quota.limits?.tpm?.limit || quota.limits?.daily?.limit)
+  );
 
   return (
     <div className="glass-card p-5 card-hover">
@@ -87,6 +191,7 @@ function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency, onSe
         <div className="flex items-center gap-3">
           <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
           <h3 className="text-lg font-semibold text-white">{provider.provider}</h3>
+          <QuotaStatusBadge quota={quota} />
           <Sparkline data={dailyCounts} color={color} />
         </div>
         <button
@@ -134,6 +239,16 @@ function ProviderCard({ provider, sparkData, onToggle, onUpdateConcurrency, onSe
           </p>
         </div>
       </div>
+      {hasQuotaData && (
+        <div className="mt-3 space-y-1.5">
+          <QuotaBar label="RPM" remaining={quota.limits?.rpm?.remaining} limit={quota.limits?.rpm?.limit} />
+          <QuotaBar label="TPM" remaining={quota.limits?.tpm?.remaining} limit={quota.limits?.tpm?.limit} />
+          <QuotaBar label="Day" remaining={quota.limits?.daily?.remaining} limit={quota.limits?.daily?.limit} />
+          <p className="text-[10px] text-slate-600">
+            Updated {formatUpdatedAgo(quota.lastUpdated)}{quota.lastUpdated ? ' ago' : ''} ({quota.source || 'unknown'})
+          </p>
+        </div>
+      )}
       <div className="flex items-center gap-2 mt-3">
         <span className="text-xs text-slate-400">Max Concurrent:</span>
         <input
@@ -243,6 +358,7 @@ export default function Providers({ statsVersion, tasksTick }) {
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
   const [codexExhausted, setCodexExhausted] = useState(false);
+  const [quotas, setQuotas] = useState({});
   const addToast = useToast();
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [newProvider, setNewProvider] = useState({ name: '', provider_type: 'cloud-api', api_base_url: '', max_concurrent: 3 });
@@ -273,12 +389,13 @@ export default function Providers({ statsVersion, tasksTick }) {
   const loadData = useCallback(async () => {
     if (!mountedRef.current) return;
     try {
-      const [providersData, timeSeriesData, hostsData, trendsData, codexCfg] = await Promise.all([
+      const [providersData, timeSeriesData, hostsData, trendsData, codexCfg, quotaData] = await Promise.all([
         providersApi.list(),
         statsApi.timeseries({ days }),
         hostsApi.list().catch(() => []),
         providersApi.trends(days).catch(() => null),
         requestV2('/config/codex_exhausted').catch(() => null),
+        requestV2('/provider-quotas').catch(() => ({})),
       ]);
       if (!mountedRef.current) return;
       setProvidersList(providersData);
@@ -286,6 +403,7 @@ export default function Providers({ statsVersion, tasksTick }) {
       setHostCount(Array.isArray(hostsData) ? hostsData.length : 0);
       setTrends(trendsData);
       setCodexExhausted(codexCfg?.value === '1' || codexCfg === '1');
+      setQuotas(quotaData && typeof quotaData === 'object' ? quotaData : {});
     } catch (err) {
       if (!mountedRef.current) return;
       console.error('Failed to load provider data:', err);
@@ -593,6 +711,7 @@ export default function Providers({ statsVersion, tasksTick }) {
                   <ProviderCard
                     key={provider.provider}
                     provider={provider}
+                    quota={quotas[provider.provider]}
                     sparkData={timeSeries}
                     onToggle={handleToggle}
                     onUpdateConcurrency={handleUpdateConcurrency}
