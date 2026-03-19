@@ -331,3 +331,108 @@ describe('clearPartialOutputBuffer', () => {
     expect(() => mod.clearPartialOutputBuffer('nonexistent-task-id')).not.toThrow();
   });
 });
+
+// ============================================================
+// Phase 2 Task 4: End-to-end integration tests
+// ============================================================
+
+describe('end-to-end integration', () => {
+  test('streaming chunks appear in tasks.partial_output after flush', () => {
+    vi.useFakeTimers();
+    try {
+      const taskId = `e2e-task-1-${randomUUID()}`;
+      makeTask(taskId);
+
+      // Create a stream for the task
+      const streamId = mod.getOrCreateTaskStream(taskId, 'output');
+
+      // Add multiple chunks (no flush yet — under 10s threshold)
+      mod.addStreamChunk(streamId, 'chunk-one\n');
+      mod.addStreamChunk(streamId, 'chunk-two\n');
+      mod.addStreamChunk(streamId, 'chunk-three\n');
+
+      // Advance time past the 10 second flush threshold
+      vi.advanceTimersByTime(11000);
+
+      // Add another chunk to trigger the flush check
+      mod.addStreamChunk(streamId, 'chunk-four\n');
+
+      // Read partial_output directly from the DB
+      const output = getPartialOutputFromDb(taskId);
+      expect(output).not.toBeNull();
+      expect(output).toContain('chunk-one');
+      expect(output).toContain('chunk-two');
+      expect(output).toContain('chunk-three');
+      expect(output).toContain('chunk-four');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('completion pipeline clears partial_output to NULL', () => {
+    const taskId = `e2e-task-2-${randomUUID()}`;
+    makeTask(taskId);
+
+    const streamId = mod.getOrCreateTaskStream(taskId, 'output');
+
+    // Add chunks and force a flush by calling clearPartialOutputBuffer
+    // (which itself does a final flush before NULLing)
+    mod.addStreamChunk(streamId, 'pre-completion-data\n');
+
+    // Verify buffer has content before clear
+    expect(mod.getPartialOutputBuffer(taskId)).toContain('pre-completion-data');
+
+    // Force a manual flush so partial_output is populated in DB before we clear
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(11000);
+      mod.addStreamChunk(mod.getOrCreateTaskStream(taskId, 'output'), 'trigger-flush\n');
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // partial_output should now be populated
+    const beforeClear = getPartialOutputFromDb(taskId);
+    expect(beforeClear).not.toBeNull();
+
+    // Simulate completion pipeline: clear partial output buffer
+    mod.clearPartialOutputBuffer(taskId);
+
+    // partial_output should be NULL after completion
+    const afterClear = getPartialOutputFromDb(taskId);
+    expect(afterClear).toBeNull();
+  });
+
+  test('DB fallback lookup when _streamToTask cache misses', () => {
+    const taskId = `e2e-task-3-${randomUUID()}`;
+    makeTask(taskId);
+
+    // Create a stream — this populates _streamToTask and writes to task_streams DB table
+    const streamId = mod.getOrCreateTaskStream(taskId, 'output');
+    expect(mod.getStreamTaskId(streamId)).toBe(taskId);
+
+    // Add a chunk so a buffer entry exists (required for clearPartialOutputBuffer
+    // to delete the _streamToTask entry via entry.streamId)
+    mod.addStreamChunk(streamId, 'initial-chunk\n');
+
+    // Simulate a server restart: clearPartialOutputBuffer evicts the cache entry
+    // (entry.streamId is deleted from _streamToTask). The stream record still
+    // exists in the task_streams DB table, so the DB fallback can recover it.
+    mod.clearPartialOutputBuffer(taskId);
+
+    // Cache should now be empty for this stream
+    expect(mod.getStreamTaskId(streamId)).toBeNull();
+
+    // Add a chunk — addStreamChunk should detect the cache miss and fall back
+    // to querying task_streams in the DB to recover the taskId mapping
+    mod.addStreamChunk(streamId, 'post-restart-chunk\n');
+
+    // The accumulator should have worked: in-memory buffer should contain the chunk
+    const buf = mod.getPartialOutputBuffer(taskId);
+    expect(buf).not.toBeNull();
+    expect(buf).toContain('post-restart-chunk');
+
+    // _streamToTask should have been re-populated by the DB fallback
+    expect(mod.getStreamTaskId(streamId)).toBe(taskId);
+  });
+});
