@@ -15,7 +15,7 @@ but represent opportunities for future cleanup sprints.
 
 ---
 
-## 1. Dead Code (~40 items)
+## 1. Dead Code (~36 items)
 
 | File | Line | Description |
 |------|------|-------------|
@@ -48,10 +48,6 @@ but represent opportunities for future cleanup sprints.
 | `server/api/v2-task-handlers.js` | 416 | `try { db.deleteTask(newTaskId); } catch {}` — same pattern repeated |
 | `server/execution/command-builders.js` | 75 | `buildCodexCommand` defined here AND at `providers/execute-cli.js:163` — two independent implementations |
 | `server/db/analytics.js` | 30 | `safeJsonParse` defined locally — 17th copy (see category 5) |
-| `server/db/file-quality.js` | 40 | `file_extensions LIKE ?` without ESCAPE clause — not exploitable here but inconsistent with other queries |
-| `server/db/file-tracking.js` | 224 | `file_extensions LIKE ?` without ESCAPE clause |
-| `server/db/file-tracking.js` | 374 | Third `file_extensions LIKE ?` without ESCAPE clause |
-| `server/db/coordination.js` | 170 | `capabilities LIKE ?` without ESCAPE clause — parameter constructed as `%"${capability}"%`, user-controlled |
 | `server/logger.js` | 224 | `// TODO: share size counter between parent and child loggers` — acknowledged design flaw |
 | `server/handlers/concurrency-handlers.js` | 60 | `// TODO: replace with db.listProviderConfigs() abstraction` — direct DB query bypassing abstraction |
 | `server/dashboard/dashboard.js` | 4 | Uses `var` throughout (lines 4–30) — pre-ES6 style in an otherwise modern codebase |
@@ -444,7 +440,7 @@ but represent opportunities for future cleanup sprints.
 
 ---
 
-## 11. Minor Error Handling (~30 items)
+## 11. Minor Error Handling (~25 items)
 
 | File | Line | Description |
 |------|------|-------------|
@@ -478,16 +474,11 @@ but represent opportunities for future cleanup sprints.
 | `server/utils/context-enrichment.js` | 585 | `} catch {` — enrichment context build silently fails |
 | `server/utils/context-enrichment.js` | 754 | `} catch {` — large enrichment function has silent catch at end |
 | `server/utils/context-enrichment.js` | 772 | `} catch { continue; }` — loop continues silently on item failure |
-| `server/providers/cerebras.js` | 38 | Missing `signal?.aborted` pre-check — aborted signal ignored |
-| `server/providers/google-ai.js` | 38 | Same missing `signal?.aborted` pre-check |
-| `server/providers/adapters/google-chat.js` | 170 | Non-JSON HTTP error body causes confusing parse error |
-| `server/policy-engine/engine.js` | 4 | Module-load `require()` for adapters — failure crashes engine |
-| `server/contracts/peek.js` | 177 | `loadPeekContractFixture` no error handling for missing file |
 | `bin/torque.js` | 119 | `runHandler` doesn't distinguish error types |
 
 ---
 
-## 12. Minor Resource Leaks (~18 items)
+## 12. Minor Resource Leaks (~10 items)
 
 | File | Line | Description |
 |------|------|-------------|
@@ -501,21 +492,6 @@ but represent opportunities for future cleanup sprints.
 | `server/index.js` | 935 | `coordinationAgentInterval` — same |
 | `server/index.js` | 950 | `coordinationLockInterval` — same |
 | `server/index.js` | 1301 | `stdioHeartbeatInterval` — same |
-| `server/maintenance/orphan-cleanup.js` | 661 | `dotnetCleanupInterval` — cleanup on `stop()` but `stop()` must be explicitly called |
-| `server/maintenance/orphan-cleanup.js` | 669 | `zombieCheckInterval` — 30-second zombie check; same cleanup concern |
-| `server/maintenance/orphan-cleanup.js` | 677 | `stallCheckInterval` — stall check timer; same |
-| `server/hooks/event-dispatch.js` | 350 | `_initialPruneTimer` — `setTimeout` handle stored but not cleared on shutdown |
-| `server/hooks/event-dispatch.js` | 351 | `_pruneTimer` — `setInterval` without cleanup function exported |
-| `server/mcp/index.js` | 1896 | `idempotencyCleanupInterval` — starts on init, no corresponding stop |
-| `server/mcp/index.js` | 1897 | `sessionCleanupInterval` — same |
-| `server/mcp/index.js` | 1905 | `rateLimitCleanupInterval` — same; three intervals in mcp/index.js with no teardown |
-| `server/mcp-sse.js` | 46 | `notificationMetrics` counters grow indefinitely |
-| `server/providers/execution.js` | 609 | Abort handler on signal never removed |
-| `server/utils/git.js` | 56 | `_fingerprintCache` grows unbounded — no eviction |
-| `server/utils/host-monitoring.js` | 700 | `_discoveryInitTimeout` not tracked — not cancelled |
-| `server/hooks/event-dispatch.js` | 363 | `startRetentionPolicy()` at module load starts timers in tests |
-| `server/hooks/event-dispatch.js` | 26 | EventEmitter maxListeners(100) — no cleanup for timed-out listeners |
-| `server/execution/process-lifecycle.js` | 96 | SIGKILL setTimeout never stored — keeps event loop alive |
 
 ---
 
@@ -523,7 +499,7 @@ but represent opportunities for future cleanup sprints.
 
 | Category | Items |
 |----------|-------|
-| Dead code | 46 |
+| Dead code | 42 |
 | Naming inconsistencies | 33 |
 | Missing documentation | 25 |
 | Minor validation gaps | 39 |
@@ -533,6 +509,6 @@ but represent opportunities for future cleanup sprints.
 | Minor performance | 21 |
 | Code smells | 118 |
 | Configuration | 16 |
-| Minor error handling | 36 |
-| Minor resource leaks | 25 |
-| **Total** | **416** |
+| Minor error handling | 31 |
+| Minor resource leaks | 10 |
+| **Total** | **397** |

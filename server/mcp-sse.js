@@ -42,7 +42,10 @@ let shutdownAbort = new AbortController();
 // Monotonic event counter for SSE event IDs (enables replay on reconnect)
 let eventIdCounter = 0;
 
-// Notification delivery metrics
+// Notification delivery metrics — intentionally cumulative over server lifetime.
+// Counters are monotonically increasing integers exposed via /telemetry for
+// operational dashboards. They will not overflow Number.MAX_SAFE_INTEGER in
+// practice (would require ~9 quadrillion deliveries). No periodic reset needed.
 const notificationMetrics = {
   totalDelivered: 0,
   totalDeduplicated: 0,

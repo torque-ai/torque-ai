@@ -387,8 +387,6 @@ const QUEUE_LOCK_HOLDER_ID = `mcp-${process.pid}-${crypto.randomUUID().slice(0, 
 const QUEUE_LOCK_NAME = 'queue_processor';
 const QUEUE_LOCK_LEASE_SECONDS = 30; // Lock expires after 30 seconds if not released
 
-// Secret sanitization constants moved to validation/output-safeguards.js (unused here)
-
 /**
  * SECURITY: Escape a string for safe use as a shell argument
  * Uses single quotes which are the safest shell quoting mechanism
@@ -1152,12 +1150,7 @@ function handleNoFileChangeDetection(ctx) {
 // Provider command builders — extracted from startTask dispatch
 // ──────────────────────────────────────────────────────────────
 
-/* ---- REMOVED: buildAiderCommand body (179 lines) + configureAiderHost body (126 lines) ----
- * Full implementations now in providers/aider-command.js
- * Original line range: ~2019-2333 of pre-Phase-7 task-manager.js
- * ---- */
-
-// KEEP: buildClaudeCliCommand and buildCodexCommand stay here (too small to extract)
+// buildClaudeCliCommand and buildCodexCommand delegated to execution/command-builders.js
 
 /**
  * Build claude-cli CLI command and arguments.
@@ -2164,6 +2157,8 @@ function shutdown(options = {}) {
   hostMonitoring.stopTimers();
   stopInstanceHeartbeat();
   // healthCheckStartup now managed by hostMonitoring.stopTimers()
+  // Stop event-dispatch retention-policy timers (initial 30s prune + 24h interval)
+  try { require('./hooks/event-dispatch').stopRetentionPolicy(); } catch { /* non-fatal */ }
 }
 
 // Initialize debug lifecycle with DI deps (after startTask and estimateProgress are defined)

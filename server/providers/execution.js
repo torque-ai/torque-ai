@@ -588,6 +588,8 @@ async function executeOllamaTaskWithAgentic(task) {
       }
     } catch { /* ignore */ }
   }, 2000);
+  // Hoisted so the finally block can call removeEventListener for cleanup
+  let origAbortHandler = null;
 
   try {
     logger.info(`[Agentic] Starting Ollama task ${taskId} with model ${resolvedModel} on ${ollamaHost}`);
@@ -656,7 +658,7 @@ async function executeOllamaTaskWithAgentic(task) {
     });
 
     // Wire abort: forward AbortController.abort() → worker abort message
-    const origAbortHandler = () => workerHandle.abort();
+    origAbortHandler = () => workerHandle.abort();
     abortController.signal.addEventListener('abort', origAbortHandler);
 
     const result = await workerHandle.promise;
@@ -693,6 +695,7 @@ async function executeOllamaTaskWithAgentic(task) {
       completed_at: new Date().toISOString(),
     });
   } finally {
+    if (origAbortHandler) abortController.signal.removeEventListener('abort', origAbortHandler);
     clearInterval(cancelCheckInterval);
     clearTimeout(timeoutHandle);
     if (apiAbortControllers) apiAbortControllers.delete(taskId);
@@ -782,6 +785,8 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       }
     } catch { /* ignore */ }
   }, 2000);
+  // Hoisted so the finally block can call removeEventListener for cleanup
+  let origAbortHandler2 = null;
 
   try {
     logger.info(`[Agentic] Starting API task ${taskId} with provider ${provider}, model ${model}`);
@@ -901,8 +906,8 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       }, workerCallbacks);
 
       // Wire abort: forward AbortController.abort() → worker abort message
-      const origAbortHandler = () => workerHandle.abort();
-      abortController.signal.addEventListener('abort', origAbortHandler);
+      origAbortHandler2 = () => workerHandle.abort();
+      abortController.signal.addEventListener('abort', origAbortHandler2);
 
       result = await workerHandle.promise;
 
@@ -940,6 +945,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       completed_at: new Date().toISOString(),
     });
   } finally {
+    if (origAbortHandler2) abortController.signal.removeEventListener('abort', origAbortHandler2);
     clearInterval(cancelCheckInterval);
     clearTimeout(timeoutHandle);
     if (apiAbortControllers2) apiAbortControllers2.delete(taskId);

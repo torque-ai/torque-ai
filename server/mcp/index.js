@@ -1943,8 +1943,35 @@ function stop() {
   });
 }
 
+/**
+ * Alias for stop() — clears all three cleanup intervals
+ * (idempotency, session, and rate-limit) started by start().
+ * Exported separately so callers that only want timer teardown
+ * (e.g. tests or a future partial-shutdown path) don't have to
+ * close the HTTP server.
+ */
+function stopCleanupTimers() {
+  if (idempotencyCleanupInterval) {
+    clearInterval(idempotencyCleanupInterval);
+    idempotencyCleanupInterval = null;
+  }
+  if (sessionCleanupInterval) {
+    clearInterval(sessionCleanupInterval);
+    sessionCleanupInterval = null;
+  }
+  if (eventDataCleanupInterval) {
+    clearInterval(eventDataCleanupInterval);
+    eventDataCleanupInterval = null;
+  }
+  if (rateLimitCleanupInterval) {
+    clearInterval(rateLimitCleanupInterval);
+    rateLimitCleanupInterval = null;
+  }
+}
+
 module.exports = {
   start,
   stop,
+  stopCleanupTimers,
   telemetry,
 };

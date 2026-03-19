@@ -55,6 +55,7 @@ function safeGitExec(args, opts = {}) {
 // of each spawning their own git processes.
 const _fingerprintCache = new Map(); // workingDir → { fingerprint, timestamp }
 const DEFAULT_FINGERPRINT_TTL_MS = 10_000; // 10 seconds
+const MAX_FINGERPRINT_CACHE = 500; // evict oldest entries beyond this limit
 
 /**
  * Parse a single line of `git status --porcelain` output.
@@ -128,6 +129,11 @@ function getWorktreeFingerprint(workingDir, opts = {}) {
     fingerprint += '\n' + status;
   } catch { /* not a git repo */ }
 
+  // Evict oldest entry when cache exceeds limit (Map preserves insertion order)
+  if (_fingerprintCache.size >= MAX_FINGERPRINT_CACHE) {
+    const oldestKey = _fingerprintCache.keys().next().value;
+    _fingerprintCache.delete(oldestKey);
+  }
   _fingerprintCache.set(workingDir, { fingerprint, timestamp: now });
   return fingerprint;
 }

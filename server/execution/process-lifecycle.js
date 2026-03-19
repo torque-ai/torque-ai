@@ -92,8 +92,9 @@ function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
     }
   }
 
-  // Force kill after delay — do NOT clear this timeout, it must fire if SIGTERM is ignored
-  setTimeout(() => {
+  // Force kill after delay — stored so callers may cancel it if the process
+  // exits cleanly before killDelayMs elapses (prevents event-loop hold-open).
+  const sigkillHandle = setTimeout(() => {
     try {
       proc.process.kill('SIGKILL');
     } catch (err) {
@@ -102,6 +103,11 @@ function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
       }
     }
   }, killDelayMs);
+  // Allow tests / process-exit handlers to cancel if the process exits first
+  if (proc.process.once) {
+    proc.process.once('exit', () => clearTimeout(sigkillHandle));
+  }
+  return sigkillHandle;
 }
 
 /**

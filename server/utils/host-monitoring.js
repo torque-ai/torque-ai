@@ -703,8 +703,11 @@ async function findNvidiaSmi() {
  * Runs automatically when module is loaded
  */
 function initializeDiscovery() {
-  // Delay initialization to ensure database is ready
-  const _discoveryInitTimeout = setTimeout(() => {
+  // Delay initialization to ensure database is ready.
+  // Stored at module level so stopTimers() can cancel it if shutdown fires
+  // before the 1-second delay elapses (prevents orphaned interval at exit).
+  discoveryInitTimeout = setTimeout(() => {
+    discoveryInitTimeout = null;
     try {
       if (!serverConfig.getBool('discovery_enabled')) {
         logger.info('[Discovery] Disabled by configuration');
@@ -736,7 +739,7 @@ function initializeDiscovery() {
     }
   }, 1000);
   // unref so test workers can exit; server stays alive via HTTP listeners
-  _discoveryInitTimeout.unref();
+  discoveryInitTimeout.unref();
 }
 
 /**
@@ -747,6 +750,9 @@ function initializeDiscovery() {
 let healthCheckBootstrapTimeout = null;
 let activityPollBootstrapTimeout = null;
 let timersStarted = false;
+// Discovery init timeout — tracked at module level so stopTimers() can cancel it
+// if shutdown fires before the 1-second delay elapses
+let discoveryInitTimeout = null;
 
 /**
  * Start and cache periodic monitoring timers exactly once.
@@ -912,6 +918,8 @@ function stopTimers() {
   // Cancel bootstrap timeouts that haven't fired yet — prevents orphan intervals after shutdown
   if (healthCheckBootstrapTimeout) { clearTimeout(healthCheckBootstrapTimeout); healthCheckBootstrapTimeout = null; }
   if (activityPollBootstrapTimeout) { clearTimeout(activityPollBootstrapTimeout); activityPollBootstrapTimeout = null; }
+  // Cancel discovery init timeout if shutdown fires before the 1-second delay elapses
+  if (discoveryInitTimeout) { clearTimeout(discoveryInitTimeout); discoveryInitTimeout = null; }
   // Remove signal handlers to prevent duplicates on re-start (bug #4)
   if (sigTermHandler) { process.removeListener('SIGTERM', sigTermHandler); sigTermHandler = null; }
   if (sigIntHandler) { process.removeListener('SIGINT', sigIntHandler); sigIntHandler = null; }
