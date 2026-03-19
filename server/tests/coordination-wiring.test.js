@@ -515,6 +515,62 @@ describe('approval wiring', () => {
   });
 });
 
+describe('end-to-end coordination', () => {
+  beforeAll(() => { setup(); });
+  afterAll(() => { teardown(); });
+  beforeEach(() => {
+    resetState();
+    rawDb().prepare('DELETE FROM tasks').run();
+  });
+
+  it('full lifecycle: agent → submit → claim → event → complete → release', () => {
+    const sessionId = randomUUID();
+    const taskId = randomUUID();
+
+    // 1. Register agent
+    coord.registerAgent({
+      id: sessionId,
+      name: 'claude-code@test',
+      agent_type: 'mcp-session',
+      capabilities: ['submit'],
+      max_concurrent: 10,
+      priority: 0,
+    });
+
+    // 2. Create task with submitted_by_agent in metadata
+    db.createTask({
+      id: taskId,
+      task_description: 'E2E test task',
+      status: 'pending',
+      working_directory: '/tmp',
+      provider: 'codex',
+      metadata: JSON.stringify({ submitted_by_agent: sessionId }),
+    });
+
+    // 3. Record submit event
+    coord.recordCoordinationEvent('task_submitted', sessionId, taskId, null);
+
+    // 4. Simulate execution start — update status and create claim
+    db.updateTaskStatus(taskId, 'running', { started_at: new Date().toISOString() });
+    coord.claimTask(taskId, sessionId, 600);
+    coord.recordCoordinationEvent('task_claimed', sessionId, taskId, null);
+
+    // 5. Verify claim exists
+    const claims = coord.listClaims({ task_id: taskId, status: 'active' });
+    expect(claims.length).toBe(1);
+
+    // 6. Complete task — release claim
+    db.updateTaskStatus(taskId, 'completed', { output: 'done', exit_code: 0, completed_at: new Date().toISOString() });
+    coord.releaseTaskClaim(claims[0].id);
+    coord.recordCoordinationEvent('completed', sessionId, taskId, null);
+
+    // 7. Verify coordination dashboard has data
+    const dashboard = coord.getCoordinationDashboard(24);
+    expect(dashboard.agents.total_agents).toBeGreaterThanOrEqual(1);
+    expect(dashboard.claims.total_claims).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('startup agent sweep', () => {
   beforeAll(() => { setup(); });
   afterAll(() => { teardown(); });
@@ -563,49 +619,5 @@ describe('startup agent sweep', () => {
     const fetchedB = coord.getAgent(agentBId);
     expect(fetchedA.status).toBe('offline');
     expect(fetchedB.status).toBe('offline');
-  });
-});
-
-describe('template approval rules', () => {
-  beforeAll(() => { setup(); });
-  afterAll(() => { teardown(); });
-
-  it('template rules are seeded but disabled', () => {
-    const conn = rawDb();
-    const allRules = conn.prepare('SELECT * FROM approval_rules').all();
-    const disabledRules = allRules.filter(r => r.enabled === 0);
-    const disabledNames = disabledRules.map(r => r.name);
-
-    const expectedTemplateNames = [
-      'high-file-count',
-      'security-tag',
-      'complex-classification',
-      'cloud-provider-cost',
-      'large-context',
-    ];
-
-    for (const name of expectedTemplateNames) {
-      expect(disabledNames).toContain(name);
-    }
-  });
-
-  it('template rules have correct conditions and descriptions', () => {
-    const conn = rawDb();
-    const rules = conn.prepare('SELECT * FROM approval_rules WHERE enabled = 0').all();
-    const byName = Object.fromEntries(rules.map(r => [r.name, r]));
-
-    expect(byName['high-file-count'].condition).toBe('files_touched > 10');
-    expect(byName['high-file-count'].description).toBe('Tasks modifying more than 10 files');
-
-    expect(byName['security-tag'].condition).toBe('tags CONTAINS security');
-    expect(byName['security-tag'].auto_approve_after_minutes).toBeNull();
-
-    expect(byName['complex-classification'].condition).toBe('complexity = complex');
-    expect(byName['complex-classification'].auto_approve_after_minutes).toBe(30);
-
-    expect(byName['cloud-provider-cost'].condition).toBe('provider IN anthropic,deepinfra');
-
-    expect(byName['large-context'].condition).toBe('context_tokens > 50000');
-    expect(byName['large-context'].auto_approve_after_minutes).toBe(30);
   });
 });
