@@ -180,14 +180,25 @@ TORQUE pushes notifications through the MCP SSE transport when tasks complete or
 
 ### Recommended patterns
 
-- **Single task:** Submit → `await_task` (blocks, wakes instantly on completion) → review result
-- **Workflow:** Submit workflow → `await_workflow` (blocks, wakes instantly per task) → review each yield
+- **Single task:** Submit → `await_task` (heartbeats every 5 min, wakes instantly on completion) → review result or heartbeat → re-invoke if heartbeat
+- **Workflow:** Submit workflow → `await_workflow` (heartbeats every 5 min, wakes instantly per task) → review each yield/heartbeat → re-invoke
 - **Batch monitoring:** `subscribe_task_events` with no task_ids → `check_notifications` periodically
 
 ### Do NOT
 
 - Poll `check_status` in a loop — this wastes context tokens and adds latency
 - Set short `poll_interval_ms` on `await_workflow` — the event bus wakes it instantly; the interval is only a fallback
+
+### Heartbeat check-ins
+
+`await_task` and `await_workflow` return periodic **heartbeat** responses (default: every 5 minutes) with progress snapshots including running tasks, elapsed time, partial output, and alerts. Notable events (task started, stall warning, retry, provider fallback) trigger an immediate heartbeat.
+
+On receiving a heartbeat:
+- Update the user on progress
+- Check alerts — if stall warning, consider cancelling/resubmitting
+- Re-invoke the await tool to continue waiting
+
+Set `heartbeat_minutes: 0` to disable heartbeats (legacy behavior).
 
 ## Workflow Discipline
 
