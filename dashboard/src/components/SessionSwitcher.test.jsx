@@ -242,7 +242,7 @@ describe('SessionSwitcher', () => {
 
       expect(instancesApi.list).toHaveBeenCalledTimes(1);
 
-      await flushFakeTimerEffects(30000);
+      await flushFakeTimerEffects(90000);
 
       expect(instancesApi.list).toHaveBeenCalledTimes(4);
 
