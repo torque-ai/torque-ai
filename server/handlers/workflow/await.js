@@ -166,6 +166,9 @@ function getFallbackCommitPaths(workingDir) {
 /**
  * Format a millisecond duration as a human-readable string.
  * e.g. 272000 → "4m 32s", 45000 → "45s"
+ *
+ * NOTE: Takes MILLISECONDS. dag.js has a homonymous function that takes
+ * SECONDS — intentionally different units matching each module's data source.
  */
 function formatDuration(ms) {
   if (!ms || ms < 0) return '0s';

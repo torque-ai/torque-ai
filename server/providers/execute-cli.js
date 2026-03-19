@@ -153,6 +153,17 @@ function buildClaudeCliCommand(task, resolvedFileContext, providerConfig) {
 
 /**
  * Build codex command specification.
+ *
+ * NOTE: This function is intentionally distinct from the one in
+ * server/execution/command-builders.js. The two have different argument
+ * order and different behaviour:
+ *   - execute-cli.js  (task, resolvedFileContext, providerConfig, opts)
+ *     → simple "wrap with instructions" path; used for legacy/direct CLI
+ *       invocations and re-exported via execution.js for backward compat.
+ *   - command-builders.js (task, providerConfig, resolvedFileContext, resolvedFiles)
+ *     → enriched-prompt path used by task-manager.js at runtime.
+ * Do NOT deduplicate without also updating every call-site signature.
+ *
  * @param {Object} task - Full task object
  * @param {string} resolvedFileContext - Pre-resolved file context string
  * @param {Object} providerConfig - Provider config from DB

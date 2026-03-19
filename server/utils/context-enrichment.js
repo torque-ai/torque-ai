@@ -15,21 +15,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const logger = require('../logger').child({ component: 'context-enrichment' });
 const serverConfig = require('../config');
-
-// SECURITY (M4): Sensitive file patterns — skip during import walking.
-// Mirrors SENSITIVE_FILE_PATTERNS from context-stuffing.js to prevent
-// leaking secrets/credentials when resolving import dependencies.
-const SENSITIVE_FILE_PATTERNS = [
-  /^\.env$/i, /^\.env\./i, /\.env\.local$/i, /\.env\.production$/i,
-  /\.key$/i, /\.pem$/i, /\.p12$/i, /\.pfx$/i, /\.cert$/i,
-  /\.credentials$/i, /\.secrets?$/i, /\.pgpass$/i, /\.netrc$/i,
-  /^id_rsa$/i, /^id_ed25519$/i, /^id_ecdsa$/i, /^id_dsa$/i,
-  /^authorized_keys$/i, /^known_hosts$/i,
-  /^\.aws\/credentials$/i, /^\.gcloud\/credentials\.json$/i,
-  /^\.docker\/config\.json$/i, /^\.kube\/config$/i,
-  /^\.npmrc$/i, /^\.pypirc$/i, /^\.git-credentials$/i,
-  /secret/i,
-];
+const { SENSITIVE_FILE_PATTERNS } = require('./context-stuffing');
 
 function _isSensitiveFile(filePath) {
   const basename = path.basename(filePath);

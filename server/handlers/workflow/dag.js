@@ -30,6 +30,14 @@ function getTaskDurationSeconds(task) {
   return 0;
 }
 
+/**
+ * Format a second duration as a human-readable string.
+ * e.g. 272 → "272s", 0.5 → "0.5s"
+ *
+ * NOTE: Takes SECONDS (from getDurationSeconds). await.js has a homonymous
+ * function that takes MILLISECONDS — intentionally different units matching
+ * each module's data source.
+ */
 function formatDuration(seconds) {
   const safeSeconds = Math.max(0, Number(seconds) || 0);
   if (safeSeconds < 1) {
