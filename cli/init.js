@@ -50,15 +50,11 @@ function detectApiKeys() {
 }
 
 function generateMcpJson(targetDir) {
-  const serverIndex = path.resolve(__dirname, '..', 'server', 'index.js');
-  const serverDir = path.resolve(__dirname, '..', 'server');
   const config = {
     mcpServers: {
       torque: {
-        type: 'stdio',
-        command: 'node',
-        args: [serverIndex],
-        cwd: serverDir,
+        type: 'sse',
+        url: 'http://127.0.0.1:3458/sse',
         description: 'TORQUE \u2014 Distributed AI task orchestration',
       },
     },
