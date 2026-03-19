@@ -31,6 +31,7 @@ const { normalizeError } = require('./api/v2-middleware');
 const v2Inference = require('./api/v2-inference');
 const v2TaskHandlers = require('./api/v2-task-handlers');
 const v2WorkflowHandlers = require('./api/v2-workflow-handlers');
+const eventBus = require('./event-bus');
 const v2GovernanceHandlers = require('./api/v2-governance-handlers');
 const v2AnalyticsHandlers = require('./api/v2-analytics-handlers');
 const v2InfrastructureHandlers = require('./api/v2-infrastructure-handlers');
@@ -2272,7 +2273,7 @@ async function handleShutdown(req, res, _context = {}) {
 
   // Give the response time to flush, then trigger graceful shutdown
   setTimeout(() => {
-    process.emit('torque:shutdown', reason);
+    eventBus.emitShutdown(reason);
   }, 200);
 }
 

@@ -19,6 +19,7 @@ const { safeJsonParse } = require('../utils/json');
 const { buildTaskFilterConditions, appendWhereClause } = require('./query-filters');
 const { MAX_METADATA_SIZE } = require('../constants');
 const { ErrorCodes } = require('../handlers/error-codes');
+const eventBus = require('../event-bus');
 
 // ============================================================
 // Shared constants — mirrors database.js copies exactly
@@ -322,7 +323,7 @@ function createTask(task) {
   }
 
   if (status === 'queued' || status === 'pending') {
-    process.emit('torque:queue-changed');
+    eventBus.emitQueueChanged();
   }
 
   // Record analytics event
@@ -596,7 +597,7 @@ function updateTaskStatus(id, status, additionalFields = {}) {
   }
 
   if (status === 'queued' || status === 'pending' || TERMINAL_TASK_STATUSES.has(status)) {
-    process.emit('torque:queue-changed');
+    eventBus.emitQueueChanged();
   }
 
   if (TERMINAL_TASK_STATUSES.has(status) && Object.prototype.hasOwnProperty.call(additionalFields, 'files_modified')) {

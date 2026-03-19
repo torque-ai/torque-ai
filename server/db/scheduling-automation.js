@@ -20,6 +20,7 @@ let getPipelineFn;
 let createPipelineFn;
 const { createHash } = require('crypto');
 const { safeJsonParse } = require('../utils/json');
+const eventBus = require('../event-bus');
 
 function setDb(dbInstance) {
   db = dbInstance;
@@ -625,7 +626,7 @@ function approveTask(taskId, approvedBy, comment = null) {
       JSON.stringify({ approvalStatus: 'approved', requestStatus: 'approved' })
     );
 
-    process.emit('torque:queue-changed');
+    eventBus.emitQueueChanged();
 
     return true;
   });

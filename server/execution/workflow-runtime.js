@@ -15,6 +15,7 @@ const logger = require('../logger').child({ component: 'workflow-runtime' });
 const serverConfig = require('../config');
 const { resolveWorkflowConflicts } = require('./conflict-resolver');
 const { safeJsonParse } = require('../utils/json');
+const eventBus = require('../event-bus');
 
 // ---------------------------------------------------------------------------
 // Dependency injection
@@ -882,7 +883,7 @@ function unblockTask(taskId) {
   try {
     db.updateTaskStatus(taskId, 'pending');
     db.updateTaskStatus(taskId, 'queued');
-    process.emit('torque:queue-changed');
+    eventBus.emitQueueChanged();
     return true;
   } catch (err) {
     try {

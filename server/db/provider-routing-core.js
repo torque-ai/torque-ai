@@ -8,6 +8,7 @@ const { safeJsonParse } = require('../utils/json');
 const { isSafeRegex } = require('../utils/safe-regex');
 const capabilities = require('./provider-capabilities');
 const perfTracker = require('./provider-performance');
+const eventBus = require('../event-bus');
 
 let resolveEconomyPolicy = null;
 let filterProvidersForEconomy = null;
@@ -989,7 +990,7 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
   `);
   const result = stmt.run(newProvider, new Date().toISOString(), JSON.stringify(currentMetadata), taskId);
   if (result && result.changes > 0) {
-    process.emit('torque:queue-changed');
+    eventBus.emitQueueChanged();
   }
 
   return getTask(taskId);

@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const eventBus = require('../event-bus');
 
 let db = null;
 
@@ -157,7 +158,7 @@ function registerModelInternal({ provider, hostId, modelName, sizeBytes }) {
 
 function emitIfNew(result) {
   if (result && result.inserted && result.model) {
-    process.emit('torque:model-discovered', result.model);
+    eventBus.emitModelDiscovered(result.model);
   }
   return result;
 }
@@ -455,11 +456,11 @@ function syncModelsFromHealthCheck(provider, hostId, discoveredModels) {
   })();
 
   for (const model of result.new) {
-    process.emit('torque:model-discovered', model);
+    eventBus.emitModelDiscovered(model);
   }
 
   for (const model of result.removed) {
-    process.emit('torque:model-removed', model);
+    eventBus.emitModelRemoved(model);
   }
 
   return result;

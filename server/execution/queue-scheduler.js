@@ -16,6 +16,7 @@ const providerRegistry = require('../providers/registry');
 const serverConfig = require('../config');
 const gpuMetrics = require('../scripts/gpu-metrics-server');
 const { safeJsonParse } = require('../utils/json');
+const eventBus = require('../event-bus');
 
 // Dependency injection
 let db = null;
@@ -675,7 +676,7 @@ function processQueueInternal(options = {}) {
         db.updateTaskStatus(task.id, 'cancelled', { error_output: 'Expired: exceeded queue TTL' });
         notifyDashboard(task.id, { status: 'cancelled', error_output: 'Expired: exceeded queue TTL' });
         logger.info(`[queue] Task ${task.id} expired after ${queueTtlMinutes} minutes in queue`);
-        process.emit('torque:task-event', { taskId: task.id, type: 'cancelled', reason: 'queue_ttl_expired' });
+        eventBus.emitTaskEvent({ taskId: task.id, type: 'cancelled', reason: 'queue_ttl_expired' });
       } catch (err) {
         logger.warn(`[queue] Failed to expire task ${task.id}: ${err.message}`);
       }

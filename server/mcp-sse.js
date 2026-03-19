@@ -60,6 +60,7 @@ const notificationMetrics = {
 
 // Single source of truth — shared with index.js
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
+const eventBus = require('./event-bus');
 
 let sseServer = null;
 let ssePort = 3458;
@@ -1583,7 +1584,7 @@ function setShuttingDown(value) {
 
 // ── Model registry notifications ─────────────────────────────────────────────
 
-process.on('torque:model-discovered', (data) => {
+eventBus.onModelDiscovered((data) => {
   for (const [, session] of sessions) {
     try {
       sendJsonRpcNotification(session, 'notifications/message', {
@@ -1600,7 +1601,7 @@ process.on('torque:model-discovered', (data) => {
   }
 });
 
-process.on('torque:model-removed', (data) => {
+eventBus.onModelRemoved((data) => {
   for (const [, session] of sessions) {
     try {
       sendJsonRpcNotification(session, 'notifications/message', {

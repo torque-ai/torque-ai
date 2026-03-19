@@ -90,7 +90,7 @@ function buildRetryMetadata(task, retryOfTaskId) {
 
 function emitTaskUpdated(taskId, status) {
   if (!taskId) return;
-  process.emit('torque:task-updated', { taskId, status });
+  eventBus.emitTaskUpdated({ taskId, status });
 }
 
 function getProviderValidation(provider) {
@@ -494,7 +494,7 @@ async function handleReassignTaskProvider(req, res) {
     }
 
     const updatedTask = db.updateTask(taskId, updateFields);
-    process.emit('torque:queue-changed');
+    eventBus.emitQueueChanged();
     emitTaskUpdated(taskId, updatedTask?.status || task.status);
 
     logger.info(
@@ -765,7 +765,7 @@ async function handleApproveSwitch(req, res) {
       provider: targetProvider,
     };
 
-    process.emit('torque:queue-changed');
+    eventBus.emitQueueChanged();
     emitTaskUpdated(taskId, responseTask.status);
 
     logger.info(`Approved provider switch for task ${taskId} from ${task.provider || 'unknown'} to ${targetProvider}`);
@@ -859,7 +859,7 @@ async function handleRejectSwitch(req, res) {
       metadata: updatedMetadata,
     };
 
-    process.emit('torque:queue-changed');
+    eventBus.emitQueueChanged();
     emitTaskUpdated(taskId, responseTask.status);
 
     logger.info(`Rejected provider switch for task ${taskId}; restored provider ${restoreProvider}`);

@@ -12,12 +12,13 @@
 const crypto = require('crypto');
 const logger = require('../logger').child({ component: 'coordination' });
 const { safeJsonParse } = require('../utils/json');
+const eventBus = require('../event-bus');
 
 let db;
 let getTaskFn;
 
 function emitQueueChanged() {
-  process.emit('torque:queue-changed');
+  eventBus.emitQueueChanged();
 }
 
 function setDb(dbInstance) { db = dbInstance; }
