@@ -185,6 +185,8 @@ const MCP_POLICY_STORE_KEY = 'mcp_policy_store';
 const MCP_KILL_SWITCH_POLICY_KEY = 'mcp_kill_switch';
 const rateLimitBuckets = new Map();
 
+logger.warn('MCP Gateway transport is deprecated — use SSE transport (port 3458) instead. Gateway will be removed in a future release.');
+
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -223,6 +225,8 @@ function writeJson(res, statusCode, payload, correlationId) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'X-Correlation-ID': correlationId,
+    'Deprecation': 'true',
+    'Sunset': '2026-06-01',
   });
   res.end(JSON.stringify(payload));
 }
@@ -1741,6 +1745,7 @@ function handleHealth(req, res) {
   const correlationId = readCorrelationId(req);
   const payload = okEnvelope({
     status: 'ok',
+    deprecated: true,
     transport: 'loopback-http',
     version: 'v1',
     loaded_schemas: schemaRegistry.getLoadedSchemaIds(),
