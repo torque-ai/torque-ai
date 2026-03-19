@@ -40,7 +40,7 @@ function createCancellationHandler({
     }
 
     const proc = runningProcesses.get(fullId);
-    const isTimeout = reason.toLowerCase().includes('timeout');
+    const isTimeout = reason?.toLowerCase().includes('timeout') ?? false;
     const webhookEvent = isTimeout ? 'timeout' : 'cancelled';
 
     const pendingRetry = pendingRetryTimeouts.get(fullId);
@@ -73,12 +73,18 @@ function createCancellationHandler({
       return true;
     }
 
+    // Abort any in-flight API request for this task.
     const apiController = apiAbortControllers.get(fullId);
     if (apiController) {
       apiController.abort();
       apiAbortControllers.delete(fullId);
     }
 
+    // TOCTOU note: the task status is read here after the abort signal is sent.
+    // A task that was 'running' an API call may have already transitioned to
+    // 'completed' between the abort and this re-read. The 'queued' guard below
+    // is intentionally narrow — only queued tasks need an explicit status update
+    // here; running tasks are handled by their abort signal and close handlers.
     const task = db.getTask(fullId);
     if (task && task.status === 'queued') {
       db.updateTaskStatus(fullId, 'cancelled', {

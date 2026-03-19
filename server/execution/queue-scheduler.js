@@ -318,6 +318,9 @@ function getEffectiveGlobalMaxConcurrent(preRead = {}) {
     : configuredMaxConcurrent;
 }
 
+// NOTE: parsePositiveInt rejects 0 (returns fallback). For running-task counts
+// where 0 is a valid, meaningful value, always pass 0 as the fallback so that
+// a genuine 0 from the DB returns 0 rather than null (see usage at line ~377).
 function parsePositiveInt(value, fallback = null) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -659,6 +662,10 @@ function processQueueInternal(options = {}) {
   const queueTtlMinutes = _safeConfigInt ? _safeConfigInt('queue_task_ttl_minutes', 0) : 0;
   if (queueTtlMinutes > 0 && db && typeof db.prepare === 'function') {
     const cutoff = new Date(Date.now() - queueTtlMinutes * 60000).toISOString();
+    // Raw db.prepare() used here because the database abstraction layer does not
+    // expose a TTL-query helper. This query is read-only and parameterized —
+    // only 'cutoff' is dynamic, and it is a server-generated ISO timestamp,
+    // not user input.
     const expired = db.prepare(
       "SELECT id FROM tasks WHERE status IN ('queued', 'pending') AND created_at < ? AND provider != 'workflow'"
     ).all(cutoff);

@@ -297,6 +297,10 @@ async function executeValidatedCommand(command, args = [], options = {}) {
     ...execOptions
   } = options || {};
 
+  // Pass options as the 'args' parameter to validateCommand — extractCommandRequest
+  // accepts an object shape `{ args, ...context }` and destructures it internally,
+  // promoting dangerous/source/caller into the validation context. This coupling
+  // is intentional; the function signature is designed for both array and object forms.
   const validation = validateCommand(command, { args, dangerous, source, caller }, profile);
   if (!validation.allowed) {
     throw createRejectedCommandError(validation.reason);

@@ -407,7 +407,10 @@ function spawnAndTrackProcess(taskId, task, {
     }
   }
 
-  // Detect instant-exit: if process disappears within 2s with no output, mark failed
+  // Detect instant-exit: if the process entry is gone within 2 s yet the DB
+  // status is still 'running', the close/error handler did not fire (or was
+  // skipped). Guard: we only act when proc is absent AND status hasn't moved,
+  // so a normal fast exit that the close handler already finalized is ignored.
   setTimeout(() => {
     try {
       const proc = deps.runningProcesses.get(taskId);
@@ -452,6 +455,10 @@ function spawnAndTrackProcess(taskId, task, {
   // On Windows, 'close' may never fire if stdio streams aren't properly closed
   // (common with node.exe spawns via resolved .cmd wrappers). Listen for 'exit'
   // as a fallback: if 'exit' fires but 'close' hasn't after 5s, force cleanup.
+  // Guard: closeEventFired ensures the synthetic 'close' emit from the 'exit'
+  // handler and the real 'close' event don't both drive finalization. The real
+  // 'close' handler sets closeEventFired=true, so the setTimeout no-ops after
+  // the normal path completes.
   let closeEventFired = false;
   child.on('exit', (exitCode) => {
     setTimeout(() => {
