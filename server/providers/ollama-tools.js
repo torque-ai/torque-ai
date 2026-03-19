@@ -689,16 +689,18 @@ function createToolExecutor(workingDir, options = {}) {
           }
 
           try {
-            const parts = args.command.split(/\s+/);
-            const executable = parts[0];
-            const cmdArgs = parts.slice(1);
-            const { execFileSync } = require('child_process');
-            const output = execFileSync(executable, cmdArgs, {
+            // SECURITY: shell: true is required for commands with quotes, pipes,
+            // and complex arguments (e.g., node -e "..."). Injection is prevented
+            // by isCommandAllowed() above which rejects shell metacharacters
+            // (;|&`$(){}!<>) and dangerous command patterns before reaching here.
+            const { execSync } = require('child_process');
+            const output = execSync(args.command, {
               cwd: workingDir,
               timeout: MAX_COMMAND_TIMEOUT_MS,
               maxBuffer: MAX_OUTPUT_BYTES * 2,
               encoding: 'utf-8',
-              shell: false,
+              shell: true,
+              windowsHide: true,
             });
             return { result: truncateOutput(output) || '(no output)' };
           } catch (e) {

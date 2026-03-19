@@ -41,7 +41,7 @@ function parseDiffStats(diffOutput) {
   let removed = 0;
   if (!diffOutput || typeof diffOutput !== 'string') return { added, removed };
 
-  for (const line of diffOutput.split('\n')) {
+  for (const line of diffOutput.replace(/\r\n/g, '\n').split('\n')) {
     if (line.startsWith('+') && !line.startsWith('+++')) {
       added++;
     } else if (line.startsWith('-') && !line.startsWith('---')) {
