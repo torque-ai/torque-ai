@@ -39,8 +39,8 @@
     ],
     "targeted_file_edit": [
       {"provider": "codex"},
-      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "hashline-ollama"}
+      {"provider": "hashline-ollama"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"}
     ],
     "default": [
       {"provider": "codex"},
