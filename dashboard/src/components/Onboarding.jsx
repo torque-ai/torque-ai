@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default function Onboarding({ onDismiss }) {
   return (
     <div style={{

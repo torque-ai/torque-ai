@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('crypto');
 const { parseBody } = require('./middleware');
+const logger = require('../logger');
 
 const DEFAULT_ERROR_CODE = 'provider_unavailable';
 const DEFAULT_ERROR_MESSAGE = 'Internal server error';
@@ -189,13 +190,13 @@ function normalizeError(err, req) {
     code = err.code;
     message = DEFAULT_ERROR_MESSAGE; // Don't leak internal error messages
     if (err.message && err.message !== DEFAULT_ERROR_MESSAGE) {
-      try { require('../logger').debug(`[v2-middleware] Internal error: ${err.message}`); } catch {}
+      logger.debug(`[v2-middleware] Internal error: ${err.message}`);
     }
     status = Number.isInteger(err.status) ? err.status : defaultStatusForCode(code);
     details = coerceDetails(err.details);
   } else if (err instanceof Error) {
     if (err.message && err.message !== DEFAULT_ERROR_MESSAGE) {
-      try { require('../logger').debug(`[v2-middleware] Internal error: ${err.message}`); } catch {}
+      logger.debug(`[v2-middleware] Internal error: ${err.message}`);
     }
     message = DEFAULT_ERROR_MESSAGE; // Don't leak internal error messages
     details = coerceDetails(err.details);

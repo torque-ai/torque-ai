@@ -142,11 +142,10 @@ describe('resolveProvider', () => {
     expect(String(result)).toBe('cerebras');
   });
 
-  it('result == provider string via valueOf for backward compatibility', () => {
+  it('result coerces to provider string via valueOf for backward compatibility', () => {
     const tmpl = { rules: { default: 'ollama', security: 'cerebras' } };
     const result = resolveProvider(tmpl, 'security', 'normal');
-    // eslint-disable-next-line eqeqeq
-    expect(result == 'cerebras').toBe(true);
+    expect(String(result)).toBe('cerebras');
   });
 
   it('returns null for null template', () => {

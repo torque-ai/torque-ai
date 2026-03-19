@@ -122,8 +122,6 @@ const routes = [
   },
   // NOTE: GET /api/v2/tasks/:id and POST /api/v2/tasks/:id/cancel are handled
   // by the CP handlers (handleV2CpGetTask, handleV2CpCancelTask) defined below.
-  // The old inference-only handlers (handleV2TaskStatus, handleV2TaskCancel) were
-  // removed because they shadowed the CP routes and only found inference tasks.
   {
     method: 'GET',
     path: /^\/api\/v2\/tasks\/([^/]+)\/events$/,

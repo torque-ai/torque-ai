@@ -589,18 +589,17 @@ function checkForControlChars(str, fieldName = 'value') {
   if (str.includes('\x00')) {
     return { safe: false, reason: `${fieldName} contains null bytes` };
   }
-  // eslint-disable-next-line no-control-regex
-  const dangerousControlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F]/;
-  if (dangerousControlChars.test(str)) {
+  const DANGEROUS_CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F]/;
+  if (DANGEROUS_CONTROL_CHARS.test(str)) {
     return { safe: false, reason: `${fieldName} contains dangerous control characters` };
   }
   return { safe: true };
 }
 
+const CONTROL_CHARS_REPLACE = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
 function sanitizeControlChars(str) {
   if (typeof str !== 'string') return str;
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  return str.replace(CONTROL_CHARS_REPLACE, '');
 }
 
 /**

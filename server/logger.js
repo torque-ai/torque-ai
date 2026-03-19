@@ -221,7 +221,6 @@ class Logger {
       context: { ...this.context, ...context },
     });
     child._stream = this._stream; // Share file handle
-    // TODO: share size counter between parent and child loggers to prevent double rotation
     child._currentSize = this._currentSize;
     return child;
   }

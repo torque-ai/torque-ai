@@ -411,7 +411,6 @@ async function runErrorFeedbackLoop({
       llmOutput: feedbackResponse.response,
       editFormat,
       fileContextMap: updatedFileContextMap,
-      resolvedFiles,
       workingDir
     });
 

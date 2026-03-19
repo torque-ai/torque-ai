@@ -962,7 +962,7 @@ function getAdaptiveRetryRules(errorText = null) {
   if (errorText) {
     return db.prepare(`
       SELECT * FROM adaptive_retry_rules
-      WHERE enabled = 1 AND ? LIKE '%' || error_pattern || '%'
+      WHERE enabled = 1 AND ? LIKE '%' || error_pattern || '%'  -- errorText contains error_pattern
       ORDER BY success_count DESC
     `).all(errorText).map(r => {
       try { return { ...r, adjustment: JSON.parse(r.adjustment) }; }

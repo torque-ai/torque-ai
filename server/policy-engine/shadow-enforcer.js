@@ -1,8 +1,5 @@
 'use strict';
 
-const logger = require('../logger').child({ component: 'policy-shadow-enforcer' });
-void logger;
-
 let getConfig = null;
 
 function setConfigReader(fn) {

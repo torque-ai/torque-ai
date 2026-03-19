@@ -32,7 +32,7 @@ function missingArgument(message) {
   return error;
 }
 
-async function handleStatus(_args, context) {
+async function handleStatus(_args) {
   const [health, runningTasks] = await Promise.all([
     apiGet('/healthz'),
     apiGet('/api/tasks?status=running&limit=5'),

@@ -12,6 +12,7 @@ const {
   setGlobalEconomyPolicy,
 } = require('../economy/policy');
 const { deactivateEconomyMode } = require('../economy/triggers');
+const queueReroute = require('../economy/queue-reroute');
 
 function makeTextResult(message, isError = false) {
   const payload = [{ type: 'text', text: message }];
@@ -136,8 +137,6 @@ function parseEffectiveProviders(policy) {
 
 function rerouteQueuedTasks(policy, workflowId, workingDirectory) {
   try {
-    // eslint-disable-next-line global-require
-    const queueReroute = require('../economy/queue-reroute');
     if (typeof queueReroute?.rerouteQueuedTasks === 'function') {
       return queueReroute.rerouteQueuedTasks(policy, workflowId, workingDirectory);
     }

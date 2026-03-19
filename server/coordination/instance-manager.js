@@ -78,10 +78,6 @@ function startInstanceHeartbeat() {
  * Stop the heartbeat interval.
  */
 function stopInstanceHeartbeat() {
-  if (instanceHeartbeatInterval === null) {
-    return;
-  }
-
   if (instanceHeartbeatInterval) {
     clearInterval(instanceHeartbeatInterval);
     instanceHeartbeatInterval = null;

@@ -85,9 +85,9 @@ function determineTaskComplexity(taskDescription, files = []) {
   const fileCount = (files || []).length;
 
   // F7: Non-English descriptions — keyword patterns won't match, use structural analysis
+  const ASCII_RANGE = /[\x00-\x7F]/g;
   if (desc.length > 0) {
-    // eslint-disable-next-line no-control-regex
-    const nonAsciiRatio = (desc.replace(/[\x00-\x7F]/g, '').length) / desc.length;
+    const nonAsciiRatio = (desc.replace(ASCII_RANGE, '').length) / desc.length;
     if (nonAsciiRatio > 0.3) {
       // Non-English description — classify by structural signals instead of keywords
       if (fileCount > 5) return 'complex';

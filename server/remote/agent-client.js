@@ -2,6 +2,7 @@
 
 const http = require('node:http');
 const https = require('node:https');
+const logger = require('../logger').child({ component: 'agent-client' });
 
 const HEALTH_CACHE_TTL = 90000; // 90 seconds
 
@@ -41,8 +42,7 @@ class RemoteAgentClient {
     this.tls = tls;
     this.rejectUnauthorized = rejectUnauthorized;
     if (tls && !rejectUnauthorized) {
-      // eslint-disable-next-line no-console
-      console.warn(`[AgentClient] WARNING: TLS certificate verification is disabled for agent at ${host}:${port}. This connection is vulnerable to man-in-the-middle attacks.`);
+      logger.warn(`[AgentClient] WARNING: TLS certificate verification is disabled for agent at ${host}:${port}. This connection is vulnerable to man-in-the-middle attacks.`);
     }
     this._cachedHealth = null;
     this._status = 'unknown';

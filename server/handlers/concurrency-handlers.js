@@ -57,7 +57,6 @@ function getConcurrencyLimits() {
 
     const vramOverheadFactor = hostManagement.getVramOverheadFactor();
 
-    // TODO: replace with db.listProviderConfigs() abstraction
     const providers = db
       .prepare('SELECT provider, max_concurrent, enabled FROM provider_config ORDER BY provider')
       .all();

@@ -497,11 +497,11 @@ function sanitizeInjectedOutput(text, maxLen = 5000) {
   // Escape template delimiters to prevent re-injection
   sanitized = sanitized.replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }');
   // Strip ANSI escape sequences
-  // eslint-disable-next-line no-control-regex
-  sanitized = sanitized.replace(/\x1b\[[0-9;]*m/g, '');
+  const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g;
+  sanitized = sanitized.replace(ANSI_ESCAPE, '');
   // Strip control characters (null, backspace, vertical tab, form feed, etc.) but keep \n \r \t
-  // eslint-disable-next-line no-control-regex
-  sanitized = sanitized.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  const CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+  sanitized = sanitized.replace(CONTROL_CHARS, '');
   return sanitized;
 }
 

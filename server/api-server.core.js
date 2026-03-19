@@ -6,7 +6,6 @@
  */
 
 const http = require('http');
-// const https = require('https'); — unused, removed
 const { randomUUID } = require('crypto');
 const tools = require('./tools');
 const { handleToolCall } = tools;
