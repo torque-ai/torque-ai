@@ -90,7 +90,7 @@ class OpenRouterProvider extends BaseProvider {
   // ── Core request methods (single model, no fallback) ───────────────
 
   async _submitSingle(prompt, model, options) {
-    const timeout = (options.timeout || 10) * 60 * 1000;
+    const timeout = (options.timeout || 30) * 60 * 1000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -99,6 +99,8 @@ class OpenRouterProvider extends BaseProvider {
     if (options.signal) {
       abortHandler = () => controller.abort();
       options.signal.addEventListener('abort', abortHandler, { once: true });
+      // Pre-check: signal may have been aborted before the handler was wired
+      if (options.signal.aborted) controller.abort();
     }
 
     try {
@@ -166,7 +168,7 @@ class OpenRouterProvider extends BaseProvider {
   }
 
   async _streamSingle(prompt, model, options) {
-    const timeout = (options.timeout || 10) * 60 * 1000;
+    const timeout = (options.timeout || 30) * 60 * 1000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     let reader;
@@ -175,6 +177,8 @@ class OpenRouterProvider extends BaseProvider {
     if (options.signal) {
       abortHandler = () => controller.abort();
       options.signal.addEventListener('abort', abortHandler, { once: true });
+      // Pre-check: signal may have been aborted before the handler was wired
+      if (options.signal.aborted) controller.abort();
     }
 
     try {

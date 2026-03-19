@@ -247,14 +247,14 @@ Working directory: ${workingDir}`;
  * their contents. Converts multi-iteration exploration into single-shot analysis.
  * @param {string} taskDescription - Original task description
  * @param {string} workingDir - Working directory for file resolution
- * @param {number} budgetChars - Max characters to stuff (default: 48000 ≈ 16K tokens)
+ * @param {number} budgetChars - Max characters to stuff (default: 200000 ≈ 50K tokens)
  * @returns {string} Enriched task prompt
  */
 function preStuffFileContents(taskDescription, workingDir, budgetChars = 200000) {
   if (!taskDescription || !workingDir) return taskDescription;
   try {
     const fs = require('fs');
-    const filePattern = /\b((?:src|tests?|server|lib|app|docs)\/[\w./-]+\.(?:cs|ts|js|py|java|go|rs|xaml|json|md))\b/gi;
+    const filePattern = /\b((?:src|tests?|server|lib|app|docs|scripts?|config|build)\/[\w./-]+\.(?:cs|ts|js|py|java|go|rs|xaml|json|md|sh|yaml|yml|toml))\b/gi;
     const referencedFiles = [...new Set((taskDescription.match(filePattern) || []))];
     if (referencedFiles.length === 0) return taskDescription;
 

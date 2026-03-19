@@ -280,7 +280,11 @@ function wrapWithInstructions(taskDescription, provider, model, context = {}) {
 
   const template = getInstructionTemplate(provider, model);
   const modelSizeCategory = getModelSizeCategory(model);
-  const isCloudProvider = ['codex', 'claude-cli', 'anthropic', 'deepinfra', 'hyperbolic', 'groq'].includes(provider);
+  const isCloudProvider = [
+    'codex', 'claude-cli', 'anthropic',
+    'deepinfra', 'hyperbolic', 'groq',
+    'cerebras', 'google-ai', 'openrouter', 'ollama-cloud',
+  ].includes(provider);
 
   // Detect task types and build specialized instructions
   const taskTypes = detectTaskTypes(taskDescription);
