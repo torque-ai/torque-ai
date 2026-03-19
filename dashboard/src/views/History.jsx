@@ -126,6 +126,11 @@ function SortHeader({ column, label, sortCol, sortDir, onSort }) {
   );
 }
 
+function csvField(value) {
+  const str = value == null ? '' : String(value);
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
 function exportCSV(tasks) {
   const headers = ['ID', 'Status', 'Description', 'Provider', 'Model', 'Host', 'Duration (s)', 'Created'];
   const rows = tasks.map((t) => {
@@ -133,14 +138,14 @@ function exportCSV(tasks) {
       ? ((new Date(t.completed_at) - new Date(t.started_at)) / 1000).toFixed(1)
       : '';
     return [
-      t.id,
-      t.status,
-      `"${(t.task_description || '').replace(/"/g, '""')}"`,
-      t.provider || '',
-      t.model || '',
-      t.ollama_host_name || t.ollama_host_id || '',
-      dur,
-      t.created_at || '',
+      csvField(t.id),
+      csvField(t.status),
+      csvField(t.task_description),
+      csvField(t.provider),
+      csvField(t.model),
+      csvField(t.ollama_host_name || t.ollama_host_id),
+      csvField(dur),
+      csvField(t.created_at),
     ].join(',');
   });
   const csv = [headers.join(','), ...rows].join('\n');

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { tasks as tasksApi, providers as providersApi, hosts as hostsApi } from '../api';
 import { useToast } from './Toast';
 
@@ -38,6 +38,8 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
   const [availableModels, setAvailableModels] = useState([]);
   const [ollamaModels, setOllamaModels] = useState([]);
   const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
   // Load providers on mount
   useEffect(() => {
@@ -48,9 +50,9 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
       })
       .catch((err) => {
         console.error('Failed to load providers:', err);
-        toast.error('Failed to load providers');
+        toastRef.current.error('Failed to load providers');
       });
-  }, [toast]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load Ollama host models on mount
   useEffect(() => {

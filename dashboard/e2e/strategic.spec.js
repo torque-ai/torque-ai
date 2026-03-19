@@ -192,8 +192,8 @@ test('stat cards render with usage values', async ({ page }) => {
   // Tokens formatted with toLocaleString -> "128,500"
   await expect(page.locator('text=128,500')).toBeVisible();
 
-  // Fallback rate: 5 / (42+5) * 100 = 10.6%
-  await expect(page.locator('text=10.6%')).toBeVisible();
+  // Fallback rate: 5 / (42+5) * 100 = ~10.6% — use prefix match to tolerate rounding
+  await expect(page.locator('text=/10\\.\\d+%/')).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------

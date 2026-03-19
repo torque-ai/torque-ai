@@ -9,6 +9,7 @@ export default function SessionSwitcher({ shortId }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [navigating, setNavigating] = useState(false);
   const dropdownRef = useRef(null);
   const refreshRef = useRef(null);
   const requestControllerRef = useRef(null);
@@ -71,6 +72,7 @@ export default function SessionSwitcher({ shortId }) {
 
   function navigateToInstance(inst) {
     if (inst.isCurrent || !inst.port) return;
+    setNavigating(true);
     const currentPath = window.location.pathname;
     const currentSearch = window.location.search;
     const currentHash = window.location.hash;
@@ -102,7 +104,9 @@ export default function SessionSwitcher({ shortId }) {
         <div className="absolute right-0 top-full mt-1 w-72 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-300">Active Sessions</span>
-            {loading && (
+            {navigating ? (
+              <span className="text-[10px] text-blue-400">navigating...</span>
+            ) : loading && (
               <span className="text-[10px] text-slate-500">refreshing...</span>
             )}
           </div>

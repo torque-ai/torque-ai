@@ -354,7 +354,10 @@ describe('useWebSocket', () => {
     }
   });
 
-  it('resets reconnect guard when the effect reruns with a new handler', () => {
+  it('does not reconnect when only the onMessage handler identity changes', () => {
+    // After stabilizing connect() deps, changing the onMessage reference should NOT
+    // trigger a new WebSocket connection — the ref pattern ensures the latest handler
+    // is always called without requiring a reconnect.
     vi.useFakeTimers();
     try {
       const handler1 = vi.fn();
@@ -365,15 +368,16 @@ describe('useWebSocket', () => {
       );
       const ws1 = latestSocket();
       act(() => { ws1.simulateOpen(); });
+      // Swapping to a new handler reference should not cause a reconnect
       act(() => { rerender({ handler: handler2 }); });
-      expect(MockWebSocket.instances).toHaveLength(2);
-      const ws2 = latestSocket();
-      expect(ws2).not.toBe(ws1);
-      act(() => { ws2.simulateOpen(); });
-      act(() => { ws2.simulateClose(); });
+      expect(MockWebSocket.instances).toHaveLength(1);
+      expect(latestSocket()).toBe(ws1);
+      expect(result.current.connectionState).toBe('connected');
+      // The new handler is still invocable after reconnect via the ref
+      act(() => { ws1.simulateClose(); });
       expect(result.current.connectionState).toBe('reconnecting');
       act(() => { vi.advanceTimersByTime(3000); });
-      expect(MockWebSocket.instances).toHaveLength(3);
+      expect(MockWebSocket.instances).toHaveLength(2);
     } finally {
       vi.useRealTimers();
     }

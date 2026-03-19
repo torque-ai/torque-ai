@@ -34,6 +34,9 @@ export function useWebSocket(onMessage) {
   const [instanceId, setInstanceId] = useState(null);
   const [shortId, setShortId] = useState(null);
 
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
+
   const logParseError = useCallback((error) => {
     websocketParseErrorCount += 1;
     if (websocketParseErrorCount % 10 !== 0) {
@@ -92,8 +95,8 @@ export function useWebSocket(onMessage) {
       }
 
       // Forward to handler
-      if (onMessage) {
-        onMessage(message);
+      if (onMessageRef.current) {
+        onMessageRef.current(message);
       }
     };
 
@@ -118,7 +121,7 @@ export function useWebSocket(onMessage) {
     };
 
     wsRef.current = ws;
-  }, [onMessage, parseMessage, logParseError]);
+  }, [parseMessage, logParseError]);
 
   useEffect(() => { connectRef.current = connect; }, [connect]);
 

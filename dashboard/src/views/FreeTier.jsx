@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { freeTier as freeTierApi } from '../api';
 import StatCard from '../components/StatCard';
 import { PROVIDER_HEX_COLORS } from '../constants';
+import { formatDuration } from '../utils/formatters';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
@@ -119,17 +120,6 @@ function ProviderCard({ name, data }) {
   );
 }
 
-function formatDuration(totalSeconds) {
-  if (totalSeconds <= 0) return '0s';
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  const parts = [];
-  if (h > 0) parts.push(`${h}h`);
-  if (m > 0) parts.push(`${m}m`);
-  if (s > 0 || parts.length === 0) parts.push(`${s}s`);
-  return parts.join(' ');
-}
 
 const CHART_METRICS = {
   requests: { field: 'total_requests', label: 'Requests', yAxisLabel: 'Requests' },

@@ -129,7 +129,7 @@ export default function Schedules() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <StatCard label="Total Schedules" value={totalCount} gradient="blue" />
         <StatCard label="Active" value={enabledCount} gradient="green" />
-        <StatCard label="Disabled" value={totalCount - enabledCount} gradient="slate" />
+        <StatCard label="Disabled" value={totalCount - enabledCount} gradient="blue" />
       </div>
 
       {/* Create form */}

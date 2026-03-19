@@ -331,18 +331,18 @@ describe('FreeTier', () => {
     await waitFor(() => {
       // groq minute_resets_in_seconds=45 => "45s"
       expect(screen.getByText('45s')).toBeTruthy();
-      // groq daily_resets_in_seconds=43200 => "12h"
-      expect(screen.getByText('12h')).toBeTruthy();
+      // groq daily_resets_in_seconds=43200 => "12h 0m" (formatDuration from utils/formatters)
+      expect(screen.getByText('12h 0m')).toBeTruthy();
     });
   });
 
   it('shows reset timer values for cerebras provider', async () => {
     renderWithProviders(<FreeTier />, { route: '/free-tier' });
     await waitFor(() => {
-      // cerebras minute_resets_in_seconds=60 => "60s"
+      // cerebras minute_resets_in_seconds=60 => "60s" (raw seconds display, not formatDuration)
       expect(screen.getByText('60s')).toBeTruthy();
-      // cerebras daily_resets_in_seconds=86400 => "24h"
-      expect(screen.getByText('24h')).toBeTruthy();
+      // cerebras daily_resets_in_seconds=86400 => "24h 0m" (formatDuration from utils/formatters)
+      expect(screen.getByText('24h 0m')).toBeTruthy();
     });
   });
 

@@ -13,8 +13,7 @@ export default function Approvals() {
   const [pending, setPending] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [actionInProgress, setActionInProgress] = useState(null);
-  const [lastAction, setLastAction] = useState(null);
+  const [actionInProgress, setActionInProgress] = useState(null); // { id, action } | null
   const [activeTab, setActiveTab] = useState('pending');
   const toast = useToast();
 
@@ -44,7 +43,7 @@ export default function Approvals() {
   }, [loadData]);
 
   async function handleApprove(id) {
-    setActionInProgress(id);
+    setActionInProgress({ id, action: 'approve' });
     try {
       await approvalsApi.approve(id);
       toast.success('Approval granted');
@@ -57,7 +56,7 @@ export default function Approvals() {
   }
 
   async function handleReject(id) {
-    setActionInProgress(id);
+    setActionInProgress({ id, action: 'reject' });
     try {
       await approvalsApi.reject(id);
       toast.success('Approval rejected');
@@ -188,18 +187,18 @@ export default function Approvals() {
                     <td className="p-4">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => { setLastAction('approve'); handleApprove(item.id); }}
-                          disabled={actionInProgress === item.id}
+                          onClick={() => handleApprove(item.id)}
+                          disabled={actionInProgress?.id === item.id}
                           className="text-xs px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors"
                         >
-                          {actionInProgress === item.id && lastAction === 'approve' ? 'Approving...' : 'Approve'}
+                          {actionInProgress?.id === item.id && actionInProgress.action === 'approve' ? 'Approving...' : 'Approve'}
                         </button>
                         <button
-                          onClick={() => { setLastAction('reject'); handleReject(item.id); }}
-                          disabled={actionInProgress === item.id}
+                          onClick={() => handleReject(item.id)}
+                          disabled={actionInProgress?.id === item.id}
                           className="text-xs px-3 py-1.5 rounded bg-red-600/20 hover:bg-red-600/40 text-red-400 hover:text-red-300 disabled:opacity-50 transition-colors"
                         >
-                          {actionInProgress === item.id && lastAction === 'reject' ? 'Rejecting...' : 'Reject'}
+                          {actionInProgress?.id === item.id && actionInProgress.action === 'reject' ? 'Rejecting...' : 'Reject'}
                         </button>
                       </div>
                     </td>

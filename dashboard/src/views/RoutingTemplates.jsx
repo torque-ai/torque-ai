@@ -211,6 +211,7 @@ export default function RoutingTemplates() {
   const [selectedId, setSelectedId] = useState(null);
   const [editingRules, setEditingRules] = useState({});
   const [editingOverrides, setEditingOverrides] = useState({});
+  const [editingName, setEditingName] = useState('');
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [hasChanges, setHasChanges] = useState(false);
   const [activeTemplateId, setActiveTemplateId] = useState(null);
@@ -266,7 +267,6 @@ export default function RoutingTemplates() {
   // ─── Helpers ────────────────────────────────────────────────────────
 
   const selectedTemplate = templates.find((t) => t.id === selectedId);
-  const [editingName, setEditingName] = useState('');
 
   function selectTemplate(id) {
     const tpl = templates.find((t) => t.id === id);
