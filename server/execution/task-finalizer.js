@@ -197,8 +197,14 @@ async function waitForTaskLock(taskId) {
   }
 }
 
-async function acquireTaskLock(taskId) {
+async function acquireTaskLock(taskId, options = {}) {
+  const maxWaitMs = options.maxWaitMs || 300000; // 5 minutes default
+  const startTime = Date.now();
+
   while (true) {
+    if (Date.now() - startTime > maxWaitMs) {
+      throw new Error(`acquireTaskLock timed out after ${maxWaitMs}ms for task ${taskId}`);
+    }
     await waitForTaskLock(taskId);
     if (!finalizationLocks.get(taskId)) {
       finalizationLocks.set(taskId, true);
