@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud, requestV2 } from '../api';
+import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud, requestV2, request } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import { PROVIDER_HEX_COLORS } from '../constants';
@@ -395,7 +395,7 @@ export default function Providers({ statsVersion, tasksTick }) {
         hostsApi.list().catch(() => []),
         providersApi.trends(days).catch(() => null),
         requestV2('/config/codex_exhausted').catch(() => null),
-        requestV2('/provider-quotas').catch(() => ({})),
+        request('/provider-quotas').catch(() => ({})),
       ]);
       if (!mountedRef.current) return;
       setProvidersList(providersData);
