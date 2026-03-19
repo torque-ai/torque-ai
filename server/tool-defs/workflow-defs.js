@@ -767,13 +767,18 @@ const tools = [
   },
   {
     name: 'await_workflow',
-    description: 'Yield-on-completion workflow monitor. Blocks until the NEXT task finishes (wakes instantly via push notifications — no polling delay), returns its output for review, then returns. Call repeatedly to review tasks one-by-one. On the final call (all tasks done), runs verify/commit and returns the full summary. State is server-side — no parameters needed between calls. GLOBAL: works with any project.',
+    description: 'Yield-on-completion workflow monitor. Blocks until the NEXT task finishes (wakes instantly via push notifications — no polling delay), returns its output for review, then returns. Call repeatedly to review tasks one-by-one. On the final call (all tasks done), runs verify/commit and returns the full summary. State is server-side — no parameters needed between calls. Returns heartbeat progress snapshots every N minutes while waiting. GLOBAL: works with any project.',
     inputSchema: {
       type: 'object',
       properties: {
         workflow_id: { type: 'string', description: 'Workflow ID to wait for' },
         timeout_minutes: { type: 'number', description: 'Max wait time in minutes (default: 30, max: 60)' },
         poll_interval_ms: { type: 'number', description: 'Fallback poll interval in ms if push notifications unavailable (default: 5000). Usually not needed — tasks wake the loop instantly via event bus.' },
+        heartbeat_minutes: {
+          type: 'number',
+          description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable.',
+          default: 5
+        },
         verify_command: { type: 'string', description: 'Shell command to run after successful completion (e.g., "npx tsc --noEmit && npx vitest run"). Runs in working_directory.' },
         auto_commit: { type: 'boolean', description: 'Auto-commit all changes on success (after verify passes if set)' },
         commit_message: { type: 'string', description: 'Custom commit message (default: workflow name)' },
@@ -785,13 +790,18 @@ const tools = [
   },
   {
     name: 'await_task',
-    description: 'Block until a standalone task completes or fails, then return its result. Wakes instantly via event-bus push notifications (no polling delay). Optionally runs verify_command and auto-commits on success. Use this instead of polling check_status in a loop. GLOBAL: works with any project.',
+    description: 'Block until a standalone task completes or fails, then return its result. Wakes instantly via event-bus push notifications (no polling delay). Optionally runs verify_command and auto-commits on success. Use this instead of polling check_status in a loop. Returns heartbeat progress snapshots every N minutes while waiting. GLOBAL: works with any project.',
     inputSchema: {
       type: 'object',
       properties: {
         task_id: { type: 'string', description: 'Task ID to wait for' },
         timeout_minutes: { type: 'number', description: 'Max wait time in minutes (default: 30, max: 60)' },
         poll_interval_ms: { type: 'number', description: 'Fallback poll interval in ms if push notifications unavailable (default: 5000). Usually not needed — tasks wake the loop instantly via event bus.' },
+        heartbeat_minutes: {
+          type: 'number',
+          description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable.',
+          default: 5
+        },
         verify_command: { type: 'string', description: 'Shell command to run after successful completion (e.g., "npx tsc --noEmit && npx vitest run"). Runs in working_directory.' },
         auto_commit: { type: 'boolean', description: 'Auto-commit all changes on success (after verify passes if set)' },
         commit_message: { type: 'string', description: 'Custom commit message (default: task description)' },
