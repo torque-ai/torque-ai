@@ -192,7 +192,7 @@ function getApiKey(provider) {
 
   // 2. provider_config.api_key_encrypted (decrypt)
   try {
-    const database = db || require('./database');
+    const database = db || require('./database'); // Phase 3: migrate to container.js init(deps) pattern — fallback until init(deps) is called
     const rawDb = typeof database.getDbInstance === 'function' ? database.getDbInstance()
       : typeof database.getDb === 'function' ? database.getDb()
       : null;

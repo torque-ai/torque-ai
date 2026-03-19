@@ -12,6 +12,25 @@
 
 const logger = require('./logger').child({ component: 'container' });
 
+/**
+ * Phase 2.4: These 8 modules directly require('./database').
+ * Phase 3 will migrate each to receive db through init(deps).
+ *
+ * Migration order (least-coupled first):
+ * 1. config.js — only uses getConfig/setConfig/getBool
+ * 2. discovery.js — only uses host management functions
+ * 3. tools.js — only uses getConfig for tool mode
+ * 4. dashboard-server.js — uses listTasks, getTask, updateTaskStatus
+ * 5. api-server.core.js — uses broad set of db functions
+ * 6. mcp-sse.js — uses config and task functions
+ * 7. task-manager.js — heaviest consumer, uses everything
+ * 8. index.js — orchestrator, last to migrate
+ */
+const DIRECT_DB_CONSUMERS = [
+  'config.js', 'discovery.js', 'tools.js', 'dashboard-server.js',
+  'api-server.core.js', 'mcp-sse.js', 'task-manager.js', 'index.js',
+];
+
 // Module references — populated by initModules
 const _modules = {};
 
@@ -29,6 +48,11 @@ function initModules(db, serverConfig) {
   // Phase 1: Core infrastructure (no dependencies)
   _modules.db = db;
   _modules.serverConfig = serverConfig;
+
+  // Phase 2.4 (PoC): config.js migrated to init(deps) — receives db here
+  // rather than requiring('./database') directly.
+  serverConfig.init({ db });
+  logger.info('Container: config.js wired via init(deps)');
 
   // Phase 2: Provider config and registry
   const providerCfg = require('./providers/config');
