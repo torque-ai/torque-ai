@@ -43,7 +43,9 @@ const https = require('https');
  *   usage:   { prompt_tokens: number, completion_tokens: number }
  * }>}
  */
-function chatCompletion({ host, apiKey, model, providerName, messages, tools, options, timeoutMs, onChunk, signal }) {
+function chatCompletion({ host, apiKey, model, providerName: _providerName, messages, tools, options, timeoutMs, onChunk, signal }) {
+  // providerName may be top-level (direct call) or nested in options (worker thread path)
+  const providerName = _providerName || options?.providerName || '';
   if (!apiKey) {
     return Promise.reject(new Error('API key required for OpenAI-compatible provider'));
   }
