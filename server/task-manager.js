@@ -81,6 +81,7 @@ const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
 const _completionPipeline = require('./execution/completion-pipeline');
 const _fileContextBuilder = require('./execution/file-context-builder');
 const _providerRouter = require('./execution/provider-router');
+const _taskUtils = require('./execution/task-utils');
 const _processLifecycle = require('./execution/process-lifecycle');
 const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking, cleanupChildProcessListeners } = _processLifecycle;
 const debugLifecycle = require('./execution/debug-lifecycle');
@@ -171,51 +172,9 @@ function registerTaskStatusTransitionListener() {
  * @param {Object|string|null} rawMetadata
  * @returns {Object}
  */
-function parseTaskMetadata(rawMetadata) {
-  if (!rawMetadata) return {};
-  if (typeof rawMetadata === 'object' && rawMetadata !== null) return rawMetadata;
-  if (typeof rawMetadata !== 'string') return {};
-
-  try {
-    const parsed = JSON.parse(rawMetadata);
-    return typeof parsed === 'object' && parsed !== null ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Parse an integer token estimate from metadata or fallback context text.
- * @param {Object|string|number} taskMetadata
- * @param {string|undefined} contextText
- * @returns {number|null}
- */
-function getTaskContextTokenEstimate(taskMetadata, contextText) {
-  const metadata = parseTaskMetadata(taskMetadata);
-  const candidateValues = [
-    metadata.contextTokens,
-    metadata.context_tokens,
-    metadata.contextTokenEstimate,
-    metadata.context_token_estimate,
-    metadata.estimatedContextTokens,
-    metadata.estimated_context_tokens,
-    metadata.totalContextTokens,
-    metadata.total_context_tokens,
-    metadata.inputTokens,
-    metadata.input_tokens
-  ];
-
-  for (const value of candidateValues) {
-    const parsed = parseInt(value, 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-
-  if (typeof contextText === 'string' && contextText.length >= 40000) {
-    return Math.round(contextText.length / 4);
-  }
-
-  return null;
-}
+// Task metadata / token utilities — delegated to execution/task-utils.js
+function parseTaskMetadata(...args) { return _taskUtils.parseTaskMetadata(...args); }
+function getTaskContextTokenEstimate(...args) { return _taskUtils.getTaskContextTokenEstimate(...args); }
 
 
 // Provider instances now managed by providerRegistry.getProviderInstance()
@@ -324,54 +283,13 @@ const QUEUE_LOCK_HOLDER_ID = `mcp-${process.pid}-${crypto.randomUUID().slice(0, 
 const QUEUE_LOCK_NAME = 'queue_processor';
 const QUEUE_LOCK_LEASE_SECONDS = 30; // Lock expires after 30 seconds if not released
 
-/**
- * SECURITY: Escape a string for safe use as a shell argument
- * Uses single quotes which are the safest shell quoting mechanism
- * @param {string} arg - The argument to escape
- * @returns {string} Safely escaped argument for shell use
- */
-function shellEscape(arg) {
-  if (arg === undefined || arg === null) return "''";
-  const str = String(arg);
-  // Single quotes are the safest - only single quotes themselves need escaping
-  // 'arg' -> 'arg'\''more' (close quote, escaped single quote, reopen quote)
-  return "'" + str.replace(/'/g, "'\\''") + "'";
-}
+// Shell escaping — delegated to execution/task-utils.js
+function shellEscape(...args) { return _taskUtils.shellEscape(...args); }
 
-/**
- * SECURITY: Validate a string contains no dangerous shell metacharacters
- * Used as defense-in-depth before shell execution
- * @param {string} str - String to validate
- * @returns {boolean} True if safe, false if contains dangerous chars
- */
 // TASK_TIMEOUTS and PROVIDER_DEFAULT_TIMEOUTS imported from ./constants.js
 
-/**
- * Strip aider CLI boilerplate noise from task output.
- * Removes the "Detected dumb terminal" + OllamaError + version banner
- * that aider prints before the actual model response.
- */
-function sanitizeAiderOutput(output) {
-  if (!output) return output;
-  // Strip thinking model <think>...</think> blocks (visible when streaming is enabled)
-  output = output.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
-  // Strip everything up to and including "Repo-map: ..." line + blank line
-  const repoMapMatch = output.match(/Repo-map:[^\n]*\n\n/);
-  if (repoMapMatch && repoMapMatch.index < 1000) {
-    return output.slice(repoMapMatch.index + repoMapMatch[0].length);
-  }
-  // Fallback: strip just the "Detected dumb terminal" + OllamaError lines
-  const dumbTerminal = 'Detected dumb terminal, disabling fancy input and pretty output.\n';
-  if (output.startsWith(dumbTerminal)) {
-    output = output.slice(dumbTerminal.length);
-    while (output.startsWith('OllamaError:') || output.startsWith('For more information check:')) {
-      const nl = output.indexOf('\n');
-      if (nl === -1) break;
-      output = output.slice(nl + 1);
-    }
-  }
-  return output.trimStart();
-}
+// Aider output sanitization — delegated to execution/task-utils.js
+function sanitizeAiderOutput(...args) { return _taskUtils.sanitizeAiderOutput(...args); }
 
 /**
  * Safely update task status with automatic recovery from state conflicts
