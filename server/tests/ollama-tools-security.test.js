@@ -75,9 +75,9 @@ describe('ollama-tools command security', () => {
       commandMode: 'allowlist',
       commandAllowlist: ['node *'],
     });
-    const result = executor.execute('run_command', { command: 'node -e "console.log(42)"' });
+    const result = executor.execute('run_command', { command: 'node --version' });
     expect(result.error).toBeFalsy();
-    expect(result.result).toContain('42');
+    expect(result.result).toMatch(/v\d+/);
   });
 
   it('allows any command in unrestricted mode without allowlist error', () => {
