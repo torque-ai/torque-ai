@@ -402,10 +402,27 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     setConfig('error_feedback_enabled', '1');
     setConfig('verify_max_fix_attempts', '2');
     // Lower temperature for qwen2.5-coder:32b — reduces hash hallucination
-    setConfig('ollama_model_settings', JSON.stringify({
-      'qwen2.5-coder:32b': { temperature: 0.1 },
-      'codestral:22b': { temperature: 0.15 }
-    }));
+    // Use merge semantics: only set keys that don't already exist, preserving user customizations
+    {
+      const newSettings = {
+        'qwen2.5-coder:32b': { temperature: 0.1 },
+        'codestral:22b': { temperature: 0.15 }
+      };
+      const existing = getConfig('ollama_model_settings');
+      if (existing) {
+        try {
+          const parsed = JSON.parse(existing);
+          // Existing keys take precedence over defaults
+          const merged = { ...newSettings, ...parsed };
+          setConfig('ollama_model_settings', JSON.stringify(merged));
+        } catch {
+          // If existing value is corrupted, overwrite with defaults
+          setConfig('ollama_model_settings', JSON.stringify(newSettings));
+        }
+      } else {
+        setConfig('ollama_model_settings', JSON.stringify(newSettings));
+      }
+    }
     // Increase keep_alive to reduce cold-start latency between tasks
     setConfig('ollama_keep_alive', '30m');
     // Enable hashline-ollama provider (was disabled)
