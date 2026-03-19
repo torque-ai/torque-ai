@@ -582,6 +582,9 @@ async function executeOllamaTask(task) {
       try {
         const currentTask = db.getTask(taskId);
         if (currentTask && currentTask.status === 'cancelled') {
+          // Abort the in-flight HTTP request and stop polling immediately.
+          // If the HTTP connection hangs and abort() doesn't cause a prompt rejection,
+          // clearing the interval here prevents the poller from running indefinitely.
           abortController.abort();
           clearInterval(cancelCheckInterval);
         }

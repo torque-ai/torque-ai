@@ -479,6 +479,7 @@ async function executeHashlineOllamaTask(task) {
   // If no files resolved, fall back to regular ollama (text-only response)
   if (resolvedFiles.length === 0) {
     logger.info(`[HashlineOllama] No files resolved for task ${taskId}, falling back to regular ollama`);
+    clearInterval(cancelCheckInterval);
     return _executeOllamaTask(task);
   }
 
@@ -513,6 +514,7 @@ async function executeHashlineOllamaTask(task) {
   // Capability gate: check if the model can reliably produce hashline edits
   if (!isHashlineCapableModel(requestedModel)) {
     logger.info(`[HashlineOllama] Model '${requestedModel}' not on capable list, escalating task ${taskId}`);
+    clearInterval(cancelCheckInterval);
     return tryHashlineTieredFallback(taskId, task, `model '${requestedModel}' not hashline-capable`);
   }
 
@@ -563,6 +565,7 @@ async function executeHashlineOllamaTask(task) {
           });
           dashboard.notifyTaskUpdated(taskId);
           processQueue();
+          clearInterval(cancelCheckInterval);
           return { queued: true, vramBlocked: true, reason: vramCheck.reason };
         }
         // Reserve a host slot. This can fail even after selectHostForTask() succeeds
@@ -582,11 +585,13 @@ async function executeHashlineOllamaTask(task) {
             error_output: (task.error_output || '') + `\nTemporarily requeued: ${slotResult.reason}`
           });
           dashboard.notifyTaskUpdated(taskId);
+          clearInterval(cancelCheckInterval);
           return { success: true, requeued: true, reason: slotResult.reason };
         }
       } else {
         // No host has this model — try other local models before cloud
         const errorMsg = `No host has model '${requestedModel}' or variant '${baseModel}'`;
+        clearInterval(cancelCheckInterval);
         tryHashlineTieredFallback(taskId, task, errorMsg);
         return;
       }
