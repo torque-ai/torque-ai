@@ -165,6 +165,23 @@ Built into `/torque-submit` and `/torque-review`:
 - **Rollback** — undo task changes on failure
 - **Adaptive retry** — auto-retry with provider fallback
 
+## Test Execution
+
+All test execution routes through the configured test station. **NEVER run test commands directly** (`npx vitest`, `npm test`, `jest`, etc.) — the guard hook will block them when a test station is configured.
+
+**Always use the test runner script:**
+```
+./scripts/torque-test.sh                              # run default verify_command
+./scripts/torque-test.sh npx vitest run path/to/test  # run specific test
+```
+
+**Configuration:**
+- `.torque-test.json` — shared config (transport, verify_command, timeout). Checked into repo.
+- `.torque-test.local.json` — personal config (host, user, project_path). Gitignored.
+- Configure via: `set_project_defaults { test_station_host: "...", test_station_user: "...", test_station_project_path: "...", verify_command: "..." }`
+
+**If no test station is configured** (transport: "local" or no config file), tests run locally as before.
+
 ## Task Completion Notifications
 
 TORQUE pushes notifications through the MCP SSE transport when tasks complete or fail. **You do not need to poll `check_status` in a loop.**
