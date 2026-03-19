@@ -281,6 +281,164 @@ else
 fi
 rm -rf "$T9"
 
+# --- Guard hook tests ---
+
+GUARD_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)/torque-test-guard.sh"
+
+# Helper: run the guard in a temp project directory with the given config and
+# JSON payload piped on stdin. Sets GUARD_EXIT and GUARD_OUTPUT.
+run_guard() {
+  local project="$1"
+  local payload="$2"
+  GUARD_OUTPUT="$(printf '%s' "$payload" | bash "$project/scripts/torque-test-guard.sh" 2>&1)"
+  GUARD_EXIT=$?
+}
+
+make_guard_project() {
+  local tmp
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/scripts"
+  cp "$GUARD_SCRIPT" "$tmp/scripts/torque-test-guard.sh"
+  chmod +x "$tmp/scripts/torque-test-guard.sh"
+  echo "$tmp"
+}
+
+# ---------------------------------------------------------------------------
+# Guard Test 1: Direct npx vitest is blocked
+# ---------------------------------------------------------------------------
+echo "Guard Test 1: direct npx vitest run is blocked"
+GT1="$(make_guard_project)"
+cat > "$GT1/.torque-test.json" <<'EOF'
+{ "transport": "ssh" }
+EOF
+
+run_guard "$GT1" '{"tool_input":{"command":"npx vitest run server/tests/foo.test.js"}}'
+
+if [[ $GUARD_EXIT -eq 2 ]]; then
+  pass "npx vitest exits 2 (blocked)"
+else
+  fail "npx vitest exits 2 (blocked)" "got exit=$GUARD_EXIT"
+fi
+
+if echo "$GUARD_OUTPUT" | grep -q "BLOCKED"; then
+  pass "npx vitest output contains BLOCKED"
+else
+  fail "npx vitest output contains BLOCKED" "output='$GUARD_OUTPUT'"
+fi
+rm -rf "$GT1"
+
+# ---------------------------------------------------------------------------
+# Guard Test 2: Direct npx jest is blocked
+# ---------------------------------------------------------------------------
+echo "Guard Test 2: direct npx jest is blocked"
+GT2="$(make_guard_project)"
+cat > "$GT2/.torque-test.json" <<'EOF'
+{ "transport": "ssh" }
+EOF
+
+run_guard "$GT2" '{"tool_input":{"command":"npx jest --verbose"}}'
+
+if [[ $GUARD_EXIT -eq 2 ]]; then
+  pass "npx jest exits 2 (blocked)"
+else
+  fail "npx jest exits 2 (blocked)" "got exit=$GUARD_EXIT"
+fi
+rm -rf "$GT2"
+
+# ---------------------------------------------------------------------------
+# Guard Test 3: npm test is blocked
+# ---------------------------------------------------------------------------
+echo "Guard Test 3: npm test is blocked"
+GT3="$(make_guard_project)"
+cat > "$GT3/.torque-test.json" <<'EOF'
+{ "transport": "ssh" }
+EOF
+
+run_guard "$GT3" '{"tool_input":{"command":"npm test"}}'
+
+if [[ $GUARD_EXIT -eq 2 ]]; then
+  pass "npm test exits 2 (blocked)"
+else
+  fail "npm test exits 2 (blocked)" "got exit=$GUARD_EXIT"
+fi
+rm -rf "$GT3"
+
+# ---------------------------------------------------------------------------
+# Guard Test 4: Command routed through torque-test.sh is allowed
+# ---------------------------------------------------------------------------
+echo "Guard Test 4: ./scripts/torque-test.sh npx vitest run is allowed"
+GT4="$(make_guard_project)"
+cat > "$GT4/.torque-test.json" <<'EOF'
+{ "transport": "ssh" }
+EOF
+
+run_guard "$GT4" '{"tool_input":{"command":"./scripts/torque-test.sh npx vitest run"}}'
+
+if [[ $GUARD_EXIT -eq 0 ]]; then
+  pass "torque-test.sh-prefixed command exits 0 (allowed)"
+else
+  fail "torque-test.sh-prefixed command exits 0 (allowed)" "got exit=$GUARD_EXIT output='$GUARD_OUTPUT'"
+fi
+rm -rf "$GT4"
+
+# ---------------------------------------------------------------------------
+# Guard Test 5: Non-test commands are allowed
+# ---------------------------------------------------------------------------
+echo "Guard Test 5: non-test commands are allowed"
+GT5="$(make_guard_project)"
+cat > "$GT5/.torque-test.json" <<'EOF'
+{ "transport": "ssh" }
+EOF
+
+run_guard "$GT5" '{"tool_input":{"command":"git status"}}'
+if [[ $GUARD_EXIT -eq 0 ]]; then
+  pass "git status exits 0 (allowed)"
+else
+  fail "git status exits 0 (allowed)" "got exit=$GUARD_EXIT"
+fi
+
+run_guard "$GT5" '{"tool_input":{"command":"node --version"}}'
+if [[ $GUARD_EXIT -eq 0 ]]; then
+  pass "node --version exits 0 (allowed)"
+else
+  fail "node --version exits 0 (allowed)" "got exit=$GUARD_EXIT"
+fi
+rm -rf "$GT5"
+
+# ---------------------------------------------------------------------------
+# Guard Test 6: Local transport allows direct test commands
+# ---------------------------------------------------------------------------
+echo "Guard Test 6: local transport allows direct test commands"
+GT6="$(make_guard_project)"
+cat > "$GT6/.torque-test.json" <<'EOF'
+{ "transport": "local" }
+EOF
+
+run_guard "$GT6" '{"tool_input":{"command":"npx vitest run"}}'
+
+if [[ $GUARD_EXIT -eq 0 ]]; then
+  pass "local transport allows npx vitest (exits 0)"
+else
+  fail "local transport allows npx vitest (exits 0)" "got exit=$GUARD_EXIT output='$GUARD_OUTPUT'"
+fi
+rm -rf "$GT6"
+
+# ---------------------------------------------------------------------------
+# Guard Test 7: No config file allows everything
+# ---------------------------------------------------------------------------
+echo "Guard Test 7: no config file allows everything"
+GT7="$(make_guard_project)"
+# No .torque-test.json
+
+run_guard "$GT7" '{"tool_input":{"command":"npx vitest run"}}'
+
+if [[ $GUARD_EXIT -eq 0 ]]; then
+  pass "no config allows npx vitest (exits 0)"
+else
+  fail "no config allows npx vitest (exits 0)" "got exit=$GUARD_EXIT output='$GUARD_OUTPUT'"
+fi
+rm -rf "$GT7"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
