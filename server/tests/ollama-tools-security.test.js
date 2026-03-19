@@ -73,11 +73,11 @@ describe('ollama-tools command security', () => {
   it('allows safe commands that match the allowlist', () => {
     const executor = createToolExecutor(process.cwd(), {
       commandMode: 'allowlist',
-      commandAllowlist: ['echo *'],
+      commandAllowlist: ['node *'],
     });
-    const result = executor.execute('run_command', { command: 'echo hello' });
+    const result = executor.execute('run_command', { command: 'node -e "console.log(42)"' });
     expect(result.error).toBeFalsy();
-    expect(result.result).toContain('hello');
+    expect(result.result).toContain('42');
   });
 
   it('allows any command in unrestricted mode without allowlist error', () => {
