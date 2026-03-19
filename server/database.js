@@ -1001,8 +1001,8 @@ function updateTaskStatus(id, status, additionalFields = {}) {
     notifyTaskStatusTransition(id, status, previousStatus, getTask(id));
   }
 
-  // Emit task:started for heartbeat notifications
-  if (status === 'running') {
+  // Emit task:started for heartbeat notifications (only on actual transition to running)
+  if (status === 'running' && previousStatus && previousStatus !== 'running') {
     try {
       const { dispatchTaskEvent } = require('./hooks/event-dispatch');
       const updatedTask = getTask(id);
