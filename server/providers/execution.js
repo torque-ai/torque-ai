@@ -245,7 +245,7 @@ Working directory: ${workingDir}`;
  * @param {number} budgetChars - Max characters to stuff (default: 48000 ≈ 16K tokens)
  * @returns {string} Enriched task prompt
  */
-function preStuffFileContents(taskDescription, workingDir, budgetChars = 48000) {
+function preStuffFileContents(taskDescription, workingDir, budgetChars = 200000) {
   if (!taskDescription || !workingDir) return taskDescription;
   try {
     const fs = require('fs');
@@ -261,7 +261,7 @@ function preStuffFileContents(taskDescription, workingDir, budgetChars = 48000) 
       if (!absPath.startsWith(path.resolve(workingDir))) continue;
       try {
         const content = fs.readFileSync(absPath, 'utf-8');
-        if (content.length > 50000) continue;
+        if (content.length > 100000) continue; // ~25K tokens max per file
         stuffedParts.push(`\n--- FILE: ${relPath} ---\n${content}\n--- END FILE ---`);
         totalChars += content.length;
       } catch { /* file doesn't exist, skip */ }
