@@ -235,3 +235,66 @@ describe('coordination wiring — MCP session auto-registration', () => {
     });
   });
 });
+
+describe('listClaims with task_id filter', () => {
+  beforeAll(() => { setup(); });
+  afterAll(() => { teardown(); });
+  beforeEach(() => {
+    resetState();
+    rawDb().prepare('DELETE FROM tasks').run();
+  });
+
+  it('filters claims by task_id', () => {
+    const agentId = randomUUID();
+    coord.registerAgent({
+      id: agentId,
+      name: 'filter-test-agent',
+      agent_type: 'worker',
+      capabilities: [],
+      max_concurrent: 10,
+      priority: 0,
+    });
+
+    const taskAId = randomUUID();
+    const taskBId = randomUUID();
+    const conn = rawDb();
+    const now = new Date().toISOString();
+    conn.prepare(`
+      INSERT INTO tasks (id, task_description, status, priority, created_at)
+      VALUES (?, ?, 'queued', 0, ?)
+    `).run(taskAId, 'task A description', now);
+    conn.prepare(`
+      INSERT INTO tasks (id, task_description, status, priority, created_at)
+      VALUES (?, ?, 'queued', 0, ?)
+    `).run(taskBId, 'task B description', now);
+
+    coord.claimTask(taskAId, agentId, 300);
+    coord.claimTask(taskBId, agentId, 300);
+
+    const claimsA = coord.listClaims({ task_id: taskAId, status: 'active' });
+    expect(claimsA).toHaveLength(1);
+    expect(claimsA[0].task_id).toBe(taskAId);
+    expect(claimsA[0].status).toBe('active');
+
+    const claimsB = coord.listClaims({ task_id: taskBId, status: 'active' });
+    expect(claimsB).toHaveLength(1);
+    expect(claimsB[0].task_id).toBe(taskBId);
+    expect(claimsB[0].status).toBe('active');
+
+    const allClaims = coord.listClaims({ agent_id: agentId, status: 'active' });
+    expect(allClaims).toHaveLength(2);
+  });
+
+  it('returns empty array when task_id has no matching claims', () => {
+    const taskId = randomUUID();
+    const conn = rawDb();
+    const now = new Date().toISOString();
+    conn.prepare(`
+      INSERT INTO tasks (id, task_description, status, priority, created_at)
+      VALUES (?, 'ghost task', 'queued', 0, ?)
+    `).run(taskId, now);
+
+    const claims = coord.listClaims({ task_id: taskId, status: 'active' });
+    expect(claims).toHaveLength(0);
+  });
+});

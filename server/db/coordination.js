@@ -432,13 +432,18 @@ function getClaim(taskIdOrClaimId) {
  * @param {any} options
  * @returns {any}
  */
-function listClaims({ agent_id, status, include_expired = false, limit = 50 } = {}) {
+function listClaims({ agent_id, task_id, status, include_expired = false, limit = 50 } = {}) {
   let query = 'SELECT c.*, t.task_description FROM task_claims c JOIN tasks t ON c.task_id = t.id WHERE 1=1';
   const params = [];
 
   if (agent_id) {
     query += ' AND c.agent_id = ?';
     params.push(agent_id);
+  }
+
+  if (task_id) {
+    query += ' AND c.task_id = ?';
+    params.push(task_id);
   }
 
   if (status) {
