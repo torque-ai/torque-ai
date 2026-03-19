@@ -90,14 +90,16 @@ function InlineAddInput({ placeholder, onAdd }) {
 function Toggle({ checked, onChange, label }) {
   return (
     <label className="flex items-center gap-2 cursor-pointer">
-      <div
-        className={`relative w-10 h-5 rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-slate-600'}`}
+      <button
+        role="switch"
+        aria-checked={checked}
         onClick={() => onChange(!checked)}
+        className={`relative w-10 h-5 rounded-full transition-colors border-0 p-0 ${checked ? 'bg-blue-600' : 'bg-slate-600'}`}
       >
         <div
           className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : ''}`}
         />
-      </div>
+      </button>
       {label && <span className="text-sm text-slate-300">{label}</span>}
     </label>
   );

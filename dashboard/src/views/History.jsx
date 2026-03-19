@@ -445,9 +445,17 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
     function handleKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       if (e.key === 'j' && sortedTasks.length > 0) {
-        setFocusedIdx((i) => Math.min(i + 1, sortedTasks.length - 1));
+        setFocusedIdx((i) => {
+          const newIdx = Math.min(i + 1, sortedTasks.length - 1);
+          document.querySelector(`[data-row-idx="${newIdx}"]`)?.scrollIntoView({ block: 'nearest' });
+          return newIdx;
+        });
       } else if (e.key === 'k' && sortedTasks.length > 0) {
-        setFocusedIdx((i) => Math.max(i - 1, 0));
+        setFocusedIdx((i) => {
+          const newIdx = Math.max(i - 1, 0);
+          document.querySelector(`[data-row-idx="${newIdx}"]`)?.scrollIntoView({ block: 'nearest' });
+          return newIdx;
+        });
       } else if (e.key === 'x' && focusedIdx >= 0 && focusedIdx < sortedTasks.length) {
         const task = sortedTasks[focusedIdx];
         setSelectedIds((prev) => {

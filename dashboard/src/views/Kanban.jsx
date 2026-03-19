@@ -546,6 +546,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     try { return new Set(JSON.parse(localStorage.getItem('torque-hidden-cols') || '[]')); } catch { return new Set(); }
   });
   const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef(null);
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const searchTimerRef = useRef(null);
@@ -565,6 +566,13 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!showColMenu) return;
+    const handler = (e) => { if (!colMenuRef.current?.contains(e.target)) setShowColMenu(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showColMenu]);
 
   function toggleColumn(colId) {
     setCollapsedCols((prev) => {
@@ -920,7 +928,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         runningSeconds: Math.floor((now - new Date(t.started_at).getTime()) / 1000),
       }))
       .sort((a, b) => b.runningSeconds - a.runningSeconds);
-  }, [allTasks]);
+  }, [allTasks, now]);
 
   // Merge wsStats (flat: { running, queued, completed, failed }) into REST overview shape
   const effectiveOverview = useMemo(() => {
@@ -1137,7 +1145,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
             )}
             {compact ? 'Compact' : 'Comfortable'}
           </button>
-          <div className="relative">
+          <div className="relative" ref={colMenuRef}>
             <button
               onClick={() => setShowColMenu((s) => !s)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50 text-slate-400 hover:text-white text-xs transition-colors"

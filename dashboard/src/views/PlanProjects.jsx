@@ -358,8 +358,12 @@ function ImportModal({ onClose, onImport }) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Import project"
         className="bg-slate-800 rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
       >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-white">Import Plan</h2>
@@ -686,7 +690,13 @@ export default function PlanProjects() {
       {/* Delete confirmation dialog */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-lg p-6 max-w-sm w-full">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Delete project confirmation"
+            className="bg-slate-800 rounded-lg p-6 max-w-sm w-full"
+            onKeyDown={(e) => { if (e.key === 'Escape') setDeleteConfirm(null); }}
+          >
             <h3 className="text-lg font-semibold text-white mb-2">Delete Project</h3>
             <p className="text-slate-400 text-sm mb-4">
               Are you sure you want to delete this project? This cannot be undone.

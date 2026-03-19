@@ -271,6 +271,7 @@ export default function Providers({ statsVersion, tasksTick }) {
   };
 
   const loadData = useCallback(async () => {
+    if (!mountedRef.current) return;
     try {
       const [providersData, timeSeriesData, hostsData, trendsData, codexCfg] = await Promise.all([
         providersApi.list(),
@@ -279,16 +280,18 @@ export default function Providers({ statsVersion, tasksTick }) {
         providersApi.trends(days).catch(() => null),
         requestV2('/config/codex_exhausted').catch(() => null),
       ]);
+      if (!mountedRef.current) return;
       setProvidersList(providersData);
       setTimeSeries(timeSeriesData);
       setHostCount(Array.isArray(hostsData) ? hostsData.length : 0);
       setTrends(trendsData);
       setCodexExhausted(codexCfg?.value === '1' || codexCfg === '1');
     } catch (err) {
+      if (!mountedRef.current) return;
       console.error('Failed to load provider data:', err);
       addToast.error('Failed to load provider data');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }, [days, addToast]);
 

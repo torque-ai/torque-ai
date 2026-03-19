@@ -191,12 +191,8 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    loadTask();
-  }, [taskId, loadTask]);
-
-  useEffect(() => {
-    if (!taskId || refreshTick <= 0) return;
+    if (!taskId) return;
+    if (refreshTick <= 0) setLoading(true);
     loadTask();
   }, [taskId, refreshTick, loadTask]);
 

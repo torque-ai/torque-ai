@@ -37,7 +37,7 @@ export default function EconomyIndicator() {
           setThreshold(String(nextStatus.auto_trigger_threshold));
         }
       })
-      .catch(() => {});
+      .catch((err) => { if (err.name !== 'AbortError') console.warn('Economy load failed:', err); });
   }, []);
 
   useEffect(() => {

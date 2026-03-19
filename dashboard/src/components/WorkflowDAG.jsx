@@ -99,10 +99,16 @@ export default function WorkflowDAG({ tasks = [], onOpenDrawer }) {
     }
   }, [layout]);
 
-  const handleWheel = useCallback((e) => {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
-    setScale((s) => Math.max(0.2, Math.min(2, s - e.deltaY * 0.001)));
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    function handleWheel(e) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      setScale((s) => Math.max(0.2, Math.min(2, s - e.deltaY * 0.001)));
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
   }, []);
 
   const handleMouseDown = useCallback((e) => {
@@ -130,7 +136,6 @@ export default function WorkflowDAG({ tasks = [], onOpenDrawer }) {
       ref={containerRef}
       className="overflow-hidden bg-slate-900/50 rounded-lg border border-slate-700/30"
       style={{ minHeight: 120, maxHeight: 400, cursor: dragging ? 'grabbing' : 'grab' }}
-      onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
