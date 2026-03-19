@@ -162,6 +162,87 @@ function getFallbackCommitPaths(workingDir) {
 }
 
 /**
+ * Format a millisecond duration as a human-readable string.
+ * e.g. 272000 → "4m 32s", 45000 → "45s"
+ */
+function formatDuration(ms) {
+  if (!ms || ms < 0) return '0s';
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+}
+
+/**
+ * Format a heartbeat response for await_task / await_workflow.
+ * Pure formatter — no side effects, no DB access.
+ * Returns a markdown string suitable for returning as an MCP text content block.
+ */
+function formatHeartbeat(opts) {
+  const {
+    taskId, reason, elapsedMs, runningTasks = [], taskCounts = {},
+    partialOutput, alerts = [], nextUpTasks
+  } = opts;
+
+  const elapsed = formatDuration(elapsedMs);
+  const context = opts.isWorkflow ? 'Await Workflow' : 'Await Task';
+  const lines = [];
+
+  lines.push(`## Heartbeat — ${context} ${taskId}`);
+  lines.push('');
+  lines.push(`**Reason:** ${reason}`);
+  lines.push(`**Elapsed:** ${elapsed}`);
+  lines.push(`**Tasks:** ${taskCounts.completed || 0} completed, ${taskCounts.failed || 0} failed, ${taskCounts.running || 0} running, ${taskCounts.pending || 0} pending`);
+  lines.push('');
+
+  if (runningTasks.length > 0) {
+    lines.push('### Running Tasks');
+    lines.push('| Task | Provider | Host | Elapsed | Description |');
+    lines.push('|------|----------|------|---------|-------------|');
+    for (const t of runningTasks) {
+      const desc = (t.description || '').slice(0, 80);
+      lines.push(`| ${t.id} | ${t.provider || '-'} | ${t.host || '-'} | ${formatDuration(t.elapsedMs)} | ${desc} |`);
+    }
+    lines.push('');
+  }
+
+  lines.push('### Partial Output');
+  if (partialOutput && partialOutput.length > 0) {
+    const truncated = partialOutput.length > 1500
+      ? '...(truncated)\n' + partialOutput.slice(-1500)
+      : partialOutput;
+    lines.push('```');
+    lines.push(truncated);
+    lines.push('```');
+  } else {
+    lines.push('No output captured yet (provider buffers until completion)');
+  }
+  lines.push('');
+
+  if (alerts.length > 0) {
+    lines.push('### Alerts');
+    for (const alert of alerts) {
+      lines.push(`- ${alert}`);
+    }
+    lines.push('');
+  }
+
+  if (nextUpTasks && nextUpTasks.length > 0) {
+    lines.push('### Next Up');
+    for (const t of nextUpTasks.slice(0, 5)) {
+      lines.push(`- ${t.id}: ${(t.description || '').slice(0, 60)}`);
+    }
+    lines.push('');
+  }
+
+  lines.push('### Action');
+  lines.push('Re-invoke to continue waiting, or take action (cancel, resubmit, etc.)');
+
+  return lines.join('\n');
+}
+
+/**
  * Format a single completed task as a yield response.
  * Shows task details + workflow progress so the caller can review incrementally.
  */
@@ -835,6 +916,8 @@ async function handleAwaitTask(args) {
 }
 
 module.exports = {
+  formatDuration,
+  formatHeartbeat,
   formatTaskYield,
   handleAwaitWorkflow,
   handleAwaitTask,
