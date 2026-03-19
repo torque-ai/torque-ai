@@ -35,6 +35,12 @@ let _lastQueueProcessAt = 0;
 let _lastAutoScaleActivation = 0;
 
 let lastBudgetResetCheck = 0;
+
+// Cross-cycle TTL cache for provider limit lookups (db.getProvider is expensive per-cycle)
+// Invalidated every 10s so config changes take effect promptly
+let _providerLimitTTLCache = new Map();
+let _providerLimitCacheTs = 0;
+const PROVIDER_LIMIT_CACHE_TTL_MS = 10000;
 const QUEUE_CHANGED_EVENT = 'torque:queue-changed';
 const QUEUE_CHANGED_LISTENER_TAG = Symbol.for('torque.queueChangedListener');
 const FREE_PROVIDERS = Object.freeze([
@@ -332,8 +338,20 @@ function createProviderRuntimeState(runningAll = []) {
   function getProviderLimit(provider, fallbackLimit = null) {
     const normalizedProvider = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
     if (!normalizedProvider) return parsePositiveInt(fallbackLimit, null);
+    // Per-cycle cache hit (fastest path)
     if (providerLimitCache.has(normalizedProvider)) {
       return providerLimitCache.get(normalizedProvider);
+    }
+    // Cross-cycle TTL cache: avoids db.getProvider on every scheduling cycle
+    const now = Date.now();
+    if (now - _providerLimitCacheTs > PROVIDER_LIMIT_CACHE_TTL_MS) {
+      _providerLimitTTLCache = new Map();
+      _providerLimitCacheTs = now;
+    }
+    if (_providerLimitTTLCache.has(normalizedProvider)) {
+      const cached = _providerLimitTTLCache.get(normalizedProvider);
+      providerLimitCache.set(normalizedProvider, cached);
+      return cached;
     }
 
     const providerConfig = typeof db?.getProvider === 'function'
@@ -344,6 +362,7 @@ function createProviderRuntimeState(runningAll = []) {
       parsePositiveInt(fallbackLimit, null),
     );
     providerLimitCache.set(normalizedProvider, providerLimit);
+    _providerLimitTTLCache.set(normalizedProvider, providerLimit);
     return providerLimit;
   }
 

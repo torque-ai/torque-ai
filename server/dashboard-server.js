@@ -491,7 +491,8 @@ function handleWebSocket(ws) {
     }
 
     const activeMessageCount = msgTimestamps.length - msgTimestampHead;
-    if (msgTimestampHead > 128 && msgTimestampHead > msgTimestamps.length / 2) {
+    // Compact once 64 expired entries accumulate (instead of 128) to keep array smaller
+    if (msgTimestampHead > 64) {
       msgTimestamps.splice(0, msgTimestampHead);
       msgTimestampHead = 0;
     }

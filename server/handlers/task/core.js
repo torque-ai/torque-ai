@@ -365,11 +365,12 @@ function handleSubmitTask(args) {
       const contextWorkDir = args.working_directory || null;
       if (!contextWorkDir) {
         // No working directory — can't resolve context files; add warning to metadata
-        const taskRow2 = db.getTask(taskId);
-        const existingMeta2 = taskRow2?.metadata ? (typeof taskRow2.metadata === 'string' ? JSON.parse(taskRow2.metadata) : { ...taskRow2.metadata }) : {};
-        existingMeta2.warning = 'No working directory specified — file context unavailable';
+        // Parse metadata once and reuse; avoids a second db.getTask call in the scan branch
+        const taskRowCtx = db.getTask(taskId);
+        const existingMetaCtx = taskRowCtx?.metadata ? (typeof taskRowCtx.metadata === 'string' ? JSON.parse(taskRowCtx.metadata) : { ...taskRowCtx.metadata }) : {};
+        existingMetaCtx.warning = 'No working directory specified — file context unavailable';
         db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
-          .run(JSON.stringify(existingMeta2), taskId);
+          .run(JSON.stringify(existingMetaCtx), taskId);
       }
       const scanResult = contextWorkDir ? resolveContextFiles({
         taskDescription,
@@ -378,12 +379,13 @@ function handleSubmitTask(args) {
         contextDepth: depth,
       }) : null;
       if (scanResult && scanResult.contextFiles.length > 0) {
-        const taskRow = db.getTask(taskId);
-        const existingMeta = taskRow?.metadata ? (typeof taskRow.metadata === 'string' ? JSON.parse(taskRow.metadata) : { ...taskRow.metadata }) : {};
-        existingMeta.context_files = scanResult.contextFiles;
-        existingMeta.context_scan_reasons = Object.fromEntries(scanResult.reasons);
+        // Fetch task once here (the !contextWorkDir branch above won't have run)
+        const taskRowScan = db.getTask(taskId);
+        const existingMetaScan = taskRowScan?.metadata ? (typeof taskRowScan.metadata === 'string' ? JSON.parse(taskRowScan.metadata) : { ...taskRowScan.metadata }) : {};
+        existingMetaScan.context_files = scanResult.contextFiles;
+        existingMetaScan.context_scan_reasons = Object.fromEntries(scanResult.reasons);
         db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
-          .run(JSON.stringify(existingMeta), taskId);
+          .run(JSON.stringify(existingMetaScan), taskId);
       }
     } catch (err) {
       logger.debug(`[submit_task] Context scan failed for ${taskId}: ${err.message}`);

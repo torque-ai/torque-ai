@@ -95,7 +95,7 @@ function AppInner() {
   const [drawerRefreshTick, setDrawerRefreshTick] = useState(0);
   const drawerTaskIdRef = useRef(null);
   drawerTaskIdRef.current = drawerTaskId;
-  const relativeTimeTick = useTick(30000);
+  const relativeTimeTick = useTick(10000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
 

@@ -32,11 +32,11 @@ export default function SessionSwitcher({ shortId }) {
       });
   }, []);
 
-  // Fetch on open, refresh every 10s while open
+  // Fetch on open, refresh every 30s while open
   useEffect(() => {
     if (open) {
       fetchInstances();
-      refreshRef.current = setInterval(fetchInstances, 10000);
+      refreshRef.current = setInterval(fetchInstances, 30000);
     } else {
       if (refreshRef.current) clearInterval(refreshRef.current);
       if (requestControllerRef.current) requestControllerRef.current.abort();

@@ -328,7 +328,7 @@ function handleModelStats(req, res, query) {
       m.total += row.total;
       m.completed += row.completed;
       m.failed += row.failed;
-      m.total_cost += row.total_cost || 0;
+      m.total_cost += row.total_cost ?? 0;
       if (!m.last_used || row.last_used > m.last_used) m.last_used = row.last_used;
       if (row.avg_duration_seconds != null) {
         m.avg_duration_seconds = m.avg_duration_seconds != null

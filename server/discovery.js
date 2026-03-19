@@ -940,13 +940,14 @@ async function scanNetworkForOllama(options = {}) {
 
     const duration = Date.now() - startTime;
 
+    // Store summary only — omit potentially large model lists to bound memory
     lastScanResults = {
       timestamp: new Date().toISOString(),
       duration,
       subnetsScanned: targetSubnets,
       totalFound: allResults.length,
-      newHosts,
-      skipped
+      newHosts: newHosts.map(({ models: _models, ...rest }) => rest),
+      skipped: skipped.map(({ models: _models, ...rest }) => rest),
     };
 
     logger.info(`[Discovery] Scan complete: ${allResults.length} found, ${newHosts.length} new, ${duration}ms`);

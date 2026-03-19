@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi, models } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
@@ -196,10 +196,12 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
   } catch { /* ignore */ }
 
   // Check if model is warm (loaded within last 5 min)
-  /* eslint-disable react-hooks/purity */
-  const isModelWarm = host.model_loaded_at &&
-    (Date.now() - new Date(host.model_loaded_at).getTime()) < 5 * 60 * 1000;
-  /* eslint-enable react-hooks/purity */
+  // Memoized so it doesn't recompute on every render unrelated to host.model_loaded_at
+  const isModelWarm = useMemo(
+    () => host.model_loaded_at &&
+      (Date.now() - new Date(host.model_loaded_at).getTime()) < 5 * 60 * 1000,
+    [host.model_loaded_at],
+  );
 
   return (
     <div className={`glass-card p-5 card-hover${!host.enabled ? ' opacity-60' : ''}`}>

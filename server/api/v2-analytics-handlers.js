@@ -78,11 +78,13 @@ async function handleStatsOverview(req, res) {
   const todayRunning = db.countTasks ? db.countTasks({ from_date: today, to_date: tomorrow, status: 'running' }) : 0;
   const todayTotal = todayCompleted + todayFailed + todayRunning;
 
-  const runningCount = db.countTasks ? db.countTasks({ status: 'running' }) : 0;
-  const queuedCount = db.countTasks ? db.countTasks({ status: 'queued' }) : 0;
-  const completedCount = db.countTasks ? db.countTasks({ status: 'completed' }) : 0;
-  const failedCount = db.countTasks ? db.countTasks({ status: 'failed' }) : 0;
-  const cancelledCount = db.countTasks ? db.countTasks({ status: 'cancelled' }) : 0;
+  // Batch all status counts into a single grouped query to avoid 5 separate DB round-trips
+  const statusCounts = db.countTasksByStatus ? db.countTasksByStatus() : {};
+  const runningCount = statusCounts.running ?? 0;
+  const queuedCount = statusCounts.queued ?? 0;
+  const completedCount = statusCounts.completed ?? 0;
+  const failedCount = statusCounts.failed ?? 0;
+  const cancelledCount = statusCounts.cancelled ?? 0;
 
   const successRate = todayTotal > 0
     ? Math.round((todayCompleted / (todayCompleted + todayFailed || 1)) * 100) : 0;
@@ -208,6 +210,7 @@ async function handleModelStats(req, res) {
         modelMap[row.model] = {
           model: row.model, providers: [], total: 0, completed: 0, failed: 0,
           avg_duration_seconds: null, last_used: null,
+          _totalDuration: 0, _totalCount: 0,
         };
       }
       const m = modelMap[row.model];
@@ -217,8 +220,8 @@ async function handleModelStats(req, res) {
       m.failed += row.failed;
       if (!m.last_used || row.last_used > m.last_used) m.last_used = row.last_used;
       if (row.avg_duration_seconds != null) {
-        m._totalDuration = (m._totalDuration || 0) + row.avg_duration_seconds * row.task_count;
-        m._totalCount = (m._totalCount || 0) + row.task_count;
+        m._totalDuration += row.avg_duration_seconds * row.task_count;
+        m._totalCount += row.task_count;
         m.avg_duration_seconds = m._totalDuration / m._totalCount;
       }
     }

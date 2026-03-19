@@ -75,9 +75,9 @@ function sortTasks(tasks, sortKey) {
   return sorted;
 }
 
-function getTaskAge(createdAt) {
+function getTaskAge(createdAt, now) {
   if (!createdAt) return null;
-  const hours = (Date.now() - new Date(createdAt).getTime()) / 3600000;
+  const hours = (now - new Date(createdAt).getTime()) / 3600000;
   if (hours < 1) return null;
   if (hours < 24) return { label: `${Math.floor(hours)}h`, color: 'text-slate-500' };
   const days = Math.floor(hours / 24);
@@ -162,7 +162,7 @@ const TaskCard = memo(function TaskCard({
   const shortId = task.id?.substring(0, 8) || 'unknown';
   const hostLabel = task.ollama_host_name || task.ollama_host_id;
   const gpuActive = task.status === 'running' ? task.gpu_active : undefined;
-  const age = getTaskAge(task.created_at);
+  const age = getTaskAge(task.created_at, now);
   const hostAct = task.status === 'running' && task.ollama_host_id
     ? hostActivity?.hosts?.[task.ollama_host_id] : null;
   const gpu = hostAct?.gpuMetrics || null;
@@ -919,7 +919,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
 
   // Detect stuck tasks: running for more than 30 minutes (1800 seconds)
   const stuckRunningTasks = useMemo(() => {
-    const now = Date.now();
+    // Use component-level `now` state (updated by the 1s tick interval) instead of inline Date.now()
     const STUCK_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
     return allTasks
       .filter((t) => t.status === 'running' && t.started_at && (now - new Date(t.started_at).getTime()) > STUCK_THRESHOLD_MS)

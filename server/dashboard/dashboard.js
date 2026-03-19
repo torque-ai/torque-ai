@@ -1,40 +1,40 @@
 'use strict';
 
 (function () {
-  var API_HEADERS = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
-  var POLL_INTERVAL = 10000;
-  var activeFilter = '';
-  var ws = null;
-  var reconnectTimer = null;
-  var pollTimer = null;
+  const API_HEADERS = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+  const POLL_INTERVAL = 30000;
+  let activeFilter = '';
+  let ws = null;
+  let reconnectTimer = null;
+  let pollTimer = null;
 
   // ---- DOM refs ----
-  var $ = function (id) { return document.getElementById(id); };
-  var runningCount = $('runningCount');
-  var queuedCount = $('queuedCount');
-  var completedCount = $('completedCount');
-  var failedCount = $('failedCount');
-  var sseSubscribersCount = $('sseSubscribersCount');
-  var pendingEventsCount = $('pendingEventsCount');
-  var tasksTableBody = $('tasksTableBody');
-  var providersGrid = $('providersGrid');
-  var hostsGrid = $('hostsGrid');
-  var formatsGrid = $('formatsGrid');
-  var eventHistoryBody = $('eventHistoryBody');
-  var statusDot = $('statusDot');
-  var statusText = $('statusText');
-  var outputModal = $('outputModal');
-  var outputModalClose = $('outputModalClose');
-  var outputTaskId = $('outputTaskId');
-  var outputContent = $('outputContent');
-  var agentsTableBody = $('agentsTableBody');
-  var agentsRefreshButton = $('agentsRefreshButton');
-  var agentRegisterForm = $('agentRegisterForm');
-  var agentRegisterMessage = $('agentRegisterMessage');
-  var notificationToggle = $('notificationToggle');
-  var notificationPrefsBtn = $('notificationPrefsBtn');
-  var prefsModal = $('prefsModal');
-  var prefsModalClose = $('prefsModalClose');
+  const $ = function (id) { return document.getElementById(id); };
+  const runningCount = $('runningCount');
+  const queuedCount = $('queuedCount');
+  const completedCount = $('completedCount');
+  const failedCount = $('failedCount');
+  const sseSubscribersCount = $('sseSubscribersCount');
+  const pendingEventsCount = $('pendingEventsCount');
+  const tasksTableBody = $('tasksTableBody');
+  const providersGrid = $('providersGrid');
+  const hostsGrid = $('hostsGrid');
+  const formatsGrid = $('formatsGrid');
+  const eventHistoryBody = $('eventHistoryBody');
+  const statusDot = $('statusDot');
+  const statusText = $('statusText');
+  const outputModal = $('outputModal');
+  const outputModalClose = $('outputModalClose');
+  const outputTaskId = $('outputTaskId');
+  const outputContent = $('outputContent');
+  const agentsTableBody = $('agentsTableBody');
+  const agentsRefreshButton = $('agentsRefreshButton');
+  const agentRegisterForm = $('agentRegisterForm');
+  const agentRegisterMessage = $('agentRegisterMessage');
+  const notificationToggle = $('notificationToggle');
+  const notificationPrefsBtn = $('notificationPrefsBtn');
+  const prefsModal = $('prefsModal');
+  const prefsModalClose = $('prefsModalClose');
 
   // ---- Safe DOM helpers ----
   function el(tag, attrs, children) {

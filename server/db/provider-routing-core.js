@@ -1185,7 +1185,7 @@ async function waitForOllamaReady(timeoutMs) {
   const http = require('http');
   const https = require('https');
   const startTime = Date.now();
-  const pollInterval = 500; // Check every 500ms
+  const pollInterval = 2000; // Check every 2s
 
   const ollamaHost = getDatabaseConfig('ollama_host') || 'http://localhost:11434';
   const url = new URL('/api/tags', ollamaHost);

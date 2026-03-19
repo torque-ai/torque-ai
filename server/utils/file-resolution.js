@@ -264,22 +264,27 @@ function buildFileIndex(workingDirectory) {
     return index;
   }
 
-  // Evict oldest entries if cache is full
-  if (fileIndexCache.size >= FILE_INDEX_MAX_ENTRIES) {
+  // Evict oldest entries until below max before inserting the new entry
+  while (fileIndexCache.size >= FILE_INDEX_MAX_ENTRIES) {
     let oldestKey = null;
     let oldestTime = Infinity;
     for (const [key, val] of fileIndexCache) {
       if (!hasValidCacheEntry(val)) {
         fileIndexCache.delete(key);
-        continue;
+        oldestKey = null; // restart check
+        break;
       }
-
       if (val.timestamp < oldestTime) {
         oldestTime = val.timestamp;
         oldestKey = key;
       }
     }
-    if (oldestKey) fileIndexCache.delete(oldestKey);
+    if (oldestKey) {
+      fileIndexCache.delete(oldestKey);
+    } else if (fileIndexCache.size >= FILE_INDEX_MAX_ENTRIES) {
+      // Shouldn't happen; break to avoid infinite loop
+      break;
+    }
   }
 
   fileIndexCache.set(workingDirectory, { index, timestamp: Date.now() });

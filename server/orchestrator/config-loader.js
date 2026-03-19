@@ -8,6 +8,15 @@ const logger = require('../logger').child({ component: 'strategic-config' });
 const DEFAULT_CONFIG_PATH = path.join(__dirname, 'default-config.json');
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 
+// Cache for resolveConfig — avoids reading 3 JSON files on every call.
+// TTL: 5s for user/default (rarely change); per-project cached separately.
+const CONFIG_CACHE_TTL_MS = 5000;
+let _defaultConfigCache = null;
+let _defaultConfigCacheTs = 0;
+let _userConfigCache = null;
+let _userConfigCacheTs = 0;
+const _projectConfigCache = new Map(); // workingDirectory → { value, ts }
+
 function loadJsonFile(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
@@ -21,8 +30,14 @@ function loadJsonFile(filePath) {
 }
 
 function loadDefaultConfig() {
+  const now = Date.now();
+  if (_defaultConfigCache && now - _defaultConfigCacheTs < CONFIG_CACHE_TTL_MS) {
+    return JSON.parse(JSON.stringify(_defaultConfigCache)); // deep clone to prevent mutation
+  }
   const config = loadJsonFile(DEFAULT_CONFIG_PATH);
   if (!config) throw new Error('Default strategic config not found — installation may be corrupted');
+  _defaultConfigCache = config;
+  _defaultConfigCacheTs = now;
   return JSON.parse(JSON.stringify(config)); // deep clone
 }
 
@@ -89,11 +104,23 @@ function listTemplates(workingDirectory) {
 
 function loadProjectConfig(workingDirectory) {
   if (!workingDirectory) return null;
-  return loadJsonFile(path.join(workingDirectory, '.torque', 'strategic.json'));
+  const now = Date.now();
+  const cached = _projectConfigCache.get(workingDirectory);
+  if (cached && now - cached.ts < CONFIG_CACHE_TTL_MS) return cached.value;
+  const value = loadJsonFile(path.join(workingDirectory, '.torque', 'strategic.json'));
+  _projectConfigCache.set(workingDirectory, { value, ts: now });
+  return value;
 }
 
 function loadUserConfig() {
-  return loadJsonFile(path.join(os.homedir(), '.torque', 'strategic.json'));
+  const now = Date.now();
+  if (_userConfigCache !== undefined && now - _userConfigCacheTs < CONFIG_CACHE_TTL_MS) {
+    return _userConfigCache;
+  }
+  const value = loadJsonFile(path.join(os.homedir(), '.torque', 'strategic.json'));
+  _userConfigCache = value;
+  _userConfigCacheTs = now;
+  return value;
 }
 
 function validateConfig(config) {
@@ -185,12 +212,17 @@ function saveProjectConfig(workingDirectory, config) {
   const dir = path.join(workingDirectory, '.torque');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'strategic.json'), JSON.stringify(config, null, 2), 'utf8');
+  _projectConfigCache.delete(workingDirectory); // invalidate cache on write
 }
 
 function deleteProjectConfig(workingDirectory) {
   if (!workingDirectory) return false;
   const filePath = path.join(workingDirectory, '.torque', 'strategic.json');
-  try { fs.unlinkSync(filePath); return true; } catch { return false; }
+  try {
+    fs.unlinkSync(filePath);
+    _projectConfigCache.delete(workingDirectory); // invalidate cache on delete
+    return true;
+  } catch { return false; }
 }
 
 module.exports = {
