@@ -753,3 +753,162 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
     expect(text).toContain('3 running');
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// End-to-end heartbeat integration scenarios
+// ---------------------------------------------------------------------------
+
+describe('heartbeat integration', () => {
+  beforeEach(() => {
+    setupTestDb(`await-e2e-heartbeat-${Date.now()}`);
+    installCjsModuleMock('../hooks/event-dispatch', {
+      taskEvents: mocks.taskEvents,
+      NOTABLE_EVENTS: ['started', 'stall_warning', 'retry', 'fallback'],
+    });
+    installCjsModuleMock('../execution/command-policy', {
+      executeValidatedCommandSync: mocks.executeValidatedCommandSync,
+    });
+    installCjsModuleMock('../utils/safe-exec', {
+      safeExecChain: mocks.safeExecChain,
+    });
+    installCjsModuleMock('../handlers/peek-handlers', {
+      handlePeekUi: mocks.handlePeekUi,
+    });
+    mocks.executeValidatedCommandSync.mockReset();
+    mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
+      if (command === 'git' && args[0] === 'rev-parse') return 'abc123\n';
+      if (command === 'git' && args[0] === 'diff') return '';
+      return '';
+    });
+    mocks.safeExecChain.mockReset();
+    mocks.safeExecChain.mockReturnValue({ exitCode: 0, output: 'verify ok' });
+    mocks.handlePeekUi.mockReset();
+    mocks.handlePeekUi.mockResolvedValue({ content: [] });
+    mocks.taskEvents.removeAllListeners();
+    hostMonitoring.hostActivityCache.clear();
+    handlers = loadFresh('../handlers/workflow/await');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mocks.executeValidatedCommandSync.mockReset();
+    mocks.safeExecChain.mockReset();
+    mocks.handlePeekUi.mockReset();
+    mocks.taskEvents.removeAllListeners();
+    hostMonitoring.hostActivityCache.clear();
+    vi.useRealTimers();
+    teardownTestDb();
+  });
+
+  test('full cycle: heartbeat then completion', async () => {
+    // 1. Create a running task
+    vi.useFakeTimers();
+    const taskId = createTask({ status: 'running' });
+    db.updateTaskStatus(taskId, 'running', {
+      started_at: new Date(Date.now() - 10000).toISOString(),
+    });
+
+    // 2. First call: handleAwaitTask with heartbeat_minutes: 1
+    const firstPromise = handlers.handleAwaitTask({
+      task_id: taskId,
+      heartbeat_minutes: 1, // 60 seconds
+      poll_interval_ms: 5000,
+      timeout_minutes: 5,
+    });
+
+    // 3. Advance 61 seconds — heartbeat fires with reason 'scheduled'
+    await vi.advanceTimersByTimeAsync(61000);
+    const firstResult = await firstPromise;
+
+    expect(textOf(firstResult)).toContain('Heartbeat');
+    expect(textOf(firstResult)).toContain('scheduled');
+    expect(textOf(firstResult)).toContain('Re-invoke to continue waiting');
+
+    // 4. Switch to real timers for the second call so event listeners register
+    vi.useRealTimers();
+
+    // 5. Re-invoke handleAwaitTask with the same params (second call)
+    const secondPromise = handlers.handleAwaitTask({
+      task_id: taskId,
+      heartbeat_minutes: 1,
+      poll_interval_ms: 30000,
+      timeout_minutes: 5,
+    });
+
+    // Allow the event loop to register listeners before emitting
+    await new Promise(r => setImmediate(r));
+
+    // 6. Complete the task and emit terminal event
+    finalizeTask(taskId, 'completed', { output: 'all done' });
+    mocks.taskEvents.emit('task:completed', { id: taskId, status: 'completed' });
+
+    // 7. Second call should return completion, not heartbeat
+    const secondResult = await secondPromise;
+    expect(textOf(secondResult)).toContain('Task Completed');
+    expect(textOf(secondResult)).toContain('all done');
+    expect(textOf(secondResult)).not.toContain('## Heartbeat');
+  });
+
+  test('stall_warning event includes correct alert text', async () => {
+    // 1. Create a running task
+    const taskId = createTask({ status: 'running' });
+    db.updateTaskStatus(taskId, 'running', {
+      started_at: new Date().toISOString(),
+    });
+
+    // 2. Call handleAwaitTask with heartbeat_minutes: 10
+    const promise = handlers.handleAwaitTask({
+      task_id: taskId,
+      heartbeat_minutes: 10,
+      poll_interval_ms: 30000,
+      timeout_minutes: 5,
+    });
+
+    // Allow the loop to register listeners
+    await new Promise(r => setImmediate(r));
+
+    // 3. Emit task:stall_warning with elapsed and threshold
+    mocks.taskEvents.emit('task:stall_warning', {
+      id: taskId,
+      elapsed: 144,
+      threshold: 180,
+    });
+
+    const result = await promise;
+    const text = textOf(result);
+
+    // 4. Verify heartbeat has reason 'stall_warning'
+    expect(text).toContain('Heartbeat');
+    expect(text).toContain('stall_warning');
+
+    // 5. Verify alert text contains '144s / 180s'
+    expect(text).toContain('144s / 180s');
+  });
+
+  test('partial_output from DB included in heartbeat', async () => {
+    // 1. Create running task, set partial_output in DB to 'test output data'
+    const taskId = createTask({ status: 'running' });
+    db.updateTaskStatus(taskId, 'running', {
+      started_at: new Date().toISOString(),
+      partial_output: 'test output data',
+    });
+
+    // 2. Call handleAwaitTask, trigger heartbeat via notable event
+    const promise = handlers.handleAwaitTask({
+      task_id: taskId,
+      heartbeat_minutes: 5,
+      poll_interval_ms: 30000,
+      timeout_minutes: 5,
+    });
+
+    await new Promise(r => setImmediate(r));
+
+    mocks.taskEvents.emit('task:started', { id: taskId, status: 'running' });
+    const result = await promise;
+
+    // 3. Verify heartbeat text contains 'test output data'
+    expect(textOf(result)).toContain('Heartbeat');
+    expect(textOf(result)).toContain('test output data');
+  });
+});
