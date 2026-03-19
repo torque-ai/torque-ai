@@ -73,7 +73,7 @@ describe('Approvals', () => {
     approvalsApi.listPending.mockReturnValue(new Promise(() => {}));
     approvalsApi.getHistory.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Approvals />, { route: '/approvals' });
-    expect(screen.getByText('Loading...')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
   });
 
   it('renders heading after data loads', async () => {

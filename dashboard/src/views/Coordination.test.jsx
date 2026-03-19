@@ -97,7 +97,7 @@ describe('Coordination', () => {
     coordinationApi.listRules.mockReturnValue(new Promise(() => {}));
     coordinationApi.listClaims.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Coordination />, { route: '/coordination' });
-    expect(screen.getByText('Loading...')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
   });
 
   it('renders heading after data loads', async () => {

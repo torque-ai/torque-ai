@@ -156,7 +156,7 @@ describe('Strategic', () => {
     strategicApi.decisions.mockReturnValue(new Promise(() => {}));
     strategicApi.providerHealth.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Strategic />, { route: '/strategy' });
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('renders error state on API failure', async () => {

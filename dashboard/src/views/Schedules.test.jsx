@@ -1,4 +1,4 @@
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import Schedules from './Schedules';
 
@@ -56,7 +56,7 @@ describe('Schedules', () => {
   it('renders loading state initially', () => {
     schedulesApi.list.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Schedules />, { route: '/schedules' });
-    expect(screen.getByText('Loading...')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
   });
 
   it('renders heading after loading', async () => {
@@ -262,6 +262,12 @@ describe('Schedules', () => {
     fireEvent.click(screen.getAllByText('Delete')[0]);
 
     await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    });
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByText('Delete'));
+
+    await waitFor(() => {
       expect(schedulesApi.delete).toHaveBeenCalledWith('sched-1');
     });
   });
@@ -289,6 +295,12 @@ describe('Schedules', () => {
 
     const callsBefore = schedulesApi.list.mock.calls.length;
     fireEvent.click(screen.getAllByText('Delete')[0]);
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    });
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByText('Delete'));
 
     await waitFor(() => {
       expect(schedulesApi.list.mock.calls.length).toBeGreaterThan(callsBefore);

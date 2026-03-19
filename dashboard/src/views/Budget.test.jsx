@@ -63,7 +63,7 @@ describe('Budget', () => {
     budgetApi.status.mockReturnValue(new Promise(() => {}));
     budgetApi.forecast.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Budget />, { route: '/budget' });
-    expect(screen.getByText('Loading...')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
   });
 
   it('renders heading after data loads', async () => {

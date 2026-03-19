@@ -1,4 +1,4 @@
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import History from './History';
 
@@ -287,6 +287,12 @@ describe('History', () => {
     fireEvent.click(checkboxes[1]);
     fireEvent.click(checkboxes[2]);
     fireEvent.click(screen.getByText('Retry Selected'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    });
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByText('Retry'));
 
     await waitFor(() => {
       expect(tasksApi.retry).toHaveBeenCalledTimes(2);

@@ -139,7 +139,7 @@ describe('Hosts', () => {
   it('renders loading state initially', () => {
     hostsApi.list.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Hosts />, { route: '/hosts' });
-    expect(screen.getByText('Loading...')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
   });
 
   it('renders hosts heading after loading', async () => {

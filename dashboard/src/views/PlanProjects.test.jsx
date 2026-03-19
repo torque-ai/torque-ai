@@ -63,7 +63,7 @@ describe('PlanProjects', () => {
   it('renders loading state initially', () => {
     projectsApi.list.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<PlanProjects />, { route: '/projects' });
-    expect(screen.getByText('Loading projects...')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
   });
 
   it('consumes the v2 unwrapped array response shape', async () => {

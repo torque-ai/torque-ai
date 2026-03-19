@@ -166,7 +166,7 @@ describe('TaskDetailDrawer', () => {
     tasksApi.get.mockReturnValue(new Promise(() => {}));
     taskLogs.get.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
-    expect(screen.getByText('Loading...')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
   });
 
   it('renders task ID in header', async () => {

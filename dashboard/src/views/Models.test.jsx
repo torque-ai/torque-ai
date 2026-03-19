@@ -68,7 +68,7 @@ describe('Models', () => {
   it('renders loading state initially', () => {
     statsApi.models.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Models />, { route: '/models' });
-    expect(screen.getByText('Loading model stats...')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
   });
 
   it('renders heading after loading', async () => {
