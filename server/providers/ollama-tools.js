@@ -375,8 +375,11 @@ function isCommandAllowed(command, allowlist) {
   if (ALWAYS_BLOCKED.some(b => cmdLower.includes(b))) {
     return false;
   }
-  // Reject shell metacharacters to prevent injection (e.g. "npm test; rm -rf /")
-  if (/[;|&`$(){}!<>]/.test(command)) {
+  // Reject dangerous shell chaining operators to prevent command injection.
+  // Blocks: ; (chain), | (pipe), & (background/AND), ` (backtick subshell),
+  // >> (append redirect). Allows: quotes, (), $, {} in arguments (needed for
+  // node -e "...", dotnet test --filter "...", etc.)
+  if (/[;|&`]|>\s*>/.test(command)) {
     return false;
   }
   for (const pattern of allowlist) {
