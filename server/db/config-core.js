@@ -15,6 +15,14 @@ const { isSensitiveKey } = require('../utils/sensitive-keys');
 const { VALID_CONFIG_KEYS } = require('./config-keys');
 
 // ============================================================
+// Protected config keys — changes are audit-logged
+// ============================================================
+
+const PROTECTED_CONFIG_KEYS = new Set([
+  'api_key', 'v2_auth_mode', 'scheduling_mode', 'max_concurrent',
+]);
+
+// ============================================================
 // Dependency injection
 // ============================================================
 
@@ -87,6 +95,10 @@ function setConfig(key, value) {
     logger.warn(`setConfig called with unknown key: ${key}`);
   }
 
+  if (PROTECTED_CONFIG_KEYS.has(key)) {
+    logger.info(`Protected config key changed: ${key}`);
+  }
+
   let storedValue = String(value);
 
   // SECURITY: encrypt sensitive values before storing
@@ -147,6 +159,21 @@ function getProviderRateLimits() {
   }
 }
 
+/**
+ * Ensure an API key exists in the config.
+ * Generates and stores a UUID key on first call if none is configured.
+ * Subsequent calls return the existing key.
+ * @returns {string|null} The API key if newly generated, null if it already existed.
+ */
+function ensureApiKey() {
+  const existing = getConfig('api_key');
+  if (existing) return null;
+  const crypto = require('crypto');
+  const key = crypto.randomUUID();
+  setConfig('api_key', key);
+  return key;
+}
+
 module.exports = {
   setDb,
   clearConfigCache,
@@ -155,4 +182,5 @@ module.exports = {
   setConfigDefault,
   getAllConfig,
   getProviderRateLimits,
+  ensureApiKey,
 };

@@ -50,7 +50,11 @@ const SECRET_PATTERNS = [
   /authorization[=:\s]+['"]?[\w\-_.=+/]{10,500}/gi, // Auth headers (bounded, safe chars)
   /token[=:\s]+['"]?[\w-]{20,256}/gi,              // Tokens (bounded length)
   /-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----/gi,  // Private keys (no quantifiers on groups)
-  /aws[_-]?(?:access[_-]?key|secret)[=:\s]+['"]?[\w]{16,64}/gi  // AWS keys (bounded, no nested groups)
+  /aws[_-]?(?:access[_-]?key|secret)[=:\s]+['"]?[\w]{16,64}/gi,  // AWS keys (bounded, no nested groups)
+  /scrypt:[0-9a-f]{32}:[0-9a-f]{64}/g,    // Agent secret hashes
+  /X-Torque-Key:\s*\S+/gi,                 // Auth header in logs
+  /X-Torque-Secret:\s*\S+/gi,              // Agent secret header
+  /Authorization:\s*Bearer\s+\S+/gi        // Bearer tokens in headers
 ];
 
 /**

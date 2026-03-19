@@ -69,6 +69,10 @@ function backupDatabase(destPath) {
   const buffer = _db.serialize();
   fs.writeFileSync(destPath, buffer);
 
+  const crypto = require('crypto');
+  const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  fs.writeFileSync(destPath + '.sha256', hash, 'utf-8');
+
   const stats = fs.statSync(destPath);
   return {
     path: destPath,
@@ -119,9 +123,23 @@ function stopBackupScheduler() {
   }
 }
 
-async function restoreDatabase(srcPath, confirm) {
+async function restoreDatabase(srcPath, confirm, { force = false } = {}) {
   if (!confirm) throw new Error('Restore requires confirm: true flag to prevent accidental data loss');
   if (!fs.existsSync(srcPath)) throw new Error(`Backup file not found: ${srcPath}`);
+
+  if (!force) {
+    const crypto = require('crypto');
+    const hashPath = srcPath + '.sha256';
+    if (!fs.existsSync(hashPath)) {
+      throw new Error('Backup integrity file (.sha256) missing. Use force option to restore without verification.');
+    }
+    const expectedHash = fs.readFileSync(hashPath, 'utf-8').trim();
+    const backupBuffer = fs.readFileSync(srcPath);
+    const actualHash = crypto.createHash('sha256').update(backupBuffer).digest('hex');
+    if (actualHash !== expectedHash) {
+      throw new Error('Backup integrity check failed — file may be corrupted or tampered.');
+    }
+  }
   if (!_db) throw new Error('Database not initialized');
 
   const livePath = _getDbPath();

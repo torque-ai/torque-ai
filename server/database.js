@@ -503,6 +503,16 @@ function init() {
       fs.chmodSync(dbDir, 0o700);
     } catch { /* Windows doesn't support chmod, ignore */ }
 
+    // SECURITY (M2-Win): Restrict DB file permissions on Windows using icacls.
+    if (process.platform === 'win32' && DB_PATH !== ':memory:') {
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync('icacls', [DB_PATH, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:(F)`], { stdio: 'pipe' });
+      } catch (err) {
+        logger.warn('Could not restrict DB file permissions: ' + err.message);
+      }
+    }
+
     // Enable WAL mode for better concurrent access
     db.pragma('journal_mode = WAL');
 
@@ -544,6 +554,10 @@ function init() {
     _injectDbAll();
     _wireCrossModuleDI();
 
+    const generatedKey = configCore.ensureApiKey();
+    if (generatedKey) {
+      logger.info('API key configured (set TORQUE_API_KEY or X-Torque-Key header to authenticate)');
+    }
 
     const backupInterval = parseInt(getConfig('backup_interval_minutes') || '60', 10);
     if (backupInterval > 0) {
@@ -587,6 +601,7 @@ function setConfig(key, value) { return configCore.setConfig(key, value); }
 function setConfigDefault(key, value) { return configCore.setConfigDefault(key, value); }
 function getAllConfig() { return configCore.getAllConfig(); }
 function getProviderRateLimits() { return configCore.getProviderRateLimits(); }
+function ensureApiKey() { return configCore.ensureApiKey(); }
 
 // ============================================================
 // Task delegation (facade over task-core)
@@ -758,6 +773,7 @@ const coreExports = {
   setConfigDefault,
   getAllConfig,
   getProviderRateLimits,
+  ensureApiKey,
   close,
   onClose,
   addTaskStatusTransitionListener,
