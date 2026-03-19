@@ -43,6 +43,7 @@ let _recordProviderOutcome = null;
 
 // ── Cloud provider base URL map (for OpenAI-compatible adapters) ───────
 const PROVIDER_HOST_MAP = {
+  anthropic: 'https://api.anthropic.com',
   groq: 'https://api.groq.com/openai',
   cerebras: 'https://api.cerebras.ai',
   deepinfra: 'https://api.deepinfra.com/v1/openai',
@@ -72,12 +73,16 @@ let _agenticDeps = null;
  */
 function init(deps) {
   // Capture deps for the agentic wrapper
+  // Issue #6 fix: include apiAbortControllers so _agenticDeps.apiAbortControllers is defined.
+  // Without this, cancelTask() cannot abort in-flight agentic API requests — it falls back to
+  // _executeApiModule._apiAbortControllers, but that only works if the module ref is live.
   _agenticDeps = {
     db: deps.db,
     dashboard: deps.dashboard,
     safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
     processQueue: deps.processQueue,
     handleWorkflowTermination: deps.handleWorkflowTermination,
+    apiAbortControllers: deps.apiAbortControllers,
   };
 
   // Import recordProviderOutcome from provider-routing-core if available
@@ -995,6 +1000,8 @@ function recordProviderOutcome(provider, success) {
  */
 function isRetryableError(error) {
   const msg = (error.message || '').toLowerCase();
+  // Auth errors are permanent — retrying on another provider won't help
+  if (/invalid api key|unauthorized|authentication|forbidden/.test(msg)) return false;
   return /429|503|timeout|timed out|econnrefused|econnreset|quota|rate.limit|overloaded|provider returned error/.test(msg);
 }
 

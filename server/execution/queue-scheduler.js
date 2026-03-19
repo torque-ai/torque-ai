@@ -361,8 +361,18 @@ function createProviderRuntimeState(runningAll = []) {
     const providerConfig = typeof db?.getProvider === 'function'
       ? db.getProvider(normalizedProvider)
       : null;
+    // Issue #11 fix: max_concurrent=0 means "disabled" (reject all tasks), not unlimited.
+    // parsePositiveInt rejects 0 and returns the fallback, which would make 0 act as unlimited.
+    // Detect 0 explicitly before calling parsePositiveInt.
+    const rawMaxConcurrent = providerConfig?.max_concurrent;
+    if (Number.parseInt(rawMaxConcurrent, 10) === 0) {
+      // 0 = provider disabled: cache and return 0 so getProviderCapacity sees limit=0 → unavailable
+      providerLimitCache.set(normalizedProvider, 0);
+      _providerLimitTTLCache.set(normalizedProvider, 0);
+      return 0;
+    }
     const providerLimit = parsePositiveInt(
-      providerConfig?.max_concurrent,
+      rawMaxConcurrent,
       parsePositiveInt(fallbackLimit, null),
     );
     providerLimitCache.set(normalizedProvider, providerLimit);
@@ -389,10 +399,14 @@ function createProviderRuntimeState(runningAll = []) {
     const limit = getProviderLimit(normalizedProvider, fallbackLimit);
     const started = providerStartedCounts.get(normalizedProvider) || 0;
     const running = getProviderRunningCount(normalizedProvider) + started;
+    // limit === 0 means "disabled" (issue #11) — never available
+    // limit === null means "no limit configured" — always available
+    // limit > 0 means "explicit cap" — available if running < limit
+    const available = limit === 0 ? false : (!(Number.isFinite(limit) && limit > 0) || running < limit);
     return {
       limit,
       running,
-      available: !(Number.isFinite(limit) && limit > 0) || running < limit,
+      available,
     };
   }
 
@@ -755,7 +769,14 @@ function processQueueInternal(options = {}) {
   let apiStarted = 0;
 
   // Try to start Ollama tasks — limited only by per-host capacity (independent of Codex/API)
-  const runningOllama = providerCounts.ollama;
+  // Issue #10 fix: ollama, aider-ollama, and hashline-ollama share the same GPU.
+  // providerCounts.ollama aggregates all three via providerRegistry.getCategory(), making
+  // runningOllama a unified GPU total.  The explicit set below documents which providers
+  // share the GPU constraint and guards against future category mapping changes.
+  const _ollamaGpuProviders = new Set(['ollama', 'aider-ollama', 'hashline-ollama']);
+  // Unified GPU oversubscription check: count all running tasks across GPU-sharing providers
+  const totalOllamaRunning = runningAll.filter(t => _ollamaGpuProviders.has(t.provider)).length;
+  const runningOllama = totalOllamaRunning; // alias — providerCounts.ollama equals this
   logger.debug(`processQueue: ollamaTasks=${ollamaTasks.length} codexTasks=${codexTasks.length} apiTasks=${apiTasks.length} codexEnabled=${codexEnabled} runningOllama=${runningOllama}`);
   for (const task of ollamaTasks) {
     if (shouldSkipTaskForApproval(task)) {

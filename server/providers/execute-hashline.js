@@ -907,7 +907,10 @@ async function executeHashlineOllamaTask(task) {
         });
         terminalCompleted = true;
     // Safeguard: reject if new content is below the configured truncation threshold (likely truncation)
-      } else if (origLines > 20 && newLines < origLines * (1 + FILE_SIZE_TRUNCATION_THRESHOLD / 100)) {
+    // FILE_SIZE_TRUNCATION_THRESHOLD is -50, meaning reject if newLines < 50% of origLines.
+    // The formula (1 + threshold/100) = (1 + -50/100) = 0.5, which is correct.
+    // Written explicitly here to avoid sign-confusion bugs if the constant changes.
+      } else if (origLines > 20 && newLines < origLines * Math.max(0, 1 + FILE_SIZE_TRUNCATION_THRESHOLD / 100)) {
         logger.info(`[HashlineOllama] Full rewrite rejected for ${targetRel}: ${newLines} lines < 50% of original ${origLines} lines (likely truncation)`);
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         db.recordFormatSuccess(ollamaModel, editFormat, false, 'truncation_detected', duration);

@@ -302,7 +302,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
       return this._selectExecutionTarget(fallback, _options, depth + 1);
     }
 
-    const slotRelease = this._acquireHostSlot(selection.host);
+    const slotRelease = this._acquireHostSlot(selection.host, selectedModel);
     return {
       hostUrl: resolveOllamaEndpoint(selection.host.url),
       model: selectedModel,
@@ -362,11 +362,12 @@ class BaseLocalOllamaProvider extends BaseProvider {
     return false;
   }
 
-  _acquireHostSlot(host) {
+  _acquireHostSlot(host, model) {
     if (!host?.id) return null;
     if (typeof db.tryReserveHostSlot !== 'function') return null;
 
-    const result = db.tryReserveHostSlot(host.id);
+    // Issue #12 fix: pass model to tryReserveHostSlot so VRAM checks can be applied per-model.
+    const result = db.tryReserveHostSlot(host.id, model || undefined);
     if (result?.acquired) {
       return () => {
         try {

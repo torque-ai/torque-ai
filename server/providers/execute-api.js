@@ -281,6 +281,8 @@ async function executeApiProvider(task, provider) {
   // Hoisted so the catch block can reference it even if an error occurs before
   // the clone is created (e.g., during context stuffing or status updates).
   let taskClone = null;
+  // Issue #9: hoisted so the finally block can record usage on both success and failure paths.
+  let startTimeMs = 0;
 
   try {
     // Register abort controller BEFORE setting status to 'running' so cancelTask()
@@ -334,7 +336,9 @@ async function executeApiProvider(task, provider) {
     taskClone = { ...task };
     taskClone.task_description = effectiveDescription;
 
-    const startTimeMs = Date.now();
+    // Issue #9: startTimeMs and result are hoisted so the finally block can record usage on
+    // both success and failure paths.
+    startTimeMs = Date.now();
     let result;
 
     if (provider.supportsStreaming) {
@@ -427,22 +431,6 @@ async function executeApiProvider(task, provider) {
       }
     }
 
-    // Record usage
-    if (result.usage) {
-      try {
-        db.recordUsage(taskId, provider.name, model, result.usage);
-      } catch { /* ignore */ }
-    }
-
-    // Record usage to free-tier quota tracker
-    if (result.usage && typeof _getFreeQuotaTracker === 'function') {
-      try {
-        const tracker = _getFreeQuotaTracker();
-        tracker.recordUsage(provider.name, result.usage.tokens || 0);
-        tracker.recordLatency(provider.name, Date.now() - startTimeMs);
-      } catch { /* non-fatal */ }
-    }
-
     dashboard.notifyTaskUpdated(taskId);
     logger.info(`API provider task completed`, { taskId, provider: provider.name, streaming: !!provider.supportsStreaming });
     try { if (processQueue) processQueue(); } catch { /* ignore */ }
@@ -527,6 +515,20 @@ async function executeApiProvider(task, provider) {
     dashboard.notifyTaskUpdated(taskId);
     try { if (processQueue) processQueue(); } catch { /* ignore */ }
   } finally {
+    // Issue #9 fix: record usage in finally so it runs on both success and failure.
+    // result is hoisted above the try block; it may be undefined if error occurred before submit.
+    if (result && result.usage) {
+      try {
+        db.recordUsage(taskId, provider.name, model, result.usage);
+      } catch { /* ignore */ }
+      if (typeof _getFreeQuotaTracker === 'function') {
+        try {
+          const tracker = _getFreeQuotaTracker();
+          tracker.recordUsage(provider.name, result.usage.tokens || 0);
+          tracker.recordLatency(provider.name, startTimeMs > 0 ? Date.now() - startTimeMs : 0);
+        } catch { /* non-fatal */ }
+      }
+    }
     apiAbortControllers.delete(taskId);
   }
 }

@@ -154,6 +154,12 @@ class CliProviderAdapter extends BaseProvider {
     const timeoutMs = resolveTimeoutMinutes(options, this.providerId) * 60 * 1000;
     const useShell = process.platform === 'win32' && /\.cmd$/i.test(cliPath);
 
+    // TODO(issue-4): spawnSync blocks the Node.js event loop for the entire CLI duration.
+    // For short tasks this is acceptable, but long-running CLIs (e.g., codex) can starve
+    // the 4 HTTP servers and the synchronous DB layer.  Replace with an async spawn()
+    // wrapped in a Promise (pipe stdout/stderr into buffers, resolve on 'close').
+    // The full submit() method is already async — the only blocker is re-implementing
+    // the timeout and maxBuffer limits without spawnSync's built-in support.
     const result = spawnSync(cliPath, finalArgs, {
       cwd: options.working_directory || process.cwd(),
       input: stdinPrompt,
@@ -268,6 +274,15 @@ class CodexCliProvider extends CliProviderAdapter {
   }
 
   async submitViaApi(task, model, options = {}) {
+    // TODO(issue-5): The API transport path has no worktree isolation. The CLI transport
+    // runs inside a sandboxed git worktree (if configured), but submitViaApi() sends the
+    // prompt directly to the OpenAI Codex API without any filesystem isolation.  If the
+    // Codex API response writes files back through a post-processing hook, those writes
+    // land in the working directory without the sandbox protections that the CLI path has.
+    // Fix: integrate WorktreeManager here, or explicitly block file-write responses.
+    if (options.working_directory && typeof options._worktreeIsolated !== 'boolean') {
+      logger.warn(`[CodexAPI] submitViaApi: no worktree isolation active for working_directory='${options.working_directory}'. File writes from API response land directly in the repo.`);
+    }
     const apiToken = resolveCodexApiToken();
     if (!apiToken) {
       throw new Error('codex API transport is unavailable: no OPENAI_API_KEY or Codex auth token found');
