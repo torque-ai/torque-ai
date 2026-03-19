@@ -176,6 +176,14 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
         });
 
         res.on('end', () => {
+          // Surface HTTP-level errors before attempting JSON parse — a non-2xx
+          // response may return HTML or a plain-text error body that would
+          // produce a confusing "failed to parse response JSON" error instead.
+          if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+            reject(new Error(`Google AI: HTTP ${res.statusCode} — ${rawData.slice(0, 200)}`));
+            return;
+          }
+
           let parsed;
           try {
             parsed = JSON.parse(rawData);

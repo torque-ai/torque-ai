@@ -164,8 +164,8 @@ function listAgents({ status, group_id, capability, limit = 50 } = {}) {
   }
 
   if (capability) {
-    query += ' AND capabilities LIKE ?';
-    params.push(`%"${capability}"%`);
+    query += " AND capabilities LIKE ? ESCAPE '\\'";
+    params.push(`%"${capability.replace(/[\\%_]/g, '\\$&')}"%`);
   }
 
   query += ' ORDER BY priority DESC, registered_at ASC LIMIT ?';

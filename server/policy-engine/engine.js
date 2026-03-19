@@ -7,10 +7,26 @@ const matchers = require('./matchers');
 const profileStore = require('./profile-store');
 const evaluationStore = require('./evaluation-store');
 const { enforceMode, isEngineEnabled } = require('./shadow-enforcer');
-const architectureAdapter = require('./adapters/architecture');
-const featureFlagAdapter = require('./adapters/feature-flag');
-const refactorDebtAdapter = require('./adapters/refactor-debt');
-const releaseGateAdapter = require('./adapters/release-gate');
+
+// Wrap adapter requires so a missing/broken adapter file degrades gracefully
+// instead of crashing the entire policy engine at module load time.
+let architectureAdapter, featureFlagAdapter, refactorDebtAdapter, releaseGateAdapter;
+try { architectureAdapter = require('./adapters/architecture'); } catch (e) {
+  logger.warn(`Policy engine: failed to load architecture adapter — ${e.message}`);
+  architectureAdapter = null;
+}
+try { featureFlagAdapter = require('./adapters/feature-flag'); } catch (e) {
+  logger.warn(`Policy engine: failed to load feature-flag adapter — ${e.message}`);
+  featureFlagAdapter = null;
+}
+try { refactorDebtAdapter = require('./adapters/refactor-debt'); } catch (e) {
+  logger.warn(`Policy engine: failed to load refactor-debt adapter — ${e.message}`);
+  refactorDebtAdapter = null;
+}
+try { releaseGateAdapter = require('./adapters/release-gate'); } catch (e) {
+  logger.warn(`Policy engine: failed to load release-gate adapter — ${e.message}`);
+  releaseGateAdapter = null;
+}
 
 const POLICY_STAGES = new Set([
   'task_submit',
@@ -423,7 +439,7 @@ function collectActivePolicyEvidence(context, effectiveRules = [], profile = nul
   }
 
   if (context.stage === 'task_complete') {
-    if (hasRefactorBacklogPolicy) {
+    if (hasRefactorBacklogPolicy && refactorDebtAdapter) {
       try {
         const refactorEvidence = refactorDebtAdapter.collectEvidence(
           {
@@ -452,7 +468,7 @@ function collectActivePolicyEvidence(context, effectiveRules = [], profile = nul
       }
     }
 
-    if (hasArchitectureBoundaryPolicy) {
+    if (hasArchitectureBoundaryPolicy && architectureAdapter) {
       try {
         seedArchitectureBoundariesFromProfile(profile, context.project_id || context.project || null);
 
@@ -483,7 +499,7 @@ function collectActivePolicyEvidence(context, effectiveRules = [], profile = nul
       }
     }
 
-    if (hasFeatureFlagPolicy) {
+    if (hasFeatureFlagPolicy && featureFlagAdapter) {
       try {
         const featureFlagEvidence = featureFlagAdapter.collectEvidence(
           {
@@ -514,7 +530,7 @@ function collectActivePolicyEvidence(context, effectiveRules = [], profile = nul
     }
   }
 
-  if (context.stage === 'manual_review' && hasReleaseGatePolicy) {
+  if (context.stage === 'manual_review' && hasReleaseGatePolicy && releaseGateAdapter) {
     try {
       const releaseId = normalizeOptionalString(
         context.release_id

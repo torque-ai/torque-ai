@@ -175,7 +175,11 @@ function isPlainObject(value) {
 
 function loadPeekContractFixture(fileName) {
   const fixturePath = path.join(PEEK_CONTRACT_FIXTURE_DIR, fileName);
-  return JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+  } catch (err) {
+    throw new Error(`loadPeekContractFixture: failed to load "${fileName}" from ${PEEK_CONTRACT_FIXTURE_DIR} — ${err.message}`);
+  }
 }
 
 function buildPeekContractCatalog() {

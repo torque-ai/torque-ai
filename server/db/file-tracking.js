@@ -221,8 +221,8 @@ function runSecurityScan(taskId, filePath, content) {
   const ext = path.extname(filePath).toLowerCase();
 
   const rules = db.prepare(`
-    SELECT * FROM security_rules WHERE enabled = 1 AND file_extensions LIKE ?
-  `).all(`%${ext}%`);
+    SELECT * FROM security_rules WHERE enabled = 1 AND file_extensions LIKE ? ESCAPE '\\'
+  `).all(`%${ext.replace(/[\\%_]/g, '\\$&')}%`);
 
   const issues = [];
 
@@ -371,8 +371,8 @@ async function runStyleCheck(taskId, filePath, workingDirectory, autoFix = false
 
   const ext = path.extname(filePath).toLowerCase();
   const linters = db.prepare(`
-    SELECT * FROM linter_configs WHERE enabled = 1 AND file_extensions LIKE ?
-  `).all(`%${ext}%`);
+    SELECT * FROM linter_configs WHERE enabled = 1 AND file_extensions LIKE ? ESCAPE '\\'
+  `).all(`%${ext.replace(/[\\%_]/g, '\\$&')}%`);
 
   const results = [];
 

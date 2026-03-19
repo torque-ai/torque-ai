@@ -37,9 +37,9 @@ function getRunningCountByProvider(provider) {
 
 function getSyntaxValidators(extension) {
   const stmt = db.prepare(`
-    SELECT * FROM syntax_validators WHERE enabled = 1 AND file_extensions LIKE ?
+    SELECT * FROM syntax_validators WHERE enabled = 1 AND file_extensions LIKE ? ESCAPE '\\'
   `);
-  return stmt.all(`%${extension}%`);
+  return stmt.all(`%${extension.replace(/[\\%_]/g, '\\$&')}%`);
 }
 
 function listAllSyntaxValidators() {

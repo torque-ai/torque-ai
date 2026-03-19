@@ -35,7 +35,11 @@ class GoogleAIProvider extends BaseProvider {
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), timeout);
       abortHandler = () => controller.abort();
-      if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
+      if (options.signal) {
+        options.signal.addEventListener('abort', abortHandler, { once: true });
+        // Pre-check: signal may have been aborted before the handler was wired
+        if (options.signal.aborted) controller.abort();
+      }
 
       const body = {
         contents: [{
@@ -117,7 +121,11 @@ class GoogleAIProvider extends BaseProvider {
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), timeout);
       abortHandler = () => controller.abort();
-      if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
+      if (options.signal) {
+        options.signal.addEventListener('abort', abortHandler, { once: true });
+        // Pre-check: signal may have been aborted before the handler was wired
+        if (options.signal.aborted) controller.abort();
+      }
 
       const body = {
         contents: [{
