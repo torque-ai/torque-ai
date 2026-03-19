@@ -919,7 +919,7 @@ async function handleAwaitTask(args) {
                 // Route through test runner — respects test station config
                 verifyResult = executeValidatedCommandSync(
                   'bash',
-                  [scriptPath, ...args.verify_command.split(/\s+/).filter(Boolean)],
+                  [scriptPath, args.verify_command],
                   {
                     profile: 'safe_verify',
                     source: 'await_task',
