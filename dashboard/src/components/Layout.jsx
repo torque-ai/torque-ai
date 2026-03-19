@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
 import SessionSwitcher from './SessionSwitcher';
 import EconomyIndicator from './EconomyIndicator';
@@ -176,6 +176,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const currentRoute = ROUTE_NAMES[location.pathname] || '';
   const alertCount = failedCount + stuckCount;
 
@@ -322,6 +323,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
             </span>
             {/* Notification bell */}
             <button
+              onClick={() => navigate('/history?status=failed')}
               className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
               title={alertCount > 0 ? `${failedCount} failed, ${stuckCount} stuck` : 'No alerts'}
               aria-label={alertCount > 0 ? `Notifications: ${alertCount} alert${alertCount !== 1 ? 's' : ''} (${failedCount} failed, ${stuckCount} stuck)` : 'Notifications: no alerts'}
