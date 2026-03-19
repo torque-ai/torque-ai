@@ -11,6 +11,9 @@
  */
 
 const db = require('../database');
+const apiServer = require('../api-server.core');
+
+const { handleV2TaskCancel, setV2TaskManager } = apiServer._testing;
 
 // Minimal mock response that captures writeHead + end calls
 function createMockRes() {
@@ -34,26 +37,12 @@ function parseLastResponse(res) {
   return { statusCode, data };
 }
 
-let apiServer;
-let handleV2TaskCancel;
-let setV2TaskManager;
-
 beforeEach(() => {
   vi.resetAllMocks();
-  // Reload the module fresh for each test so _v2TaskManager is reset
-  jest.resetModules?.();
-  // Force re-require after vi.resetModules (vitest equivalent)
-  delete require.cache[require.resolve('../api-server.core')];
-  apiServer = require('../api-server.core');
-  ({ handleV2TaskCancel, setV2TaskManager } = apiServer._testing);
-
+  // Reset taskManager to null before each test
+  setV2TaskManager(null);
   // Silence db.recordTaskEvent so recordV2TaskEvent never throws
   vi.spyOn(db, 'recordTaskEvent').mockReturnValue(undefined);
-});
-
-afterEach(() => {
-  // Restore module cache to avoid polluting other test suites
-  delete require.cache[require.resolve('../api-server.core')];
 });
 
 // ─── Task not found ────────────────────────────────────────────────────────────
@@ -143,7 +132,7 @@ describe('handleV2TaskCancel — running task without taskManager', () => {
       .mockReturnValueOnce({ ...taskRow, status: 'cancelled' });
 
     const updateSpy = vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
-    // No setV2TaskManager call — taskManager remains null
+    // setV2TaskManager was reset to null in beforeEach
 
     const res = createMockRes();
     await handleV2TaskCancel(null, res, { requestId: 'req-005' }, 'task-run3', null);
@@ -162,7 +151,11 @@ describe('handleV2TaskCancel — cancellation errors propagate', () => {
     const taskRow = { id: 'task-err', status: 'running', provider: 'codex', model: null };
     vi.spyOn(db, 'getTask').mockReturnValue(taskRow);
 
-    const mockTaskManager = { cancelTask: vi.fn().mockImplementation(() => { throw new Error('No task found matching ID prefix: task-err'); }) };
+    const mockTaskManager = {
+      cancelTask: vi.fn().mockImplementation(() => {
+        throw new Error('No task found matching ID prefix: task-err');
+      }),
+    };
     setV2TaskManager(mockTaskManager);
 
     const res = createMockRes();

@@ -13,6 +13,7 @@ const { runMigrations } = require('./migrations');
 
 let _db = null;
 let _backupTimer = null;
+let _restoreInProgress = false;
 
 // Injected dependencies from database.js
 let _getConfig = null;
@@ -27,6 +28,18 @@ let _isDbClosed = null;
 
 function setDb(dbInstance) {
   _db = dbInstance;
+}
+
+/**
+ * Returns the current live database handle.
+ * Throws a clear error if a restore is in progress (DB is closed mid-swap),
+ * so callers get a meaningful message instead of a crash on a closed handle.
+ */
+function getDbInstance() {
+  if (_restoreInProgress) {
+    throw new Error('Database restore in progress, try again');
+  }
+  return _db;
 }
 
 /**
@@ -113,50 +126,61 @@ async function restoreDatabase(srcPath, confirm) {
 
   const livePath = _getDbPath();
   const backupDb = new Database(srcPath, { readonly: true });
-  _db.close();
-  await backupDb.backup(livePath);
-  backupDb.close();
 
-  // Reopen the live database with restored content
-  const newDb = new Database(livePath);
-  newDb.pragma('journal_mode = WAL');
-  newDb.pragma('busy_timeout = 5000');
-  newDb.pragma('foreign_keys = ON');
+  // Block any concurrent DB access from the moment the live DB is closed
+  // until the new handle is fully open and wired. getDbInstance() checks this
+  // flag and throws a clear error rather than returning a closed handle.
+  _restoreInProgress = true;
+  try {
+    _db.close();
+    await backupDb.backup(livePath);
+    backupDb.close();
 
-  // RB-155: Run integrity and foreign key checks
-  const integrityResult = newDb.pragma('integrity_check');
-  const integrityOk = integrityResult.length === 1 && integrityResult[0].integrity_check === 'ok';
-  if (!integrityOk) {
-    const details = integrityResult.map(r => r.integrity_check).join('; ');
-    throw new Error(`Restored database failed integrity check: ${details}`);
+    // Reopen the live database with restored content
+    const newDb = new Database(livePath);
+    newDb.pragma('journal_mode = WAL');
+    newDb.pragma('busy_timeout = 5000');
+    newDb.pragma('foreign_keys = ON');
+
+    // RB-155: Run integrity and foreign key checks
+    const integrityResult = newDb.pragma('integrity_check');
+    const integrityOk = integrityResult.length === 1 && integrityResult[0].integrity_check === 'ok';
+    if (!integrityOk) {
+      const details = integrityResult.map(r => r.integrity_check).join('; ');
+      throw new Error(`Restored database failed integrity check: ${details}`);
+    }
+
+    const fkResult = newDb.pragma('foreign_key_check');
+    if (fkResult.length > 0) {
+      const violations = fkResult.slice(0, 5).map(r => `table=${r.table}, rowid=${r.rowid}, parent=${r.parent}`).join('; ');
+      throw new Error(`Restored database has ${fkResult.length} foreign key violation(s): ${violations}`);
+    }
+
+    const tables = newDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").get();
+    if (!tables) {
+      throw new Error('Restored database is invalid — missing tasks table');
+    }
+
+    // Update the live db reference BEFORE schema reconciliation so getConfig/setConfig work
+    _db = newDb;
+    _setDb(newDb);
+    _injectDbAll();
+
+    // Reconcile schema: backup may be from older version
+    const { applySchema } = require('./schema');
+    applySchema(newDb, {
+      safeAddColumn: _safeAddColumn,
+      getConfig: _getConfig,
+      setConfig: _setConfig,
+      setConfigDefault: _setConfigDefault,
+      DATA_DIR: _getDataDir(),
+    });
+    runMigrations(newDb);
+  } finally {
+    // Always clear the flag so the server is not permanently locked out
+    // even if an integrity check or schema step throws.
+    _restoreInProgress = false;
   }
-
-  const fkResult = newDb.pragma('foreign_key_check');
-  if (fkResult.length > 0) {
-    const violations = fkResult.slice(0, 5).map(r => `table=${r.table}, rowid=${r.rowid}, parent=${r.parent}`).join('; ');
-    throw new Error(`Restored database has ${fkResult.length} foreign key violation(s): ${violations}`);
-  }
-
-  const tables = newDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").get();
-  if (!tables) {
-    throw new Error('Restored database is invalid — missing tasks table');
-  }
-
-  // Update the live db reference BEFORE schema reconciliation so getConfig/setConfig work
-  _db = newDb;
-  _setDb(newDb);
-  _injectDbAll();
-
-  // Reconcile schema: backup may be from older version
-  const { applySchema } = require('./schema');
-  applySchema(newDb, {
-    safeAddColumn: _safeAddColumn,
-    getConfig: _getConfig,
-    setConfig: _setConfig,
-    setConfigDefault: _setConfigDefault,
-    DATA_DIR: _getDataDir(),
-  });
-  runMigrations(newDb);
 
   return {
     restored_from: srcPath,
@@ -215,6 +239,7 @@ function cleanupOldBackups(options = {}) {
 
 module.exports = {
   setDb,
+  getDbInstance,
   setInternals,
   backupDatabase,
   startBackupScheduler,
