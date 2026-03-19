@@ -91,7 +91,7 @@ class CerebrasProvider extends BaseProvider {
           tokens: result.usage?.total_tokens || 0,
           input_tokens: result.usage?.prompt_tokens || 0,
           output_tokens: result.usage?.completion_tokens || 0,
-          cost: 0, // free tier
+          cost: this._estimateCost(result.usage, selectedModel),
           duration_ms: duration,
           model: selectedModel,
         },
@@ -219,7 +219,7 @@ class CerebrasProvider extends BaseProvider {
           tokens: usage?.total_tokens || 0,
           input_tokens: usage?.prompt_tokens || 0,
           output_tokens: usage?.completion_tokens || 0,
-          cost: 0,
+          cost: this._estimateCost(usage, selectedModel),
           duration_ms: duration,
           model: selectedModel,
         },
@@ -276,6 +276,24 @@ class CerebrasProvider extends BaseProvider {
       prompt = `Files: ${options.files.join(', ')}\n\n${prompt}`;
     }
     return prompt;
+  }
+
+  _estimateCost(usage, model) {
+    if (!usage) return 0;
+    // Model-specific pricing per 1M tokens (blended input/output rate)
+    // Source: https://inference.cerebras.ai (2026-03)
+    const MODEL_RATES = {
+      'llama3.1-8b':                     0.10,
+      'llama3.1-70b':                    0.60,
+      'llama-3.3-70b':                   0.60,
+      'qwen-3-235b-a22b-instruct-2507':  0.60, // large model estimate
+      'gpt-oss-120b':                    0.60,
+      'zai-glm-4.7':                     0.40,
+    };
+    const selectedModel = model || this.defaultModel || '';
+    const modelKey = Object.keys(MODEL_RATES).find(k => selectedModel.toLowerCase().includes(k.toLowerCase()));
+    const rate = modelKey ? MODEL_RATES[modelKey] : 0.40; // conservative default
+    return (usage.total_tokens || 0) / 1_000_000 * rate;
   }
 }
 

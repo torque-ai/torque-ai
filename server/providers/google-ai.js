@@ -84,7 +84,7 @@ class GoogleAIProvider extends BaseProvider {
           tokens: usage.totalTokenCount || 0,
           input_tokens: usage.promptTokenCount || 0,
           output_tokens: usage.candidatesTokenCount || 0,
-          cost: 0, // free tier
+          cost: this._estimateCost(usage, selectedModel),
           duration_ms: duration,
           model: selectedModel,
         },
@@ -212,7 +212,7 @@ class GoogleAIProvider extends BaseProvider {
           tokens: totalTokens,
           input_tokens: promptTokens,
           output_tokens: outputTokens,
-          cost: 0,
+          cost: this._estimateCost({ totalTokenCount: totalTokens }, selectedModel),
           duration_ms: duration,
           model: selectedModel,
         },
@@ -279,6 +279,25 @@ class GoogleAIProvider extends BaseProvider {
       prompt = `Files: ${options.files.join(', ')}\n\n${prompt}`;
     }
     return prompt;
+  }
+
+  _estimateCost(usage, model) {
+    if (!usage) return 0;
+    // Model-specific pricing per 1M tokens (blended input/output rate)
+    // Free tier available but paid tier costs apply above quota limits
+    // Source: https://ai.google.dev/pricing (2026-03)
+    const MODEL_RATES = {
+      'gemini-2.5-flash':        0.375, // $0.15 in / $0.60 out — blended
+      'gemini-2.5-pro':          3.50,  // $1.25 in / $10 out — blended
+      'gemini-2.0-flash':        0.10,  // $0.10 in / $0.40 out — blended
+      'gemini-2.0-flash-lite':   0.075,
+      'gemini-1.5-flash':        0.075,
+      'gemini-1.5-pro':          1.75,
+    };
+    const selectedModel = model || this.defaultModel || '';
+    const modelKey = Object.keys(MODEL_RATES).find(k => selectedModel.toLowerCase().includes(k.toLowerCase()));
+    const rate = modelKey ? MODEL_RATES[modelKey] : 0.20; // conservative default
+    return (usage.totalTokenCount || 0) / 1_000_000 * rate;
   }
 }
 

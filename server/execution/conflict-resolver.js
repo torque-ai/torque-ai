@@ -164,8 +164,22 @@ function writeMergedContent(workingDirectory, filePath, content, contributors) {
   }
 
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-  // SECURITY (M8): Restrict resolved file permissions to owner-only
-  fs.writeFileSync(absolutePath, content, { encoding: 'utf8', mode: 0o600 });
+
+  // Atomic write: write to a temp file then rename to prevent a partial write from
+  // leaving the target file in a corrupt state if the process is interrupted mid-write.
+  const dir = path.dirname(absolutePath);
+  const basename = path.basename(absolutePath);
+  const tempPath = path.join(dir, `.torque-merge-tmp-${basename}-${process.pid}`);
+  try {
+    // SECURITY (M8): Restrict resolved file permissions to owner-only
+    fs.writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tempPath, absolutePath);
+  } catch (writeErr) {
+    // Clean up temp file on failure (best effort)
+    try { fs.rmSync(tempPath, { force: true }); } catch { /* ignore */ }
+    throw writeErr;
+  }
+
   return { ok: true, absolutePath, action: 'written' };
 }
 
@@ -224,6 +238,11 @@ function resolveWorkflowConflicts(workflowId) {
     let mergeStrategy = 'git-merge-file';
     let conflictFound = false;
 
+    // Iterative merge: `baseContent` stays fixed (the original pre-workflow state),
+    // while `mergedContent` accumulates each contributor's changes on top of the previous
+    // merge result. This is intentional — treating the base as the common ancestor for
+    // every contributor ensures that edits from different tasks are all anchored to the
+    // same reference point rather than treating earlier merges as a new baseline.
     for (const contributor of contributors) {
       const theirContent = contributor.snapshot.exists ? contributor.snapshot.content : '';
       const mergeResult = mergeContents(mergedContent, baseContent, theirContent);

@@ -88,7 +88,7 @@ class GroqProvider extends BaseProvider {
           tokens: result.usage?.total_tokens || 0,
           input_tokens: result.usage?.prompt_tokens || 0,
           output_tokens: result.usage?.completion_tokens || 0,
-          cost: this._estimateCost(result.usage),
+          cost: this._estimateCost(result.usage, selectedModel),
           duration_ms: duration,
           model: selectedModel,
         },
@@ -221,7 +221,7 @@ class GroqProvider extends BaseProvider {
           tokens: usage?.total_tokens || 0,
           input_tokens: usage?.prompt_tokens || 0,
           output_tokens: usage?.completion_tokens || 0,
-          cost: this._estimateCost(usage),
+          cost: this._estimateCost(usage, selectedModel),
           duration_ms: duration,
           model: selectedModel,
         },
@@ -280,10 +280,25 @@ class GroqProvider extends BaseProvider {
     return prompt;
   }
 
-  _estimateCost(usage) {
+  _estimateCost(usage, model) {
     if (!usage) return 0;
-    // Groq pricing is very low
-    const rate = 0.27; // per 1M tokens (approximate)
+    // Model-specific pricing per 1M tokens (input/output averaged; blended rate)
+    // Source: https://console.groq.com/docs/openai (2026-03)
+    const MODEL_RATES = {
+      'llama-3.3-70b-versatile':  0.59,  // $0.59/1M
+      'llama-3.1-70b-versatile':  0.59,
+      'llama-3.1-8b-instant':     0.05,  // $0.05/1M
+      'llama3-8b-8192':           0.05,
+      'llama3-70b-8192':          0.59,
+      'mixtral-8x7b-32768':       0.24,
+      'gemma2-9b-it':             0.10,
+      'gemma-7b-it':              0.07,
+      'qwen/qwen3-32b':           0.29,
+      'meta-llama/llama-4-scout-17b-16e-instruct': 0.11,
+    };
+    const selectedModel = model || this.defaultModel || '';
+    const modelKey = Object.keys(MODEL_RATES).find(k => selectedModel.toLowerCase().includes(k.toLowerCase()));
+    const rate = modelKey ? MODEL_RATES[modelKey] : 0.27; // default blended rate
     return (usage.total_tokens || 0) / 1_000_000 * rate;
   }
 }

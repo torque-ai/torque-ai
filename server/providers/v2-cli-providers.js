@@ -344,6 +344,10 @@ class CodexCliProvider extends CliProviderAdapter {
     const inputTokens = Number(usage.input_tokens || usage.prompt_tokens || 0);
     const outputTokens = Number(usage.output_tokens || usage.completion_tokens || 0);
     const totalTokens = Number(usage.total_tokens || (inputTokens + outputTokens));
+    const resolvedModel = payload?.model || selectedModel;
+    // Codex API pricing: gpt-5.3-codex/gpt-5.3-codex-spark at ~$0.003/1K tokens (estimate)
+    const costPerMToken = resolvedModel && /codex-spark|codex-mini/i.test(resolvedModel) ? 1.50 : 3.00;
+    const estimatedCost = totalTokens > 0 ? (totalTokens / 1_000_000) * costPerMToken : 0;
 
     return {
       output,
@@ -352,9 +356,9 @@ class CodexCliProvider extends CliProviderAdapter {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         total_tokens: totalTokens,
-        cost: 0,
+        cost: estimatedCost,
         duration_ms: elapsedMs,
-        model: payload?.model || selectedModel,
+        model: resolvedModel,
       },
     };
   }
