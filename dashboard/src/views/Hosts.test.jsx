@@ -5,6 +5,7 @@ import Hosts from './Hosts';
 vi.mock('../api', () => ({
   concurrency: {
     get: vi.fn(),
+    set: vi.fn().mockResolvedValue({}),
   },
   hosts: {
     list: vi.fn(),
@@ -14,8 +15,16 @@ vi.mock('../api', () => ({
   },
   workstations: {
     list: vi.fn(),
+    add: vi.fn().mockResolvedValue({}),
     probe: vi.fn(),
     remove: vi.fn(),
+  },
+  models: {
+    list: vi.fn().mockResolvedValue({ items: [] }),
+    pending: vi.fn().mockResolvedValue([]),
+    approve: vi.fn(),
+    deny: vi.fn(),
+    bulkApprove: vi.fn(),
   },
   peekHosts: {
     list: vi.fn().mockResolvedValue([]),
@@ -249,19 +258,12 @@ describe('Hosts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add Workstation' }));
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/v2/workstations',
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: 'builder-02',
-            host: '10.0.0.22',
-            agent_port: 3461,
-            secret: 'super-secret',
-          }),
-        })
-      );
+      expect(workstationsApi.add).toHaveBeenCalledWith({
+        name: 'builder-02',
+        host: '10.0.0.22',
+        agent_port: 3461,
+        secret: 'super-secret',
+      });
     });
 
     expect(workstationsApi.list.mock.calls.length).toBeGreaterThan(1);

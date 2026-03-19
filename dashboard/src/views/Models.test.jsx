@@ -5,7 +5,8 @@ import Models from './Models';
 // Mock recharts
 vi.mock('recharts', () => ({
   BarChart: ({ children }) => <div data-testid="bar-chart">{children}</div>,
-  Bar: () => null,
+  Bar: ({ children }) => <div>{children}</div>,
+  Cell: () => null,
   LineChart: ({ children }) => <div data-testid="line-chart">{children}</div>,
   Line: () => null,
   XAxis: () => null,

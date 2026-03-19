@@ -455,6 +455,17 @@ export function startMockApi(port = 3456) {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const query = Object.fromEntries(url.searchParams.entries());
 
+      // Handle CORS preflight before body collection to avoid double response
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        });
+        res.end();
+        return;
+      }
+
       // Collect body for POST
       let _body = '';
       req.on('data', (chunk) => { _body += chunk; });
@@ -476,17 +487,6 @@ export function startMockApi(port = 3456) {
         });
         res.end(JSON.stringify(payload));
       });
-
-      // Handle CORS preflight
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204, {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        });
-        res.end();
-        return;
-      }
     });
 
     server.on('error', reject);

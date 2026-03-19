@@ -3,7 +3,7 @@ import { stats as statsApi, models as modelsApi } from '../api';
 import StatCard from '../components/StatCard';
 import { formatDate, formatDuration } from '../utils/formatters';
 import {
-  BarChart, Bar, LineChart, Line,
+  BarChart, Bar, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 
@@ -201,9 +201,9 @@ export default function Models() {
                     <Tooltip {...tooltipStyle}
                       formatter={(value, name, props) => [`${value}% (${props.payload.Tasks} tasks)`, name]} />
                     <Bar dataKey="Success %" fill="#3b82f6" radius={[0, 4, 4, 0]}>
-                      {successData.map((_, i) => {
-                        const rate = successData[i]['Success %'];
-                        return <rect key={i} fill={rate >= 80 ? '#22c55e' : rate >= 50 ? '#f59e0b' : '#ef4444'} />;
+                      {successData.map((entry, i) => {
+                        const rate = entry['Success %'];
+                        return <Cell key={entry.name || i} fill={rate >= 80 ? '#22c55e' : rate >= 50 ? '#f59e0b' : '#ef4444'} />;
                       })}
                     </Bar>
                   </BarChart>

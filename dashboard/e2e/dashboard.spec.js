@@ -463,7 +463,7 @@ test('dashboard loads and shows TORQUE title', async ({ page }) => {
   // The sidebar header contains "TORQUE"
   await expect(page.locator('h1')).toContainText('TORQUE');
   // The breadcrumb area also shows "TORQUE"
-  await expect(page.locator('text=TORQUE')).toBeTruthy();
+  await expect(page.locator('text=TORQUE')).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -523,21 +523,18 @@ test('status badges display with correct colors', async ({ page }) => {
 
   // Check that running badge is blue
   const runningBadge = page.locator('span', { hasText: 'running' }).first();
-  if (await runningBadge.isVisible()) {
-    await expect(runningBadge).toHaveClass(/bg-blue-500/);
-  }
+  await expect(runningBadge).toBeVisible();
+  await expect(runningBadge).toHaveClass(/bg-blue-500/);
 
   // Check that completed badge is green
   const completedBadge = page.locator('span', { hasText: 'completed' }).first();
-  if (await completedBadge.isVisible()) {
-    await expect(completedBadge).toHaveClass(/bg-green-500/);
-  }
+  await expect(completedBadge).toBeVisible();
+  await expect(completedBadge).toHaveClass(/bg-green-500/);
 
   // Check that failed badge is red
   const failedBadge = page.locator('span', { hasText: 'failed' }).first();
-  if (await failedBadge.isVisible()) {
-    await expect(failedBadge).toHaveClass(/bg-red-500/);
-  }
+  await expect(failedBadge).toBeVisible();
+  await expect(failedBadge).toHaveClass(/bg-red-500/);
 });
 
 // ---------------------------------------------------------------------------
@@ -583,11 +580,10 @@ test('status filter dropdown filters tasks', async ({ page }) => {
 
   // All visible status badges should be "failed"
   const badges = page.locator('table tbody span.rounded-full');
+  await expect(badges.first()).toBeVisible();
   const count = await badges.count();
-  if (count > 0) {
-    for (let i = 0; i < count; i++) {
-      await expect(badges.nth(i)).toContainText('failed');
-    }
+  for (let i = 0; i < count; i++) {
+    await expect(badges.nth(i)).toContainText('failed');
   }
 });
 
@@ -626,19 +622,18 @@ test('cancel button appears for running/queued tasks in drawer', async ({ page }
   // We need to find and click a running or queued task.
   // The first mock task is "running". Click it.
   const runningRow = page.locator('table tbody tr', { hasText: 'authentication' });
-  if (await runningRow.isVisible()) {
-    await runningRow.click();
+  await expect(runningRow).toBeVisible();
+  await runningRow.click();
 
-    // The drawer should show a Cancel button for running tasks
-    const cancelBtn = page.locator('[role="dialog"] button', { hasText: 'Cancel' });
-    await expect(cancelBtn).toBeVisible({ timeout: 10000 });
+  // The drawer should show a Cancel button for running tasks
+  const cancelBtn = page.locator('[role="dialog"] button', { hasText: 'Cancel' });
+  await expect(cancelBtn).toBeVisible({ timeout: 10000 });
 
-    // Click cancel -- the mock API returns success
-    await cancelBtn.click();
+  // Click cancel -- the mock API returns success
+  await cancelBtn.click();
 
-    // A toast notification should appear confirming cancellation
-    await expect(page.locator('text=Task cancelled')).toBeVisible({ timeout: 5000 });
-  }
+  // A toast notification should appear confirming cancellation
+  await expect(page.locator('text=Task cancelled')).toBeVisible({ timeout: 5000 });
 });
 
 // ---------------------------------------------------------------------------

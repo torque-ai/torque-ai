@@ -241,18 +241,21 @@ describe('POST /run endpoint', () => {
     expect(lastLine.exit_code).toBe(0);
   });
 
-  it('passes custom env variables to the child process', async () => {
+  it('passes TORQUE_-prefixed env variables to the child process and filters unknown vars', async () => {
+    // TORQUE_-prefixed vars are in the allowlist and should pass through
     const res = await postJSON('/run', {
       command: 'node',
-      args: ['-e', 'console.log(process.env.MY_TEST_VAR)'],
+      args: ['-e', 'console.log(process.env.TORQUE_TEST_VAR + "|" + process.env.MY_TEST_VAR)'],
       cwd: PROJECT_ROOT,
-      env: { MY_TEST_VAR: 'custom_value_123' },
+      env: { TORQUE_TEST_VAR: 'custom_value_123', MY_TEST_VAR: 'should_be_filtered' },
     });
 
     expect(res.status).toBe(200);
 
     const stdoutLines = res.lines.filter((l) => l.stream === 'stdout');
     const allStdout = stdoutLines.map((l) => l.data).join('');
+    // TORQUE_TEST_VAR passes through; MY_TEST_VAR is filtered out (printed as "undefined")
     expect(allStdout).toContain('custom_value_123');
+    expect(allStdout).toContain('undefined');
   });
 });

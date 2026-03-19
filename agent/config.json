@@ -1,7 +1,7 @@
 {
   "port": 3460,
   "host": "127.0.0.1",
-  "secret": "test-secret",
+  "secret": "",
   "project_root": "",
   "allowed_commands": ["node", "npm", "npx", "git", "vitest", "tsc", "eslint", "prettier"],
   "max_concurrent": 3

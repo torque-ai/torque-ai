@@ -182,6 +182,9 @@ function getApiErrorMessage(payload, response) {
 
 function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurrencyData }) {
   const addToast = useToast();
+  const [localVramFactor, setLocalVramFactor] = useState(
+    host.vram_factor ? Math.round(host.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)
+  );
 
   // Show "Disabled" badge when host is disabled, regardless of stale health status
   const effectiveStatus = !host.enabled ? 'disabled' : host.status;
@@ -280,16 +283,17 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
         <div className="flex items-center gap-2 mt-2">
           <span className="text-xs text-slate-400">VRAM Budget:</span>
           <input type="range" min={50} max={100}
-            defaultValue={host.vram_factor ? Math.round(host.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)}
-            onChange={(e) => {
-              const val = parseInt(e.target.value, 10) / 100;
+            value={localVramFactor}
+            onChange={(e) => setLocalVramFactor(parseInt(e.target.value, 10))}
+            onMouseUp={() => {
+              const val = localVramFactor / 100;
               concurrency.set({ scope: 'host', target: host.id, vram_factor: val }).then(() => {
-                addToast.success(`VRAM factor set to ${e.target.value}%`);
+                addToast.success(`VRAM factor set to ${localVramFactor}%`);
               });
             }}
             className="flex-1 h-1.5" />
           <span className="text-xs text-white font-mono w-10">
-            {host.vram_factor ? Math.round(host.vram_factor * 100) : Math.round((concurrencyData?.vram_overhead_factor || 0.95) * 100)}%
+            {localVramFactor}%
           </span>
         </div>
       )}
@@ -1092,23 +1096,12 @@ export default function Hosts({ hostActivity }) {
   }
 
   async function createWorkstation(data) {
-    const response = await fetch('/api/v2/workstations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: data.name,
-        host: data.host,
-        agent_port: parseInt(data.port, 10),
-        secret: data.secret,
-      }),
+    return workstationsApi.add({
+      name: data.name,
+      host: data.host,
+      agent_port: parseInt(data.port, 10),
+      secret: data.secret,
     });
-    const payload = await parseApiResponse(response);
-
-    if (!response.ok) {
-      throw new Error(getApiErrorMessage(payload, response));
-    }
-
-    return payload?.data ?? payload;
   }
 
   async function handleAddWorkstation(data) {
