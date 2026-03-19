@@ -26,7 +26,7 @@ function installCjsModuleMock(modulePath, exportsValue) {
   '../api/v2-middleware',
 ].forEach(resetCjsModule);
 
-installCjsModuleMock('../database', { getDefaultProvider: () => null });
+installCjsModuleMock('../database', { getDefaultProvider: () => null, onClose: () => {} });
 installCjsModuleMock('../api/v2-schemas', {
   validateInferenceRequest: vi.fn(() => ({ valid: true, errors: [], value: {} })),
 });

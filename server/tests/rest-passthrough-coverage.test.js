@@ -14,7 +14,7 @@ function installCjsModuleMock(modulePath, exportsValue) {
 }
 
 // Mock dependencies needed for routes.js / v2-dispatch.js.
-installCjsModuleMock('../database', { getDefaultProvider: () => null });
+installCjsModuleMock('../database', { getDefaultProvider: () => null, onClose: () => {} });
 installCjsModuleMock('../api/v2-schemas', {
   validateInferenceRequest: vi.fn(() => ({ valid: true, errors: [], value: {} })),
 });

@@ -76,6 +76,7 @@ function loadModules() {
 
   installCjsModuleMock('../database', {
     getDefaultProvider: vi.fn(() => null),
+    onClose: () => {},
   });
   installCjsModuleMock('../api/v2-schemas', {
     validateInferenceRequest: vi.fn(() => ({ valid: true, errors: [], value: {} })),

@@ -2613,7 +2613,9 @@ _queueScheduler.init({
   },
 });
 // Register queue-scheduler cleanup on DB close (prevents timer leaks in tests)
-db.onClose(() => _queueScheduler.stop());
+if (typeof db.onClose === 'function') {
+  db.onClose(() => _queueScheduler.stop());
+}
 // RB-035: Resolve any tasks stuck in codex-pending dead state on startup
 try { _queueScheduler.resolveCodexPendingTasks(); } catch { /* ignore */ }
 _processStreams.init({
