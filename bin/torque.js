@@ -91,12 +91,18 @@ Community: https://github.com/torque-ai/torque-ai/discussions`);
   process.exit(0);
 }
 
-// --- Helper: collect remaining args as a string (skipping flags) ---
+// Known top-level flags that should be excluded from positional description collection.
+const KNOWN_FLAGS = new Set(['--json', '--no-color', '--dry-run', '--help', '-h', '--version', '-v']);
+const KNOWN_FLAG_PREFIXES = ['--provider=', '--model=', '--status=', '--suite=', '--dir=', '--directory=', '--poll=', '--timeout='];
+
+// --- Helper: collect remaining args as a string (skipping known flags only) ---
+// Only strips recognized CLI flags so that description text containing "--" is preserved.
 function collectDescription(startIndex) {
   const parts = [];
   for (let i = startIndex; i < process.argv.length; i++) {
     const arg = process.argv[i];
-    if (arg.startsWith('--')) continue;
+    if (KNOWN_FLAGS.has(arg)) continue;
+    if (KNOWN_FLAG_PREFIXES.some(prefix => arg.startsWith(prefix))) continue;
     parts.push(arg);
   }
   return parts.join(' ').trim();
@@ -116,10 +122,16 @@ function extractText(raw) {
 }
 
 // --- Helper: run an async handler with error handling ---
+// Exit code 1 = API/network error; exit code 2 = usage/validation error.
 function runHandler(fn) {
   fn().catch(err => {
+    const isUsageError = err && (err.code === 'INVALID_USAGE' || err.name === 'UsageError');
     console.error(err.message || String(err));
-    process.exitCode = 1;
+    if (isUsageError) {
+      process.exitCode = 2;
+    } else {
+      process.exitCode = 1;
+    }
   });
 }
 

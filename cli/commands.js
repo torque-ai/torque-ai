@@ -258,13 +258,15 @@ async function handleAwait(args) {
     throw missingArgument('await requires a task id');
   }
 
-  const pollMs = Math.max(2000, parseInt(args.poll || '3000', 10));
+  const basePollMs = Math.max(1000, parseInt(args.poll || '2000', 10));
+  const maxPollMs = 30000;
   const timeoutMs = parseInt(args.timeout || '600000', 10);
   const start = Date.now();
   const log = args._log || (() => {});
 
   log(`Waiting for task ${taskId}...`);
 
+  let attempt = 0;
   while (Date.now() - start < timeoutMs) {
     const raw = await apiGet(`/api/tasks/${encodePath(taskId)}`);
     const text = typeof raw === 'string' ? raw : (raw?.result || raw?.content?.[0]?.text || '');
@@ -275,14 +277,17 @@ async function handleAwait(args) {
       return { command: 'result', raw };
     }
 
-    log(`  ...${status || 'checking'} (${Math.round((Date.now() - start) / 1000)}s)`);
-    await new Promise(resolve => setTimeout(resolve, pollMs));
+    // Exponential backoff: base * 2^attempt, capped at maxPollMs
+    const delay = Math.min(basePollMs * Math.pow(2, attempt), maxPollMs);
+    attempt += 1;
+    log(`  ...${status || 'checking'} (${Math.round((Date.now() - start) / 1000)}s, next poll in ${Math.round(delay / 1000)}s)`);
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
 
   throw new Error(`Timed out waiting for task ${taskId} after ${Math.round(timeoutMs / 1000)}s`);
 }
 
-async function handleHealth() {
+async function handleHealth(_args, _context) {
   const raw = await apiGet('/healthz');
   return {
     command: 'health',

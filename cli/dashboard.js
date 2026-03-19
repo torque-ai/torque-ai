@@ -3,7 +3,8 @@
 const { execFile } = require('child_process'); // eslint-disable-line security/detect-child-process
 
 async function run() {
-  const port = process.env.TORQUE_DASHBOARD_PORT || 3456;
+  const rawPort = process.env.TORQUE_DASHBOARD_PORT;
+  const port = rawPort && /^\d+$/.test(rawPort.trim()) ? parseInt(rawPort.trim(), 10) : 3456;
   const url = `http://localhost:${port}`;
 
   console.log(`Opening dashboard: ${url}`);

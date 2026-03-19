@@ -317,11 +317,19 @@ function formatCommandResult(result, options = {}) {
     case 'workflow_create':
     case 'workflow_run':
     case 'workflow_status':
+    case 'workflow_add_task':
     case 'decompose':
     case 'diagnose':
     case 'review':
     case 'benchmark':
       return formatWorkflow(result.raw);
+    case 'ci_status':
+    case 'ci_watch':
+    case 'ci_stop':
+    case 'ci_diagnose':
+    case 'ci_runs':
+    case 'ci_configure':
+      return renderFallbackText(extractTextPayload(result.raw));
     case 'health':
       return formatHealth(result.raw);
     default:

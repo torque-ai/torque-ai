@@ -192,6 +192,17 @@ function parseCliArgs(argv) {
         json: flags.json,
       };
     }
+    // Unknown or missing subcommand
+    const err = new Error(
+      `workflow requires a subcommand.\n` +
+      `Valid subcommands: create, run, status\n` +
+      `\n` +
+      `  torque workflow create <name> --task "description"\n` +
+      `  torque workflow run <workflow-id>\n` +
+      `  torque workflow status <workflow-id>`
+    );
+    err.code = 'INVALID_USAGE';
+    throw err;
   }
 
   if (command === 'decompose') {
