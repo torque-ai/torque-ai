@@ -2,6 +2,7 @@
  * Workflow await / polling handlers (non-blocking yield-on-completion)
  */
 
+const fs = require('fs');
 const path = require('path');
 const db = require('../../database');
 const {
@@ -677,7 +678,11 @@ function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
     }
     try {
       const cwd = args.working_directory || workflow.working_directory || process.cwd();
-      const verifyResult = safeExecChain(args.verify_command, {
+      const scriptPath = path.join(cwd, 'scripts', 'torque-test.sh');
+      const effectiveCommand = fs.existsSync(scriptPath)
+        ? `bash ${scriptPath} ${args.verify_command}`
+        : args.verify_command;
+      const verifyResult = safeExecChain(effectiveCommand, {
         cwd,
         timeout: TASK_TIMEOUTS.VERIFY_COMMAND,
         encoding: 'utf8',
@@ -908,18 +913,37 @@ async function handleAwaitTask(args) {
           const cwd = args.working_directory || task.working_directory;
           if (cwd) {
             try {
-              const verifyResult = executeValidatedCommandSync(
-                process.platform === 'win32' ? 'cmd' : 'sh',
-                process.platform === 'win32' ? ['/c', args.verify_command] : ['-c', args.verify_command],
-                {
-                  profile: 'safe_verify',
-                  source: 'await_task',
-                  caller: 'handleAwaitTask',
-                  cwd,
-                  timeout: TASK_TIMEOUTS.BUILD_VERIFY || 60000,
-                  encoding: 'utf8',
-                }
-              );
+              const scriptPath = path.join(cwd, 'scripts', 'torque-test.sh');
+              let verifyResult;
+              if (fs.existsSync(scriptPath)) {
+                // Route through test runner — respects test station config
+                verifyResult = executeValidatedCommandSync(
+                  'bash',
+                  [scriptPath, ...args.verify_command.split(/\s+/).filter(Boolean)],
+                  {
+                    profile: 'safe_verify',
+                    source: 'await_task',
+                    caller: 'handleAwaitTask',
+                    cwd,
+                    timeout: TASK_TIMEOUTS.BUILD_VERIFY || 60000,
+                    encoding: 'utf8',
+                  }
+                );
+              } else {
+                // Direct execution (backward compatibility)
+                verifyResult = executeValidatedCommandSync(
+                  process.platform === 'win32' ? 'cmd' : 'sh',
+                  process.platform === 'win32' ? ['/c', args.verify_command] : ['-c', args.verify_command],
+                  {
+                    profile: 'safe_verify',
+                    source: 'await_task',
+                    caller: 'handleAwaitTask',
+                    cwd,
+                    timeout: TASK_TIMEOUTS.BUILD_VERIFY || 60000,
+                    encoding: 'utf8',
+                  }
+                );
+              }
               output += `\n### Verify Command\n✅ Passed\n\`\`\`\n${(verifyResult || '').toString().trim().substring(0, 1000)}\n\`\`\`\n`;
             } catch (err) {
               const errMsg = (err.stderr || err.stdout || err.message || '').toString().substring(0, 1500);

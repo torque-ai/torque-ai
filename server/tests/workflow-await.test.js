@@ -251,7 +251,7 @@ describe('workflow-await handlers with DB-backed state', () => {
     it('runs verify_command after a task completes', async () => {
       const taskId = createTask({ status: 'running' });
       mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
-        if (command === 'cmd' || command === 'sh') return 'verify ok\n';
+        if (command === 'bash' || command === 'cmd' || command === 'sh') return 'verify ok\n';
         if (command === 'git' && args[0] === 'rev-parse') return 'abc123\n';
         if (command === 'git' && args[0] === 'diff') return '';
         return '';
@@ -272,9 +272,11 @@ describe('workflow-await handlers with DB-backed state', () => {
       expect(textOf(result)).toContain('### Verify Command');
       expect(textOf(result)).toContain('Passed');
       expect(textOf(result)).toContain('verify ok');
+      // When scripts/torque-test.sh exists in cwd, routing goes through bash.
+      // When it doesn't (e.g., in a stripped environment), falls back to sh/cmd.
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
-        expect.stringMatching(/^(cmd|sh)$/),
-        expect.arrayContaining(['npx vitest run server/tests/workflow-await.test.js']),
+        expect.stringMatching(/^(bash|cmd|sh)$/),
+        expect.any(Array),
         expect.objectContaining({ cwd: process.cwd() })
       );
     });
@@ -282,7 +284,7 @@ describe('workflow-await handlers with DB-backed state', () => {
     it('captures verify_command failures without aborting the task result', async () => {
       const taskId = createTask({ status: 'running' });
       mocks.executeValidatedCommandSync.mockImplementation((command) => {
-        if (command === 'cmd' || command === 'sh') {
+        if (command === 'bash' || command === 'cmd' || command === 'sh') {
           const error = new Error('verify failed');
           error.stderr = 'failing test output';
           throw error;
@@ -537,8 +539,10 @@ describe('workflow-await handlers with DB-backed state', () => {
       expect(textOf(secondResult)).toContain('### Verification');
       expect(textOf(secondResult)).toContain('verify ok');
       expect(mocks.safeExecChain).toHaveBeenCalledTimes(1);
+      // When scripts/torque-test.sh exists in cwd, the command is prefixed with
+      // "bash <scriptPath> ". When absent, the raw verify_command is used.
       expect(mocks.safeExecChain).toHaveBeenCalledWith(
-        'node --check server/tools.js',
+        expect.stringContaining('node --check server/tools.js'),
         expect.objectContaining({ cwd: process.cwd() })
       );
     });

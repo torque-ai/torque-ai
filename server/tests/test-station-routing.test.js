@@ -300,3 +300,295 @@ describe('writeTestStationConfig', () => {
     expect(content.transport).toBe('ssh');
   });
 });
+
+// ---------------------------------------------------------------------------
+// await verify routing
+// ---------------------------------------------------------------------------
+import { afterEach as afterEachV, beforeEach as beforeEachV, describe as describeV, expect as expectV, it as itV, vi as viV } from 'vitest';
+
+const { EventEmitter } = require('events');
+const { randomUUID } = require('crypto');
+
+// Hoisted mocks (must be set up before require() of the module under test)
+const awaitMocks = viV.hoisted(() => ({
+  taskEvents: new EventEmitter(),
+  executeValidatedCommandSync: viV.fn(),
+  safeExecChain: viV.fn(),
+  handlePeekUi: viV.fn(),
+}));
+
+function installAwaitMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+function loadAwaitFresh(modulePath) {
+  delete require.cache[require.resolve(modulePath)];
+  return require(modulePath);
+}
+
+function textOfResult(result) {
+  return result?.content?.[0]?.text || '';
+}
+
+describeV('await verify routing', () => {
+  const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+  const db = require('../database');
+  const hostMonitoring = require('../utils/host-monitoring');
+  let tmpDir;
+  let handlers;
+
+  function createTestTask(overrides = {}) {
+    const id = overrides.id || randomUUID();
+    db.createTask({
+      id,
+      task_description: 'Routing test task',
+      provider: 'codex',
+      model: 'gpt-5',
+      status: 'pending',
+      working_directory: tmpDir,
+      ...overrides,
+    });
+    return id;
+  }
+
+  function finalizeTestTask(taskId, status = 'completed', overrides = {}) {
+    const task = db.getTask(taskId);
+    if (!task) return;
+    if (task.status === 'blocked') db.updateTaskStatus(taskId, 'pending');
+    const current = db.getTask(taskId);
+    if (current && ['pending', 'queued'].includes(current.status)) {
+      db.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
+    }
+    db.updateTaskStatus(taskId, status, {
+      output: overrides.output ?? (status === 'completed' ? 'task output' : ''),
+      error_output: overrides.error_output ?? (status === 'failed' ? 'task failed' : null),
+      exit_code: overrides.exit_code ?? (status === 'completed' ? 0 : 1),
+      completed_at: '2026-01-01T00:00:05.000Z',
+      files_modified: overrides.files_modified ?? null,
+    });
+  }
+
+  beforeEachV(() => {
+    tmpDir = path.join(os.tmpdir(), `torque-await-routing-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    setupTestDb(`await-routing-${Date.now()}`);
+
+    installAwaitMock('../hooks/event-dispatch', { taskEvents: awaitMocks.taskEvents });
+    installAwaitMock('../execution/command-policy', {
+      executeValidatedCommandSync: awaitMocks.executeValidatedCommandSync,
+    });
+    installAwaitMock('../utils/safe-exec', {
+      safeExecChain: awaitMocks.safeExecChain,
+    });
+    installAwaitMock('../handlers/peek-handlers', {
+      handlePeekUi: awaitMocks.handlePeekUi,
+    });
+
+    awaitMocks.executeValidatedCommandSync.mockReset();
+    awaitMocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
+      if (command === 'git' && args[0] === 'rev-parse') return 'abc123\n';
+      if (command === 'git' && args[0] === 'diff') return '';
+      return 'verify ok\n';
+    });
+    awaitMocks.safeExecChain.mockReset();
+    awaitMocks.safeExecChain.mockReturnValue({ exitCode: 0, output: 'verify ok' });
+    awaitMocks.handlePeekUi.mockReset();
+    awaitMocks.handlePeekUi.mockResolvedValue({ content: [] });
+    awaitMocks.taskEvents.removeAllListeners();
+    hostMonitoring.hostActivityCache.clear();
+
+    handlers = loadAwaitFresh('../handlers/workflow/await');
+  });
+
+  afterEachV(() => {
+    viV.restoreAllMocks();
+    awaitMocks.executeValidatedCommandSync.mockReset();
+    awaitMocks.safeExecChain.mockReset();
+    awaitMocks.handlePeekUi.mockReset();
+    awaitMocks.taskEvents.removeAllListeners();
+    hostMonitoring.hostActivityCache.clear();
+    viV.useRealTimers();
+    teardownTestDb();
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  });
+
+  itV('handleAwaitTask uses bash + torque-test.sh when script exists in working directory', async () => {
+    // Create the test runner script in the temp dir
+    const scriptsDir = path.join(tmpDir, 'scripts');
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    const scriptPath = path.join(scriptsDir, 'torque-test.sh');
+    fs.writeFileSync(scriptPath, '#!/bin/bash\n"$@"\n', 'utf8');
+
+    const taskId = createTestTask({ status: 'running', working_directory: tmpDir });
+
+    const promise = handlers.handleAwaitTask({
+      task_id: taskId,
+      verify_command: 'npx vitest run',
+      working_directory: tmpDir,
+      poll_interval_ms: 30000,
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    finalizeTestTask(taskId, 'completed');
+    awaitMocks.taskEvents.emit('task:completed', taskId);
+    const result = await promise;
+
+    expectV(textOfResult(result)).toContain('### Verify Command');
+    expectV(textOfResult(result)).toContain('Passed');
+
+    // Should invoke bash with the script, not sh/cmd
+    expectV(awaitMocks.executeValidatedCommandSync).toHaveBeenCalledWith(
+      'bash',
+      expectV.arrayContaining([scriptPath]),
+      expectV.objectContaining({ cwd: tmpDir })
+    );
+    // Should NOT call with sh or cmd for verify
+    const verifyCalls = awaitMocks.executeValidatedCommandSync.mock.calls.filter(
+      ([cmd]) => cmd === 'sh' || cmd === 'cmd'
+    );
+    expectV(verifyCalls.length).toBe(0);
+  });
+
+  itV('handleAwaitTask falls back to direct execution when torque-test.sh is absent', async () => {
+    // No scripts/torque-test.sh in tmpDir
+    const taskId = createTestTask({ status: 'running', working_directory: tmpDir });
+
+    const promise = handlers.handleAwaitTask({
+      task_id: taskId,
+      verify_command: 'npx vitest run',
+      working_directory: tmpDir,
+      poll_interval_ms: 30000,
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    finalizeTestTask(taskId, 'completed');
+    awaitMocks.taskEvents.emit('task:completed', taskId);
+    const result = await promise;
+
+    expectV(textOfResult(result)).toContain('### Verify Command');
+    expectV(textOfResult(result)).toContain('Passed');
+
+    // Should invoke sh or cmd (platform-dependent fallback), NOT bash with a script
+    expectV(awaitMocks.executeValidatedCommandSync).toHaveBeenCalledWith(
+      expectV.stringMatching(/^(cmd|sh)$/),
+      expectV.arrayContaining(['npx vitest run']),
+      expectV.objectContaining({ cwd: tmpDir })
+    );
+  });
+
+  itV('handleAwaitWorkflow uses bash + torque-test.sh when script exists', async () => {
+    // Create the test runner script
+    const scriptsDir = path.join(tmpDir, 'scripts');
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    const scriptPath = path.join(scriptsDir, 'torque-test.sh');
+    fs.writeFileSync(scriptPath, '#!/bin/bash\n"$@"\n', 'utf8');
+
+    const wfId = randomUUID();
+    db.createWorkflow({
+      id: wfId,
+      name: 'Routing workflow test',
+      status: 'completed',
+      context: {},
+      working_directory: tmpDir,
+    });
+
+    // Add and finalize one task so formatFinalSummary is reached
+    const taskId = randomUUID();
+    db.createTask({
+      id: taskId,
+      workflow_id: wfId,
+      workflow_node_id: 'build',
+      task_description: 'build task',
+      provider: 'codex',
+      model: 'gpt-5',
+      status: 'pending',
+      working_directory: tmpDir,
+    });
+    db.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
+    db.updateTaskStatus(taskId, 'completed', {
+      output: 'build done',
+      exit_code: 0,
+      completed_at: '2026-01-01T00:00:05.000Z',
+    });
+
+    const result = await handlers.handleAwaitWorkflow({
+      workflow_id: wfId,
+      verify_command: 'npx vitest run',
+      working_directory: tmpDir,
+      poll_interval_ms: 10,
+      timeout_minutes: 1,
+    });
+
+    const text = textOfResult(result);
+    expectV(text).toContain('### Verification');
+
+    // safeExecChain should be called with bash + script in the command string
+    expectV(awaitMocks.safeExecChain).toHaveBeenCalledWith(
+      expectV.stringContaining('bash'),
+      expectV.objectContaining({ cwd: tmpDir })
+    );
+    expectV(awaitMocks.safeExecChain).toHaveBeenCalledWith(
+      expectV.stringContaining(scriptPath),
+      expectV.any(Object)
+    );
+  });
+
+  itV('handleAwaitWorkflow falls back to direct command when torque-test.sh is absent', async () => {
+    // No scripts/torque-test.sh in tmpDir
+    const wfId = randomUUID();
+    db.createWorkflow({
+      id: wfId,
+      name: 'Routing workflow fallback test',
+      status: 'completed',
+      context: {},
+      working_directory: tmpDir,
+    });
+
+    // Add and finalize one task so formatFinalSummary is reached
+    const taskId = randomUUID();
+    db.createTask({
+      id: taskId,
+      workflow_id: wfId,
+      workflow_node_id: 'build',
+      task_description: 'build task',
+      provider: 'codex',
+      model: 'gpt-5',
+      status: 'pending',
+      working_directory: tmpDir,
+    });
+    db.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
+    db.updateTaskStatus(taskId, 'completed', {
+      output: 'build done',
+      exit_code: 0,
+      completed_at: '2026-01-01T00:00:05.000Z',
+    });
+
+    const result = await handlers.handleAwaitWorkflow({
+      workflow_id: wfId,
+      verify_command: 'npx vitest run',
+      working_directory: tmpDir,
+      poll_interval_ms: 10,
+      timeout_minutes: 1,
+    });
+
+    const text = textOfResult(result);
+    expectV(text).toContain('### Verification');
+
+    // safeExecChain should be called with the original verify_command (no bash script prefix)
+    expectV(awaitMocks.safeExecChain).toHaveBeenCalledWith(
+      'npx vitest run',
+      expectV.objectContaining({ cwd: tmpDir })
+    );
+  });
+});
