@@ -456,6 +456,16 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertApproval.run('apr-tiny-new', 'tiny-new-file', 'New file is suspiciously small (<50 bytes)', 'condition', 'is_new AND size < 50', 1, 0, 1, now);
   insertApproval.run('apr-mass-delete', 'mass-line-deletion', 'More than 100 lines deleted', 'condition', 'lines_deleted > 100', 1, 0, 1, now);
   insertApproval.run('apr-validation-fail', 'validation-failure', 'Task failed output validation', 'condition', 'validation_failed', 1, 0, 1, now);
+  // Template approval rules — seeded disabled so users can opt-in via dashboard
+  const insertApprovalTemplate = db.prepare(`
+      INSERT OR IGNORE INTO approval_rules (id, name, description, rule_type, condition, required_approvers, auto_approve_after_minutes, auto_reject, enabled, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+  insertApprovalTemplate.run('apr-tmpl-high-file-count', 'high-file-count', 'Tasks modifying more than 10 files', 'condition', 'files_touched > 10', 1, 30, 0, 0, now);
+  insertApprovalTemplate.run('apr-tmpl-security-tag', 'security-tag', 'Tasks tagged as security-sensitive', 'condition', 'tags CONTAINS security', 1, null, 0, 0, now);
+  insertApprovalTemplate.run('apr-tmpl-complex', 'complex-classification', 'Tasks classified as complex by smart routing', 'condition', 'complexity = complex', 1, 30, 0, 0, now);
+  insertApprovalTemplate.run('apr-tmpl-cloud-cost', 'cloud-provider-cost', 'Tasks using paid cloud API providers', 'condition', 'provider IN anthropic,deepinfra', 1, 30, 0, 0, now);
+  insertApprovalTemplate.run('apr-tmpl-large-context', 'large-context', 'Tasks with context exceeding 50K tokens', 'condition', 'context_tokens > 50000', 1, 30, 0, 0, now);
   safeAddColumn('failure_patterns', 'name TEXT');
   safeAddColumn('failure_patterns', 'description TEXT');
   safeAddColumn('failure_patterns', 'signature TEXT');

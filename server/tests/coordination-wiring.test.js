@@ -565,3 +565,47 @@ describe('startup agent sweep', () => {
     expect(fetchedB.status).toBe('offline');
   });
 });
+
+describe('template approval rules', () => {
+  beforeAll(() => { setup(); });
+  afterAll(() => { teardown(); });
+
+  it('template rules are seeded but disabled', () => {
+    const conn = rawDb();
+    const allRules = conn.prepare('SELECT * FROM approval_rules').all();
+    const disabledRules = allRules.filter(r => r.enabled === 0);
+    const disabledNames = disabledRules.map(r => r.name);
+
+    const expectedTemplateNames = [
+      'high-file-count',
+      'security-tag',
+      'complex-classification',
+      'cloud-provider-cost',
+      'large-context',
+    ];
+
+    for (const name of expectedTemplateNames) {
+      expect(disabledNames).toContain(name);
+    }
+  });
+
+  it('template rules have correct conditions and descriptions', () => {
+    const conn = rawDb();
+    const rules = conn.prepare('SELECT * FROM approval_rules WHERE enabled = 0').all();
+    const byName = Object.fromEntries(rules.map(r => [r.name, r]));
+
+    expect(byName['high-file-count'].condition).toBe('files_touched > 10');
+    expect(byName['high-file-count'].description).toBe('Tasks modifying more than 10 files');
+
+    expect(byName['security-tag'].condition).toBe('tags CONTAINS security');
+    expect(byName['security-tag'].auto_approve_after_minutes).toBeNull();
+
+    expect(byName['complex-classification'].condition).toBe('complexity = complex');
+    expect(byName['complex-classification'].auto_approve_after_minutes).toBe(30);
+
+    expect(byName['cloud-provider-cost'].condition).toBe('provider IN anthropic,deepinfra');
+
+    expect(byName['large-context'].condition).toBe('context_tokens > 50000');
+    expect(byName['large-context'].auto_approve_after_minutes).toBe(30);
+  });
+});
