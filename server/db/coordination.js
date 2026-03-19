@@ -319,6 +319,10 @@ function claimTask(taskId, agentId, leaseSeconds = 300) {
     throw new Error(`Agent not found: ${agentId}`);
   }
 
+  // Use IMMEDIATE transaction to prevent TOCTOU double-claim race:
+  // DEFERRED (the default) only acquires a write lock on the first write,
+  // so two concurrent callers can both pass the existence check before
+  // either inserts. IMMEDIATE acquires the write lock upfront.
   return db.transaction(() => {
     // Check if task is already claimed
     const existingClaim = db.prepare(`
@@ -335,7 +339,7 @@ function claimTask(taskId, agentId, leaseSeconds = 300) {
     }
 
     return createTaskClaim(taskId, agentId, leaseSeconds);
-  })();
+  }).immediate();
 }
 
 /**
