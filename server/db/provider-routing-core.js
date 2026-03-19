@@ -401,10 +401,15 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     }
   }
 
-  const isDocsTask = /\b(document|explain|summarize|describe|comment|readme|changelog|jsdoc|docstring)\b/i.test(taskDescription);
+  const isDocsTask = /\b(document|summarize|comment|readme|changelog|jsdoc|docstring)\b/i.test(taskDescription);
   const isSimpleGenTask = /\b(commit message|boilerplate|scaffold|template|stub)\b/i.test(taskDescription);
+  // "explain" and "describe" removed from groq routing — these often need multi-file reads
+  // which require 2+ tool calls, and groq's tool calling fails on multi-step tasks.
+  // They'll route to cerebras or other providers via template-based routing instead.
 
-  if ((isDocsTask || isSimpleGenTask) && groqApiKey) {
+  // Only route to groq if the task won't need multiple tool calls
+  const hasMultipleFileRefs = (taskDescription.match(/\b[\w./\\-]+\.\w{1,5}\b/g) || []).length > 1;
+  if ((isDocsTask || isSimpleGenTask) && !hasMultipleFileRefs && groqApiKey) {
     const groqProvider = getProvider('groq');
     if (groqProvider && groqProvider.enabled) {
       const matchType = isDocsTask ? 'documentation' : 'simple generation';

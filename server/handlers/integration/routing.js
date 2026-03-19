@@ -718,7 +718,10 @@ async function handleSmartSubmitTask(args) {
     }
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (local LLMs unreliable for tests)`);
   }
-  if (!taskModel && (selectedProvider === 'aider-ollama' || selectedProvider === 'ollama' || selectedProvider === 'hashline-ollama')) {
+  // Skip legacy modification routing for hashline-ollama — it uses hashline annotation
+  // (line-number-based edits) which handles any file size safely. The 250-line limit
+  // only applies to aider-ollama and raw ollama which use SEARCH/REPLACE or whole-file.
+  if (!taskModel && (selectedProvider === 'aider-ollama' || selectedProvider === 'ollama')) {
     // Detect modification tasks for routing decisions.
     // R54/P75: codestral:22b best for greenfield (deepseek-r1 over-engineers).
     // P83/R67: codestral:22b CANNOT modify existing files — route modifications to Codex.
