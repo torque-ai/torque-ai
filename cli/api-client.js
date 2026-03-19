@@ -1,4 +1,8 @@
-const BASE_URL = process.env.TORQUE_API_URL || 'http://127.0.0.1:3457';
+'use strict';
+
+const { API_URL } = require('./shared');
+
+const BASE_URL = process.env.TORQUE_API_URL || API_URL;
 
 class ApiError extends Error {
   constructor(message, { status = null, body = '', path = '', method = 'GET' } = {}) {
@@ -13,6 +17,13 @@ class ApiError extends Error {
 
 function normalizeNetworkError(err, method, path) {
   const code = err?.cause?.code || err?.code;
+
+  if (err?.name === 'TimeoutError' || code === 'ABORT_ERR') {
+    return new ApiError(
+      `Request timed out for ${method} ${path} (no response from server in 30s)`,
+      { path, method },
+    );
+  }
 
   if (code === 'ECONNREFUSED' || /fetch failed/i.test(err?.message || '')) {
     return new ApiError(
@@ -41,6 +52,10 @@ async function parseResponseBody(res) {
   }
 }
 
+function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+  return fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+}
+
 async function request(method, path, body) {
   const url = `${BASE_URL}${path}`;
 
@@ -51,7 +66,7 @@ async function request(method, path, body) {
       init.body = JSON.stringify(body);
     }
 
-    const res = await fetch(url, init);
+    const res = await fetchWithTimeout(url, init);
     const payload = await parseResponseBody(res);
 
     if (!res.ok) {
@@ -85,4 +100,4 @@ async function apiDelete(path) {
   return request('DELETE', path);
 }
 
-module.exports = { apiGet, apiPost, apiDelete, BASE_URL, ApiError };
+module.exports = { apiGet, apiPost, apiDelete, BASE_URL, ApiError, fetchWithTimeout };

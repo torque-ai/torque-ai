@@ -1319,6 +1319,10 @@ v2Inference.init({
 
 const { executeV2ProviderInference } = v2Inference;
 
+// Module-level taskManager reference for v2 inference cancel handler.
+// Set by createApiServer() when a taskManager is provided.
+let _v2TaskManager = null;
+
 async function handleV2TaskStatus(_req, res, context = {}, taskId = null, req = null) {
   const requestId = context.requestId || req?.requestId || randomUUID();
   const resolvedTaskId = req?.params?.task_id || taskId;
@@ -1359,32 +1363,43 @@ async function handleV2TaskCancel(_req, res, context = {}, taskId = null, req = 
   }
 
   if (taskRow.status === 'completed' || taskRow.status === 'failed' || taskRow.status === 'cancelled') {
-    sendV2Success(
+    sendV2Error(
       res,
       requestId,
+      'task_already_terminal',
+      `Task is already in terminal state: ${taskRow.status}`,
+      409,
       {
         task_id: taskRow.id,
         status: normalizeV2InferenceStatus(taskRow.status),
-        provider: taskRow.provider,
-        model: taskRow.model,
-        cancelled: false,
-        reason: 'Task already terminal',
       },
-      200,
       req,
     );
     return;
   }
 
   try {
-    await db.updateTaskStatus(taskRow.id, 'cancelled', {
-      error_output: 'Task cancelled by request',
-    });
+    if (_v2TaskManager) {
+      _v2TaskManager.cancelTask(taskRow.id, 'Task cancelled by request');
+    } else {
+      db.updateTaskStatus(taskRow.id, 'cancelled', {
+        error_output: 'Task cancelled by request',
+      });
+    }
     recordV2TaskEvent(taskRow.id, 'status', taskRow.status, 'cancelled', {
       request_id: requestId,
     });
-  } catch (_err) {
-    void _err;
+  } catch (err) {
+    sendV2Error(
+      res,
+      requestId,
+      'cancellation_failed',
+      err.message || 'Failed to cancel task',
+      500,
+      {},
+      req,
+    );
+    return;
   }
 
   const cancelledRow = getV2TaskStatusRow(resolvedTaskId);
@@ -2106,6 +2121,7 @@ function createApiServer(deps = {}) {
 
   // Initialize v2 control-plane handlers with task manager
   if (serverDeps.taskManager) {
+    _v2TaskManager = serverDeps.taskManager;
     v2TaskHandlers.init(serverDeps.taskManager);
     v2WorkflowHandlers.init(serverDeps.taskManager);
     v2GovernanceHandlers.init(serverDeps.taskManager);
@@ -2626,4 +2642,8 @@ module.exports = {
   setFreeTierTrackerGetter,
   handleGetFreeTierHistory,
   handleGetFreeTierAutoScale,
+  _testing: {
+    handleV2TaskCancel,
+    setV2TaskManager: (tm) => { _v2TaskManager = tm; },
+  },
 };
