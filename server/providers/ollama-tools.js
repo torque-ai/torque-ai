@@ -611,44 +611,11 @@ function createToolExecutor(workingDir, options = {}) {
                 error: true,
               };
             }
-            // Indentation normalization: two-pass approach for LLMs that send
-            // new_text with wrong indentation.
-            // Pass 1: reindentNewText fixes base-indent mismatch (different first line).
-            // Pass 2: inner-line indent correction for LLMs (e.g., cerebras) that use
-            //   their own indent level (4-space) inside a file that uses different
-            //   indentation (8-space). Detects the minimum inner indent of old_text vs
-            //   new_text and shifts new_text's inner lines to match.
+            // Indentation normalization: use reindentNewText (prefix-replacement)
+            // to fix LLMs that send new_text with wrong base indentation.
             const oldFirstNonBlank = args.old_text.split('\n').find(l => l.trim().length > 0);
             const oldIndent = oldFirstNonBlank ? oldFirstNonBlank.match(/^(\s*)/)[1] : '';
             let finalNewText = reindentNewText(args.new_text, oldIndent);
-
-            // Pass 2: inner-line indent correction
-            if (args.old_text.includes('\n') && finalNewText.includes('\n')) {
-              const getMinInnerIndent = (text) => {
-                const lines = text.split('\n').slice(1); // skip first line
-                let min = Infinity;
-                for (const l of lines) {
-                  if (!l.trim()) continue;
-                  const indent = l.match(/^(\s*)/)[1].length;
-                  if (indent > 0 && indent < min) min = indent;
-                }
-                return min === Infinity ? 0 : min;
-              };
-              const oldMinInner = getMinInnerIndent(args.old_text);
-              const newMinInner = getMinInnerIndent(finalNewText);
-              if (oldMinInner > 0 && newMinInner > 0 && oldMinInner !== newMinInner) {
-                const delta = oldMinInner - newMinInner;
-                const newLines = finalNewText.split('\n');
-                finalNewText = newLines.map((l, i) => {
-                  if (i === 0 || !l.trim()) return l;
-                  if (delta > 0) return ' '.repeat(delta) + l;
-                  // delta < 0: strip excess indent
-                  const leading = l.match(/^(\s*)/)[1];
-                  return leading.length >= Math.abs(delta) ? l.slice(Math.abs(delta)) : l;
-                }).join('\n');
-                logger.info(`[Tools] edit_file: inner-indent correction (old min: ${oldMinInner}, new min: ${newMinInner}, delta: ${delta})`);
-              }
-            }
             const newContent = content.slice(0, idx) + finalNewText + content.slice(idx + args.old_text.length);
             fs.writeFileSync(resolvedPath, newContent, 'utf-8');
             changedFiles.add(resolvedPath);
