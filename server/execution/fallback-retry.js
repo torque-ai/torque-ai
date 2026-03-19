@@ -23,7 +23,9 @@ function getRetryDelayMs(task) {
   const rawAttempt = task && task.retry_count;
   const normalizedAttempt = Number.parseInt(rawAttempt, 10);
   const attempt = Number.isFinite(normalizedAttempt) && normalizedAttempt > 0 ? normalizedAttempt : 1;
-  return Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, attempt - 1), MAX_RETRY_DELAY_MS);
+  const baseDelay = Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, attempt - 1), MAX_RETRY_DELAY_MS);
+  // Add jitter: ±50% of base delay to spread out concurrent retries and avoid thundering herd.
+  return Math.round(baseDelay * (0.5 + Math.random()));
 }
 
 
@@ -200,23 +202,26 @@ function _isGreenfieldTask(desc) {
 function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
   const maxLocalRetries = serverConfig.getInt('max_local_retries', 3);
 
-  // Parse prior local-first attempts from error_output markers
-  // Cap input to last 50KB to avoid regex on unbounded strings
+  // Use metadata counter as the authoritative local attempt count.
+  // Counting [Local-First] markers in error_output is unreliable when output is truncated.
+  let metadata = {};
+  try { metadata = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {}; } catch { /* corrupt metadata */ }
+  const localAttempts = typeof metadata.local_first_attempts === 'number' ? metadata.local_first_attempts : 0;
+
+  // Also keep raw error string for model/provider deduplication checks (capped to avoid regex on huge strings).
   const rawErrors = (task.error_output || '') + (errorMsg || '');
   const priorErrors = rawErrors.length > 50000 ? rawErrors.slice(-50000) : rawErrors;
-  const localAttempts = (priorErrors.match(/\[Local-First\]/g) || []).length;
 
   if (localAttempts >= maxLocalRetries) {
     logger.info(`[Local-First] Task ${taskId}: exhausted ${maxLocalRetries} local retries, escalating to cloud`);
     return tryOllamaCloudFallback(taskId, task, `${errorMsg}\n[Local-First] Exhausted ${maxLocalRetries} local retries`);
   }
 
-  // Preserve original_provider on first fallback
-  let metadata = {};
-  try { metadata = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {}; } catch { /* corrupt metadata */ }
+  // Preserve original_provider on first fallback and increment the attempt counter.
   if (!metadata.original_provider) {
     metadata.original_provider = task.provider;
   }
+  metadata.local_first_attempts = localAttempts + 1;
 
   const currentHost = task.ollama_host_id;
   const currentModel = task.model;
@@ -383,11 +388,11 @@ function tryStallRecovery(taskId, activity) {
   let strategy = null;
   let newSettings = {};
 
-  if (recovery.attempts === 0 && currentEditFormat === 'diff') {
-    // Attempt 1: Switch to 'whole' edit format
+  if (recovery.attempts === 0 && currentEditFormat !== 'whole') {
+    // Attempt 1: Switch to 'whole' edit format (only if not already 'whole')
     strategy = 'switch_edit_format';
     newSettings = { editFormat: 'whole' };
-    logger.info(`[StallRecovery] Task ${taskId}: Attempt ${recovery.attempts + 1} - switching edit format diff → whole`);
+    logger.info(`[StallRecovery] Task ${taskId}: Attempt ${recovery.attempts + 1} - switching edit format ${currentEditFormat} → whole`);
   } else if (recovery.attempts <= 1 && currentProvider === 'aider-ollama') {
     // Attempt 2: Try larger model if available
     const largerModel = findLargerAvailableModel(currentModel);
@@ -674,7 +679,18 @@ function tryHashlineTieredFallback(taskId, task, reason) {
 
   }
 
-  // Step 3: codex (final fallback, only if codex is enabled)
+  // Step 3: codex (final fallback, only if codex is enabled and not already on codex).
+  // Guard against infinite loop: if the task is already on codex, refusing re-escalation
+  // prevents a codex failure from re-queuing back to codex indefinitely.
+  if (currentProvider === 'codex') {
+    logger.warn(`[HashlineFallback] Task ${taskId.slice(0,8)} is already on codex — refusing re-escalation to prevent infinite loop, failing task`);
+    db.updateTaskStatus(taskId, 'failed', {
+      error_output: (task.error_output || '') + `\nHashline fallback loop prevented: task already on codex (${reason})`,
+      completed_at: new Date().toISOString(),
+    });
+    return false;
+  }
+
   const codexEnabled = serverConfig.getBool('codex_enabled', true);
   if (!codexEnabled) {
     logger.warn(`[HashlineFallback] Codex is disabled — cannot escalate task ${taskId.slice(0,8)}, failing task`);
@@ -682,7 +698,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
       error_output: (task.error_output || '') + `\nHashline fallback exhausted and codex is disabled: ${reason}`,
       completed_at: new Date().toISOString(),
     });
-    return;
+    return false;
   }
   logger.info(`[HashlineFallback] Escalating task ${taskId.slice(0,8)} to codex: ${reason}`);
   db.recordFailoverEvent({ task_id: taskId, from_provider: currentProvider, to_provider: 'codex', reason, failover_type: 'provider' });
@@ -737,7 +753,8 @@ function selectHashlineFormat(model, task) {
     }
   } catch { /* ignore */ }
 
-  // 3. Auto-learning: if model has 3+ parse/format failures, force standard hashline
+  // 3. Auto-learning: if model has 3+ parse/format failures with a particular format,
+  // switch to the OTHER format (not always hashline — that would loop if hashline is failing).
   try {
     if (typeof db.getModelFormatFailures === 'function') {
       const formatFailures = db.getModelFormatFailures(3);
@@ -746,8 +763,12 @@ function selectHashlineFormat(model, task) {
       );
       if (modelFailures.length > 0) {
         const totalFailures = modelFailures.reduce((sum, f) => sum + f.failure_count, 0);
-        logger.info(`[selectHashlineFormat] Auto-learned: ${model} has ${totalFailures} format failures, forcing hashline`);
-        return { format: 'hashline', reason: `auto_learned (${totalFailures} format failures)` };
+        // Determine which format is failing. If a `format` field is present on the failure
+        // records use it; otherwise assume the current default ('hashline') is the failing one.
+        const failingFormat = modelFailures[0]?.format || modelFailures[0]?.edit_format || 'hashline';
+        const alternativeFormat = failingFormat === 'hashline' ? 'whole' : 'hashline';
+        logger.info(`[selectHashlineFormat] Auto-learned: ${model} has ${totalFailures} ${failingFormat} failures, switching to ${alternativeFormat}`);
+        return { format: alternativeFormat, reason: `auto_learned (${totalFailures} ${failingFormat} failures → ${alternativeFormat})` };
       }
     }
   } catch (e) {
@@ -820,8 +841,9 @@ function classifyError(errorOutput, exitCode) {
     // Module/dependency resolution (code issue, not transient)
     { pattern: /cannot find module|module not found/i, reason: 'Module not found' },
     { pattern: /cannot resolve|resolution failed/i, reason: 'Dependency resolution failed' },
-    // Type/compile errors (code issue)
-    { pattern: /type error|typeerror/i, reason: 'Type error' },
+    // Type/compile errors (code issue) — but NOT network-layer TypeErrors like "Failed to fetch"
+    { pattern: /typeerror(?!.*(?:fetch|network|connect))/i, reason: 'Type error' },
+    { pattern: /type error(?!.*(?:fetch|network|connect))/i, reason: 'Type error' },
     { pattern: /reference error|referenceerror/i, reason: 'Reference error' },
     // Configuration errors
     { pattern: /invalid configuration|config.*invalid/i, reason: 'Invalid configuration' },
@@ -866,23 +888,28 @@ function classifyError(errorOutput, exitCode) {
     }
   }
 
-  // Heuristic: errors containing stack traces are likely code bugs (non-retryable)
-  if (/at \w+\s+\(/.test(truncated) || /TypeError:|ReferenceError:|RangeError:/.test(truncated)) {
+  // Heuristic: errors containing stack traces are likely code bugs (non-retryable).
+  // Use full errorText (not truncated) — network TypeErrors like "TypeError: Failed to fetch"
+  // are short and should NOT be blocked by this heuristic.
+  const hasStackTrace = /at \w+\s+\(/.test(errorText);
+  const hasTypeError = /TypeError:|ReferenceError:|RangeError:/.test(errorText)
+    && !/TypeError:.*(?:fetch|network|connect)/i.test(errorText);
+  if (hasStackTrace || hasTypeError) {
     return makeResult(false, 'Code error detected in output - not retryable');
   }
 
   // Heuristic: errors mentioning file paths are likely permanent
-  if (/ENOENT|no such file|file not found/i.test(truncated)) {
+  if (/ENOENT|no such file|file not found/i.test(errorText)) {
     return makeResult(false, 'File not found - not retryable');
   }
 
   // Heuristic: disk space errors
-  if (/ENOSPC|no space left|disk full/i.test(truncated)) {
+  if (/ENOSPC|no space left|disk full/i.test(errorText)) {
     return makeResult(false, 'Disk space exhausted - not retryable');
   }
 
   // Heuristic: out of memory
-  if (/ENOMEM|out of memory|heap out of memory|JavaScript heap/i.test(truncated)) {
+  if (/ENOMEM|out of memory|heap out of memory|JavaScript heap/i.test(errorText)) {
     return makeResult(true, 'Out of memory - may recover with smaller input');
   }
 

@@ -45,6 +45,10 @@ function isRetryableProviderError(error) {
     const match = error.message.match(/\((\d{3})\)/);
     if (match) return [429, 500, 502, 503, 504].includes(parseInt(match[1], 10));
   }
+  // Timeout errors and network-layer failures are transient — should retry
+  if (error?.name === 'AbortError') return false; // explicit cancellation, not retryable
+  const msg = (error?.message || '').toLowerCase();
+  if (/timeout|timed out|econnrefused|econnreset|network|failed to fetch/.test(msg)) return true;
   return false;
 }
 

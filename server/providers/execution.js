@@ -1002,7 +1002,10 @@ function isRetryableError(error) {
   const msg = (error.message || '').toLowerCase();
   // Auth errors are permanent — retrying on another provider won't help
   if (/invalid api key|unauthorized|authentication|forbidden/.test(msg)) return false;
-  return /429|503|timeout|timed out|econnrefused|econnreset|quota|rate.limit|overloaded|provider returned error/.test(msg);
+  // Network-layer TypeErrors (e.g. "Failed to fetch", "fetch failed") are transient
+  if (error instanceof TypeError && /fetch|network|connect/i.test(msg)) return true;
+  // Use word-bounded status code matching to avoid false positives like "429 items" or "500 records"
+  return /\b429\b|\b503\b|timeout|timed out|econnrefused|econnreset|quota|rate.?limit|overloaded|provider returned error|failed to fetch/.test(msg);
 }
 
 /**
