@@ -495,7 +495,10 @@ const OUTPUT_CAP_BYTES = 5120; // 5KB cap for injected outputs
 function sanitizeInjectedOutput(text, maxLen = 5000) {
   if (!text) return '';
   let sanitized = String(text).slice(0, maxLen);
-  // Escape template delimiters to prevent re-injection
+  // Escape template delimiters to prevent re-injection.
+  // NOTE: `{{` is replaced with `{ {` (space-separated) so injected output cannot
+  // accidentally trigger another round of {{node_id.field}} template substitution.
+  // This is intentional: the space breaks the `{{word.word}}` pattern the regex matches.
   sanitized = sanitized.replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }');
   // Strip ANSI escape sequences
   const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g;
@@ -529,7 +532,13 @@ function injectDependencyOutputs(description, depTasks) {
       return sanitizeInjectedOutput(String(exitCode), OUTPUT_CAP_BYTES);
     }
 
-    return sanitizeInjectedOutput(dep[field] ?? '', OUTPUT_CAP_BYTES);
+    const rawValue = dep[field];
+    // For failed/cancelled dependencies that produced no output, inject a clear placeholder
+    // so downstream tasks know the dependency ran but produced nothing (vs. template not resolved).
+    if ((rawValue === null || rawValue === undefined || rawValue === '') && dep.status && !['completed', 'skipped'].includes(dep.status)) {
+      return `[no output — dependency '${nodeId}' ${dep.status || 'did not complete'}]`;
+    }
+    return sanitizeInjectedOutput(rawValue ?? '', OUTPUT_CAP_BYTES);
   });
 }
 
@@ -586,11 +595,13 @@ function buildDepTasksMap(workflowId, taskId) {
     const nodeId = taskIdToNodeId[prereqId];
     if (!nodeId) continue;
 
-    // dep already has depends_on_output, depends_on_error_output, depends_on_exit_code from the JOIN
+    // dep already has depends_on_output, depends_on_error_output, depends_on_exit_code,
+    // and depends_on_status from the JOIN.
     depTasks[nodeId] = {
       output: dep.depends_on_output || '',
       error_output: dep.depends_on_error_output || '',
       exit_code: dep.depends_on_exit_code !== undefined ? dep.depends_on_exit_code : 0,
+      status: dep.depends_on_status || null,
     };
   }
 
@@ -1081,7 +1092,25 @@ function checkWorkflowCompletion(workflowId) {
     }
     if (finalStatus === 'completed') {
       try {
-        resolveWorkflowConflicts(workflowId);
+        const conflictResult = resolveWorkflowConflicts(workflowId);
+        // Surface unresolved conflicts: store them in workflow context so callers
+        // (e.g. await_workflow) can inspect and report them rather than silently dropping.
+        if (conflictResult && conflictResult.conflicts && conflictResult.conflicts.length > 0) {
+          try {
+            const wf = db.getWorkflow ? db.getWorkflow(workflowId) : null;
+            const existingCtx = (wf && typeof wf.context === 'object' && wf.context) ? wf.context : {};
+            db.updateWorkflow(workflowId, {
+              context: {
+                ...existingCtx,
+                unresolved_conflicts: conflictResult.conflicts,
+                auto_merged: conflictResult.merged || []
+              }
+            });
+          } catch (ctxErr) {
+            logger.warn(`[Workflow] Failed to store conflict info in context for ${workflowId}: ${ctxErr.message}`);
+          }
+          logger.warn(`[Workflow] ${conflictResult.conflicts.length} unresolved conflict(s) in workflow ${workflowId}: ${conflictResult.conflicts.map(c => c.file_path).join(', ')}`);
+        }
       } catch (err) {
         logger.warn(`[Workflow] Conflict auto-merge failed for ${workflowId}: ${err.message}`);
       }

@@ -270,9 +270,10 @@ function formatTaskYield(task, workflowTasks, workflowName) {
     out += `\n### Output\n\`\`\`\n${trimmed}\n\`\`\`\n`;
   }
 
-  // Error output for failed tasks
+  // Error output for failed tasks — use tail (same convention as stdout) so the
+  // most recent/relevant error message is always visible rather than the earliest.
   if (task.status === 'failed' && task.error_output) {
-    const errTrimmed = task.error_output.substring(0, 2000);
+    const errTrimmed = task.error_output.substring(task.error_output.length - 2000);
     out += `\n### Error\n\`\`\`\n${errTrimmed}\n\`\`\`\n`;
   }
 
@@ -663,6 +664,29 @@ function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
 
   output += buildWorkflowPeekArtifactSection(tasks);
 
+  // Surface unresolved file conflicts if any were recorded during auto-merge
+  try {
+    const freshWorkflow = db.getWorkflow(workflow.id);
+    const wfCtx = (freshWorkflow && typeof freshWorkflow.context === 'object' && freshWorkflow.context) ? freshWorkflow.context : {};
+    const unresolvedConflicts = Array.isArray(wfCtx.unresolved_conflicts) ? wfCtx.unresolved_conflicts : [];
+    const autoMerged = Array.isArray(wfCtx.auto_merged) ? wfCtx.auto_merged : [];
+    if (autoMerged.length > 0) {
+      output += `\n### Auto-Merged Files (${autoMerged.length})\n\n`;
+      for (const m of autoMerged) {
+        output += `- \`${m.file_path}\` — strategy: ${m.strategy || 'git-merge-file'}\n`;
+      }
+    }
+    if (unresolvedConflicts.length > 0) {
+      output += `\n### Unresolved File Conflicts (${unresolvedConflicts.length})\n\n`;
+      output += `The following files were modified by multiple tasks and could not be auto-merged. **Manual resolution required before committing.**\n\n`;
+      for (const c of unresolvedConflicts) {
+        output += `- \`${c.file_path}\`: ${c.reason || 'overlapping edits'}\n`;
+      }
+    }
+  } catch (conflictDisplayErr) {
+    logger.debug('[workflow-await] non-critical error reading conflict info: ' + (conflictDisplayErr.message || conflictDisplayErr));
+  }
+
   // Post-workflow verify command (only if all succeeded)
   if (args.verify_command && wfStatus === 'completed') {
     const targetHostId = args.host_id || null;
@@ -728,42 +752,62 @@ function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
       }
 
       const commitMsg = args.commit_message || `feat: ${workflow.name}`;
-      executeValidatedCommandSync('git', ['add', '--', ...commitPaths], {
-        profile: 'advanced_shell',
-        dangerous: true,
-        source: 'await_workflow',
-        caller: 'formatFinalSummary',
-        cwd,
-        timeout: TASK_TIMEOUTS.GIT_ADD,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
 
-      const stagedPaths = executeValidatedCommandSync('git', ['diff', '--cached', '--name-only', '--relative', '--', ...commitPaths], {
-        profile: 'safe_verify',
-        source: 'await_workflow',
-        caller: 'formatFinalSummary',
-        cwd,
-        timeout: TASK_TIMEOUTS.GIT_STATUS,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      }).trim();
+      // Wrap git add separately so failures are clearly attributed.
+      try {
+        executeValidatedCommandSync('git', ['add', '--', ...commitPaths], {
+          profile: 'advanced_shell',
+          dangerous: true,
+          source: 'await_workflow',
+          caller: 'formatFinalSummary',
+          cwd,
+          timeout: TASK_TIMEOUTS.GIT_ADD,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      } catch (addErr) {
+        output += `**Auto-Commit failed (git add):** ${(addErr.message || '').substring(0, 500)}\n`;
+        return output;
+      }
+
+      let stagedPaths;
+      try {
+        stagedPaths = executeValidatedCommandSync('git', ['diff', '--cached', '--name-only', '--relative', '--', ...commitPaths], {
+          profile: 'safe_verify',
+          source: 'await_workflow',
+          caller: 'formatFinalSummary',
+          cwd,
+          timeout: TASK_TIMEOUTS.GIT_STATUS,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        }).trim();
+      } catch (diffErr) {
+        output += `**Auto-Commit failed (git diff --cached):** ${(diffErr.message || '').substring(0, 500)}\n`;
+        return output;
+      }
 
       if (!stagedPaths) {
         output += `No changes to commit.\n`;
         return output;
       }
 
-      executeValidatedCommandSync('git', ['commit', '-m', commitMsg, '--', ...commitPaths], {
-        profile: 'advanced_shell',
-        dangerous: true,
-        source: 'await_workflow',
-        caller: 'formatFinalSummary',
-        cwd,
-        timeout: TASK_TIMEOUTS.HTTP_REQUEST,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
+      // Wrap git commit separately.
+      try {
+        executeValidatedCommandSync('git', ['commit', '-m', commitMsg, '--', ...commitPaths], {
+          profile: 'advanced_shell',
+          dangerous: true,
+          source: 'await_workflow',
+          caller: 'formatFinalSummary',
+          cwd,
+          timeout: TASK_TIMEOUTS.HTTP_REQUEST,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      } catch (commitErr) {
+        output += `**Auto-Commit failed (git commit):** ${(commitErr.message || '').substring(0, 500)}\n`;
+        return output;
+      }
+
       const sha = executeValidatedCommandSync('git', ['rev-parse', '--short', 'HEAD'], {
         profile: 'advanced_shell',
         dangerous: true,
@@ -776,20 +820,24 @@ function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
       output += `**Committed:** ${sha} — ${commitMsg}\n`;
 
       if (args.auto_push === true) {
-        executeValidatedCommandSync('git', ['push'], {
-          profile: 'advanced_shell',
-          dangerous: true,
-          source: 'await_workflow',
-          caller: 'formatFinalSummary',
-          cwd,
-          timeout: TASK_TIMEOUTS.GIT_PUSH,
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-        output += `**Pushed to remote.**\n`;
+        try {
+          executeValidatedCommandSync('git', ['push'], {
+            profile: 'advanced_shell',
+            dangerous: true,
+            source: 'await_workflow',
+            caller: 'formatFinalSummary',
+            cwd,
+            timeout: TASK_TIMEOUTS.GIT_PUSH,
+            encoding: 'utf8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+          output += `**Pushed to remote.**\n`;
+        } catch (pushErr) {
+          output += `**Auto-Push failed (git push):** ${(pushErr.message || '').substring(0, 500)}\n`;
+        }
       }
     } catch (commitErr) {
-      output += `**Commit failed:** ${(commitErr.message || '').substring(0, 500)}\n`;
+      output += `**Auto-Commit failed:** ${(commitErr.message || '').substring(0, 500)}\n`;
     }
   }
 
