@@ -35,7 +35,7 @@ describe('SessionSwitcher', () => {
 
   function latestRefreshIntervalId(setIntervalSpy) {
     for (let i = setIntervalSpy.mock.calls.length - 1; i >= 0; i--) {
-      if (setIntervalSpy.mock.calls[i][1] === 10000) {
+      if (setIntervalSpy.mock.calls[i][1] === 30000) {
         return setIntervalSpy.mock.results[i].value;
       }
     }
@@ -214,7 +214,7 @@ describe('SessionSwitcher', () => {
 
       const intervalIds = setIntervalSpy.mock.calls
         .map((call, index) => ({ interval: call[1], id: setIntervalSpy.mock.results[index]?.value }))
-        .filter((entry) => entry.interval === 10000)
+        .filter((entry) => entry.interval === 30000)
         .map((entry) => entry.id);
       expect(intervalIds.length).toBe(2);
       expect(new Set(intervalIds).size).toBe(2);
@@ -246,7 +246,7 @@ describe('SessionSwitcher', () => {
 
       expect(instancesApi.list).toHaveBeenCalledTimes(4);
 
-      expect(setIntervalSpy.mock.calls.filter((call) => call[1] === 10000).length).toBe(1);
+      expect(setIntervalSpy.mock.calls.filter((call) => call[1] === 30000).length).toBe(1);
       await closeDropdown(trigger);
       const intervalId = latestRefreshIntervalId(setIntervalSpy);
       expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId);
