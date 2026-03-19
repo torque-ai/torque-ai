@@ -511,6 +511,34 @@ const FLUSH_INTERVAL_MS = 10000;         // 10 seconds
 const MAX_BUFFER_SIZE = 32 * 1024;       // 32 KB
 
 /**
+ * Final flush + cleanup for a task's partial output buffer.
+ * Called from the completion pipeline after a task reaches a terminal state.
+ * Flushes any remaining buffered data, removes the Map entries, and NULLs
+ * partial_output in the DB (the full output is now in the output column).
+ * @param {string} taskId
+ */
+function clearPartialOutputBuffer(taskId) {
+  const entry = _partialOutputBuffers.get(taskId);
+  if (entry) {
+    // Final flush — don't lose buffered data
+    if (entry.buffer.length > 0) {
+      flushPartialOutput(taskId, entry.buffer);
+    }
+    // Clean up _streamToTask
+    if (entry.streamId) {
+      _streamToTask.delete(entry.streamId);
+    }
+    _partialOutputBuffers.delete(taskId);
+  }
+  // NULL out partial_output — full output is in the output column now
+  try {
+    db.prepare('UPDATE tasks SET partial_output = NULL WHERE id = ?').run(taskId);
+  } catch (e) {
+    // Non-fatal
+  }
+}
+
+/**
  * Return the current partial output buffer for a task, or null.
  * @param {string} taskId
  * @returns {string|null}
@@ -1185,6 +1213,7 @@ module.exports = {
   getOrCreateTaskStream,
   getStreamTaskId,
   getPartialOutputBuffer,
+  clearPartialOutputBuffer,
   addStreamChunk,
   getStreamChunks,
   getLatestStreamChunks,

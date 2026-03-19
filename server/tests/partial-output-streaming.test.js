@@ -269,3 +269,65 @@ describe('partial output accumulator', () => {
     expect(buf).toContain('valid-data');
   });
 });
+
+// ============================================================
+// Phase 2 Task 3: clearPartialOutputBuffer tests
+// ============================================================
+
+describe('clearPartialOutputBuffer', () => {
+  test('does final flush before clearing', () => {
+    const taskId = `clear-task-1-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    // Add chunks (unflushed — well under 10 second flush threshold)
+    mod.addStreamChunk(streamId, 'unflushed-data\n');
+
+    // Verify buffer has content before clear
+    expect(mod.getPartialOutputBuffer(taskId)).toContain('unflushed-data');
+
+    // Call clearPartialOutputBuffer — should flush then clear
+    mod.clearPartialOutputBuffer(taskId);
+
+    // Buffer entry should be gone
+    expect(mod.getPartialOutputBuffer(taskId)).toBeNull();
+  });
+
+  test('NULLs out partial_output in DB', () => {
+    const taskId = `clear-task-2-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    mod.addStreamChunk(streamId, 'some-output\n');
+
+    // Call clearPartialOutputBuffer — flushes then NULLs partial_output
+    mod.clearPartialOutputBuffer(taskId);
+
+    // partial_output should be NULL in DB
+    const raw = db.getDb ? db.getDb() : db.getDbInstance();
+    const row = raw.prepare('SELECT partial_output FROM tasks WHERE id = ?').get(taskId);
+    expect(row.partial_output).toBeNull();
+  });
+
+  test('cleans up _streamToTask entry', () => {
+    const taskId = `clear-task-3-${randomUUID()}`;
+    makeTask(taskId);
+    const streamId = mod.createTaskStream(taskId, 'output');
+
+    mod.addStreamChunk(streamId, 'some-data\n');
+
+    // Verify the stream→task mapping is present before clear
+    expect(mod.getStreamTaskId(streamId)).toBe(taskId);
+
+    // Call clearPartialOutputBuffer
+    mod.clearPartialOutputBuffer(taskId);
+
+    // _streamToTask entry for this stream should be gone
+    expect(mod.getStreamTaskId(streamId)).toBeNull();
+  });
+
+  test('no-op for unknown taskId', () => {
+    // Should not throw for a taskId that has no buffer entry
+    expect(() => mod.clearPartialOutputBuffer('nonexistent-task-id')).not.toThrow();
+  });
+});

@@ -180,6 +180,14 @@ function handlePostCompletion(ctx) {
     } catch (mcpErr) {
       logger.info('[MCP Notify] Non-fatal error:', mcpErr.message);
     }
+
+    // Clean up partial output streaming buffer + NULL out partial_output
+    try {
+      const { clearPartialOutputBuffer } = require('../db/webhooks-streaming');
+      clearPartialOutputBuffer(taskId);
+    } catch (poErr) {
+      // Non-fatal
+    }
   } catch (webhookErr) {
     logger.info('Post-completion webhook/workflow error:', webhookErr.message);
   }
