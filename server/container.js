@@ -44,6 +44,13 @@ function initModules(db, serverConfig) {
   const mcpProtocol = require('./mcp-protocol');
   _modules.mcpProtocol = mcpProtocol;
 
+  // Phase 3 (future): DB sub-module injection will move here.
+  // db._injectDbAll() and db._wireCrossModuleDI() are currently called
+  // internally by db.init(), but are exported so the container can eventually
+  // own this wiring — decoupling it from the database module itself.
+  // That migration requires converting 26 sub-modules from setDb(db) to
+  // init({ db }) and is tracked as Phase 2.3 / Phase 3 work.
+
   logger.info('Container: core modules initialized');
 }
 

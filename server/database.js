@@ -301,8 +301,38 @@ function notifyTaskStatusTransition(taskId, status, previousStatus, updatedTask)
 // ============================================================
 
 /**
- * Inject the current `db` instance into all sub-modules.
- * Also wires fileTracking.setDataDir for conflict tracking.
+ * Inject the current `db` instance into all sub-modules via `setDb(db)`.
+ * Also wires `fileTracking.setDataDir` for conflict-tracking path resolution.
+ *
+ * Wired sub-modules (26 total, in order):
+ *   1.  hostManagement
+ *   2.  codeAnalysis
+ *   3.  costTracking
+ *   4.  workflowEngine
+ *   5.  fileTracking          (also receives setDataDir)
+ *   6.  schedulingAutomation
+ *   7.  taskMetadata
+ *   8.  coordination
+ *   9.  providerRoutingCore
+ *   10. eventTracking
+ *   11. analytics
+ *   12. webhooksStreaming
+ *   13. inboundWebhooks
+ *   14. projectConfigCore
+ *   15. backupCore
+ *   16. emailPeek
+ *   17. peekFixtureCatalog
+ *   18. packRegistry
+ *   19. peekPolicyAudit
+ *   20. peekRecoveryApprovals
+ *   21. recoveryMetrics
+ *   22. policyProfileStore
+ *   23. policyEvaluationStore
+ *   24. auditStore
+ *   25. ciCache               (wired at end of _wireCrossModuleDI)
+ *
+ * Called by: init(), resetForTest(), and backupCore.restoreDatabase() (via setInternals).
+ * Exported for Phase 3 container.js migration — do NOT remove the export.
  */
 function _injectDbAll() {
   hostManagement.setDb(db);
@@ -334,7 +364,74 @@ function _injectDbAll() {
 
 /**
  * Wire all cross-module DI dependencies (setGetTask, setDbFunctions, etc.).
- * Must be called after _injectDbAll() so that sub-modules have a DB handle.
+ * Must be called after _injectDbAll() so that sub-modules already hold a DB handle.
+ *
+ * Cross-references wired (~30 total):
+ *
+ *   fileTracking
+ *     - setGetTask(getTask)
+ *
+ *   costTracking
+ *     - setGetTask(getTask)
+ *
+ *   hostManagement
+ *     - setGetTask(getTask)
+ *     - setGetProjectRoot(projectConfigCore.getProjectRoot)
+ *
+ *   schedulingAutomation
+ *     - setGetTask(getTask)
+ *     - setRecordTaskEvent → webhooksStreaming.recordTaskEvent (lambda)
+ *     - setGetPipeline     → projectConfigCore.getPipeline (lambda)
+ *     - setCreatePipeline  → projectConfigCore.createPipeline (lambda)
+ *
+ *   taskMetadata
+ *     - setGetTask(getTask)
+ *     - setGetTaskEvents      → webhooksStreaming.getTaskEvents (lambda)
+ *     - setGetRetryHistory    → projectConfigCore.getRetryHistory (lambda)
+ *     - setRecordAuditLog     → schedulingAutomation.recordAuditLog (lambda)
+ *     - setGetApprovalHistory → schedulingAutomation.getApprovalHistory (lambda)
+ *     - setCreateTask(createTask)
+ *
+ *   coordination
+ *     - setGetTask(getTask)
+ *
+ *   providerRoutingCore
+ *     - setGetTask(getTask)
+ *     - setHostManagement(hostManagement)
+ *
+ *   eventTracking
+ *     - setGetTask(getTask)
+ *     - setDbFunctions({ getConfig, getAllConfig, getPipelineSteps, createTask,
+ *                        getTemplate, saveTemplate, deleteTemplate, getPipeline,
+ *                        createPipeline, addPipelineStep, getScheduledTask,
+ *                        deleteScheduledTask, createScheduledTask,
+ *                        setCacheConfig, getCacheStats })
+ *
+ *   analytics
+ *     - setGetTask(getTask)
+ *     - setDbFunctions({ getConfig, getAllConfig, getTemplate, setCacheConfig, getCacheStats })
+ *     - setFindSimilarTasks(taskMetadata.findSimilarTasks)
+ *     - setSetPriorityWeights(analytics.setPriorityWeights)
+ *
+ *   projectConfigCore
+ *     - setGetTask(getTask)
+ *     - setRecordEvent → eventTracking.recordEvent (lambda)
+ *     - setDbFunctions({ getConfig, getAllConfig, recordTaskEvent, cleanupWebhookLogs,
+ *                        cleanupStreamData, cleanupCoordinationEvents, getRunningCount,
+ *                        getTokenUsageSummary, getScheduledTask })
+ *
+ *   backupCore
+ *     - setInternals({ getConfig, setConfig, setConfigDefault, safeAddColumn,
+ *                      injectDbAll, getDbPath, getDataDir, setDbRef, isDbClosed })
+ *
+ *   policyProfileStore
+ *     - setGetProjectMetadata(projectConfigCore.getProjectMetadata)
+ *
+ *   ciCache
+ *     - setDb(db)  ← deferred until here because ciCache is not in _injectDbAll
+ *
+ * Called by: init(), resetForTest(), and backupCore.restoreDatabase() (via setInternals injectDbAll).
+ * Exported for Phase 3 container.js migration — do NOT remove the export.
  */
 function _wireCrossModuleDI() {
   fileTracking.setGetTask(getTask);
@@ -1730,6 +1827,9 @@ const coreExports = {
   getDbInstance,
   isDbClosed: () => dbClosed,
   isReady: () => !!db && !dbClosed,
+  // DI wiring helpers — exported for Phase 3 container.js migration
+  _injectDbAll,
+  _wireCrossModuleDI,
   // Core task operations
   init,
   createTask,
