@@ -319,6 +319,13 @@ export default function Workstations() {
     }
   }
 
+  useEffect(() => {
+    if (!confirmRemove) return;
+    function handleEsc(e) { if (e.key === 'Escape') setConfirmRemove(null); }
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [confirmRemove]);
+
   async function handleRemoveConfirm() {
     if (!confirmRemove) return;
 
@@ -400,6 +407,7 @@ export default function Workstations() {
           <div
             className="glass-card p-6 max-w-sm mx-4"
             role="dialog"
+            aria-modal="true"
             aria-label="Confirm remove workstation"
             onClick={(event) => event.stopPropagation()}
           >

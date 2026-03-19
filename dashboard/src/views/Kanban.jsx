@@ -200,8 +200,7 @@ const TaskCard = memo(function TaskCard({
         </button>
         <code className="text-[10px] text-slate-500 font-mono select-all shrink-0 pt-0.5">{shortId}</code>
         <p className={`text-white flex-1 leading-snug ${compact ? 'text-xs line-clamp-1' : 'text-sm line-clamp-2'}`}>
-          {task.task_description?.substring(0, compact ? 50 : 80)}
-          {task.task_description?.length > (compact ? 50 : 80) ? '...' : ''}
+          {task.task_description}
         </p>
       </div>
       <div className="flex items-center justify-between gap-2">
@@ -432,7 +431,7 @@ const KanbanColumn = memo(function KanbanColumn({
         title={collapsed ? `Expand ${label}` : undefined}
         role={collapsed ? 'button' : undefined}
         tabIndex={collapsed ? 0 : undefined}
-        aria-expanded={collapsed ? 'false' : undefined}
+        aria-expanded={collapsed ? false : undefined}
         aria-label={collapsed ? `Expand ${label}` : undefined}
         onKeyDown={collapsed ? (e) => {
           if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {

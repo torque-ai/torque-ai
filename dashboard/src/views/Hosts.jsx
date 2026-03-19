@@ -684,6 +684,12 @@ function CredentialModal({ hostName, existingTypes, onSave, onDelete, onClose })
   const [label, setLabel] = useState('');
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    function handleEsc(e) { if (e.key === 'Escape') onClose(); }
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
+
   const fields = CRED_FIELDS[credType] || [];
   const isExisting = existingTypes.includes(credType);
 
@@ -714,7 +720,7 @@ function CredentialModal({ hostName, existingTypes, onSave, onDelete, onClose })
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="glass-card p-6 max-w-md w-full mx-4" role="dialog" aria-label="Manage credentials" onClick={(e) => e.stopPropagation()}>
+      <div className="glass-card p-6 max-w-md w-full mx-4" role="dialog" aria-modal="true" aria-label="Manage credentials" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold text-white mb-1">Credentials for {hostName}</h3>
         <p className="text-xs text-slate-400 mb-4">Stored encrypted at rest (AES-256-GCM)</p>
 
@@ -1078,6 +1084,19 @@ export default function Hosts({ hostActivity }) {
       toast.error(`Toggle failed: ${err.message}`);
     }
   }
+
+  useEffect(() => {
+    if (!confirmRemove && !confirmRemoveWorkstation && !confirmRemovePeek) return;
+    function handleEsc(e) {
+      if (e.key === 'Escape') {
+        setConfirmRemove(null);
+        setConfirmRemoveWorkstation(null);
+        setConfirmRemovePeek(null);
+      }
+    }
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [confirmRemove, confirmRemoveWorkstation, confirmRemovePeek]);
 
   function handleRemoveClick(hostId, hostName) {
     setConfirmRemove({ id: hostId, name: hostName });
@@ -1451,6 +1470,7 @@ export default function Hosts({ hostActivity }) {
           <div
             className="glass-card p-6 max-w-sm mx-4"
             role="dialog"
+            aria-modal="true"
             aria-label="Confirm remove workstation"
             onClick={(event) => event.stopPropagation()}
           >
@@ -1479,7 +1499,7 @@ export default function Hosts({ hostActivity }) {
       {/* Peek host remove confirmation dialog */}
       {confirmRemovePeek && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirmRemovePeek(null)}>
-          <div className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-label="Confirm remove peek host" onClick={(e) => e.stopPropagation()}>
+          <div className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove peek host" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-white mb-2">Remove Peek Host</h3>
             <p className="text-sm text-slate-300 mb-4">
               Remove <strong>{confirmRemovePeek.name}</strong> and all stored credentials? This cannot be undone.
@@ -1495,7 +1515,7 @@ export default function Hosts({ hostActivity }) {
       {/* Remove confirmation dialog */}
       {confirmRemove && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirmRemove(null)}>
-          <div className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-label="Confirm remove host" onClick={(e) => e.stopPropagation()}>
+          <div className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove host" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-white mb-2">Remove Host</h3>
             <p className="text-sm text-slate-300 mb-4">
               Are you sure you want to remove <strong>{confirmRemove.name}</strong>? This cannot be undone.

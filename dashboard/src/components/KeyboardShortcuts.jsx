@@ -123,7 +123,7 @@ export function ShortcutHelpOverlay({ onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white">Keyboard Shortcuts</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">&times;</button>

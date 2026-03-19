@@ -644,7 +644,7 @@ export default function Providers({ statsVersion, tasksTick }) {
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 >
                   {pieData.map((entry, index) => (
-                    <Cell key={index} fill={getProviderColor(entry.name)} />
+                    <Cell key={entry.name || index} fill={getProviderColor(entry.name)} />
                   ))}
                 </Pie>
                 <Tooltip {...tooltipStyle} />

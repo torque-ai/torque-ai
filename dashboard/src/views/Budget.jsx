@@ -376,7 +376,7 @@ export default function Budget() {
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 >
                   {pieData.map((entry, index) => (
-                    <Cell key={index} fill={PROVIDER_HEX_COLORS[entry.name] || '#6b7280'} />
+                    <Cell key={entry.name || index} fill={PROVIDER_HEX_COLORS[entry.name] || '#6b7280'} />
                   ))}
                 </Pie>
                 <Tooltip

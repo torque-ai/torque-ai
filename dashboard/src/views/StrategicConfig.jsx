@@ -127,6 +127,15 @@ function SummaryCard({ title, icon, children, onClick }) {
 function DrawerEditor({ title, isOpen, onClose, onSave, onReset, children, advancedContent }) {
   const [tab, setTab] = useState('form');
 
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleEsc(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
@@ -135,7 +144,7 @@ function DrawerEditor({ title, isOpen, onClose, onSave, onReset, children, advan
       <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Drawer */}
-      <div className="w-full max-w-xl bg-slate-900 border-l border-slate-700 flex flex-col animate-slide-in-right overflow-hidden">
+      <div className="w-full max-w-xl bg-slate-900 border-l border-slate-700 flex flex-col animate-slide-in-right overflow-hidden" role="dialog" aria-modal="true" aria-label={title}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
           <h2 className="text-lg font-semibold text-white">{title}</h2>
