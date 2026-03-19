@@ -10,6 +10,7 @@
 const { randomUUID } = require('crypto');
 const db = require('../database');
 const { sendJson } = require('./middleware');
+const { safeJsonParse } = require('../utils/json');
 
 // ─── Response Envelope ────────────────────────────────────────────────────
 
@@ -51,13 +52,13 @@ function buildTaskResponse(task) {
 
   let metadata = {};
   try {
-    metadata = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+    metadata = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : (task.metadata || {});
   } catch { /* non-critical */ }
 
   let filesModified = [];
   try {
     filesModified = typeof task.files_modified === 'string'
-      ? JSON.parse(task.files_modified)
+      ? safeJsonParse(task.files_modified, [])
       : (task.files_modified || []);
   } catch { /* non-critical */ }
 
