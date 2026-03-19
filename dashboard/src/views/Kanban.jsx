@@ -976,7 +976,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     }
   }
 
-  async function handleRetryAllFailed() {
+  async function doRetryAllFailed() {
     const failed = allTasks.filter((t) => t.status === 'failed');
     if (failed.length === 0) return;
     let ok = 0;
@@ -992,6 +992,19 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     if (ok > 0) toast.success(`${ok} task${ok > 1 ? 's' : ''} queued for retry`);
     if (errs > 0) toast.error(`${errs} task${errs > 1 ? 's' : ''} failed to retry`);
     loadData();
+  }
+
+  function handleRetryAllFailed() {
+    const failed = allTasks.filter((t) => t.status === 'failed');
+    if (failed.length === 0) return;
+    setShowConfirm({ action: 'retryAllFailed', count: failed.length });
+  }
+
+  async function confirmAction() {
+    if (showConfirm?.action === 'retryAllFailed') {
+      await doRetryAllFailed();
+    }
+    setShowConfirm(null);
   }
 
   const filteredTasks = useMemo(() => {
@@ -1050,6 +1063,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   }, [overview, wsStats]);
 
   const [cancellingIds, setCancellingIds] = useState(new Set());
+  const [showConfirm, setShowConfirm] = useState(null);
   const mainContentClassName = activityOpen ? 'flex-1 overflow-auto pr-[300px]' : 'flex-1 overflow-auto';
 
   async function handleCancelStuck(taskId) {
@@ -1448,6 +1462,30 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       </div>
       </div>
       <ActivityPanel events={activityLog} isOpen={activityOpen} onToggle={toggleActivityPanel} />
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-white font-semibold text-lg mb-2">Confirm Retry</h3>
+            <p className="text-slate-300 text-sm mb-4">
+              Retry {showConfirm.count} failed task{showConfirm.count !== 1 ? 's' : ''}?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowConfirm(null)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAction}
+                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+              >
+                Retry All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

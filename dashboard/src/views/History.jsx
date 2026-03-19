@@ -187,6 +187,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   const [sortDir, setSortDir] = useState(searchParams.get('dir') || 'desc');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [focusedIdx, setFocusedIdx] = useState(-1);
+  const [showConfirm, setShowConfirm] = useState(null);
   const searchTimerRef = useRef(null);
   const tableRef = useRef(null);
   const toast = useToast();
@@ -379,7 +380,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
     }
   }
 
-  async function handleBulkRetry() {
+  async function doBulkRetry() {
     const ids = [...selectedIds];
     const results = await Promise.allSettled(ids.map((id) => tasksApi.retry(id)));
     const ok = results.filter((result) => result.status === 'fulfilled').length;
@@ -390,7 +391,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
     loadTasks();
   }
 
-  async function handleBulkCancel() {
+  async function doBulkCancel() {
     const ids = [...selectedIds];
     const results = await Promise.allSettled(ids.map((id) => tasksApi.cancel(id)));
     const ok = results.filter((result) => result.status === 'fulfilled').length;
@@ -399,6 +400,20 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
     if (errs > 0) toast.error(`${errs} failed to cancel`);
     setSelectedIds(new Set());
     loadTasks();
+  }
+
+  function handleBulkRetry() {
+    setShowConfirm({ action: 'bulkRetry', count: selectedIds.size });
+  }
+
+  function handleBulkCancel() {
+    setShowConfirm({ action: 'bulkCancel', count: selectedIds.size });
+  }
+
+  async function confirmAction() {
+    if (showConfirm?.action === 'bulkRetry') await doBulkRetry();
+    else if (showConfirm?.action === 'bulkCancel') await doBulkCancel();
+    setShowConfirm(null);
   }
 
   // Client-side sort
@@ -761,6 +776,39 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           </button>
         </div>
       </div>
+
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-white font-semibold text-lg mb-2">
+              {showConfirm.action === 'bulkRetry' ? 'Confirm Retry' : 'Confirm Cancel'}
+            </h3>
+            <p className="text-slate-300 text-sm mb-4">
+              {showConfirm.action === 'bulkRetry'
+                ? `Retry ${showConfirm.count} selected task${showConfirm.count !== 1 ? 's' : ''}?`
+                : `Cancel ${showConfirm.count} selected task${showConfirm.count !== 1 ? 's' : ''}? This is irreversible.`}
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowConfirm(null)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAction}
+                className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${
+                  showConfirm.action === 'bulkCancel'
+                    ? 'bg-red-600 hover:bg-red-500'
+                    : 'bg-blue-600 hover:bg-blue-500'
+                }`}
+              >
+                {showConfirm.action === 'bulkRetry' ? 'Retry' : 'Cancel Tasks'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

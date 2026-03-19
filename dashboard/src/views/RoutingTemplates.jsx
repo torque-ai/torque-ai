@@ -218,6 +218,7 @@ export default function RoutingTemplates() {
   const [activeTemplateId, setActiveTemplateId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(null);
   const toast = useToast();
 
   // ─── Data Loading ───────────────────────────────────────────────────
@@ -413,15 +414,22 @@ export default function RoutingTemplates() {
     }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!selectedTemplate || selectedTemplate.preset) return;
-    try {
-      await api.remove(selectedId);
-      toast.success('Template deleted');
-      await loadData();
-    } catch (err) {
-      toast.error(`Delete failed: ${err.message}`);
+    setShowConfirm({ action: 'deleteTemplate', name: selectedTemplate.name });
+  }
+
+  async function confirmAction() {
+    if (showConfirm?.action === 'deleteTemplate') {
+      try {
+        await api.remove(selectedId);
+        toast.success('Template deleted');
+        await loadData();
+      } catch (err) {
+        toast.error(`Delete failed: ${err.message}`);
+      }
     }
+    setShowConfirm(null);
   }
 
   // ─── Render ─────────────────────────────────────────────────────────
@@ -685,6 +693,31 @@ export default function RoutingTemplates() {
             >
               Save Changes
             </button>
+          </div>
+        </div>
+      )}
+
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-white font-semibold text-lg mb-2">Delete Template</h3>
+            <p className="text-slate-300 text-sm mb-4">
+              Delete template &ldquo;{showConfirm.name}&rdquo;? This action is irreversible.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowConfirm(null)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAction}
+                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

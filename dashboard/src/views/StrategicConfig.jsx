@@ -374,6 +374,7 @@ export default function StrategicConfig() {
   const [editingConfig, setEditingConfig] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showConfirm, setShowConfirm] = useState(null);
   const toast = useToast();
 
   // ─── Data Loading ────────────────────────────────────────
@@ -462,9 +463,16 @@ export default function StrategicConfig() {
     setActiveDrawer(null);
   }
 
-  async function resetDrawer() {
-    await resetConfig();
-    setActiveDrawer(null);
+  function resetDrawer() {
+    setShowConfirm({ action: 'resetConfig' });
+  }
+
+  async function confirmAction() {
+    if (showConfirm?.action === 'resetConfig') {
+      await resetConfig();
+      setActiveDrawer(null);
+    }
+    setShowConfirm(null);
   }
 
   // ─── Derived values ──────────────────────────────────────
@@ -879,6 +887,31 @@ export default function StrategicConfig() {
           </div>
         </div>
       </DrawerEditor>
+
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center" role="dialog" aria-modal="true">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-white font-semibold text-lg mb-2">Reset Configuration</h3>
+            <p className="text-slate-300 text-sm mb-4">
+              Reset all configuration to defaults? Any custom settings will be lost.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowConfirm(null)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAction}
+                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+              >
+                Reset to Defaults
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

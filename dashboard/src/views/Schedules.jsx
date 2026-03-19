@@ -24,6 +24,7 @@ export default function Schedules() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(null);
   const [form, setForm] = useState({ name: '', cron_expression: '', task_description: '', provider: '', model: '', working_directory: '' });
   const [submitting, setSubmitting] = useState(false);
   const toast = useToast();
@@ -59,15 +60,21 @@ export default function Schedules() {
     }
   }
 
-  async function handleDelete(id) {
-    if (!window.confirm('Delete this schedule? This action is irreversible.')) return;
-    try {
-      await schedulesApi.delete(id);
-      toast.success('Schedule deleted');
-      loadSchedules();
-    } catch (err) {
-      toast.error(`Delete failed: ${err.message}`);
+  function handleDelete(id) {
+    setShowConfirm({ action: 'deleteSchedule', id });
+  }
+
+  async function confirmAction() {
+    if (showConfirm?.action === 'deleteSchedule') {
+      try {
+        await schedulesApi.delete(showConfirm.id);
+        toast.success('Schedule deleted');
+        loadSchedules();
+      } catch (err) {
+        toast.error(`Delete failed: ${err.message}`);
+      }
     }
+    setShowConfirm(null);
   }
 
   // Simple cron format check: 5 space-separated fields
@@ -291,6 +298,31 @@ export default function Schedules() {
           </tbody>
         </table>
       </div>
+
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-white font-semibold text-lg mb-2">Delete Schedule</h3>
+            <p className="text-slate-300 text-sm mb-4">
+              Delete this schedule? This action is irreversible.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowConfirm(null)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAction}
+                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
