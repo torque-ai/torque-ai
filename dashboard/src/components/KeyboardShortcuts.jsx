@@ -5,14 +5,23 @@ const SHORTCUTS = [
   { key: '?', description: 'Show keyboard shortcuts' },
   { key: '/', description: 'Focus search field' },
   { key: 'Escape', description: 'Close drawer / modal' },
-  { key: 'g then k', description: 'Go to Kanban' },
-  { key: 'g then h', description: 'Go to History' },
-  { key: 'g then p', description: 'Go to Providers' },
-  { key: 'g then o', description: 'Go to Hosts' },
-  { key: 'g then b', description: 'Go to Budget' },
-  { key: 'g then j', description: 'Go to Projects' },
+  { key: '1', description: 'Go to Kanban' },
+  { key: '2', description: 'Go to Projects' },
+  { key: '3', description: 'Go to History' },
+  { key: '4', description: 'Go to Batches' },
+  { key: '5', description: 'Go to Providers' },
+  { key: '6', description: 'Go to Hosts' },
+  { key: '7', description: 'Go to Budget' },
+  { key: 'g then k', description: 'Kanban (g prefix)' },
+  { key: 'g then h', description: 'History (g prefix)' },
+  { key: 'g then p', description: 'Providers (g prefix)' },
+  { key: 'g then o', description: 'Hosts (g prefix)' },
+  { key: 'g then b', description: 'Budget (g prefix)' },
+  { key: 'g then j', description: 'Projects (g prefix)' },
   { key: 'r', description: 'Refresh current view' },
 ];
+
+const NUMBER_ROUTES = ['/', '/projects', '/history', '/batches', '/providers', '/hosts', '/budget'];
 
 const NAV_KEYS = {
   k: '/',
@@ -64,6 +73,16 @@ export function useKeyboardShortcuts({ onRefresh } = {}) {
     if (e.key === 'r' && !pendingG) {
       onRefresh?.();
       return;
+    }
+
+    // 1-7 — navigate to numbered route
+    if (!pendingG) {
+      const num = parseInt(e.key, 10);
+      if (num >= 1 && num <= NUMBER_ROUTES.length) {
+        e.preventDefault();
+        navigate(NUMBER_ROUTES[num - 1]);
+        return;
+      }
     }
 
     // g prefix for navigation

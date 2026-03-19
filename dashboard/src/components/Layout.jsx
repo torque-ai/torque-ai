@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
 import SessionSwitcher from './SessionSwitcher';
 import EconomyIndicator from './EconomyIndicator';
@@ -178,54 +178,12 @@ function getInitialCollapsed() {
   }
 }
 
-const SHORTCUTS = [
-  { keys: ['1-8'], desc: 'Navigate to page' },
-  { keys: ['?'], desc: 'Toggle shortcuts panel' },
-  { keys: ['Esc'], desc: 'Close modals and panels' },
-  { keys: ['j / k'], desc: 'Move up/down in History' },
-  { keys: ['x'], desc: 'Select/deselect row' },
-  { keys: ['Enter'], desc: 'Open task details' },
-];
-
-function ShortcutModal({ onClose }) {
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] animate-fade-in" onClick={onClose} />
-      <div className="fixed inset-0 z-[61] flex items-center justify-center p-4" onClick={onClose}>
-        <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-xl max-w-sm w-full p-5 animate-fade-in" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">Keyboard Shortcuts</h3>
-            <button onClick={onClose} className="text-slate-400 hover:text-white p-1" aria-label="Close shortcuts">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div className="space-y-2">
-            {SHORTCUTS.map((s) => (
-              <div key={s.desc} className="flex items-center justify-between py-1.5">
-                <span className="text-sm text-slate-300">{s.desc}</span>
-                <div className="flex gap-1">
-                  {s.keys.map((k) => (
-                    <kbd key={k} className="px-2 py-0.5 bg-slate-900 border border-slate-600 rounded text-xs font-mono text-slate-300">{k}</kbd>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
 
 export default function Layout({ isConnected, isReconnecting, failedCount = 0, stuckCount = 0, instanceId = null, shortId = null }) {
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
-  const [showShortcuts, setShowShortcuts] = useState(false);
   const location = useLocation();
-  const navigate = useNavigate();
   const currentRoute = ROUTE_NAMES[location.pathname] || '';
   const alertCount = failedCount + stuckCount;
 
@@ -234,22 +192,6 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMobileOpen(false);
   }, [location.pathname]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    function handleKey(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-      if (e.key === '?') { setShowShortcuts((s) => !s); return; }
-      if (e.key === 'Escape') { setShowShortcuts(false); setShowStatus(false); return; }
-      const routes = ['/', '/projects', '/history', '/batches', '/providers', '/hosts', '/budget'];
-      const num = parseInt(e.key);
-      if (num >= 1 && num <= routes.length) {
-        navigate(routes[num - 1]);
-      }
-    }
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [navigate]);
 
   function toggleCollapsed() {
     setCollapsed((prev) => {
@@ -404,7 +346,6 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
           </ErrorBoundary>
         </div>
       </main>
-      {showShortcuts && <ShortcutModal onClose={() => setShowShortcuts(false)} />}
     </div>
   );
 }
