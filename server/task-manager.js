@@ -1672,6 +1672,7 @@ _fallbackRetryModule.init({
   processQueue,
   cancelTask,
   stopTaskForRestart,
+  markTaskCleanedUp,
   stallRecoveryAttempts,
   runningProcesses,
 });

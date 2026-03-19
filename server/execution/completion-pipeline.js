@@ -161,13 +161,13 @@ function handlePostCompletion(ctx) {
     });
 
     if (updatedTask && updatedTask.workflow_id) {
-      deps.handleWorkflowTermination(taskId);
+      try { deps.handleWorkflowTermination(taskId); } catch (e) { logger.error('Workflow termination failed:', e.message); }
     }
 
-    deps.handleProjectDependencyResolution(taskId, ctx.status);
+    try { deps.handleProjectDependencyResolution(taskId, ctx.status); } catch (e) { logger.error('Project dep resolution failed:', e.message); }
 
     if (ctx.status === 'completed' || ctx.status === 'failed' || ctx.status === 'cancelled') {
-      deps.handlePipelineStepCompletion(taskId, ctx.status);
+      try { deps.handlePipelineStepCompletion(taskId, ctx.status); } catch (e) { logger.error('Pipeline step completion failed:', e.message); }
     }
 
     deps.runOutputSafeguards(taskId, ctx.status, updatedTask).catch(err => {

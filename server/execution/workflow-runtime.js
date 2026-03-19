@@ -757,7 +757,7 @@ function handleWorkflowTermination(taskId) {
  * @param {string} taskId - Completed task ID
  * @param {string} workflowId - Workflow ID
  */
-function evaluateWorkflowDependencies(taskId, workflowId) {
+function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
   const workflow = db.getWorkflow(workflowId);
   if (!workflow || ['completed', 'failed', 'cancelled', 'paused'].includes(workflow.status)) {
     return;
@@ -881,7 +881,6 @@ function unblockTask(taskId) {
   if (!task || !['blocked', 'waiting'].includes(task.status)) return false;
 
   try {
-    db.updateTaskStatus(taskId, 'pending');
     db.updateTaskStatus(taskId, 'queued');
     eventBus.emitQueueChanged();
     return true;
@@ -928,7 +927,7 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDe
         logger.warn(`[workflow] Skip propagation depth limit reached at task ${taskId}`);
         break;
       }
-      evaluateWorkflowDependencies(taskId, workflowId);
+      evaluateWorkflowDependencies(taskId, workflowId, _skipDepth + 1);
       break;
 
     case 'continue':

@@ -597,10 +597,11 @@ function tokenizeExpression(expr) {
     if (expr[i] === '>') { tokens.push({ type: 'OP', value: '>' }); i++; continue; }
     if (expr[i] === '<') { tokens.push({ type: 'OP', value: '<' }); i++; continue; }
 
-    // Logical operators
-    if (expr.slice(i, i + 3).toUpperCase() === 'AND') { tokens.push({ type: 'LOGIC', value: 'AND' }); i += 3; continue; }
-    if (expr.slice(i, i + 2).toUpperCase() === 'OR') { tokens.push({ type: 'LOGIC', value: 'OR' }); i += 2; continue; }
-    if (expr.slice(i, i + 3).toUpperCase() === 'NOT') { tokens.push({ type: 'NOT', value: 'NOT' }); i += 3; continue; }
+    // Logical operators — only match when the keyword is followed by a non-word character
+    // (prevents splitting identifiers like ANDROID into AND + ROID)
+    if (expr.slice(i, i + 3).toUpperCase() === 'AND' && !/\w/.test(expr[i + 3] || '')) { tokens.push({ type: 'LOGIC', value: 'AND' }); i += 3; continue; }
+    if (expr.slice(i, i + 2).toUpperCase() === 'OR' && !/\w/.test(expr[i + 2] || '')) { tokens.push({ type: 'LOGIC', value: 'OR' }); i += 2; continue; }
+    if (expr.slice(i, i + 3).toUpperCase() === 'NOT' && !/\w/.test(expr[i + 3] || '')) { tokens.push({ type: 'NOT', value: 'NOT' }); i += 3; continue; }
 
     // Parentheses
     if (expr[i] === '(') { tokens.push({ type: 'LPAREN' }); i++; continue; }

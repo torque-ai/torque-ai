@@ -7,6 +7,7 @@ const db = require('../../database');
 const taskManager = require('../../task-manager');
 const logger = require('../../logger').child({ component: 'workflow-advanced' });
 const { ErrorCodes, getWorkflowRestartGuardError, makeError, requireWorkflow, requireTask } = require('../shared');
+const { handleWorkflowTermination } = require('../../execution/workflow-runtime');
 
 /**
  * Fork a workflow into parallel branches
@@ -456,53 +457,10 @@ function handleSkipTask(args) {
     error_output: args.reason || 'Manually skipped'
   });
 
-  // If part of workflow, evaluate dependents and update counts
+  // If part of workflow, use the shared runtime to evaluate dependents (avoids duplication)
   if (task.workflow_id) {
     db.updateWorkflowCounts(task.workflow_id);
-
-    // Check if any dependents can now be unblocked
-    const dependents = db.getTaskDependents(args.task_id);
-    for (const dep of dependents) {
-      const depTask = db.getTask(dep.task_id);
-      if (depTask && depTask.status === 'blocked') {
-        const satisfied = db.areTaskDependenciesSatisfied(dep.task_id);
-        if (satisfied.satisfied) {
-          // Evaluate conditions
-          let shouldUnblock = true;
-          for (const d of satisfied.deps) {
-            if (d.condition_expr) {
-              const prereqTask = db.getTask(d.depends_on_task_id);
-              const context = {
-                exit_code: prereqTask?.exit_code || 0,
-                status: prereqTask?.status || 'unknown',
-                output: (prereqTask?.output || '').slice(-10000),
-                error_output: (prereqTask?.error_output || '').slice(-5000),
-                duration_seconds: 0
-              };
-
-              if (!db.evaluateCondition(d.condition_expr, context)) {
-                shouldUnblock = false;
-                // Apply on_fail action
-                if (d.on_fail === 'skip') {
-                  db.updateTaskStatus(dep.task_id, 'skipped');
-                }
-                break;
-              }
-            }
-          }
-
-          if (shouldUnblock) {
-            db.updateTaskStatus(dep.task_id, 'pending');
-            try {
-              taskManager.startTask(dep.task_id);
-            } catch (err) {
-              // May be queued
-              logger.debug('[workflow-handlers] non-critical error restarting dependency task:', err.message || err);
-            }
-          }
-        }
-      }
-    }
+    handleWorkflowTermination(args.task_id);
   }
 
   let output = `## Task Skipped\n\n`;

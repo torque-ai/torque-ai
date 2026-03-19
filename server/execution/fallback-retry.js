@@ -33,6 +33,7 @@ let dashboard = null;
 let _processQueue = null;
 let _cancelTask = null;
 let _stopTaskForRestart = null;
+let _markTaskCleanedUp = null;
 let _stallRecoveryAttempts = null;
 let _runningProcesses = null;
 let _pendingProcessQueueTimer = null;
@@ -58,6 +59,7 @@ function scheduleProcessQueue(task = null) {
  * @param {Function} deps.processQueue - Queue processing function
  * @param {Function} deps.cancelTask - Task cancellation function
  * @param {Function} deps.stopTaskForRestart - Stop task without marking cancelled
+ * @param {Function} deps.markTaskCleanedUp - Mark a task's close-handler guard before restart
  * @param {Map} deps.stallRecoveryAttempts - Map tracking stall recovery state
  * @param {Map} deps.runningProcesses - Map tracking running processes
  */
@@ -68,6 +70,7 @@ function init(deps) {
   if (deps.processQueue) _processQueue = deps.processQueue;
   if (deps.cancelTask) _cancelTask = deps.cancelTask;
   if (deps.stopTaskForRestart) _stopTaskForRestart = deps.stopTaskForRestart;
+  if (deps.markTaskCleanedUp) _markTaskCleanedUp = deps.markTaskCleanedUp;
   if (deps.stallRecoveryAttempts) _stallRecoveryAttempts = deps.stallRecoveryAttempts;
   if (deps.runningProcesses) _runningProcesses = deps.runningProcesses;
   // Clear any pending debounce timer from previous init (prevents stale timer leaks in tests)
@@ -399,6 +402,7 @@ function tryStallRecovery(taskId, activity) {
       recovery.attempts++;
       recovery.lastStrategy = strategy;
       _stallRecoveryAttempts.set(taskId, recovery);
+      if (_markTaskCleanedUp) _markTaskCleanedUp(taskId);
       _stopTaskForRestart(taskId, `Stall recovery - ${strategy}`);
       tryLocalFirstFallback(taskId, task, `Stall recovery: no larger model available after ${activity.lastActivitySeconds}s stall`, { skipSameModel: true });
       return true;
@@ -410,6 +414,7 @@ function tryStallRecovery(taskId, activity) {
     recovery.attempts++;
     recovery.lastStrategy = strategy;
     _stallRecoveryAttempts.set(taskId, recovery);
+    if (_markTaskCleanedUp) _markTaskCleanedUp(taskId);
     _stopTaskForRestart(taskId, `Stall recovery - ${strategy}`);
     tryLocalFirstFallback(taskId, task, `Stall recovery: attempt ${recovery.attempts} after ${activity.lastActivitySeconds}s stall`);
     return true;
@@ -419,6 +424,10 @@ function tryStallRecovery(taskId, activity) {
   recovery.attempts++;
   recovery.lastStrategy = strategy;
   _stallRecoveryAttempts.set(taskId, recovery);
+
+  // Mark task as cleaned up before stopping to prevent the exit handler from overwriting
+  // the new status set during restart (race: process exit fires after _stopTaskForRestart)
+  if (_markTaskCleanedUp) _markTaskCleanedUp(taskId);
 
   // Stop the current process without marking as cancelled
   _stopTaskForRestart(taskId, `Stall recovery - ${strategy}`);
@@ -665,7 +674,16 @@ function tryHashlineTieredFallback(taskId, task, reason) {
 
   }
 
-  // Step 3: codex (final fallback, always available)
+  // Step 3: codex (final fallback, only if codex is enabled)
+  const codexEnabled = serverConfig.getBool('codex_enabled', true);
+  if (!codexEnabled) {
+    logger.warn(`[HashlineFallback] Codex is disabled — cannot escalate task ${taskId.slice(0,8)}, failing task`);
+    db.updateTaskStatus(taskId, 'failed', {
+      error_output: (task.error_output || '') + `\nHashline fallback exhausted and codex is disabled: ${reason}`,
+      completed_at: new Date().toISOString(),
+    });
+    return;
+  }
   logger.info(`[HashlineFallback] Escalating task ${taskId.slice(0,8)} to codex: ${reason}`);
   db.recordFailoverEvent({ task_id: taskId, from_provider: currentProvider, to_provider: 'codex', reason, failover_type: 'provider' });
   db.updateTaskStatus(taskId, 'queued', {

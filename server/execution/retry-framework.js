@@ -65,9 +65,10 @@ function handleRetryLogic(ctx) {
     logger.info(`Failed to record retry attempt for task ${taskId}:`, recordErr.message);
   }
 
-  // Update task status to pending for retry
+  // Keep task in current non-running status during retry delay to prevent premature scheduling.
+  // Transition to 'queued' only after the delay fires (inside the setTimeout below).
   if (deps.taskCleanupGuard) deps.taskCleanupGuard.delete(taskId);
-  deps.db.updateTaskStatus(taskId, 'pending', {
+  deps.db.updateTaskStatus(taskId, 'retry_scheduled', {
     exit_code: code,
     output: deps.sanitizeAiderOutput(proc.output),
     error_output: `[Retry ${retryInfo.retryCount}/${retryInfo.maxRetries} - ${errorClassification.reason}] ${proc.errorOutput}`
@@ -89,6 +90,8 @@ function handleRetryLogic(ctx) {
       logger.info(`Retry cancelled for task ${taskId} - task was cancelled during retry delay`);
       return;
     }
+    // Transition from retry_scheduled → queued now that the delay has fired
+    deps.db.updateTaskStatus(taskId, 'queued', { retry_count: (currentTask.retry_count || 0) + 1 });
     try {
       const p = deps.startTask(taskId);
       if (p && typeof p.catch === 'function') {

@@ -426,7 +426,12 @@ async function finalizeTask(taskId, options = {}) {
     ctx.task = deps.db.getTask(taskId) || task;
 
     if (typeof deps.handlePostCompletion === 'function') {
-      await Promise.resolve(deps.handlePostCompletion(ctx));
+      try {
+        await Promise.resolve(deps.handlePostCompletion(ctx));
+      } catch (postErr) {
+        logger.error(`[finalizer] Post-completion failed for ${taskId}: ${postErr.message}`);
+        // Don't re-throw — the task IS completed, only the cleanup/notification step failed
+      }
     }
 
     // Strategic brain hooks (fire-and-forget, never blocks finalization)
