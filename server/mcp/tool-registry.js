@@ -1,5 +1,7 @@
 'use strict';
 
+const { isSafeRegex } = require('../utils/safe-regex');
+
 const VALID_NAMESPACES = new Set(['task', 'workflow', 'provider', 'system']);
 
 function cloneSchema(schema) {
@@ -84,7 +86,7 @@ function validateSchemaNode(schema, value, path) {
         message: `Expected maximum length ${schema.maxLength}`,
       });
     }
-    if (schema.pattern !== undefined && !(new RegExp(schema.pattern).test(value))) {
+    if (schema.pattern !== undefined && isSafeRegex(schema.pattern) && !(new RegExp(schema.pattern).test(value))) {
       errors.push({
         path,
         message: `Value does not match pattern ${schema.pattern}`,

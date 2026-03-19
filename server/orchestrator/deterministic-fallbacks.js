@@ -1,5 +1,7 @@
 'use strict';
 
+const { isSafeRegex } = require('../utils/safe-regex');
+
 const STANDARD_STEPS = ['types', 'data', 'events', 'system', 'tests', 'wire'];
 
 const STEP_TEMPLATES = {
@@ -77,7 +79,7 @@ function fallbackDiagnose({ error_output, provider, exit_code, config }) {
   // Check user-defined custom patterns first
   const customPatterns = config?.diagnose?.custom_patterns || [];
   for (const cp of customPatterns) {
-    if (cp.match && new RegExp(cp.match, 'i').test(output)) {
+    if (cp.match && isSafeRegex(cp.match) && new RegExp(cp.match, 'i').test(output)) {
       return {
         action: cp.action || 'escalate',
         reason: cp.reason || `Matched custom pattern: ${cp.match}`,

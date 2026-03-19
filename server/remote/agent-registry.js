@@ -1,6 +1,37 @@
 'use strict';
 
+const crypto = require('crypto');
 const { RemoteAgentClient } = require('./agent-client');
+
+/**
+ * Hash a secret using scrypt with a random salt.
+ * Returns a string in the format: `scrypt:<hex-salt>:<hex-hash>`
+ * @param {string} secret
+ * @returns {string}
+ */
+function hashSecret(secret) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(secret, salt, 32).toString('hex');
+  return `scrypt:${salt}:${hash}`;
+}
+
+/**
+ * Verify a provided secret against a stored value.
+ * Supports both hashed (scrypt:…) and legacy plaintext stored values.
+ * Uses timing-safe comparison to prevent timing attacks.
+ * @param {string} stored - Value from database (may be hashed or plaintext)
+ * @param {string} provided - Secret to verify
+ * @returns {boolean}
+ */
+function verifySecret(stored, provided) {
+  if (!stored || !stored.startsWith('scrypt:')) return stored === provided; // backward compat for unhashed
+  const [, salt, expectedHash] = stored.split(':');
+  const actualHash = crypto.scryptSync(provided, salt, 32).toString('hex');
+  const a = Buffer.from(expectedHash, 'hex');
+  const b = Buffer.from(actualHash, 'hex');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 /**
  * Registry for managing remote execution agents.
@@ -19,6 +50,8 @@ class RemoteAgentRegistry {
 
   /**
    * Register (or update) a remote agent.
+   * The provided secret is hashed before being stored in the database.
+   * The in-memory RemoteAgentClient retains the plaintext secret for wire auth.
    * @param {object} opts
    * @param {string} opts.id - Unique agent identifier
    * @param {string} opts.name - Human-readable name
@@ -34,7 +67,7 @@ class RemoteAgentRegistry {
     this.db.prepare(`INSERT OR REPLACE INTO remote_agents
       (id, name, host, port, secret, max_concurrent, tls, rejectUnauthorized, status, consecutive_failures, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unknown', 0, datetime('now'))
-    `).run(id, name, host, port, secret, max_concurrent, tls ? 1 : 0, rejectUnauthorized ? 1 : 0);
+    `).run(id, name, host, port, hashSecret(secret), max_concurrent, tls ? 1 : 0, rejectUnauthorized ? 1 : 0);
 
     const client = new RemoteAgentClient({
       host,
@@ -161,4 +194,4 @@ class RemoteAgentRegistry {
   }
 }
 
-module.exports = { RemoteAgentRegistry };
+module.exports = { RemoteAgentRegistry, hashSecret, verifySecret };
