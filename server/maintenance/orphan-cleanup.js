@@ -568,7 +568,7 @@ function cleanupOrphanedHostTasks(hostId, hostName) {
         logger.info(`[Host Failover] Failed to setup retry for task ${task.id}: ${retryErr.message}`);
       }
 
-      dashboard.notifyTaskUpdated(task.id);
+      if (dashboard) dashboard.notifyTaskUpdated(task.id);
     }
 
     // Process queue to pick up any retried tasks

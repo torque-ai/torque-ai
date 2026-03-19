@@ -14,6 +14,8 @@ let _db = null;
 let _nvmNodePath = null;
 
 function init({ wrapWithInstructions, providerCfg, contextEnrichment, codexIntelligence, db, nvmNodePath }) {
+  if (!wrapWithInstructions) throw new Error('command-builders: wrapWithInstructions is required');
+  if (!providerCfg) throw new Error('command-builders: providerCfg is required');
   _wrapWithInstructions = wrapWithInstructions;
   _providerCfg = providerCfg;
   _contextEnrichment = contextEnrichment;

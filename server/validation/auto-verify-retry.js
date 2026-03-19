@@ -120,6 +120,7 @@ async function handleAutoVerifyRetry(ctx) {
   const isAutoVerifyProvider = AUTO_VERIFY_PROVIDERS.has(provider);
 
   // Look up project config
+  if (!_db) throw new Error('auto-verify-retry: module not initialized — call init() first');
   const project = _db.getProjectFromPath(task.working_directory);
   if (!project) return;
 

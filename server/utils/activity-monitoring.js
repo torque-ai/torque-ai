@@ -185,6 +185,7 @@ function checkFilesystemActivity(proc, taskId) {
  * @returns {Object|null} Activity info or null if task not running
  */
 function getTaskActivity(taskId, opts = {}) {
+  if (!_runningProcesses) return null;
   const proc = _runningProcesses.get(taskId);
   if (!proc) {
     return null;
@@ -197,7 +198,7 @@ function getTaskActivity(taskId, opts = {}) {
 
   // Use dynamic threshold based on model size and provider
   const taskTimeout = proc.stall_timeout_seconds;
-  const providerThreshold = _getStallThreshold(proc.model, proc.provider);
+  const providerThreshold = _getStallThreshold ? _getStallThreshold(proc.model, proc.provider) : null;
   let threshold = taskTimeout || providerThreshold;
 
   // Apply multiplier-based stall grace to reduce false positives for slow tasks.
@@ -285,6 +286,7 @@ function getAllTaskActivity() {
  * @returns {boolean} True if below the max concurrent limit
  */
 function canAcceptTask() {
+  if (!_runningProcesses) return true;
   const maxOllama = _safeConfigInt('max_ollama_concurrent', 8, 1, 50);
   const maxCodex = _safeConfigInt('max_codex_concurrent', 6, 1, 20);
   const maxApi = _safeConfigInt('max_api_concurrent', 4, 1, 20);

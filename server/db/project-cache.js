@@ -37,7 +37,10 @@ function setDb(dbInstance) { db = dbInstance; }
 function setGetTask(fn) { _getTask = fn; }
 function setDbFunctions(fns) { Object.assign(_dbFunctions, fns); }
 
-function getTask(...args) { return _getTask(...args); }
+function getTask(...args) {
+  if (!_getTask) throw new Error('project-cache: _getTask not initialized — call setGetTask() first');
+  return _getTask(...args);
+}
 function _getConfig(...args) { return _dbFunctions.getConfig ? _dbFunctions.getConfig(...args) : null; }
 
 function safeJsonParse(str, fallback = null) {

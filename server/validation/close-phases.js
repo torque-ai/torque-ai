@@ -81,6 +81,7 @@ function recoverModifiedFiles(ctx) {
   }
   const combinedOutput = getCombinedTaskOutput(ctx);
   if (!combinedOutput) return [];
+  if (!_extractModifiedFiles) return [];
   const recovered = _extractModifiedFiles(combinedOutput);
   if (recovered.length > 0) {
     ctx.filesModified = recovered;
@@ -231,7 +232,7 @@ function handleBuildTestStyleCommit(ctx) {
         const staged = (stagedResult.stdout || '').trim();
 
         if (staged.length > 0) {
-          const shortDesc = task.task_description.substring(0, 50).replace(/["\n\r]/g, ' ').trim();
+          const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
           const commitMsg = `docs: ${shortDesc}... [Torque ${task.model || 'local'}]`;
           spawnSync('git', ['commit', '-m', commitMsg], {
             cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_COMMIT
@@ -256,7 +257,7 @@ function handleBuildTestStyleCommit(ctx) {
       ctx.status = 'failed';
       ctx.errorOutput = (ctx.errorOutput || '') +
         '\n\n[TEST VERIFICATION FAILED]\n' +
-        testResult.error.substring(0, 2000);
+        (testResult.error || '').substring(0, 2000);
 
       const rollback = _scopedRollback ? _scopedRollback(taskId, workingDir, 'TestFailure') : { reverted: [], skipped: [] };
       if (rollback.reverted.length > 0) {
@@ -267,7 +268,7 @@ function handleBuildTestStyleCommit(ctx) {
     } else {
       ctx.output = (ctx.output || '') +
         '\n\n[TEST VERIFICATION WARNING]\nTests failed but rollback not configured.\n' +
-        testResult.error.substring(0, 1000);
+        (testResult.error || '').substring(0, 1000);
     }
   } else if (!testResult.skipped) {
     logger.info(`[Test Verification] Task ${taskId}: Tests passed`);
@@ -348,7 +349,8 @@ function handleProviderFailover(ctx) {
   // Quota error auto-failover (capped at 3 attempts)
   const MAX_FAILOVERS = 3;
   const failoverCount = task?.retry_count || 0;
-  if (ctx.status === 'failed' && task && failoverCount < MAX_FAILOVERS && db.isProviderQuotaError(task.provider || 'codex', proc.errorOutput)) {
+  const errorOutput = proc?.errorOutput || '';
+  if (ctx.status === 'failed' && task && failoverCount < MAX_FAILOVERS && db.isProviderQuotaError(task.provider || 'codex', errorOutput)) {
     const currentProvider = task.provider || 'codex';
     const fallbackProvider = db.getNextFallbackProvider(taskId);
 
@@ -358,7 +360,7 @@ function handleProviderFailover(ctx) {
       db.updateTaskStatus(taskId, 'pending_provider_switch', {
         exit_code: code,
         output: _sanitizeAiderOutput(proc.output),
-        error_output: proc.errorOutput + `\n[Auto-Failover] Switching from ${currentProvider} to ${fallbackProvider}`,
+        error_output: errorOutput + `\n[Auto-Failover] Switching from ${currentProvider} to ${fallbackProvider}`,
         files_modified: filesModified,
         progress_percent: 0
       });
@@ -398,7 +400,7 @@ function handleProviderFailover(ctx) {
         }
       }
       ctx.status = 'failed';
-      ctx.errorOutput = (ctx.errorOutput || proc.errorOutput || '') +
+      ctx.errorOutput = (ctx.errorOutput || errorOutput || '') +
         `\n[Provider Quota Exceeded] ${currentProvider} quota exceeded, no fallback provider available`;
       if (ctx.code === 0) {
         ctx.code = 1;
@@ -412,13 +414,13 @@ function handleProviderFailover(ctx) {
       ...(db.getTask(taskId) || {}),
       ...task,
       output: ctx.output,
-      error_output: ctx.errorOutput || proc.errorOutput || '',
+      error_output: ctx.errorOutput || errorOutput || '',
       files_modified: filesModified,
     };
-    if (fallbackTask) {
+    if (fallbackTask && fallbackTask.id) {
       const handled = task.provider === 'hashline-ollama'
-        ? _tryHashlineTieredFallback(taskId, fallbackTask, proc.errorOutput || 'task failed')
-        : _tryLocalFirstFallback(taskId, fallbackTask, proc.errorOutput || 'task failed');
+        ? _tryHashlineTieredFallback(taskId, fallbackTask, errorOutput || 'task failed')
+        : _tryLocalFirstFallback(taskId, fallbackTask, errorOutput || 'task failed');
       if (handled) {
         logger.info(`[Local-Fallback] Task ${taskId} re-queued via fallback chain`);
         _processQueue();

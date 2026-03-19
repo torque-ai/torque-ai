@@ -433,6 +433,7 @@ function computeResourceScore(task) {
  */
 function computeSuccessScore(task) {
   if (!task.id) return 0.5;
+  if (!findSimilarTasksFn) return 0.5;
 
   // findSimilarTasks(taskId, options) returns [{ task, similarity }]
   const similar = findSimilarTasksFn(task.id, { limit: 10 });

@@ -37,6 +37,7 @@ function init(deps) {
  * @returns {{ enabled: boolean, enableImports: boolean, enableTests: boolean, enableGit: boolean, enableFewShot: boolean }}
  */
 function getEnrichmentConfig() {
+  if (!db) throw new Error('providers/config: module not initialized — call init() first');
   const enabled = db.getConfig('context_enrichment_enabled') !== '0';
   if (!enabled) {
     return { enabled: false, enableImports: false, enableTests: false, enableGit: false, enableFewShot: false };
@@ -73,6 +74,7 @@ function getEnrichmentConfig() {
  * @returns {Object} Resolved tuning parameters
  */
 function resolveOllamaTuning(opts = {}) {
+  if (!db) throw new Error('providers/config: module not initialized — call init() first');
   const { hostId, model, task, adaptiveCtx, includeAutoTuning = false, includeHardware = false, profile = 'default' } = opts;
   const baseDefaults = profile === 'hashline'
     ? HASHLINE_OLLAMA_DEFAULTS

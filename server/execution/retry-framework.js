@@ -66,7 +66,7 @@ function handleRetryLogic(ctx) {
   }
 
   // Update task status to pending for retry
-  deps.taskCleanupGuard.delete(taskId);
+  if (deps.taskCleanupGuard) deps.taskCleanupGuard.delete(taskId);
   deps.db.updateTaskStatus(taskId, 'pending', {
     exit_code: code,
     output: deps.sanitizeAiderOutput(proc.output),
