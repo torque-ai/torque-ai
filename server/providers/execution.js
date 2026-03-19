@@ -319,6 +319,12 @@ function spawnAgenticWorker(config, callbacks = {}) {
         case 'toolCall': if (onToolCall) onToolCall(msg); break;
         case 'chunk': if (onChunk) onChunk(msg); break;
         case 'log': if (onLog) onLog(msg); break;
+        case 'quotaHeaders':
+          try {
+            const { getQuotaStore } = require('../db/provider-quotas');
+            getQuotaStore().updateFromHeaders(msg.provider, msg.headers);
+          } catch { /* non-critical */ }
+          break;
         case 'result': settled = true; resolve(msg); break;
         case 'error': settled = true; reject(new Error(msg.message)); break;
       }

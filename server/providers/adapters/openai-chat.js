@@ -99,10 +99,33 @@ function chatCompletion({ host, apiKey, model, providerName: _providerName, mess
         });
 
         res.on('end', () => {
+          // Capture rate limit headers for quota monitoring.
+          // In worker threads, post to parent (main thread owns the quota store).
+          // In main thread, update directly.
           try {
             if (providerName) {
-              const { getQuotaStore } = require('../../db/provider-quotas');
-              getQuotaStore().updateFromHeaders(providerName, res.headers);
+              const headers = {};
+              for (const key of ['x-ratelimit-limit-requests', 'x-ratelimit-remaining-requests',
+                'x-ratelimit-reset-requests', 'x-ratelimit-reset',
+                'x-ratelimit-limit-tokens', 'x-ratelimit-remaining-tokens',
+                'x-ratelimit-reset-tokens']) {
+                if (res.headers[key]) headers[key] = res.headers[key];
+              }
+              if (Object.keys(headers).length > 0) {
+                try {
+                  const { parentPort } = require('worker_threads');
+                  if (parentPort) {
+                    parentPort.postMessage({ type: 'quotaHeaders', provider: providerName, headers });
+                  } else {
+                    const { getQuotaStore } = require('../../db/provider-quotas');
+                    getQuotaStore().updateFromHeaders(providerName, headers);
+                  }
+                } catch {
+                  // Not in worker thread — update directly
+                  const { getQuotaStore } = require('../../db/provider-quotas');
+                  getQuotaStore().updateFromHeaders(providerName, headers);
+                }
+              }
             }
           } catch {}
 
