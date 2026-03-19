@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "transport": "ssh",
+  "verify_command": "npx vitest run server/tests/schema-tables.test.js",
+  "timeout_seconds": 120,
+  "sync_before_run": true
+}

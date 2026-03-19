@@ -151,8 +151,8 @@ case "$TRANSPORT" in
       SSH_OPTS+=(-i "$SSH_KEY_PATH")
     fi
 
-    # Build remote command
-    REMOTE_CMD="cd '$SSH_PROJECT_PATH'"
+    # Build remote command (use double quotes — CMD on Windows doesn't support single quotes)
+    REMOTE_CMD="cd \"$SSH_PROJECT_PATH\""
     if [[ "$SYNC_BEFORE_RUN" == "true" ]]; then
       REMOTE_CMD="$REMOTE_CMD && git pull --quiet"
     fi
