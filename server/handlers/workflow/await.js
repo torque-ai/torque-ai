@@ -720,29 +720,45 @@ function formatStandaloneTaskResult(task, startTime) {
 async function handleAwaitTask(args) {
   try {
     const pollMs = Math.min(Math.max(args.poll_interval_ms || 5000, 1000), 30000);
-    const timeoutMs = Math.min(Math.max(args.timeout_minutes || 30, 0.01) * 60000, 3600000);
-    const startTime = Date.now();
+    const timeoutMinutes = Math.min(Math.max(args.timeout_minutes || 30, 0.01), 60);
+    const timeoutMs = timeoutMinutes * 60000;
+    const awaitStartTime = Date.now();
     const terminalStates = ['completed', 'failed', 'cancelled', 'skipped'];
     const shutdownSignal = args.__shutdownSignal;
+    const taskId = args.task_id;
 
-    const { task: initialTask, error: taskErr } = requireTask(db, args.task_id);
+    // Heartbeat configuration: default 5 min, min 0 (disabled), max 30
+    const rawHeartbeat = args.heartbeat_minutes != null ? args.heartbeat_minutes : 5;
+    const heartbeatMinutes = Math.min(Math.max(rawHeartbeat, 0), 30);
+    const heartbeatEnabled = heartbeatMinutes > 0;
+    const heartbeatMs = heartbeatMinutes * 60 * 1000;
+
+    // Reason name mapping for notable events
+    const REASON_MAP = {
+      started: 'task_started',
+      stall_warning: 'stall_warning',
+      retry: 'task_retried',
+      fallback: 'provider_fallback'
+    };
+
+    const { task: initialTask, error: taskErr } = requireTask(db, taskId);
     if (taskErr) return taskErr;
 
     // If already terminal, return immediately
     if (terminalStates.includes(initialTask.status)) {
-      const output = formatStandaloneTaskResult(initialTask, startTime);
+      const output = formatStandaloneTaskResult(initialTask, awaitStartTime);
       return { content: [{ type: 'text', text: output }] };
     }
 
-    // Poll until terminal
+    // Poll until terminal or heartbeat
     while (true) {
-      const task = db.getTask(args.task_id);
+      const task = db.getTask(taskId);
       if (!task) {
-        return makeError(ErrorCodes.TASK_NOT_FOUND, `Task disappeared: ${args.task_id}`);
+        return makeError(ErrorCodes.TASK_NOT_FOUND, `Task disappeared: ${taskId}`);
       }
 
       if (terminalStates.includes(task.status)) {
-        let output = formatStandaloneTaskResult(task, startTime);
+        let output = formatStandaloneTaskResult(task, awaitStartTime);
 
         // Verify command (on success only)
         if (task.status === 'completed' && args.verify_command) {
@@ -838,37 +854,48 @@ async function handleAwaitTask(args) {
       // Shutdown check — return early so the response reaches the client before SSE closes
       if (shutdownSignal && shutdownSignal.aborted) {
         let output = `## Server Shutting Down\n\n`;
-        output += `**Task ID:** ${args.task_id}\n`;
+        output += `**Task ID:** ${taskId}\n`;
         output += `**Status:** ${task.status}\n`;
-        output += `**Waited:** ${Math.round((Date.now() - startTime) / 1000)}s\n\n`;
+        output += `**Waited:** ${Math.round((Date.now() - awaitStartTime) / 1000)}s\n\n`;
         output += `The TORQUE server is restarting. The task is still running on the provider.\n`;
         output += `Call \`check_status\` or \`get_result\` with this task ID after the server comes back.\n`;
         return { content: [{ type: 'text', text: output }] };
       }
 
       // Timeout check
-      if (Date.now() - startTime > timeoutMs) {
+      if (Date.now() - awaitStartTime > timeoutMs) {
         let output = `## Task Timed Out\n\n`;
-        output += `**Task ID:** ${args.task_id}\n`;
+        output += `**Task ID:** ${taskId}\n`;
         output += `**Status:** ${task.status}\n`;
-        output += `**Waited:** ${Math.round((Date.now() - startTime) / 1000)}s\n\n`;
+        output += `**Waited:** ${Math.round((Date.now() - awaitStartTime) / 1000)}s\n\n`;
         output += `Task is still running. Call \`await_task\` again to continue waiting.\n`;
         return { content: [{ type: 'text', text: output }] };
       }
 
-      // Wait for event-bus wakeup or poll interval
+      // Wait for event-bus wakeup, heartbeat timer, notable event, or poll interval
+      let signalType = 'poll';
+      let notablePayload = null;
+
       await new Promise(r => {
         let resolved = false;
         let taskEventsRef = null;
-        let handlerRef = null;
+        let terminalHandlerRef = null;
         let shutdownRef = null;
+        const notableHandlers = new Map();
 
         const cleanup = () => {
-          if (taskEventsRef && handlerRef) {
+          if (taskEventsRef && terminalHandlerRef) {
             for (const ev of terminalStates) {
-              taskEventsRef.removeListener(`task:${ev}`, handlerRef);
+              taskEventsRef.removeListener(`task:${ev}`, terminalHandlerRef);
             }
           }
+          // Clean up notable event listeners
+          if (taskEventsRef) {
+            for (const [ev, handler] of notableHandlers) {
+              taskEventsRef.removeListener('task:' + ev, handler);
+            }
+          }
+          notableHandlers.clear();
           if (shutdownSignal && shutdownRef) {
             shutdownSignal.removeEventListener('abort', shutdownRef);
             shutdownRef = null;
@@ -884,31 +911,117 @@ async function handleAwaitTask(args) {
           }
         };
 
-        const timer = setTimeout(done, pollMs);
+        // When heartbeats are enabled and fit within remaining time,
+        // use the heartbeat interval as the timer delay (replaces the poll timer).
+        // The heartbeat timer wakes the loop and returns a heartbeat response.
+        // When heartbeats don't fit (remaining <= heartbeatMs), use the poll timer
+        // so the timeout check at the top of the loop can handle expiry.
+        let timerDelay = pollMs;
+        let timerSignal = 'poll';
+        if (heartbeatEnabled) {
+          const remaining = timeoutMs - (Date.now() - awaitStartTime);
+          if (remaining > heartbeatMs) {
+            timerDelay = heartbeatMs;
+            timerSignal = 'heartbeat';
+          }
+        }
+
+        const timer = setTimeout(() => {
+          signalType = timerSignal;
+          done();
+        }, timerDelay);
 
         // Wake immediately on server shutdown
         if (shutdownSignal) {
-          if (shutdownSignal.aborted) { done(); return; }
-          shutdownRef = done;
-          shutdownSignal.addEventListener('abort', done, { once: true });
+          if (shutdownSignal.aborted) { signalType = 'shutdown'; done(); return; }
+          shutdownRef = () => { signalType = 'shutdown'; done(); };
+          shutdownSignal.addEventListener('abort', shutdownRef, { once: true });
         }
 
         try {
-          const { taskEvents } = require('../../hooks/event-dispatch');
+          const { taskEvents, NOTABLE_EVENTS } = require('../../hooks/event-dispatch');
           taskEventsRef = taskEvents;
-          // Only wake on events for THIS specific task
-          handlerRef = (eventTaskId) => {
-            if (!eventTaskId || eventTaskId === args.task_id) {
-              done();
-            }
+
+          // Terminal event handler — filter by task ID
+          terminalHandlerRef = (payload) => {
+            const eid = payload?.id || payload?.taskId;
+            if (eid && eid !== taskId) return;
+            signalType = 'terminal';
+            done();
           };
           for (const ev of terminalStates) {
-            taskEvents.on(`task:${ev}`, handlerRef);
+            taskEvents.on(`task:${ev}`, terminalHandlerRef);
+          }
+
+          // Notable event handlers (only when heartbeats are enabled)
+          if (heartbeatEnabled && NOTABLE_EVENTS) {
+            for (const ev of NOTABLE_EVENTS) {
+              const handler = (payload) => {
+                const eid = payload?.id || payload?.taskId;
+                if (eid && eid !== taskId) return;
+                signalType = 'notable:' + ev;
+                notablePayload = payload;
+                done();
+              };
+              notableHandlers.set(ev, handler);
+              taskEvents.on('task:' + ev, handler);
+            }
           }
         } catch (err) {
           logger.debug('[await_task] non-critical error wiring event bus: ' + (err.message || err));
         }
       });
+
+      // --- Heartbeat response branch ---
+      // Only return heartbeat if we haven't timed out — let the loop's timeout check handle expiry
+      if ((signalType === 'heartbeat' || signalType.startsWith('notable:'))
+          && (Date.now() - awaitStartTime) < timeoutMs) {
+        // Read current task state from DB for heartbeat response
+        const currentTask = db.getTask(taskId);
+        const reason = signalType === 'heartbeat'
+          ? 'scheduled'
+          : REASON_MAP[signalType.replace('notable:', '')] || signalType;
+
+        const runningTasks = [];
+        if (currentTask && currentTask.status === 'running') {
+          runningTasks.push({
+            id: currentTask.id,
+            provider: currentTask.provider,
+            host: currentTask.ollama_host_id || '-',
+            elapsedMs: currentTask.started_at
+              ? Date.now() - new Date(currentTask.started_at).getTime()
+              : 0,
+            description: currentTask.task_description
+          });
+        }
+
+        const alerts = [];
+        if (signalType === 'notable:stall_warning' && notablePayload) {
+          alerts.push(`Approaching stall threshold (${notablePayload.elapsed || '?'}s / ${notablePayload.threshold || '?'}s) — consider cancelling if no progress`);
+        }
+
+        const partialOutput = currentTask?.partial_output || null;
+
+        return {
+          content: [{
+            type: 'text',
+            text: formatHeartbeat({
+              taskId,
+              reason,
+              elapsedMs: Date.now() - awaitStartTime,
+              runningTasks,
+              taskCounts: {
+                completed: 0,
+                failed: 0,
+                running: currentTask && currentTask.status === 'running' ? 1 : 0,
+                pending: currentTask && !['running', 'completed', 'failed', 'cancelled', 'skipped'].includes(currentTask.status) ? 1 : 0,
+              },
+              partialOutput,
+              alerts,
+            })
+          }]
+        };
+      }
     }
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
