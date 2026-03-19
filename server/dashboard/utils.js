@@ -69,7 +69,8 @@ function parseBody(req) {
     let rejected = false;
     req.on('data', chunk => {
       body += chunk.toString();
-      if (body.length > 10 * 1024 * 1024 && !rejected) {
+      // Use Buffer.byteLength for accurate byte count (multi-byte chars inflate string length)
+      if (Buffer.byteLength(body, 'utf8') > 10 * 1024 * 1024 && !rejected) {
         rejected = true;
         req.destroy();
         reject(new Error('Request body too large'));

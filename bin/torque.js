@@ -281,8 +281,15 @@ async function handleBackup() {
       process.exitCode = 1;
       return;
     }
+    // Validate the backup path exists on the client before sending to API
+    const resolvedPath = path.resolve(backupPath);
+    if (!fs.existsSync(resolvedPath)) {
+      console.error(`Error: backup file not found: ${resolvedPath}`);
+      process.exitCode = 1;
+      return;
+    }
     const raw = await apiPost('/api/tools/restore_database', {
-      backup_path: backupPath,
+      backup_path: resolvedPath,
       confirm: true,
     });
     const text = extractText(raw);

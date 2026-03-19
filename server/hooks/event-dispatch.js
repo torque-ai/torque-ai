@@ -304,7 +304,10 @@ function getTaskEvents(options = {}) {
     }
 
     sql += ' ORDER BY id DESC LIMIT ?';
-    params.push(options.limit || 50);
+    // Validate limit is a positive integer; reject non-integers and values ≤ 0
+    const rawLimit = options.limit;
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : 50;
+    params.push(limit);
 
     return rawDb.prepare(sql).all(...params);
   } catch (err) {
