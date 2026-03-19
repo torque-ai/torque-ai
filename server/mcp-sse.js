@@ -456,7 +456,7 @@ function sendJsonRpcResponse(session, id, result, error) {
   } else {
     response.result = result;
   }
-  sendSseEvent(session.res, 'message', JSON.stringify(response));
+  sendSseEvent(session, 'message', JSON.stringify(response));
 }
 
 /**
@@ -465,7 +465,7 @@ function sendJsonRpcResponse(session, id, result, error) {
 function sendJsonRpcNotification(session, method, params) {
   const notification = { jsonrpc: JSONRPC_VERSION, method };
   if (params) notification.params = params;
-  sendSseEvent(session.res, 'message', JSON.stringify(notification));
+  sendSseEvent(session, 'message', JSON.stringify(notification));
 }
 
 /**
@@ -606,7 +606,7 @@ function notifySubscribedSessions(eventName, taskData) {
     // 1. Push MCP standard log notification (human-visible in Claude Code)
     try {
       if (serializedNotificationPayload) {
-        sendSseEvent(session.res, 'message', serializedNotificationPayload);
+        sendSseEvent(session, 'message', serializedNotificationPayload);
       }
     } catch {
       notificationMetrics.deliveryErrors++;
@@ -757,9 +757,13 @@ function trackEventForAggregation(sessionId, event) {
   if (group.taskIds.length < 20) group.taskIds.push(event.taskId);
 
   // Reset the flush timer on each new event
-  if (buf.timer) clearTimeout(buf.timer);
-  buf.timer = setTimeout(() => flushAggregation(sessionId), EVENT_AGGREGATION_WINDOW_MS);
-  if (TRACKED_INTERVALS) TRACKED_INTERVALS.add(buf.timer);
+  if (buf.timer) { clearTimeout(buf.timer); TRACKED_INTERVALS.delete(buf.timer); }
+  buf.timer = setTimeout(() => {
+    TRACKED_INTERVALS.delete(buf.timer);
+    buf.timer = null;
+    flushAggregation(sessionId);
+  }, EVENT_AGGREGATION_WINDOW_MS);
+  TRACKED_INTERVALS.add(buf.timer);
 
   return group.count >= 3;
 }
@@ -1088,7 +1092,8 @@ async function handleMcpRequest(request, session) {
         },
         serverInfo: SERVER_INFO,
       };
-      setTimeout(() => {
+      const _economyTimer = setTimeout(() => {
+        TRACKED_INTERVALS.delete(_economyTimer);
         try {
           const economyPolicy = require('./economy/policy');
           const globalPolicy = economyPolicy.getGlobalEconomyPolicy();
@@ -1112,6 +1117,7 @@ async function handleMcpRequest(request, session) {
           logger.debug('Economy notification skipped: ' + err.message);
         }
       }, 0);
+      TRACKED_INTERVALS.add(_economyTimer);
       return initializeResponse;
 
     case 'tools/list': {

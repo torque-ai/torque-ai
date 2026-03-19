@@ -134,6 +134,7 @@ class TsserverSession {
     this.restartCount = 0;
     this.lastActivity = Date.now();
     this.starting = false;
+    this._startupPromise = null;
     this.openFiles = new Set();
     /** @type {Map<string, object[]>} filePath → diagnostics cache */
     this.diagnosticCache = new Map();
@@ -142,15 +143,17 @@ class TsserverSession {
 
   /**
    * Ensure tsserver is running, spawn if needed.
+   * Uses a promise-based lock so concurrent callers all await the same startup.
    */
   async ensureRunning() {
     if (this.process && !this._dead) return;
-    if (this.starting) {
-      // Wait for existing startup
-      await new Promise(r => setTimeout(r, 500));
-      if (this.process && !this._dead) return;
+    if (this._startupPromise) return this._startupPromise;
+    this._startupPromise = this._spawn();
+    try {
+      await this._startupPromise;
+    } finally {
+      this._startupPromise = null;
     }
-    await this._spawn();
   }
 
   async _spawn() {

@@ -55,22 +55,27 @@ function seedPresets() {
 
 function parseRow(row) {
   if (!row) return null;
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    rules: JSON.parse(row.rules_json),
-    complexity_overrides: row.complexity_overrides_json ? JSON.parse(row.complexity_overrides_json) : {},
-    preset: Boolean(row.preset),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
+  try {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      rules: JSON.parse(row.rules_json),
+      complexity_overrides: row.complexity_overrides_json ? JSON.parse(row.complexity_overrides_json) : {},
+      preset: Boolean(row.preset),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  } catch (err) {
+    logger.warn(`Corrupted template rules_json for id=${row.id}: ${err.message}`);
+    return null;
+  }
 }
 
 function listTemplates() {
   if (!db) return [];
   const rows = db.prepare('SELECT * FROM routing_templates ORDER BY preset DESC, name ASC').all();
-  return rows.map(parseRow);
+  return rows.map(parseRow).filter(Boolean);
 }
 
 function getTemplate(id) {

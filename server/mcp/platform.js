@@ -9,6 +9,9 @@ function isPlatformEnabled(env = process.env) {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
+const REQUEST_STARTS_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const REQUEST_STARTS_CLEANUP_INTERVAL_MS = 60 * 1000; // check every minute
+
 class MCPPlatform {
   constructor(options = {}) {
     this.env = options.env || process.env;
@@ -16,6 +19,22 @@ class MCPPlatform {
     this.telemetry = options.telemetry || new MCPPlatformTelemetry();
     this._ready = false;
     this._requestStarts = new Map();
+    this._cleanupTimer = null;
+  }
+
+  _startCleanupTimer() {
+    if (this._cleanupTimer) return;
+    this._cleanupTimer = setInterval(() => {
+      const cutoff = Date.now() - REQUEST_STARTS_TTL_MS;
+      for (const [id, entry] of this._requestStarts) {
+        if (entry.startedAt < cutoff) this._requestStarts.delete(id);
+      }
+    }, REQUEST_STARTS_CLEANUP_INTERVAL_MS);
+    if (this._cleanupTimer.unref) this._cleanupTimer.unref();
+  }
+
+  _stopCleanupTimer() {
+    if (this._cleanupTimer) { clearInterval(this._cleanupTimer); this._cleanupTimer = null; }
   }
 
   init() {
@@ -24,6 +43,7 @@ class MCPPlatform {
     }
 
     this._ready = true;
+    this._startCleanupTimer();
     return true;
   }
 
@@ -38,6 +58,7 @@ class MCPPlatform {
   stop() {
     this._ready = false;
     this._requestStarts.clear();
+    this._stopCleanupTimer();
     return isPlatformEnabled(this.env);
   }
 

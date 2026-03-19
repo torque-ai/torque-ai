@@ -290,7 +290,8 @@ function serveStatic(req, res) {
  * Batches updates to prevent flooding with rapid changes.
  */
 function broadcastTaskUpdate(taskId) {
-  // Add to pending updates
+  // Add to pending updates (emergency valve: clear if set grows unbounded)
+  if (pendingTaskUpdates.size > 1000) pendingTaskUpdates.clear();
   pendingTaskUpdates.add(taskId);
 
   // If no timer running, start one

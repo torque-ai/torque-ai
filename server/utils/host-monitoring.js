@@ -518,7 +518,14 @@ async function probeLocalGpuMetrics(hosts) {
         temperatureC: parseInt(parts[3]) || 0,
         powerDrawW: parseFloat(parts[4]) || 0
       };
-      const { getCpuPercent, getRamPercent } = require('../scripts/gpu-metrics-server');
+      let getCpuPercent, getRamPercent;
+      try {
+        ({ getCpuPercent, getRamPercent } = require('../scripts/gpu-metrics-server'));
+      } catch (err) {
+        logger.warn(`gpu-metrics-server not available: ${err.message}`);
+        getCpuPercent = () => 0;
+        getRamPercent = () => 0;
+      }
 
       for (const host of localHosts) {
         const existing = hostActivityCache.get(host.id) || {};

@@ -1,5 +1,7 @@
 'use strict';
 
+const MAX_LATENCY_SAMPLES = 1000;
+
 const HISTOGRAM_BUCKETS = Object.freeze([
   { label: 'lt_10ms', upperBound: 10 },
   { label: 'lt_50ms', upperBound: 50 },
@@ -109,7 +111,9 @@ class MCPPlatformTelemetry {
     if (!this.latencyByTool.has(normalized)) {
       this.latencyByTool.set(normalized, []);
     }
-    this.latencyByTool.get(normalized).push(duration);
+    const arr = this.latencyByTool.get(normalized);
+    arr.push(duration);
+    if (arr.length > MAX_LATENCY_SAMPLES) arr.splice(0, arr.length - MAX_LATENCY_SAMPLES);
     recordHistogramValue(this.durationHistogram, duration);
     recordHistogramValue(this._getToolEntry(normalized).duration_histogram, duration);
   }

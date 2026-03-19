@@ -198,8 +198,8 @@ function pauseTaskForDebug(taskId, breakpoint) {
     db.recordDebugCapture({
       session_id: session.id,
       breakpoint_id: breakpoint.id,
-      output_snapshot: proc.output.slice(-5000), // Last 5KB
-      error_snapshot: proc.errorOutput.slice(-2000), // Last 2KB
+      output_snapshot: proc?.output?.slice(-5000) || '', // Last 5KB
+      error_snapshot: proc?.errorOutput?.slice(-2000) || '', // Last 2KB
       progress_percent: _estimateProgress(proc.output, proc.provider),
       elapsed_seconds: Math.round((Date.now() - proc.startTime) / 1000)
     });

@@ -27,6 +27,7 @@ const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 const OLLAMA_PROVIDERS = new Set(['ollama', 'aider-ollama', 'hashline-ollama']);
 
 function init(deps) {
+  stopHeartbeat(); // clear any existing interval before re-initializing
   if (deps.db) { _db = deps.db; capabilities.setDb(deps.db); perfTracker.setDb(deps.db); }
   if (deps.startTask) _startTask = deps.startTask;
   if (deps.dashboard) _dashboard = deps.dashboard;

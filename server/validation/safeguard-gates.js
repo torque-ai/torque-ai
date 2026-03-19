@@ -85,7 +85,7 @@ function handleSafeguardChecks(ctx) {
       pid: null,
       progress_percent: 0
     });
-    deps.dashboard.notifyTaskUpdated(taskId);
+    if (deps.dashboard) deps.dashboard.notifyTaskUpdated(taskId);
     deps.processQueue();
     ctx.earlyExit = true;
     return;
