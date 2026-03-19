@@ -2,6 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useWebSocket } from './websocket';
 
 export class MockWebSocket {
+  static CONNECTING = 0;
   static OPEN = 1;
   static CLOSED = 3;
   static instances = [];
@@ -45,14 +46,12 @@ export class MockWebSocket {
 }
 
 describe('useWebSocket', () => {
-  let originalWebSocket;
   let originalLocation;
   let originalConsoleLog;
   let originalConsoleError;
   let originalConsoleWarn;
 
   beforeEach(() => {
-    originalWebSocket = global.WebSocket;
     originalLocation = window.location;
     originalConsoleLog = console.log;
     originalConsoleError = console.error;
@@ -61,13 +60,13 @@ describe('useWebSocket', () => {
     console.log = vi.fn();
     console.error = vi.fn();
     console.warn = vi.fn();
-    global.WebSocket = MockWebSocket;
+    vi.stubGlobal('WebSocket', MockWebSocket);
     MockWebSocket.instances = [];
     setWindowLocation('http://127.0.0.1:3456');
   });
 
   afterEach(() => {
-    global.WebSocket = originalWebSocket;
+    vi.unstubAllGlobals();
     Object.defineProperty(window, 'location', {
       value: originalLocation,
       writable: true,
