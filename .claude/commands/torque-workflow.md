@@ -5,8 +5,8 @@ argument-hint: "[workflow-name | workflow-id | 'list']"
 allowed-tools:
   - mcp__torque__create_workflow
   - mcp__torque__add_workflow_task
-  - mcp__torque__start_workflow
-  - mcp__torque__get_workflow_status
+  - mcp__torque__run_workflow
+  - mcp__torque__workflow_status
   - mcp__torque__list_workflows
   - mcp__torque__smart_submit_task
   - mcp__torque__capture_file_baselines
@@ -24,12 +24,12 @@ Create, manage, and monitor DAG-based task workflows.
 ### If "list" or no argument:
 
 1. Call `list_workflows` to show all workflows
-2. For each active workflow, call `get_workflow_status` to show progress
+2. For each active workflow, call `workflow_status` to show progress
 3. Present as table: ID, name, status, tasks completed/total, current step
 
 ### If argument is a workflow ID (UUID-like):
 
-1. Call `get_workflow_status` for that workflow
+1. Call `workflow_status` for that workflow
 2. Show detailed view: name, description, each task with status, dependencies, provider, output summary
 
 ### If argument is a name (creating new workflow):
@@ -54,7 +54,7 @@ Create, manage, and monitor DAG-based task workflows.
    - Call `add_workflow_task` for each, wiring up dependencies
    - Show the DAG to user for confirmation before starting
 
-6. Call `start_workflow` to begin execution
+6. Call `run_workflow` to begin execution
 7. Show initial status and remind: use `/torque-status` to monitor
 
 After writing, verify the file exists.
