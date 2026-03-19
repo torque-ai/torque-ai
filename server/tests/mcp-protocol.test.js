@@ -14,8 +14,8 @@ const ALL_TOOLS = [TOOL_A, TOOL_B, TOOL_C];
 const CORE_NAMES = ['tool_a'];
 const EXTENDED_NAMES = ['tool_a', 'tool_b'];
 
-function makeSession(toolMode = 'full') {
-  return { toolMode };
+function makeSession(toolMode = 'full', authenticated = true) {
+  return { toolMode, authenticated };
 }
 
 function makeHandlerReturning(result) {
