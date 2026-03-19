@@ -464,3 +464,292 @@ describe('handleAwaitTask heartbeat integration', () => {
     expect(textOf(result)).toContain('Task Timed Out');
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Heartbeat integration tests for handleAwaitWorkflow
+// ---------------------------------------------------------------------------
+
+function createWorkflowWithTasks(taskDefs) {
+  const workflowId = randomUUID();
+  db.createWorkflow({
+    id: workflowId,
+    name: 'heartbeat-wf-test',
+  });
+
+  const taskIds = {};
+  for (const def of taskDefs) {
+    const taskId = randomUUID();
+    db.createTask({
+      id: taskId,
+      task_description: def.description || 'Workflow task',
+      provider: def.provider || 'codex',
+      model: def.model || 'gpt-5',
+      status: def.status || 'pending',
+      working_directory: process.cwd(),
+      workflow_id: workflowId,
+      workflow_node_id: def.node_id || def.name || taskId.substring(0, 8),
+    });
+    taskIds[def.name || def.node_id || taskId.substring(0, 8)] = taskId;
+  }
+
+  return { workflowId, taskIds };
+}
+
+describe('handleAwaitWorkflow heartbeat integration', () => {
+  beforeEach(() => {
+    setupTestDb(`await-wf-heartbeat-${Date.now()}`);
+    installCjsModuleMock('../hooks/event-dispatch', {
+      taskEvents: mocks.taskEvents,
+      NOTABLE_EVENTS: ['started', 'stall_warning', 'retry', 'fallback'],
+    });
+    installCjsModuleMock('../execution/command-policy', {
+      executeValidatedCommandSync: mocks.executeValidatedCommandSync,
+    });
+    installCjsModuleMock('../utils/safe-exec', {
+      safeExecChain: mocks.safeExecChain,
+    });
+    installCjsModuleMock('../handlers/peek-handlers', {
+      handlePeekUi: mocks.handlePeekUi,
+    });
+    mocks.executeValidatedCommandSync.mockReset();
+    mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
+      if (command === 'git' && args[0] === 'rev-parse') return 'abc123\n';
+      if (command === 'git' && args[0] === 'diff') return '';
+      return '';
+    });
+    mocks.safeExecChain.mockReset();
+    mocks.safeExecChain.mockReturnValue({ exitCode: 0, output: 'verify ok' });
+    mocks.handlePeekUi.mockReset();
+    mocks.handlePeekUi.mockResolvedValue({ content: [] });
+    mocks.taskEvents.removeAllListeners();
+    hostMonitoring.hostActivityCache.clear();
+    handlers = loadFresh('../handlers/workflow/await');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    mocks.executeValidatedCommandSync.mockReset();
+    mocks.safeExecChain.mockReset();
+    mocks.handlePeekUi.mockReset();
+    mocks.taskEvents.removeAllListeners();
+    hostMonitoring.hostActivityCache.clear();
+    vi.useRealTimers();
+    teardownTestDb();
+  });
+
+  test('workflow heartbeat includes all running tasks', async () => {
+    // Create workflow: 1 completed, 1 running, 1 pending
+    const { workflowId, taskIds } = createWorkflowWithTasks([
+      { name: 'done', description: 'Completed step', status: 'pending' },
+      { name: 'active', description: 'Running step', status: 'pending' },
+      { name: 'waiting', description: 'Pending step', status: 'pending' },
+    ]);
+
+    // Transition done -> completed
+    finalizeTask(taskIds.done, 'completed', { output: 'done output' });
+
+    // Transition active -> running
+    db.updateTaskStatus(taskIds.active, 'running', {
+      started_at: new Date(Date.now() - 30000).toISOString(),
+      provider: 'codex',
+    });
+
+    // Acknowledge the completed task so yield doesn't fire
+    const wf = db.getWorkflow(workflowId);
+    db.updateWorkflow(workflowId, {
+      context: { ...wf.context, acknowledged_tasks: [taskIds.done] },
+    });
+
+    const promise = handlers.handleAwaitWorkflow({
+      workflow_id: workflowId,
+      heartbeat_minutes: 5,
+      poll_interval_ms: 30000,
+      timeout_minutes: 5,
+    });
+
+    await new Promise(r => setImmediate(r));
+
+    // Emit notable event for a workflow task
+    mocks.taskEvents.emit('task:started', { id: taskIds.active, status: 'running' });
+
+    const result = await promise;
+    const text = textOf(result);
+
+    expect(text).toContain('Heartbeat');
+    expect(text).toContain('Await Workflow');
+    expect(text).toContain('1 completed');
+    expect(text).toContain('1 running');
+    expect(text).toContain('1 pending');
+  });
+
+  test('task yield takes priority over scheduled heartbeat', async () => {
+    const { workflowId, taskIds } = createWorkflowWithTasks([
+      { name: 'step1', description: 'First step', status: 'pending' },
+      { name: 'step2', description: 'Second step', status: 'pending' },
+    ]);
+
+    // Transition step1 running -> completed
+    db.updateTaskStatus(taskIds.step1, 'running', {
+      started_at: new Date().toISOString(),
+    });
+
+    // Start step2 running
+    db.updateTaskStatus(taskIds.step2, 'running', {
+      started_at: new Date().toISOString(),
+    });
+
+    // Complete step1 — this should cause a task yield, not a heartbeat
+    finalizeTask(taskIds.step1, 'completed', { output: 'step1 done' });
+
+    const result = await handlers.handleAwaitWorkflow({
+      workflow_id: workflowId,
+      heartbeat_minutes: 0.001, // Very short heartbeat to ensure it fires quickly
+      poll_interval_ms: 50,
+      timeout_minutes: 1,
+    });
+
+    const text = textOf(result);
+
+    // Task yield should take priority
+    expect(text).toContain('Task Completed');
+    expect(text).toContain('step1');
+    expect(text).not.toContain('## Heartbeat');
+  });
+
+  test('workflow heartbeat shows next-up tasks', async () => {
+    const { workflowId, taskIds } = createWorkflowWithTasks([
+      { name: 'running1', description: 'Active task', status: 'pending' },
+      { name: 'queued1', description: 'Queued build step', status: 'pending' },
+      { name: 'queued2', description: 'Queued test step', status: 'pending' },
+    ]);
+
+    // running1 -> running
+    db.updateTaskStatus(taskIds.running1, 'running', {
+      started_at: new Date(Date.now() - 60000).toISOString(),
+    });
+
+    const promise = handlers.handleAwaitWorkflow({
+      workflow_id: workflowId,
+      heartbeat_minutes: 5,
+      poll_interval_ms: 30000,
+      timeout_minutes: 5,
+    });
+
+    await new Promise(r => setImmediate(r));
+
+    // Trigger heartbeat via notable event
+    mocks.taskEvents.emit('task:started', { id: taskIds.running1, status: 'running' });
+
+    const result = await promise;
+    const text = textOf(result);
+
+    expect(text).toContain('Heartbeat');
+    expect(text).toContain('Next Up');
+    expect(text).toContain('Queued build step');
+    expect(text).toContain('Queued test step');
+  });
+
+  test('notable events for any workflow task trigger heartbeat', async () => {
+    const { workflowId, taskIds } = createWorkflowWithTasks([
+      { name: 'taskA', description: 'Task A', status: 'pending' },
+      { name: 'taskB', description: 'Task B', status: 'pending' },
+    ]);
+
+    // Both running
+    db.updateTaskStatus(taskIds.taskA, 'running', {
+      started_at: new Date().toISOString(),
+    });
+    db.updateTaskStatus(taskIds.taskB, 'running', {
+      started_at: new Date().toISOString(),
+    });
+
+    const promise = handlers.handleAwaitWorkflow({
+      workflow_id: workflowId,
+      heartbeat_minutes: 5,
+      poll_interval_ms: 30000,
+      timeout_minutes: 5,
+    });
+
+    await new Promise(r => setImmediate(r));
+
+    // Emit notable event for taskB (not taskA) — should still trigger heartbeat
+    mocks.taskEvents.emit('task:started', { id: taskIds.taskB, status: 'running' });
+
+    const result = await promise;
+    const text = textOf(result);
+
+    expect(text).toContain('Heartbeat');
+    expect(text).toContain('Await Workflow');
+  });
+
+  test('notable events for non-workflow tasks are ignored', async () => {
+    vi.useFakeTimers();
+    const { workflowId } = createWorkflowWithTasks([
+      { name: 'wfTask', description: 'WF task', status: 'pending' },
+    ]);
+
+    db.updateTaskStatus(
+      db.getWorkflowTasks(workflowId)[0].id,
+      'running',
+      { started_at: new Date(Date.now()).toISOString() }
+    );
+
+    const promise = handlers.handleAwaitWorkflow({
+      workflow_id: workflowId,
+      heartbeat_minutes: 5,
+      poll_interval_ms: 200,
+      timeout_minutes: 0.01, // 600ms
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Emit notable event for a task NOT in this workflow
+    const otherTaskId = randomUUID();
+    mocks.taskEvents.emit('task:started', { id: otherTaskId, status: 'running' });
+
+    // Advance past timeout
+    await vi.advanceTimersByTimeAsync(2000);
+    const result = await promise;
+
+    // Should timeout, not heartbeat — the event was for a non-workflow task
+    expect(textOf(result)).toContain('Timed Out');
+    expect(textOf(result)).not.toContain('Heartbeat');
+  });
+
+  test('rapid notable events are coalesced', async () => {
+    const { workflowId, taskIds } = createWorkflowWithTasks([
+      { name: 'a', description: 'Task A', status: 'pending' },
+      { name: 'b', description: 'Task B', status: 'pending' },
+      { name: 'c', description: 'Task C', status: 'pending' },
+    ]);
+
+    // All three running
+    for (const name of ['a', 'b', 'c']) {
+      db.updateTaskStatus(taskIds[name], 'running', {
+        started_at: new Date(Date.now() - 10000).toISOString(),
+      });
+    }
+
+    const promise = handlers.handleAwaitWorkflow({
+      workflow_id: workflowId,
+      heartbeat_minutes: 5,
+      poll_interval_ms: 30000,
+      timeout_minutes: 5,
+    });
+
+    await new Promise(r => setImmediate(r));
+
+    // Rapidly emit task:started for all three tasks
+    mocks.taskEvents.emit('task:started', { id: taskIds.a, status: 'running' });
+    mocks.taskEvents.emit('task:started', { id: taskIds.b, status: 'running' });
+    mocks.taskEvents.emit('task:started', { id: taskIds.c, status: 'running' });
+
+    const result = await promise;
+    const text = textOf(result);
+
+    // Should get ONE heartbeat (first event wins), showing all 3 running
+    expect(text).toContain('Heartbeat');
+    expect(text).toContain('3 running');
+  });
+});

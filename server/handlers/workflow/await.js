@@ -332,9 +332,26 @@ async function handleAwaitWorkflow(args) {
   const startTime = Date.now();
   const shutdownSignal = args.__shutdownSignal;
 
+  // Heartbeat configuration: default 5 min, min 0 (disabled), max 30
+  const rawHeartbeat = args.heartbeat_minutes != null ? args.heartbeat_minutes : 5;
+  const heartbeatMinutes = Math.min(Math.max(rawHeartbeat, 0), 30);
+  const heartbeatEnabled = heartbeatMinutes > 0;
+  const heartbeatMs = heartbeatMinutes * 60 * 1000;
+
+  // Reason name mapping for notable events
+  const REASON_MAP = {
+    started: 'task_started',
+    stall_warning: 'stall_warning',
+    retry: 'task_retried',
+    fallback: 'provider_fallback'
+  };
+
   const { workflow, error: wfErr } = requireWorkflow(db, args.workflow_id);
   if (wfErr) return wfErr;
-  
+
+  // Build set of workflow task IDs for filtering notable events
+  const initialTasks = db.getWorkflowTasks(args.workflow_id) || [];
+  const workflowTaskIds = new Set(initialTasks.map(t => t.id));
 
   // Load acknowledged set from workflow context
   const ctx = workflow.context || {};
@@ -430,21 +447,36 @@ async function handleAwaitWorkflow(args) {
       return { content: [{ type: 'text', text: output }] };
     }
 
-    // Wait for either a task event or the poll interval — whichever comes first.
-    // This gives instant wakeup when tasks complete instead of sleeping the full interval.
+    // Wait for event-bus wakeup, heartbeat timer, notable event, or poll interval
+    let signalType = 'poll';
+    let notablePayload = null;
+
+    // Refresh the workflow task ID set in case tasks were added dynamically
+    const currentWfTasks = db.getWorkflowTasks(args.workflow_id) || [];
+    for (const t of currentWfTasks) {
+      workflowTaskIds.add(t.id);
+    }
+
     await new Promise(r => {
       let resolved = false;
       let taskEventsRef = null;
-      let handlerRef = null;
-
+      let terminalHandlerRef = null;
       let shutdownRef = null;
+      const notableHandlers = new Map();
 
       const cleanup = () => {
-        if (taskEventsRef && handlerRef) {
+        if (taskEventsRef && terminalHandlerRef) {
           for (const ev of terminalStates) {
-            taskEventsRef.removeListener(`task:${ev}`, handlerRef);
+            taskEventsRef.removeListener(`task:${ev}`, terminalHandlerRef);
           }
         }
+        // Clean up notable event listeners
+        if (taskEventsRef) {
+          for (const [ev, handler] of notableHandlers) {
+            taskEventsRef.removeListener('task:' + ev, handler);
+          }
+        }
+        notableHandlers.clear();
         if (shutdownSignal && shutdownRef) {
           shutdownSignal.removeEventListener('abort', shutdownRef);
           shutdownRef = null;
@@ -460,27 +492,131 @@ async function handleAwaitWorkflow(args) {
         }
       };
 
-      const timer = setTimeout(done, pollMs);
+      // When heartbeats are enabled and fit within remaining time,
+      // use the heartbeat interval as the timer delay (replaces the poll timer).
+      // When heartbeats don't fit (remaining <= heartbeatMs), use the poll timer
+      // so the timeout check at the top of the loop can handle expiry.
+      let timerDelay = pollMs;
+      let timerSignal = 'poll';
+      if (heartbeatEnabled) {
+        const remaining = timeoutMs - (Date.now() - startTime);
+        if (remaining > heartbeatMs) {
+          timerDelay = heartbeatMs;
+          timerSignal = 'heartbeat';
+        }
+      }
+
+      const timer = setTimeout(() => {
+        signalType = timerSignal;
+        done();
+      }, timerDelay);
 
       // Wake immediately on server shutdown
       if (shutdownSignal) {
-        if (shutdownSignal.aborted) { done(); return; }
-        shutdownRef = done;
-        shutdownSignal.addEventListener('abort', done, { once: true });
+        if (shutdownSignal.aborted) { signalType = 'shutdown'; done(); return; }
+        shutdownRef = () => { signalType = 'shutdown'; done(); };
+        shutdownSignal.addEventListener('abort', shutdownRef, { once: true });
       }
 
       try {
-        const { taskEvents } = require('../../hooks/event-dispatch');
+        const { taskEvents, NOTABLE_EVENTS } = require('../../hooks/event-dispatch');
         taskEventsRef = taskEvents;
-        handlerRef = () => done();
+
+        // Terminal event handler — filter by workflow task membership
+        terminalHandlerRef = (payload) => {
+          const eid = payload?.id || payload?.taskId;
+          if (eid && !workflowTaskIds.has(eid)) return;
+          signalType = 'terminal';
+          done();
+        };
         for (const ev of terminalStates) {
-          taskEvents.once(`task:${ev}`, handlerRef);
+          taskEvents.on(`task:${ev}`, terminalHandlerRef);
+        }
+
+        // Notable event handlers (only when heartbeats are enabled)
+        if (heartbeatEnabled && NOTABLE_EVENTS) {
+          for (const ev of NOTABLE_EVENTS) {
+            const handler = (payload) => {
+              const eid = payload?.id || payload?.taskId;
+              if (eid && !workflowTaskIds.has(eid)) return;
+              if (signalType !== null && signalType !== 'poll') return; // first signal wins
+              signalType = 'notable:' + ev;
+              notablePayload = payload;
+              done();
+            };
+            notableHandlers.set(ev, handler);
+            taskEvents.on('task:' + ev, handler);
+          }
         }
       } catch (err) {
         // event-dispatch not available — fall back to pure timer
         logger.debug('[workflow-handlers] non-critical error wiring fallback timer path:', err.message || err);
       }
     });
+
+    // --- Heartbeat response branch ---
+    // Only return heartbeat if:
+    // 1. Signal was heartbeat or notable (not terminal/poll)
+    // 2. No unacknowledged terminal tasks (task yields take priority)
+    // 3. We haven't timed out
+    if ((signalType === 'heartbeat' || signalType.startsWith('notable:'))
+        && (Date.now() - startTime) < timeoutMs) {
+      // Re-check for unacked terminal tasks — task yields always take priority
+      const freshTasks = db.getWorkflowTasks(args.workflow_id) || [];
+      const freshUnacked = freshTasks.filter(t => terminalStates.includes(t.status) && !acknowledged.has(t.id));
+      if (freshUnacked.length === 0) {
+        // No new completions — build and return heartbeat
+        const workflowTasks = freshTasks;
+        const runningTasks = workflowTasks
+          .filter(t => t.status === 'running')
+          .map(t => ({
+            id: t.id,
+            provider: t.provider,
+            host: t.ollama_host_id || '-',
+            elapsedMs: t.started_at ? Date.now() - new Date(t.started_at).getTime() : 0,
+            description: t.task_description
+          }));
+
+        const counts = {
+          completed: workflowTasks.filter(t => t.status === 'completed').length,
+          failed: workflowTasks.filter(t => t.status === 'failed').length,
+          running: workflowTasks.filter(t => t.status === 'running').length,
+          pending: workflowTasks.filter(t => ['pending', 'queued'].includes(t.status)).length
+        };
+
+        const nextUpTasks = workflowTasks
+          .filter(t => ['pending', 'queued'].includes(t.status))
+          .slice(0, 5)
+          .map(t => ({ id: t.id, description: t.task_description }));
+
+        // Use longest-running task's partial output
+        const primaryRunning = [...runningTasks].sort((a, b) => b.elapsedMs - a.elapsedMs)[0];
+        const primaryTask = primaryRunning ? db.getTask(primaryRunning.id) : null;
+
+        const reason = signalType === 'heartbeat'
+          ? 'scheduled'
+          : REASON_MAP[signalType.replace('notable:', '')] || signalType;
+
+        const alerts = [];
+        if (signalType === 'notable:stall_warning' && notablePayload) {
+          alerts.push(`Approaching stall threshold (${notablePayload.elapsed || '?'}s / ${notablePayload.threshold || '?'}s) — consider cancelling if no progress`);
+        }
+
+        return { content: [{ type: 'text', text: formatHeartbeat({
+          taskId: args.workflow_id,
+          isWorkflow: true,
+          reason,
+          elapsedMs: Date.now() - startTime,
+          runningTasks,
+          taskCounts: counts,
+          partialOutput: primaryTask?.partial_output || null,
+          alerts,
+          nextUpTasks
+        }) }] };
+      }
+      // If there are unacked terminal tasks, fall through to the top of the loop
+      // which will yield them (task yields take priority)
+    }
   }
 
   return makeError(ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow disappeared: ${args.workflow_id}`);
