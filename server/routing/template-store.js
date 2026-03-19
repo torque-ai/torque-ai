@@ -34,9 +34,11 @@ function ensureTable() {
 function seedPresets() {
   if (!db) return;
   const files = fs.readdirSync(PRESETS_DIR).filter(f => f.endsWith('.json'));
+  // INSERT OR REPLACE so updated JSON presets take effect on restart.
+  // Only affects preset templates (preset=1) — user-created templates are untouched.
   const upsert = db.prepare(`
-    INSERT OR IGNORE INTO routing_templates (id, name, description, rules_json, complexity_overrides_json, preset, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+    INSERT OR REPLACE INTO routing_templates (id, name, description, rules_json, complexity_overrides_json, preset, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 1, COALESCE((SELECT created_at FROM routing_templates WHERE id = ?), datetime('now')), datetime('now'))
   `);
   for (const file of files) {
     let data;
@@ -47,7 +49,7 @@ function seedPresets() {
       continue;
     }
     const id = `preset-${path.basename(file, '.json')}`;
-    upsert.run(id, data.name, data.description || '', JSON.stringify(data.rules), JSON.stringify(data.complexity_overrides || {}));
+    upsert.run(id, data.name, data.description || '', JSON.stringify(data.rules), JSON.stringify(data.complexity_overrides || {}), id);
   }
 }
 

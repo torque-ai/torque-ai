@@ -1,30 +1,30 @@
 {
   "name": "Free Speed",
-  "description": "Lowest latency — sub-second free models first, codex safety net for hard failures",
+  "description": "Lowest latency — sub-second cerebras primary, codex safety net for hard failures",
   "rules": {
     "security": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "codex"}
     ],
     "xaml_wpf": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"},
       {"provider": "codex"}
     ],
     "architectural": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "codex"}
     ],
     "reasoning": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "codex"}
     ],
     "large_code_gen": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "codex"}
     ],
     "documentation": [
@@ -38,13 +38,13 @@
     ],
     "targeted_file_edit": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "hashline-ollama"},
       {"provider": "codex"}
     ],
     "default": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "codex"}
     ]
   },

@@ -1,6 +1,6 @@
 {
   "name": "Free Agentic",
-  "description": "Zero-cost agentic tool calling with automatic fallback across 5 free cloud providers",
+  "description": "Zero-cost agentic tool calling with automatic fallback across free providers. Groq restricted to docs/simple tasks (unreliable multi-step tool calling).",
   "rules": {
     "security": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
@@ -9,8 +9,8 @@
     ],
     "xaml_wpf": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+      {"provider": "google-ai", "model": "gemini-2.5-flash"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"}
     ],
     "architectural": [
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
@@ -39,12 +39,11 @@
     ],
     "targeted_file_edit": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"}
+      {"provider": "hashline-ollama"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"}
     ],
     "default": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
       {"provider": "google-ai", "model": "gemini-2.5-flash"},
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-30b-a3b:free"}

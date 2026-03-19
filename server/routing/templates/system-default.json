@@ -39,12 +39,12 @@
     ],
     "targeted_file_edit": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "hashline-ollama"},
       {"provider": "codex"}
     ],
     "default": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"},
       {"provider": "codex"}
     ]
   },

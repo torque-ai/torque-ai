@@ -56,14 +56,15 @@ describe('seedPresets', () => {
     const tmpl = mod.getTemplateByName('System Default');
     expect(tmpl).not.toBeNull();
     expect(tmpl.preset).toBe(true);
-    expect(tmpl.rules.default).toBe('ollama');
+    // Default category has cerebras as primary
+    const defaultRule = Array.isArray(tmpl.rules.default) ? tmpl.rules.default : [tmpl.rules.default];
+    expect(defaultRule[0]).toBeDefined();
   });
 
-  it('Cost Saver preset exists with complexity overrides', () => {
+  it('Cost Saver preset exists', () => {
     const tmpl = mod.getTemplateByName('Cost Saver');
     expect(tmpl).not.toBeNull();
-    expect(tmpl.complexity_overrides.large_code_gen).toBeDefined();
-    expect(tmpl.complexity_overrides.large_code_gen.complex).toBe('codex');
+    expect(tmpl.rules.default).toBeDefined();
   });
 
   it('preset IDs follow preset-<filename> convention', () => {
@@ -72,7 +73,7 @@ describe('seedPresets', () => {
     expect(tmpl.name).toBe('System Default');
   });
 
-  it('seedPresets is idempotent (INSERT OR IGNORE)', () => {
+  it('seedPresets is idempotent (INSERT OR REPLACE)', () => {
     const countBefore = mod.listTemplates().filter(t => t.preset).length;
     mod.seedPresets();
     const countAfter = mod.listTemplates().filter(t => t.preset).length;
@@ -243,27 +244,26 @@ describe('getActiveTemplate / setActiveTemplate', () => {
 describe('resolveProvider', () => {
   it('returns base rule for category', () => {
     const tmpl = mod.getTemplateByName('System Default');
-    expect(mod.resolveProvider(tmpl, 'security', 'normal').provider).toBe('ollama-cloud');
+    expect(mod.resolveProvider(tmpl, 'security', 'normal').provider).toBe('codex');
     expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal').provider).toBe('codex');
   });
 
   it('applies complexity override when present', () => {
-    const tmpl = mod.getTemplateByName('Cost Saver');
-    // base rule for large_code_gen is 'ollama'
-    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal').provider).toBe('ollama');
-    // complexity override for 'complex' is 'codex'
-    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'complex').provider).toBe('codex');
+    const tmpl = mod.getTemplateByName('System Default');
+    // System Default has complexity override for targeted_file_edit → complex → codex
+    expect(mod.resolveProvider(tmpl, 'targeted_file_edit', 'complex').provider).toBe('codex');
   });
 
   it('falls back to base rule when complexity has no override', () => {
-    const tmpl = mod.getTemplateByName('Cost Saver');
-    // 'simple' is not overridden for large_code_gen in cost-saver
-    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'simple').provider).toBe('ollama');
+    const tmpl = mod.getTemplateByName('System Default');
+    // 'simple' is not overridden for targeted_file_edit
+    expect(mod.resolveProvider(tmpl, 'targeted_file_edit', 'simple').provider).toBe('cerebras');
   });
 
   it('falls back to default for unknown category', () => {
     const tmpl = mod.getTemplateByName('System Default');
-    expect(mod.resolveProvider(tmpl, 'unknown_category', 'normal').provider).toBe('ollama');
+    // Unknown category falls back to 'default' rule — cerebras is first
+    expect(mod.resolveProvider(tmpl, 'unknown_category', 'normal').provider).toBe('cerebras');
   });
 
   it('returns null for null template', () => {

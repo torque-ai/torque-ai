@@ -40,7 +40,7 @@
     "targeted_file_edit": [
       {"provider": "codex"},
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+      {"provider": "hashline-ollama"}
     ],
     "default": [
       {"provider": "codex"},

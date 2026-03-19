@@ -10,7 +10,7 @@
     ],
     "xaml_wpf": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"},
       {"provider": "codex"}
     ],
     "architectural": [
@@ -43,12 +43,11 @@
     ],
     "targeted_file_edit": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"}
+      {"provider": "hashline-ollama"},
+      {"provider": "codex"}
     ],
     "default": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
       {"provider": "google-ai", "model": "gemini-2.5-flash"},
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-30b-a3b:free"},

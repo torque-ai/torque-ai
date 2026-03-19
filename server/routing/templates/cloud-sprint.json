@@ -5,27 +5,27 @@
     "security": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "codex"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"}
     ],
     "xaml_wpf": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
-      {"provider": "codex"}
+      {"provider": "codex"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"}
     ],
     "architectural": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "codex"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"}
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"}
     ],
     "reasoning": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "codex"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"}
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"}
     ],
     "large_code_gen": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "codex"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"}
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"}
     ],
     "documentation": [
       {"provider": "groq", "model": "openai/gpt-oss-120b"},
@@ -38,12 +38,11 @@
     ],
     "targeted_file_edit": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "hashline-ollama"},
       {"provider": "codex"}
     ],
     "default": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "qwen/qwen3-32b"},
       {"provider": "codex"},
       {"provider": "google-ai", "model": "gemini-2.5-flash"}
     ]
