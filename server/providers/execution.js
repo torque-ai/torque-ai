@@ -256,12 +256,12 @@ function preStuffFileContents(taskDescription, workingDir, budgetChars = 200000)
     const stuffedParts = [];
     let totalChars = 0;
     for (const relPath of referencedFiles) {
-      if (totalChars > budgetChars) break;
       const absPath = path.resolve(workingDir, relPath);
       if (!absPath.startsWith(path.resolve(workingDir))) continue;
       try {
         const content = fs.readFileSync(absPath, 'utf-8');
         if (content.length > 100000) continue; // ~25K tokens max per file
+        if (totalChars + content.length > budgetChars) continue; // would exceed budget
         stuffedParts.push(`\n--- FILE: ${relPath} ---\n${content}\n--- END FILE ---`);
         totalChars += content.length;
       } catch { /* file doesn't exist, skip */ }
