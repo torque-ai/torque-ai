@@ -1268,10 +1268,17 @@ async function handleHttpRequest(req, res) {
       }
     }
 
+    // Authenticate the session: check X-Torque-Key header against stored api_key.
+    // If no api_key is configured, all connections are accepted (open mode).
+    const configuredKey = db.getConfig('api_key');
+    const providedKey = req.headers['x-torque-key'] || url.searchParams.get('apiKey');
+    const isAuthenticated = !configuredKey || (!!providedKey && providedKey === configuredKey);
+
     const session = existingSession || {
       keepaliveTimer,
       res,
       toolMode: 'core',
+      authenticated: isAuthenticated,
       pendingEvents: [],
       eventFilter: restored ? restored.eventFilter : new Set(['completed', 'failed']),
       taskFilter: restored ? restored.taskFilter : new Set(),
@@ -1286,6 +1293,10 @@ async function handleHttpRequest(req, res) {
     session.keepaliveTimer = keepaliveTimer;
     session._remoteAddress = remoteAddress;
     session._origin = req.headers.origin || null;
+    // Re-check auth on reconnect in case the key changed
+    if (existingSession) {
+      session.authenticated = isAuthenticated;
+    }
 
     if (!existingSession) {
       sessions.set(sessionId, session);
@@ -1504,6 +1515,7 @@ function start(options = {}) {
       tools: TOOLS,
       coreToolNames: Array.isArray(CORE_TOOL_NAMES) ? CORE_TOOL_NAMES : [...CORE_TOOL_NAMES],
       extendedToolNames: Array.isArray(EXTENDED_TOOL_NAMES) ? EXTENDED_TOOL_NAMES : [...EXTENDED_TOOL_NAMES],
+      isAuthConfigured: () => !!serverConfig.get('api_key'),
       handleToolCall: async (name, args, session) => {
         const argsWithSignal = {
           ...args,

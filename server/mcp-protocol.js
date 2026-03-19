@@ -7,6 +7,7 @@ let _coreToolNames = [];
 let _extendedToolNames = [];
 let _handleToolCall = null;
 let _onInitialize = null;
+let _isAuthConfigured = null;
 
 /**
  * Initialize the protocol handler with tool registry and dispatch function.
@@ -17,13 +18,15 @@ let _onInitialize = null;
  * @param {string[]} opts.extendedToolNames- Names visible in 'extended' mode.
  * @param {Function} opts.handleToolCall   - async (name, args, session) => result
  * @param {Function} [opts.onInitialize]   - Optional callback invoked on 'initialize' with (session).
+ * @param {Function} [opts.isAuthConfigured] - Returns true if an API key is configured.
  */
-function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onInitialize }) {
+function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onInitialize, isAuthConfigured }) {
   _tools = tools || [];
   _coreToolNames = coreToolNames || [];
   _extendedToolNames = extendedToolNames || [];
   _handleToolCall = handleToolCall;
   _onInitialize = onInitialize || null;
+  _isAuthConfigured = isAuthConfigured || null;
 }
 
 /**
@@ -40,6 +43,12 @@ async function handleRequest(request, session) {
   }
   const { method, params } = request;
 
+  // Allow initialize without auth (client needs to connect before authenticating)
+  // Allow notifications without auth (they're fire-and-forget)
+  if (method !== 'initialize' && !method.startsWith('notifications/') && !session.authenticated) {
+    throw { code: -32600, message: 'Authentication required. Provide API key via X-Torque-Key header.' };
+  }
+
   switch (method) {
     case 'initialize': {
       const response = {
@@ -47,6 +56,9 @@ async function handleRequest(request, session) {
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
       };
+      if (_isAuthConfigured && !_isAuthConfigured()) {
+        response._meta = { security_warning: 'TORQUE running without authentication' };
+      }
       if (_onInitialize) _onInitialize(session);
       return response;
     }

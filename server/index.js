@@ -39,7 +39,8 @@ const timerRegistry = require('./timer-registry');
 const eventBus = require('./event-bus');
 
 // Virtual session for stdio transport (single-client)
-const stdioSession = { toolMode: 'core' };
+// stdio is a trusted local pipe — always considered authenticated
+const stdioSession = { toolMode: 'core', authenticated: true };
 
 // Remote agent registry — initialized in init() after DB is ready
 let agentRegistry = null;
@@ -758,6 +759,7 @@ function init() {
     coreToolNames: CORE_TOOL_NAMES,
     extendedToolNames: EXTENDED_TOOL_NAMES,
     handleToolCall: async (name, args, _session) => callTool(name, args),
+    isAuthConfigured: () => !!serverConfig.get('api_key'),
   });
 
   // Listen for shutdown event from tools.js (e.g., restart_server)
