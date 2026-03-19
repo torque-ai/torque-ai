@@ -64,14 +64,21 @@ In `submit_task` / `smart_submit_task` handlers, store the SSE session ID in tas
 metadata.submitted_by_agent = sessionId;
 ```
 
-**Threading the session ID to handlers:** The session ID is not currently passed to `handleToolCall`. To make it available, inject it into the args object before calling the handler, following the existing `__shutdownSignal` pattern:
+**Threading the session ID to handlers:** The session ID is not currently passed to `handleToolCall`. To make it available, inject it into the args object following the existing `__shutdownSignal` pattern.
+
+**Note:** Another session is actively implementing `docs/superpowers/plans/2026-03-19-architecture-phase-1-transport-unification.md`, which extracts shared MCP protocol logic into `mcp-protocol.js`. After that refactor, the tool call flow becomes `mcp-protocol.handleRequest → SSE callback → handleToolCall`. The `__sessionId` injection should happen in the SSE-specific callback passed to `mcpProtocol.init()`:
 
 ```javascript
-// In mcp-sse.js, before handleToolCall:
-argsWithSignal.__sessionId = session.id;
+// In mcp-sse.js, in the SSE callback to mcpProtocol.init():
+handleToolCall: async (name, args, session) => {
+  const argsWithSignal = { ...args, __shutdownSignal: shutdownAbort.signal, __sessionId: session.id };
+  return handleToolCall(name, argsWithSignal);
+}
 ```
 
-Handlers that need the session ID read it from `args.__sessionId`. This is the same pattern used for `__shutdownSignal` — minimal cross-cutting impact, no signature changes to the 489 tool handlers.
+The `session` object is already passed by `mcp-protocol.js` to the callback — we just add `__sessionId` alongside the existing `__shutdownSignal`. If the transport unification is not yet merged when this spec is implemented, use the pre-refactor injection point instead (directly in `handleMcpRequest` before calling `handleToolCall`).
+
+Handlers that need the session ID read it from `args.__sessionId`. Minimal cross-cutting impact, no signature changes to the 489 tool handlers.
 
 If the task is submitted via REST API (no session), `__sessionId` is undefined — claims are skipped for sessionless tasks.
 
