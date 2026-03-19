@@ -3,7 +3,7 @@
 Generated: 2026-03-19
 Source: Bug hunt analysis of 156K lines across 469 issues found
 
-This registry tracks ~313 low-severity issues identified during the comprehensive bug hunt.
+This registry tracks ~416 low-severity issues identified during the comprehensive bug hunt.
 These are intentionally deferred — they don't cause outages, data loss, or security breaches,
 but represent opportunities for future cleanup sprints.
 
@@ -25,6 +25,12 @@ but represent opportunities for future cleanup sprints.
 | `server/providers/adapters/google-chat.js` | 37 | JSDoc `@param {Object} [params.options]` marked "currently unused" — param never wired |
 | `server/db/migrations.js` | 17 | Migration named `remove_unused_notification_templates` — migration function may be orphaned if templates are gone |
 | `server/db/code-analysis.js` | 119 | `type: 'unused_function'` detected by code analysis — ironic that the analyzer itself has unreachable paths in its result-building logic |
+| `server/task-manager-delegations.js` | 131 | `fireTerminalTaskHook` imported but not re-exported — external callers get `undefined` |
+| `server/providers/execute-hashline.js` | 414 | `resolvedFiles` passed to `parseAndApplyEdits` but parameter not accepted — silently ignored |
+| `dashboard/src/components/Onboarding.jsx` | 1 | Unused `import React` with modern JSX transform |
+| `cli/commands.js` | 35 | Unused `context` parameter in `handleStatus` and similar handlers |
+| `server/coordination/instance-manager.js` | 81 | Redundant null check in `stopInstanceHeartbeat()` |
+| `server/policy-engine/shadow-enforcer.js` | 4 | `void logger` — logger imported but immediately voided, never used |
 | `server/api/routes.js` | 124 | Comment "removed because they shadowed the CP routes" — tombstone comment with no code left |
 | `server/db/scheduling-automation.js` | 91 | `safeJsonParse` local copy flagged "avoids importing from database.js" — circular dep should be resolved at module level instead |
 | `server/providers/config.js` | 7 | Comment notes "Context enrichment flags was duplicated 4× across 3 files" — consolidation comment but duplication still exists in some paths |
@@ -96,6 +102,9 @@ but represent opportunities for future cleanup sprints.
 | `server/tool-defs/automation-defs.js` | 13 | `provider` enum in `configure_stall_detection` includes `'all'` — `'all'` is not a provider name |
 | `server/execution/queue-scheduler.js` | 320 | Variable `observedRunningByProvider` vs `providerRunningCache` — two Maps tracking similar data with different naming conventions |
 | `server/execution/queue-scheduler.js` | 321 | `providerLimitCache` vs `providerRunningCache` — inconsistent `Cache` vs `ByProvider` suffix pattern |
+| `server/providers/ollama-cloud.js` | 66 | Does not use shared `buildErrorMessage` — inconsistent error formatting vs other providers |
+| `dashboard/src/views/FreeTier.jsx` | 122 | Local `formatDuration` shadows imported utility with different behavior |
+| `server/db/file-quality.js` | 122 | Uses `require('uuid').v4()` inconsistent with `crypto.randomUUID()` used elsewhere |
 
 ---
 
@@ -170,6 +179,10 @@ but represent opportunities for future cleanup sprints.
 | `server/tool-defs/core-defs.js` | 38 | `unlock_tier` — `required: []` but `tier` is required |
 | `server/api/v2-control-plane.js` | 54 | Metadata JSON.parse without try/catch — no validation before parse |
 | `server/providers/execute-api.js` | 247 | Metadata JSON.parse without try/catch — same pattern |
+| `server/hooks/event-dispatch.js` | 303 | `getTaskEvents` doesn't validate `options.limit` as positive integer |
+| `server/workstation/model.js` | 104 | `json_extract` with user-provided capability could construct unintended JSON paths |
+| `server/dashboard/utils.js` | 66 | `parseBody` measures string length not byte length for body size limit |
+| `bin/torque.js` | 284 | `handleBackup restore` passes user path to API without client-side validation |
 
 ---
 
@@ -219,6 +232,7 @@ but represent opportunities for future cleanup sprints.
 | `dashboard/src/views/Kanban.jsx` | 80 | `Date.now()` called inline in non-memoized helper — creates new value on every render |
 | `dashboard/src/views/Kanban.jsx` | 922 | `const now = Date.now()` inside render callback — should be from the component-level `now` state |
 | `dashboard/src/views/Hosts.jsx` | 201 | `Date.now()` called inline — not memoized, recalculates on every render |
+| `dashboard/src/components/Layout.jsx` | 388 | Notification bell `title` shows "0 failed, 0 stuck" even when no alerts |
 
 ---
 
@@ -246,6 +260,12 @@ but represent opportunities for future cleanup sprints.
 | `dashboard/e2e/dashboard.spec.js` | 503 | `await expect(page.locator('h2', { hasText: 'Task History' })).toBeVisible()` — heading presence not behavior |
 | `dashboard/e2e/dashboard.spec.js` | 508 | `await expect(first row).toBeVisible({ timeout: 10000 })` — 10s hard-coded timeout |
 | `dashboard/e2e/dashboard.spec.js` | 579 | `await expect(badges.first()).toBeVisible()` — asserts first badge visible, not that correct badge is shown |
+| `dashboard/src/test-utils.jsx` | 18 | `mockFetch` missing `clone()` and other Response properties |
+| `agent/tests/server.test.js` | 44 | `project_root: '.'` is fragile CWD-dependent test config |
+| `agent/tests/sync.test.js` | 1 | Windows file locking issues with git operations not handled |
+| `agent/tests/sync.test.js` | 135 | `afterAll` `fs.rmSync` fails on Windows file locks — temp files accumulate |
+| `dashboard/e2e/free-tier.spec.js` | 224 | `page.waitForTimeout(1000)` is a Playwright anti-pattern |
+| `server/tests/cloud-providers.test.js` | 16 | `global.fetch` restored in `afterEach` — fails to restore if test throws |
 
 ---
 
@@ -268,6 +288,12 @@ but represent opportunities for future cleanup sprints.
 | `server/db/webhooks-streaming.js` | 509 | `_partialOutputBuffers` grows as tasks stream; eviction only on task end — concurrent long-running streams accumulate |
 | `dashboard/src/views/Kanban.jsx` | 80 | `Date.now()` called in `calculateAge` helper outside render memo — recalculates on every call |
 | `server/execution/queue-scheduler.js` | 320 | Four separate Maps (`observedRunningByProvider`, `providerLimitCache`, `providerRunningCache`, `providerStartedCounts`) rebuilt on every scheduling cycle |
+| `server/utils/file-resolution.js` | 268 | `fileIndexCache` eviction temporarily exceeds max by 1 |
+| `server/discovery.js` | 672 | `lastScanResults` retains all discovered hosts indefinitely |
+| `server/orchestrator/config-loader.js` | 168 | `resolveConfig` reads 3 JSON files from disk on every call without caching |
+| `dashboard/src/views/BatchHistory.jsx` | 344 | `metaCache` grows unbounded, invalidated every 30s |
+| `dashboard/src/App.jsx` | 98 | `useTick(30000)` causes up to 30s delay in stuck task detection |
+| `server/free-quota-tracker.js` | 465 | `msgTimestamps` array grows unboundedly, compacted only at >128 |
 
 ---
 
@@ -324,6 +350,74 @@ but represent opportunities for future cleanup sprints.
 | `server/api/v2-control-plane.js` | 157 | `t.progress || t.progress_percent || 0` — three-way fallback without null-safe operators |
 | `server/api/v2-analytics-handlers.js` | 220 | `(m._totalDuration || 0)` — private temp property on external object; property pollution |
 | `server/api/v2-analytics-handlers.js` | 221 | `(m._totalCount || 0)` — same private temp property pattern |
+| `server/task-manager.js` | 304 | `getFreeQuotaTracker` lazy init race — multiple callers could create duplicates |
+| `server/providers/execute-ollama.js` | 580 | Variable shadowing: inner `task` shadows outer parameter in setInterval |
+| `server/providers/execute-api.js` | 469 | `taskClone` referenced in catch block but may be undefined |
+| `server/providers/execution.js` | 609 | Abort handler added to signal but never removed in finally |
+| `server/providers/codex-intelligence.js` | 111 | `!db` enables pre-analysis instead of disabling — inverted logic |
+| `server/providers/ollama-agentic.js` | 353 | Consecutive error tracking name misleading — tracks per-tool not general |
+| `server/providers/agentic-worker.js` | 177 | Test mode `process.exit()` after `postMessage()` may prevent delivery |
+| `server/providers/execute-ollama.js` | 793 | Host slot decrement edge case in catch — handled but fragile |
+| `server/providers/prompts.js` | 298 | Cloud + large model gets duplicate contradictory instructions |
+| `server/providers/execute-api.js` | 306 | Missing `processQueue()` call when context stuffing fails |
+| `server/providers/execute-ollama.js` | 783 | Log references `selectedHostId` after null — always logs 'default' |
+| `server/providers/agentic-capability.js` | 127 | Direct `_db.prepare()` bypasses database abstraction |
+| `server/providers/execute-hashline.js` | 823 | Promise may resolve twice — no `resolved` guard |
+| `server/providers/execute-hashline.js` | 569 | Multiple host slot reservation edge cases |
+| `server/validation/completion-detection.js` | 132 | `/^diff --git /m` too broad — false-positive on diff discussions |
+| `server/validation/post-task.js` | 741 | C# brace counting includes string literals and comments |
+| `server/validation/post-task.js` | 1097 | `.csproj` detection only checks top-level directory |
+| `server/validation/safeguard-gates.js` | 72 | Double rollback in retry path |
+| `server/validation/preflight-types.js` | 274 | Fuzzy match character overlap ignores frequency |
+| `server/execution/command-policy.js` | 300 | Object passed where separate args expected — fragile coupling |
+| `server/execution/process-lifecycle.js` | 451 | Synthetic close event race with real close — safe but fragile |
+| `server/execution/process-lifecycle.js` | 405 | Instant-exit and close handler both finalize — guarded but fragile |
+| `server/execution/queue-scheduler.js` | 337 | `parsePositiveInt` rejects 0 but 0 running count is valid |
+| `server/execution/queue-scheduler.js` | 622 | Raw `db.prepare()` bypasses abstraction layer |
+| `server/execution/smart-diagnosis-stage.js` | 90 | Metadata type mutation — assigns string or object inconsistently |
+| `server/execution/task-cancellation.js` | 43 | `reason.toLowerCase()` throws if `null` explicitly passed |
+| `server/execution/task-cancellation.js` | 76 | Abort controller invoked but status may have changed |
+| `server/execution/process-tracker.js` | 214 | Class field syntax inconsistent with CommonJS style |
+| `server/tools.js` | 340 | `handleRestartServer` shadows module-level logger |
+| `server/tools.js` | 338 | `handleRestartServer` returns success before restart, no double-call guard |
+| `server/tools.js` | 441 | `throw { code: -32602 }` throws plain object — loses stack traces |
+| `server/tools.js` | 441 | Raw `name` in error message — potential log injection |
+| `server/orchestrator/response-parser.js` | 4 | Fence regex fails for code blocks without trailing newline |
+| `server/orchestrator/response-parser.js` | 29 | Brace-matching doesn't handle single-quoted strings |
+| `server/discovery.js` | 273 | `getServiceUrl` silently drops URL fragments |
+| `server/orchestrator/benchmark.js` | 29 | `toCsv()` doesn't escape CSV special characters |
+| `server/utils/credential-crypto.js` | 13 | Encryption key in memory as hex string — no zeroing |
+| `server/utils/credential-crypto.js` | 67 | TOCTOU race between `existsSync` and `readFileSync` |
+| `server/utils/file-resolution.js` | 64 | `isValidFilePath` rejects `//` — blocks valid UNC paths |
+| `server/utils/hashline-parser.js` | 430 | Very broad JSON regex for LLM output extraction |
+| `server/utils/sanitize.js` | 80 | Concurrent `lastIndex` race on shared regex objects |
+| `server/economy/queue-reroute.js` | 115 | SQL column from hardcoded map interpolated into query |
+| `server/workstation/model.js` | 143 | SQL field names interpolated from allowedFields — fragile |
+| `server/remote/remote-test-routing.js` | 320 | `undefined` args, compound command as executable name |
+| `server/hooks/approval-gate.js` | 41 | `git diff HEAD~1 HEAD` fails in single-commit repos |
+| `dashboard/src/websocket.js` | 121 | `connect` in dependency array — fragile reconnect trigger |
+| `dashboard/src/components/TaskSubmitForm.jsx` | 52 | `[toast]` dependency — infinite loop risk if unstable ref |
+| `dashboard/src/components/SessionSwitcher.jsx` | 78 | Full page navigation loses unsaved state |
+| `dashboard/src/views/RoutingTemplates.jsx` | 252 | `setEditingName` used before useState declaration |
+| `dashboard/src/views/Approvals.jsx` | 191 | `lastAction` race — rapid clicks show wrong loading text |
+| `dashboard/src/views/Kanban.jsx` | 203 | JS truncation competes with CSS `line-clamp-2` |
+| `dashboard/src/views/Schedules.jsx` | 132 | `gradient="slate"` not in GRADIENTS map — invisible card |
+| `dashboard/src/views/History.jsx` | 131 | CSV export doesn't quote fields that may contain commas |
+| `cli/torque-cli.js` | 195 | `workflow` without subcommand gives confusing error |
+| `cli/commands.js` | 342 | `handleHealth` 0-param signature called with 2 args |
+| `cli/formatter.js` | 299 | No format case for `workflow_add_task` |
+| `cli/formatter.js` | 304 | CI command types have no formatter cases |
+| `cli/stop.js` | 5 | `killPid` SIGTERM without exit verification |
+| `cli/dashboard.js` | 20 | Windows `start` with env-sourced URL — injection risk |
+| `bin/torque.js` | 99 | `collectDescription` strips `--*` including quoted flags |
+| `bin/torque.js` | 278 | `handleBackup` argv[4] with no flag-aware parsing |
+| `bin/torque.js` | 119 | `runHandler` doesn't distinguish API vs usage errors |
+| `cli/commands.js` | 261 | `handleAwait` polling has no backoff |
+| `dashboard/e2e/strategic.spec.js` | 196 | Fallback rate test depends on rounding behavior |
+| `server/db/analytics.js` | 288 | `getPatternCondition` interpolates LIKE patterns — fragile |
+| `server/db/migrations.js` | 154 | `rollbackMigration` splits by `;` — breaks in string literals |
+| `server/api/middleware.js` | 266 | `checkAuth` hashes before timingSafeEqual — unnecessary overhead |
+| `server/db/analytics.js` | 1118 | `recordExperimentOutcome` interpolates column name into SQL |
 
 ---
 
@@ -346,6 +440,7 @@ but represent opportunities for future cleanup sprints.
 | `server/vitest.config.js` | 13 | `dangerouslyIgnoreUnhandledErrors: !!process.env.CI` — silences unhandled promise rejections in CI; masks real bugs |
 | `server/vitest.config.js` | 8 | `hookTimeout: 10000` — 10s hook timeout with 15s test timeout leaves only 5s margin |
 | `server/eslint.config.js` | 54 | `'no-unused-vars': ['warn', ...]` — unused vars emit warnings not errors; real dead code can accumulate |
+| `cli/init.js` | 52 | `generateMcpJson` creates stdio config but server uses SSE transport |
 
 ---
 
@@ -383,6 +478,12 @@ but represent opportunities for future cleanup sprints.
 | `server/utils/context-enrichment.js` | 585 | `} catch {` — enrichment context build silently fails |
 | `server/utils/context-enrichment.js` | 754 | `} catch {` — large enrichment function has silent catch at end |
 | `server/utils/context-enrichment.js` | 772 | `} catch { continue; }` — loop continues silently on item failure |
+| `server/providers/cerebras.js` | 38 | Missing `signal?.aborted` pre-check — aborted signal ignored |
+| `server/providers/google-ai.js` | 38 | Same missing `signal?.aborted` pre-check |
+| `server/providers/adapters/google-chat.js` | 170 | Non-JSON HTTP error body causes confusing parse error |
+| `server/policy-engine/engine.js` | 4 | Module-load `require()` for adapters — failure crashes engine |
+| `server/contracts/peek.js` | 177 | `loadPeekContractFixture` no error handling for missing file |
+| `bin/torque.js` | 119 | `runHandler` doesn't distinguish error types |
 
 ---
 
@@ -408,6 +509,13 @@ but represent opportunities for future cleanup sprints.
 | `server/mcp/index.js` | 1896 | `idempotencyCleanupInterval` — starts on init, no corresponding stop |
 | `server/mcp/index.js` | 1897 | `sessionCleanupInterval` — same |
 | `server/mcp/index.js` | 1905 | `rateLimitCleanupInterval` — same; three intervals in mcp/index.js with no teardown |
+| `server/mcp-sse.js` | 46 | `notificationMetrics` counters grow indefinitely |
+| `server/providers/execution.js` | 609 | Abort handler on signal never removed |
+| `server/utils/git.js` | 56 | `_fingerprintCache` grows unbounded — no eviction |
+| `server/utils/host-monitoring.js` | 700 | `_discoveryInitTimeout` not tracked — not cancelled |
+| `server/hooks/event-dispatch.js` | 363 | `startRetentionPolicy()` at module load starts timers in tests |
+| `server/hooks/event-dispatch.js` | 26 | EventEmitter maxListeners(100) — no cleanup for timed-out listeners |
+| `server/execution/process-lifecycle.js` | 96 | SIGKILL setTimeout never stored — keeps event loop alive |
 
 ---
 
@@ -415,16 +523,16 @@ but represent opportunities for future cleanup sprints.
 
 | Category | Items |
 |----------|-------|
-| Dead code | 40 |
-| Naming inconsistencies | 30 |
+| Dead code | 46 |
+| Naming inconsistencies | 33 |
 | Missing documentation | 25 |
-| Minor validation gaps | 35 |
+| Minor validation gaps | 39 |
 | Code duplication | 20 |
-| Minor accessibility | 15 |
-| Test quality | 20 |
-| Minor performance | 15 |
-| Code smells | 50 |
-| Configuration | 15 |
-| Minor error handling | 30 |
-| Minor resource leaks | 18 |
-| **Total** | **313** |
+| Minor accessibility | 16 |
+| Test quality | 26 |
+| Minor performance | 21 |
+| Code smells | 118 |
+| Configuration | 16 |
+| Minor error handling | 36 |
+| Minor resource leaks | 25 |
+| **Total** | **416** |
