@@ -211,14 +211,14 @@ function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce')
       continue;
     }
     if (mode === 'warn') {
-      console.warn(`[agentic-git-safety] Unauthorized change (warn mode, not reverted): ${filePath}`);
+      logger.warn(`[agentic-git-safety] Unauthorized change (warn mode, not reverted): ${filePath}`);
       kept.push(filePath);
     } else {
       try {
         gitExec(['checkout', '--', filePath], workingDir);
         reverted.push(filePath);
       } catch (err) {
-        console.warn(`[agentic-git-safety] Failed to revert ${filePath}: ${err.message}`);
+        logger.warn(`[agentic-git-safety] Failed to revert ${filePath}: ${err.message}`);
         kept.push(filePath);
       }
     }
@@ -236,7 +236,7 @@ function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce')
       continue;
     }
     if (mode === 'warn') {
-      console.warn(`[agentic-git-safety] Unauthorized new file (warn mode, not deleted): ${filePath}`);
+      logger.warn(`[agentic-git-safety] Unauthorized new file (warn mode, not deleted): ${filePath}`);
       kept.push(filePath);
     } else {
       const fullPath = path.resolve(workingDir, filePath);
@@ -244,7 +244,7 @@ function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce')
         fs.unlinkSync(fullPath);
         reverted.push(filePath);
       } catch (err) {
-        console.warn(`[agentic-git-safety] Failed to delete ${filePath}: ${err.message}`);
+        logger.warn(`[agentic-git-safety] Failed to delete ${filePath}: ${err.message}`);
         kept.push(filePath);
       }
     }
