@@ -118,6 +118,9 @@ function updateWorkstation(id, updates) {
   const values = [];
 
   for (const [key, value] of Object.entries(updates)) {
+    // Field names are validated against the allowedFields allowlist above before
+    // being interpolated into the SQL — user-supplied keys that are not in the
+    // list are silently ignored, so only known column names reach the query.
     if (allowedFields.includes(key)) {
       fields.push(`${key} = ?`);
       values.push(value);

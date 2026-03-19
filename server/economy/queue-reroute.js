@@ -112,6 +112,8 @@ function rerouteQueuedTasks(scope, policy) {
   const values = ['queued'];
 
   if (!scopeSpec.isGlobal && scopeSpec.filter && scopeSpec.filter.value != null) {
+    // column comes from the getScopeFilter() hardcoded map above — only
+    // 'working_directory' or 'workflow_id' can appear here, never user input.
     baseQuery.push(`AND ${scopeSpec.filter.column} = ?`);
     values.push(scopeSpec.filter.value);
   }

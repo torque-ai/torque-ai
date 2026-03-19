@@ -274,6 +274,9 @@ function calibratePredictionModels() {
   const patterns = ['test', 'build', 'lint', 'refactor', 'fix', 'create', 'update', 'delete', 'general'];
 
   for (const pattern of patterns) {
+    // getPatternCondition() returns a hardcoded SQL fragment from an internal
+    // map keyed by the fixed 'patterns' array above — 'pattern' is never user
+    // input, so the interpolation is safe against injection.
     const patternCondition = getPatternCondition(pattern);
     const stmt = db.prepare(`
       SELECT COUNT(*) as count,
@@ -1106,6 +1109,8 @@ function recordExperimentOutcome(experimentId, variant, succeeded, duration) {
   const exp = getExperiment(experimentId);
   if (!exp || exp.status !== 'running') return false;
 
+  // resultsKey is either 'results_a' or 'results_b' — derived from the ternary
+  // on the validated `variant` parameter, never from user input directly.
   const resultsKey = variant === 'a' ? 'results_a' : 'results_b';
   const results = variant === 'a' ? exp.results_a : exp.results_b;
 
