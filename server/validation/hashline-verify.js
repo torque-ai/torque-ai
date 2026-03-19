@@ -151,10 +151,11 @@ function attemptFuzzySearchRepair(taskId, output, workingDirectory) {
   let anyRepaired = false;
   let bestSimilarity = 0;
 
+  // Phase 1: find the best fuzzy match position for each block (read-only pass)
   for (const block of blocks) {
     const searchLines = block.search.split('\n');
+    block._searchLines = searchLines;
 
-    // Try to find the best fuzzy match in the file
     let bestMatchStart = -1;
     let bestMatchScore = 0;
 
@@ -170,7 +171,17 @@ function attemptFuzzySearchRepair(taskId, output, workingDirectory) {
       }
     }
 
+    block._matchStart = bestMatchStart;
+    block._matchScore = bestMatchScore;
     bestSimilarity = Math.max(bestSimilarity, bestMatchScore);
+  }
+
+  // Phase 2: apply repairs in reverse line order so earlier splices don't shift
+  // the indices of blocks that appear higher up in the file.
+  blocks.sort((a, b) => b._matchStart - a._matchStart);
+
+  for (const block of blocks) {
+    const { _searchLines: searchLines, _matchStart: bestMatchStart, _matchScore: bestMatchScore } = block;
 
     // Apply repair if similarity >= 80%
     if (bestMatchScore >= 0.8 && bestMatchStart >= 0) {
