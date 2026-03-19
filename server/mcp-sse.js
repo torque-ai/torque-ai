@@ -21,7 +21,6 @@ const mcpProtocol = require('./mcp-protocol');
 
 const JSONRPC_VERSION = '2.0';
 const KEEPALIVE_INTERVAL_MS = 30000; // 30 seconds
-const DEFAULT_MCP_ALLOWED_ORIGINS = 'http://localhost:3456,http://127.0.0.1:3456';
 const MAX_PENDING_EVENTS = 100;
 const CHECK_NOTIFICATIONS_MIN_INTERVAL_MS = 1000; // 1s minimum between check_notifications calls
 const DEDUP_WINDOW_MS = 5000; // 5s window: replace existing event for same task instead of queuing duplicate
@@ -29,12 +28,20 @@ const DEFAULT_NOTIFICATION_TEMPLATE = '[TORQUE] Task {taskId} {status}{ (}{durat
 const EVENT_AGGREGATION_WINDOW_MS = 10000; // 10s window for grouping rapid-fire events
 const MAX_SSE_SESSIONS = 50;
 
-let _allowedOrigins = null;
+// Per-IP session tracking for connection limiting
+const _perIpSessionCount = new Map();
+const MAX_SESSIONS_PER_IP = 10;
+
 function getAllowedOrigins() {
-  if (!_allowedOrigins) {
-    _allowedOrigins = parseAllowedOrigins(process.env.MCP_ALLOWED_ORIGINS ?? DEFAULT_MCP_ALLOWED_ORIGINS);
+  if (process.env.MCP_ALLOWED_ORIGINS) {
+    return parseAllowedOrigins(process.env.MCP_ALLOWED_ORIGINS);
   }
-  return _allowedOrigins;
+  // Dynamic: derive from configured dashboard port so the dashboard always works
+  const dashboardPort = serverConfig ? serverConfig.getInt('dashboard_port', 3456) : 3456;
+  return new Set([
+    `http://127.0.0.1:${dashboardPort}`,
+    `http://localhost:${dashboardPort}`,
+  ]);
 }
 
 // Abort controller — fires on server shutdown so blocking handlers (await_task, await_workflow) can return early
@@ -360,27 +367,13 @@ function generateSessionId() {
  */
 function parseAllowedOrigins(rawOrigins) {
   if (typeof rawOrigins !== 'string') {
-    return new Set(
-      DEFAULT_MCP_ALLOWED_ORIGINS
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
-    );
+    return new Set();
   }
 
   const parsed = rawOrigins
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
-
-  if (!parsed.length) {
-    return new Set(
-      DEFAULT_MCP_ALLOWED_ORIGINS
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
-    );
-  }
 
   return new Set(parsed);
 }
@@ -661,6 +654,12 @@ function notifySubscribedSessions(eventName, taskData) {
     if (dead) {
       removeSessionFromTaskSubscriptions(id, dead.taskFilter);
       if (dead.keepaliveTimer) clearTrackedInterval(dead.keepaliveTimer);
+      // Decrement per-IP counter
+      if (dead._ip) {
+        const ipCount = _perIpSessionCount.get(dead._ip) || 1;
+        if (ipCount <= 1) _perIpSessionCount.delete(dead._ip);
+        else _perIpSessionCount.set(dead._ip, ipCount - 1);
+      }
       sessions.delete(id);
     } else {
       purgeSessionFromTaskSubscriptions(id);
@@ -896,7 +895,7 @@ function cleanExpiredSubscriptions() {
  * Handle subscribe_task_events tool call.
  */
 // SECURITY (M3): Prevent subscription flood — limit task subscriptions per session
-const MAX_SUBSCRIPTIONS_PER_SESSION = 50;
+const MAX_SUBSCRIPTIONS_PER_SESSION = 200;
 
 function handleSubscribeTaskEvents(session, args) {
   const previousTaskFilter = new Set(session.taskFilter);
@@ -909,17 +908,14 @@ function handleSubscribeTaskEvents(session, args) {
 
   // Update task filter
   if (Array.isArray(args.task_ids)) {
-    // SECURITY (M3): Check subscription limit before adding (check new IDs only, not cumulative)
-    if (args.task_ids.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
+    // SECURITY (M3): Check cumulative subscription limit before adding new IDs
+    const newIds = args.task_ids.filter(id => {
+      const norm = normalizeTaskId(id);
+      return norm && !session.taskFilter.has(norm);
+    });
+    if (session.taskFilter.size + newIds.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
       return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            error: `Subscription limit exceeded: max ${MAX_SUBSCRIPTIONS_PER_SESSION} task subscriptions per session`,
-            current: session.taskFilter.size,
-            requested: args.task_ids.length,
-          }),
-        }],
+        content: [{ type: 'text', text: `Subscription limit reached (${MAX_SUBSCRIPTIONS_PER_SESSION}). Unsubscribe from some tasks first.` }],
         isError: true,
       };
     }
@@ -1051,9 +1047,15 @@ function parseBody(req) {
     const chunks = [];
     let totalSize = 0;
     const MAX_BODY = 10 * 1024 * 1024;
+
+    const bodyTimeout = setTimeout(() => {
+      req.destroy(new Error('Body parse timeout (30s)'));
+    }, 30000);
+
     req.on('data', chunk => {
       totalSize += chunk.length;
       if (totalSize > MAX_BODY) {
+        clearTimeout(bodyTimeout);
         reject(new Error('Request body too large'));
         req.destroy();
         return;
@@ -1061,6 +1063,7 @@ function parseBody(req) {
       chunks.push(chunk);
     });
     req.on('end', () => {
+      clearTimeout(bodyTimeout);
       const body = Buffer.concat(chunks).toString('utf-8');
       if (!body) return resolve(null);
       try {
@@ -1069,7 +1072,10 @@ function parseBody(req) {
         reject(new Error('Invalid JSON'));
       }
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      clearTimeout(bodyTimeout);
+      reject(err);
+    });
   });
 }
 
@@ -1208,6 +1214,18 @@ async function handleHttpRequest(req, res) {
       return;
     }
 
+    const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+    if (!existingSession) {
+      const currentIpCount = _perIpSessionCount.get(ip) || 0;
+      if (currentIpCount >= MAX_SESSIONS_PER_IP) {
+        logger.warn(`[SSE] Per-IP session limit reached for ${ip}`);
+        res.writeHead(429, { 'Content-Type': 'text/plain' });
+        res.end('Too many sessions from this IP');
+        return;
+      }
+      _perIpSessionCount.set(ip, currentIpCount + 1);
+    }
+
     const lastEventIdHeader = (() => {
       const headerValue = req.headers['last-event-id'] || req.headers['Last-Event-ID'] || req.headers['LAST-EVENT-ID'];
       if (!headerValue) return 0;
@@ -1239,6 +1257,13 @@ async function handleHttpRequest(req, res) {
         if (deadSession && deadSession.res === res) {
           sessions.delete(sessionId);
           removeSessionFromTaskSubscriptions(sessionId, deadSession.taskFilter);
+          // Decrement per-IP counter on keepalive-detected disconnect
+          const sessionIp = deadSession._ip;
+          if (sessionIp) {
+            const ipCount = _perIpSessionCount.get(sessionIp) || 1;
+            if (ipCount <= 1) _perIpSessionCount.delete(sessionIp);
+            else _perIpSessionCount.set(sessionIp, ipCount - 1);
+          }
           const aggrBuf = aggregationBuffers.get(sessionId);
           if (aggrBuf) {
             if (aggrBuf.timer) clearTimeout(aggrBuf.timer);
@@ -1288,6 +1313,7 @@ async function handleHttpRequest(req, res) {
       _remoteAddress: remoteAddress,
       _origin: req.headers.origin || null,
       _eventCounter: 0,
+      _ip: ip,
     };
     session.res = res;
     session.keepaliveTimer = keepaliveTimer;
@@ -1383,6 +1409,13 @@ async function handleHttpRequest(req, res) {
       if (current && current.res === res) {
         sessions.delete(sessionId);
         removeSessionFromTaskSubscriptions(sessionId, current.taskFilter);
+        // Decrement per-IP session counter
+        const sessionIp = current._ip;
+        if (sessionIp) {
+          const ipCount = _perIpSessionCount.get(sessionIp) || 1;
+          if (ipCount <= 1) _perIpSessionCount.delete(sessionIp);
+          else _perIpSessionCount.set(sessionIp, ipCount - 1);
+        }
         // Clean up aggregation buffers for this session
         const aggrBuf = aggregationBuffers.get(sessionId);
         if (aggrBuf) {

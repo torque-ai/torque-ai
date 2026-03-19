@@ -43,6 +43,10 @@ const SECURITY_HEADERS = {
 // Connected WebSocket clients
 const clients = new Set();
 
+// Per-IP WebSocket connection tracking
+const _perIpWsCount = new Map();
+const MAX_WS_PER_IP = 20;
+
 // WebSocket topic subscriptions (topic -> Set of clients)
 const topicSubscriptions = new Map();
 const clientTopicSubscriptions = new Map();
@@ -443,6 +447,15 @@ function handleWebSocket(ws) {
     ws.close(1013, 'Too many connections');
     return;
   }
+
+  const wsIp = ws._socket?.remoteAddress || 'unknown';
+  const currentIpWsCount = _perIpWsCount.get(wsIp) || 0;
+  if (currentIpWsCount >= MAX_WS_PER_IP) {
+    ws.close(1013, 'Too many connections from this IP');
+    return;
+  }
+  _perIpWsCount.set(wsIp, currentIpWsCount + 1);
+
   clients.add(ws);
 
   // Send initial connection success with instance identity
@@ -532,6 +545,11 @@ function handleWebSocket(ws) {
 
   function removeClient(ws) {
     clients.delete(ws);
+    // Decrement per-IP WebSocket counter
+    const closedIp = ws._socket?.remoteAddress || wsIp;
+    const ipWsCount = _perIpWsCount.get(closedIp) || 1;
+    if (ipWsCount <= 1) _perIpWsCount.delete(closedIp);
+    else _perIpWsCount.set(closedIp, ipWsCount - 1);
     // Remove from all topic subscriptions and prune empty sets
     const clientTopics = clientTopicSubscriptions.get(ws);
     if (clientTopics) {
