@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { routingTemplates as api } from '../api';
 import { useToast } from '../components/Toast';
 import { PROVIDER_HEX_COLORS } from '../constants';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 
 // ─── Provider Colors (hex for colored dots) ─────────────────────────────────
 
@@ -427,8 +428,8 @@ export default function RoutingTemplates() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-slate-400">Loading routing templates...</p>
+      <div className="py-12 px-6">
+        <LoadingSkeleton lines={5} />
       </div>
     );
   }

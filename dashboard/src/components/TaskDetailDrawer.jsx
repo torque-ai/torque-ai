@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { tasks as tasksApi, taskLogs, providers as providersApi } from '../api';
 import { useToast } from './Toast';
 import { STATUS_BG_COLORS } from '../constants';
+import LoadingSkeleton from './LoadingSkeleton';
 import { parseAnsi } from '../utils/ansiToHtml';
 import { getRelevantModel } from '../utils/providerModels';
 import { formatDurationMs } from '../utils/formatters';
@@ -373,8 +374,8 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
         </div>
 
         {loading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-slate-400">Loading...</p>
+          <div className="flex-1 p-6">
+            <LoadingSkeleton lines={5} />
           </div>
         ) : task ? (
           <>

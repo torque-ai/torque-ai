@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { stats as statsApi, models as modelsApi } from '../api';
 import StatCard from '../components/StatCard';
 import { formatDate, formatDuration } from '../utils/formatters';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 import {
   BarChart, Bar, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -65,7 +66,7 @@ export default function Models() {
     return () => { cancelled = true; };
   }, [activeTab, days]);
 
-  if (loading) return <div className="p-6 text-slate-400">Loading model stats...</div>;
+  if (loading) return <div className="p-6"><LoadingSkeleton lines={5} /></div>;
   if (error) return <div className="p-6"><div className="text-red-400 text-sm">{error}</div></div>;
   if (!data || !data.models?.length) return <div className="p-6 text-slate-400">No model data for the last {days} days.</div>;
 

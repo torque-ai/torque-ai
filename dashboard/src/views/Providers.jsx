@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud, requestV2, request } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 import { PROVIDER_HEX_COLORS } from '../constants';
 import { formatDate } from '../utils/formatters';
 import {
@@ -581,8 +582,8 @@ export default function Providers({ statsVersion, tasksTick }) {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center h-full">
-        <p className="text-slate-400">Loading...</p>
+      <div className="p-6">
+        <LoadingSkeleton lines={5} />
       </div>
     );
   }

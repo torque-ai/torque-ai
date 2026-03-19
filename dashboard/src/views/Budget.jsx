@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { budget as budgetApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 import { PROVIDER_HEX_COLORS } from '../constants';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -111,8 +112,8 @@ export default function Budget() {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center h-full">
-        <p className="text-slate-400">Loading...</p>
+      <div className="p-6">
+        <LoadingSkeleton lines={5} />
       </div>
     );
   }

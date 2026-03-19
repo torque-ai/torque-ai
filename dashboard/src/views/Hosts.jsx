@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi, models } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 import { formatDistanceToNow } from 'date-fns';
 
 const STATUS_STYLES = {
@@ -1257,8 +1258,8 @@ export default function Hosts({ hostActivity }) {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center h-full">
-        <p className="text-slate-400">Loading...</p>
+      <div className="p-6">
+        <LoadingSkeleton lines={5} />
       </div>
     );
   }

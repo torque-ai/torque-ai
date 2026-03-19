@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'reac
 import { strategic as strategicApi } from '../api';
 import StatCard from '../components/StatCard';
 import { PROVIDER_COLORS } from '../constants';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 
 const RoutingTemplates = React.lazy(() => import('./RoutingTemplates'));
 const StrategicConfig = React.lazy(() => import('./StrategicConfig'));
@@ -478,8 +479,8 @@ export default function Strategic() {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center h-full">
-        <p className="text-slate-400">Loading...</p>
+      <div className="p-6">
+        <LoadingSkeleton lines={5} />
       </div>
     );
   }

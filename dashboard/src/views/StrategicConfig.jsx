@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { strategic as api } from '../api';
 import { useToast } from '../components/Toast';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -480,8 +481,8 @@ export default function StrategicConfig() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-slate-400">Loading configuration...</p>
+      <div className="py-12 px-6">
+        <LoadingSkeleton lines={5} />
       </div>
     );
   }

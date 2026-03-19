@@ -3,6 +3,7 @@ import { planProjects as projectsApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import WorkflowDAG from '../components/WorkflowDAG';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 
 const STATUS_TABS = [
   { value: '', label: 'All' },
@@ -609,8 +610,8 @@ export default function PlanProjects() {
 
   if (loading) {
     return (
-      <div className="p-6 flex items-center justify-center h-full">
-        <p className="text-slate-400">Loading projects...</p>
+      <div className="p-6">
+        <LoadingSkeleton lines={5} />
       </div>
     );
   }
