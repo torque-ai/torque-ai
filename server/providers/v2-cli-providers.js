@@ -16,6 +16,7 @@ const db = require('../database');
 const prompts = require('./prompts');
 const logger = require('../logger').child({ component: 'v2-cli-providers' });
 const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
+const { buildSafeEnv } = require('../utils/safe-env');
 
 prompts.init({ db });
 
@@ -160,8 +161,7 @@ class CliProviderAdapter extends BaseProvider {
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
       windowsHide: true,
-      env: {
-        ...process.env,
+      env: buildSafeEnv(this.providerId, {
         FORCE_COLOR: '0',
         NO_COLOR: '1',
         TERM: 'dumb',
@@ -169,7 +169,7 @@ class CliProviderAdapter extends BaseProvider {
         CODEX_NON_INTERACTIVE: '1',
         CLAUDE_NON_INTERACTIVE: '1',
         PYTHONIOENCODING: 'utf-8',
-      },
+      }),
       shell: useShell,
     });
 

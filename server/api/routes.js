@@ -186,20 +186,6 @@ const routes = [
     middleware: buildV2Middleware(),
   },
 
-  // ─── V2 Control-Plane: Remote Execution ──────────────────────────────────
-  {
-    method: 'POST',
-    path: '/api/v2/remote/run',
-    handlerName: 'handleV2CpRunRemoteCommand',
-    middleware: buildV2Middleware(),
-  },
-  {
-    method: 'POST',
-    path: '/api/v2/remote/test',
-    handlerName: 'handleV2CpRunTests',
-    middleware: buildV2Middleware(),
-  },
-
   // ─── V2 Control-Plane: Tasks ─────────────────────────────────────────────
   {
     method: 'POST',

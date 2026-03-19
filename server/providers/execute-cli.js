@@ -20,6 +20,7 @@ const { redactCommandArgs, redactSecrets } = require('../utils/sanitize');
 const gitWorktree = require('../utils/git-worktree');
 const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
+const aiderCommand = require('./aider-command');
 
 // Dependency injection
 let db = null;
@@ -64,6 +65,19 @@ function init(deps) {
   if (deps.pendingRetryTimeouts) _pendingRetryTimeouts = deps.pendingRetryTimeouts;
   if (deps.taskCleanupGuard) _taskCleanupGuard = deps.taskCleanupGuard;
   if (deps.stallRecoveryAttempts) stallRecoveryAttempts = deps.stallRecoveryAttempts;
+
+  // Forward relevant deps to aider-command so buildAiderCommand/configureAiderHost work
+  aiderCommand.init({
+    db: deps.db,
+    dashboard: deps.dashboard,
+    wrapWithInstructions: deps.helpers?.wrapWithInstructions,
+    detectTaskTypes: deps.helpers?.detectTaskTypes,
+    isLargeModelBlockedOnHost: deps.helpers?.isLargeModelBlockedOnHost || deps.isLargeModelBlockedOnHost,
+    tryReserveHostSlotWithFallback: deps.tryReserveHostSlotWithFallback,
+    processQueue: deps.processQueue,
+    extractTargetFilesFromDescription: deps.helpers?.extractTargetFilesFromDescription,
+    ensureTargetFilesExist: deps.helpers?.ensureTargetFilesExist,
+  });
 }
 
 // Proxy helpers
@@ -74,6 +88,10 @@ function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cl
 
 /**
  * Build aider-ollama CLI command specification.
+ * Delegates to aider-command.js (buildAiderCommand + configureAiderHost) which
+ * contains the canonical, fully-featured implementation including --no-detect-urls
+ * and --timeout flags.
+ *
  * @param {Object} task - Full task object
  * @param {string} resolvedFileContext - Pre-resolved file context string
  * @param {string[]} resolvedFilePaths - Pre-resolved file path array
@@ -81,331 +99,19 @@ function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cl
  */
 function buildAiderOllamaCommand(task, resolvedFileContext, resolvedFilePaths) {
   const taskId = task.id;
-  let usedEditFormat = null;
 
-    // Aider with Ollama - agentic local LLM
-    const aiderModel = task.model || serverConfig.get('ollama_model') || 'qwen2.5-coder:7b';
-    const aiderPath = process.platform === 'win32'
-      ? path.join(os.homedir(), '.local', 'bin', 'aider.exe')
-      : path.join(process.env.HOME || os.homedir(), '.local', 'bin', 'aider');
+  // Build CLI args via canonical aider-command module
+  const cmdResult = aiderCommand.buildAiderCommand(task, resolvedFileContext, resolvedFilePaths);
+  const { cliPath, finalArgs, usedEditFormat } = cmdResult;
 
-    // Get aider tuning options
-    let editFormat = serverConfig.get('aider_edit_format') || 'diff';
-    const mapTokens = serverConfig.get('aider_map_tokens') || '0';
-    const autoCommits = serverConfig.isOptIn('aider_auto_commits');
-    const subtreeOnly = serverConfig.getBool('aider_subtree_only');
+  // Configure host selection, VRAM guard, slot reservation, and env vars
+  const envExtras = {};
+  const hostResult = aiderCommand.configureAiderHost(task, taskId, envExtras);
+  if (hostResult.requeued) {
+    return { requeued: true, reason: hostResult.result?.reason || 'requeued' };
+  }
 
-    // Per-model edit format override
-    let modelSpecificFormat = false;
-    const modelEditFormatsJson = serverConfig.get('aider_model_edit_formats');
-    if (modelEditFormatsJson && aiderModel) {
-      try {
-        const modelFormats = JSON.parse(modelEditFormatsJson);
-        const modelKey = aiderModel.toLowerCase();
-        const baseModel = modelKey.split(':')[0];
-        const modelFormat = modelFormats[modelKey] || modelFormats[baseModel];
-        if (modelFormat) {
-          editFormat = modelFormat;
-          modelSpecificFormat = true;
-          logger.info(`[Aider] Using model-specific edit format: ${editFormat} for ${aiderModel}`);
-        }
-      } catch (e) {
-        logger.info(`[Aider] Failed to parse model edit formats: ${e.message}`);
-      }
-    }
-
-    // Check for stall recovery edit format override
-    if (task.metadata) {
-      try {
-        const metadata = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : JSON.parse(task.metadata || '{}');
-        if (metadata.stallRecoveryEditFormat) {
-          editFormat = metadata.stallRecoveryEditFormat;
-          logger.info(`[Aider] Using stall recovery edit format: ${editFormat} (overrides model-specific)`);
-        }
-      } catch { /* ignore parse errors */ }
-    }
-
-    // Proactive format selection
-    const proactiveEnabled = serverConfig.getBool('proactive_format_selection_enabled');
-    if (proactiveEnabled && editFormat === 'diff' && !modelSpecificFormat && task.retry_count === 0) {
-      const taskTypes = _helpers.detectTaskTypes(task.task_description || '');
-      let proactiveReason = null;
-
-      if (taskTypes.includes('file-creation')) {
-        proactiveReason = 'file-creation task (no existing content to SEARCH)';
-      }
-
-      if (!proactiveReason && isSmallModel(aiderModel)) {
-        proactiveReason = `small model (${aiderModel})`;
-      }
-
-      if (!proactiveReason && taskTypes.includes('single-file-task') && task.working_directory) {
-        try {
-          const fileRefMatch = (task.task_description || '').match(/\b([\w\-/\\]+\.(ts|js|py|cs|java|go|rs|cpp|c|h))\b/i);
-          if (fileRefMatch) {
-            const targetPath = path.resolve(task.working_directory, fileRefMatch[1]);
-            if (fs.existsSync(targetPath)) {
-              const lineCount = fs.readFileSync(targetPath, 'utf8').split('\n').length;
-              if (lineCount < 100) {
-                proactiveReason = `single small file (${lineCount} lines)`;
-              }
-            }
-          }
-        } catch { /* ignore file access errors */ }
-      }
-
-      if (proactiveReason) {
-        editFormat = 'whole';
-        logger.info(`[Aider] Proactive format selection: 'whole' — ${proactiveReason}`);
-      }
-    }
-
-    // Auto-switch edit format based on retry count and file size
-    const autoSwitchEnabled = serverConfig.getBool('aider_auto_switch_format');
-    if (autoSwitchEnabled && editFormat === 'diff' && !modelSpecificFormat) {
-      let switchReason = null;
-
-      if (task.retry_count > 0) {
-        switchReason = `retry attempt ${task.retry_count + 1}`;
-      }
-
-      if (!switchReason && task.working_directory) {
-        try {
-          const files = fs.readdirSync(task.working_directory)
-            .filter(f => /\.(cs|js|ts|py|java|go|rs|cpp|c|h)$/i.test(f))
-            .slice(0, 3);
-
-          if (files.length > 0) {
-            const avgLines = files.reduce((sum, f) => {
-              try {
-                const content = fs.readFileSync(path.join(task.working_directory, f), 'utf8');
-                return sum + content.split('\n').length;
-              } catch { return sum; }
-            }, 0) / files.length;
-
-            if (avgLines > 0 && avgLines < 150) {
-              switchReason = `small files (avg ${Math.round(avgLines)} lines)`;
-            }
-          }
-        } catch {
-          // Ignore file access errors
-        }
-      }
-
-      if (switchReason) {
-        editFormat = 'whole';
-        logger.info(`[Aider] Auto-switched to 'whole' edit format: ${switchReason}`);
-      }
-    }
-
-    // Track edit format used for stall recovery
-    usedEditFormat = editFormat;
-
-    // Wrap task description with standardized instructions
-    const wrappedDescription = _helpers.wrapWithInstructions(
-      task.task_description,
-      'aider-ollama',
-      aiderModel,
-      { files: task.files, project: task.project, fileContext: resolvedFileContext }
-    );
-
-    const cliPath = aiderPath;
-    const finalArgs = [
-      '--model', `ollama/${aiderModel}`,
-      '--edit-format', editFormat,
-      '--map-tokens', mapTokens,
-      '--yes',
-      '--no-pretty',
-      '--no-stream',
-      '--no-auto-lint',
-      '--no-suggest-shell-commands',
-      '--no-show-model-warnings',
-      '--model-metadata-file', path.join(__dirname, '..', 'aider-model-metadata.json'),
-      '--exit',
-      '--message', wrappedDescription
-    ];
-
-    if (subtreeOnly) {
-      finalArgs.push('--subtree-only');
-    }
-
-    if (!autoCommits) {
-      finalArgs.push('--no-auto-commits');
-    }
-
-    finalArgs.push('--no-dirty-commits');
-
-    if (aiderModel && /^(qwen3|deepseek-r1)/i.test(aiderModel)) {
-      finalArgs.push('--thinking-tokens', '0', '--no-check-model-accepts-settings');
-      logger.info(`[Aider] Disabled thinking tokens for thinking model ${aiderModel}`);
-    }
-
-    // Extract target files from task description
-    const targetFiles = [
-      ...(task.files || []),
-      ..._helpers.extractTargetFilesFromDescription(task.task_description),
-      ...resolvedFilePaths
-    ];
-    const uniqueTargetFiles = [...new Set(targetFiles)];
-
-    if (uniqueTargetFiles.length > 0 && task.working_directory) {
-      const resolvedPaths = _helpers.ensureTargetFilesExist(task.working_directory, uniqueTargetFiles);
-      for (const absPath of resolvedPaths) {
-        finalArgs.push(absPath);
-      }
-      if (resolvedPaths.length > 0) {
-        logger.info(`[Aider] Added ${resolvedPaths.length} target file(s) to chat: ${uniqueTargetFiles.join(', ')}`);
-      }
-    }
-
-    // --- Aider-specific env vars ---
-    const envExtras = {};
-    let selectedOllamaHostId = null;
-
-    const hosts = db.listOllamaHosts();
-
-    if (hosts.length > 0) {
-      const ollamaModel = task.model || serverConfig.get('ollama_model') || 'qwen2.5-coder:7b';
-      const selection = db.selectOllamaHostForModel(ollamaModel);
-
-      if (selection.host) {
-        const vramCheck = _helpers.isLargeModelBlockedOnHost(ollamaModel, selection.host.id);
-        if (vramCheck.blocked) {
-          logger.info(`[Aider-Ollama] ${vramCheck.reason}, requeuing task ${taskId}`);
-          db.updateTaskStatus(taskId, 'queued', {
-            pid: null, started_at: null, ollama_host_id: null,
-            error_output: (task.error_output || '') + `\nTemporarily requeued: ${vramCheck.reason}`
-          });
-          dashboard.broadcastTaskUpdate(taskId);
-          dashboard.notifyTaskUpdated(taskId);
-          processQueue();
-          return { requeued: true, reason: vramCheck.reason };
-        }
-
-        const slotResult = tryReserveHostSlotWithFallback(selection.host.id, taskId);
-        if (slotResult.success) {
-          envExtras.OLLAMA_API_BASE = selection.host.url;
-          selectedOllamaHostId = selection.host.id;
-          try {
-            db.recordHostModelUsage(selectedOllamaHostId, ollamaModel);
-          } catch { /* ignore */ }
-          logger.info(`[Aider-Ollama] Multi-host: ${selection.reason}`);
-        } else {
-          logger.info(`[Aider-Ollama] ${slotResult.reason}, requeuing task ${taskId}`);
-          db.updateTaskStatus(taskId, 'queued', {
-            pid: null,
-            started_at: null,
-            ollama_host_id: null,
-            error_output: (task.error_output || '') + `\nTemporarily requeued: ${slotResult.reason}`
-          });
-          dashboard.broadcastTaskUpdate(taskId);
-          dashboard.notifyTaskUpdated(taskId);
-          processQueue();
-          return { requeued: true, reason: slotResult.reason };
-        }
-      } else if (selection.memoryError) {
-        const suggestions = selection.suggestedModels?.map(m => `${m.name} (${m.sizeGb} GB)`).join(', ') || 'none available';
-        throw new Error(`OOM Protection: ${selection.reason}\n\nSuggested alternatives: ${suggestions}`);
-      } else if (selection.atCapacity) {
-        logger.info(`[Aider-Ollama] All hosts at capacity, requeuing task ${taskId}`);
-        db.updateTaskStatus(taskId, 'queued', {
-          pid: null,
-          started_at: null,
-          ollama_host_id: null,
-          error_output: (task.error_output || '') + `\nTemporarily requeued: ${selection.reason}`
-        });
-        dashboard.broadcastTaskUpdate(taskId);
-        dashboard.notifyTaskUpdated(taskId);
-        processQueue();
-        return { requeued: true, reason: selection.reason };
-      } else if (!task.model) {
-        // Default model unavailable — try any host with any model
-        const anySelection = db.selectOllamaHostForModel(null);
-        if (anySelection.host) {
-          const slotResult = tryReserveHostSlotWithFallback(anySelection.host.id, taskId);
-          if (slotResult.success) {
-            envExtras.OLLAMA_API_BASE = anySelection.host.url;
-            selectedOllamaHostId = anySelection.host.id;
-            logger.info(`[Aider-Ollama] Default model '${ollamaModel}' unavailable, using host '${anySelection.host.name}' with fallback`);
-          } else {
-            db.updateTaskStatus(taskId, 'queued', { pid: null, started_at: null, ollama_host_id: null });
-            return { requeued: true, reason: slotResult.reason };
-          }
-        } else {
-          throw new Error(`No Ollama host available for model '${ollamaModel}'. ${selection.reason}`);
-        }
-      } else {
-        throw new Error(`No Ollama host available for model '${ollamaModel}'. ${selection.reason}`);
-      }
-    } else {
-      const ollamaHost = serverConfig.get('ollama_host') || 'http://localhost:11434';
-      envExtras.OLLAMA_API_BASE = ollamaHost;
-    }
-
-    envExtras.LITELLM_NUM_RETRIES = '3';
-    envExtras.LITELLM_REQUEST_TIMEOUT = '120';
-
-    if (selectedOllamaHostId) {
-      const hostSettings = db.getHostSettings(selectedOllamaHostId);
-      if (hostSettings) {
-        if (hostSettings.num_ctx !== undefined) {
-          envExtras.OLLAMA_NUM_CTX = String(hostSettings.num_ctx);
-        }
-        if (hostSettings.num_gpu !== undefined) {
-          envExtras.OLLAMA_NUM_GPU = String(hostSettings.num_gpu);
-        }
-        if (hostSettings.num_thread !== undefined && hostSettings.num_thread > 0) {
-          envExtras.OLLAMA_NUM_THREAD = String(hostSettings.num_thread);
-        }
-        logger.info(`[Aider-Ollama] Applied per-host settings from '${hostSettings.hostName}'`);
-      }
-    }
-
-    // R115: Apply per-model tuning profiles
-    try {
-      const modelSettingsJson = serverConfig.get('ollama_model_settings');
-      const ollamaModel = task.model || serverConfig.get('ollama_model') || 'qwen2.5-coder:7b';
-      if (modelSettingsJson && ollamaModel) {
-        const modelSettings = JSON.parse(modelSettingsJson);
-        const modelConfig = modelSettings[ollamaModel];
-        if (modelConfig) {
-          if (modelConfig.num_ctx !== undefined) {
-            envExtras.OLLAMA_NUM_CTX = String(modelConfig.num_ctx);
-          }
-          if (modelConfig.num_gpu !== undefined) {
-            envExtras.OLLAMA_NUM_GPU = String(modelConfig.num_gpu);
-          }
-          if (modelConfig.num_thread !== undefined && modelConfig.num_thread > 0) {
-            envExtras.OLLAMA_NUM_THREAD = String(modelConfig.num_thread);
-          }
-          logger.info(`[Aider-Ollama] Applied per-model settings for '${ollamaModel}'`);
-        }
-      }
-    } catch (e) {
-      logger.info(`[Aider-Ollama] Failed to parse model settings: ${e.message}`);
-    }
-
-    // R115: Apply per-task tuning overrides
-    try {
-      const taskMeta = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {};
-      if (taskMeta.tuning_overrides) {
-        const overrides = taskMeta.tuning_overrides;
-        if (overrides.num_ctx !== undefined) {
-          envExtras.OLLAMA_NUM_CTX = String(overrides.num_ctx);
-        }
-        if (overrides.num_gpu !== undefined) {
-          envExtras.OLLAMA_NUM_GPU = String(overrides.num_gpu);
-        }
-        if (overrides.num_thread !== undefined && overrides.num_thread > 0) {
-          envExtras.OLLAMA_NUM_THREAD = String(overrides.num_thread);
-        }
-        logger.info(`[Aider-Ollama] Applied per-task tuning overrides`);
-      }
-    } catch (e) {
-      logger.info(`[Aider-Ollama] Failed to parse task metadata: ${e.message}`);
-    }
-
-    return { cliPath, finalArgs, stdinPrompt: null, envExtras, selectedOllamaHostId, usedEditFormat };
+  return { cliPath, finalArgs, stdinPrompt: null, envExtras, selectedOllamaHostId: hostResult.selectedHostId, usedEditFormat };
 }
 
 /**

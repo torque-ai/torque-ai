@@ -17,6 +17,10 @@ const AnthropicProvider = require('./anthropic');
 const GroqProvider = require('./groq');
 const HyperbolicProvider = require('./hyperbolic');
 const DeepInfraProvider = require('./deepinfra');
+const CerebrasProvider = require('./cerebras');
+const GoogleAIProvider = require('./google-ai');
+const OllamaCloudProvider = require('./ollama-cloud');
+const OpenRouterProvider = require('./openrouter');
 const OllamaStrategicProvider = require('./ollama-strategic');
 const { CodexCliProvider, ClaudeCliProvider } = require('./v2-cli-providers');
 const {
@@ -263,6 +267,22 @@ registerApiAdapter('hashline-ollama', HashlineOllamaProvider, {
 registerApiAdapter('ollama-strategic', OllamaStrategicProvider, {
   supportsStream: false,
   supportsAsync: false,
+});
+registerApiAdapter('cerebras', CerebrasProvider, {
+  supportsStream: true,
+  supportsAsync: true,
+});
+registerApiAdapter('google-ai', GoogleAIProvider, {
+  supportsStream: true,
+  supportsAsync: true,
+});
+registerApiAdapter('ollama-cloud', OllamaCloudProvider, {
+  supportsStream: true,
+  supportsAsync: true,
+});
+registerApiAdapter('openrouter', OpenRouterProvider, {
+  supportsStream: true,
+  supportsAsync: true,
 });
 
 function invalidateAdapterCache(providerId) {
