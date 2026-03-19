@@ -219,9 +219,7 @@ let DB_PATH = path.join(DATA_DIR, 'tasks.db');
 
 let db = null;
 let dbClosed = false;
-// _backupTimer moved to db/backup-core.js
 const taskStatusTransitionListeners = new Set();
-const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 
 // Close callbacks — modules register cleanup functions (e.g., clearing timers)
 const _closeCallbacks = [];
@@ -669,7 +667,7 @@ function resetForTest(buffer) {
     try { db.close(); } catch { /* ok */ }
   }
   dbClosed = false;
-  configCache.clear();
+  configCore.clearConfigCache();
 
   // Create fresh in-memory DB from serialized buffer
   db = new Database(buffer);
