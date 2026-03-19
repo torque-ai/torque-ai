@@ -437,6 +437,7 @@ function createTaskStream(taskId, streamType = 'output') {
     VALUES (?, ?, ?, datetime('now'))
   `);
   stmt.run(id, taskId, streamType);
+  _streamToTask.set(id, taskId);
   return id;
 }
 
@@ -456,6 +457,7 @@ function getOrCreateTaskStream(taskId, streamType = 'output') {
     `);
     const existing = stmt.get(taskId, streamType);
     if (existing) {
+      _streamToTask.set(existing.id, taskId);
       return existing.id;
     }
 
@@ -465,11 +467,34 @@ function getOrCreateTaskStream(taskId, streamType = 'output') {
       INSERT INTO task_streams (id, task_id, stream_type, created_at)
       VALUES (?, ?, ?, datetime('now'))
     `).run(id, taskId, streamType);
+    _streamToTask.set(id, taskId);
 
     return id;
   });
 
   return transaction();
+}
+
+// ============================================================
+// StreamId-to-TaskId Cache (Phase 2 Task 1)
+// ============================================================
+
+/**
+ * In-memory cache mapping streamId → taskId.
+ * Populated by createTaskStream and getOrCreateTaskStream so that
+ * downstream consumers (e.g. output accumulator) can resolve the owning
+ * task without hitting the database on every chunk.
+ */
+const _streamToTask = new Map();
+
+/**
+ * Return the taskId associated with a streamId, or null if not cached.
+ * Exported as a test helper; also used by the accumulator in Task 2.
+ * @param {string} streamId
+ * @returns {string|null}
+ */
+function getStreamTaskId(streamId) {
+  return _streamToTask.get(streamId) || null;
 }
 
 // Stream storage limits to prevent unbounded growth
@@ -1073,6 +1098,7 @@ module.exports = {
   // Real-time Streaming
   createTaskStream,
   getOrCreateTaskStream,
+  getStreamTaskId,
   addStreamChunk,
   getStreamChunks,
   getLatestStreamChunks,
