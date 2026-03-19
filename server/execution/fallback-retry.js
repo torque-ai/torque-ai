@@ -486,14 +486,14 @@ function tryStallRecovery(taskId, activity) {
 
 /**
  * Find a larger available model than the current one.
- * Searches through the model size hierarchy (7b -> 8b -> 14b -> 22b -> 32b -> 70b)
+ * Searches through the model size hierarchy (1b -> 3b -> 4b -> 7b -> 8b -> ... -> 72b -> 405b)
  * and returns the first available coder model that is larger.
  * @param {string} currentModel - Current model name (e.g., 'qwen2.5-coder:14b')
  * @returns {string|null} Larger model name or null if none available
  */
 function findLargerAvailableModel(currentModel) {
   // Model size hierarchy for common models
-  const sizeOrder = ['7b', '8b', '14b', '22b', '32b', '70b'];
+  const sizeOrder = ['1b', '3b', '4b', '7b', '8b', '14b', '22b', '32b', '70b', '72b', '405b'];
   const currentSizeMatch = currentModel.toLowerCase().match(/:?(\d+)b/);
   if (!currentSizeMatch) return null;
 

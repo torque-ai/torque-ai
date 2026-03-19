@@ -14,7 +14,7 @@ class CerebrasProvider extends BaseProvider {
     super({ name: 'cerebras', ...config });
     this.apiKey = config.apiKey || process.env.CEREBRAS_API_KEY;
     this.baseUrl = config.baseUrl || 'https://api.cerebras.ai';
-    this.defaultModel = config.defaultModel || 'llama3.1-8b';
+    this.defaultModel = config.defaultModel || 'qwen-3-235b-a22b-instruct-2507';
   }
 
   async submit(task, model, options = {}) {

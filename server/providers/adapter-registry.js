@@ -245,8 +245,10 @@ registerApiAdapter('deepinfra', DeepInfraProvider, {
 });
 
 registerApiAdapter('codex', CodexCliProvider, {
+  // codex CLI uses spawnSync — no streaming. API transport path (submitViaApi) is async
+  // but handled internally within submit(); the adapter contract does not expose streaming.
   supportsStream: false,
-  supportsAsync: false,
+  supportsAsync: true,   // API transport (submitViaApi) returns async results
 });
 registerApiAdapter('claude-cli', ClaudeCliProvider, {
   supportsStream: false,

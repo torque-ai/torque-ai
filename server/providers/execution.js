@@ -811,7 +811,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     // Derive context budget from provider capabilities
     const PROVIDER_CONTEXT_BUDGETS = {
       'google-ai': 200000, 'deepinfra': 64000, 'hyperbolic': 64000,
-      'groq': 32000, 'cerebras': 6000, 'openrouter': 64000, 'ollama-cloud': 64000,
+      'groq': 32000, 'cerebras': 32000, 'openrouter': 64000, 'ollama-cloud': 64000,
     };
     const contextBudget = PROVIDER_CONTEXT_BUDGETS[provider] || 16000;
 
