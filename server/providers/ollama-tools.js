@@ -334,7 +334,7 @@ function searchRecursive(dir, regex, globFilter, results, maxMatches, visited = 
 
     if (entry.isDirectory()) {
       // Skip hidden directories and common noise dirs
-      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'bin' || entry.name === 'obj' || entry.name === 'dist' || entry.name === 'build') continue;
       searchRecursive(fullPath, regex, globFilter, results, maxMatches, visited);
     } else if (entry.isFile()) {
       if (!matchGlob(entry.name, globFilter)) continue;
