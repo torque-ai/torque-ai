@@ -369,7 +369,7 @@ describe('SessionSwitcher', () => {
 
       expect(instancesApi.list).toHaveBeenCalledTimes(1);
 
-      await flushFakeTimerEffects(20000);
+      await flushFakeTimerEffects(60000);
 
       expect(instancesApi.list).toHaveBeenCalledTimes(3);
 
@@ -379,7 +379,7 @@ describe('SessionSwitcher', () => {
       await closeDropdown(trigger);
 
       const callsAfterClose = instancesApi.list.mock.calls.length;
-      await flushFakeTimerEffects(20000);
+      await flushFakeTimerEffects(60000);
 
       expect(instancesApi.list).toHaveBeenCalledTimes(callsAfterClose);
       expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId);
