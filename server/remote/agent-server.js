@@ -116,11 +116,19 @@ function normalizeEnv(extraEnv = {}) {
   return merged;
 }
 
+const SHELL_METACHAR_RE = /[;|&`$(){}!<>]/;
+
 function prepareShellArgs(args) {
   if (!Array.isArray(args)) {
     return [];
   }
-  return args.map((arg) => String(arg));
+  return args.map((arg) => {
+    const str = String(arg);
+    if (SHELL_METACHAR_RE.test(str)) {
+      throw createHttpError(`Argument contains shell metacharacters: ${str.substring(0, 50)}`, 400);
+    }
+    return str;
+  });
 }
 
 function terminateChild(child) {
@@ -194,7 +202,7 @@ function spawnAndCapture(command, args, options = {}) {
       child = spawn(command, prepareShellArgs(args), {
         cwd: options.cwd,
         env: normalizeEnv(options.env),
-        shell: true,
+        shell: false,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -377,7 +385,7 @@ async function syncProject({ baseDir, project, branch = 'main', repoUrl }) {
   };
 }
 
-function validateRunRequest(body) {
+function validateRunRequest(body, state) {
   const command = body && typeof body.command === 'string'
     ? body.command.trim()
     : '';
@@ -397,6 +405,21 @@ function validateRunRequest(body) {
   const cwd = body.cwd ? path.resolve(String(body.cwd)) : process.cwd();
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
     throw createHttpError(`cwd does not exist or is not a directory: ${cwd}`, 400);
+  }
+
+  const allowedRoots = (state && state.config && state.config.allowed_roots)
+    ? state.config.allowed_roots
+    : (state && state.projectsDir ? [state.projectsDir] : []);
+
+  if (allowedRoots.length > 0) {
+    const resolvedCwd = path.resolve(cwd);
+    const isAllowed = allowedRoots.some((root) => {
+      const resolvedRoot = path.resolve(root);
+      return resolvedCwd === resolvedRoot || resolvedCwd.startsWith(resolvedRoot + path.sep);
+    });
+    if (!isAllowed) {
+      throw createHttpError(`cwd is outside allowed directories: ${cwd}`, 403);
+    }
   }
 
   const rawTimeout = body.timeout_ms ?? body.timeout ?? DEFAULT_TIMEOUT_MS;
@@ -424,7 +447,7 @@ function writeNdjson(res, payload) {
 function streamRun(req, res, body, state) {
   let runRequest;
   try {
-    runRequest = validateRunRequest(body);
+    runRequest = validateRunRequest(body, state);
   } catch (error) {
     writeJson(res, error.statusCode || 400, { error: error.message });
     return;
@@ -435,7 +458,7 @@ function streamRun(req, res, body, state) {
     child = spawn(runRequest.command, runRequest.args, {
       cwd: runRequest.cwd,
       env: normalizeEnv(runRequest.env),
-      shell: true,
+      shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
