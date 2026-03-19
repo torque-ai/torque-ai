@@ -18,18 +18,28 @@ const serverConfig = require('./config');
 const FreeQuotaTracker = require('./free-quota-tracker');
 const gpuMetrics = require('./scripts/gpu-metrics-server');
 
-// Register API provider classes for lazy initialization via registry
-providerRegistry.init({ db });
-providerCfg.init({ db });
-serverConfig.init({ db });
-providerRegistry.registerProviderClass('anthropic', require('./providers/anthropic'));
-providerRegistry.registerProviderClass('groq', require('./providers/groq'));
-providerRegistry.registerProviderClass('hyperbolic', require('./providers/hyperbolic'));
-providerRegistry.registerProviderClass('deepinfra', require('./providers/deepinfra'));
-providerRegistry.registerProviderClass('ollama-cloud', require('./providers/ollama-cloud'));
-providerRegistry.registerProviderClass('cerebras', require('./providers/cerebras'));
-providerRegistry.registerProviderClass('google-ai', require('./providers/google-ai'));
-providerRegistry.registerProviderClass('openrouter', require('./providers/openrouter'));
+// ── Early dependency initialization ───────────────────────────────────────
+// Must be called explicitly from index.js:init() before any provider usage.
+// Previously these ran at require()-time; now they run only when called.
+let _earlyDepsInitialized = false;
+
+function initEarlyDeps() {
+  if (_earlyDepsInitialized) return;
+  _earlyDepsInitialized = true;
+
+  // Register API provider classes for lazy initialization via registry
+  providerRegistry.init({ db });
+  providerCfg.init({ db });
+  serverConfig.init({ db });
+  providerRegistry.registerProviderClass('anthropic', require('./providers/anthropic'));
+  providerRegistry.registerProviderClass('groq', require('./providers/groq'));
+  providerRegistry.registerProviderClass('hyperbolic', require('./providers/hyperbolic'));
+  providerRegistry.registerProviderClass('deepinfra', require('./providers/deepinfra'));
+  providerRegistry.registerProviderClass('ollama-cloud', require('./providers/ollama-cloud'));
+  providerRegistry.registerProviderClass('cerebras', require('./providers/cerebras'));
+  providerRegistry.registerProviderClass('google-ai', require('./providers/google-ai'));
+  providerRegistry.registerProviderClass('openrouter', require('./providers/openrouter'));
+}
 const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS
 } = require('./constants');
 const { sanitizeLLMOutput } = require('./utils/sanitize');
@@ -2347,23 +2357,36 @@ Adding a method to a class — SEARCH for the closing brace and include it:
  * Configurable max retries via max_hashline_local_retries (default: 2).
  */
 
-// Periodic queue processor - ensures queued tasks get started even without explicit triggers
-// Deferred start: db.init() runs after require(), so timers must not fire before the database is ready.
-const _queuePollInterval = setInterval(() => {
-  if (!db.isReady || !db.isReady()) return; // Skip until database is initialized
-  try {
-    processQueue();
-  } catch (err) {
-    logger.error(`QueuePoll error`, { error: err.message });
-  }
-}, 30000); // Every 30 seconds
-// unref so this timer doesn't prevent process exit in test workers.
-// The server stays alive via HTTP listeners, not this interval.
-_queuePollInterval.unref();
+// Periodic queue processor — started explicitly by index.js:init() via startQueuePoll().
+// Previously ran at require()-time; now runs only when called.
+let _queuePollInterval = null;
+
+function startQueuePoll() {
+  if (_queuePollInterval) return; // idempotent
+  _queuePollInterval = setInterval(() => {
+    if (!db.isReady || !db.isReady()) return; // Skip until database is initialized
+    try {
+      processQueue();
+    } catch (err) {
+      logger.error(`QueuePoll error`, { error: err.message });
+    }
+  }, 30000); // Every 30 seconds
+  // unref so this timer doesn't prevent process exit in test workers.
+  // The server stays alive via HTTP listeners, not this interval.
+  _queuePollInterval.unref();
+}
 
 // ============================================================
 // Initialize extracted modules with dependency injection
+// Called explicitly from index.js:init() via initSubModules().
+// Previously ran at require()-time; now runs only when called.
 // ============================================================
+
+let _subModulesInitialized = false;
+
+function initSubModules() {
+  if (_subModulesInitialized) return;
+  _subModulesInitialized = true;
 
 _executionModule.init({
   db, dashboard, runningProcesses, apiAbortControllers,
@@ -2635,6 +2658,7 @@ _processLifecycle.init({
     drain: drainCloseHandlerResolvers,
   },
 });
+} // end initSubModules
 
 // Use Object.assign to preserve the original module.exports reference.
 // dashboard/routes/tasks.js → tools.js → handlers → task-manager creates a
@@ -2790,4 +2814,8 @@ Object.assign(module.exports, {
     set skipGitInCloseHandler(v) { skipGitInCloseHandler = v; },
     get skipGitInCloseHandler() { return skipGitInCloseHandler; },
   },
+  // Explicit initialization functions (previously module-level side effects)
+  initEarlyDeps,
+  initSubModules,
+  startQueuePoll,
 });

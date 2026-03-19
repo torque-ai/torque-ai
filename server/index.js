@@ -522,6 +522,10 @@ function init() {
 
   // Initialize database
   db.init();
+  // Initialize task-manager early deps (provider registry, config) now that DB is ready.
+  // initSubModules() wires the extracted module graph; must run before queue processing.
+  taskManager.initEarlyDeps();
+  taskManager.initSubModules();
   serverConfig.init({ db });
   slotPullScheduler = require('./execution/slot-pull-scheduler');
   slotPullScheduler.init({
@@ -651,6 +655,9 @@ function init() {
 
   // Process any queued tasks
   taskManager.processQueue();
+
+  // Start the 30-second queue poll interval (previously ran at require()-time).
+  taskManager.startQueuePoll();
 
   // P91: Start periodic queue processing as safety net.
   // Event-driven processQueue() calls can silently fail (lock contention,
