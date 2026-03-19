@@ -38,7 +38,12 @@ function handleForkWorkflow(args) {
     merge_strategy
   });
 
-  // Create tasks for each branch
+  // Create tasks for each branch.
+  // NOTE: Fork tasks are created with no DAG dependency edges between branches or
+  // to the parent workflow's existing tasks. This is a known limitation — branch tasks
+  // start immediately as independent queued tasks without inheriting workflow position.
+  // A future improvement would wire each branch's first task to depend on the fork
+  // creation point and each branch's last task into the merge node.
   const branchTaskIds = {};
   for (const branch of branches) {
     branchTaskIds[branch.name] = [];
@@ -409,10 +414,13 @@ function handleRetryWorkflowFrom(args) {
     }
   }
 
-  // Update workflow status
+  // Update workflow status and clear the acknowledged set so await_workflow
+  // will yield the retried tasks again rather than treating them as already seen.
+  const currentCtx = (workflow.context && typeof workflow.context === 'object') ? workflow.context : {};
   db.updateWorkflow(args.workflow_id, {
     status: 'running',
-    completed_at: null
+    completed_at: null,
+    context: { ...currentCtx, acknowledged_tasks: [] }
   });
 
   // Start tasks that are now pending

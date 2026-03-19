@@ -458,50 +458,62 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
   const defaultTimeout = safeParseInt(serverConfig.getInt('default_timeout', 30), 30, 1, 120);
   const nodeToTaskMap = {};
 
-  for (const taskDef of taskDefs) {
-    const taskId = taskDef.id || uuidv4();
-    nodeToTaskMap[taskDef.node_id] = taskId;
+  // Wrap task creation + dependency creation in a single transaction so that
+  // a failure during dependency insertion does not leave orphaned tasks.
+  const rawDb = db.getDbInstance ? db.getDbInstance() : (db.getDb ? db.getDb() : null);
+  const runInTransaction = (fn) => {
+    if (rawDb && typeof rawDb.transaction === 'function') {
+      return rawDb.transaction(fn)();
+    }
+    return fn(); // fallback: no transaction wrapping (e.g., in tests)
+  };
 
-    const metaObj = buildWorkflowTaskMetadata(taskDef);
-    const metadata = Object.keys(metaObj).length > 0 ? JSON.stringify(metaObj) : null;
+  runInTransaction(() => {
+    for (const taskDef of taskDefs) {
+      const taskId = taskDef.id || uuidv4();
+      nodeToTaskMap[taskDef.node_id] = taskId;
 
-    const resolvedTimeout = safeParseInt(
-      taskDef.timeout_minutes === undefined ? defaultTimeout : taskDef.timeout_minutes,
-      defaultTimeout,
-      1,
-      120
-    );
+      const metaObj = buildWorkflowTaskMetadata(taskDef);
+      const metadata = Object.keys(metaObj).length > 0 ? JSON.stringify(metaObj) : null;
 
-    db.createTask({
-      id: taskId,
-      status: taskDef.depends_on.length > 0 ? 'blocked' : 'pending',
-      task_description: taskDef.task_description,
-      working_directory: taskDef.working_directory || workflowWorkingDirectory,
-      timeout_minutes: resolvedTimeout,
-      auto_approve: taskDef.auto_approve || false,
-      tags: taskDef.tags || [],
-      workflow_id: workflowId,
-      workflow_node_id: taskDef.node_id,
-      provider: taskDef.provider,
-      model: taskDef.model,
-      metadata
-    });
-  }
+      const resolvedTimeout = safeParseInt(
+        taskDef.timeout_minutes === undefined ? defaultTimeout : taskDef.timeout_minutes,
+        defaultTimeout,
+        1,
+        120
+      );
 
-  for (const taskDef of taskDefs) {
-    if (taskDef.depends_on.length === 0) continue;
-    const taskId = nodeToTaskMap[taskDef.node_id];
-    for (const depNodeId of taskDef.depends_on) {
-      db.addTaskDependency({
+      db.createTask({
+        id: taskId,
+        status: taskDef.depends_on.length > 0 ? 'blocked' : 'pending',
+        task_description: taskDef.task_description,
+        working_directory: taskDef.working_directory || workflowWorkingDirectory,
+        timeout_minutes: resolvedTimeout,
+        auto_approve: taskDef.auto_approve || false,
+        tags: taskDef.tags || [],
         workflow_id: workflowId,
-        task_id: taskId,
-        depends_on_task_id: nodeToTaskMap[depNodeId],
-        condition_expr: taskDef.condition,
-        on_fail: taskDef.on_fail || 'skip',
-        alternate_task_id: taskDef.alternate_node_id ? nodeToTaskMap[taskDef.alternate_node_id] : null
+        workflow_node_id: taskDef.node_id,
+        provider: taskDef.provider,
+        model: taskDef.model,
+        metadata
       });
     }
-  }
+
+    for (const taskDef of taskDefs) {
+      if (taskDef.depends_on.length === 0) continue;
+      const taskId = nodeToTaskMap[taskDef.node_id];
+      for (const depNodeId of taskDef.depends_on) {
+        db.addTaskDependency({
+          workflow_id: workflowId,
+          task_id: taskId,
+          depends_on_task_id: nodeToTaskMap[depNodeId],
+          condition_expr: taskDef.condition,
+          on_fail: taskDef.on_fail || 'skip',
+          alternate_task_id: taskDef.alternate_node_id ? nodeToTaskMap[taskDef.alternate_node_id] : null
+        });
+      }
+    }
+  });
 
   db.updateWorkflowCounts(workflowId);
 }
@@ -523,7 +535,10 @@ function startWorkflowExecution(workflow) {
   const failedStarts = [];
 
   for (const task of tasks) {
-    if (task.status === 'pending') {
+    // Re-read current status before each start attempt — another task's start handler
+    // may have unblocked or changed this task's status (e.g., via workflow dependency eval).
+    const currentTask = db.getTask(task.id) || task;
+    if (currentTask.status === 'pending') {
       try {
         attemptedToStart += 1;
         const startResult = taskManager.startTask(task.id);
@@ -702,6 +717,16 @@ function handleAddWorkflowTask(args) {
 
   const { workflow, error: wfErr } = requireWorkflow(db, args.workflow_id);
   if (wfErr) return wfErr;
+
+  // Guard: do not add tasks to terminal workflows.
+  // cancelled workflows are definitively stopped and cannot be extended.
+  // completed/failed workflows may be extended to run follow-up tasks (intentional re-open).
+  if (workflow.status === 'cancelled') {
+    return makeError(
+      ErrorCodes.INVALID_STATUS_TRANSITION,
+      `Cannot add tasks to workflow '${workflow.name}' (${args.workflow_id}) because it has been cancelled. Create a new workflow instead.`
+    );
+  }
 
   // Validate provider override if specified
   if (args.provider) {
@@ -1148,6 +1173,15 @@ function handlePauseWorkflow(args) {
   if (workflow.status !== 'running') {
     return {
       ...makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Workflow is not running. Current status: ${workflow.status}`)
+    };
+  }
+
+  // Race guard: check if all tasks are already terminal before pausing.
+  // evaluateWorkflowDependencies may have just completed the workflow concurrently.
+  const freshWorkflow = db.getWorkflow(args.workflow_id);
+  if (freshWorkflow && ['completed', 'failed', 'cancelled'].includes(freshWorkflow.status)) {
+    return {
+      ...makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Workflow has already reached terminal status '${freshWorkflow.status}' and cannot be paused.`)
     };
   }
 
