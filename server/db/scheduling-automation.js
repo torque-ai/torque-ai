@@ -738,6 +738,7 @@ function processAutoApprovals() {
     JOIN approval_rules r ON ar.rule_id = r.id
     WHERE ar.status = 'pending'
       AND r.auto_approve_after_minutes IS NOT NULL
+      AND r.auto_approve_after_minutes > 0
       AND datetime(ar.requested_at, '+' || r.auto_approve_after_minutes || ' minutes') <= datetime('now')
   `).all();
 

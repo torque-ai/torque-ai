@@ -427,6 +427,94 @@ describe('task lifecycle coordination', () => {
   });
 });
 
+describe('approval wiring', () => {
+  let schedMod;
+
+  beforeAll(() => {
+    setup();
+    schedMod = require('../db/scheduling-automation');
+    schedMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
+    schedMod.setGetTask((id) => db.getTask(id));
+    schedMod.setRecordTaskEvent((..._args) => { /* no-op */ });
+  });
+  afterAll(() => { teardown(); });
+  beforeEach(() => {
+    resetState();
+    const conn = rawDb();
+    try { conn.prepare('DELETE FROM approval_requests').run(); } catch {}
+    try { conn.prepare('DELETE FROM approval_rules').run(); } catch {}
+    try { conn.prepare('DELETE FROM tasks').run(); } catch {}
+  });
+
+  it('checkApprovalRequired works with enabled rules', () => {
+    // Create a task
+    const taskId = randomUUID();
+    const now = new Date().toISOString();
+    rawDb().prepare(`
+      INSERT INTO tasks (id, task_description, status, priority, created_at)
+      VALUES (?, 'delete production database', 'pending', 0, ?)
+    `).run(taskId, now);
+
+    // Create a keyword-based approval rule
+    schedMod.createApprovalRule(
+      'keyword-delete-rule',
+      'keyword',
+      { keywords: ['delete'] },
+      { requiredApprovers: 1 }
+    );
+
+    const task = db.getTask(taskId);
+    expect(task).toBeTruthy();
+
+    const result = schedMod.checkApprovalRequired(task);
+
+    // Verify it returns an object indicating approval is needed
+    expect(result).toBeTruthy();
+    expect(result.required).toBe(true);
+    expect(result.status).toBe('pending');
+    expect(result.rule).toBeTruthy();
+    expect(result.rule.rule_type).toBe('keyword');
+  });
+
+  it('processAutoApprovals does not throw', () => {
+    if (schedMod.processAutoApprovals) {
+      expect(() => schedMod.processAutoApprovals()).not.toThrow();
+    }
+  });
+
+  it('processAutoApprovals skips rules with auto_approve_after_minutes = 0', () => {
+    // Create a task
+    const taskId = randomUUID();
+    const now = new Date().toISOString();
+    rawDb().prepare(`
+      INSERT INTO tasks (id, task_description, status, priority, created_at)
+      VALUES (?, 'test zero timeout task', 'pending', 0, ?)
+    `).run(taskId, now);
+
+    // Create a rule with auto_approve_after_minutes = 0
+    const ruleId = schedMod.createApprovalRule(
+      'zero-timeout-rule',
+      'all',
+      {},
+      { requiredApprovers: 1, autoApproveAfterMinutes: 0 }
+    );
+
+    // Manually insert an approval request with the zero-timeout rule
+    rawDb().prepare(`
+      INSERT INTO approval_requests (id, task_id, rule_id, status, requested_at)
+      VALUES (?, ?, ?, 'pending', datetime('now', '-10 minutes'))
+    `).run(`apr-${taskId}-${ruleId}`, taskId, ruleId);
+
+    // processAutoApprovals should NOT auto-approve this (minutes = 0)
+    const autoApproved = schedMod.processAutoApprovals();
+    expect(autoApproved).toBe(0);
+
+    // Verify request is still pending
+    const req = rawDb().prepare('SELECT * FROM approval_requests WHERE task_id = ?').get(taskId);
+    expect(req.status).toBe('pending');
+  });
+});
+
 describe('startup agent sweep', () => {
   beforeAll(() => { setup(); });
   afterAll(() => { teardown(); });

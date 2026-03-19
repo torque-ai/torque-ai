@@ -357,6 +357,25 @@ function handleSubmitTask(args) {
     // Non-fatal
   }
 
+  // Check if approval is required for this task
+  try {
+    const task = db.getTask(taskId);
+    if (task && db.checkApprovalRequired) {
+      const approvalResult = db.checkApprovalRequired(task);
+      if (approvalResult && approvalResult.required) {
+        // checkApprovalRequired already set approval_status='pending' and created the request
+        try {
+          const coord = require('../../db/coordination');
+          const ruleId = approvalResult.rule ? approvalResult.rule.id : null;
+          coord.recordCoordinationEvent('approval_requested', args.__sessionId || null, taskId,
+            JSON.stringify({ rule_id: ruleId }));
+        } catch (e) { /* non-fatal */ }
+      }
+    }
+  } catch (e) {
+    // Non-fatal — if approval check fails, task proceeds without gate
+  }
+
   if (useTierList && !args.provider && typeof db.patchTaskSlotBinding === 'function') {
     try {
       db.patchTaskSlotBinding(taskId, slotPullMetadata);
