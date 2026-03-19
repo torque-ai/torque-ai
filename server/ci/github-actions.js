@@ -47,6 +47,7 @@ class GitHubActionsProvider extends CIProvider {
         'run',
         'view',
         runId,
+        '--repo', this.repo,
         '--json',
         'status,conclusion,headSha,headBranch,url,createdAt,updatedAt,jobs,databaseId',
       ],
@@ -64,7 +65,7 @@ class GitHubActionsProvider extends CIProvider {
   async getFailureLogs(runId) {
     const { stdout } = await this._runGhCommand(
       'gh',
-      ['run', 'view', runId, '--log-failed'],
+      ['run', 'view', runId, '--repo', this.repo, '--log-failed'],
     );
 
     return typeof stdout === 'string'
@@ -79,6 +80,7 @@ class GitHubActionsProvider extends CIProvider {
       [
         'run',
         'list',
+        '--repo', this.repo,
         '--json',
         'databaseId,status,conclusion,headSha,headBranch,url,createdAt',
         '--limit',

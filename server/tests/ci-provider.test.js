@@ -141,6 +141,7 @@ describe('GitHubActionsProvider', () => {
         'run',
         'view',
         '456',
+        '--repo', 'org/torque',
         '--json',
         'status,conclusion,headSha,headBranch,url,createdAt,updatedAt,jobs,databaseId',
       ],
@@ -164,7 +165,7 @@ describe('GitHubActionsProvider', () => {
     expect(logs).toBe('A'.repeat(MAX_FAILURE_LOG_BYTES));
     expect(execFileSpy).toHaveBeenCalledWith(
       'gh',
-      ['run', 'view', '456', '--log-failed'],
+      ['run', 'view', '456', '--repo', 'org/torque', '--log-failed'],
       { timeout: 30000 },
       expect.any(Function),
     );
@@ -225,6 +226,7 @@ describe('GitHubActionsProvider', () => {
       [
         'run',
         'list',
+        '--repo', 'org/torque',
         '--json',
         'databaseId,status,conclusion,headSha,headBranch,url,createdAt',
         '--limit',
