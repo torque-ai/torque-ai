@@ -240,7 +240,7 @@ const TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'run_command',
-      description: 'Execute a shell command and return its output. Use for build, test, or diagnostic commands.',
+      description: 'Execute a shell command and return its output. Use for build, test, or diagnostic commands. Do NOT use find/grep/rg for file search — use search_files and list_directory instead (much faster).',
       parameters: {
         type: 'object',
         properties: {
@@ -611,33 +611,12 @@ function createToolExecutor(workingDir, options = {}) {
                 error: true,
               };
             }
-            // Indentation normalization: if old_text and new_text have different
-            // leading whitespace on their first line, adjust new_text to match old_text.
-            // This fixes LLMs that add extra indentation in their edits.
-            let finalNewText = args.new_text;
-            const oldFirstLine = args.old_text.split('\n')[0];
-            const newFirstLine = args.new_text.split('\n')[0];
-            const oldIndent = oldFirstLine.match(/^(\s*)/)[1];
-            const newIndent = newFirstLine.match(/^(\s*)/)[1];
-            if (oldIndent !== newIndent && args.new_text.includes('\n')) {
-              // Re-indent all lines of new_text to match old_text's indentation level
-              const newLines = args.new_text.split('\n');
-              const indentDiff = oldIndent.length - newIndent.length;
-              if (indentDiff > 0) {
-                // old_text has more indent — add spaces to new_text
-                const pad = ' '.repeat(indentDiff);
-                finalNewText = newLines.map((l, i) => i === 0 || !l.trim() ? (i === 0 ? oldIndent + l.trimStart() : l) : pad + l).join('\n');
-              } else if (indentDiff < 0) {
-                // new_text has more indent — remove extra spaces
-                const strip = Math.abs(indentDiff);
-                finalNewText = newLines.map((l, i) => {
-                  if (i === 0) return oldIndent + l.trimStart();
-                  const leading = l.match(/^(\s*)/)[1];
-                  return leading.length >= strip ? l.slice(strip) : l;
-                }).join('\n');
-              }
-              logger.info(`[Tools] edit_file: normalized indentation (old: ${oldIndent.length}, new: ${newIndent.length} → ${oldIndent.length} chars)`);
-            }
+            // Indentation normalization: use reindentNewText (prefix-replacement)
+            // to fix LLMs that send new_text with wrong indentation.
+            // Detects the base indent from old_text and re-indents new_text to match.
+            const oldFirstNonBlank = args.old_text.split('\n').find(l => l.trim().length > 0);
+            const oldIndent = oldFirstNonBlank ? oldFirstNonBlank.match(/^(\s*)/)[1] : '';
+            let finalNewText = reindentNewText(args.new_text, oldIndent);
             const newContent = content.slice(0, idx) + finalNewText + content.slice(idx + args.old_text.length);
             fs.writeFileSync(resolvedPath, newContent, 'utf-8');
             changedFiles.add(resolvedPath);
@@ -812,7 +791,23 @@ function parseToolCalls(message) {
         id: tc.id, name: tc.name, arguments: tc.arguments || {},
       }));
     }
-  } catch { /* not JSON */ }
+  } catch {
+    // Priority 3b: Newline-separated JSON objects (models that emit multiple tool
+    // calls as separate JSON objects on separate lines instead of an array)
+    const lines = content.split('\n').map(l => l.trim()).filter(l => l.startsWith('{'));
+    if (lines.length > 0) {
+      const ndjsonCalls = [];
+      for (const line of lines) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.name && typeof parsed.name === 'string') {
+            ndjsonCalls.push({ id: parsed.id, name: parsed.name, arguments: parsed.arguments || {} });
+          }
+        } catch { /* skip malformed */ }
+      }
+      if (ndjsonCalls.length > 0) return ndjsonCalls;
+    }
+  }
 
   // Priority 4: JSON in markdown code blocks (```json ... ``` or ``` ... ```)
   const codeBlockRegex = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/g;
