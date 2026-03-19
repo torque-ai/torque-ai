@@ -922,6 +922,21 @@ function startMaintenanceScheduler() {
  * Idempotent - safe to call multiple times
  */
 function startCoordinationScheduler() {
+  // Startup sweep: mark all agents as offline (no SSE sessions survive a restart)
+  try {
+    const onlineAgents = db.listAgents({ status: 'online' });
+    for (const agent of onlineAgents) {
+      if (db.updateAgent) {
+        db.updateAgent(agent.id, { status: 'offline' });
+      }
+    }
+    if (onlineAgents.length > 0) {
+      debugLog(`Startup sweep: marked ${onlineAgents.length} stale agents as offline`);
+    }
+  } catch (err) {
+    debugLog(`Startup agent sweep error: ${err.message}`);
+  }
+
   // Clear existing intervals to prevent duplicates
   if (coordinationAgentInterval) {
     timerRegistry.remove(coordinationAgentInterval);
@@ -945,6 +960,18 @@ function startCoordinationScheduler() {
       db.expireStaleLeases();
     } catch (err) {
       debugLog(`expireStaleLeases error: ${err.message}`);
+    }
+    // Renew active claims for running tasks
+    try {
+      const activeClaims = db.listClaims({ status: 'active' });
+      for (const claim of activeClaims) {
+        const task = db.getTask(claim.task_id);
+        if (task && task.status === 'running') {
+          db.renewLease(claim.id, 600);
+        }
+      }
+    } catch (err) {
+      debugLog(`Lease renewal error: ${err.message}`);
     }
   }, 30000));
   coordinationAgentInterval.unref();

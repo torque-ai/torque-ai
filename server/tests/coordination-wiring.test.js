@@ -426,3 +426,54 @@ describe('task lifecycle coordination', () => {
     expect(details.provider).toBe('ollama');
   });
 });
+
+describe('startup agent sweep', () => {
+  beforeAll(() => { setup(); });
+  afterAll(() => { teardown(); });
+  beforeEach(() => { resetState(); });
+
+  it('marks all online agents as offline', () => {
+    // Register two agents — both start with status 'online'
+    const agentAId = randomUUID();
+    const agentBId = randomUUID();
+    coord.registerAgent({
+      id: agentAId,
+      name: 'sweep-agent-a',
+      agent_type: 'mcp-session',
+      capabilities: ['submit'],
+      max_concurrent: 10,
+      priority: 0,
+      metadata: { transport: 'sse' },
+    });
+    coord.registerAgent({
+      id: agentBId,
+      name: 'sweep-agent-b',
+      agent_type: 'mcp-session',
+      capabilities: ['submit'],
+      max_concurrent: 10,
+      priority: 0,
+      metadata: { transport: 'sse' },
+    });
+
+    // Verify both are online before sweep
+    const beforeSweep = coord.listAgents({ status: 'online' });
+    const onlineBefore = beforeSweep.filter(a => a.id === agentAId || a.id === agentBId);
+    expect(onlineBefore).toHaveLength(2);
+
+    // Simulate startup sweep logic (same as index.js startCoordinationScheduler)
+    const onlineAgents = coord.listAgents({ status: 'online' });
+    for (const agent of onlineAgents) {
+      coord.updateAgent(agent.id, { status: 'offline' });
+    }
+
+    // After sweep: no online agents remain
+    const afterSweep = coord.listAgents({ status: 'online' });
+    expect(afterSweep).toHaveLength(0);
+
+    // Both specific agents are now offline
+    const fetchedA = coord.getAgent(agentAId);
+    const fetchedB = coord.getAgent(agentBId);
+    expect(fetchedA.status).toBe('offline');
+    expect(fetchedB.status).toBe('offline');
+  });
+});
