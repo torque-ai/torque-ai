@@ -33,7 +33,9 @@ const tools = [
         timeout_minutes: {
           type: 'number',
           description: 'Maximum wait time in minutes (default: 30)',
-          default: 30
+          default: 30,
+          minimum: 1,
+          maximum: 60
         },
         poll_interval_ms: {
           type: 'number',

@@ -25,6 +25,7 @@ const {
   formatTime
 } = require('../shared');
 const logger = require('../../logger').child({ component: 'workflow' });
+const { safeJsonParse } = require('../../utils/json');
 
 const workflowTemplates = require('./templates');
 const workflowDag = require('./dag');
@@ -1060,7 +1061,7 @@ function handleWorkflowStatus(args) {
       // TDA-13: Surface provider context so operators know what action is needed
       let providerCol = task.provider || '';
       if (task.status === 'pending_provider_switch') {
-        const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
+        const meta = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : (task.metadata || {});
         const reason = meta._provider_switch_reason || meta.provider_switch_reason || '';
         providerCol = reason || `${task.provider || '?'} (switch pending)`;
       }
@@ -1073,7 +1074,7 @@ function handleWorkflowStatus(args) {
   if (taskList2.length > 0 && taskList2.length <= 50) {
     output += '\n## Task Graph\n```\n';
     for (const task of taskList2) {
-      const deps = task.depends_on ? (typeof task.depends_on === 'string' ? JSON.parse(task.depends_on) : task.depends_on) : [];
+      const deps = task.depends_on ? (typeof task.depends_on === 'string' ? safeJsonParse(task.depends_on, []) : task.depends_on) : [];
       const status_icon = task.status === 'completed' ? '\u2713' : task.status === 'running' ? '\u2192' : task.status === 'failed' ? '\u2717' : '\u25CB';
       output += `${status_icon} ${task.node_id || task.id.slice(0, 8)} ${deps.length ? '<- [' + deps.join(', ') + ']' : ''}\n`;
     }

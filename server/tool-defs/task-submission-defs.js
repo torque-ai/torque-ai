@@ -20,7 +20,9 @@ module.exports = [
         "timeout_minutes": {
           "type": "number",
           "description": "Timeout in minutes before auto-cancellation (default: 30)",
-          "default": 30
+          "default": 30,
+          "minimum": 1,
+          "maximum": 60
         },
         "auto_approve": {
           "type": "boolean",
@@ -71,7 +73,8 @@ module.exports = [
         },
         "context_depth": {
           "type": "number",
-          "description": "Import graph traversal depth for context stuffing (default: 1)"
+          "description": "Import graph traversal depth for context stuffing (default: 1)",
+          "enum": [1, 2]
         },
         "tuning": {
           "type": "object",

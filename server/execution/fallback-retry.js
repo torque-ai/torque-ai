@@ -14,6 +14,7 @@ const logger = require('../logger').child({ component: 'fallback-retry' });
 const { STALL_REQUEUE_DEBOUNCE_MS, DEFAULT_FALLBACK_MODEL } = require('../constants');
 const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-routing-core');
 const serverConfig = require('../config');
+const { safeJsonParse } = require('../utils/json');
 
 const BASE_RETRY_DELAY_MS = 5000;   // 5 seconds for first retry
 const MAX_RETRY_DELAY_MS = 120000;  // 2 minutes max
@@ -698,7 +699,7 @@ function selectHashlineFormat(model, task) {
   // 1. Check metadata override (set by fallback chain)
   if (task && task.metadata) {
     try {
-      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+      const meta = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : task.metadata;
       if (meta.hashline_format_override) {
         return { format: meta.hashline_format_override, reason: 'fallback_override' };
       }

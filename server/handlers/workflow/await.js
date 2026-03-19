@@ -17,6 +17,7 @@ const { checkResourceGate } = require('../../utils/resource-gate');
 const hostMonitoring = require('../../utils/host-monitoring');
 const { handlePeekUi } = require('../peek-handlers');
 const logger = require('../../logger').child({ component: 'workflow-await' });
+const { safeJsonParse } = require('../../utils/json');
 
 function buildTaskPeekArtifactSection(taskId, options = {}) {
   if (!taskId || typeof db.listArtifacts !== 'function') {
@@ -380,7 +381,7 @@ async function handleAwaitWorkflow(args) {
       let visualContent = [];
       if (task.status === 'completed' && task.metadata) {
         try {
-          const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+          const meta = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : task.metadata;
           if (meta && meta.visual_verify) {
             const vv = meta.visual_verify;
             const vResult = await handlePeekUi({

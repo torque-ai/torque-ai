@@ -1,4 +1,5 @@
 'use strict';
+const logger = require('../logger').child({ component: 'routes' });
 
 const db = require('../database');
 const { validateInferenceRequest } = require('./v2-schemas');
@@ -46,7 +47,8 @@ function validateDecodedParamField(field, label = field) {
           [field]: decodedValue,
         },
       };
-    } catch {
+    } catch (err) {
+      logger.debug("task handler error", { err: err.message });
       return {
         valid: false,
         errors: [{

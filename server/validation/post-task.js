@@ -139,7 +139,8 @@ function getGitStatusEntries(workingDir) {
       .split('\n')
       .map(line => parseGitStatusEntry(line))
       .filter(Boolean);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return [];
   }
 }
@@ -206,7 +207,8 @@ function revertScopedFiles(workingDir, files, label = 'ScopedRollback') {
         stdio: 'pipe',
         windowsHide: true,
       });
-    } catch {
+    } catch (err) {
+      logger.debug("task handler error", { err: err.message });
       skipped.push(file);
       continue;
     }
@@ -288,7 +290,8 @@ function expandArtifactCandidatePaths(fullPath, relativePath) {
       }
     }
     return nestedFiles;
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return [];
   }
 }
@@ -381,7 +384,8 @@ function findPlaceholderArtifacts(workingDir, modifiedFiles = []) {
       let content;
       try {
         content = fs.readFileSync(candidate.fullPath, 'utf8');
-      } catch {
+      } catch (err) {
+        logger.debug("task handler error", { err: err.message });
         continue;
       }
 
@@ -443,7 +447,8 @@ function cleanupJunkFiles(workingDir, taskId) {
         timeout: TASK_TIMEOUTS.GIT_STATUS,
         windowsHide: true,
       }).trim();
-    } catch {
+    } catch (err) {
+      logger.debug("task handler error", { err: err.message });
       return; // Not a git repo or git error
     }
 
@@ -471,8 +476,9 @@ function cleanupJunkFiles(workingDir, taskId) {
           // Also try to unstage from git
           try {
             execFileSync('git', ['reset', 'HEAD', '--', file], { cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_RESET, windowsHide: true });
-          } catch { /* ignore */ }
-        } catch {
+          } catch (err) { logger.debug("task handler error", { err: err.message }); /* ignore */ }
+        } catch (err) {
+          logger.debug("task handler error", { err: err.message });
           // Ignore cleanup errors for individual files
         }
       }
@@ -507,12 +513,14 @@ function getFileChangesForValidation(workingDir, numCommits = 1) {
     try {
       changedFilesRaw = execFileSync('git', ['diff', '--name-only', `HEAD~${numCommits}`, 'HEAD'],
         { cwd: workingDir, encoding: 'utf8', windowsHide: true });
-    } catch {
+    } catch (err) {
+      logger.debug("task handler error", { err: err.message });
       // Fallback: get staged/unstaged changes
       try {
         changedFilesRaw = execFileSync('git', ['diff', '--name-only', 'HEAD'],
           { cwd: workingDir, encoding: 'utf8', windowsHide: true });
-      } catch {
+      } catch (err) {
+        logger.debug("task handler error", { err: err.message });
         return fileChanges;
       }
     }
@@ -538,7 +546,8 @@ function getFileChangesForValidation(workingDir, numCommits = 1) {
           originalContent = execFileSync('git', ['show', `HEAD~${numCommits}:${relPath}`],
             { cwd: workingDir, encoding: 'utf8', windowsHide: true });
           originalSize = Buffer.byteLength(originalContent, 'utf8');
-        } catch {
+        } catch (err) {
+          logger.debug("task handler error", { err: err.message });
           // File may be new, original size is 0
         }
 
@@ -651,7 +660,8 @@ function checkFileQuality(filePath, options = {}) {
       issues.push('File contains diff/patch content instead of code');
     }
 
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     // Can't read file - not a quality issue, might be binary
   }
 
@@ -701,12 +711,14 @@ function checkDuplicateFiles(workingDir, modifiedFiles) {
               stdio: 'pipe'
             });
             // File exists in git - not a new duplicate
-          } catch {
+          } catch (err) {
+            logger.debug("task handler error", { err: err.message });
             // File is new (untracked) - potential shadow
             issues.push(`New file '${fileName}' may shadow existing: ${matches[0]}`);
           }
         }
-      } catch {
+      } catch (err) {
+        logger.debug("task handler error", { err: err.message });
         // Find failed - skip this check
       }
     }
@@ -780,7 +792,7 @@ function checkSyntax(workingDir, modifiedFiles) {
                 issues.push(`${path.basename(fullPath)}: TS${d.code || '?'} ${loc} ${d.text || d.message || ''}`);
               }
             }
-          } catch { /* tsserver not available — fall through to tsc */ }
+          } catch (err) { logger.debug("task handler error", { err: err.message }); /* tsserver not available — fall through to tsc */ }
         }
 
         if (!usedTsserver) {
@@ -873,7 +885,8 @@ function checkSyntax(workingDir, modifiedFiles) {
           }
         }
       }
-    } catch {
+    } catch (err) {
+      logger.debug("task handler error", { err: err.message });
       // Skip file on error
     }
   }

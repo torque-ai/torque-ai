@@ -29,7 +29,8 @@ const tools = [
         max_concurrent: {
           type: 'integer',
           description: 'Maximum concurrent tasks this agent can handle (default: 3)',
-          default: 3
+          default: 3,
+          minimum: 0
         },
         tls: {
           type: 'boolean',

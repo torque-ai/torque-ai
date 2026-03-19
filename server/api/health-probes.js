@@ -70,8 +70,8 @@ async function handleHealthz(req, res, _context = {}) {
   let runningCount = null;
   if (databaseState.accessible) {
     try {
-      queueDepth = db.countTasks({ status: 'queued' }) || 0;
-      runningCount = db.countTasks({ status: 'running' }) || 0;
+      queueDepth = db.countTasks({ status: 'queued' }) ?? 0;
+      runningCount = db.countTasks({ status: 'running' }) ?? 0;
     } catch {
       queueDepth = null;
       runningCount = null;

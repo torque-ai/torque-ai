@@ -7,6 +7,7 @@
  * benchmarks/tuning, provider stats, and system status.
  * These return { data, meta } envelopes via v2-control-plane helpers.
  */
+const logger = require('../logger').child({ component: 'v2-governance-handlers' });
 
 const crypto = require('crypto');
 const db = require('../database');
@@ -449,7 +450,8 @@ async function handleDeletePlanProject(req, res) {
         if (['queued', 'running', 'waiting'].includes(task.status)) {
           try {
             _taskManager.cancelTask(task.task_id, 'Plan project deleted via v2 API');
-          } catch {
+          } catch (err) {
+            logger.debug("task handler error", { err: err.message });
             db.updateTaskStatus(task.task_id, 'cancelled', {
               error_output: 'Plan project deleted',
             });
@@ -505,7 +507,7 @@ async function handleImportPlan(req, res) {
 
       sendSuccess(res, requestId, result, 200, req);
     } finally {
-      try { fs.unlinkSync(tempFile); } catch { /* cleanup */ }
+      try { fs.unlinkSync(tempFile); } catch (err) { logger.debug("task handler error", { err: err.message }); /* cleanup */ }
     }
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -649,7 +651,7 @@ async function handleListProviders(req, res) {
       const rawStats = db.getProviderStats ? db.getProviderStats(p.provider) : [];
       const statsList = Array.isArray(rawStats) ? rawStats : [];
       // Aggregate per-task-type stats into totals
-      const total_tasks = statsList.reduce((s, r) => s + (r.total_tasks || 0), 0);
+      const total_tasks = statsList.reduce((s, r) => s + (r.total_tasks ?? 0), 0);
       const completed_tasks = statsList.reduce((s, r) => s + (r.successful_tasks || 0), 0);
       const failed_tasks = statsList.reduce((s, r) => s + (r.failed_tasks || 0), 0);
       const durations = statsList.filter(r => r.avg_duration_seconds > 0);
@@ -657,7 +659,7 @@ async function handleListProviders(req, res) {
         ? durations.reduce((s, r) => s + r.avg_duration_seconds, 0) / durations.length
         : null;
       const success_rate = total_tasks > 0 ? Math.round(completed_tasks / total_tasks * 100) : 0;
-      const total_cost = statsList.reduce((s, r) => s + (r.total_cost || 0), 0);
+      const total_cost = statsList.reduce((s, r) => s + (r.total_cost ?? 0), 0);
       // API key status enrichment
       let api_key_status = 'not_set';
       let api_key_masked = null;
@@ -674,7 +676,7 @@ async function handleListProviders(req, res) {
           const decrypted = typeof decryptApiKey === 'function' ? decryptApiKey(p.api_key_encrypted) : null;
           if (decrypted) api_key_masked = typeof redactValue === 'function' ? redactValue(decrypted) : '••••••';
         }
-      } catch { /* key enrichment is best-effort */ }
+      } catch (err) { logger.debug("task handler error", { err: err.message }); /* key enrichment is best-effort */ }
 
       return {
         ...p,
@@ -814,7 +816,7 @@ async function handleSystemStatus(req, res) {
       pressure_level: pressureLevel,
       tasks_deferred: gatingEnabled && (pressureLevel === 'high' || pressureLevel === 'critical'),
     };
-  } catch { /* ignore — best effort */ }
+  } catch (err) { logger.debug("task handler error", { err: err.message }); /* ignore — best effort */ }
 
   sendSuccess(res, requestId, {
     instance: instanceId ? {

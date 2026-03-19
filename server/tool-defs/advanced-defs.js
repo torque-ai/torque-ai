@@ -128,13 +128,15 @@ const tools = [
         },
         auto_approve: {
           type: 'boolean',
-          description: 'Auto-approve Codex actions',
+          description: 'Auto-approve provider actions',
           default: false
         },
         timeout_minutes: {
           type: 'number',
           description: 'Timeout in minutes',
-          default: 30
+          default: 30,
+          minimum: 1,
+          maximum: 60
         },
         enabled: {
           type: 'boolean',
@@ -918,7 +920,8 @@ const tools = [
         max_concurrent: {
           type: 'number',
           description: 'Maximum concurrent tasks',
-          default: 1
+          default: 1,
+          minimum: 0
         },
         agent_type: {
           type: 'string',
@@ -1041,7 +1044,8 @@ const tools = [
         },
         max_concurrent: {
           type: 'number',
-          description: 'Updated max concurrent tasks'
+          description: 'Updated max concurrent tasks',
+          minimum: 0
         },
         priority: {
           type: 'number',

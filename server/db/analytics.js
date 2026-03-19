@@ -13,6 +13,7 @@
  */
 
 const crypto = require('crypto');
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 let getTaskFn;
@@ -27,10 +28,6 @@ function setSetPriorityWeights(fn) { _setWeightsFn = fn; }
 let findSimilarTasksFn;
 let _setWeightsFn;
 
-function safeJsonParse(value, defaultValue = null) {
-  if (!value) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
-}
 
 // ============================================================
 // Duration Prediction (merged from duration-prediction.js)

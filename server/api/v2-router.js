@@ -1,4 +1,5 @@
 'use strict';
+const logger = require('../logger').child({ component: 'v2-router' });
 
 const { randomUUID } = require('crypto');
 const db = require('../database');
@@ -155,7 +156,8 @@ function getV2ProviderDefaultTimeoutMs(providerId) {
 function getV2ProviderQueueDepth(providerId) {
   try {
     return Number(db.countTasks?.({ provider: providerId, status: 'queued' })) || 0;
-  } catch {
+  } catch (err) {
+    logger.debug("health metric error", { err: err.message });
     return 0;
   }
 }
@@ -163,7 +165,8 @@ function getV2ProviderQueueDepth(providerId) {
 function getV2ProviderDefaultProvider() {
   try {
     return db.getDefaultProvider?.() || null;
-  } catch {
+  } catch (err) {
+    logger.debug("health metric error", { err: err.message });
     return null;
   }
 }
@@ -171,7 +174,8 @@ function getV2ProviderDefaultProvider() {
 function getV2ProviderHealth(providerId) {
   try {
     return db.getProviderHealth?.(providerId) || {};
-  } catch {
+  } catch (err) {
+    logger.debug("health metric error", { err: err.message });
     return {};
   }
 }
@@ -179,7 +183,8 @@ function getV2ProviderHealth(providerId) {
 function isV2ProviderHealthy(providerId) {
   try {
     return db.isProviderHealthy?.(providerId);
-  } catch {
+  } catch (err) {
+    logger.debug("health metric error", { err: err.message });
     return true;
   }
 }
@@ -239,7 +244,8 @@ function getV2ProviderMaxContext(providerId) {
       || parseConfiguredPositiveInt(db.getConfig?.('ollama_num_ctx'))
       || PROVIDER_DEFAULTS.OLLAMA_MAX_CONTEXT
     );
-  } catch {
+  } catch (err) {
+    logger.debug("health metric error", { err: err.message });
     return PROVIDER_DEFAULTS.OLLAMA_MAX_CONTEXT;
   }
 }
@@ -268,7 +274,8 @@ function buildV2ProviderCapabilities(providerId) {
   let capabilityMatrix = {};
   try {
     capabilityMatrix = adapterRegistry.getProviderCapabilityMatrix?.() || {};
-  } catch {
+  } catch (err) {
+    logger.debug("health metric error", { err: err.message });
     capabilityMatrix = {};
   }
   const registryMeta = PROVIDER_REGISTRY[providerId] || {};

@@ -100,14 +100,14 @@ function resolveImportToFile(importPath, sourceDir) {
       const candidate = base + ext;
       try {
         if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
-      } catch { /* skip */ }
+      } catch (err) { logger.debug("enrichment step skipped", { err: err.message }); /* skip */ }
     }
     // Try index files
     for (const ext of ['.ts', '.js']) {
       const candidate = path.join(base, 'index' + ext);
       try {
         if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
-      } catch { /* skip */ }
+      } catch (err) { logger.debug("enrichment step skipped", { err: err.message }); /* skip */ }
     }
   }
   return null;
@@ -123,7 +123,7 @@ function extractTypeSignatures(filePath) {
   let content;
   try {
     content = fs.readFileSync(filePath, 'utf8');
-  } catch { return ''; }
+  } catch (err) { logger.debug("enrichment step skipped", { err: err.message }); return ''; }
 
   const ext = path.extname(filePath).toLowerCase();
   const lines = content.split('\n');
@@ -204,7 +204,7 @@ function walkImportsForTypes(filePath, workingDir, depth = 0, visited = new Set(
   let content;
   try {
     content = fs.readFileSync(filePath, 'utf8');
-  } catch { return []; }
+  } catch (err) { logger.debug("enrichment step skipped", { err: err.message }); return []; }
 
   const ext = path.extname(filePath).toLowerCase();
   const importPaths = extractImportPaths(content, ext);
@@ -335,7 +335,7 @@ function findRelatedTestFiles(resolvedFiles, workingDir) {
           }
           break; // Found a test file for this source
         }
-      } catch { /* skip */ }
+      } catch (err) { logger.debug("enrichment step skipped", { err: err.message }); /* skip */ }
     }
   }
 
@@ -409,7 +409,8 @@ function buildGitContext(workingDir, resolvedFiles) {
     execFileSync('git', ['rev-parse', '--git-dir'], {
       cwd: workingDir, encoding: 'utf8', timeout: 5000
     });
-  } catch {
+  } catch (err) {
+    logger.debug("enrichment step skipped", { err: err.message });
     return ''; // Not a git repo
   }
 
@@ -428,7 +429,7 @@ function buildGitContext(workingDir, resolvedFiles) {
         bytes += section.length;
       }
     }
-  } catch { /* skip */ }
+  } catch (err) { logger.debug("enrichment step skipped", { err: err.message }); /* skip */ }
 
   // Per-file recent changes (if files resolved)
   if (resolvedFiles && resolvedFiles.length > 0) {
@@ -444,7 +445,7 @@ function buildGitContext(workingDir, resolvedFiles) {
             bytes += section.length;
           }
         }
-      } catch { /* skip */ }
+      } catch (err) { logger.debug("enrichment step skipped", { err: err.message }); /* skip */ }
     }
   }
 
@@ -582,7 +583,8 @@ function buildHashlineErrorFeedbackPrompt(workingDir, modifiedFiles, errors, edi
     let content;
     try {
       content = fs.readFileSync(fullPath, 'utf8');
-    } catch {
+    } catch (err) {
+      logger.debug("enrichment step skipped", { err: err.message });
       continue;
     }
 
@@ -751,7 +753,8 @@ async function buildTsserverTypeContext(resolvedFiles, workingDir) {
   let tsserverClient;
   try {
     tsserverClient = require('./tsserver-client');
-  } catch {
+  } catch (err) {
+    logger.debug("enrichment step skipped", { err: err.message });
     return '';
   }
 
@@ -769,7 +772,7 @@ async function buildTsserverTypeContext(resolvedFiles, workingDir) {
     let content;
     try {
       content = fs.readFileSync(fullPath, 'utf8');
-    } catch { continue; }
+    } catch (err) { logger.debug("enrichment step skipped", { err: err.message }); continue; }
 
     // Find import lines and query quick info for imported names
     const lines = content.split('\n');

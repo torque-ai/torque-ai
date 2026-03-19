@@ -874,7 +874,8 @@ const tools = [
         },
         max_concurrent: {
           type: 'number',
-          description: 'Max concurrent tasks on this host (0=unlimited, 1=single task at a time). Set to 1 for hosts with limited GPU to prevent contention.'
+          description: 'Max concurrent tasks on this host (0=unlimited, 1=single task at a time). Set to 1 for hosts with limited GPU to prevent contention.',
+          minimum: 0
         },
         gpu_metrics_port: {
           type: 'number',
@@ -1047,7 +1048,8 @@ const tools = [
         },
         max_concurrent: {
           type: 'number',
-          description: 'Max concurrent tasks for set_max_concurrent. Set to 0 for unlimited.'
+          description: 'Max concurrent tasks for set_max_concurrent. Set to 0 for unlimited.',
+          minimum: 0
         },
         gpu_metrics_port: {
           type: 'number',

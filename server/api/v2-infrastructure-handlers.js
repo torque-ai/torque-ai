@@ -7,6 +7,7 @@
  * and remote agents.
  * These return { data, meta } envelopes via v2-control-plane helpers.
  */
+const logger = require('../logger').child({ component: 'v2-infrastructure-handlers' });
 
 const db = require('../database');
 const hostCredentials = require('../db/host-management');
@@ -201,7 +202,7 @@ async function handleToggleHost(req, res) {
                   const parsed = JSON.parse(data);
                   const models = (parsed.models || []).map(m => m.name || m.model).filter(Boolean);
                   resolve({ healthy: true, models });
-                } catch { resolve({ healthy: true, models: null }); }
+                } catch (err) { logger.debug("task handler error", { err: err.message }); resolve({ healthy: true, models: null }); }
               } else { resolve({ healthy: false, models: null }); }
             });
           });
@@ -211,7 +212,7 @@ async function handleToggleHost(req, res) {
         if (db.recordHostHealthCheck) {
           db.recordHostHealthCheck(hostId, probeResult.healthy, probeResult.models);
         }
-      } catch { /* probe failed — status stays unknown */ }
+      } catch (err) { logger.debug("task handler error", { err: err.message }); /* probe failed — status stays unknown */ }
     }
 
     const updated = db.getOllamaHost(hostId);
@@ -272,7 +273,8 @@ async function handleCreatePeekHost(req, res) {
     return sendError(res, requestId, 'validation_error', 'name and url are required', 400);
   }
 
-  try { new URL(body.url); } catch {
+  try { new URL(body.url); } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'validation_error', 'Invalid peek host URL', 400);
   }
 
@@ -389,7 +391,7 @@ function _getRegistry() {
   try {
     const { getAgentRegistry } = require('../index');
     return getAgentRegistry ? getAgentRegistry() : null;
-  } catch { return null; }
+  } catch (err) { logger.debug("task handler error", { err: err.message }); return null; }
 }
 
 function _getAgentDb() {
@@ -495,7 +497,7 @@ async function handleAgentHealth(req, res) {
     }
 
     let result = null;
-    try { result = await client.checkHealth(); } catch { result = null; }
+    try { result = await client.checkHealth(); } catch (err) { logger.debug("task handler error", { err: err.message }); result = null; }
 
     const now = new Date().toISOString();
     const status = result ? 'healthy' : 'down';

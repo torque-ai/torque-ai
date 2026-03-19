@@ -25,10 +25,13 @@ const tools = [
         max_concurrent: {
           type: 'number',
           description: 'Maximum concurrent tasks (1-100, or 0 for unlimited on hosts). Used with provider/workstation/host scopes.',
+          minimum: 0
         },
         vram_factor: {
           type: 'number',
           description: 'VRAM budget factor (0.50-1.00). 0.95 = use 95% of GPU VRAM. Used with vram_factor scope.',
+          minimum: 0.5,
+          maximum: 1.0
         },
       },
       required: ['scope'],

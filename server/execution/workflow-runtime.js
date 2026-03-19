@@ -14,6 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 const logger = require('../logger').child({ component: 'workflow-runtime' });
 const serverConfig = require('../config');
 const { resolveWorkflowConflicts } = require('./conflict-resolver');
+const { safeJsonParse } = require('../utils/json');
 
 // ---------------------------------------------------------------------------
 // Dependency injection
@@ -617,7 +618,7 @@ function applyOutputInjection(taskId, workflowId) {
   let contextFrom = null;
   if (task.metadata) {
     try {
-      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+      const meta = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : task.metadata;
       if (Array.isArray(meta.context_from)) {
         contextFrom = meta.context_from;
       }
@@ -1123,7 +1124,7 @@ function checkWorkflowCompletion(workflowId) {
 // ---------------------------------------------------------------------------
 
 function maybeProcessAuditTaskResult(task) {
-  const tags = typeof task.tags === 'string' ? JSON.parse(task.tags) : (task.tags || []);
+  const tags = typeof task.tags === 'string' ? safeJsonParse(task.tags, []) : (task.tags || []);
   const auditTag = Array.isArray(tags) ? tags.find((tag) => typeof tag === 'string' && tag.startsWith('audit:')) : undefined;
 
   if (!auditTag) return;

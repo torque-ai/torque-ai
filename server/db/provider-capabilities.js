@@ -1,5 +1,7 @@
 'use strict';
 
+const { safeJsonParse } = require('../utils/json');
+
 const DEFAULT_CAPABILITIES = {
   codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
   'claude-cli': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
@@ -32,7 +34,7 @@ function getProviderCapabilities(provider) {
     try {
       const config = _db.getProvider(provider);
       if (config && config.capability_tags) {
-        const tags = typeof config.capability_tags === 'string' ? JSON.parse(config.capability_tags) : config.capability_tags;
+        const tags = typeof config.capability_tags === 'string' ? safeJsonParse(config.capability_tags, null) : config.capability_tags;
         if (Array.isArray(tags)) return tags;
       }
     } catch { /* fall through to defaults */ }

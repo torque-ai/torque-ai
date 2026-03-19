@@ -451,7 +451,9 @@ const tools = [
         },
         timeout_minutes: {
           type: 'number',
-          description: 'Task timeout in minutes'
+          description: 'Task timeout in minutes',
+          minimum: 1,
+          maximum: 60
         },
         priority: {
           type: 'number',
@@ -463,7 +465,8 @@ const tools = [
         },
         context_depth: {
           type: 'number',
-          description: 'Depth of import graph traversal for context stuffing (default: 1)'
+          description: 'Depth of import graph traversal for context stuffing (default: 1)',
+          enum: [1, 2]
         },
         context_stuff: {
           type: 'boolean',

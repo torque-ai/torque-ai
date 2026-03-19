@@ -15,6 +15,7 @@ const { classifyTaskType } = require('../db/model-capabilities');
 const providerRegistry = require('../providers/registry');
 const serverConfig = require('../config');
 const gpuMetrics = require('../scripts/gpu-metrics-server');
+const { safeJsonParse } = require('../utils/json');
 
 // Dependency injection
 let db = null;
@@ -174,7 +175,7 @@ function resolveEffectiveProvider(task) {
   }
   // Deferred assignment: read intended_provider from metadata
   try {
-    const meta = typeof task?.metadata === 'string' ? JSON.parse(task.metadata) : task?.metadata;
+    const meta = typeof task?.metadata === 'string' ? safeJsonParse(task.metadata, {}) : task?.metadata;
     if (meta?.intended_provider) {
       return meta.intended_provider.trim().toLowerCase();
     }

@@ -56,7 +56,8 @@ function parseTaskMetadata(task) {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? parsed
       : {};
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return {};
   }
 }
@@ -202,7 +203,7 @@ async function handleSubmitTask(req, res) {
     const result = _taskManager.startTask(taskId);
     if (result?.blocked) {
       // Clean up the task record that was created before the block was detected
-      try { db.deleteTask(taskId); } catch {}
+      try { db.deleteTask(taskId); } catch (err) { logger.debug("task handler error", { err: err.message }); }
       return sendError(res, requestId, 'task_blocked', result.reason || 'Task blocked by policy', 403, {}, req);
     }
     const task = db.getTask(taskId);
@@ -302,7 +303,8 @@ async function handleCancelTask(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
@@ -348,7 +350,8 @@ async function handleRetryTask(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
@@ -413,7 +416,7 @@ async function handleRetryTask(req, res) {
     const result = _taskManager.startTask(newTaskId);
     if (result?.blocked) {
       // Clean up the task record that was created before the block was detected
-      try { db.deleteTask(newTaskId); } catch {}
+      try { db.deleteTask(newTaskId); } catch (err) { logger.debug("task handler error", { err: err.message }); }
       return sendError(res, requestId, 'task_blocked', result.reason || 'Task blocked by policy', 403, {}, req);
     }
     const newTask = db.getTask(newTaskId);
@@ -446,7 +449,8 @@ async function handleReassignTaskProvider(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
@@ -512,7 +516,8 @@ async function handleCommitTask(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
@@ -558,7 +563,8 @@ async function handleTaskDiff(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
@@ -594,7 +600,8 @@ async function handleTaskLogs(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
@@ -645,7 +652,8 @@ async function handleDeleteTask(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
@@ -675,7 +683,8 @@ async function handleApproveSwitch(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
@@ -776,7 +785,8 @@ async function handleRejectSwitch(req, res) {
   let task;
   try {
     task = db.getTask(taskId);
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 

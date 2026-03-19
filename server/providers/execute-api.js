@@ -14,6 +14,7 @@ const { stuffContext, CONTEXT_STUFFING_PROVIDERS } = require('../utils/context-s
 const { installProxyAgent } = require('../utils/proxy-agent');
 const providerRegistry = require('./registry');
 const { FREE_PROVIDERS } = require('../execution/queue-scheduler');
+const { safeJsonParse } = require('../utils/json');
 
 // Phase 2: Proxy support for enterprise environments.
 // When HTTPS_PROXY / HTTP_PROXY env vars are set, all cloud API fetch() calls
@@ -244,7 +245,7 @@ function getFreeProviderRetryFallback(task) {
 async function enrichTaskDescription(task) {
   let meta;
   try {
-    meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+    meta = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : (task.metadata || {});
   } catch {
     return task.task_description;
   }

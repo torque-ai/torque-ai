@@ -28,7 +28,9 @@ const tools = [
         },
         timeout_minutes: {
           type: 'number',
-          description: 'Override timeout for all steps'
+          description: 'Override timeout for all steps',
+          minimum: 1,
+          maximum: 60
         },
         description: {
           type: 'string',
@@ -138,7 +140,9 @@ const tools = [
               },
               timeout_minutes: {
                 type: 'number',
-                description: 'Task timeout in minutes'
+                description: 'Task timeout in minutes',
+                minimum: 1,
+                maximum: 60
               },
               auto_approve: {
                 type: 'boolean',
@@ -223,7 +227,9 @@ const tools = [
         timeout_minutes: {
           type: 'number',
           description: 'Task timeout in minutes',
-          default: 30
+          default: 30,
+          minimum: 1,
+          maximum: 60
         },
         auto_approve: {
           type: 'boolean',
@@ -371,7 +377,7 @@ const tools = [
             properties: {
               node_id: { type: 'string' },
               task_description: { type: 'string' },
-              timeout_minutes: { type: 'number' },
+              timeout_minutes: { type: 'number', minimum: 1, maximum: 60 },
               auto_approve: { type: 'boolean' },
               tags: { type: 'array', items: { type: 'string' } }
             },
@@ -772,7 +778,7 @@ const tools = [
       type: 'object',
       properties: {
         workflow_id: { type: 'string', description: 'Workflow ID to wait for' },
-        timeout_minutes: { type: 'number', description: 'Max wait time in minutes (default: 30, max: 60)' },
+        timeout_minutes: { type: 'number', description: 'Max wait time in minutes (default: 30, max: 60)', minimum: 1, maximum: 60 },
         poll_interval_ms: { type: 'number', description: 'Fallback poll interval in ms if push notifications unavailable (default: 5000). Usually not needed — tasks wake the loop instantly via event bus.' },
         heartbeat_minutes: {
           type: 'number',
@@ -795,7 +801,7 @@ const tools = [
       type: 'object',
       properties: {
         task_id: { type: 'string', description: 'Task ID to wait for' },
-        timeout_minutes: { type: 'number', description: 'Max wait time in minutes (default: 30, max: 60)' },
+        timeout_minutes: { type: 'number', description: 'Max wait time in minutes (default: 30, max: 60)', minimum: 1, maximum: 60 },
         poll_interval_ms: { type: 'number', description: 'Fallback poll interval in ms if push notifications unavailable (default: 5000). Usually not needed — tasks wake the loop instantly via event bus.' },
         heartbeat_minutes: {
           type: 'number',

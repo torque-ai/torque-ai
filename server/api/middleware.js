@@ -1,4 +1,5 @@
 'use strict';
+const logger = require('../logger').child({ component: 'middleware' });
 
 const crypto = require('crypto');
 const db = require('../database');
@@ -125,7 +126,8 @@ function getRateLimit(configDb) {
     const sourceDb = configDb || db;
     const limit = sourceDb?.getConfig ? sourceDb.getConfig('api_rate_limit') : null;
     return limit ? parseInt(limit, 10) : DEFAULT_RATE_LIMIT;
-  } catch {
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
     return DEFAULT_RATE_LIMIT;
   }
 }

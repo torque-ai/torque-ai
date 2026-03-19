@@ -19,6 +19,7 @@
  */
 
 const logger = require('../logger').child({ component: 'completion-pipeline' });
+const { safeJsonParse } = require('../utils/json');
 
 let deps = {};
 
@@ -69,7 +70,7 @@ function recordModelOutcome(task, success) {
       return;
     }
 
-    const files = task.files ? (typeof task.files === 'string' ? JSON.parse(task.files) : task.files) : [];
+    const files = task.files ? (typeof task.files === 'string' ? safeJsonParse(task.files, []) : task.files) : [];
     const language = typeof deps.db.detectTaskLanguage === 'function'
       ? deps.db.detectTaskLanguage(task.task_description || '', files)
       : null;

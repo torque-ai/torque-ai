@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const childProcess = require('child_process');
 
 const CIProvider = require('./provider');
+const { safeJsonParse } = require('../utils/json');
 
 const GH_TIMEOUT_MS = 30000;
 const MAX_FAILURE_LOG_BYTES = 2 * 1024 * 1024;
@@ -112,7 +113,7 @@ class GitHubActionsProvider extends CIProvider {
   }
 
   parseWebhookPayload(_headers = {}, body = null) {
-    const payload = typeof body === 'string' ? JSON.parse(body) : body;
+    const payload = typeof body === 'string' ? safeJsonParse(body, null) : body;
     if (!payload || typeof payload !== 'object') {
       throw new Error('Invalid GitHub webhook payload');
     }

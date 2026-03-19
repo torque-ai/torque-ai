@@ -20,11 +20,13 @@ module.exports = [
         "timeout_minutes": {
           "type": "number",
           "description": "Timeout in minutes",
-          "default": 30
+          "default": 30,
+          "minimum": 1,
+          "maximum": 60
         },
         "auto_approve": {
           "type": "boolean",
-          "description": "Auto-approve Codex actions",
+          "description": "Auto-approve provider actions",
           "default": false
         },
         "priority": {
@@ -49,7 +51,7 @@ module.exports = [
           "description": "Task ID to check (omit for all tasks summary)"
         }
       },
-      "required": []
+      "required": ["task_id"]
     }
   },
   {
@@ -253,7 +255,7 @@ module.exports = [
   },
   {
     "name": "analyze_task",
-    "description": "Analyze a task to determine if it should be delegated to Codex or kept for Claude",
+    "description": "Analyze a task to determine if it should be delegated to a provider or kept for Claude",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -390,7 +392,9 @@ module.exports = [
         "timeout_minutes": {
           "type": "number",
           "description": "Timeout for each run",
-          "default": 30
+          "default": 30,
+          "minimum": 1,
+          "maximum": 60
         },
         "priority": {
           "type": "number",

@@ -12,7 +12,8 @@ module.exports = [
       "properties": {
         "max_concurrent": {
           "type": "number",
-          "description": "Maximum concurrent Codex instances (1-20)"
+          "description": "Maximum concurrent provider instances (1-20)",
+          "minimum": 0
         },
         "default_timeout": {
           "type": "number",
@@ -158,7 +159,7 @@ module.exports = [
   },
   {
     "name": "get_analytics",
-    "description": "Get analytics and statistics about Codex task history",
+    "description": "Get analytics and statistics about TORQUE task history",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -209,7 +210,9 @@ module.exports = [
               },
               "timeout_minutes": {
                 "type": "number",
-                "description": "Timeout for this step"
+                "description": "Timeout for this step",
+                "minimum": 1,
+                "maximum": 60
               }
             },
             "required": [
@@ -335,7 +338,7 @@ module.exports = [
   },
   {
     "name": "health_check",
-    "description": "Run a health check on Codex CLI and record the results",
+    "description": "Run a health check on TORQUE infrastructure and record the results",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -799,7 +802,8 @@ module.exports = [
         },
         "max_concurrent": {
           "type": "number",
-          "description": "Max concurrent tasks for this project (0 = use global limit)"
+          "description": "Max concurrent tasks for this project (0 = use global limit)",
+          "minimum": 0
         },
         "max_daily_cost": {
           "type": "number",
@@ -1022,7 +1026,8 @@ module.exports = [
       "properties": {
         "max_concurrent": {
           "type": "number",
-          "description": "Default max concurrent tasks for new projects"
+          "description": "Default max concurrent tasks for new projects",
+          "minimum": 0
         },
         "max_daily_cost": {
           "type": "number",

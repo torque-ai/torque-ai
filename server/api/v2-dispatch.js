@@ -10,6 +10,7 @@
  * call /api/v2/* endpoints on the same port (3456) instead of needing
  * a separate API server connection.
  */
+const logger = require('../logger').child({ component: 'v2-dispatch' });
 
 const routes = require('./routes');
 const { normalizeError } = require('./v2-middleware');
@@ -59,7 +60,8 @@ async function readJsonBody(req) {
       }
       try {
         resolve(JSON.parse(data));
-      } catch {
+      } catch (err) {
+        logger.debug("task handler error", { err: err.message });
         reject(new Error('Invalid JSON'));
       }
     });

@@ -17,6 +17,7 @@ const { resolveFileReferences } = require('../utils/file-resolution');
 const ollamaShared = require('./ollama-shared');
 const providerConfig = require('./config');
 const serverConfig = require('../config');
+const { safeJsonParse } = require('../utils/json');
 // Agentic tool-calling is now handled exclusively by execution.js wrapper
 
 // Dependency injection
@@ -504,7 +505,7 @@ async function executeOllamaTask(task) {
       try {
         const defaults = serverConfig.get(`project_defaults_${task.project}`);
         if (defaults) {
-          const parsed = typeof defaults === 'string' ? JSON.parse(defaults) : defaults;
+          const parsed = typeof defaults === 'string' ? safeJsonParse(defaults, {}) : defaults;
           if (parsed.working_directory) {
             workingDir = parsed.working_directory;
           }

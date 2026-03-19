@@ -386,7 +386,7 @@ const tools = [
         trigger_type: {
           type: 'string',
           enum: ['standard', 'free_tier_task'],
-          description: 'How to route created tasks. standard: use smart_submit_task (default). free_tier_task: route to free-tier providers (groq, cerebras, google-ai, openrouter), skipping Codex entirely.',
+          description: 'How to route created tasks. standard: use smart_submit_task (default). free_tier_task: route to free-tier providers (groq, cerebras, google-ai, openrouter), skipping paid providers.',
           default: 'standard'
         },
         provider: {
