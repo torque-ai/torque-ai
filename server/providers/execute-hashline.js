@@ -747,7 +747,7 @@ async function executeHashlineOllamaTask(task) {
     });
 
     const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
-    const timeoutMs = (task.timeout_minutes || 10) * 60 * 1000;
+    const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
     const proc = task.proc;
     const abortController = new AbortController();
     if (proc) proc.abortController = abortController;

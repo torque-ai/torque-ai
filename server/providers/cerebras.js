@@ -29,7 +29,7 @@ class CerebrasProvider extends BaseProvider {
 
     try {
       const selectedModel = model || this.defaultModel;
-      const timeout = (options.timeout || 10) * 60 * 1000;
+      const timeout = (options.timeout || 30) * 60 * 1000;
 
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -123,7 +123,7 @@ class CerebrasProvider extends BaseProvider {
 
     try {
       const selectedModel = model || this.defaultModel;
-      const timeout = (options.timeout || 10) * 60 * 1000;
+      const timeout = (options.timeout || 30) * 60 * 1000;
 
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), timeout);

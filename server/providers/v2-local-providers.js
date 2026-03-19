@@ -436,9 +436,11 @@ class BaseLocalOllamaProvider extends BaseProvider {
   }
 
   async _invokeGenerate(hostUrl, requestBody, stream, options = {}) {
+    // options.timeout is in minutes; TASK_TIMEOUTS.OLLAMA_API is in ms (30s) which is
+    // too short for LLM generation — fall back to the provider default (30 min) instead.
     const timeoutMs = Number.isFinite(Number(options.timeout))
       ? Math.max(1000, Math.round(Number(options.timeout) * 60 * 1000))
-      : (TASK_TIMEOUTS?.OLLAMA_API || 30_000);
+      : (PROVIDER_DEFAULT_TIMEOUTS['ollama'] || 30) * 60 * 1000;
 
     return new Promise((resolve, reject) => {
       let resolved = false;
