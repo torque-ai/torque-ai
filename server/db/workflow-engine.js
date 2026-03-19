@@ -608,30 +608,58 @@ function tokenizeExpression(expr) {
     if (expr[i] === ')') { tokens.push({ type: 'RPAREN' }); i++; continue; }
 
     // String methods: .contains('...') or .matches('...')
+    // Use a quote-aware scan to find the closing quote, so args containing ')' are handled correctly.
     if (expr.slice(i, i + 10) === '.contains(') {
       i += 10;
-      const endQuote = expr.indexOf("')", i);
-      if (endQuote === -1) throw new Error('Unterminated .contains()');
-      tokens.push({ type: 'METHOD', value: 'contains', arg: expr.slice(i + 1, endQuote) });
-      i = endQuote + 2;
+      if (expr[i] !== "'") throw new Error('Expected single-quoted argument in .contains()');
+      i++; // skip opening quote
+      let arg = '';
+      while (i < expr.length) {
+        if (expr[i] === "'") {
+          i++; // skip closing quote
+          if (expr[i] !== ')') throw new Error('Expected ) after closing quote in .contains()');
+          i++; // skip closing paren
+          break;
+        }
+        arg += expr[i++];
+      }
+      tokens.push({ type: 'METHOD', value: 'contains', arg });
       continue;
     }
     if (expr.slice(i, i + 9) === '.matches(') {
       i += 9;
-      const endQuote = expr.indexOf("')", i);
-      if (endQuote === -1) throw new Error('Unterminated .matches()');
-      tokens.push({ type: 'METHOD', value: 'matches', arg: expr.slice(i + 1, endQuote) });
-      i = endQuote + 2;
+      if (expr[i] !== "'") throw new Error('Expected single-quoted argument in .matches()');
+      i++; // skip opening quote
+      let arg = '';
+      while (i < expr.length) {
+        if (expr[i] === "'") {
+          i++; // skip closing quote
+          if (expr[i] !== ')') throw new Error('Expected ) after closing quote in .matches()');
+          i++; // skip closing paren
+          break;
+        }
+        arg += expr[i++];
+      }
+      tokens.push({ type: 'METHOD', value: 'matches', arg });
       continue;
     }
 
-    // Numbers
-    if (/\d/.test(expr[i])) {
+    // Numbers — support integers, decimals (3.5), and negative numbers (-1)
+    if (/\d/.test(expr[i]) || (expr[i] === '-' && /\d/.test(expr[i + 1] || ''))) {
       let num = '';
+      if (expr[i] === '-') num += expr[i++];
       while (i < expr.length && /\d/.test(expr[i])) {
         num += expr[i++];
       }
-      tokens.push({ type: 'NUMBER', value: parseInt(num, 10) });
+      if (i < expr.length && expr[i] === '.' && /\d/.test(expr[i + 1] || '')) {
+        num += expr[i++]; // decimal point
+        while (i < expr.length && /\d/.test(expr[i])) {
+          num += expr[i++];
+        }
+        tokens.push({ type: 'NUMBER', value: parseFloat(num) });
+      } else {
+        tokens.push({ type: 'NUMBER', value: parseInt(num, 10) });
+      }
       continue;
     }
 
@@ -839,6 +867,20 @@ function evaluateAST(ast, context) {
  * @returns {any}
  */
 function updateWorkflowCounts(workflowId) {
+  // Guard: skip if workflow is already in a terminal state to prevent double-completion fires.
+  const workflow = getWorkflow(workflowId);
+  if (!workflow) return { total_tasks: 0, completed_tasks: 0, failed_tasks: 0, skipped_tasks: 0 };
+  if (['completed', 'failed', 'cancelled'].includes(workflow.status)) {
+    // Return current counts without modifying status.
+    const tasks = getWorkflowTasks(workflowId);
+    return {
+      total_tasks: tasks.length,
+      completed_tasks: tasks.filter(t => t.status === 'completed').length,
+      failed_tasks: tasks.filter(t => t.status === 'failed').length,
+      skipped_tasks: tasks.filter(t => t.status === 'skipped').length
+    };
+  }
+
   const tasks = getWorkflowTasks(workflowId);
   const counts = {
     total_tasks: tasks.length,
@@ -855,9 +897,12 @@ function updateWorkflowCounts(workflowId) {
   ).length;
 
   if (pending === 0 && tasks.length > 0) {
+    const cancelled = tasks.filter(t => t.status === 'cancelled').length;
     const failed = counts.failed_tasks > 0;
+    // All-cancelled with no failures → cancelled (not completed)
+    const finalStatus = failed ? 'failed' : cancelled === tasks.length ? 'cancelled' : 'completed';
     updateWorkflow(workflowId, {
-      status: failed ? 'failed' : 'completed',
+      status: finalStatus,
       completed_at: new Date().toISOString()
     });
   }
