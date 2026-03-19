@@ -40,6 +40,10 @@ class RemoteAgentClient {
     this.healthCheckTimeout = healthCheckTimeout;
     this.tls = tls;
     this.rejectUnauthorized = rejectUnauthorized;
+    if (tls && !rejectUnauthorized) {
+      // eslint-disable-next-line no-console
+      console.warn(`[AgentClient] WARNING: TLS certificate verification is disabled for agent at ${host}:${port}. This connection is vulnerable to man-in-the-middle attacks.`);
+    }
     this._cachedHealth = null;
     this._status = 'unknown';
     this._consecutiveFailures = 0;

@@ -2249,6 +2249,12 @@ async function handleShutdown(req, res, _context = {}) {
     return;
   }
 
+  // Defense-in-depth: require X-Requested-With to prevent CSRF from browser contexts
+  if (!req.headers['x-requested-with']) {
+    sendJson(res, { error: 'X-Requested-With header required' }, 403, req);
+    return;
+  }
+
   let body = {};
   try { body = await parseBody(req); } catch { /* ignore */ }
   const reason = body.reason || 'HTTP /api/shutdown';
@@ -2507,9 +2513,15 @@ async function handleRequest(req, res, context = {}) {
   // Exposes MCP tools via REST API without per-tool route definitions.
   // SECURITY: Requires API key + tier enforcement (rest_api_tool_mode config).
   const TOOL_PREFIX = '/api/tools/';
+  // Tools that must not be callable via the generic REST passthrough regardless of auth/tier
+  const BLOCKED_REST_TOOLS = new Set(['restart_server', 'shutdown', 'database_backup', 'database_restore']);
   if (req.method === 'POST' && url.startsWith(TOOL_PREFIX)) {
     const toolName = url.slice(TOOL_PREFIX.length);
     if (toolName && /^[a-z_]+$/.test(toolName) && tools.routeMap.has(toolName)) {
+      if (BLOCKED_REST_TOOLS.has(toolName)) {
+        sendJson(res, { error: `Tool '${toolName}' is not available via the REST API` }, 403, req);
+        return;
+      }
       if (!checkAuth(req, { requireApiKey: true })) {
         sendAuthError(res, requestId, req);
         return;

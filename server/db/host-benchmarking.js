@@ -364,14 +364,19 @@ async function fetchHostModelsSync(hostUrl, timeoutMs = 5000) {
       return null;
     }
 
-    // SECURITY: Block internal/private network URLs
+    // SECURITY: Block public IPs — Ollama hosts must be on private/local networks
     const hostname = parsedUrl.hostname.toLowerCase();
+    const isPrivateIP = (ip) => /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|::1|fd|fc)/i.test(ip);
     if (hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '::1') {
       const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
       if (ipv4Match) {
-        const [, a, b] = ipv4Match.map(Number);
-        if (!(a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 127)) {
-          // Public IP - could be risky, but Ollama hosts should be internal
+        if (!isPrivateIP(hostname)) {
+          logThrottledModelRefreshFailure(
+            logKey,
+            `[Host Benchmarking] Blocked model refresh for public IP: ${hostname}`,
+            { hostUrl, hostname }
+          );
+          return null;
         }
       }
     }

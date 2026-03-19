@@ -226,8 +226,11 @@ function runSecurityScan(taskId, filePath, content) {
 
   const issues = [];
 
+  const { isSafeRegex } = require('../utils/safe-regex');
+
   for (const rule of rules) {
     try {
+      if (!isSafeRegex(rule.pattern)) continue; // skip potentially catastrophic patterns
       const regex = new RegExp(rule.pattern, 'gmi');
       let lineNum = 1;
       const lines = content.split('\n');

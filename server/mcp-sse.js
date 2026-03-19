@@ -1174,10 +1174,10 @@ async function handleMcpRequest(request, session) {
       }
 
       try {
-        // Pass shutdown signal so blocking handlers can return early
-        normalizedArgs.__shutdownSignal = shutdownAbort.signal;
-        const result = await handleToolCall(name, normalizedArgs);
-        delete normalizedArgs.__shutdownSignal;
+        // Pass shutdown signal so blocking handlers can return early.
+        // Clone to avoid mutating the original args object (which may be reused or logged).
+        const argsWithSignal = { ...normalizedArgs, __shutdownSignal: shutdownAbort.signal };
+        const result = await handleToolCall(name, argsWithSignal);
 
         if (result && (result.__unlock_all_tools || result.__unlock_tier)) {
           const newMode = result.__unlock_all_tools ? 'full'
@@ -1407,13 +1407,19 @@ async function handleHttpRequest(req, res) {
           limit: Math.max(1, Math.min(Number(url.searchParams.get('limit')) || 100, 1000))
         });
         const seen = new Set();
-        for (const evt of missedEvents.reverse()) {
+        for (const evt of missedEvents.slice().reverse()) { // .slice() prevents mutating the shared array in-place
           // Deduplicate by task_id + event_type to avoid replaying events the client already has
           const dedup = `${evt.task_id}:${evt.event_type}:${evt.created_at}`;
           if (seen.has(dedup)) continue;
           seen.add(dedup);
 
-          const parsed = evt.event_data ? JSON.parse(evt.event_data) : {};
+          let parsed = {};
+          try {
+            parsed = evt.event_data ? JSON.parse(evt.event_data) : {};
+          } catch (parseErr) {
+            logger.warn(`Skipping corrupted replay event ${evt.id}: ${parseErr.message}`);
+            continue;
+          }
           session.pendingEvents.push({
             id: ++eventIdCounter,
             eventName: evt.event_type,

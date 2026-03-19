@@ -634,7 +634,9 @@ function normalizeProviderValue(provider) {
 function resolveTaskId(id) {
   if (!id || !db) return null;
   if (id.length === 36) return id; // Already full UUID
-  const startsWith = db.prepare('SELECT id FROM tasks WHERE id LIKE ? ORDER BY created_at DESC').all(id + '%');
+  // Escape LIKE metacharacters so a prefix like "50%" doesn't match unintended rows
+  const escapedId = id.replace(/[%_\\]/g, '\\$&');
+  const startsWith = db.prepare("SELECT id FROM tasks WHERE id LIKE ? ESCAPE '\\' ORDER BY created_at DESC").all(escapedId + '%');
   if (startsWith.length > 1) {
     const err = new Error(`Ambiguous task ID prefix "${id}" matches ${startsWith.length} tasks`);
     err.code = ErrorCodes.INVALID_PARAM;

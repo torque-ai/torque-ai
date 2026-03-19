@@ -154,6 +154,19 @@ function createServer(overrideConfig = {}) {
       return;
     }
 
+    // On Windows, spawn uses shell:true which passes args through cmd.exe.
+    // Reject any argument containing shell metacharacters that could escape the argv boundary.
+    if (process.platform === 'win32') {
+      const SHELL_META = /[&|<>;"'`\r\n]/;
+      for (const arg of args) {
+        if (typeof arg === 'string' && SHELL_META.test(arg)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Argument contains disallowed shell metacharacter: ${arg}` }));
+          return;
+        }
+      }
+    }
+
     // Check concurrency limit
     const maxConcurrent = mergedConfig.max_concurrent || 3;
     if (serverRunningTasks >= maxConcurrent) {
@@ -427,8 +440,9 @@ function createServer(overrideConfig = {}) {
       return;
     }
 
-    // Peek proxy (no auth — proxies to local peek_server)
+    // Peek proxy — requires the same secret-based auth as other endpoints
     if (pathname.startsWith('/peek/')) {
+      if (!serverAuthenticate(req, res)) return;
       const peekPort = parseInt(process.env.PEEK_PORT || '9876');
       const proxyPath = pathname.replace(/^\/peek/, '') + parsedUrl.search;
       const proxyReq = http.request({

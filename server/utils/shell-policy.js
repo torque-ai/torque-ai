@@ -28,6 +28,38 @@ const DANGEROUS_PATTERNS = [
 ];
 
 /**
+ * Split a command string on `&&` only when outside of single- or double-quoted strings.
+ * Handles the common case of: npm run test -- --name "a && b"
+ * @param {string} str
+ * @returns {string[]}
+ */
+function splitOnAmpAmp(str) {
+  const parts = [];
+  let current = '';
+  let inQuote = false;
+  let quoteChar = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (!inQuote && (ch === '"' || ch === "'")) {
+      inQuote = true;
+      quoteChar = ch;
+      current += ch;
+    } else if (inQuote && ch === quoteChar) {
+      inQuote = false;
+      current += ch;
+    } else if (!inQuote && ch === '&' && str[i + 1] === '&') {
+      parts.push(current);
+      current = '';
+      i++; // skip second &
+    } else {
+      current += ch;
+    }
+  }
+  parts.push(current);
+  return parts;
+}
+
+/**
  * Validate a shell command against the allowlist policy.
  *
  * Allows `&&` between allowlisted segments (e.g., "npx tsc --noEmit && npx vitest run").
@@ -51,8 +83,9 @@ function validateShellCommand(cmd) {
     return { ok: false, reason: 'Command exceeds maximum length (2000 chars)' };
   }
 
-  // Split on && to get individual segments
-  const segments = trimmed.split('&&').map(s => s.trim());
+  // Split on && only outside quoted strings to avoid splitting on && inside arguments.
+  // A naive .split('&&') would incorrectly split e.g. `npm run test -- --name "a && b"`.
+  const segments = splitOnAmpAmp(trimmed).map(s => s.trim());
 
   for (const segment of segments) {
     if (segment.length === 0) {

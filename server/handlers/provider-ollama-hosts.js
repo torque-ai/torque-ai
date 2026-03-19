@@ -1021,11 +1021,9 @@ async function handleScanNetworkForOllama(args) {
 
     if (result.skipped.length > 0) {
       output += `### Skipped Hosts\n\n`;
-      output += `| IP | Reason |\n`;
-      output += `|----|--------|\n`;
-      for (const host of result.skipped) {
-        output += `| ${host.ip} | ${host.reason} |\n`;
-      }
+      // Omit raw IPs from skipped-host output to avoid leaking internal network topology
+      // to log-scrapers or session recorders. The count is sufficient for diagnostics.
+      output += `${result.skipped.length} host(s) skipped (already known or local machine).\n`;
     }
 
     return { content: [{ type: 'text', text: output }] };
