@@ -30,6 +30,11 @@ const { dbMock, taskManagerMock, loggerMock, loggerModuleMock } = vi.hoisted(() 
   },
 }));
 
+// require.cache manipulation is used here only for the handler modules
+// (artifacts and shared) so that they re-load after mocks are installed.
+// The database/taskManager/logger mocks are set up via vi.hoisted() above,
+// and the cache entries for those modules are replaced so that the handler
+// picks them up when it first loads inside beforeAll.
 let handlers;
 let shared;
 const databaseModulePath = require.resolve('../database');

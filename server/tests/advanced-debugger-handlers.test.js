@@ -25,6 +25,11 @@ const { dbMock, taskManagerMock, loggerMock, loggerModuleMock } = vi.hoisted(() 
   },
 }));
 
+// require.cache manipulation is used here only for the handler modules
+// (debugger and shared) so that they re-load with mocks installed.
+// The database/taskManager/logger mocks are set up via vi.hoisted() above,
+// and their cache entries are replaced inside beforeAll so the handler sees
+// them when it first requires those modules.
 let handlers;
 let shared;
 

@@ -9,6 +9,12 @@ vi.mock('../database', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('../config', () => currentModules.config);
 
+// require.cache is used alongside vi.doMock() so that each test's loadHandlers()
+// call can inject a fresh set of mock instances with clean state. vi.mock() factory
+// functions run once at module load time, which would not allow per-test mock
+// replacement. The vi.resetModules() + vi.doMock() + require() cycle reloads the
+// handler on every beforeEach, while installCjsModuleMock ensures the CJS require()
+// inside the handler sees the new mock object (vi.doMock alone targets ESM import).
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {

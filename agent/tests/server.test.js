@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
+import os from 'node:os';
 
 const TEST_PORT = 13460;
 const TEST_SECRET = 'test-secret-for-tests';
@@ -41,7 +42,7 @@ beforeAll(async () => {
     port: TEST_PORT,
     host: '127.0.0.1',
     secret: TEST_SECRET,
-    project_root: '.',
+    project_root: os.tmpdir(),
     allowed_commands: ['node', 'npm', 'npx'],
     max_concurrent: 3,
   });

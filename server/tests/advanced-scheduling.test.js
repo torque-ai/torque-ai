@@ -1,5 +1,17 @@
 'use strict';
 
+// require.cache manipulation is intentionally used here rather than vi.mock().
+// The database module (database.js) re-exports functions defined in sub-modules
+// that hold a reference to the internal SQLite connection, not to the exported
+// object. vi.mock('../database') replaces the require() return value but cannot
+// intercept those internal references, so the real sub-module functions still run
+// against the uninitialized SQLite connection (db = null) and throw.
+// installMock() directly patches require.cache so the handler picks up mockDb when
+// it first loads. The handler cache entry is evicted on every beforeEach so it
+// reloads and re-binds to the fresh mock.
+// Named function references are kept for individual mock assertions that test
+// which function was called and how many times.
+
 const realShared = require('../handlers/shared');
 
 function installMock(modulePath, exports) {

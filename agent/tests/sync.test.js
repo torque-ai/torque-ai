@@ -136,12 +136,21 @@ afterAll(async () => {
   if (agentInstance) {
     await agentInstance.close();
   }
-  // Clean up temp directory
+  // Clean up temp directory — retry up to 3 times with a short delay to work
+  // around Windows file locks that may still be held briefly after the server
+  // has closed (e.g. git index files opened by child processes).
   if (tempProjectRoot) {
-    try {
-      fs.rmSync(tempProjectRoot, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup errors on Windows (file locks)
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        fs.rmSync(tempProjectRoot, { recursive: true, force: true });
+        break;
+      } catch {
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        }
+        // ignore on final attempt — temp dirs are cleaned up by the OS eventually
+      }
     }
   }
 });

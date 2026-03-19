@@ -23,5 +23,12 @@ export function mockFetch(data, options = {}) {
     headers: { get: (key) => headers[key.toLowerCase()] || null },
     json: () => Promise.resolve(data),
     text: () => Promise.resolve(JSON.stringify(data)),
+    clone: () => ({
+      ok,
+      status,
+      headers: { get: (key) => headers[key.toLowerCase()] || null },
+      json: () => Promise.resolve(data),
+      text: () => Promise.resolve(JSON.stringify(data)),
+    }),
   });
 }

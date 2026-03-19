@@ -1,5 +1,14 @@
 'use strict';
 
+// require.cache manipulation is intentionally used here rather than vi.mock().
+// Each beforeEach call to installProviderMocks() creates fresh vi.fn() instances
+// for each provider so that test assertions on mock state (e.g. instances, call
+// counts) start clean. vi.mock() factory functions run once at module load time
+// and cannot be cheaply re-created per-test without a full vi.resetModules() +
+// dynamic import cycle, which would complicate the test structure significantly.
+// The registry itself is also evicted from require.cache each time so it picks up
+// the freshly installed provider mocks.
+
 function installMock(modulePath, exports) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = { id: resolved, filename: resolved, loaded: true, exports };

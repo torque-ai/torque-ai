@@ -12,11 +12,8 @@ const HyperbolicProvider = require('../providers/hyperbolic');
 const AnthropicProvider = require('../providers/anthropic');
 const GroqProvider = require('../providers/groq');
 
-// Save original fetch for restoration
-const originalFetch = global.fetch;
-
 afterEach(() => {
-  global.fetch = originalFetch;
+  vi.restoreAllMocks();
 });
 
 // ── Base Provider ──────────────────────────────────────────
@@ -162,10 +159,10 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
 
     it('returns available with API key', async () => {
       // Mock fetch for providers that make real API calls in checkHealth
-      global.fetch = async () => ({
+      vi.spyOn(global, 'fetch').mockImplementation(async () => ({
         ok: true,
         json: async () => ({ data: [{ id: 'test-model' }] }),
-      });
+      }));
       const p = new Class({ apiKey: 'test-key' });
       const health = await p.checkHealth();
       expect(health.available).toBe(true);
@@ -252,21 +249,21 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
 
       // Mock successful response
       if (apiFormat === 'openai') {
-        global.fetch = async () => ({
+        vi.spyOn(global, 'fetch').mockImplementation(async () => ({
           ok: true,
           json: async () => ({
             choices: [{ message: { content: 'result' } }],
             usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
           }),
-        });
+        }));
       } else {
-        global.fetch = async () => ({
+        vi.spyOn(global, 'fetch').mockImplementation(async () => ({
           ok: true,
           json: async () => ({
             content: [{ type: 'text', text: 'result' }],
             usage: { input_tokens: 10, output_tokens: 20 },
           }),
-        });
+        }));
       }
 
       expect(p.activeTasks).toBe(0);
@@ -280,11 +277,11 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
     it('decrements activeTasks on error', async () => {
       const p = new Class({ apiKey: 'key' });
 
-      global.fetch = async () => ({
+      vi.spyOn(global, 'fetch').mockImplementation(async () => ({
         ok: false,
         status: 500,
         text: async () => 'Internal Server Error',
-      });
+      }));
 
       expect(p.activeTasks).toBe(0);
       await expect(p.submit('task')).rejects.toThrow(/500/);
@@ -296,7 +293,7 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
       let capturedHeaders;
 
       if (apiFormat === 'openai') {
-        global.fetch = async (url, opts) => {
+        vi.spyOn(global, 'fetch').mockImplementation(async (url, opts) => {
           capturedHeaders = opts.headers;
           return {
             ok: true,
@@ -305,9 +302,9 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
               usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
             }),
           };
-        };
+        });
       } else {
-        global.fetch = async (url, opts) => {
+        vi.spyOn(global, 'fetch').mockImplementation(async (url, opts) => {
           capturedHeaders = opts.headers;
           return {
             ok: true,
@@ -316,7 +313,7 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
               usage: { input_tokens: 0, output_tokens: 0 },
             }),
           };
-        };
+        });
       }
 
       await p.submit('task', null, {});
@@ -338,10 +335,10 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
         ? { ok: true, json: async () => ({ choices: [{ message: { content: '' } }], usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } }) }
         : { ok: true, json: async () => ({ content: [{ type: 'text', text: '' }], usage: { input_tokens: 0, output_tokens: 0 } }) };
 
-      global.fetch = async (url, opts) => {
+      vi.spyOn(global, 'fetch').mockImplementation(async (url, opts) => {
         capturedBody = JSON.parse(opts.body);
         return mockResponse;
-      };
+      });
 
       await p.submit('task', null, { tuning: { temperature: 0.5 } });
       expect(capturedBody.temperature).toBe(0.5);
@@ -350,11 +347,11 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
     it('returns timeout on AbortError', async () => {
       const p = new Class({ apiKey: 'key' });
 
-      global.fetch = async () => {
+      vi.spyOn(global, 'fetch').mockImplementation(async () => {
         const err = new Error('aborted');
         err.name = 'AbortError';
         throw err;
-      };
+      });
 
       const result = await p.submit('task', null, { timeout: 0.001 });
       expect(result.status).toBe('timeout');

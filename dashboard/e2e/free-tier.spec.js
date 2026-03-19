@@ -218,10 +218,12 @@ test('refresh button is visible and clickable', async ({ page }) => {
   const callsBefore = apiCallCount;
   const refreshBtn = page.locator('button', { hasText: 'Refresh' });
   await expect(refreshBtn).toBeVisible();
-  await refreshBtn.click();
 
-  // Wait for the API to be called again
-  await page.waitForTimeout(1000);
+  // Click and wait for the resulting API response rather than a fixed timeout
+  await Promise.all([
+    page.waitForResponse('**/api/free-tier/status'),
+    refreshBtn.click(),
+  ]);
   expect(apiCallCount).toBeGreaterThan(callsBefore);
 });
 
