@@ -781,8 +781,7 @@ function startTask(taskId) {
     currentMeta._provider_switch_reason = routing.switchReason;
     currentMeta.intended_provider = provider;
     try {
-      db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
-        .run(JSON.stringify(currentMeta), taskId);
+      db.patchTaskMetadata(taskId, currentMeta);
     } catch (metaErr) {
       logger.debug(`[startTask] Failed to persist routing switch metadata for ${taskId}: ${metaErr.message}`);
     }

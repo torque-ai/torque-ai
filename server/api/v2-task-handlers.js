@@ -23,6 +23,7 @@ const {
   buildTaskDetailResponse,
 } = require('./v2-control-plane');
 const { parseBody } = require('./middleware');
+const eventBus = require('../event-bus');
 
 let _taskManager = null;
 const ALLOWED_ORDER_COLUMNS = new Set([
@@ -188,8 +189,7 @@ async function handleSubmitTask(req, res) {
         if (scanResult.contextFiles.length > 0) {
           metadata.context_files = scanResult.contextFiles;
           metadata.context_scan_reasons = Object.fromEntries(scanResult.reasons);
-          db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
-            .run(JSON.stringify(metadata), taskId);
+          db.patchTaskMetadata(taskId, metadata);
           logger.info(`[v2] Context-stuffed ${scanResult.contextFiles.length} files for task ${taskId}`);
         }
       } catch (e) {

@@ -344,11 +344,9 @@ function handleSubmitTask(args) {
     });
   }
 
-  if (useTierList && !args.provider && typeof db.getDbInstance === 'function') {
+  if (useTierList && !args.provider && typeof db.patchTaskSlotBinding === 'function') {
     try {
-      db.getDbInstance()
-        .prepare('UPDATE tasks SET provider = NULL, metadata = ? WHERE id = ?')
-        .run(JSON.stringify(slotPullMetadata), taskId);
+      db.patchTaskSlotBinding(taskId, slotPullMetadata);
     } catch (err) {
       logger.debug(`[submit_task] Failed to persist slot-pull late binding for ${taskId}: ${err.message}`);
     }
@@ -369,8 +367,7 @@ function handleSubmitTask(args) {
         const taskRowCtx = db.getTask(taskId);
         const existingMetaCtx = taskRowCtx?.metadata ? (typeof taskRowCtx.metadata === 'string' ? JSON.parse(taskRowCtx.metadata) : { ...taskRowCtx.metadata }) : {};
         existingMetaCtx.warning = 'No working directory specified — file context unavailable';
-        db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
-          .run(JSON.stringify(existingMetaCtx), taskId);
+        db.patchTaskMetadata(taskId, existingMetaCtx);
       }
       const scanResult = contextWorkDir ? resolveContextFiles({
         taskDescription,
@@ -384,8 +381,7 @@ function handleSubmitTask(args) {
         const existingMetaScan = taskRowScan?.metadata ? (typeof taskRowScan.metadata === 'string' ? JSON.parse(taskRowScan.metadata) : { ...taskRowScan.metadata }) : {};
         existingMetaScan.context_files = scanResult.contextFiles;
         existingMetaScan.context_scan_reasons = Object.fromEntries(scanResult.reasons);
-        db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
-          .run(JSON.stringify(existingMetaScan), taskId);
+        db.patchTaskMetadata(taskId, existingMetaScan);
       }
     } catch (err) {
       logger.debug(`[submit_task] Context scan failed for ${taskId}: ${err.message}`);

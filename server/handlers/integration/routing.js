@@ -1085,11 +1085,9 @@ async function handleSmartSubmitTask(args) {
     });
   }
 
-  if (useTierList && !override_provider && typeof db.getDbInstance === 'function') {
+  if (useTierList && !override_provider && typeof db.patchTaskSlotBinding === 'function') {
     try {
-      db.getDbInstance()
-        .prepare('UPDATE tasks SET provider = NULL, metadata = ? WHERE id = ?')
-        .run(JSON.stringify(slotPullMetadata), taskId);
+      db.patchTaskSlotBinding(taskId, slotPullMetadata);
     } catch (err) {
       logger.debug(`[SmartRouting] Failed to persist slot-pull late binding for ${taskId}: ${err.message}`);
     }
@@ -1110,8 +1108,7 @@ async function handleSmartSubmitTask(args) {
         const existingMeta = (taskRow && typeof taskRow.metadata === 'object' && taskRow.metadata) ? { ...taskRow.metadata } : {};
         existingMeta.context_files = scanResult.contextFiles;
         existingMeta.context_scan_reasons = Object.fromEntries(scanResult.reasons);
-        db.getDbInstance().prepare('UPDATE tasks SET metadata = ? WHERE id = ?')
-          .run(JSON.stringify(existingMeta), taskId);
+        db.patchTaskMetadata(taskId, existingMeta);
         logger.info(`Context-stuffed ${scanResult.contextFiles.length} files for task ${taskId}`);
       }
     } catch (e) {

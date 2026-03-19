@@ -612,6 +612,13 @@ function getRunningCountByProvider(provider) { return taskCore.getRunningCountBy
 function getRunningTasksLightweight() { return taskCore.getRunningTasksLightweight(); }
 function getNextQueuedTask() { return taskCore.getNextQueuedTask(); }
 function tryClaimTaskSlot(...args) { return taskCore.tryClaimTaskSlot(...args); }
+function patchTaskMetadata(taskId, metadata) { return taskCore.patchTaskMetadata(taskId, metadata); }
+function patchTaskSlotBinding(taskId, metadata) { return taskCore.patchTaskSlotBinding(taskId, metadata); }
+function getRecentSuccessfulTasks(limit) { return taskCore.getRecentSuccessfulTasks(limit); }
+function claimSlotAtomic(taskId, provider) { return taskCore.claimSlotAtomic(taskId, provider); }
+function clearProviderIfNotRunning(taskId) { return taskCore.clearProviderIfNotRunning(taskId); }
+function getTaskStatus(taskId) { return taskCore.getTaskStatus(taskId); }
+function requeueAfterSlotFailure(taskId, failedProvider, options, getMaxRetriesFn, parseTaskMetaFn) { return taskCore.requeueAfterSlotFailure(taskId, failedProvider, options, getMaxRetriesFn, parseTaskMetaFn); }
 
 // ============================================================
 // Other utility
@@ -737,6 +744,14 @@ const coreExports = {
   getRunningTasksLightweight,
   getNextQueuedTask,
   tryClaimTaskSlot,
+  // Named service methods (no raw SQL in callers)
+  patchTaskMetadata,
+  patchTaskSlotBinding,
+  getRecentSuccessfulTasks,
+  claimSlotAtomic,
+  clearProviderIfNotRunning,
+  getTaskStatus,
+  requeueAfterSlotFailure,
   // Configuration
   getConfig,
   setConfig,

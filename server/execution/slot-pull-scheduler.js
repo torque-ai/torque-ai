@@ -118,11 +118,9 @@ function findBestTaskForProvider(provider, excludeIds) {
 
 function claimTask(taskId, provider) {
   if (!_db) return false;
-  const rawDb = _db.getDbInstance();
   // Claim queued tasks even if they have a stale provider from a previous failed attempt.
   // Only claim if still in queued status to avoid racing with other claim paths.
-  const result = rawDb.prepare("UPDATE tasks SET provider = ? WHERE id = ? AND status = 'queued'").run(provider, taskId);
-  return result.changes > 0;
+  return _db.claimSlotAtomic(taskId, provider);
 }
 
 function runSlotPullPass() {
@@ -160,7 +158,7 @@ function runSlotPullPass() {
           if (startResult && (startResult.queued || startResult.status === 'failed' || startResult.status === 'queued')) {
             logger.warn('Slot-pull rolling back provider for task ' + taskId + ' — startTask returned non-running result: ' + JSON.stringify(startResult));
             try {
-              _db.getDbInstance().prepare("UPDATE tasks SET provider = NULL WHERE id = ? AND status != 'running'").run(taskId);
+              _db.clearProviderIfNotRunning(taskId);
             } catch { /* non-fatal */ }
             skipped++;
             continue;
@@ -172,10 +170,7 @@ function runSlotPullPass() {
         logger.error('Slot-pull failed to start task ' + taskId + ' on ' + provider + ': ' + err.message);
         // Only reset provider if the task isn't already running (avoid corrupting running tasks)
         try {
-          const current = _db.getDbInstance().prepare("SELECT status FROM tasks WHERE id = ?").get(taskId);
-          if (current && current.status !== 'running') {
-            _db.getDbInstance().prepare("UPDATE tasks SET provider = NULL WHERE id = ?").run(taskId);
-          }
+          _db.clearProviderIfNotRunning(taskId);
         } catch { /* non-fatal */ }
       }
     }
@@ -194,60 +189,23 @@ function runSlotPullPass() {
  */
 function requeueAfterFailure(taskId, failedProvider, options = {}) {
   if (!_db) return;
-  const { deferTerminalWrite = false } = options;
-  const rawDb = _db.getDbInstance();
-  rawDb.prepare('BEGIN IMMEDIATE').run();
-  try {
-    const task = rawDb.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId);
-    if (!task) {
-      rawDb.prepare('COMMIT').run();
-      return { requeued: false, exhausted: false, missing: true };
-    }
-    const meta = parseTaskMeta(task);
-
-    // Track per-provider retry counts
-    const retryCounts = meta._provider_retry_counts || {};
-    retryCounts[failedProvider] = (retryCounts[failedProvider] || 0) + 1;
-    meta._provider_retry_counts = retryCounts;
-
-    // Check if this provider has exhausted its retries
-    const maxRetries = getMaxRetries(failedProvider);
-    const providerExhausted = retryCounts[failedProvider] >= maxRetries;
-
-    if (providerExhausted) {
-      // Remove the failed provider from eligible list
-      const eligible = (meta.eligible_providers || []).filter(p => p !== failedProvider);
-      meta._failed_providers = [...new Set([...(meta._failed_providers || []), failedProvider].filter(Boolean))];
-      if (eligible.length === 0) {
-        meta.eligible_providers = [];
-        if (deferTerminalWrite) {
-          rawDb.prepare("UPDATE tasks SET metadata = ? WHERE id = ?").run(JSON.stringify(meta), taskId);
-          rawDb.prepare('COMMIT').run();
-          logger.info('Task ' + taskId + ' exhausted all eligible providers; deferring terminal failure write to finalizer');
-          return { requeued: false, exhausted: true };
-        }
-        rawDb.prepare("UPDATE tasks SET status = 'failed', provider = NULL, metadata = ?, completed_at = datetime('now') WHERE id = ?")
-          .run(JSON.stringify(meta), taskId);
-        rawDb.prepare('COMMIT').run();
-        logger.info('Task ' + taskId + ' failed permanently — all eligible providers exhausted');
-        return { requeued: false, exhausted: true };
-      }
-      meta.eligible_providers = eligible;
-      rawDb.prepare("UPDATE tasks SET status = 'queued', provider = NULL, metadata = ? WHERE id = ?").run(JSON.stringify(meta), taskId);
-      rawDb.prepare('COMMIT').run();
-      logger.info('Task ' + taskId + ' re-queued after ' + failedProvider + ' exhausted retries (' + retryCounts[failedProvider] + '/' + maxRetries + '), ' + eligible.length + ' providers remaining');
-      return { requeued: true, exhausted: false, providerExhausted: true };
-    }
-
-    // Provider still has retries left — requeue with provider still eligible
-    rawDb.prepare("UPDATE tasks SET status = 'queued', provider = NULL, metadata = ? WHERE id = ?").run(JSON.stringify(meta), taskId);
-    rawDb.prepare('COMMIT').run();
-    logger.info('Task ' + taskId + ' re-queued after ' + failedProvider + ' failure (attempt ' + retryCounts[failedProvider] + '/' + maxRetries + '), provider still eligible');
-    return { requeued: true, exhausted: false, providerExhausted: false };
-  } catch (err) {
-    rawDb.prepare('ROLLBACK').run();
-    throw err;
+  const result = _db.requeueAfterSlotFailure(taskId, failedProvider, options, getMaxRetries, parseTaskMeta);
+  if (!result) return { requeued: false, exhausted: false };
+  if (result.missing) {
+    return { requeued: false, exhausted: false, missing: true };
   }
+  if (result.exhausted) {
+    if (options.deferTerminalWrite) {
+      logger.info('Task ' + taskId + ' exhausted all eligible providers; deferring terminal failure write to finalizer');
+    } else {
+      logger.info('Task ' + taskId + ' failed permanently — all eligible providers exhausted');
+    }
+  } else if (result.providerExhausted) {
+    logger.info('Task ' + taskId + ' re-queued after ' + failedProvider + ' exhausted retries, providers remaining');
+  } else {
+    logger.info('Task ' + taskId + ' re-queued after ' + failedProvider + ' failure, provider still eligible');
+  }
+  return result;
 }
 
 function onSlotFreed() {

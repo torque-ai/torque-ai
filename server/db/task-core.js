@@ -1144,6 +1144,148 @@ function tryClaimTaskSlot(
   }
 }
 
+/**
+ * Update only the metadata field of a task.
+ * Named service method — callers must NOT use getDbInstance().prepare() directly.
+ * @param {string} taskId
+ * @param {object|string} metadata - Metadata object or JSON string
+ * @returns {boolean} True if a row was updated
+ */
+function patchTaskMetadata(taskId, metadata) {
+  if (!db) return false;
+  const json = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
+  const result = db.prepare('UPDATE tasks SET metadata = ? WHERE id = ?').run(json, taskId);
+  return result.changes > 0;
+}
+
+/**
+ * Update metadata AND clear provider assignment atomically (slot-pull late binding).
+ * Sets provider = NULL and metadata = ? for the given task.
+ * @param {string} taskId
+ * @param {object|string} metadata
+ * @returns {boolean} True if a row was updated
+ */
+function patchTaskSlotBinding(taskId, metadata) {
+  if (!db) return false;
+  const json = typeof metadata === 'string' ? metadata : JSON.stringify(metadata);
+  const result = db.prepare('UPDATE tasks SET provider = NULL, metadata = ? WHERE id = ?').run(json, taskId);
+  return result.changes > 0;
+}
+
+/**
+ * Fetch recent completed tasks with non-trivial output, ordered by completion time descending.
+ * Used by context-enrichment few-shot retrieval.
+ * @param {number} limit - Max rows to return (default 50)
+ * @returns {Array<{id, task_description, output, completed_at}>}
+ */
+function getRecentSuccessfulTasks(limit = 50) {
+  if (!db) return [];
+  return db.prepare(`
+    SELECT id, task_description, output, completed_at
+    FROM tasks
+    WHERE status = 'completed'
+      AND output IS NOT NULL
+      AND length(output) > 50
+      AND length(output) < 5000
+    ORDER BY completed_at DESC
+    LIMIT ?
+  `).all(limit);
+}
+
+/**
+ * Atomically claim a queued task for a provider (slot-pull scheduler).
+ * Only succeeds if the task is still in 'queued' status.
+ * @param {string} taskId
+ * @param {string} provider
+ * @returns {boolean} True if claim succeeded (changes > 0)
+ */
+function claimSlotAtomic(taskId, provider) {
+  if (!db) return false;
+  const result = db.prepare(
+    "UPDATE tasks SET provider = ? WHERE id = ? AND status = 'queued'"
+  ).run(provider, taskId);
+  return result.changes > 0;
+}
+
+/**
+ * Clear provider assignment on a non-running task (slot-pull rollback on failed start).
+ * Only clears when status != 'running' to avoid corrupting active tasks.
+ * @param {string} taskId
+ * @returns {boolean} True if a row was updated
+ */
+function clearProviderIfNotRunning(taskId) {
+  if (!db) return false;
+  const result = db.prepare(
+    "UPDATE tasks SET provider = NULL WHERE id = ? AND status != 'running'"
+  ).run(taskId);
+  return result.changes > 0;
+}
+
+/**
+ * Get task status (lightweight, single column) for slot-pull decision making.
+ * @param {string} taskId
+ * @returns {string|null} The status value or null if not found
+ */
+function getTaskStatus(taskId) {
+  if (!db) return null;
+  const row = db.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId);
+  return row ? row.status : null;
+}
+
+/**
+ * Execute a slot-pull requeue transaction: reads task, updates metadata retry counts,
+ * and either re-queues (provider = NULL) or permanently fails the task.
+ * Encapsulates the BEGIN/COMMIT/ROLLBACK pattern from slot-pull-scheduler.
+ *
+ * @param {string} taskId
+ * @param {string} failedProvider
+ * @param {object} options
+ * @param {boolean} options.deferTerminalWrite - When true, update metadata but don't set failed status
+ * @param {function} getMaxRetriesFn - (provider) => number
+ * @param {function} parseTaskMetaFn - (task) => object
+ * @returns {{ requeued: boolean, exhausted: boolean, providerExhausted?: boolean, missing?: boolean }}
+ */
+function requeueAfterSlotFailure(taskId, failedProvider, options = {}, getMaxRetriesFn, parseTaskMetaFn) {
+  if (!db) return { requeued: false, exhausted: false };
+  const { deferTerminalWrite = false } = options;
+  const txn = db.transaction(() => {
+    const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+    if (!task) {
+      return { requeued: false, exhausted: false, missing: true };
+    }
+    const meta = parseTaskMetaFn(task);
+    const retryCounts = meta._provider_retry_counts || {};
+    retryCounts[failedProvider] = (retryCounts[failedProvider] || 0) + 1;
+    meta._provider_retry_counts = retryCounts;
+    const maxRetries = getMaxRetriesFn(failedProvider);
+    const providerExhausted = retryCounts[failedProvider] >= maxRetries;
+
+    if (providerExhausted) {
+      const eligible = (meta.eligible_providers || []).filter(p => p !== failedProvider);
+      meta._failed_providers = [...new Set([...(meta._failed_providers || []), failedProvider].filter(Boolean))];
+      if (eligible.length === 0) {
+        meta.eligible_providers = [];
+        if (deferTerminalWrite) {
+          db.prepare('UPDATE tasks SET metadata = ? WHERE id = ?').run(JSON.stringify(meta), taskId);
+          return { requeued: false, exhausted: true };
+        }
+        db.prepare("UPDATE tasks SET status = 'failed', provider = NULL, metadata = ?, completed_at = datetime('now') WHERE id = ?")
+          .run(JSON.stringify(meta), taskId);
+        return { requeued: false, exhausted: true };
+      }
+      meta.eligible_providers = eligible;
+      db.prepare("UPDATE tasks SET status = 'queued', provider = NULL, metadata = ? WHERE id = ?")
+        .run(JSON.stringify(meta), taskId);
+      return { requeued: true, exhausted: false, providerExhausted: true };
+    }
+
+    db.prepare("UPDATE tasks SET status = 'queued', provider = NULL, metadata = ? WHERE id = ?")
+      .run(JSON.stringify(meta), taskId);
+    return { requeued: true, exhausted: false, providerExhausted: false };
+  });
+  return txn();
+}
+
 module.exports = {
   setDb,
   setDbClosed,
@@ -1173,6 +1315,14 @@ module.exports = {
   // Queue / slot management
   getNextQueuedTask,
   tryClaimTaskSlot,
+  // Named service methods (no raw SQL in callers)
+  patchTaskMetadata,
+  patchTaskSlotBinding,
+  getRecentSuccessfulTasks,
+  claimSlotAtomic,
+  clearProviderIfNotRunning,
+  getTaskStatus,
+  requeueAfterSlotFailure,
   // Exported helpers (used by database.js and sub-modules via DI)
   validateColumnName,
   normalizeProviderValue,

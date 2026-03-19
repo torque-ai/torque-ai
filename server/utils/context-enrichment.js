@@ -461,17 +461,7 @@ function buildFewShotContext(taskDescription, db) {
     if (words.length === 0) return '';
 
     // Get recent completed tasks
-    const stmt = db.getDbInstance().prepare(`
-      SELECT id, task_description, output, completed_at
-      FROM tasks
-      WHERE status = 'completed'
-        AND output IS NOT NULL
-        AND length(output) > 50
-        AND length(output) < 5000
-      ORDER BY completed_at DESC
-      LIMIT 50
-    `);
-    const candidates = stmt.all();
+    const candidates = db.getRecentSuccessfulTasks(50);
 
     if (candidates.length === 0) return '';
 
