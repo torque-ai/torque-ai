@@ -9,6 +9,7 @@
 const path = require('path');
 const logger = require('./logger').child({ component: 'tools' });
 const { fireHook } = require('./hooks/post-tool-hooks');
+const eventBus = require('./event-bus');
 
 // ── Tool definitions (JSON schemas) ──
 const TOOLS = [
@@ -373,7 +374,7 @@ function handleRestartServer(args) {
   // Trigger full graceful shutdown via process event (avoids circular dependency with index.js)
   setTimeout(() => {
     logger.info(`[Restart] Triggering graceful shutdown (reason: ${reason}). MCP client will auto-reconnect.`);
-    process.emit('torque:shutdown', `restart: ${reason}`);
+    eventBus.emitShutdown(`restart: ${reason}`);
   }, RESTART_RESPONSE_GRACE_MS);
 
   return {

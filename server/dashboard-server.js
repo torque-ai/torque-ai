@@ -20,6 +20,7 @@ const serverConfig = require('./config');
 const { dispatch } = require('./dashboard/router');
 const { sendError } = require('./dashboard/utils');
 const { dispatchV2, init: initV2Dispatch } = require('./api/v2-dispatch');
+const eventBus = require('./event-bus');
 
 // Server state
 let httpServer = null;
@@ -57,7 +58,6 @@ const DEFAULT_WS_TOPICS = [
 
 const STATIC_FILE_CACHE_MAX_BYTES = 1024 * 1024;
 const staticFileCache = new Map();
-const TASK_UPDATED_EVENT = 'torque:task-updated';
 const TASK_UPDATED_LISTENER_TAG = Symbol.for('torque.dashboardTaskUpdatedListener');
 let taskUpdatedProcessListener = null;
 
@@ -126,9 +126,9 @@ function sendToTopics(topics, message, options = {}) {
 }
 
 function removeStaleTaskUpdatedListeners() {
-  for (const listener of process.listeners(TASK_UPDATED_EVENT)) {
+  for (const listener of eventBus.listeners('task-updated')) {
     if (listener && listener[TASK_UPDATED_LISTENER_TAG]) {
-      process.removeListener(TASK_UPDATED_EVENT, listener);
+      eventBus.removeListener('task-updated', listener);
     }
   }
 }
@@ -136,7 +136,7 @@ function removeStaleTaskUpdatedListeners() {
 function installTaskUpdatedListener() {
   removeStaleTaskUpdatedListeners();
   if (taskUpdatedProcessListener) {
-    process.removeListener(TASK_UPDATED_EVENT, taskUpdatedProcessListener);
+    eventBus.removeListener('task-updated', taskUpdatedProcessListener);
   }
 
   taskUpdatedProcessListener = (update) => {
@@ -145,12 +145,12 @@ function installTaskUpdatedListener() {
     notifyTaskUpdated(taskId);
   };
   taskUpdatedProcessListener[TASK_UPDATED_LISTENER_TAG] = true;
-  process.on(TASK_UPDATED_EVENT, taskUpdatedProcessListener);
+  eventBus.onTaskUpdated(taskUpdatedProcessListener);
 }
 
 function removeTaskUpdatedListener() {
   if (!taskUpdatedProcessListener) return;
-  process.removeListener(TASK_UPDATED_EVENT, taskUpdatedProcessListener);
+  eventBus.removeListener('task-updated', taskUpdatedProcessListener);
   taskUpdatedProcessListener = null;
 }
 

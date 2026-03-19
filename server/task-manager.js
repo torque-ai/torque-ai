@@ -17,6 +17,7 @@ const providerCfg = require('./providers/config');
 const serverConfig = require('./config');
 const FreeQuotaTracker = require('./free-quota-tracker');
 const gpuMetrics = require('./scripts/gpu-metrics-server');
+const eventBus = require('./event-bus');
 
 // ── Early dependency initialization ───────────────────────────────────────
 // Must be called explicitly from index.js:init() before any provider usage.
@@ -1828,7 +1829,7 @@ _queueScheduler.init({
   notifyDashboard: (taskId, updates = {}) => {
     if (!taskId) return;
     const payload = updates && typeof updates === 'object' ? updates : {};
-    process.emit('torque:task-updated', { taskId, ...payload });
+    eventBus.emitTaskUpdated({ taskId, ...payload });
   },
 });
 // Register queue-scheduler cleanup on DB close (prevents timer leaks in tests)
