@@ -110,6 +110,13 @@ function formatUpdatedAgo(lastUpdated) {
   return `${diffSeconds}s`;
 }
 
+function formatCooldownRemaining(cooldownUntil) {
+  if (!cooldownUntil) return null;
+  const remainingMs = new Date(cooldownUntil).getTime() - Date.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
+  return `${Math.ceil(remainingMs / 1000)}s remaining`;
+}
+
 function QuotaBar({ label, remaining, limit }) {
   if (remaining == null || !limit) return null;
   const percent = getQuotaPercent(remaining, limit);
@@ -150,6 +157,10 @@ function QuotaStatusBadge({ quota }) {
   }[status] || 'bg-slate-500';
 
   const tooltipLines = [];
+  const cooldownRemaining = formatCooldownRemaining(quota?.cooldownUntil);
+  if (cooldownRemaining) {
+    tooltipLines.push(`Cooldown: ${cooldownRemaining}`);
+  }
   if (quota?.limits?.rpm) {
     tooltipLines.push(`RPM: ${formatQuotaDisplay(quota.limits.rpm.remaining, quota.limits.rpm.limit)}`);
   }
@@ -345,11 +356,43 @@ const tooltipStyle = {
   labelStyle: { color: '#f1f5f9' },
 };
 
+const CHART_METRICS = {
+  requests: { field: 'total_requests', label: 'Requests' },
+  tokens: { field: 'total_tokens', label: 'Tokens' },
+};
+
+function buildChartData(history, metric = 'requests') {
+  if (!history || history.length === 0) return { chartData: [], providerKeys: [] };
+
+  const fieldName = CHART_METRICS[metric]?.field || 'total_requests';
+  const byDate = {};
+  const providerSet = new Set();
+
+  for (const row of history) {
+    if (!row?.provider || !row?.date) continue;
+    providerSet.add(row.provider);
+    if (!byDate[row.date]) byDate[row.date] = { date: row.date };
+    byDate[row.date][row.provider] = row[fieldName] || 0;
+  }
+
+  const providerKeys = [...providerSet].sort();
+  const chartData = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const entry of chartData) {
+    for (const provider of providerKeys) {
+      if (entry[provider] === undefined) entry[provider] = 0;
+    }
+  }
+
+  return { chartData, providerKeys };
+}
+
 export default function Providers({ statsVersion, tasksTick }) {
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
   const [providersList, setProvidersList] = useState([]);
   const [timeSeries, setTimeSeries] = useState([]);
+  const [usageHistory, setUsageHistory] = useState([]);
   const [trends, setTrends] = useState(null);
   const [hostCount, setHostCount] = useState(0);
   const [days, setDays] = useState(7);
@@ -357,6 +400,7 @@ export default function Providers({ statsVersion, tasksTick }) {
   const [viewMode, setViewMode] = useState('overview'); // 'overview' | 'compare'
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
+  const [usageMetric, setUsageMetric] = useState('requests');
   const [codexExhausted, setCodexExhausted] = useState(false);
   const [quotas, setQuotas] = useState({});
   const addToast = useToast();
@@ -375,31 +419,22 @@ export default function Providers({ statsVersion, tasksTick }) {
     }
   };
 
-  const handleRemoveProvider = async (name) => {
-    if (!window.confirm(`Remove provider '${name}'? This cannot be undone.`)) return;
-    try {
-      await providerCrud.remove(name, true);
-      addToast.success(`Provider '${name}' removed`);
-      loadData();
-    } catch (err) {
-      addToast.error(`Failed: ${err.message}`);
-    }
-  };
-
   const loadData = useCallback(async () => {
     if (!mountedRef.current) return;
     try {
-      const [providersData, timeSeriesData, hostsData, trendsData, codexCfg, quotaData] = await Promise.all([
+      const [providersData, timeSeriesData, hostsData, trendsData, codexCfg, quotaData, historyResult] = await Promise.all([
         providersApi.list(),
         statsApi.timeseries({ days }),
         hostsApi.list().catch(() => []),
         providersApi.trends(days).catch(() => null),
         requestV2('/config/codex_exhausted').catch(() => null),
         request('/provider-quotas').catch(() => ({})),
+        request('/free-tier/history?days=7').catch(() => ({ history: [] })),
       ]);
       if (!mountedRef.current) return;
       setProvidersList(providersData);
       setTimeSeries(timeSeriesData);
+      setUsageHistory(Array.isArray(historyResult?.history) ? historyResult.history : []);
       setHostCount(Array.isArray(hostsData) ? hostsData.length : 0);
       setTrends(trendsData);
       setCodexExhausted(codexCfg?.value === '1' || codexCfg === '1');
@@ -499,6 +534,11 @@ export default function Providers({ statsVersion, tasksTick }) {
   const activeProviders = trends?.providers?.filter(p =>
     trends.series.some(d => (d[`${p}_total`] || 0) > 0)
   ) || [];
+
+  const { chartData: usageChartData, providerKeys: usageProviderKeys } = useMemo(
+    () => buildChartData(usageHistory, usageMetric),
+    [usageHistory, usageMetric],
+  );
 
   // Comparison data for head-to-head mode
   const comparisonData = useMemo(() => {
@@ -878,6 +918,62 @@ export default function Providers({ statsVersion, tasksTick }) {
             </LineChart>
           </ResponsiveContainer>
         </div>
+
+        {usageHistory.length > 0 && (
+          <div className="glass-card p-6 lg:col-span-2">
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <h3 className="text-lg font-semibold text-white">7-Day Provider Usage</h3>
+              <div className="inline-flex rounded-lg bg-slate-800 p-0.5 border border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setUsageMetric('requests')}
+                  aria-pressed={usageMetric === 'requests'}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    usageMetric === 'requests' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Requests
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUsageMetric('tokens')}
+                  aria-pressed={usageMetric === 'tokens'}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    usageMetric === 'tokens' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Tokens
+                </button>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={250}>
+              <AreaChart data={usageChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={formatDate} />
+                <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} allowDecimals={false} tickFormatter={(value) => value.toLocaleString()} />
+                <Tooltip
+                  {...tooltipStyle}
+                  formatter={(value) => [Number(value || 0).toLocaleString(), CHART_METRICS[usageMetric].label]}
+                  labelFormatter={formatDate}
+                />
+                <Legend />
+                {usageProviderKeys.map((provider) => (
+                  <Area
+                    key={provider}
+                    type="monotone"
+                    dataKey={provider}
+                    stackId="usage"
+                    stroke={getProviderColor(provider)}
+                    fill={getProviderColor(provider)}
+                    fillOpacity={0.3}
+                    strokeWidth={2}
+                    name={provider}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
     </div>
   );

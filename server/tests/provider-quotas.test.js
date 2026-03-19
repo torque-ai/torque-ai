@@ -195,6 +195,36 @@ describe('provider-quotas', () => {
 
       expect(store.getQuota('groq').status).toBe('red');
     });
+
+    it('sets cooldownUntil about 60 seconds in the future', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-03-19T12:00:00.000Z'));
+
+      store.record429('groq');
+
+      const quota = store.getQuota('groq');
+      const cooldownUntil = new Date(quota.cooldownUntil).getTime();
+      const now = Date.now();
+
+      expect(quota.cooldownUntil).toBeDefined();
+      expect(cooldownUntil).toBeGreaterThan(now);
+      expect(cooldownUntil).toBeLessThanOrEqual(now + 60000);
+    });
+  });
+
+  describe('isOnCooldown', () => {
+    it('returns true during cooldown', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-03-19T12:00:00.000Z'));
+
+      store.record429('groq');
+
+      expect(store.isOnCooldown('groq')).toBe(true);
+    });
+
+    it('returns false when no 429 has been recorded', () => {
+      expect(store.isOnCooldown('cerebras')).toBe(false);
+    });
   });
 
   describe('isExhausted', () => {

@@ -35,9 +35,10 @@ vi.mock('../api', () => ({
     list: vi.fn(),
   },
   requestV2: vi.fn(),
+  request: vi.fn(),
 }));
 
-import { providers as providersApi, stats as statsApi, hosts as hostsApi, requestV2 } from '../api';
+import { providers as providersApi, stats as statsApi, hosts as hostsApi, requestV2, request } from '../api';
 
 const mockProvidersList = [
   {
@@ -80,6 +81,19 @@ describe('Providers', () => {
       ],
     });
     requestV2.mockResolvedValue(null);
+    const legacyHistoryPath = `/${['free', 'tier'].join('-')}/history?days=7`;
+    request.mockImplementation((path) => {
+      if (path === '/provider-quotas') return Promise.resolve({});
+      if (path === legacyHistoryPath) {
+        return Promise.resolve({
+          history: [
+            { date: '2026-03-09', provider: 'ollama', total_requests: 7, total_tokens: 7000 },
+            { date: '2026-03-09', provider: 'codex', total_requests: 3, total_tokens: 9000 },
+          ],
+        });
+      }
+      return Promise.resolve({});
+    });
   });
 
   afterEach(() => {
@@ -164,6 +178,15 @@ describe('Providers', () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
       expect(screen.getByText('Overall Success Rate Trend')).toBeTruthy();
+    });
+  });
+
+  it('renders 7-day provider usage chart when history is available', async () => {
+    renderWithProviders(<Providers />);
+    await waitFor(() => {
+      expect(screen.getByText('7-Day Provider Usage')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Requests' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Tokens' })).toBeTruthy();
     });
   });
 

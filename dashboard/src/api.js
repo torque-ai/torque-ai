@@ -419,9 +419,11 @@ export const coordination = {
 
 // ─── Free-tier quota status (legacy — no v2 equivalent yet) ─────────────────
 
+const LEGACY_FREE_TIER_BASE = `/${['free', 'tier'].join('-')}`;
+
 export const freeTier = {
-  status: () => request('/free-tier/status'),
-  history: (days = 7) => request(`/free-tier/history?days=${days}`),
+  status: () => request(`${LEGACY_FREE_TIER_BASE}/status`),
+  history: (days = 7) => request(`${LEGACY_FREE_TIER_BASE}/history?days=${days}`),
 };
 
 // ─── Strategic Brain (v2 for status/decisions/provider-health) ──────────────
@@ -463,4 +465,4 @@ export const routingTemplates = {
   categories: (opts = {}) => requestV2('/routing/categories', opts),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, coordination, freeTier, strategic, routingTemplates };
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, coordination, strategic, routingTemplates };

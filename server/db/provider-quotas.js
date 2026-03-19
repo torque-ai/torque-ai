@@ -107,6 +107,7 @@ function createQuotaStore() {
         provider,
         limits: {},
         status: 'green',
+        cooldownUntil: null,
         lastUpdated: null,
         source: null,
       };
@@ -178,6 +179,7 @@ function createQuotaStore() {
 
     const entry = ensureEntry(provider);
     entry.status = 'red';
+    entry.cooldownUntil = new Date(Date.now() + 60000).toISOString();
     entry.lastUpdated = new Date().toISOString();
   }
 
@@ -199,6 +201,14 @@ function createQuotaStore() {
     });
   }
 
+  function isOnCooldown(provider) {
+    const quota = quotas[provider];
+    if (!quota || !quota.cooldownUntil) return false;
+
+    const cooldownUntil = new Date(quota.cooldownUntil).getTime();
+    return Number.isFinite(cooldownUntil) && cooldownUntil > Date.now();
+  }
+
   return {
     updateFromHeaders,
     updateFromInference,
@@ -206,6 +216,7 @@ function createQuotaStore() {
     getQuota,
     getAllQuotas,
     isExhausted,
+    isOnCooldown,
     _parseResetValue: parseResetValue,
     _computeStatus: computeStatus,
   };
