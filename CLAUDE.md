@@ -165,22 +165,26 @@ Built into `/torque-submit` and `/torque-review`:
 - **Rollback** — undo task changes on failure
 - **Adaptive retry** — auto-retry with provider fallback
 
-## Test Execution
+## Remote Workstation
 
-All test execution routes through the configured test station. **NEVER run test commands directly** (`npx vitest`, `npm test`, `jest`, etc.) — the guard hook will block them when a test station is configured.
+Heavy commands (builds, tests, compilation) route to the configured remote workstation automatically. **NEVER run test or build commands directly** (`npx vitest`, `dotnet build`, `npm test`, etc.) — the guard hook will block them when a remote workstation is configured.
 
-**Always use the test runner script:**
+**Always use `torque-remote` for heavy commands:**
 ```
-./scripts/torque-test.sh                              # run default verify_command
-./scripts/torque-test.sh npx vitest run path/to/test  # run specific test
+torque-remote npx vitest run path/to/test             # test remotely
+torque-remote dotnet build SpudgetBooks.sln            # build remotely
+torque-remote cargo build --release                    # any heavy command
 ```
+
+If the remote is unreachable or overloaded, `torque-remote` falls back to local execution automatically.
 
 **Configuration:**
-- `.torque-test.json` — shared config (transport, verify_command, timeout). Checked into repo.
-- `.torque-test.local.json` — personal config (host, user, project_path). Gitignored.
+- `~/.torque-remote.json` — global config (transport, timeout, intercept list). Not in any repo.
+- `~/.torque-remote.local.json` — personal SSH details (host, user, project path). Not in any repo.
+- `.torque-remote.json` in project root — per-project override (optional, safe to commit).
 - Configure via: `set_project_defaults { test_station_host: "...", test_station_user: "...", test_station_project_path: "...", verify_command: "..." }`
 
-**If no test station is configured** (transport: "local" or no config file), tests run locally as before.
+**If no remote is configured** (transport: "local" or no config), commands run locally as before.
 
 ## Task Completion Notifications
 

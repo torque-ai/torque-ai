@@ -22,7 +22,7 @@ server/tasks.db-shm
 # Local config files
 .claude/*.local.md
 .mcp.json
-.torque-test.local.json
+.torque-remote.local.json
 
 # IDE
 .vscode/
