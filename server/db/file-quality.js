@@ -30,6 +30,11 @@ function getRunningCount() {
   return stmt.get('running').count;
 }
 
+function getRunningCountByProvider(provider) {
+  const stmt = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider = ?');
+  return stmt.get('running', provider).count;
+}
+
 function getSyntaxValidators(extension) {
   const stmt = db.prepare(`
     SELECT * FROM syntax_validators WHERE enabled = 1 AND file_extensions LIKE ?
@@ -596,8 +601,8 @@ function checkRateLimit(provider, taskId = null) {
 
   for (const limit of limits) {
     if (limit.limit_type === 'concurrent') {
-      // Check concurrent tasks
-      const running = getRunningCount();
+      // Check concurrent tasks for this provider only
+      const running = getRunningCountByProvider(provider);
       if (running >= limit.max_value) {
         recordRateLimitEvent(provider, taskId, 'blocked', running, limit.max_value);
         return { allowed: false, reason: `Concurrent limit reached (${running}/${limit.max_value})` };
