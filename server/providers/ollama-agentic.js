@@ -175,8 +175,9 @@ async function runAgenticLoop({
   let prevToolCallHash = null;
   let stuckCount = 0;
 
-  // Consecutive error detection
+  // Consecutive error detection (cross-iteration only)
   let lastErrorToolName = null;
+  let lastErrorIteration = -1;
   let consecutiveErrorCount = 0;
 
   // Parse failure recovery: track if we already injected a correction
@@ -368,9 +369,12 @@ async function runAgenticLoop({
       const { result, error } = execResult;
       const resultStr = typeof result === 'string' ? result : String(result || '');
 
-      // Consecutive error detection
+      // Consecutive error detection — only across iterations, not within a batch.
+      // Within a single iteration, multiple read_file errors are expected (batch reads
+      // where some files don't exist). We track per-iteration error counts and only
+      // trigger early stop when the SAME tool fails across 2+ separate iterations.
       if (error) {
-        if (lastErrorToolName === tc.name) {
+        if (lastErrorToolName === tc.name && lastErrorIteration < iterations) {
           consecutiveErrorCount++;
           if (consecutiveErrorCount >= 2) {
             // Add the error result first, then stop
@@ -409,6 +413,7 @@ async function runAgenticLoop({
         } else {
           consecutiveErrorCount = 1;
           lastErrorToolName = tc.name;
+          lastErrorIteration = iterations;
         }
       } else {
         // Reset error tracking on success
