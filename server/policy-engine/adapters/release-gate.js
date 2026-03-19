@@ -1,6 +1,7 @@
 'use strict';
 
 const database = require('../../database');
+const { safeJsonParse } = require('../../utils/json');
 
 function getDbHandle() {
   return typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
@@ -27,19 +28,6 @@ function normalizeNumber(value, fallback) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function safeJsonParse(value, fallback = {}) {
-  if (value === null || value === undefined) return fallback;
-  if (typeof value !== 'string') {
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : fallback;
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function serializeGateRow(row) {
   return {

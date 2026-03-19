@@ -10,6 +10,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { safeJsonParse } = require('../utils/json');
 
 let db = null;
 let _getTask = null;
@@ -43,11 +44,6 @@ function getTask(...args) {
 }
 function _getConfig(...args) { return _dbFunctions.getConfig ? _dbFunctions.getConfig(...args) : null; }
 
-function safeJsonParse(str, fallback = null) {
-  if (!str || typeof str !== 'string') return fallback;
-  if (str.length > 1048576) return fallback;
-  try { return JSON.parse(str); } catch { return fallback; }
-}
 
 function escapeLikePattern(str) {
   if (typeof str !== 'string') return '';

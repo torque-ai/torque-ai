@@ -11,6 +11,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { safeJsonParse } = require('../utils/json');
 
 // Cache and validation sub-modules
 const projectCache = require('./project-cache');
@@ -66,11 +67,6 @@ function getRunningCount() { return _dbFunctions.getRunningCount ? _dbFunctions.
 function getTokenUsageSummary(...args) { return _dbFunctions.getTokenUsageSummary ? _dbFunctions.getTokenUsageSummary(...args) : {}; }
 function getScheduledTask(...args) { return _dbFunctions.getScheduledTask ? _dbFunctions.getScheduledTask(...args) : null; }
 
-function safeJsonParse(str, fallback = null) {
-  if (!str || typeof str !== 'string') return fallback;
-  if (str.length > 1048576) return fallback;
-  try { return JSON.parse(str); } catch { return fallback; }
-}
 
 // Project root detection constants
 const PROJECT_MARKERS = [

@@ -9,6 +9,8 @@
  * Uses setDb() dependency injection to receive the SQLite connection.
  */
 
+const { safeJsonParse } = require('../utils/json');
+
 let db;
 let getTaskFn;
 const dbFunctions = {};
@@ -21,10 +23,6 @@ function setDbFunctions(fns) { Object.assign(dbFunctions, fns); }
 // Local Helpers (shared with analytics-metrics)
 // ============================================
 
-function safeJsonParse(value, defaultValue = null) {
-  if (!value) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
-}
 
 /**
  * Escape special LIKE pattern characters to prevent SQL injection

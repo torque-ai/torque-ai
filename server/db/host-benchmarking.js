@@ -8,6 +8,7 @@
 const http = require('http');
 const https = require('https');
 const logger = require('../logger').child({ component: 'host-benchmarking' });
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 
@@ -38,14 +39,6 @@ function setDb(instance) {
   db = instance;
 }
 
-function safeJsonParse(value, defaultValue = null) {
-  if (value === null || value === undefined) return defaultValue;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return defaultValue;
-  }
-}
 
 function getOllamaHost(hostId) {
   const stmt = db.prepare('SELECT * FROM ollama_hosts WHERE id = ?');

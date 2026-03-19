@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const logger = require('../logger').child({ component: 'coordination' });
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 let getTaskFn;
@@ -22,10 +23,6 @@ function emitQueueChanged() {
 function setDb(dbInstance) { db = dbInstance; }
 function setGetTask(fn) { getTaskFn = fn; }
 
-function safeJsonParse(value, defaultValue = null) {
-  if (!value) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
-}
 
 // ============================================
 // Phase 1: Agent Lifecycle

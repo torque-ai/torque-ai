@@ -10,6 +10,7 @@
  */
 
 const credCrypto = require('../utils/credential-crypto');
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 
@@ -46,10 +47,6 @@ function decryptSecret(storedSecret) {
   return storedSecret;
 }
 
-function safeJsonParse(value, defaultValue = null) {
-  if (!value) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
-}
 
 // ============================================
 // WEBHOOK MANAGEMENT

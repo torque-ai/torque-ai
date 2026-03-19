@@ -4,6 +4,7 @@
 
 const { randomUUID } = require('crypto');
 const logger = require('../logger').child({ component: 'workstation-model' });
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 
@@ -11,15 +12,6 @@ function setDb(dbInstance) {
   db = dbInstance;
 }
 
-function safeJsonParse(value, fallback) {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    logger.warn(`Failed to parse JSON field: ${error.message}`);
-    return fallback;
-  }
-}
 
 function parseWorkstationRecord(ws) {
   if (!ws) return null;

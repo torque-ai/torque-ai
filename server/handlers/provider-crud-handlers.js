@@ -6,6 +6,7 @@ const taskManager = require('../task-manager');
 const { normalizeProviderTransport } = require('../db/provider-routing-core');
 const { ErrorCodes, makeError } = require('./error-codes');
 const credentialCrypto = require('../utils/credential-crypto');
+const { safeJsonParse } = require('../utils/json');
 
 const VALID_PROVIDER_TYPES = new Set(['ollama', 'cloud-cli', 'cloud-api', 'custom']);
 const DEFAULT_MAX_CONCURRENT = 3;
@@ -27,17 +28,6 @@ function getDatabaseHandle() {
   return null;
 }
 
-function safeJsonParse(value, fallback = {}) {
-  if (!value) return fallback;
-  if (typeof value === 'object' && !Array.isArray(value)) return value;
-  if (typeof value !== 'string') return fallback;
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
-  } catch (_e) { void _e;
-    return fallback;
-  }
-}
 
 function makeCrudError(errorCode, detail, {
   code = 'operation_failed',

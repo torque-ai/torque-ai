@@ -12,6 +12,7 @@ const {
   FILE_SIZE_TRUNCATION_THRESHOLD,
   FILE_SIZE_SHRINK_THRESHOLD,
 } = require('../constants');
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 let _getTaskFn;
@@ -24,10 +25,6 @@ function setGetTask(fn) {
   _getTaskFn = fn;
 }
 
-function safeJsonParse(value, defaultValue = null) {
-  if (value === null || value === undefined) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
-}
 
 function captureFileBaseline(filePath, workingDirectory, taskId = null) {
   const fs = require('fs');

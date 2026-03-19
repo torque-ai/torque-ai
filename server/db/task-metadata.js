@@ -10,6 +10,7 @@
  */
 
 const logger = require('../logger').child({ component: 'task-metadata' });
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 let getTaskFn;
@@ -27,10 +28,6 @@ function setRecordAuditLog(fn) { recordAuditLogFn = fn; }
 function setGetApprovalHistory(fn) { getApprovalHistoryFn = fn; }
 function setCreateTask(fn) { createTaskFn = fn; }
 
-function safeJsonParse(value, defaultValue = null) {
-  if (!value) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
-}
 
 function escapeLikePattern(str) {
   if (typeof str !== 'string') return '';

@@ -8,6 +8,7 @@ const {
   WINFORMS_FIXTURE,
   WPF_FIXTURE,
 } = require('../contracts/peek-fixtures');
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 
@@ -72,14 +73,6 @@ function computeChecksum(fixtureData) {
   return crypto.createHash('sha256').update(json).digest('hex');
 }
 
-function safeJsonParse(value, defaultValue) {
-  if (value === null || value === undefined) return defaultValue;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return defaultValue;
-  }
-}
 
 function mapFixtureRow(row) {
   if (!row) return null;

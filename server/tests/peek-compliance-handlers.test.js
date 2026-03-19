@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
+const { safeJsonParse } = require('../utils/json');
 
 const MODULE_PATH = require.resolve('../handlers/peek/compliance');
 
@@ -283,15 +284,6 @@ function insertProofAudit(db, overrides = {}) {
   return insertRow(db, 'policy_proof_audit', row);
 }
 
-function safeJsonParse(value) {
-  if (!value) return null;
-
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
 
 function createDatabaseModule(db, options = {}) {
   const proofAuditHelper = options.includeProofAuditHelper === false

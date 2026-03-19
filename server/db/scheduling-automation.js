@@ -19,6 +19,7 @@ let _getRetryHistoryFn;
 let getPipelineFn;
 let createPipelineFn;
 const { createHash } = require('crypto');
+const { safeJsonParse } = require('../utils/json');
 
 function setDb(dbInstance) {
   db = dbInstance;
@@ -87,11 +88,6 @@ function computeAuditChainHash(payload) {
   return createHash('sha256').update(text).digest('hex');
 }
 
-// Local copy — avoids importing from database.js (circular dependency)
-function safeJsonParse(value, defaultValue = null) {
-  if (!value) return defaultValue;
-  try { return JSON.parse(value); } catch { return defaultValue; }
-}
 
 // ============================================
 // Templates

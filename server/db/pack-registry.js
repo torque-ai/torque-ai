@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { safeJsonParse } = require('../utils/json');
 
 let db;
 
@@ -8,13 +9,6 @@ function setDb(dbInstance) {
   db = dbInstance;
 }
 
-function safeJsonParse(value, defaultValue) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return defaultValue;
-  }
-}
 
 function getPackRegistryColumnInfo() {
   if (!db) return [];
