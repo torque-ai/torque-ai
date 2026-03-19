@@ -34,9 +34,10 @@ const mcpSse = require('./mcp-sse');
 const { RemoteAgentRegistry } = require('./remote/agent-registry');
 const { MCPPlatform, isPlatformEnabled } = require('./mcp/platform');
 const logger = require('./logger').child({ component: 'mcp-stdio' });
+const mcpProtocol = require('./mcp-protocol');
 
-// Context optimization: only expose core tools by default
-let toolMode = 'core';
+// Virtual session for stdio transport (single-client)
+const stdioSession = { toolMode: 'core' };
 
 // Remote agent registry — initialized in init() after DB is ready
 let agentRegistry = null;
@@ -773,6 +774,14 @@ function init() {
     debugLog(`Failed to write PID file: ${err.message}`);
   }
 
+  // Initialize shared MCP protocol handler (used by both stdio and SSE transports)
+  mcpProtocol.init({
+    tools: getTools(),
+    coreToolNames: CORE_TOOL_NAMES,
+    extendedToolNames: EXTENDED_TOOL_NAMES,
+    handleToolCall: async (name, args, _session) => callTool(name, args),
+  });
+
   // Listen for torque:shutdown event from tools.js (e.g., restart_server)
   // This avoids circular dependency between tools.js and index.js
   process.on('torque:shutdown', (reason) => {
@@ -1210,108 +1219,24 @@ function checkBudgetAlerts() {
 }
 
 /**
- * Handle incoming JSON-RPC requests
+ * Handle incoming JSON-RPC requests — thin stdio shim around shared mcp-protocol handler.
  * @param {object} request - JSON-RPC request payload.
  * @returns {Promise<object|null>} Response payload or null for notifications.
  */
 async function handleRequest(request) {
-  if (!request || typeof request !== 'object') {
-    throw { code: -32600, message: 'Invalid request: expected JSON object' };
-  }
-  const { method, params } = request;
+  const result = await mcpProtocol.handleRequest(request, stdioSession);
 
-  switch (method) {
-    case 'initialize':
-      return {
-        protocolVersion: '2024-11-05',
-        capabilities: {
-          tools: {},
-        },
-        serverInfo: SERVER_INFO,
-      };
-
-    case 'tools/list': {
-      const allTools = getTools();
-      if (toolMode === 'core' || toolMode === 'extended') {
-        const allowedNames = toolMode === 'core' ? CORE_TOOL_NAMES : EXTENDED_TOOL_NAMES;
-        const filteredTools = [];
-        for (const name of allowedNames) {
-          const tool = allTools.find(t => t.name === name);
-          if (tool) filteredTools.push(tool);
-        }
-        return { tools: filteredTools };
-      }
-      return { tools: allTools };
-    }
-
-    case 'tools/call':
-      return await handleToolCallRequest(params);
-
-    case 'notifications/initialized':
-    case 'notifications/cancelled':
-      // Notifications don't need responses
-      return null;
-
-    default:
-      throw {
-        code: -32601,
-        message: `Method not found: ${method}`,
-      };
-  }
-}
-
-/**
- * Handle tool call requests
- * @param {{ name: string, arguments?: object }} params - Tool call parameters.
- * @returns {Promise<object>} Tool call response payload.
- */
-async function handleToolCallRequest(params) {
-  if (!params || typeof params !== 'object' || typeof params.name !== 'string') {
-    throw { code: -32602, message: 'Invalid params: "name" (string) is required' };
-  }
-  const { name, arguments: args } = params;
-
-  // Enforce toolMode at execution boundary (RB-073)
-  if (toolMode !== 'full') {
-    const allowedNames = toolMode === 'core' ? CORE_TOOL_NAMES : EXTENDED_TOOL_NAMES;
-    if (!allowedNames.includes(name)) {
-      return {
-        content: [{ type: 'text', text: `Tool '${name}' is not available in ${toolMode} mode. Call 'unlock_all_tools' to access all tools.` }],
-        isError: true,
-      };
-    }
+  // Stdio transport-specific: send tools/list_changed notification on unlock
+  if (stdioSession._toolsChanged) {
+    stdioSession._toolsChanged = false;
+    const notification = JSON.stringify({
+      jsonrpc: JSONRPC_VERSION,
+      method: 'notifications/tools/list_changed',
+    }) + '\n';
+    process.stdout.write(notification);
   }
 
-  try {
-    const result = await callTool(name, args || {});
-
-    // Check if unlock_all_tools or unlock_tier was called
-    if (result && (result.__unlock_all_tools || result.__unlock_tier)) {
-      const newMode = result.__unlock_all_tools ? 'full'
-        : (result.__unlock_tier <= 1 ? 'core' : result.__unlock_tier <= 2 ? 'extended' : 'full');
-      if (newMode !== toolMode) {
-        toolMode = newMode;
-        // Send notifications/tools/list_changed so Claude Code re-fetches tools
-        const notification = JSON.stringify({
-          jsonrpc: JSONRPC_VERSION,
-          method: 'notifications/tools/list_changed'
-        }) + '\n';
-        process.stdout.write(notification);
-      }
-      // Return the content portion only
-      return { content: result.content };
-    }
-
-    return result;
-  } catch (err) {
-    return {
-      content: [{
-        type: 'text',
-        text: `Error: ${err.message || err}`
-      }],
-      isError: true
-    };
-  }
+  return result;
 }
 
 /**
