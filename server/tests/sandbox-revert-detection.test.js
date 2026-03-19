@@ -3,6 +3,8 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+// Importing git-test-utils restores real git — required for production code
+// (sandbox-revert-detection.js) that calls execFileSync('git') directly.
 const { gitSync, cleanupRepo } = require('./git-test-utils');
 
 const {

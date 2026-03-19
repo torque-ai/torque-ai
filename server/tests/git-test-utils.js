@@ -17,7 +17,17 @@
 
 'use strict';
 
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
+// Use the real (unpatched) execFileSync — worker-setup.js patches the default
+// to stub git calls, but tests in this module need actual git operations.
+const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
+
+// ALSO restore the global patches for any production code that runs in tests
+// importing this module (e.g., sandbox-revert-detection.js calls execFileSync('git')
+// directly, not through gitSync). Without this, production code in real-git tests
+// hits the stub and gets fake responses.
+if (childProcess._realExecFileSync) childProcess.execFileSync = childProcess._realExecFileSync;
+if (childProcess._realSpawnSync) childProcess.spawnSync = childProcess._realSpawnSync;
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

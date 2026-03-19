@@ -7,6 +7,12 @@
  * behavior under a variety of scenarios.
  */
 
+// Restore real git — this test creates real repos and the production code
+// (agentic-git-safety.js) calls execFileSync('git') directly.
+const cp = require('child_process');
+if (cp._realExecFileSync) cp.execFileSync = cp._realExecFileSync;
+if (cp._realSpawnSync) cp.spawnSync = cp._realSpawnSync;
+
 const fs = require('fs');
 const path = require('path');
 const os = require('os');

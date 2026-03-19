@@ -384,11 +384,22 @@ describe('buildGitContext', () => {
   });
 
   it('returns git context for a real git repo', () => {
-    // Use the actual TORQUE repo
-    const torqueDir = path.resolve(__dirname, '..');
-    const result = buildGitContext(torqueDir, [{ actual: 'task-manager.js' }]);
-    expect(result).toContain('RECENT GIT CONTEXT');
-    expect(result).toContain('Recent commits');
+    // Reload context-enrichment with real git — the module captures execFileSync
+    // at require time, so we must restore + reload for actual git output.
+    const cp = require('child_process');
+    const patched = cp.execFileSync;
+    cp.execFileSync = cp._realExecFileSync || patched;
+    try {
+      delete require.cache[require.resolve('../utils/context-enrichment')];
+      const { buildGitContext: realBuildGitContext } = require('../utils/context-enrichment');
+      const torqueDir = path.resolve(__dirname, '..');
+      const result = realBuildGitContext(torqueDir, [{ actual: 'task-manager.js' }]);
+      expect(result).toContain('RECENT GIT CONTEXT');
+      expect(result).toContain('Recent commits');
+    } finally {
+      cp.execFileSync = patched;
+      delete require.cache[require.resolve('../utils/context-enrichment')];
+    }
   });
 
   it('returns empty for null working dir', () => {
