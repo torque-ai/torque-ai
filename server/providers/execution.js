@@ -236,6 +236,48 @@ ${platformRule}
 Working directory: ${workingDir}`;
 }
 
+/**
+ * Pre-stuff file contents into the task prompt for agentic providers.
+ * Extracts file paths from the task description, reads them, and appends
+ * their contents. Converts multi-iteration exploration into single-shot analysis.
+ * @param {string} taskDescription - Original task description
+ * @param {string} workingDir - Working directory for file resolution
+ * @param {number} budgetChars - Max characters to stuff (default: 48000 ≈ 16K tokens)
+ * @returns {string} Enriched task prompt
+ */
+function preStuffFileContents(taskDescription, workingDir, budgetChars = 48000) {
+  if (!taskDescription || !workingDir) return taskDescription;
+  try {
+    const fs = require('fs');
+    const filePattern = /\b((?:src|tests?|server|lib|app|docs)\/[\w./-]+\.(?:cs|ts|js|py|java|go|rs|xaml|json|md))\b/gi;
+    const referencedFiles = [...new Set((taskDescription.match(filePattern) || []))];
+    if (referencedFiles.length === 0) return taskDescription;
+
+    const stuffedParts = [];
+    let totalChars = 0;
+    for (const relPath of referencedFiles) {
+      if (totalChars > budgetChars) break;
+      const absPath = path.resolve(workingDir, relPath);
+      if (!absPath.startsWith(path.resolve(workingDir))) continue;
+      try {
+        const content = fs.readFileSync(absPath, 'utf-8');
+        if (content.length > 50000) continue;
+        stuffedParts.push(`\n--- FILE: ${relPath} ---\n${content}\n--- END FILE ---`);
+        totalChars += content.length;
+      } catch { /* file doesn't exist, skip */ }
+    }
+    if (stuffedParts.length > 0) {
+      logger.info(`[Agentic] Pre-stuffed ${stuffedParts.length}/${referencedFiles.length} files (${Math.round(totalChars/1024)}KB)`);
+      return taskDescription +
+        `\n\n[PRE-LOADED FILES — you do NOT need to call read_file for these, their contents are below]\n` +
+        stuffedParts.join('\n');
+    }
+  } catch (err) {
+    logger.info(`[Agentic] Pre-stuff failed (non-fatal): ${err.message}`);
+  }
+  return taskDescription;
+}
+
 // ============================================================
 // Worker-based agentic execution
 // ============================================================
@@ -338,12 +380,15 @@ async function runAgenticPipeline({
     logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
   }
 
+  // Pre-stuff referenced files
+  const enrichedPromptInline = preStuffFileContents(task.task_description, workingDir);
+
   // Run agentic loop
   // For prompt-injected tools: pass empty tools array (tools are in the system prompt)
   const result = await runAgenticLoop({
     adapter,
     systemPrompt,
-    taskPrompt: task.task_description,
+    taskPrompt: enrichedPromptInline,
     tools: promptInjectedTools ? [] : TOOL_DEFINITIONS,
     promptInjectedTools,
     toolExecutor: executor,
@@ -561,6 +606,10 @@ async function executeOllamaTaskWithAgentic(task) {
       logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
     }
 
+    // Pre-stuff referenced files into the prompt so the model doesn't
+    // burn iterations calling read_file for files already mentioned in the task.
+    const enrichedTaskPrompt = preStuffFileContents(task.task_description, workingDir, contextBudget * 3);
+
     // Spawn worker thread for the agentic loop
     logger.debug(`[WORKER-DEBUG] Spawning worker for Ollama task ${taskId}, model=${resolvedModel}, host=${ollamaHost}`);
     const workerHandle = spawnAgenticWorker({
@@ -572,7 +621,7 @@ async function executeOllamaTaskWithAgentic(task) {
         ...tuningOptions,
       },
       systemPrompt,
-      taskPrompt: task.task_description,
+      taskPrompt: enrichedTaskPrompt,
       workingDir,
       timeoutMs,
       maxIterations,
@@ -802,7 +851,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
             temperature: 0.3,
           },
           systemPrompt,
-          taskPrompt: task.task_description,
+          taskPrompt: preStuffFileContents(task.task_description, workingDir),
           workingDir,
           timeoutMs,
           maxIterations,
@@ -841,7 +890,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           temperature: 0.3,
         },
         systemPrompt,
-        taskPrompt: task.task_description,
+        taskPrompt: preStuffFileContents(task.task_description, workingDir),
         workingDir,
         timeoutMs,
         maxIterations,
