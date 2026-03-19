@@ -278,6 +278,9 @@ async function executeApiProvider(task, provider) {
   const taskId = task.id;
   const model = task.model || null;
   const controller = new AbortController();
+  // Hoisted so the catch block can reference it even if an error occurs before
+  // the clone is created (e.g., during context stuffing or status updates).
+  let taskClone = null;
 
   try {
     // Register abort controller BEFORE setting status to 'running' so cancelTask()
@@ -304,6 +307,8 @@ async function executeApiProvider(task, provider) {
         if (currentTask && currentTask.status !== 'running') {
           logger.info(`API provider task ${taskId} status changed to '${currentTask.status}' during context stuffing, skipping failure update`);
           apiAbortControllers.delete(taskId);
+          // Task is no longer running — free the slot for the next queued task
+          try { if (processQueue) processQueue(); } catch { /* ignore */ }
           return;
         }
         db.updateTaskStatus(taskId, 'failed', {
@@ -326,7 +331,7 @@ async function executeApiProvider(task, provider) {
       logger.debug(`Context stuffing failed for task ${taskId}, using original description: ${ctxErr.message}`);
     }
 
-    const taskClone = { ...task };
+    taskClone = { ...task };
     taskClone.task_description = effectiveDescription;
 
     const startTimeMs = Date.now();

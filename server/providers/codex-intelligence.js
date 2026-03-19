@@ -107,8 +107,11 @@ function runPreAnalysis(workingDir, filePaths) {
   const result = { existingErrors: [], fileInfo: [] };
   if (!workingDir || !filePaths || filePaths.length === 0) return result;
 
-  // Run tsc --noEmit if TypeScript project (configurable)
-  const preAnalysisEnabled = !db || serverConfig.getBool('codex_pre_analysis');
+  // Run tsc --noEmit if TypeScript project (configurable).
+  // Pre-analysis is enabled when db is available AND the config flag is set.
+  // The previous `!db` form was inverted: it enabled pre-analysis when db was
+  // absent, which is the opposite of the intent (no db = no config to read).
+  const preAnalysisEnabled = db && serverConfig.getBool('codex_pre_analysis');
   if (preAnalysisEnabled) {
     const hasTsConfig = safeExists(path.join(workingDir, 'tsconfig.json'));
     if (hasTsConfig) {

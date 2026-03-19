@@ -565,13 +565,18 @@ async function executeHashlineOllamaTask(task) {
           processQueue();
           return { queued: true, vramBlocked: true, reason: vramCheck.reason };
         }
+        // Reserve a host slot. This can fail even after selectHostForTask() succeeds
+        // because the host's running_tasks count may have advanced between the two
+        // calls (e.g., another task started on the same host concurrently). The
+        // requeue path below is the safe recovery: the task re-enters the queue and
+        // will be retried on the next processQueue cycle.
         const slotResult = tryReserveHostSlotWithFallback(selection.host.id, taskId);
         if (slotResult.success) {
           ollamaHost = selection.host.url;
           ollamaModel = selection.model || requestedModel;
           selectedHostId = selection.host.id;
         } else {
-          // Requeue
+          // Requeue — host slot was taken by a concurrent task between selection and reservation
           db.updateTaskStatus(taskId, 'queued', {
             pid: null, started_at: null, ollama_host_id: null,
             error_output: (task.error_output || '') + `\nTemporarily requeued: ${slotResult.reason}`
@@ -748,6 +753,12 @@ async function executeHashlineOllamaTask(task) {
     if (proc) proc.abortController = abortController;
 
     const response = await new Promise((resolve, reject) => {
+      // Guard against double-resolve: the 'data' handler resolves on parsed.done,
+      // and the 'end' handler resolves as a fallback. Without the guard, both can
+      // fire on well-formed streaming responses.
+      let resolved = false;
+      const safeResolve = (value) => { if (!resolved) { resolved = true; resolve(value); } };
+
       const req = httpModule.request({
         hostname: url.hostname,
         port: url.port || (isHttps ? 443 : 11434),
@@ -820,7 +831,7 @@ async function executeHashlineOllamaTask(task) {
               }
 
               if (parsed.done) {
-                resolve({ status: res.statusCode, data: { response: fullResponse } });
+                safeResolve({ status: res.statusCode, data: { response: fullResponse } });
               }
             } catch { /* ignore malformed JSON */ }
           }
@@ -828,9 +839,9 @@ async function executeHashlineOllamaTask(task) {
 
         res.on('end', () => {
           if (fullResponse) {
-            resolve({ status: res.statusCode, data: { response: fullResponse } });
+            safeResolve({ status: res.statusCode, data: { response: fullResponse } });
           } else {
-            resolve({ status: res.statusCode, data: { response: '', error: 'Empty response' } });
+            safeResolve({ status: res.statusCode, data: { response: '', error: 'Empty response' } });
           }
         });
       });

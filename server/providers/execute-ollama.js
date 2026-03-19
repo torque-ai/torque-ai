@@ -578,8 +578,8 @@ async function executeOllamaTask(task) {
     const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
     const cancelCheckInterval = setInterval(() => {
       try {
-        const task = db.getTask(taskId);
-        if (task && task.status === 'cancelled') {
+        const currentTask = db.getTask(taskId);
+        if (currentTask && currentTask.status === 'cancelled') {
           abortController.abort();
           clearInterval(cancelCheckInterval);
         }
@@ -763,6 +763,7 @@ async function executeOllamaTask(task) {
 
       // Post-completion bookkeeping — decrement host slot FIRST to prevent leaks,
       // then record usage (which is non-critical and may throw)
+      const completedOnHost = selectedHostId || 'default'; // save before null to ensure accurate log
       if (selectedHostId) {
         try { db.decrementHostTasks(selectedHostId); } catch (e) { logger.info(`[Ollama] Failed to decrement host tasks: ${e.message}`); }
         selectedHostId = null; // Prevent double-decrement in catch
@@ -781,7 +782,7 @@ async function executeOllamaTask(task) {
         logger.info(`[Ollama] Post-completion bookkeeping error for task ${taskId}: ${bookkeepingErr.message}`);
       }
 
-      logger.info(`[Ollama] Task ${taskId} completed successfully on host ${selectedHostId || 'default'}`);
+      logger.info(`[Ollama] Task ${taskId} completed successfully on host ${completedOnHost}`);
     } else {
       // Error
       const errorMsg = response.data.error || `HTTP ${response.status}`;
@@ -791,7 +792,9 @@ async function executeOllamaTask(task) {
   } catch (error) {
     logger.info(`[Ollama] Task ${taskId} failed: ${error.message}`);
 
-    // Decrement host task count on failure
+    // Decrement host task count on failure.
+    // selectedHostId may already be null if the success path ran first and cleared it
+    // to prevent double-decrement — in that case this is a no-op, which is correct.
     if (selectedHostId) {
       db.decrementHostTasks(selectedHostId);
     }
