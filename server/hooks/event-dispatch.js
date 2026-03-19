@@ -268,6 +268,17 @@ function dispatchTaskEvent(eventName, task) {
     } catch {
       // Dashboard may not be running — non-fatal
     }
+
+    // Record coordination event
+    try {
+      const coord = require('../db/coordination');
+      const taskMeta = task?.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+      const agentId = taskMeta?.submitted_by_agent || null;
+      coord.recordCoordinationEvent(eventName, agentId, task?.id || null,
+        JSON.stringify({ status: task?.status, provider: task?.provider }));
+    } catch (e) {
+      // Non-fatal
+    }
   } catch (err) {
     logger.info('[MCP Notify] Non-fatal dispatch error:', err.message);
   }

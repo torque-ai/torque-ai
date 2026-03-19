@@ -165,6 +165,22 @@ function runSlotPullPass() {
           }
         }
         assigned++;
+        // Create coordination claim for the submitting agent
+        try {
+          const task = _db.getTask(taskId);
+          const taskMeta = task?.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+          const agentId = taskMeta.submitted_by_agent || null;
+          if (agentId) {
+            const coord = require('../db/coordination');
+            const agent = coord.getAgent(agentId);
+            if (agent) {
+              coord.claimTask(taskId, agentId, 600);
+              coord.recordCoordinationEvent('task_claimed', agentId, taskId, JSON.stringify({ provider }));
+            }
+          }
+        } catch (e) {
+          // Non-fatal — don't block task execution
+        }
         logger.info('Slot-pull assigned task ' + taskId + ' to ' + provider);
       } catch (err) {
         logger.error('Slot-pull failed to start task ' + taskId + ' on ' + provider + ': ' + err.message);

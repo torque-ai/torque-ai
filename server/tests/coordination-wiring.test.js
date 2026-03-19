@@ -298,3 +298,131 @@ describe('listClaims with task_id filter', () => {
     expect(claims).toHaveLength(0);
   });
 });
+
+describe('task lifecycle coordination', () => {
+  beforeAll(() => { setup(); });
+  afterAll(() => { teardown(); });
+  beforeEach(() => {
+    resetState();
+    rawDb().prepare('DELETE FROM tasks').run();
+  });
+
+  it('submitted_by_agent is stored in task metadata', () => {
+    const agentId = randomUUID();
+    const taskId = randomUUID();
+    const now = new Date().toISOString();
+
+    // Create a task with submitted_by_agent in metadata (simulating what core.js does)
+    const metadata = { intended_provider: 'ollama', submitted_by_agent: agentId };
+    rawDb().prepare(`
+      INSERT INTO tasks (id, task_description, status, priority, metadata, created_at)
+      VALUES (?, 'test task with agent', 'pending', 0, ?, ?)
+    `).run(taskId, JSON.stringify(metadata), now);
+
+    // Verify it persists
+    const task = rawDb().prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+    expect(task).toBeTruthy();
+    const parsedMeta = JSON.parse(task.metadata);
+    expect(parsedMeta.submitted_by_agent).toBe(agentId);
+  });
+
+  it('coordination event is recorded via recordCoordinationEvent', () => {
+    const agentId = randomUUID();
+    const taskId = randomUUID();
+    const now = new Date().toISOString();
+
+    // Register agent first (FK constraint)
+    coord.registerAgent({
+      id: agentId,
+      name: 'lifecycle-test-agent',
+      agent_type: 'mcp-session',
+      capabilities: [],
+      max_concurrent: 10,
+      priority: 0,
+    });
+
+    // Create task
+    rawDb().prepare(`
+      INSERT INTO tasks (id, task_description, status, priority, created_at)
+      VALUES (?, 'lifecycle test task', 'pending', 0, ?)
+    `).run(taskId, now);
+
+    // Record coordination event directly
+    coord.recordCoordinationEvent('task_submitted', agentId, taskId, JSON.stringify({ test: true }));
+
+    // Verify via dashboard
+    const dashboard = coord.getCoordinationDashboard(24);
+    expect(dashboard.events).toBeTruthy();
+    expect(dashboard.events.task_submitted).toBeGreaterThanOrEqual(1);
+
+    // Also verify via direct query
+    const events = rawDb()
+      .prepare("SELECT * FROM coordination_events WHERE task_id = ? AND event_type = 'task_submitted'")
+      .all(taskId);
+    expect(events).toHaveLength(1);
+    expect(events[0].agent_id).toBe(agentId);
+  });
+
+  it('claim is released when releaseTaskClaim is called', () => {
+    const agentId = randomUUID();
+    const taskId = randomUUID();
+    const now = new Date().toISOString();
+
+    coord.registerAgent({
+      id: agentId,
+      name: 'release-test-agent',
+      agent_type: 'worker',
+      capabilities: [],
+      max_concurrent: 10,
+      priority: 0,
+    });
+
+    rawDb().prepare(`
+      INSERT INTO tasks (id, task_description, status, priority, created_at)
+      VALUES (?, 'release test task', 'queued', 0, ?)
+    `).run(taskId, now);
+
+    // Create claim
+    const claim = coord.claimTask(taskId, agentId, 600);
+    expect(claim).toBeTruthy();
+
+    // Verify active
+    const activeClaims = coord.listClaims({ task_id: taskId, status: 'active' });
+    expect(activeClaims).toHaveLength(1);
+
+    // Release
+    coord.releaseTaskClaim(claim.id, 'task_completed');
+
+    // Verify released
+    const afterRelease = coord.listClaims({ task_id: taskId, status: 'active' });
+    expect(afterRelease).toHaveLength(0);
+  });
+
+  it('event dispatch records coordination event for task completion', () => {
+    const agentId = randomUUID();
+    const taskId = randomUUID();
+    const now = new Date().toISOString();
+
+    coord.registerAgent({
+      id: agentId,
+      name: 'dispatch-test-agent',
+      agent_type: 'mcp-session',
+      capabilities: [],
+      max_concurrent: 10,
+      priority: 0,
+    });
+
+    // Record a task_completed coordination event (simulating what event-dispatch.js does)
+    coord.recordCoordinationEvent('completed', agentId, taskId,
+      JSON.stringify({ status: 'completed', provider: 'ollama' }));
+
+    const events = rawDb()
+      .prepare("SELECT * FROM coordination_events WHERE task_id = ? AND event_type = 'completed'")
+      .all(taskId);
+    expect(events).toHaveLength(1);
+    expect(events[0].agent_id).toBe(agentId);
+    const details = JSON.parse(events[0].details);
+    expect(details.status).toBe('completed');
+    expect(details.provider).toBe('ollama');
+  });
+});

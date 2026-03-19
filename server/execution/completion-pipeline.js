@@ -189,6 +189,17 @@ function handlePostCompletion(ctx) {
     } catch (poErr) {
       // Non-fatal
     }
+
+    // Release coordination claims for this task
+    try {
+      const coord = require('../db/coordination');
+      const claims = coord.listClaims({ task_id: taskId, status: 'active' });
+      for (const claim of claims) {
+        coord.releaseTaskClaim(claim.id);
+      }
+    } catch (e) {
+      // Non-fatal
+    }
   } catch (webhookErr) {
     logger.info('Post-completion webhook/workflow error:', webhookErr.message);
   }

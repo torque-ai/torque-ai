@@ -314,6 +314,11 @@ function handleSubmitTask(args) {
     return blockedError;
   }
 
+  // Store submitting agent session ID in metadata for coordination tracking
+  if (args.__sessionId) {
+    metadata.submitted_by_agent = args.__sessionId;
+  }
+
   checkDepth(metadata);
 
   if (useTierList) {
@@ -342,6 +347,14 @@ function handleSubmitTask(args) {
       model: model,  // null = use provider's default model
       metadata: JSON.stringify(metadata)
     });
+  }
+
+  // Record coordination event
+  try {
+    const coord = require('../../db/coordination');
+    coord.recordCoordinationEvent('task_submitted', args.__sessionId || null, taskId, null);
+  } catch (e) {
+    // Non-fatal
   }
 
   if (useTierList && !args.provider && typeof db.patchTaskSlotBinding === 'function') {
