@@ -373,17 +373,14 @@ function updateBudgetSpend(provider, costUsd) {
     return { allowed: true, skipped: true };
   }
 
-  const budgets = db.prepare(
-    'SELECT id FROM cost_budgets WHERE (provider = ? OR provider IS NULL) AND enabled = 1'
-  ).all(provider);
-
-  if (!budgets || budgets.length === 0) {
-    return { allowed: true, skipped: true };
-  }
-
   const txn = db.transaction(() => {
-    const budgetRows = budgets.map(budget => db.prepare('SELECT * FROM cost_budgets WHERE id = ?').get(budget.id))
-      .filter(Boolean);
+    const budgetRows = db.prepare(
+      'SELECT * FROM cost_budgets WHERE (provider = ? OR provider IS NULL) AND enabled = 1'
+    ).all(provider).filter(Boolean);
+
+    if (!budgetRows || budgetRows.length === 0) {
+      return { allowed: true, skipped: true };
+    }
 
     for (const budget of budgetRows) {
       const projectedSpend = budget.current_spend + costUsd;

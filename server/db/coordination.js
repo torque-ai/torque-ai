@@ -771,9 +771,11 @@ function selectAgentByStrategy(agents, strategy) {
   if (available.length === 0) return null;
 
   switch (strategy) {
-    case 'round_robin':
+    case 'round_robin': {
+      const selected = available[roundRobinIndex % available.length];
       roundRobinIndex = (roundRobinIndex + 1) % available.length;
-      return available[roundRobinIndex];
+      return selected;
+    }
     case 'least_loaded':
       return available.sort((a, b) =>
         (a.current_load / a.max_concurrent) - (b.current_load / b.max_concurrent)

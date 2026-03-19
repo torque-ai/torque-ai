@@ -181,7 +181,7 @@ class StrategicBrain {
       task_description: task_description || '',
       error_output: (error_output || '').slice(-5120),
       provider: provider || '',
-      exit_code: String(exit_code || ''),
+      exit_code: String(exit_code ?? ''),
       retry_count: String(retry_count || 0),
     }, { error_output, provider, exit_code });
   }

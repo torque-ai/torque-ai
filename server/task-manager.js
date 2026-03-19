@@ -660,6 +660,7 @@ function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, tas
   const MAX_FILE_LINES = 350;
   const methodPattern = /^\s*(public|private|protected|internal|static|async|override|virtual|abstract|def |function |class |interface |export |const |let |var )\b/;
 
+  const hashlineEnabled = serverConfig.getBool('hashline_context_enabled');
   let totalBytes = 0;
   const sections = [];
 
@@ -679,7 +680,6 @@ function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, tas
 
     // Add line numbers with content hashes and method markers
     // Format: L###:xx:marker where xx is a 2-char FNV-1a hash of line content
-    const hashlineEnabled = serverConfig.getBool('hashline_context_enabled');
     const numberedLines = lines.slice(0, MAX_FILE_LINES).map((line, idx) => {
       const lineNum = String(idx + 1).padStart(3, '0');
       const isMethod = methodPattern.test(line);
@@ -728,7 +728,6 @@ function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, tas
     }
   }
 
-  const hashlineEnabled = serverConfig.getBool('hashline_context_enabled');
   if (hashlineEnabled) {
     return `\n\n---\nRESOLVED FILE CONTEXT (lines prefixed with L###:xx:)\n` +
       `Each line has format \`L###:xx:marker\` where \`xx\` is a 2-char content hash.\n` +
@@ -1598,21 +1597,7 @@ function startTask(taskId) {
         }
         logger.info(`[FileResolve] Pre-resolved ${resolution.resolved.length} file(s) for task ${taskId}`);
 
-        // Async tsserver enrichment — warms up tsserver session and caches type info.
-        // Context is appended inline for CLI providers (codex, claude-cli, aider)
-        // where we can update the prompt before the process reads stdin.
-        if (provider !== 'ollama' && serverConfig.isOptIn('tsserver_enabled')) {
-          const taskRef = taskId;
-          contextEnrichment.buildTsserverTypeContext(resolution.resolved, task.working_directory)
-            .then(tsContext => {
-              if (tsContext) {
-                logger.info(`[FileResolve] tsserver type context ready (${tsContext.length} bytes) for task ${taskRef}`);
-              }
-            })
-            .catch(e => {
-              logger.info(`[FileResolve] Non-fatal tsserver enrichment error: ${e.message}`);
-            });
-        }
+
       }
     } catch (e) {
       logger.info(`[FileResolve] Non-fatal error for task ${taskId}: ${e.message}`);

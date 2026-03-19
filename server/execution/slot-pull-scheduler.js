@@ -68,8 +68,8 @@ function hasOllamaHostCapacity(provider) {
     for (const op of OLLAMA_PROVIDERS) {
       combinedRunning += getRunningCountByProvider(op);
     }
-    // Use the highest max_concurrent from any available host as the ceiling
-    const hostCap = Math.max(...hosts.map(h => h.max_concurrent || 4));
+    // Use sum of max_concurrent across all available hosts as the ceiling
+    const hostCap = hosts.reduce((sum, h) => sum + (h.max_concurrent || 4), 0);
     return combinedRunning < hostCap;
   } catch { return true; }
 }

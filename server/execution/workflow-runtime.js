@@ -1123,8 +1123,8 @@ function checkWorkflowCompletion(workflowId) {
 // ---------------------------------------------------------------------------
 
 function maybeProcessAuditTaskResult(task) {
-  const tags = Array.isArray(task.tags) ? task.tags : [];
-  const auditTag = tags.find((tag) => typeof tag === 'string' && tag.startsWith('audit:'));
+  const tags = typeof task.tags === 'string' ? JSON.parse(task.tags) : (task.tags || []);
+  const auditTag = Array.isArray(tags) ? tags.find((tag) => typeof tag === 'string' && tag.startsWith('audit:')) : undefined;
 
   if (!auditTag) return;
 

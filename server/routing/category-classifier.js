@@ -62,9 +62,9 @@ const CATEGORY_META = {
 const SECURITY_RE = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i;
 const XAML_KEYWORD_RE = /\b(xaml|wpf|uwp|maui|avalonia)\b/i;
 const ARCHITECTURAL_RE = /\b(architect|refactor.*multi|redesign|migration strategy|system design)\b/i;
-const REASONING_RE = /\b(reason(?:ing|ed)|analyze|debug complex|root cause|review.*entire|explain.*architecture|deep.*analysis)\b/i;
+const REASONING_RE = /\b(reasoning|reasoned|analyze|debug complex|root cause|review.*entire|explain.*architecture|deep.*analysis)\b/i;
 const LARGE_CODE_RE = /\b(implement.*system|build.*feature|create.*module|complex.*generation|multi.*file.*refactor)\b/i;
-const DOCS_RE = /\b(document|explain|summarize|describe|comment|readme|changelog|jsdoc|docstring)\b/i;
+const DOCS_RE = /\b(document|explain|summarize|comment|readme|changelog|jsdoc|docstring)\b/i;
 const SIMPLE_GEN_RE = /\b(commit message|boilerplate|scaffold|template|stub)\b/i;
 
 const FILE_REF_RE = /[\w\-./\\]+\.\w{1,5}\b/;

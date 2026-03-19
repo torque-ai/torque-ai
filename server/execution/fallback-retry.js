@@ -160,8 +160,8 @@ function tryOllamaCloudFallback(taskId, task, errorMsg) {
   } catch (e) {
     // Non-fatal
   }
-  dashboard.notifyTaskUpdated(taskId);
-  _processQueue();
+  if (dashboard) dashboard.notifyTaskUpdated(taskId);
+  if (_processQueue) _processQueue();
   return true;
 }
 
@@ -826,13 +826,13 @@ function classifyError(errorOutput, exitCode) {
     { pattern: 'network error', reason: 'Network error' },
     // Rate limiting
     { pattern: 'rate limit', reason: 'Rate limited' },
-    { pattern: '429', reason: 'Too many requests' },
+    { pattern: /\bHTTP[/\s]*429\b|status[:\s]*429\b/i, reason: 'Too many requests' },
     { pattern: 'too many requests', reason: 'Rate limited' },
     // Temporary server issues
-    { pattern: '500', reason: 'Server error' },
-    { pattern: '502', reason: 'Bad gateway' },
-    { pattern: '503', reason: 'Service unavailable' },
-    { pattern: '504', reason: 'Gateway timeout' },
+    { pattern: /\bHTTP[/\s]*500\b|status[:\s]*500\b/i, reason: 'Server error' },
+    { pattern: /\bHTTP[/\s]*502\b|status[:\s]*502\b/i, reason: 'Bad gateway' },
+    { pattern: /\bHTTP[/\s]*503\b|status[:\s]*503\b/i, reason: 'Service unavailable' },
+    { pattern: /\bHTTP[/\s]*504\b|status[:\s]*504\b/i, reason: 'Gateway timeout' },
     { pattern: 'internal server error', reason: 'Server error' },
     { pattern: 'service unavailable', reason: 'Service unavailable' },
     // Resource contention

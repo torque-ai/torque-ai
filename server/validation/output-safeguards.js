@@ -85,7 +85,7 @@ async function runOutputSafeguards(taskId, status, task) {
     const retryEnabled = serverConfig.getBool('adaptive_retry_enabled');
     const qualityScoringEnabled = serverConfig.getBool('quality_scoring_enabled');
     const providerStatsEnabled = serverConfig.getBool('provider_stats_enabled');
-    const buildCheckEnabled = serverConfig.isOptIn('build_check_enabled');
+    const buildCheckEnabled = serverConfig.getBool('build_check_enabled', true);
 
     let validationScore = 100;
     let syntaxScore = 100;
@@ -94,6 +94,7 @@ async function runOutputSafeguards(taskId, status, task) {
     // 1. Run output validation (for completed tasks)
     if (status === 'completed') {
       // Get file changes from git to validate
+      if (!_getFileChangesForValidation) return;
       const fileChanges = _getFileChangesForValidation(task?.working_directory, 1);
       logger.info(`Safeguard: validating ${fileChanges.length} changed files for task ${taskId}`);
 
