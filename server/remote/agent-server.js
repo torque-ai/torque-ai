@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -96,12 +97,13 @@ function readJsonBody(req) {
 
 function isAuthorized(req, secret) {
   // SECURITY: auth is now mandatory. If no secret configured, always reject.
-  if (!secret) {
-    return false;
-  }
-
+  if (!secret) return false;
   const received = req.headers['x-torque-secret'];
-  return typeof received === 'string' && received === secret;
+  if (typeof received !== 'string') return false;
+  const a = Buffer.from(received, 'utf-8');
+  const b = Buffer.from(secret, 'utf-8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 function normalizeEnv(extraEnv = {}) {

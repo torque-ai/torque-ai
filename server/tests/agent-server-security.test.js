@@ -1,8 +1,27 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
-const { prepareShellArgs, validateRunRequest, createHttpError, spawnAndCapture } = require('../remote/agent-server');
+const { prepareShellArgs, validateRunRequest, createHttpError, spawnAndCapture, isAuthorized } = require('../remote/agent-server');
+
+describe('isAuthorized — timing-safe auth', () => {
+  it('uses timing-safe comparison (crypto.timingSafeEqual is called)', () => {
+    const spy = vi.spyOn(crypto, 'timingSafeEqual');
+    const req = { headers: { 'x-torque-secret': 'correct-secret' } };
+    isAuthorized(req, 'correct-secret');
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('rejects mismatched secrets', () => {
+    expect(isAuthorized({ headers: { 'x-torque-secret': 'wrong' } }, 'correct')).toBe(false);
+  });
+
+  it('rejects missing header', () => {
+    expect(isAuthorized({ headers: {} }, 'secret')).toBe(false);
+  });
+});
 
 describe('prepareShellArgs — shell metacharacter rejection', () => {
   it('returns clean args unchanged', () => {

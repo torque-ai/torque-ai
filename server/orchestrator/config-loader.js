@@ -145,6 +145,7 @@ function deepMerge(target, source) {
   if (!source || typeof source !== 'object') return target;
   const result = { ...target };
   for (const key of Object.keys(source)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     const val = source[key];
     if (val === null || val === undefined) continue; // skip nulls in higher layers
     if (Array.isArray(val)) {
