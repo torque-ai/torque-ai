@@ -52,6 +52,7 @@ const contextEnrichment = require('./utils/context-enrichment');
 const tsserverClient = require('./utils/tsserver-client');
 const activityMonitoring = require('./utils/activity-monitoring');
 const taskHooks = require('./policy-engine/task-hooks');
+const _taskExecutionHooks = require('./policy-engine/task-execution-hooks');
 
 // Extracted modules (Phase 3 decomposition — re-wired)
 const _executionModule = require('./providers/execution');
@@ -129,92 +130,12 @@ const WORKFLOW_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 
 
 let workflowTransitionListenerRegistered = false;
 
-function buildPolicyTaskData(taskData = {}, overrides = {}) {
-  const source = (taskData && typeof taskData === 'object') ? taskData : {};
-  const merged = { ...source, ...overrides };
-  const workingDirectory = merged.working_directory || merged.workingDirectory || null;
-  let project = merged.project || merged.project_id || merged.projectId || null;
-
-  if (!project && workingDirectory && typeof db.getProjectFromPath === 'function') {
-    try {
-      project = db.getProjectFromPath(workingDirectory);
-    } catch (err) {
-      logger.info(`[Policy] Failed to resolve project for ${workingDirectory}: ${err.message}`);
-    }
-  }
-
-  const evidence = (merged.evidence && typeof merged.evidence === 'object')
-    ? { ...merged.evidence }
-    : {};
-
-  if (merged.status) evidence.status = merged.status;
-  if (merged.exit_code !== undefined) evidence.exit_code = merged.exit_code;
-  if (merged.review_status) evidence.review_status = merged.review_status;
-
-  return {
-    ...merged,
-    id: merged.id || merged.taskId || merged.task_id || 'unknown',
-    taskId: merged.taskId || merged.task_id || merged.id || 'unknown',
-    project,
-    project_id: project,
-    working_directory: workingDirectory,
-    changed_files: merged.changed_files || merged.changedFiles || merged.files_modified || null,
-    evidence,
-  };
-}
-
-function getPolicyBlockReason(result, stage) {
-  const fallback = `Blocked by policy during ${stage}`;
-  if (!result || typeof result !== 'object') return fallback;
-
-  const failedResult = Array.isArray(result.results)
-    ? result.results.find((entry) => entry && (entry.outcome === 'fail' || entry.mode === 'block'))
-    : null;
-
-  if (!failedResult) return fallback;
-  return failedResult.reason || failedResult.message || failedResult.policy_id || fallback;
-}
-
-function evaluateTaskSubmissionPolicy(taskData) {
-  const policyTaskData = buildPolicyTaskData(taskData);
-
-  try {
-    const result = taskHooks.onTaskSubmit(policyTaskData) || { blocked: false };
-    if (result.blocked === true) {
-      logger.info(`[Policy] Task ${policyTaskData.id} blocked on submit: ${getPolicyBlockReason(result, 'submit')}`);
-    }
-    return result;
-  } catch (err) {
-    logger.info(`[Policy] Submit hook failed for task ${policyTaskData.id}: ${err.message}`);
-    return { blocked: false, skipped: true, reason: 'policy_hook_error', error: err.message };
-  }
-}
-
-function evaluateTaskPreExecutePolicy(taskData) {
-  const policyTaskData = buildPolicyTaskData(taskData);
-
-  try {
-    const result = taskHooks.onTaskPreExecute(policyTaskData) || { blocked: false };
-    if (result.blocked === true) {
-      logger.info(`[Policy] Task ${policyTaskData.id} blocked before execution: ${getPolicyBlockReason(result, 'pre-execute')}`);
-    }
-    return result;
-  } catch (err) {
-    logger.info(`[Policy] Pre-execute hook failed for task ${policyTaskData.id}: ${err.message}`);
-    return { blocked: false, skipped: true, reason: 'policy_hook_error', error: err.message };
-  }
-}
-
-function fireTaskCompletionPolicyHook(taskData) {
-  const policyTaskData = buildPolicyTaskData(taskData);
-
-  try {
-    return taskHooks.onTaskComplete(policyTaskData);
-  } catch (err) {
-    logger.info(`[Policy] Completion hook failed for task ${policyTaskData.id}: ${err.message}`);
-    return { blocked: false, skipped: true, reason: 'policy_hook_error', error: err.message };
-  }
-}
+// Policy evaluation hooks — delegated to policy-engine/task-execution-hooks.js
+function buildPolicyTaskData(...args) { return _taskExecutionHooks.buildPolicyTaskData(...args); }
+function getPolicyBlockReason(...args) { return _taskExecutionHooks.getPolicyBlockReason(...args); }
+function evaluateTaskSubmissionPolicy(...args) { return _taskExecutionHooks.evaluateTaskSubmissionPolicy(...args); }
+function evaluateTaskPreExecutePolicy(...args) { return _taskExecutionHooks.evaluateTaskPreExecutePolicy(...args); }
+function fireTaskCompletionPolicyHook(...args) { return _taskExecutionHooks.fireTaskCompletionPolicyHook(...args); }
 
 function handleTaskStatusTransitionForWorkflow(taskId, status, previousStatus) {
   if (WORKFLOW_TERMINAL_STATUSES.has(status) && previousStatus !== status) {
@@ -1945,6 +1866,8 @@ let _subModulesInitialized = false;
 function initSubModules() {
   if (_subModulesInitialized) return;
   _subModulesInitialized = true;
+
+_taskExecutionHooks.init({ db });
 
 _fileContextBuilder.init({
   db,
