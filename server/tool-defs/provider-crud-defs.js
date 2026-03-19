@@ -27,7 +27,7 @@ module.exports = [
         max_concurrent: {
           type: 'number',
           description: 'Maximum concurrent tasks for this provider. Defaults to 3.',
-          default: 3,,
+          default: 3,
           minimum: 0
         },
         default_model: {

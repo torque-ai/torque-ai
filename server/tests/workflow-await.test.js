@@ -251,7 +251,7 @@ describe('workflow-await handlers with DB-backed state', () => {
     it('runs verify_command after a task completes', async () => {
       const taskId = createTask({ status: 'running' });
       mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
-        if (command === 'bash' || command === 'cmd' || command === 'sh') return 'verify ok\n';
+        if (command === 'bash' || command === 'cmd' || command === 'sh' || command === 'torque-remote') return 'verify ok\n';
         if (command === 'git' && args[0] === 'rev-parse') return 'abc123\n';
         if (command === 'git' && args[0] === 'diff') return '';
         return '';
@@ -275,7 +275,7 @@ describe('workflow-await handlers with DB-backed state', () => {
       // When scripts/torque-test.sh exists in cwd, routing goes through bash.
       // When it doesn't (e.g., in a stripped environment), falls back to sh/cmd.
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
-        expect.stringMatching(/^(bash|cmd|sh)$/),
+        expect.stringMatching(/^(bash|cmd|sh|torque-remote)$/),
         expect.any(Array),
         expect.objectContaining({ cwd: process.cwd() })
       );
@@ -284,7 +284,7 @@ describe('workflow-await handlers with DB-backed state', () => {
     it('captures verify_command failures without aborting the task result', async () => {
       const taskId = createTask({ status: 'running' });
       mocks.executeValidatedCommandSync.mockImplementation((command) => {
-        if (command === 'bash' || command === 'cmd' || command === 'sh') {
+        if (command === 'bash' || command === 'cmd' || command === 'sh' || command === 'torque-remote') {
           const error = new Error('verify failed');
           error.stderr = 'failing test output';
           throw error;
