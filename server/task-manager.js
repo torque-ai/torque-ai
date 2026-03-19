@@ -82,6 +82,7 @@ const _completionPipeline = require('./execution/completion-pipeline');
 const _fileContextBuilder = require('./execution/file-context-builder');
 const _providerRouter = require('./execution/provider-router');
 const _taskUtils = require('./execution/task-utils');
+const _planProjectResolver = require('./execution/plan-project-resolver');
 const _processLifecycle = require('./execution/process-lifecycle');
 const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking, cleanupChildProcessListeners } = _processLifecycle;
 const debugLifecycle = require('./execution/debug-lifecycle');
@@ -521,103 +522,10 @@ function resolveWindowsCmdToNode(cmdPath) {
  * @param {string} newStatus - New task status.
  * @returns {void}
  */
-function handleProjectDependencyResolution(taskId, newStatus) {
-  if (!['completed', 'failed'].includes(newStatus)) return;
-
-  const projectTask = db.getPlanProjectTask(taskId);
-  if (!projectTask) return;
-
-  const project = db.getPlanProject(projectTask.project_id);
-  if (!project) return;
-
-  const updateProjectCounts = () => {
-    const projectTasks = db.getPlanProjectTasks(projectTask.project_id);
-    const completedTasks = projectTasks.filter(t => t.status === 'completed').length;
-    const failedTasks = projectTasks.filter(t => t.status === 'failed').length;
-    db.updatePlanProject(projectTask.project_id, {
-      completed_tasks: completedTasks,
-      failed_tasks: failedTasks
-    });
-    return { projectTasks, completedTasks, failedTasks };
-  };
-
-  const notifyTaskUpdated = (dependentTaskId) => {
-    try {
-      dashboard.notifyTaskUpdated(dependentTaskId);
-    } catch {
-      // Dashboard notifications are best-effort for dependency updates.
-    }
-  };
-
-  const { completedTasks } = updateProjectCounts();
-
-  if (newStatus === 'completed') {
-    const dependentTaskIds = db.getDependentPlanTasks(taskId);
-
-    for (const depTaskId of dependentTaskIds) {
-      const depTask = db.getTask(depTaskId);
-      if (!depTask || depTask.status !== 'waiting') continue;
-
-      if (db.areAllPlanDependenciesComplete(depTaskId)) {
-        db.updateTaskStatus(depTaskId, 'queued');
-        notifyTaskUpdated(depTaskId);
-      }
-    }
-
-    if (completedTasks >= project.total_tasks) {
-      db.updatePlanProject(projectTask.project_id, {
-        status: 'completed',
-        completed_at: new Date().toISOString()
-      });
-    }
-
-    return;
-  }
-
-  const toBlock = new Set();
-  const queue = [taskId];
-
-  while (queue.length > 0) {
-    const currentId = queue.shift();
-    const dependentTaskIds = db.getDependentPlanTasks(currentId);
-
-    for (const depTaskId of dependentTaskIds) {
-      if (toBlock.has(depTaskId)) continue;
-
-      const depTask = db.getTask(depTaskId);
-      if (depTask && ['waiting', 'queued'].includes(depTask.status)) {
-        toBlock.add(depTaskId);
-        queue.push(depTaskId);
-      }
-    }
-  }
-
-  for (const depTaskId of toBlock) {
-    db.updateTaskStatus(depTaskId, 'blocked');
-    notifyTaskUpdated(depTaskId);
-  }
-
-  const remainingTasks = db.getPlanProjectTasks(projectTask.project_id);
-  const canProceed = remainingTasks.some(t => ['queued', 'running', 'waiting'].includes(t.status));
-
-  if (!canProceed && completedTasks < project.total_tasks) {
-    db.updatePlanProject(projectTask.project_id, { status: 'failed' });
-  }
-}
-
-/**
- * Handle plan project task completion - queue dependent tasks if ready
- */
-function handlePlanProjectTaskCompletion(taskId) {
-  return handleProjectDependencyResolution(taskId, 'completed');
-}
-
-/**
- * Handle plan project task failure - block dependent tasks
- */
-function handlePlanProjectTaskFailure(taskId) {
-  return handleProjectDependencyResolution(taskId, 'failed');
-}
+// Plan project dependency resolution — delegated to execution/plan-project-resolver.js
+function handleProjectDependencyResolution(...args) { return _planProjectResolver.handleProjectDependencyResolution(...args); }
+function handlePlanProjectTaskCompletion(...args) { return _planProjectResolver.handlePlanProjectTaskCompletion(...args); }
+function handlePlanProjectTaskFailure(...args) { return _planProjectResolver.handlePlanProjectTaskFailure(...args); }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Close-handler helpers (extracted from startTask's child.on('close', ...))
@@ -1786,6 +1694,8 @@ function initSubModules() {
   _subModulesInitialized = true;
 
 _taskExecutionHooks.init({ db });
+
+_planProjectResolver.init({ db, dashboard });
 
 _fileContextBuilder.init({
   db,
