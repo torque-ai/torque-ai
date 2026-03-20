@@ -835,32 +835,17 @@ async function handleSmartSubmitTask(args) {
       // Experiment 1 showed 3/3 Ollama greenfield tasks silently fell back to Codex
       // or stalled. Route directly to avoid the fallback latency penalty (~2x slower).
       //
-      // EXCEPTION: Economy mode blocks Codex — respect the economy routing decision
-      // from analyzeTaskForRouting() which already selected a preferred/allowed provider.
-      let economyBlocked = false;
-      try {
-        const economyPolicy = require('../../economy/policy');
-        const policy = economyPolicy.getGlobalEconomyPolicy();
-        if (policy && policy.enabled && policy.provider_tiers?.blocked?.includes('codex')) {
-          economyBlocked = true;
-        }
-      } catch { /* economy module not available */ }
-
-      if (economyBlocked) {
-        logger.info(`[SmartRouting] EXP1: Greenfield task but economy mode blocks Codex — using economy-routed provider '${selectedProvider}'`);
+      const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+      if (sparkEnabled && complexity !== 'complex') {
+        selectedProvider = 'codex';
+        taskModel = 'gpt-5.3-codex-spark';
+        modRoutingReason = `${complexity} greenfield → Codex Spark (Ollama cannot create files)`;
       } else {
-        const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
-        if (sparkEnabled && complexity !== 'complex') {
-          selectedProvider = 'codex';
-          taskModel = 'gpt-5.3-codex-spark';
-          modRoutingReason = `${complexity} greenfield → Codex Spark (Ollama cannot create files)`;
-        } else {
-          selectedProvider = 'codex';
-          taskModel = null;
-          modRoutingReason = `${complexity} greenfield → Codex (Ollama cannot create files)`;
-        }
-        logger.info(`[SmartRouting] EXP1: ${modRoutingReason}`);
+        selectedProvider = 'codex';
+        taskModel = null;
+        modRoutingReason = `${complexity} greenfield → Codex (Ollama cannot create files)`;
       }
+      logger.info(`[SmartRouting] EXP1: ${modRoutingReason}`);
     } else {
       // Smart model selection: score models by task type, language, and complexity
       const taskType = db.classifyTaskType(task);

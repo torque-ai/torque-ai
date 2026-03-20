@@ -29,7 +29,6 @@ const concurrencyHandlers = require('../handlers/concurrency-handlers');
 const routingHandlers = require('../handlers/routing-template-handlers');
 const strategicConfigHandlers = require('../handlers/strategic-config-handlers');
 const providerCrudHandlers = require('../handlers/provider-crud-handlers');
-const economyHandlers = require('../handlers/economy-handlers');
 const modelHandlers = require('../handlers/model-handlers');
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
@@ -123,18 +122,12 @@ const V2_CP_HANDLER_LOOKUP = {
     const text = result?.content?.[0]?.text || '';
     sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
-  handleV2CpGetEconomyStatus: (req, res, ctx) => {
-    const url = new URL(req.url, 'http://localhost');
-    const query = Object.fromEntries(url.searchParams);
-    const result = economyHandlers.handleGetEconomyStatus(query);
-    const text = result?.content?.[0]?.text || '{}';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+  // Economy mode removed — use routing templates instead
+  handleV2CpGetEconomyStatus: (_req, res, ctx) => {
+    sendJson(res, { data: { removed: true, message: 'Economy mode removed. Use routing templates (Cost Saver, Free Agentic) instead.' }, meta: { request_id: ctx.requestId } }, 410, _req);
   },
-  handleV2CpSetEconomyMode: async (req, res, ctx) => {
-    const body = await readJsonBody(req);
-    const result = economyHandlers.handleSetEconomyMode(body);
-    const text = result?.content?.[0]?.text || '';
-    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
+  handleV2CpSetEconomyMode: (_req, res, ctx) => {
+    sendJson(res, { data: { removed: true, message: 'Economy mode removed. Use routing templates (Cost Saver, Free Agentic) instead.' }, meta: { request_id: ctx.requestId } }, 410, _req);
   },
   handleV2CpAddProvider: async (req, res, ctx) => {
     const body = await readJsonBody(req);

@@ -337,31 +337,6 @@ Simple tasks (types, docs, config) skip review — auto-verify via `tsc`/`vitest
 
 When `split_advisory: true` appears in task metadata (complexity='complex' + 3 files), consider decomposing into subtasks rather than sending as one large task.
 
-## Economy Mode
-
-Economy mode restricts provider usage to reduce cost or stay within quotas. It lives in `server/economy/`.
-
-### How it works
-
-- **Auto-trigger**: The maintenance scheduler (every minute) checks `economy/triggers.js` for trigger conditions (e.g., budget threshold reached, quota pressure). When conditions are met, economy mode activates automatically with `trigger: 'auto'`.
-- **Auto-lift**: While in `auto` state, the scheduler also checks lift conditions. When resource pressure drops, economy mode deactivates automatically.
-- **Manual state**: If triggered manually (`trigger: 'manual'`), auto-lift does not apply — only explicit deactivation lifts it. This prevents the auto-lift logic from fighting manual cost controls.
-- **Provider filtering**: `economy/policy.js` maintains a global economy policy. `filterProvidersForEconomy(policy)` returns `{ blocked, preferred }` — blocked providers are rejected at submission time; preferred providers get priority routing.
-- **Queue reroute**: `economy/queue-reroute.js` handles tasks already in queue when economy mode activates — they are rerouted to preferred providers.
-- **Per-project overrides**: Projects can opt out of economy mode or set a custom policy via `set_project_defaults`.
-
-### MCP notification
-
-When a session connects (via `initialize`), if economy mode is active, TORQUE sends a `notifications/message` with `type: 'economy_status'` listing `blocked_providers` and `preferred_providers`.
-
-### State values
-
-| State | Meaning |
-|-------|---------|
-| `off` | Economy mode inactive |
-| `auto` | Auto-triggered; will auto-lift when conditions clear |
-| `manual` | Manually triggered; requires explicit deactivation |
-
 ## Slot-Pull Scheduler
 
 An alternative scheduling mode where execution slots actively pull tasks from the queue, instead of the default push model (where task submission triggers queue processing).

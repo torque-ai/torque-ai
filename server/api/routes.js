@@ -1199,8 +1199,7 @@ const routes = [
   // Concurrency limits
   { method: 'GET', path: '/api/v2/concurrency', handlerName: 'handleV2CpGetConcurrencyLimits', middleware: buildV2Middleware() },
   { method: 'POST', path: '/api/v2/concurrency/set', handlerName: 'handleV2CpSetConcurrencyLimit', middleware: buildV2Middleware() },
-  { method: 'GET', path: '/api/v2/economy/status', handlerName: 'handleV2CpGetEconomyStatus', middleware: buildV2Middleware() },
-  { method: 'POST', path: '/api/v2/economy/set', handlerName: 'handleV2CpSetEconomyMode', middleware: buildV2Middleware() },
+  // Economy mode removed — use routing templates (Cost Saver, Free Agentic) instead
 
   // Routing templates
   { method: 'GET', path: '/api/v2/routing/templates', handlerName: 'handleV2CpListRoutingTemplates', middleware: buildV2Middleware() },

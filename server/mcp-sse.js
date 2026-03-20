@@ -1623,34 +1623,8 @@ function start(options = {}) {
 
         return handleToolCall(name, argsWithSignal);
       },
-      onInitialize: (session) => {
-        // Economy policy notification — fire async after initialize response is sent
-        const _economyTimer = setTimeout(() => {
-          TRACKED_INTERVALS.delete(_economyTimer);
-          try {
-            const economyPolicy = require('./economy/policy');
-            const globalPolicy = economyPolicy.getGlobalEconomyPolicy();
-            if (globalPolicy && globalPolicy.enabled) {
-              const filtered = economyPolicy.filterProvidersForEconomy(globalPolicy);
-              sendJsonRpcNotification(session, 'notifications/message', {
-                level: 'info',
-                logger: 'torque',
-                data: {
-                  type: 'economy_status',
-                  enabled: true,
-                  trigger: globalPolicy.trigger || 'manual',
-                  scope: 'global',
-                  reason: globalPolicy.reason || null,
-                  blocked_providers: filtered ? filtered.blocked : [],
-                  preferred_providers: filtered ? filtered.preferred : [],
-                },
-              });
-            }
-          } catch (err) {
-            logger.debug('Economy notification skipped: ' + err.message);
-          }
-        }, 0);
-        TRACKED_INTERVALS.add(_economyTimer);
+      onInitialize: (_session) => {
+        // Economy mode removed — routing templates handle cost-aware provider selection
       },
     });
 

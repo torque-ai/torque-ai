@@ -10,14 +10,7 @@ const capabilities = require('./provider-capabilities');
 const perfTracker = require('./provider-performance');
 const eventBus = require('../event-bus');
 
-let resolveEconomyPolicy = null;
-let filterProvidersForEconomy = null;
-try {
-  ({ resolveEconomyPolicy, filterProvidersForEconomy } = require('../economy/policy'));
-} catch (error) {
-  resolveEconomyPolicy = null;
-  filterProvidersForEconomy = null;
-}
+// Economy mode removed — routing templates handle cost-aware provider selection
 
 let categoryClassifier = null;
 let templateStore = null;
@@ -278,51 +271,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     };
   }
 
-  const economyArg = options.economy;
   const workflowId = options.workflowId;
-  let economyPolicy = null;
-
-  if (typeof resolveEconomyPolicy === 'function') {
-    economyPolicy = resolveEconomyPolicy({ economy: economyArg }, workflowId, workingDirectory);
-  }
-
-  if (economyPolicy && economyPolicy.enabled && typeof filterProvidersForEconomy === 'function') {
-    const skipEconomyForComplex = economyPolicy.complexity_exempt &&
-      hostManagementFns?.determineTaskComplexity &&
-      hostManagementFns.determineTaskComplexity(taskDescription, files) === 'complex';
-
-    if (!skipEconomyForComplex) {
-      const econFilter = filterProvidersForEconomy(economyPolicy);
-      const preferredProviders = Array.isArray(econFilter?.preferred) ? econFilter.preferred : [];
-      const allowedProviders = Array.isArray(econFilter?.allowed) ? econFilter.allowed : [];
-      const isEconomyProviderAvailable = (providerId) => {
-        const providerConfig = getProvider(providerId);
-        return providerConfig && providerConfig.enabled && isProviderHealthy(providerId);
-      };
-
-      for (const provider of preferredProviders) {
-        if (isEconomyProviderAvailable(provider)) {
-          return {
-            provider,
-            rule: null,
-            reason: `Economy mode preferred provider: ${provider}`
-          };
-        }
-      }
-
-      for (const provider of allowedProviders) {
-        if (isEconomyProviderAvailable(provider)) {
-          return {
-            provider,
-            rule: null,
-            reason: `Economy mode allowed provider: ${provider}`
-          };
-        }
-      }
-
-      return { provider: null, rule: null, reason: 'Economy mode: all economy-tier providers exhausted' };
-    }
-  }
 
   // Check Ollama health from cache
   const ollamaHealthy = isOllamaHealthy();

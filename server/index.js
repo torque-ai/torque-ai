@@ -855,36 +855,6 @@ function startMaintenanceScheduler() {
       // Also check budget alerts after maintenance
       checkBudgetAlerts();
 
-      // Economy mode auto-trigger/auto-lift
-      try {
-        const economyPolicy = require('./economy/policy');
-        const economyTriggers = require('./economy/triggers');
-        const economyQueue = require('./economy/queue-reroute');
-        const currentState = economyPolicy.getEconomyState();
-
-        if (currentState === 'off') {
-          // Check if we should auto-trigger
-          const { shouldTrigger, reasons } = economyTriggers.checkAutoTriggerConditions();
-          if (shouldTrigger) {
-            economyTriggers.activateEconomyMode('auto', reasons.join('; '));
-            const policy = economyPolicy.getGlobalEconomyPolicy();
-            economyQueue.onEconomyActivated(policy);
-            debugLog(`[Economy] Auto-triggered: ${reasons.join('; ')}`);
-          }
-        } else if (currentState === 'auto') {
-          // Check if we should auto-lift
-          const policy = economyPolicy.getGlobalEconomyPolicy();
-          const { shouldLift, reasons } = economyTriggers.checkAutoLiftConditions(policy);
-          if (shouldLift) {
-            economyTriggers.deactivateEconomyMode(reasons.join('; '));
-            debugLog(`[Economy] Auto-lifted: ${reasons.join('; ')}`);
-          }
-        }
-        // Manual state: no auto-lift (spec rule)
-      } catch (err) {
-        debugLog(`Economy maintenance error: ${err.message}`);
-      }
-
       // Archive old terminal tasks (completed/failed/cancelled > 24h)
       try {
         const archived = db.archiveOldTasks(24);
