@@ -37,6 +37,7 @@ describe('Advanced Handlers', () => {
         description: 'A test approval rule',
         rule_type: 'keyword'
       });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
       expect(text.length).toBeGreaterThan(0);
@@ -49,6 +50,7 @@ describe('Advanced Handlers', () => {
         rule_type: 'directory',
         condition: 'src/'
       });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -60,6 +62,7 @@ describe('Advanced Handlers', () => {
         rule_type: 'keyword',
         auto_reject: true
       });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -96,7 +99,7 @@ describe('Advanced Handlers', () => {
   describe('approve_task', () => {
     it('returns error for nonexistent task', async () => {
       const result = await safeTool('approve_task', { task_id: 'nonexistent-task', decision: 'approve' });
-      // May error or handle gracefully
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -119,7 +122,7 @@ describe('Advanced Handlers', () => {
       const result = await safeTool('configure_audit', {
         retention_days: 30
       });
-      // May or may not error depending on implementation
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -175,7 +178,7 @@ describe('Advanced Handlers', () => {
 
     it('handles invalid query gracefully', async () => {
       const result = await safeTool('query_plan', { query: 'NOT A VALID SQL' });
-      // May error but should not crash
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -237,6 +240,7 @@ describe('Advanced Handlers', () => {
     it('returns priority queue or handles DB error', async () => {
       // db.getPriorityQueue() may throw in clean test DB
       const result = await safeTool('get_priority_queue', {});
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
       expect(text.length).toBeGreaterThan(0);
@@ -256,7 +260,7 @@ describe('Advanced Handlers', () => {
   describe('predict_failure', () => {
     it('returns error for nonexistent task', async () => {
       const result = await safeTool('predict_failure', { task_id: 'nonexistent-task' });
-      // May error or return prediction
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -291,7 +295,7 @@ describe('Advanced Handlers', () => {
   describe('delete_failure_pattern', () => {
     it('handles nonexistent pattern', async () => {
       const result = await safeTool('delete_failure_pattern', { pattern_id: 'nonexistent' });
-      // May error or handle gracefully
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -300,12 +304,14 @@ describe('Advanced Handlers', () => {
   describe('intelligence_dashboard', () => {
     it('returns dashboard data', async () => {
       const result = await safeTool('intelligence_dashboard', { days: 7 });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
 
     it('accepts different day ranges', async () => {
       const result = await safeTool('intelligence_dashboard', { days: 30 });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -322,6 +328,7 @@ describe('Advanced Handlers', () => {
         strategy_b: 'ollama:qwen3:8b',
         sample_size: 50
       });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
       expect(text.length).toBeGreaterThan(0);
@@ -336,6 +343,7 @@ describe('Advanced Handlers', () => {
   describe('experiment_status', () => {
     it('handles nonexistent experiment', async () => {
       const result = await safeTool('experiment_status', { experiment_id: 'nonexistent' });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -346,6 +354,7 @@ describe('Advanced Handlers', () => {
       // This handler calls db.analyzeRetryPatterns() which may throw
       // if the required table/function is not available in a clean test DB
       const result = await safeTool('analyze_retry_patterns', {});
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
       expect(text.length).toBeGreaterThan(0);
@@ -373,6 +382,7 @@ describe('Advanced Handlers', () => {
         capabilities: ['code', 'test'],
         max_concurrent: 3
       });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
       expect(text.length).toBeGreaterThan(0);
@@ -395,6 +405,7 @@ describe('Advanced Handlers', () => {
     it('returns coordination dashboard or handles error', async () => {
       // db.getCoordinationDashboard() may throw in a clean test DB
       const result = await safeTool('coordination_dashboard', {});
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
       expect(text.length).toBeGreaterThan(0);
@@ -437,6 +448,7 @@ describe('Advanced Handlers', () => {
         lock_name: 'release-test',
         agent_id: 'agent-1'
       });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -504,6 +516,7 @@ describe('Advanced Handlers', () => {
   describe('clear_breakpoint', () => {
     it('handles nonexistent breakpoint', async () => {
       const result = await safeTool('clear_breakpoint', { breakpoint_id: 'nonexistent' });
+      expect(result.isError).not.toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });

@@ -160,8 +160,8 @@ describe('safeStartTask', () => {
     } catch { /* might not exist */ }
 
     const result = tm.safeStartTask(task.id, 'test');
-    // Regardless of whether it threw or succeeded, the helper should not throw
-    expect(typeof result).toBe('boolean');
+    // Budget exceeded — task should not start
+    expect(result).toBe(false);
 
     // Clean up budget settings
     db.setConfig('budget_check_enabled', '0');

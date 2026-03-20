@@ -61,6 +61,7 @@ describe('Integration Handlers', () => {
   describe('toggle_schedule', () => {
     it('returns error for nonexistent schedule', async () => {
       const result = await safeTool('toggle_schedule', { schedule_id: 'nonexistent', enabled: false });
+      expect(result.isError).toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });

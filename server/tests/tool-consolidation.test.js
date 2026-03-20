@@ -92,11 +92,15 @@ describe('manage_host', () => {
     expect(result.isError).toBeFalsy();
   });
 
-  it('all 12 actions are wired', () => {
-    const actions = ['list', 'add', 'remove', 'enable', 'disable', 'recover',
-      'refresh_models', 'set_memory_limit', 'set_max_concurrent',
-      'get_capacity', 'health', 'cleanup_null_ids'];
-    // Verify the dispatch table covers all documented actions
+  it('all 12 actions are wired', async () => {
+    // Call with invalid action — schema validation returns the enum of valid actions
+    const result = await safeTool('manage_host', { action: '__invalid__' });
+    expect(result.isError).toBe(true);
+    const text = getText(result);
+    // Schema validation format: Parameter "action" must be one of [list, add, ...], got "..."
+    const validMatch = text.match(/must be one of \[([^\]]+)\]/);
+    expect(validMatch).toBeTruthy();
+    const actions = validMatch[1].split(',').map(s => s.trim()).filter(Boolean);
     expect(actions).toHaveLength(12);
   });
 });
@@ -211,13 +215,14 @@ describe('manage_tuning', () => {
     expect(text).toMatch(/benchmark|error|host|model/i);
   });
 
-  it('all 16 actions are wired', () => {
-    const actions = [
-      'get_llm', 'set_llm', 'apply_preset', 'list_presets',
-      'get_model', 'set_model', 'get_prompts', 'set_prompt',
-      'get_templates', 'set_template', 'toggle_wrapping',
-      'get_hardware', 'set_hardware', 'get_auto', 'set_auto', 'benchmark',
-    ];
+  it('all 16 actions are wired', async () => {
+    // Call with invalid action — schema validation returns the enum of valid actions
+    const result = await safeTool('manage_tuning', { action: '__invalid__' });
+    expect(result.isError).toBe(true);
+    const text = getText(result);
+    const validMatch = text.match(/must be one of \[([^\]]+)\]/);
+    expect(validMatch).toBeTruthy();
+    const actions = validMatch[1].split(',').map(s => s.trim()).filter(Boolean);
     expect(actions).toHaveLength(16);
   });
 });
@@ -391,13 +396,15 @@ describe('manage_webhook', () => {
     expect(text).toMatch(/inbound webhook deleted/i);
   });
 
-  it('all 12 actions are wired', () => {
-    const actions = [
-      'add', 'list', 'remove', 'test', 'logs', 'stats',
-      'quick_setup', 'notify_slack', 'notify_discord',
-      'create_inbound', 'list_inbound', 'delete_inbound',
-    ];
-    expect(actions).toHaveLength(12);
+  it('all 13 actions are wired', async () => {
+    // Call with invalid action — schema validation returns the enum of valid actions
+    const result = await safeTool('manage_webhook', { action: '__invalid__' });
+    expect(result.isError).toBe(true);
+    const text = getText(result);
+    const validMatch = text.match(/must be one of \[([^\]]+)\]/);
+    expect(validMatch).toBeTruthy();
+    const actions = validMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+    expect(actions).toHaveLength(13);
   });
 });
 
