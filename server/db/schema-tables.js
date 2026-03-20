@@ -654,7 +654,7 @@ function createTables(db, logger) {
     'reason TEXT',
     'overridden_by TEXT DEFAULT \'operator\'',
     'decision TEXT DEFAULT \'override\'',
-    'reason_code TEXT',
+    "reason_code TEXT NOT NULL DEFAULT 'unknown'",
     'notes TEXT',
     'actor TEXT',
     'expires_at TEXT',
@@ -823,7 +823,7 @@ function createTables(db, logger) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         period_start TEXT NOT NULL,
         period_type TEXT NOT NULL,
-        project TEXT,
+        project TEXT NOT NULL DEFAULT '',
         template TEXT,
         total_tasks INTEGER DEFAULT 0,
         successful_tasks INTEGER DEFAULT 0,
@@ -1235,7 +1235,10 @@ function createTables(db, logger) {
         condition_expr TEXT,
         on_fail TEXT DEFAULT 'skip',
         alternate_task_id TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (depends_on_task_id) REFERENCES tasks(id) ON DELETE CASCADE
       )
     `);
   db.exec(`
@@ -1812,7 +1815,19 @@ function createTables(db, logger) {
       );
       CREATE INDEX IF NOT EXISTS idx_routing_rules_type ON routing_rules(rule_type);
       CREATE INDEX IF NOT EXISTS idx_routing_rules_priority ON routing_rules(priority);
-    
+
+      -- Routing templates for provider selection strategies
+      CREATE TABLE IF NOT EXISTS routing_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        rules_json TEXT NOT NULL,
+        complexity_overrides_json TEXT,
+        preset INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      );
+
       -- ============================================
       -- Multi-Host Ollama Load Balancing
       -- ============================================
@@ -2934,8 +2949,7 @@ function createTables(db, logger) {
         deprecation_reason TEXT,
         sunset_date TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(name, version)
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
   }

@@ -16,19 +16,7 @@ let db = null;
 function setDb(dbInstance) { db = dbInstance; }
 
 function ensureTable() {
-  if (!db) return;
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS routing_templates (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      rules_json TEXT NOT NULL,
-      complexity_overrides_json TEXT,
-      preset INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    )
-  `);
+  // Table is created in schema-tables.js — this is kept as a no-op for callers.
 }
 
 function seedPresets() {
