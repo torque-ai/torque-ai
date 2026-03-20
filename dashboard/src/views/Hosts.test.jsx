@@ -40,6 +40,7 @@ vi.mock('../api', () => ({
 
 vi.mock('date-fns', () => ({
   formatDistanceToNow: vi.fn(() => '2 minutes ago'),
+  format: vi.fn(() => 'Jan 15, 2026 10:00:00'),
 }));
 
 vi.mock('../hooks/useAbortableRequest', () => ({
