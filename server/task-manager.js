@@ -20,12 +20,14 @@ const gpuMetrics = require('./scripts/gpu-metrics-server');
 const eventBus = require('./event-bus');
 
 // ── Early dependency initialization ───────────────────────────────────────
-// Must be called explicitly from index.js:init() before any provider usage.
-// Previously these ran at require()-time; now they run only when called.
+// Called explicitly from index.js:init() before provider usage.
+// Also auto-called on first use if db is available (backward compat for tests).
 let _earlyDepsInitialized = false;
 
 function initEarlyDeps() {
   if (_earlyDepsInitialized) return;
+  // Guard: don't init if db isn't ready yet
+  if (!db || !db.isReady || !db.isReady()) return;
   _earlyDepsInitialized = true;
 
   // Register API provider classes for lazy initialization via registry
@@ -2066,3 +2068,7 @@ Object.assign(module.exports, {
   initSubModules,
   startQueuePoll,
 });
+
+// Backward compatibility: auto-init early deps if db is already ready when this module loads.
+// This handles test files that require('./task-manager') after db.init() without calling initEarlyDeps().
+try { initEarlyDeps(); } catch { /* db not ready yet — index.js will call explicitly */ }
