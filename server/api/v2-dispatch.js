@@ -14,7 +14,7 @@ const logger = require('../logger').child({ component: 'v2-dispatch' });
 
 const routes = require('./routes');
 const { normalizeError } = require('./v2-middleware');
-const { sendJson } = require('./middleware');
+const { sendJson, validateJsonDepth } = require('./middleware');
 
 // V2 handler modules (initialized by api-server.core.js in the same process)
 const v2TaskHandlers = require('./v2-task-handlers');
@@ -34,6 +34,15 @@ const modelHandlers = require('../handlers/model-handlers');
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 
+// NOTE: Three separate JSON body parsers exist in this codebase:
+//   1. middleware.js parseBody       — canonical parser; used by v2-middleware validateRequest
+//                                     for routes with schema validation. Calls validateJsonDepth.
+//   2. v2-dispatch.js readJsonBody   — lightweight parser for CP handlers that bypass the
+//                                     schema-validation middleware (e.g., concurrency, economy,
+//                                     routing templates). Should call validateJsonDepth (see below).
+//   3. mcp-sse.js body accumulator  — SSE-specific inline parser for the POST /messages endpoint.
+// All three enforce the 10 MB size cap. Consolidation is tracked but deferred because the three
+// call sites have divergent error-handling requirements and control-flow shapes.
 async function readJsonBody(req) {
   if (req?.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
     return req.body;
@@ -59,10 +68,12 @@ async function readJsonBody(req) {
         return;
       }
       try {
-        resolve(JSON.parse(data));
+        const parsed = JSON.parse(data);
+        validateJsonDepth(parsed); // Guard against deeply nested DoS payloads
+        resolve(parsed);
       } catch (err) {
         logger.debug("task handler error", { err: err.message });
-        reject(new Error('Invalid JSON'));
+        reject(new Error(err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON'));
       }
     });
     req.on('error', reject);

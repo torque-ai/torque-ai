@@ -187,7 +187,13 @@ function validateJsonDepth(obj, maxDepth = 50, currentDepth = 0) {
 }
 
 /**
- * Parse JSON body from request
+ * Parse JSON body from request.
+ *
+ * Content-Type is intentionally NOT validated here. TORQUE's CLI and MCP
+ * clients often omit or send non-standard Content-Type headers, and enforcing
+ * `application/json` would break those callers. Callers that require strict
+ * Content-Type enforcement (e.g., public-facing API gateways) should add a
+ * middleware layer before this one.
  */
 function parseBody(req) {
   return new Promise((resolve, reject) => {
