@@ -202,7 +202,7 @@ describe('adapter-registry.js', () => {
     expect(codexAdapter).toMatchObject({
       id: 'codex',
       supportsStream: false,
-      supportsAsync: false,
+      supportsAsync: true,
       supportsCancellation: false,
     });
 
@@ -344,7 +344,7 @@ describe('adapter-registry.js', () => {
     });
     expect(matrix.codex).toEqual({
       supportsStream: false,
-      supportsAsync: false,
+      supportsAsync: true,
       supportsCancellation: false,
     });
     expect(matrix['ollama-strategic']).toEqual({

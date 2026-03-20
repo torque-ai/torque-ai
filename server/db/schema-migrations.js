@@ -362,6 +362,14 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   safeAddColumn('peek_hosts', 'enabled INTEGER DEFAULT 1');
   safeAddColumn('tasks', 'archived INTEGER DEFAULT 0');
 
+  // idx_tasks_archived must be created AFTER the archived column is added above via
+  // safeAddColumn — creating it in createTables (before safeAddColumn runs) would fail.
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_archived ON tasks(archived)`);
+  } catch (e) {
+    logger.debug(`Schema migration (idx_tasks_archived): ${e.message}`);
+  }
+
   // host_credentials table for encrypted credential storage
   try {
     db.exec(`

@@ -36,25 +36,25 @@ describe('prepareShellArgs — shell metacharacter rejection', () => {
   });
 
   it('rejects args containing semicolon', () => {
-    expect(() => prepareShellArgs(['foo; rm -rf /'])).toThrow(/shell metacharacters/i);
-    expect(() => prepareShellArgs(['safe', 'foo;bar'])).toThrow(/shell metacharacters/i);
+    expect(() => prepareShellArgs(['foo; rm -rf /'])).toThrow(/shell metacharacter/i);
+    expect(() => prepareShellArgs(['safe', 'foo;bar'])).toThrow(/shell metacharacter/i);
   });
 
   it('rejects args containing pipe', () => {
-    expect(() => prepareShellArgs(['foo | cat /etc/passwd'])).toThrow(/shell metacharacters/i);
+    expect(() => prepareShellArgs(['foo | cat /etc/passwd'])).toThrow(/shell metacharacter/i);
   });
 
   it('rejects args containing backtick', () => {
-    expect(() => prepareShellArgs(['`id`'])).toThrow(/shell metacharacters/i);
+    expect(() => prepareShellArgs(['`id`'])).toThrow(/shell metacharacter/i);
   });
 
   it('rejects args containing $() command substitution', () => {
-    expect(() => prepareShellArgs(['$(whoami)'])).toThrow(/shell metacharacters/i);
-    expect(() => prepareShellArgs(['$HOME'])).toThrow(/shell metacharacters/i);
+    expect(() => prepareShellArgs(['$(whoami)'])).toThrow(/shell metacharacter/i);
+    expect(() => prepareShellArgs(['$HOME'])).toThrow(/shell metacharacter/i);
   });
 
   it('rejects args containing ampersand', () => {
-    expect(() => prepareShellArgs(['foo && evil'])).toThrow(/shell metacharacters/i);
+    expect(() => prepareShellArgs(['foo && evil'])).toThrow(/shell metacharacter/i);
   });
 
   it('allows parentheses, braces, angle brackets, exclamation (safe with shell:false)', () => {
@@ -74,7 +74,7 @@ describe('prepareShellArgs — shell metacharacter rejection', () => {
     }
     expect(err).toBeDefined();
     expect(err.statusCode).toBe(400);
-    expect(err.message).toMatch(/shell metacharacters/i);
+    expect(err.message).toMatch(/shell metacharacter/i);
   });
 
   it('truncates long args in the error message', () => {
@@ -219,6 +219,6 @@ describe('spawnAndCapture — shell: false', () => {
     // The arg 'bad;arg' contains a semicolon which is a shell metacharacter.
     await expect(
       spawnAndCapture(process.execPath, ['--version', 'bad;arg'], { timeout: 10000 }),
-    ).rejects.toThrow(/shell metacharacters/i);
+    ).rejects.toThrow(/shell metacharacter/i);
   });
 });

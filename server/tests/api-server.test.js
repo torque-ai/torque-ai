@@ -2672,6 +2672,7 @@ describe('API Server endpoints', () => {
         method: 'POST',
         url: '/api/shutdown',
         remoteAddress: '127.0.0.1',
+        headers: { 'x-requested-with': 'XMLHttpRequest' },
       });
 
       vi.runAllTimers();
@@ -2689,6 +2690,7 @@ describe('API Server endpoints', () => {
         method: 'POST',
         url: '/api/shutdown',
         remoteAddress: '::1',
+        headers: { 'x-requested-with': 'XMLHttpRequest' },
       });
 
       vi.runAllTimers();
@@ -2705,6 +2707,7 @@ describe('API Server endpoints', () => {
         method: 'POST',
         url: '/api/shutdown',
         remoteAddress: '::ffff:127.0.0.1',
+        headers: { 'x-requested-with': 'XMLHttpRequest' },
       });
 
       vi.runAllTimers();
@@ -2756,7 +2759,7 @@ describe('API Server endpoints', () => {
         method: 'POST',
         url: '/api/shutdown',
         remoteAddress: '10.0.0.99',
-        headers: { 'x-torque-key': 'secret-key' },
+        headers: { 'x-torque-key': 'secret-key', 'x-requested-with': 'XMLHttpRequest' },
       });
 
       vi.runAllTimers();
@@ -2773,6 +2776,7 @@ describe('API Server endpoints', () => {
         method: 'POST',
         url: '/api/shutdown',
         remoteAddress: '203.0.113.5', // external IP
+        headers: { 'x-requested-with': 'XMLHttpRequest' },
       });
 
       vi.runAllTimers();
@@ -2788,6 +2792,7 @@ describe('API Server endpoints', () => {
         url: '/api/shutdown',
         remoteAddress: '127.0.0.1',
         body: { reason: 'graceful upgrade' },
+        headers: { 'x-requested-with': 'XMLHttpRequest' },
       });
 
       vi.runAllTimers();
@@ -2802,6 +2807,7 @@ describe('API Server endpoints', () => {
         method: 'POST',
         url: '/api/shutdown',
         remoteAddress: '127.0.0.1',
+        headers: { 'x-requested-with': 'XMLHttpRequest' },
       });
 
       vi.runAllTimers();

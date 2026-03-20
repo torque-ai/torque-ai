@@ -53,6 +53,7 @@ function createMockDb() {
       if (status === 'running') return 1;
       return 0;
     }),
+    countTasksByStatus: vi.fn(() => ({ running: 1, queued: 3, completed: 0, failed: 0, pending: 0, cancelled: 0, blocked: 0 })),
   };
 }
 
@@ -317,22 +318,22 @@ describe('api/health-probes', () => {
       const res = createRes();
 
       vi.spyOn(process, 'uptime').mockReturnValue(12.6);
-      mockDb.countTasks.mockImplementation(({ status } = {}) => {
-        if (status === 'queued') return 7;
-        if (status === 'running') return 2;
-        return 0;
-      });
+      // probeDatabase() calls countTasks({ status: 'running' }) once for a lightweight
+      // DB accessibility check; handleHealthz then calls countTasksByStatus() for the
+      // batch queue/running metrics.
+      mockDb.countTasks.mockReturnValue(2);
+      mockDb.countTasksByStatus.mockReturnValue({ running: 2, queued: 7, completed: 0, failed: 0, pending: 0, cancelled: 0, blocked: 0 });
 
       await probes.handleHealthz(req, res);
 
       expect(mockTools.handleToolCall).toHaveBeenCalledWith('check_ollama_health', {
         force_check: false,
       });
+      // probeDatabase() makes one countTasks call for the DB accessibility probe
       expect(mockDb.countTasks.mock.calls).toEqual([
         [{ status: 'running' }],
-        [{ status: 'queued' }],
-        [{ status: 'running' }],
       ]);
+      expect(mockDb.countTasksByStatus).toHaveBeenCalledOnce();
       expect(mockMiddleware.sendJson).toHaveBeenCalledWith(
         res,
         {
@@ -352,11 +353,7 @@ describe('api/health-probes', () => {
       const probes = loadHealthProbes();
       const res = createRes();
 
-      mockDb.countTasks.mockImplementation(({ status } = {}) => {
-        if (status === 'queued') return 0;
-        if (status === 'running') return 0;
-        return 0;
-      });
+      mockDb.countTasksByStatus.mockReturnValue({ running: 0, queued: 0, completed: 0, failed: 0, pending: 0, cancelled: 0, blocked: 0 });
 
       await probes.handleHealthz(createReq({ url: '/healthz' }), res);
 
@@ -495,18 +492,15 @@ describe('api/health-probes', () => {
       expect(res.body.database_reason).toBe('database query failed');
     });
 
-    it('sets both queue metrics to null when the queued task count fails after a successful probe', async () => {
+    it('sets both queue metrics to null when the batch task count fails', async () => {
       const probes = loadHealthProbes();
       const res = createRes();
-      let callCount = 0;
 
-      mockDb.countTasks.mockImplementation(({ status } = {}) => {
-        callCount += 1;
-        if (callCount === 1 && status === 'running') return 4;
-        if (callCount === 2 && status === 'queued') {
-          throw new Error('queue count failed');
-        }
-        return 99;
+      // probeDatabase() uses countTasks({ status: 'running' }) and succeeds;
+      // then countTasksByStatus() throws — both metrics should go null.
+      mockDb.countTasks.mockReturnValue(4);
+      mockDb.countTasksByStatus.mockImplementation(() => {
+        throw new Error('batch count failed');
       });
 
       await probes.handleHealthz(createReq({ url: '/healthz' }), res);
@@ -517,19 +511,13 @@ describe('api/health-probes', () => {
       expect(res.body.running_tasks).toBeNull();
     });
 
-    it('resets queue metrics to null when the running task count fails after queued tasks succeeded', async () => {
+    it('resets queue metrics to null when countTasksByStatus throws', async () => {
       const probes = loadHealthProbes();
       const res = createRes();
-      let callCount = 0;
 
-      mockDb.countTasks.mockImplementation(({ status } = {}) => {
-        callCount += 1;
-        if (callCount === 1 && status === 'running') return 4;
-        if (callCount === 2 && status === 'queued') return 9;
-        if (callCount === 3 && status === 'running') {
-          throw new Error('running count failed');
-        }
-        return 0;
+      mockDb.countTasks.mockReturnValue(4);
+      mockDb.countTasksByStatus.mockImplementation(() => {
+        throw new Error('running count failed');
       });
 
       await probes.handleHealthz(createReq({ url: '/healthz' }), res);

@@ -332,8 +332,9 @@ describe('api-server.core helpers', () => {
   });
 
   it('getV2ProviderDefaultTimeoutMs uses provider defaults and falls back for unknown providers', () => {
-    expect(api.getV2ProviderDefaultTimeoutMs('deepinfra')).toBe(20_000);
-    expect(api.getV2ProviderDefaultTimeoutMs('unknown-provider')).toBe(30_000);
+    // PROVIDER_DEFAULT_TIMEOUTS values are in minutes; function converts to ms (* 60 * 1000)
+    expect(api.getV2ProviderDefaultTimeoutMs('deepinfra')).toBe(20 * 60 * 1000);
+    expect(api.getV2ProviderDefaultTimeoutMs('unknown-provider')).toBe(30 * 60 * 1000);
   });
 
   it('getV2ProviderQueueDepth returns zero when queue lookup fails', () => {
