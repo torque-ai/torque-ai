@@ -2428,6 +2428,7 @@ async function handleRequest(req, res, context = {}) {
     // TDA-09/TDA-10: Emit deprecation headers for legacy routes
     if (route.deprecated) {
       res.setHeader('Deprecation', 'true');
+      res.setHeader('Sunset', '2026-09-01');
       res.setHeader('Link', `<${route.deprecated}>; rel="successor-version"`);
     }
 

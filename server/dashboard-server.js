@@ -6,6 +6,18 @@
  *
  * Route handlers are in dashboard/routes/*.js, dispatched via dashboard/router.js.
  * Shared utilities (parseQuery, sendJson, etc.) are in dashboard/utils.js.
+ *
+ * AUTH MODEL:
+ * - Dashboard port (3456): Binds to 127.0.0.1 only (see httpServer.listen below).
+ *   No API key is required — localhost-only binding is the security boundary.
+ *   This is intentional for single-user deployments where only the local user
+ *   (or browser on the same machine) accesses the dashboard.
+ * - API port (3457): Handled by api-server.core.js and uses API key authentication
+ *   (Authorization: Bearer or X-API-Key header). Intended for programmatic access
+ *   from external tools, CI, or other machines on the network.
+ *
+ * Do not expose port 3456 externally without adding authentication — it relies
+ * entirely on network-level isolation (localhost binding + firewall).
  */
 
 const http = require('http');

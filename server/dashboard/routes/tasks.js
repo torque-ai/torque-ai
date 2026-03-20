@@ -15,6 +15,12 @@ function handleListTasks(req, res, query) {
   const limit = Math.min(parseInt(query.limit) || 25, 100);
   const offset = (page - 1) * limit;
 
+  // Validate ORDER BY against an allowlist to prevent SQL injection
+  const ALLOWED_ORDER_COLUMNS = new Set(['created_at', 'started_at', 'completed_at', 'status', 'provider', 'priority', 'task_description']);
+  const ALLOWED_ORDER_DIRS = new Set(['asc', 'desc', 'ASC', 'DESC']);
+  const orderBy = ALLOWED_ORDER_COLUMNS.has(query.orderBy) ? query.orderBy : 'created_at';
+  const orderDir = ALLOWED_ORDER_DIRS.has(query.orderDir) ? query.orderDir : 'desc';
+
   const filters = {};
   if (query.status === 'archived') {
     filters.archivedOnly = true;
@@ -25,8 +31,8 @@ function handleListTasks(req, res, query) {
   if (query.search) filters.search = query.search;
   if (query.from) filters.from_date = query.from;
   if (query.to) filters.to_date = query.to;
-  if (query.orderBy) filters.orderBy = query.orderBy;
-  if (query.orderDir) filters.orderDir = query.orderDir;
+  filters.orderBy = orderBy;
+  filters.orderDir = orderDir;
 
   const tasks = db.listTasks({ ...filters, limit, offset }).map(enrichTaskWithHostName);
   const total = db.countTasks(filters);
@@ -79,9 +85,11 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         return;
       }
       db.updateTaskStatus(taskId, 'queued', {
+        retry_count: (task.retry_count || 0) + 1,
         error_output: null,
         started_at: null,
         completed_at: null,
+        provider: null, // Clear for fresh routing
       });
       broadcastTaskUpdate(taskId);
       sendJson(res, { success: true, message: 'Task requeued' });

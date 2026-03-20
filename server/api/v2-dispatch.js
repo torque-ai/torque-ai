@@ -199,11 +199,11 @@ const V2_CP_HANDLER_LOOKUP = {
     sendJson(res, { data: template, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpStrategicTest: async (req, res, ctx) => {
-    const capability = ctx.params?.capability || '';
-    const body = await readJsonBody(req);
-    // Dry-run: use the existing strategic handlers with a dry-run flag
-    // For now, return a placeholder indicating the feature
-    sendJson(res, { data: { capability, status: 'dry_run_not_yet_implemented', input: body }, meta: { request_id: ctx.requestId } }, 200, req);
+    // Strategic dry-run testing is not yet implemented — return 501 NOT_IMPLEMENTED
+    sendJson(res, {
+      error: { code: 'NOT_IMPLEMENTED', message: 'Strategic dry-run testing is not yet implemented' },
+      meta: { request_id: ctx.requestId },
+    }, 501, req);
   },
   // Routing templates
   handleV2CpListRoutingTemplates: (req, res, ctx) => {
