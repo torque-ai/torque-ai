@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# PreToolUse hook — logs MCP tool calls for diagnostics.
+# Runs in background (non-blocking). Appends to a rotating log file.
+
+TORQUE_API="http://127.0.0.1:3457"
+LOG_DIR="${HOME}/.torque/logs"
+LOG_FILE="${LOG_DIR}/mcp-audit.jsonl"
+MAX_LOG_SIZE=5242880  # 5MB — rotate when exceeded
+
+# Read hook input from stdin
+INPUT=$(cat)
+
+# Extract tool info
+TOOL_NAME=""
+SESSION_ID=""
+CWD=""
+if command -v jq &>/dev/null; then
+  TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
+  SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+  CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)
+fi
+
+# Nothing to log if no tool name
+if [ -z "$TOOL_NAME" ]; then
+  exit 0
+fi
+
+# Ensure log directory exists
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+
+# Rotate log if it exceeds max size
+if [ -f "$LOG_FILE" ]; then
+  FILE_SIZE=$(wc -c < "$LOG_FILE" 2>/dev/null || echo "0")
+  if [ "$FILE_SIZE" -gt "$MAX_LOG_SIZE" ]; then
+    mv "$LOG_FILE" "${LOG_FILE}.old" 2>/dev/null || true
+  fi
+fi
+
+# Extract a compact summary of tool_input (first 200 chars)
+INPUT_SUMMARY=""
+if command -v jq &>/dev/null; then
+  INPUT_SUMMARY=$(echo "$INPUT" | jq -c '.tool_input // {}' 2>/dev/null | head -c 200 || true)
+fi
+
+# Append log entry
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+if command -v jq &>/dev/null; then
+  jq -nc \
+    --arg ts "$TIMESTAMP" \
+    --arg tool "$TOOL_NAME" \
+    --arg sid "$SESSION_ID" \
+    --arg cwd "$CWD" \
+    --arg input "$INPUT_SUMMARY" \
+    '{timestamp: $ts, tool: $tool, session_id: $sid, cwd: $cwd, input_summary: $input}' \
+    >> "$LOG_FILE" 2>/dev/null || true
+else
+  echo "{\"timestamp\":\"${TIMESTAMP}\",\"tool\":\"${TOOL_NAME}\",\"session_id\":\"${SESSION_ID}\"}" \
+    >> "$LOG_FILE" 2>/dev/null || true
+fi
+
+exit 0

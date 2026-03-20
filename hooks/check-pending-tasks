@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Stop hook — checks for running/queued TORQUE tasks before allowing session to end.
+# If tasks are still pending, blocks with a warning so work isn't abandoned.
+
+TORQUE_API="http://127.0.0.1:3457"
+
+# Read hook input from stdin
+INPUT=$(cat)
+
+# Avoid infinite loops — if stop_hook_active is true, allow
+if command -v jq &>/dev/null; then
+  ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || echo "false")
+  if [ "$ACTIVE" = "true" ]; then
+    exit 0
+  fi
+fi
+
+# Check if TORQUE is running
+if ! command -v curl &>/dev/null; then
+  exit 0
+fi
+
+HEALTH=$(curl -s --max-time 2 "$TORQUE_API/api/health" 2>/dev/null || echo "")
+if [ -z "$HEALTH" ]; then
+  # TORQUE not running — nothing to check
+  exit 0
+fi
+
+# Fetch running and queued task counts
+TASKS=$(curl -s --max-time 3 "$TORQUE_API/api/tasks?status=running,queued" 2>/dev/null || echo "")
+if [ -z "$TASKS" ]; then
+  exit 0
+fi
+
+RUNNING=0
+QUEUED=0
+if command -v jq &>/dev/null; then
+  RUNNING=$(echo "$TASKS" | jq -r '.running // 0' 2>/dev/null || echo "0")
+  QUEUED=$(echo "$TASKS" | jq -r '.queued // 0' 2>/dev/null || echo "0")
+fi
+
+TOTAL=$((RUNNING + QUEUED))
+
+if [ "$TOTAL" -gt 0 ]; then
+  # Build a summary of what's pending
+  SUMMARY=""
+  if [ "$RUNNING" -gt 0 ]; then
+    SUMMARY="${RUNNING} running"
+  fi
+  if [ "$QUEUED" -gt 0 ]; then
+    if [ -n "$SUMMARY" ]; then
+      SUMMARY="$SUMMARY, "
+    fi
+    SUMMARY="${SUMMARY}${QUEUED} queued"
+  fi
+
+  # Block — exit 2 sends stderr as feedback to Claude
+  echo "TORQUE has ${TOTAL} pending tasks (${SUMMARY}). Use /torque-status to check progress or await_task/await_workflow to wait for completion before finishing." >&2
+  exit 2
+fi
+
+# No pending tasks — allow stop
+exit 0

@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# PreToolUse hook — intercepts Bash commands that should run on the remote workstation.
+# Reads intercept patterns from .torque-remote.json (project) or ~/.torque-remote.json (global).
+# If a command matches, returns permissionDecision: "deny" with guidance to use torque-remote.
+
+TORQUE_API="http://127.0.0.1:3457"
+
+# Read hook input from stdin
+INPUT=$(cat)
+
+# Extract the command from tool_input
+COMMAND=""
+if command -v jq &>/dev/null; then
+  COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+fi
+
+# No command or jq unavailable — allow
+if [ -z "$COMMAND" ]; then
+  exit 0
+fi
+
+# --- Find config ---
+
+find_project_root() {
+  local dir="$PWD"
+  while [ "$dir" != "/" ] && [ "$dir" != "" ]; do
+    if [ -d "$dir/.git" ]; then
+      echo "$dir"
+      return 0
+    fi
+    dir=$(dirname "$dir")
+  done
+  return 1
+}
+
+CONFIG_FILE=""
+PROJECT_ROOT=$(find_project_root 2>/dev/null || true)
+
+# Project-level config takes precedence
+if [ -n "$PROJECT_ROOT" ] && [ -f "$PROJECT_ROOT/.torque-remote.json" ]; then
+  CONFIG_FILE="$PROJECT_ROOT/.torque-remote.json"
+elif [ -f "$HOME/.torque-remote.json" ]; then
+  CONFIG_FILE="$HOME/.torque-remote.json"
+fi
+
+# No config — allow everything (remote workstation not configured)
+if [ -z "$CONFIG_FILE" ]; then
+  exit 0
+fi
+
+# Check transport — if "local" or missing, allow
+TRANSPORT=$(jq -r '.transport // "local"' "$CONFIG_FILE" 2>/dev/null || echo "local")
+if [ "$TRANSPORT" = "local" ]; then
+  exit 0
+fi
+
+# --- Tokenize command ---
+
+# Split command into tokens (respects shell word splitting)
+read -ra TOKENS <<< "$COMMAND"
+
+# Empty command — allow
+if [ ${#TOKENS[@]} -eq 0 ]; then
+  exit 0
+fi
+
+# Recursion guard: if first token ends with "torque-remote", allow
+FIRST_TOKEN="${TOKENS[0]}"
+BASENAME=$(basename "$FIRST_TOKEN" 2>/dev/null || echo "$FIRST_TOKEN")
+if [ "$BASENAME" = "torque-remote" ]; then
+  exit 0
+fi
+
+# --- Load intercept patterns ---
+
+# Default patterns if intercept_commands is missing from config
+DEFAULT_PATTERNS='["vitest","jest","pytest","mocha","dotnet test","dotnet build","dotnet publish","npm test","npm run build","npm run test","go test","go build","cargo build","cargo test","make","msbuild","tsc"]'
+
+PATTERNS=$(jq -r '.intercept_commands // empty' "$CONFIG_FILE" 2>/dev/null || true)
+if [ -z "$PATTERNS" ] || [ "$PATTERNS" = "null" ]; then
+  PATTERNS="$DEFAULT_PATTERNS"
+fi
+
+# --- Match patterns against tokens ---
+
+match_pattern() {
+  local pattern="$1"
+  local -a pat_tokens
+  IFS=' ' read -ra pat_tokens <<< "$pattern"
+  local pat_len=${#pat_tokens[@]}
+
+  if [ "$pat_len" -eq 0 ]; then
+    return 1
+  fi
+
+  local max_start=$(( ${#TOKENS[@]} - pat_len ))
+  for (( i=0; i <= max_start; i++ )); do
+    local matched=true
+    for (( j=0; j < pat_len; j++ )); do
+      if [[ "${TOKENS[$((i+j))]}" != "${pat_tokens[$j]}" ]]; then
+        matched=false
+        break
+      fi
+    done
+    if [[ "$matched" == "true" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Iterate over each pattern
+PATTERN_COUNT=$(echo "$PATTERNS" | jq -r 'length' 2>/dev/null || echo "0")
+MATCHED_PATTERN=""
+
+for (( idx=0; idx < PATTERN_COUNT; idx++ )); do
+  PATTERN=$(echo "$PATTERNS" | jq -r ".[$idx]" 2>/dev/null || true)
+  if [ -n "$PATTERN" ] && match_pattern "$PATTERN"; then
+    MATCHED_PATTERN="$PATTERN"
+    break
+  fi
+done
+
+# --- Decision ---
+
+if [ -n "$MATCHED_PATTERN" ]; then
+  # Deny — redirect to torque-remote
+  cat <<ENDJSON
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "BLOCKED: \"${MATCHED_PATTERN}\" should run on the remote workstation.\n\nUse:  torque-remote ${COMMAND}\n\nThe remote workstation handles heavy builds/tests. If it's unreachable, torque-remote will automatically fall back to local execution."
+  }
+}
+ENDJSON
+  exit 0
+fi
+
+# No match — allow
+exit 0

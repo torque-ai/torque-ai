@@ -85,6 +85,10 @@ const routes = [
   { method: 'GET', path: '/api/status', tool: 'check_status', mapQuery: true },
   { method: 'GET', path: '/api/health', tool: 'check_ollama_health' },
 
+  // Claude Code Hook Bridge
+  { method: 'POST', path: '/api/hooks/claude-event', handlerName: 'handleClaudeEvent' },
+  { method: 'GET', path: '/api/hooks/claude-files', handlerName: 'handleClaudeFiles', mapQuery: true },
+
   // Providers
   { method: 'GET', path: '/api/providers', tool: 'list_providers' },
   { method: 'GET', path: '/api/provider-quotas', handlerName: 'handleGetProviderQuotas' },

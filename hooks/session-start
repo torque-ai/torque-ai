@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # SessionStart hook — injects TORQUE status into conversation context
+# Enhanced: includes active workflows, recent failures, and project defaults
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -42,7 +43,49 @@ if command -v curl &>/dev/null; then
       project=$(basename "$PWD")
     fi
 
-    status_text="TORQUE is available. Status: ${running} running, ${queued} queued, ${failed} failed.\nProject: ${project}\n\nUse /torque-submit to submit tasks, /torque-status to check progress.\nUse await_task with heartbeat_minutes for progress check-ins."
+    status_text="TORQUE is available. Status: ${running} running, ${queued} queued, ${failed} failed.\nProject: ${project}"
+
+    # --- Active workflows ---
+    workflows=$(curl -s --max-time 2 "$TORQUE_API/api/workflows?status=running" 2>/dev/null || echo "")
+    if command -v jq &>/dev/null && [ -n "$workflows" ]; then
+      wf_count=$(echo "$workflows" | jq -r '.workflows // [] | length' 2>/dev/null || echo "0")
+      if [ "$wf_count" -gt 0 ]; then
+        wf_names=$(echo "$workflows" | jq -r '.workflows[:3] | .[] | .name // .id' 2>/dev/null || echo "")
+        status_text="${status_text}\nActive workflows (${wf_count}): ${wf_names}"
+      fi
+    fi
+
+    # --- Recent failures (last 5 minutes) ---
+    recent_failures=$(curl -s --max-time 2 "$TORQUE_API/api/tasks?status=failed&limit=3&sort=newest" 2>/dev/null || echo "")
+    if command -v jq &>/dev/null && [ -n "$recent_failures" ] && [ "$failed" -gt 0 ]; then
+      fail_summaries=$(echo "$recent_failures" | jq -r '
+        .tasks // [] | .[:3] | .[] |
+        "  - " + (.id // "?")[0:8] + ": " + ((.description // "no description") | .[0:60])
+      ' 2>/dev/null || echo "")
+      if [ -n "$fail_summaries" ]; then
+        status_text="${status_text}\nRecent failures:\n${fail_summaries}"
+      fi
+    fi
+
+    # --- Project defaults ---
+    if [ "$project" != "unknown" ]; then
+      defaults=$(curl -s --max-time 2 "$TORQUE_API/api/project-defaults?working_directory=${PWD}" 2>/dev/null || echo "")
+      if command -v jq &>/dev/null && [ -n "$defaults" ]; then
+        provider=$(echo "$defaults" | jq -r '.provider // empty' 2>/dev/null || true)
+        verify_cmd=$(echo "$defaults" | jq -r '.verify_command // empty' 2>/dev/null || true)
+        if [ -n "$provider" ] || [ -n "$verify_cmd" ]; then
+          status_text="${status_text}\nProject defaults:"
+          if [ -n "$provider" ]; then
+            status_text="${status_text} provider=${provider}"
+          fi
+          if [ -n "$verify_cmd" ]; then
+            status_text="${status_text} verify=\"${verify_cmd}\""
+          fi
+        fi
+      fi
+    fi
+
+    status_text="${status_text}\n\nUse /torque-submit to submit tasks, /torque-status to check progress.\nUse await_task with heartbeat_minutes for progress check-ins."
   else
     status_text="TORQUE is installed but not running.\nStart the server to enable task orchestration.\n\nSkills and commands are available but MCP tools will not work until the server starts."
   fi

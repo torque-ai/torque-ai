@@ -1972,6 +1972,8 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
   handleShutdown,
+  handleClaudeEvent,
+  handleClaudeFiles,
   handleGetFreeTierStatus,
   handleGetFreeTierHistory,
   handleGetFreeTierAutoScale,
@@ -2241,6 +2243,77 @@ async function handleGetFreeTierAutoScale(_req, res, _context = {}) {
     }, 200, _req);
   } catch (err) {
     sendJson(res, { error: err.message }, 500, _req);
+  }
+}
+
+/**
+ * POST /api/hooks/claude-event — receive Claude Code hook events.
+ * Called by PostToolUse (notify-file-write), audit hooks, and any HTTP-type hooks.
+ * Tracks file modifications by session for conflict detection with Codex sandboxes.
+ */
+const _claudeEventLog = new Map(); // sessionId -> { files: Set, events: [] }
+
+async function handleClaudeEvent(req, res, _context = {}) {
+  const requestId = _context.requestId || randomUUID();
+  let body = {};
+  try { body = await parseBody(req); } catch { /* ignore */ }
+
+  const eventType = body.event_type || 'unknown';
+  const sessionId = body.session_id || 'anonymous';
+  const payload = body.payload || {};
+
+  // Track file modifications per session
+  if (eventType === 'file_write' && payload.file_path) {
+    if (!_claudeEventLog.has(sessionId)) {
+      _claudeEventLog.set(sessionId, { files: new Set(), events: [] });
+    }
+    const session = _claudeEventLog.get(sessionId);
+    session.files.add(payload.file_path);
+    session.events.push({
+      type: eventType,
+      file: payload.file_path,
+      tool: payload.tool_name || null,
+      timestamp: payload.timestamp || new Date().toISOString(),
+    });
+
+    // Cap per-session event history at 500
+    if (session.events.length > 500) {
+      session.events = session.events.slice(-250);
+    }
+  }
+
+  logger.debug('Claude event received', { eventType, sessionId, payload: JSON.stringify(payload).slice(0, 200) });
+
+  sendJson(res, {
+    status: 'ok',
+    event_id: requestId,
+    event_type: eventType,
+    tracked_files: _claudeEventLog.get(sessionId)?.files.size || 0,
+  }, 200, req);
+}
+
+/**
+ * GET /api/hooks/claude-files — list files modified by Claude sessions.
+ * Used by conflict detection to compare against Codex sandbox state.
+ */
+async function handleClaudeFiles(_req, res, _context = {}) {
+  const query = parseQuery(_req.url);
+  const sessionId = query.session_id;
+
+  if (sessionId) {
+    const session = _claudeEventLog.get(sessionId);
+    sendJson(res, {
+      session_id: sessionId,
+      files: session ? [...session.files] : [],
+      event_count: session ? session.events.length : 0,
+    }, 200, _req);
+  } else {
+    // All sessions summary
+    const sessions = {};
+    for (const [sid, data] of _claudeEventLog.entries()) {
+      sessions[sid] = { file_count: data.files.size, event_count: data.events.length };
+    }
+    sendJson(res, { sessions }, 200, _req);
   }
 }
 

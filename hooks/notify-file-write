@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# PostToolUse hook — notifies TORQUE when Claude edits/writes files.
+# Runs in background (non-blocking). Feeds conflict detection and
+# Codex sandbox staleness awareness.
+
+TORQUE_API="http://127.0.0.1:3457"
+
+# Read hook input from stdin
+INPUT=$(cat)
+
+# Extract file path and session info
+FILE_PATH=""
+SESSION_ID=""
+TOOL_NAME=""
+if command -v jq &>/dev/null; then
+  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+  SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+  TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
+fi
+
+# Nothing to report if no file path
+if [ -z "$FILE_PATH" ]; then
+  exit 0
+fi
+
+# Check if TORQUE is running before trying to notify
+if ! command -v curl &>/dev/null; then
+  exit 0
+fi
+
+# POST the event to TORQUE (fire-and-forget, swallow errors)
+curl -s --max-time 3 \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d "{\"event_type\":\"file_write\",\"session_id\":\"${SESSION_ID}\",\"payload\":{\"file_path\":\"${FILE_PATH}\",\"tool_name\":\"${TOOL_NAME}\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" \
+  "$TORQUE_API/api/hooks/claude-event" \
+  >/dev/null 2>&1 || true
+
+exit 0
