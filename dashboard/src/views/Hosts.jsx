@@ -604,10 +604,22 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
 }
 
 function AddWorkstationForm({ onAdd, onCancel, submitting }) {
+  const [tab, setTab] = useState('bootstrap');
   const [name, setName] = useState('');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('3460');
   const [secret, setSecret] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [installService, setInstallService] = useState(false);
+
+  const torqueHost = window.location.hostname + ':3457';
+  const bootstrapCmd = `curl -s http://${torqueHost}/api/bootstrap/workstation${installService ? ' | bash -s -- --install' : ' | bash'}`;
+
+  function handleCopy() {
+    navigator.clipboard?.writeText(bootstrapCmd);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -627,11 +639,65 @@ function AddWorkstationForm({ onAdd, onCancel, submitting }) {
   const canSubmit = name.trim() && host.trim() && secret.trim() && Number.isFinite(parseInt(port, 10)) && parseInt(port, 10) > 0;
 
   return (
-    <form onSubmit={handleSubmit} className="glass-card p-5 space-y-4">
+    <div className="glass-card p-5 space-y-4">
       <div>
         <h3 className="text-sm font-semibold text-white">Add Workstation</h3>
-        <p className="text-xs text-slate-400 mt-1">Register a workstation agent on the unified Hosts page.</p>
+        <div className="flex gap-1 mt-2">
+          <button
+            type="button"
+            onClick={() => setTab('bootstrap')}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${tab === 'bootstrap' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-slate-700'}`}
+          >
+            Bootstrap
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('manual')}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${tab === 'manual' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-slate-700'}`}
+          >
+            Manual
+          </button>
+        </div>
       </div>
+
+      {tab === 'bootstrap' ? (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400">Run this on the remote machine:</p>
+          <div className="relative">
+            <pre className="bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap break-all">
+              {bootstrapCmd}
+            </pre>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="absolute top-2 right-2 px-2 py-1 text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+            >
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+            <input type="checkbox" checked={installService} onChange={(e) => setInstallService(e.target.checked)} className="rounded bg-slate-700 border-slate-600" />
+            Install as system service (survives reboots)
+          </label>
+          <div className="text-xs text-slate-500 space-y-1">
+            <p>The script will automatically:</p>
+            <ul className="list-disc list-inside ml-2 space-y-0.5">
+              <li>Check Node.js is installed (v18+)</li>
+              <li>Create the agent in <code className="bg-slate-800 px-1 rounded text-[10px]">~/.torque-agent/</code></li>
+              <li>Generate a shared secret</li>
+              <li>Register with this TORQUE server</li>
+              <li>Start the agent</li>
+            </ul>
+          </div>
+          <p className="text-[11px] text-slate-500 italic">The workstation card will appear automatically once the agent connects.</p>
+          <div className="flex justify-end">
+            <button type="button" onClick={onCancel} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">
+              Close
+            </button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label htmlFor="workstation-name" className="text-xs text-slate-400 block mb-1">Name *</label>
@@ -709,7 +775,9 @@ function AddWorkstationForm({ onAdd, onCancel, submitting }) {
           {submitting ? 'Adding...' : 'Add Workstation'}
         </button>
       </div>
-    </form>
+        </form>
+      )}
+    </div>
   );
 }
 

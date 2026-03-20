@@ -1978,6 +1978,7 @@ const ROUTE_HANDLER_LOOKUP = {
   handleGetFreeTierHistory,
   handleGetFreeTierAutoScale,
   handleGetProviderQuotas,
+  handleBootstrapWorkstation: require('./api/bootstrap').handleBootstrapWorkstation,
   // V2 Control-Plane: Tasks
   handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
   handleV2CpListTasks: v2TaskHandlers.handleListTasks,
