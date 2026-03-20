@@ -60,7 +60,14 @@ function registerAgent({ id, name, capabilities, max_concurrent, agent_type, pri
 }
 
 /**
- * Unregister an agent
+ * Unregister an agent.
+ *
+ * The multi-table delete is wrapped in a transaction so the agent row and all
+ * FK-dependent rows (task_claims, agent_metrics, work_stealing_log,
+ * coordination_events, agent_group_members) are removed atomically.
+ * Without a transaction, a crash between deletes would leave orphaned rows
+ * referencing a non-existent agent, violating referential integrity.
+ *
  * @param {any} agentId
  * @param {any} reassignTasks
  * @returns {any}
@@ -69,7 +76,8 @@ function unregisterAgent(agentId, reassignTasks = true) {
   const agent = getAgent(agentId);
   if (!agent) return null;
 
-  // If reassigning, release all active claims
+  // If reassigning, release all active claims (each releaseTaskClaim is already
+  // transactional internally, so do this outside the deletion transaction).
   if (reassignTasks) {
     const claims = db.prepare(`
       SELECT * FROM task_claims WHERE agent_id = ? AND status = 'active'
@@ -80,13 +88,15 @@ function unregisterAgent(agentId, reassignTasks = true) {
     }
   }
 
-  // Delete all FK-dependent rows before removing the agent
-  db.prepare('DELETE FROM task_claims WHERE agent_id = ?').run(agentId);
-  db.prepare('DELETE FROM agent_metrics WHERE agent_id = ?').run(agentId);
-  db.prepare('DELETE FROM work_stealing_log WHERE victim_agent_id = ? OR thief_agent_id = ?').run(agentId, agentId);
-  db.prepare('DELETE FROM coordination_events WHERE agent_id = ?').run(agentId);
-  db.prepare('DELETE FROM agent_group_members WHERE agent_id = ?').run(agentId);
-  db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
+  // Delete all FK-dependent rows atomically before removing the agent row.
+  db.transaction(() => {
+    db.prepare('DELETE FROM task_claims WHERE agent_id = ?').run(agentId);
+    db.prepare('DELETE FROM agent_metrics WHERE agent_id = ?').run(agentId);
+    db.prepare('DELETE FROM work_stealing_log WHERE victim_agent_id = ? OR thief_agent_id = ?').run(agentId, agentId);
+    db.prepare('DELETE FROM coordination_events WHERE agent_id = ?').run(agentId);
+    db.prepare('DELETE FROM agent_group_members WHERE agent_id = ?').run(agentId);
+    db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
+  })();
 
   recordCoordinationEvent('agent_left', agentId, null, JSON.stringify({ name: agent.name }));
 

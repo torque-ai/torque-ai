@@ -611,7 +611,17 @@ function checkVramBudget(hostId, requestedModel) {
 }
 
 /**
- * Increment running task count for a host
+ * Increment running task count for a host.
+ *
+ * WARNING: This function is UNSAFE for production use — it increments the counter
+ * without checking the host's max_concurrent capacity, which can cause GPU contention
+ * and oversubscription. It exists only for backwards-compatible low-level writes
+ * (e.g., test setup, reconciliation).
+ *
+ * For all production task dispatch, use tryReserveHostSlot() instead, which performs
+ * an atomic capacity check (running_tasks < max_concurrent) in the same SQL statement,
+ * preventing race conditions and over-allocation.
+ *
  * @param {any} hostId
  * @returns {any}
  * @deprecated Use tryReserveHostSlot for atomic capacity checking

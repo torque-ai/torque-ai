@@ -368,12 +368,21 @@ function recordCost(provider, taskId, inputTokens, outputTokens, model) {
   return costUsd;
 }
 
+/**
+ * Atomically read budget rows, check headroom, and increment spend in one transaction.
+ * The SELECT and UPDATE are both inside the same db.transaction() call so no other
+ * writer can change current_spend between the check and the update.
+ *
+ * Note: checkBudgetBeforeSubmission() is a separate, read-only pre-flight check
+ * that intentionally runs outside a transaction (it does not write anything).
+ */
 function updateBudgetSpend(provider, costUsd) {
   if (!Number.isFinite(costUsd) || costUsd < 0) {
     return { allowed: true, skipped: true };
   }
 
   const txn = db.transaction(() => {
+    // Budget rows are read inside the transaction so the check-then-update is atomic.
     const budgetRows = db.prepare(
       'SELECT * FROM cost_budgets WHERE (provider = ? OR provider IS NULL) AND enabled = 1'
     ).all(provider).filter(Boolean);

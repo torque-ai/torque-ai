@@ -93,7 +93,25 @@ function findEmptyWorkflowPlaceholder(name, status = 'pending') {
 }
 
 /**
- * Update workflow
+ * Update workflow fields in-place (non-atomic).
+ *
+ * This function is intentionally non-transactional for simple, single-field
+ * updates (e.g., setting a status after a terminal task completes).
+ *
+ * However, callers that need to update the workflow status AND additional fields
+ * in one safe step should use transitionWorkflowStatus() instead, which performs
+ * an atomic compare-and-swap (UPDATE … WHERE status = ?) to prevent races.
+ *
+ * Known dual-call pattern in updateWorkflowCounts:
+ *   updateWorkflow(id, counts)  ← count fields
+ *   updateWorkflow(id, { status, completed_at })  ← terminal transition
+ *
+ * These two writes are not atomic. Under high concurrency two workers could
+ * both read "running" status and both call updateWorkflow to "completed".
+ * This is acceptable for the current architecture where workflows are
+ * single-session, but if workflow processing becomes truly concurrent,
+ * both calls should be merged into a single transitionWorkflowStatus() call.
+ *
  * @param {any} workflowId
  * @param {any} updates
  * @returns {any}
