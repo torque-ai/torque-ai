@@ -947,17 +947,17 @@ function processQueueInternal(options = {}) {
       let canStart = true;
       if (!category) {
         canStart = false;
-      } else if (category === 'codex' && !codexEnabled) {
-        canStart = false; // Codex disabled — don't bypass
+      } else if (category === 'codex') {
+        if (!codexEnabled) {
+          canStart = false;
+        } else {
+          const runCodex = providerCounts.codex || 0;
+          if (runCodex >= maxCodexConcurrent) canStart = false;
+        }
       } else if (category === 'ollama') {
         const runOllama = providerCounts.ollama;
         if (runOllama >= maxOllamaConcurrent) canStart = false;
         const providerCapacity = providerRuntimeState.getProviderCapacity(provider, maxOllamaConcurrent);
-        if (!providerCapacity.available) canStart = false;
-      } else if (category === 'codex') {
-        const runCodex = providerCounts.codex;
-        if (runCodex >= maxCodexConcurrent) canStart = false;
-        const providerCapacity = providerRuntimeState.getProviderCapacity(provider, maxCodexConcurrent);
         if (!providerCapacity.available) canStart = false;
       } else if (category === 'api') {
         if (runningApi + apiStarted >= maxApiConcurrent) canStart = false;

@@ -67,7 +67,7 @@ const LARGE_CODE_RE = /\b(implement.*system|build.*feature|create.*module|comple
 const DOCS_RE = /\b(document|explain|summarize|comment|readme|changelog|jsdoc|docstring)\b/i;
 const SIMPLE_GEN_RE = /\b(commit message|boilerplate|scaffold|template|stub)\b/i;
 
-const FILE_REF_RE = /[\w\-./\\]+\.\w{1,5}\b/;
+const FILE_REF_RE = /(?:[\w-]+[/\\][\w\-.]+\.\w{1,5}|[\w-]+\.(?:js|ts|jsx|tsx|cs|py|java|go|rs|json|yaml|yml|xml|md|txt|css|html|sh|rb|php|c|h|cpp|hpp))\b/i;
 
 // Structural edit patterns — file reference alone is sufficient
 const STRUCTURAL_EDIT_PATTERNS = [

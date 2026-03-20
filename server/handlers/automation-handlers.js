@@ -560,7 +560,7 @@ function handleSetProjectDefaults(args) {
   const configUpdate = {};
 
   if (args.provider) {
-    const validProviders = ['codex', 'claude-cli', 'ollama', 'aider-ollama'];
+    const validProviders = ['codex', 'codex-spark', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'anthropic', 'ollama-cloud'];
     if (!validProviders.includes(args.provider)) {
       return makeError(ErrorCodes.INVALID_PARAM, `Invalid provider "${args.provider}". Valid: ${validProviders.join(', ')}`);
     }

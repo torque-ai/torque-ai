@@ -67,7 +67,7 @@ function parseRow(row) {
       updated_at: row.updated_at,
     };
   } catch (err) {
-    logger.warn(`Corrupted template rules_json for id=${row.id}: ${err.message}`);
+    logger.warn(`Corrupted template JSON for id=${row.id}: ${err.message}`);
     return null;
   }
 }
@@ -98,9 +98,6 @@ function validateTemplate(data) {
   if (!data.rules || typeof data.rules !== 'object') {
     errors.push('rules must be an object');
   } else {
-    if (!data.rules.default) {
-      errors.push('rules.default is required');
-    }
     for (const cat of CATEGORIES) {
       if (!(cat in data.rules)) {
         errors.push(`rules.${cat} is required`);

@@ -20,7 +20,7 @@ function extractByBraceMatching(text, openChar, closeChar) {
 
   let depth = 0;
   let inString = false;
-  let stringChar = null; // tracks whether we're inside " or '
+  let stringChar = null;
   let escape = false;
 
   for (let i = start; i < text.length; i++) {
@@ -33,11 +33,12 @@ function extractByBraceMatching(text, openChar, closeChar) {
       escape = true;
       continue;
     }
-    // Track both double-quote and single-quote string delimiters so that braces
-    // inside single-quoted strings (e.g. JS object values) are not miscounted.
-    if ((ch === '"' || ch === "'") && (!inString || ch === stringChar)) {
+    // Only track double-quote strings — JSON does not use single quotes.
+    // Tracking single quotes caused apostrophes in values (e.g. "it's") to
+    // permanently toggle inString, preventing depth from reaching 0.
+    if (ch === '"' && (!inString || stringChar === '"')) {
       inString = !inString;
-      stringChar = inString ? ch : null;
+      stringChar = inString ? '"' : null;
       continue;
     }
     if (inString) continue;
