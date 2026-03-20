@@ -666,14 +666,31 @@ function AddWorkstationForm({ onAdd, onCancel, submitting }) {
         </div>
         <div>
           <label htmlFor="workstation-secret" className="text-xs text-slate-400 block mb-1">Secret *</label>
-          <input
-            id="workstation-secret"
-            type="password"
-            value={secret}
-            onChange={(event) => setSecret(event.target.value)}
-            placeholder="Shared secret"
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
-          />
+          <div className="flex gap-2">
+            <input
+              id="workstation-secret"
+              type="password"
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+              placeholder="Shared secret"
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const generated = crypto.randomUUID();
+                setSecret(generated);
+                navigator.clipboard?.writeText(generated);
+              }}
+              className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs rounded-lg transition-colors whitespace-nowrap"
+              title="Generate a random secret and copy to clipboard"
+            >
+              Generate
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1.5">
+            Set this same secret on the remote machine: <code className="bg-slate-800 px-1 py-0.5 rounded text-[10px]">TORQUE_AGENT_SECRET=&lt;secret&gt;</code> then start the agent with <code className="bg-slate-800 px-1 py-0.5 rounded text-[10px]">node server/remote/agent-server.js</code>
+          </p>
         </div>
       </div>
       <div className="flex justify-end gap-2">
