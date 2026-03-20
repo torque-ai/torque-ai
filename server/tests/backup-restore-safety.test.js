@@ -179,7 +179,7 @@ describe('backup-restore-safety', () => {
       fs.existsSync.mockReturnValue(true);
 
       // Start restore but do not await — it will pause at backupDb.backup()
-      const restorePromise = subject.restoreDatabase('C:\\backups\\snap.db', true);
+      const restorePromise = subject.restoreDatabase('C:\\backups\\snap.db', true, { force: true });
 
       // At this point the live DB has been closed and the flag is set.
       // getDbInstance() must throw rather than returning the closed handle.
@@ -203,7 +203,7 @@ describe('backup-restore-safety', () => {
       subject.setDb(liveDb);
       fs.existsSync.mockReturnValue(true);
 
-      await subject.restoreDatabase('C:\\backups\\snap.db', true);
+      await subject.restoreDatabase('C:\\backups\\snap.db', true, { force: true });
 
       // Flag must be cleared; getDbInstance() must return the new DB handle.
       const instance = subject.getDbInstance();
@@ -228,7 +228,7 @@ describe('backup-restore-safety', () => {
       subject.setDb(liveDb);
       fs.existsSync.mockReturnValue(true);
 
-      await expect(subject.restoreDatabase('C:\\backups\\bad.db', true))
+      await expect(subject.restoreDatabase('C:\\backups\\bad.db', true, { force: true }))
         .rejects
         .toThrow('Restored database failed integrity check');
 
