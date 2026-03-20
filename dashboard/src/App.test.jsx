@@ -93,14 +93,15 @@ class MockWebSocket {
 
   constructor(url) {
     this.url = url;
-    this.readyState = MockWebSocket.OPEN;
+    this.readyState = MockWebSocket.CONNECTING;
     this.onopen = null;
     this.onmessage = null;
     this.onclose = null;
     this.onerror = null;
     mockWsInstance = this;
-    // Simulate connection open
+    // Simulate connection open (transition CONNECTING → OPEN like real WebSocket)
     setTimeout(() => {
+      this.readyState = MockWebSocket.OPEN;
       if (this.onopen) this.onopen({});
     }, 0);
   }
@@ -179,7 +180,7 @@ describe('App', () => {
   it('renders without crashing', async () => {
     renderApp();
     await waitFor(() => {
-      expect(document.querySelector('.flex')).toBeTruthy();
+      expect(document.querySelector('.flex')).toBeInTheDocument();
     });
   });
 
@@ -191,7 +192,7 @@ describe('App', () => {
       expect(elements.length).toBeGreaterThanOrEqual(1);
       // The h1 branding element specifically
       const h1 = elements.find(el => el.tagName === 'H1');
-      expect(h1).toBeTruthy();
+      expect(h1).toBeInTheDocument();
     });
   });
 
@@ -217,7 +218,7 @@ describe('App', () => {
     renderApp('/');
     await waitFor(() => {
       // Kanban shows "Today" stat card
-      expect(screen.getByText('Today')).toBeTruthy();
+      expect(screen.getByText('Today')).toBeInTheDocument();
     });
   });
 
@@ -225,7 +226,7 @@ describe('App', () => {
     renderApp();
     await waitFor(() => {
       const bellButton = screen.getByLabelText(/Notifications:\s*no alerts/);
-      expect(bellButton).toBeTruthy();
+      expect(bellButton).toBeInTheDocument();
     });
   });
 
@@ -241,7 +242,7 @@ describe('App', () => {
     renderApp();
     await waitFor(() => {
       // After WebSocket connects, should show "Connected"
-      expect(screen.getByText('Connected')).toBeTruthy();
+      expect(screen.getByText('Connected')).toBeInTheDocument();
     });
   });
 
@@ -256,7 +257,7 @@ describe('App', () => {
     renderApp();
     await waitFor(() => {
       const link = document.querySelector("link[rel~='icon']");
-      expect(link).toBeTruthy();
+      expect(link).toBeInTheDocument();
     });
   });
 
@@ -275,7 +276,7 @@ describe('App', () => {
       // The shortcut hint contains a kbd with "?" — search by the kbd content
       const kbds = document.querySelectorAll('kbd');
       const questionMark = Array.from(kbds).find(el => el.textContent === '?');
-      expect(questionMark).toBeTruthy();
+      expect(questionMark).toBeInTheDocument();
     });
   });
 
@@ -283,14 +284,14 @@ describe('App', () => {
     renderApp();
     await waitFor(() => {
       const collapseBtn = screen.getByLabelText(/sidebar/i);
-      expect(collapseBtn).toBeTruthy();
+      expect(collapseBtn).toBeInTheDocument();
     });
   });
 
   it('renders Task Orchestration subtitle', async () => {
     renderApp();
     await waitFor(() => {
-      expect(screen.getByText('Task Orchestration')).toBeTruthy();
+      expect(screen.getByText('Task Orchestration')).toBeInTheDocument();
     });
   });
 
@@ -306,7 +307,7 @@ describe('App', () => {
   it('renders Kanban stat cards on default route', async () => {
     renderApp('/');
     await waitFor(() => {
-      expect(screen.getByText('Today')).toBeTruthy();
+      expect(screen.getByText('Today')).toBeInTheDocument();
       // Kanban columns
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
@@ -317,7 +318,7 @@ describe('App', () => {
     const { unmount } = renderApp('/');
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Notifications: no alerts')).toBeTruthy();
+      expect(screen.getByLabelText('Notifications: no alerts')).toBeInTheDocument();
     });
 
     emitWsMessage({
@@ -342,7 +343,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(document.title).toBe('TORQUE (1 failed)');
-      expect(screen.getByLabelText('Notifications: 1 alert (1 failed, 0 stuck)')).toBeTruthy();
+      expect(screen.getByLabelText('Notifications: 1 alert (1 failed, 0 stuck)')).toBeInTheDocument();
     });
 
     unmount();
@@ -352,7 +353,7 @@ describe('App', () => {
     const { unmount } = renderApp('/');
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Notifications: no alerts')).toBeTruthy();
+      expect(screen.getByLabelText('Notifications: no alerts')).toBeInTheDocument();
     });
 
     emitWsMessage({
@@ -382,7 +383,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(document.title).toBe('TORQUE (1 failed)');
-      expect(screen.getByLabelText('Notifications: 1 alert (1 failed, 0 stuck)')).toBeTruthy();
+      expect(screen.getByLabelText('Notifications: 1 alert (1 failed, 0 stuck)')).toBeInTheDocument();
     });
 
     unmount();

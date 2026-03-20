@@ -13,6 +13,7 @@ const os = require('os');
 
 let db;
 let testDir;
+let savedSmtp;
 
 describe('Integration Infra Handlers', () => {
   beforeAll(() => {
@@ -20,13 +21,25 @@ describe('Integration Infra Handlers', () => {
     db = env.db;
     testDir = env.testDir;
 
-    // Clear SMTP environment variables to ensure predictable email test behaviour
+    // Save and clear SMTP environment variables to ensure predictable email test behaviour
+    savedSmtp = {
+      SMTP_HOST: process.env.SMTP_HOST,
+      SMTP_USER: process.env.SMTP_USER,
+      SMTP_PASS: process.env.SMTP_PASS,
+      SMTP_FROM: process.env.SMTP_FROM,
+    };
     delete process.env.SMTP_HOST;
     delete process.env.SMTP_USER;
     delete process.env.SMTP_PASS;
     delete process.env.SMTP_FROM;
   });
-  afterAll(() => { teardownTestDb(); });
+  afterAll(() => {
+    for (const [key, val] of Object.entries(savedSmtp)) {
+      if (val !== undefined) process.env[key] = val;
+      else delete process.env[key];
+    }
+    teardownTestDb();
+  });
 
   // ============================================================
   // handleConfigureIntegration

@@ -70,7 +70,7 @@ function NestedBoundaryHarness({ innerThrows = true, outerSiblingThrows = false 
 // Suppress console.error for expected error boundary logs
 const originalConsoleError = console.error;
 beforeAll(() => {
-  console.error = (...args) => {
+  vi.spyOn(console, 'error').mockImplementation((...args) => {
     if (typeof args[0] === 'string' && (
       args[0].includes('Dashboard error:') ||
       args[0].includes('The above error occurred') ||
@@ -79,10 +79,10 @@ beforeAll(() => {
       return;
     }
     originalConsoleError(...args);
-  };
+  });
 });
 afterAll(() => {
-  console.error = originalConsoleError;
+  vi.restoreAllMocks();
 });
 
 describe('ErrorBoundary', () => {
@@ -92,7 +92,7 @@ describe('ErrorBoundary', () => {
         <div>Child content</div>
       </ErrorBoundary>
     );
-    expect(screen.getByText('Child content')).toBeTruthy();
+    expect(screen.getByText('Child content')).toBeInTheDocument();
   });
 
   it('renders error UI when child throws', () => {
@@ -101,7 +101,7 @@ describe('ErrorBoundary', () => {
         <ThrowingComponent />
       </ErrorBoundary>
     );
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
   });
 
   it('displays the error message', () => {
@@ -110,7 +110,7 @@ describe('ErrorBoundary', () => {
         <ThrowingComponent />
       </ErrorBoundary>
     );
-    expect(screen.getByText('Test render error')).toBeTruthy();
+    expect(screen.getByText('Test render error')).toBeInTheDocument();
   });
 
   it('renders Try Again button', () => {
@@ -119,7 +119,7 @@ describe('ErrorBoundary', () => {
         <ThrowingComponent />
       </ErrorBoundary>
     );
-    expect(screen.getByText('Try Again')).toBeTruthy();
+    expect(screen.getByText('Try Again')).toBeInTheDocument();
   });
 
   it('shows complete fallback UI with accessible heading and button', () => {
@@ -128,9 +128,9 @@ describe('ErrorBoundary', () => {
         <ThrowingComponent />
       </ErrorBoundary>
     );
-    expect(screen.getByRole('heading', { name: 'Something went wrong' })).toBeTruthy();
-    expect(screen.getByText('Test render error')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Something went wrong' })).toBeInTheDocument();
+    expect(screen.getByText('Test render error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 
   it('does not render normal child content while fallback is shown', () => {
@@ -140,21 +140,21 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
     expect(screen.queryByText('Normal content')).toBeNull();
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
   });
 
   it('recovers when Try Again is clicked and error is resolved', () => {
     const { rerender } = render(
       <ControlledBoundary shouldThrow={true} />
     );
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: /try again/i }));
       rerender(<ControlledBoundary shouldThrow={false} />);
     });
 
-    expect(screen.getByText('Normal content')).toBeTruthy();
+    expect(screen.getByText('Normal content')).toBeInTheDocument();
   });
 
   it('keeps fallback UI after Try Again when child still throws', () => {
@@ -162,7 +162,7 @@ describe('ErrorBoundary', () => {
       <ControlledBoundary shouldThrow={true} />
     );
     fireEvent.click(screen.getByRole('button', { name: /try again/i }));
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
   });
 
   it('uses renderHook-driven control for boundary throw state and recovery', () => {
@@ -171,26 +171,26 @@ describe('ErrorBoundary', () => {
       <ControlledBoundary shouldThrow={result.current[0]} />
     );
 
-    expect(screen.getByText('Normal content')).toBeTruthy();
+    expect(screen.getByText('Normal content')).toBeInTheDocument();
 
     act(() => {
       result.current[1](true);
     });
     rerender(<ControlledBoundary shouldThrow={result.current[0]} />);
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
     act(() => {
       result.current[1](false);
     });
     rerender(<ControlledBoundary shouldThrow={result.current[0]} />);
 
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: /try again/i }));
     });
 
-    expect(screen.getByText('Normal content')).toBeTruthy();
+    expect(screen.getByText('Normal content')).toBeInTheDocument();
   });
 
   it('shows fallback message for error without message', () => {
@@ -199,7 +199,7 @@ describe('ErrorBoundary', () => {
         <ThrowGeneric />
       </ErrorBoundary>
     );
-    expect(screen.getByText('An unexpected error occurred')).toBeTruthy();
+    expect(screen.getByText('An unexpected error occurred')).toBeInTheDocument();
   });
 
   it('captures hook rule violations in a child component', () => {
@@ -209,7 +209,7 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
 
-    expect(screen.getByText('Hook rule child baseline')).toBeTruthy();
+    expect(screen.getByText('Hook rule child baseline')).toBeInTheDocument();
 
     act(() => {
       rerender(
@@ -219,8 +219,8 @@ describe('ErrorBoundary', () => {
       );
     });
 
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
-    expect(screen.getByText(/Rendered (more|fewer) hooks than/)).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByText(/Rendered (more|fewer) hooks than/)).toBeInTheDocument();
   });
 
   it('captures state update errors from children during render', () => {
@@ -230,7 +230,7 @@ describe('ErrorBoundary', () => {
       <RenderTimeStateUpdateBoundary />
     );
 
-    expect(screen.getByText('Render-time state update child')).toBeTruthy();
+    expect(screen.getByText('Render-time state update child')).toBeInTheDocument();
     expect(screen.queryByText('Something went wrong')).toBeNull();
     expect(
       consoleSpy.mock.calls.some((call) => call.some(
@@ -245,8 +245,8 @@ describe('ErrorBoundary', () => {
     render(
       <NestedBoundaryHarness innerThrows={true} outerSiblingThrows={false} />
     );
-    expect(screen.getByText('Outer boundary safe start')).toBeTruthy();
-    expect(screen.getByText('Outer boundary safe end')).toBeTruthy();
+    expect(screen.getByText('Outer boundary safe start')).toBeInTheDocument();
+    expect(screen.getByText('Outer boundary safe end')).toBeInTheDocument();
     expect(screen.getAllByText('Something went wrong')).toHaveLength(1);
   });
 
@@ -264,8 +264,8 @@ describe('ErrorBoundary', () => {
       <NestedBoundaryHarness innerThrows />
     );
 
-    expect(screen.getByText('Outer boundary safe start')).toBeTruthy();
-    expect(screen.getByText('Outer boundary safe end')).toBeTruthy();
+    expect(screen.getByText('Outer boundary safe start')).toBeInTheDocument();
+    expect(screen.getByText('Outer boundary safe end')).toBeInTheDocument();
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: /try again/i }));
@@ -273,7 +273,7 @@ describe('ErrorBoundary', () => {
     });
 
     expect(screen.queryByText('Something went wrong')).toBeNull();
-    expect(screen.getByText('Normal content')).toBeTruthy();
+    expect(screen.getByText('Normal content')).toBeInTheDocument();
   });
 
   it('supports multiple recover-and-throw cycles on the same boundary', () => {
@@ -281,39 +281,39 @@ describe('ErrorBoundary', () => {
       <ControlledBoundary shouldThrow={false} />
     );
 
-    expect(screen.getByText('Normal content')).toBeTruthy();
+    expect(screen.getByText('Normal content')).toBeInTheDocument();
 
     act(() => {
       rerender(<ControlledBoundary shouldThrow />);
     });
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
     act(() => {
       rerender(<ControlledBoundary shouldThrow={false} />);
     });
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: /try again/i }));
     });
 
-    expect(screen.getByText('Normal content')).toBeTruthy();
+    expect(screen.getByText('Normal content')).toBeInTheDocument();
 
     act(() => {
       rerender(<ControlledBoundary shouldThrow />);
     });
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
     act(() => {
       rerender(<ControlledBoundary shouldThrow={false} />);
     });
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: /try again/i }));
     });
 
-    expect(screen.getByText('Normal content')).toBeTruthy();
+    expect(screen.getByText('Normal content')).toBeInTheDocument();
   });
 
   it('logs error and component stack from componentDidCatch', () => {
@@ -364,7 +364,7 @@ describe('ErrorBoundary', () => {
         <ThrowingComponent />
       </ErrorBoundary>
     );
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
     act(() => {
       rerender(
@@ -373,7 +373,7 @@ describe('ErrorBoundary', () => {
         </ErrorBoundary>
       );
     });
-    expect(screen.getByText('Normal content')).toBeTruthy();
+    expect(screen.getByText('Normal content')).toBeInTheDocument();
     expect(screen.queryByText('Something went wrong')).toBeNull();
   });
 
@@ -388,8 +388,8 @@ describe('ErrorBoundary', () => {
         </ErrorBoundary>
       </div>
     );
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
-    expect(screen.getByText('Sibling boundary healthy content')).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByText('Sibling boundary healthy content')).toBeInTheDocument();
   });
 
   it('keeps fallback UI after repeated reset clicks if child still throws', () => {
@@ -406,7 +406,7 @@ describe('ErrorBoundary', () => {
       fireEvent.click(retryButton);
     });
 
-    expect(screen.getByText('Something went wrong')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy();
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 });

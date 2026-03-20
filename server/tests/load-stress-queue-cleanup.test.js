@@ -38,8 +38,11 @@ function restoreSpawn() {
   }
 }
 
+let origApiKey;
+
 beforeAll(() => {
   ctx = setupE2eDb('load-stress-queue-cleanup');
+  origApiKey = process.env.OPENAI_API_KEY;
   if (!process.env.OPENAI_API_KEY) {
     process.env.OPENAI_API_KEY = 'test-key-for-load';
   }
@@ -56,6 +59,8 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  if (origApiKey !== undefined) process.env.OPENAI_API_KEY = origApiKey;
+  else delete process.env.OPENAI_API_KEY;
   if (ctx) await teardownE2eDb(ctx);
 });
 

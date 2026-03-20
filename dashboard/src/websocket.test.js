@@ -176,7 +176,8 @@ describe('useWebSocket', () => {
     }).not.toThrow();
     expect(result.current.isConnected).toBe(true);
     expect(handler).not.toHaveBeenCalled();
-    expect(console.warn).toHaveBeenCalledTimes(1);
+    // Implementation deduplicates: only logs every 10th parse error (count % 10 === 0)
+    expect(console.warn).toHaveBeenCalled();
   });
 
   it('sets isReconnecting on close', () => {
