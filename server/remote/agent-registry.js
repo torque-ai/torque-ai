@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { RemoteAgentClient } = require('./agent-client');
+const logger = require('../logger').child({ component: 'agent-registry' });
 
 /**
  * Hash a secret using scrypt with a random salt.
@@ -24,7 +25,13 @@ function hashSecret(secret) {
  * @returns {boolean}
  */
 function verifySecret(stored, provided) {
-  if (!stored || !stored.startsWith('scrypt:')) return stored === provided; // backward compat for unhashed
+  if (!stored || !stored.startsWith('scrypt:')) {
+    // Legacy plaintext comparison — use timing-safe equality to prevent timing attacks
+    const a = Buffer.from(stored || '', 'utf-8');
+    const b = Buffer.from(provided || '', 'utf-8');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
   const [, salt, expectedHash] = stored.split(':');
   const actualHash = crypto.scryptSync(provided, salt, 32).toString('hex');
   const a = Buffer.from(expectedHash, 'hex');
@@ -108,7 +115,15 @@ class RemoteAgentRegistry {
 
   /**
    * Get (or lazily create) a RemoteAgentClient for the given agent ID.
-   * Returns null if the agent doesn't exist or is disabled.
+   * Returns null if the agent doesn't exist, is disabled, or cannot be
+   * reconstructed from DB state.
+   *
+   * **Limitation:** After a server restart, the in-memory client is lost.
+   * The DB stores the secret as a scrypt hash (for verification), which
+   * cannot be used as a wire credential for outbound auth. In this case
+   * the method logs a warning and returns null — the agent must be
+   * re-registered (via `register()`) to restore outbound connectivity.
+   *
    * @param {string} id
    * @returns {RemoteAgentClient|null}
    */
@@ -116,6 +131,18 @@ class RemoteAgentRegistry {
     if (!this.clients.has(id)) {
       const agent = this.get(id);
       if (!agent || !agent.enabled) return null;
+
+      // The DB secret column stores a scrypt hash (scrypt:<salt>:<hash>).
+      // Hashed secrets cannot be reversed for outbound wire auth — the agent
+      // must be re-registered to provide the plaintext secret again.
+      if (agent.secret && agent.secret.startsWith('scrypt:')) {
+        logger.warn(
+          `Agent "${id}" secret is hashed — cannot reconstruct wire credential. ` +
+          'Re-register the agent to restore outbound connectivity.'
+        );
+        return null;
+      }
+
       const client = new RemoteAgentClient({
         host: agent.host,
         port: agent.port,
