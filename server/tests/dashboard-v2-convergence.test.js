@@ -114,7 +114,12 @@ installCjsModuleMock('../constants', {
   WS_MSG_RATE_LIMIT: 100,
   WS_MSG_RATE_WINDOW_MS: 60000,
 });
-installCjsModuleMock('../config', {});
+installCjsModuleMock('../config', {
+  init: vi.fn(),
+  get: vi.fn(() => null),
+  getInt: vi.fn(() => 0),
+  getBool: vi.fn(() => false),
+});
 installCjsModuleMock('ws', { WebSocketServer: vi.fn() });
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -239,7 +244,7 @@ describe('api.js v2 client', () => {
     expect(source).toContain("request('/instances'");
 
     // Free-tier has no v2 equivalent
-    expect(source).toContain("request('/free-tier/status')");
+    expect(source).toContain("request(`${LEGACY_FREE_TIER_BASE}/status`)");
   });
 });
 

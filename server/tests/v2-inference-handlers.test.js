@@ -648,7 +648,7 @@ describe('api/v2-inference.executeV2ProviderInference', () => {
     });
 
     expect(adapter.submit).toHaveBeenCalledWith('user: Hello there', 'requested-model', expect.objectContaining({
-      timeout: 120,
+      timeout: 2,
       transport: 'api',
       attemptReason: 'provider_route',
     }));

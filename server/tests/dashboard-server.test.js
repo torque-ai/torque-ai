@@ -2,6 +2,7 @@ const { EventEmitter } = require('events');
 const _fs = require('fs');
 const path = require('path');
 const _vm = require('vm');
+const eventBus = require('../event-bus');
 
 function createMockResponse() {
   let resolve;
@@ -489,7 +490,7 @@ describe('dashboard-server', () => {
     const ws = createMockWsClient();
     wss.handlers.connection(ws);
 
-    process.emit('torque:task-updated', { taskId: 'task-8', status: 'queued' });
+    eventBus.emitTaskUpdated({ taskId: 'task-8', status: 'queued' });
     vi.advanceTimersByTime(500);
 
     const updates = sentEvents(ws).filter((evt) => evt.event === 'tasks:batch-updated');

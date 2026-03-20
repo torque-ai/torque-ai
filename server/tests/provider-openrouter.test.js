@@ -561,7 +561,7 @@ describe('OpenRouterProvider', () => {
       expect(result.usage.cost).toBe(0);
     });
 
-    it('returns timeout when an external abort signal is triggered', async () => {
+    it('returns cancelled when an external abort signal is triggered', async () => {
       const abortController = new AbortController();
       const requestStarted = createDeferred();
 
@@ -578,7 +578,7 @@ describe('OpenRouterProvider', () => {
 
       const result = await resultPromise;
 
-      expect(result.status).toBe('timeout');
+      expect(result.status).toBe('cancelled');
       expect(result.output).toBe('');
       expect(result.usage.tokens).toBe(0);
     });
@@ -859,7 +859,7 @@ describe('OpenRouterProvider', () => {
       expect(result.usage.tokens).toBe(0);
     });
 
-    it('returns timeout when an external signal aborts mid-stream and cancels the reader', async () => {
+    it('returns cancelled when an external signal aborts mid-stream and cancels the reader', async () => {
       const abortController = new AbortController();
       const encoder = new TextEncoder();
       const secondReadStarted = createDeferred();
@@ -897,7 +897,7 @@ describe('OpenRouterProvider', () => {
 
       const result = await resultPromise;
 
-      expect(result.status).toBe('timeout');
+      expect(result.status).toBe('cancelled');
       expect(result.output).toBe('');
       expect(result.usage.tokens).toBe(0);
       expect(readerCancel).toHaveBeenCalledTimes(1);

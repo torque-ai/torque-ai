@@ -376,7 +376,8 @@ describe('Queue Scheduler', () => {
         return { all: vi.fn().mockReturnValue([]), run: vi.fn() };
       });
 
-      const emitSpy = vi.spyOn(process, 'emit');
+      const eventBus = require('../event-bus');
+      const emitSpy = vi.spyOn(eventBus, 'emitTaskEvent');
       mocks.safeConfigInt.mockImplementation((key, defaultVal) => {
         if (key === 'max_concurrent') return 10;
         if (key === 'max_per_host') return 2;
@@ -401,7 +402,7 @@ describe('Queue Scheduler', () => {
       expect(mockDb.prepare).toHaveBeenCalledWith(
         "SELECT id FROM tasks WHERE status IN ('queued', 'pending') AND created_at < ? AND provider != 'workflow'"
       );
-      expect(emitSpy).toHaveBeenCalledWith('torque:task-event', {
+      expect(emitSpy).toHaveBeenCalledWith({
         taskId: 'expired-task',
         type: 'cancelled',
         reason: 'queue_ttl_expired',
@@ -1392,6 +1393,7 @@ describe('Queue Scheduler', () => {
         mockDb.getConfig.mockImplementation((key) => {
           if (configOverrides && key in configOverrides) return configOverrides[key];
           if (key === 'codex_enabled') return '1';
+          if (key === 'codex_overflow_to_local') return '1';
           if (key === 'ollama_balanced_model') return 'qwen3:8b';
           if (key === 'ollama_fast_model') return 'gemma3:4b';
           return null;
@@ -1623,6 +1625,7 @@ describe('Queue Scheduler', () => {
 
         mockDb.getConfig.mockImplementation((key) => {
           if (key === 'codex_enabled') return '1';
+          if (key === 'codex_overflow_to_local') return '1';
           if (key === 'ollama_balanced_model') return 'qwen3:8b';
           if (key === 'ollama_fast_model') return 'gemma3:4b';
           return null;

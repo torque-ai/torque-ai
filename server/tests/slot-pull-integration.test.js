@@ -344,8 +344,8 @@ describe('slot-pull scheduler integration', () => {
       },
     });
 
-    // All 3 tasks get assigned: override stays on codex, others go to their providers
-    expect(slotPull.runSlotPullPass()).toEqual({ assigned: 3, skipped: 0 });
+    // Only unassigned queued tasks are pulled. The preset override remains pinned to codex.
+    expect(slotPull.runSlotPullPass()).toEqual({ assigned: 2, skipped: 0 });
 
     const overrideTask = db.getTask('override-locked');
     const regularDeepinfra = db.getTask('regular-deepinfra');
@@ -356,9 +356,8 @@ describe('slot-pull scheduler integration', () => {
     expect(overrideTask.metadata.user_provider_override).toBe(true);
     expect(regularDeepinfra.provider).toBe('deepinfra');
     expect(regularOllama.provider).toBe('ollama');
-    expect(startTask).toHaveBeenCalledTimes(3);
+    expect(startTask).toHaveBeenCalledTimes(2);
     expect(startTask.mock.calls.map(([taskId]) => taskId).sort()).toEqual([
-      'override-locked',
       'regular-deepinfra',
       'regular-ollama',
     ]);

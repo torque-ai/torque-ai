@@ -12,7 +12,7 @@ const https = require('https');
 const BaseProvider = require('./base');
 const db = require('../database');
 const logger = require('../logger').child({ component: 'v2-local-providers' });
-const { DEFAULT_FALLBACK_MODEL, MAX_STREAMING_OUTPUT, TASK_TIMEOUTS } = require('../constants');
+const { DEFAULT_FALLBACK_MODEL, MAX_STREAMING_OUTPUT, TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 
 const DEFAULT_SYSTEM_PROMPT = `You are an expert software engineer. Provide clear, concise, and accurate responses. When writing code:
 - Follow best practices and conventions for the language

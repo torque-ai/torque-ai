@@ -597,7 +597,11 @@ describe('fallback-retry module', () => {
 
       const task = createTask({
         provider: 'aider-ollama',
-        error_output: '[Local-First] prior local attempt'
+        error_output: '[Local-First] prior local attempt',
+        metadata: {
+          local_first_attempts: 1,
+          original_provider: 'aider-ollama',
+        },
       });
 
       const ok = mod.tryLocalFirstFallback(task.id, task, 'still failing');
@@ -1356,8 +1360,8 @@ describe('fallback-retry module', () => {
       ]));
 
       expect(mod.selectHashlineFormat('qwen2.5-coder:14b', null)).toEqual({
-        format: 'hashline',
-        reason: 'auto_learned (3 format failures)'
+        format: 'whole',
+        reason: 'auto_learned (3 hashline failures → whole)'
       });
     });
 

@@ -138,6 +138,8 @@ beforeEach(async () => {
   }
   originalFetch = global.fetch;
   ctx = setupE2eDb('cloud-providers-e2e');
+  ctx.tm.initEarlyDeps?.();
+  ctx.tm.initSubModules?.();
 
   // Save and set all API keys so provider constructors can find them
   for (const key of ENV_KEYS) {
@@ -661,4 +663,3 @@ describe('E2E: Cross-provider behavior', () => {
     expect(stats).toBeDefined();
   });
 });
-

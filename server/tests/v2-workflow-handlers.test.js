@@ -393,6 +393,8 @@ describe('api/v2-workflow-handlers', () => {
         'validation_error',
         'name is required',
         400,
+        undefined,
+        req,
       );
       expect(mockHandleCreateWorkflow).not.toHaveBeenCalled();
     });
@@ -411,6 +413,8 @@ describe('api/v2-workflow-handlers', () => {
         'validation_error',
         'tasks must be a non-empty array',
         400,
+        undefined,
+        req,
       );
       expect(mockHandleCreateWorkflow).not.toHaveBeenCalled();
     });
@@ -822,6 +826,8 @@ describe('api/v2-workflow-handlers', () => {
         'validation_error',
         'task or task_description is required',
         400,
+        undefined,
+        req,
       );
       expect(mockHandleAddWorkflowTask).not.toHaveBeenCalled();
     });
@@ -930,6 +936,8 @@ describe('api/v2-workflow-handlers', () => {
         'validation_error',
         'feature_name is required',
         400,
+        undefined,
+        req,
       );
     });
 

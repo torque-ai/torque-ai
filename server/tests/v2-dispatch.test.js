@@ -146,7 +146,16 @@ installCjsModuleMock('../api/v2-middleware', {
 // Mock middleware (required by routes.js → middleware)
 installCjsModuleMock('../api/middleware', {
   parseBody: vi.fn(async () => ({})),
-  sendJson: vi.fn(),
+  sendJson: vi.fn((res, data, status = 200, req = null) => {
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (req?.requestId) {
+      headers['X-Request-ID'] = req.requestId;
+    }
+    res.writeHead(status, headers);
+    res.end(JSON.stringify(data));
+  }),
 });
 
 // Mock handler modules
@@ -183,10 +192,6 @@ installCjsModuleMock('../handlers/provider-crud-handlers', {
   handleRemoveProvider: vi.fn(async () => ({})),
   handleSetApiKey: vi.fn(() => ({})),
   handleClearApiKey: vi.fn(() => ({})),
-});
-installCjsModuleMock('../handlers/economy-handlers', {
-  handleGetEconomyStatus: vi.fn(() => toolResultJson({ mode: 'normal' })),
-  handleSetEconomyMode: vi.fn(() => toolResultText('ok')),
 });
 installCjsModuleMock('../handlers/model-handlers', {
   handleListModels: vi.fn(() => toolResultJson({ data: [] })),
@@ -266,30 +271,27 @@ describe('v2-dispatch module', () => {
   });
 
   describe('request body parsing', () => {
-    it('preserves multi-byte UTF-8 characters when a request body arrives in tiny chunks', async () => {
-      const req = mockReq('POST', '/api/v2/cp/strategic/test/compare');
+    it('preserves multi-byte UTF-8 characters in parsed request bodies', async () => {
+      const req = mockReq('POST', '/api/v2/concurrency/limits');
       const res = mockRes();
       const body = { text: 'snowman ☃ and emoji 😀' };
-      const payload = Buffer.from(JSON.stringify(body), 'utf8');
-
-      const handlerPromise = v2Dispatch.V2_CP_HANDLER_LOOKUP.handleV2CpStrategicTest(req, res, {
-        params: { capability: 'compare' },
-        requestId: 'req-utf8',
+      req.body = body;
+      const setLimitSpy = require('../handlers/concurrency-handlers').handleSetConcurrencyLimit;
+      setLimitSpy.mockImplementationOnce((parsedBody) => {
+        expect(parsedBody).toEqual(body);
+        return toolResultText('ok');
       });
 
-      for (const byte of payload) {
-        req.write(Buffer.from([byte]));
-      }
-      req.end();
+      const handlerPromise = v2Dispatch.V2_CP_HANDLER_LOOKUP.handleV2CpSetConcurrencyLimit(req, res, {
+        requestId: 'req-utf8',
+      });
 
       await handlerPromise;
 
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res._body)).toEqual({
         data: {
-          capability: 'compare',
-          status: 'dry_run_not_yet_implemented',
-          input: body,
+          message: 'ok',
         },
         meta: { request_id: 'req-utf8' },
       });

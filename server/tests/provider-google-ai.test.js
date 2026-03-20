@@ -207,8 +207,9 @@ describe('GoogleAIProvider', () => {
         models: ['gemini-2.5-flash', 'gemini-2.5-pro'],
       });
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://generativelanguage.googleapis.com/v1beta/models?key=google-key',
+        'https://generativelanguage.googleapis.com/v1beta/models',
         expect.objectContaining({
+          headers: { 'X-Goog-Api-Key': 'google-key' },
           signal: expect.any(AbortSignal),
         })
       );
@@ -230,8 +231,9 @@ describe('GoogleAIProvider', () => {
         models: ['gemini-2.5-pro'],
       });
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:9090/v1beta/models?key=google-key',
+        'http://localhost:9090/v1beta/models',
         expect.objectContaining({
+          headers: { 'X-Goog-Api-Key': 'google-key' },
           signal: expect.any(AbortSignal),
         })
       );
@@ -341,11 +343,14 @@ describe('GoogleAIProvider', () => {
 
       const [url, options] = fetchMock.mock.calls[0];
       expect(url).toBe(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=google-key'
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent'
       );
       expect(options).toEqual(expect.objectContaining({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': 'google-key',
+        },
         signal: expect.any(AbortSignal),
       }));
       expect(requestBody()).toEqual({
@@ -366,9 +371,9 @@ describe('GoogleAIProvider', () => {
         tokens: 11,
         input_tokens: 7,
         output_tokens: 4,
-        cost: 0,
         model: 'gemini-2.5-pro',
       }));
+      expect(result.usage.cost).toBeCloseTo(0.0000385, 10);
     });
 
     it('uses the configured defaultModel when a model is not provided', async () => {
@@ -388,7 +393,7 @@ describe('GoogleAIProvider', () => {
       const result = await customProvider.submit('task', null, {});
 
       expect(fetchMock.mock.calls[0][0]).toBe(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=google-key'
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent'
       );
       expect(result.usage.model).toBe('gemini-2.5-pro');
     });
@@ -409,7 +414,7 @@ describe('GoogleAIProvider', () => {
 
       await customProvider.submit('task', null, {});
       expect(fetchMock.mock.calls[0][0]).toBe(
-        'http://localhost:8081/v1beta/models/gemini-2.5-flash:generateContent?key=google-key'
+        'http://localhost:8081/v1beta/models/gemini-2.5-flash:generateContent'
       );
     });
 
@@ -683,11 +688,14 @@ describe('GoogleAIProvider', () => {
 
       const [url, options] = fetchMock.mock.calls[0];
       expect(url).toBe(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse&key=google-key'
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse'
       );
       expect(options).toEqual(expect.objectContaining({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': 'google-key',
+        },
         signal: expect.any(AbortSignal),
       }));
       expect(requestBody()).toEqual({
@@ -717,7 +725,7 @@ describe('GoogleAIProvider', () => {
       const result = await customProvider.submitStream('task', null, {});
 
       expect(fetchMock.mock.calls[0][0]).toBe(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse&key=google-key'
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse'
       );
       expect(result.usage.model).toBe('gemini-2.5-pro');
     });
@@ -741,9 +749,9 @@ describe('GoogleAIProvider', () => {
         tokens: 13,
         input_tokens: 8,
         output_tokens: 5,
-        cost: 0,
         model: 'gemini-2.5-flash',
       }));
+      expect(result.usage.cost).toBeCloseTo(0.000004875, 10);
       expect(chunks).toEqual(['Hello', ' world']);
       expect(reader.cancel).toHaveBeenCalledTimes(1);
     });

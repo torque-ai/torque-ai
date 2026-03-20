@@ -430,6 +430,7 @@ describe('mcp gateway http transport', () => {
         status: 'ok',
         transport: 'loopback-http',
         version: 'v1',
+        deprecated: true,
         loaded_schemas: [
           'torque.task.submit.request.schema',
           'torque.task.submit.response.schema',

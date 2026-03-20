@@ -21,6 +21,20 @@ vi.mock('../mcp-sse', () => ({
 
 // ─── Per-test git fixture directories (created per helper call, cleaned automatically) ───
 const gitFixtureDirs = new Set();
+const canRunRealGit = (() => {
+  try {
+    gitSync(['--version']);
+    return true;
+  } catch {
+    return false;
+  }
+})();
+function gitIt(name, fn) {
+  if (canRunRealGit) {
+    return it(name, fn);
+  }
+  return it.skip(name, fn);
+}
 
 function registerGitFixtureDir(dir) {
   gitFixtureDirs.add(dir);
@@ -316,9 +330,9 @@ describe('handleRetryLogic', () => {
     tm.handleRetryLogic(c);
     expect(c.earlyExit).toBe(true);
 
-    // Task should be set to pending for retry
+    // Task should be set to retry_scheduled until the retry delay fires.
     const updated = db.getTask(task.id);
-    expect(updated.status).toBe('pending');
+    expect(updated.status).toBe('retry_scheduled');
 
     // Clean up pending retry timeout
     const pendingTimeout = tm._testing.pendingRetryTimeouts.get(task.id);
@@ -374,7 +388,7 @@ describe('handleSafeguardChecks', () => {
     expect(c.earlyExit).toBe(false);
   });
 
-  it('skips when no modified files detected', () => {
+  gitIt('skips when no modified files detected', () => {
     // Use a git repo with no uncommitted changes — avoids 10s git timeout on non-repo dirs
     const workDir = cloneGitFixture();
     const task = createTask({ working_directory: workDir });
@@ -388,7 +402,7 @@ describe('handleSafeguardChecks', () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  it('marks failed when placeholder-only output is returned without validated file changes', () => {
+  gitIt('marks failed when placeholder-only output is returned without validated file changes', () => {
     const workDir = cloneGitFixture();
     const task = createTask({
       provider: 'aider-ollama',
@@ -407,7 +421,7 @@ describe('handleSafeguardChecks', () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  it('marks failed when an untracked placeholder file remains in the working tree', () => {
+  gitIt('marks failed when an untracked placeholder file remains in the working tree', () => {
     const workDir = cloneGitFixture();
     const placeholderPath = path.join(workDir, 'src', 'placeholder.js');
     fs.mkdirSync(path.dirname(placeholderPath), { recursive: true });
@@ -499,7 +513,7 @@ describe('handleNoFileChangeDetection', () => {
     expect(c.status).toBe('completed');
   });
 
-  it('marks failed when code-gen verb present but no files changed', () => {
+  gitIt('marks failed when code-gen verb present but no files changed', () => {
     // Use a git repo so git status returns instantly (no 10s timeout on non-repo dirs)
     const workDir = cloneGitFixture();
     const task = createTask({
@@ -517,7 +531,7 @@ describe('handleNoFileChangeDetection', () => {
     fs.rmSync(workDir, { recursive: true, force: true });
   });
 
-  it('detects conversational refusal patterns', () => {
+  gitIt('detects conversational refusal patterns', () => {
     const workDir = cloneGitFixture();
     const task = createTask({
       provider: 'aider-ollama',

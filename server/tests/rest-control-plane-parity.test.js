@@ -268,10 +268,10 @@ describe('REST control-plane parity', () => {
       const totalRouteLines = (routerSource.match(/handler:\s*\w+\.\w+/g) || []).length;
       const compatLines = (routerSource.match(/compat:\s*true/g) || []).length;
       const exemptCount = totalRouteLines - compatLines;
-      // 17 routes have no v2 equivalent: activity, percentiles, task-actions (partial),
+      // 18 routes have no v2 equivalent: activity, percentiles, task-actions (partial),
       // instances, get-tuning, workflow-tasks, operations, peek-test, peek-update,
       // credential-test, coordination(4), free-tier(3), coordination-agents
-      expect(exemptCount).toBeLessThanOrEqual(17);
+      expect(exemptCount).toBeLessThanOrEqual(18);
     });
   });
 

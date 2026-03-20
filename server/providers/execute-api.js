@@ -287,6 +287,7 @@ async function executeApiProvider(task, provider) {
   let taskClone = null;
   // Issue #9: hoisted so the finally block can record usage on both success and failure paths.
   let startTimeMs = 0;
+  let result = null;
 
   try {
     // Register abort controller BEFORE setting status to 'running' so cancelTask()
@@ -340,10 +341,9 @@ async function executeApiProvider(task, provider) {
     taskClone = { ...task };
     taskClone.task_description = effectiveDescription;
 
-    // Issue #9: startTimeMs and result are hoisted so the finally block can record usage on
+    // Issue #9: startTimeMs is hoisted so the finally block can record usage on
     // both success and failure paths.
     startTimeMs = Date.now();
-    let result;
 
     if (provider.supportsStreaming) {
       // Use streaming path — pipe tokens to stream chunks + dashboard

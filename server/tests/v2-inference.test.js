@@ -679,7 +679,7 @@ describe('api/v2-inference pure helpers', () => {
     expect(handlers.buildV2InferenceTaskOptions({
       max_tokens: 99,
     }, 'ollama')).toEqual({
-      timeout: 120,
+      timeout: 2,
       maxTokens: 99,
       tuning: {},
     });
@@ -727,7 +727,7 @@ describe('api/v2-inference.executeV2ProviderInference', () => {
     });
 
     expect(adapter.submit).toHaveBeenCalledWith('user: Hello there', 'requested-model', expect.objectContaining({
-      timeout: 120,
+      timeout: 2,
       transport: 'api',
       attemptReason: 'provider_route',
     }));
@@ -926,7 +926,7 @@ describe('api/v2-inference.executeV2ProviderInference', () => {
     });
 
     const error = getLastError();
-    expect(error.code).toBe('stream_not_supported');
+    expect(error.code).toBe('async_not_supported');
     expect(error.statusCode).toBe(400);
     expect(error.details).toEqual(expect.objectContaining({
       provider: 'ollama',

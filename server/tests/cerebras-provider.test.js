@@ -128,7 +128,7 @@ describe('CerebrasProvider', () => {
 
       expect(envProvider.apiKey).toBe('env-cerebras-key');
       expect(envProvider.baseUrl).toBe('https://api.cerebras.ai');
-      expect(envProvider.defaultModel).toBe('llama3.1-8b');
+      expect(envProvider.defaultModel).toBe('qwen-3-235b-a22b-instruct-2507');
       expect(envProvider.supportsStreaming).toBe(true);
     });
   });
@@ -165,7 +165,7 @@ describe('CerebrasProvider', () => {
 
       const requestBody = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
       expect(requestBody).toEqual({
-        model: 'llama3.1-8b',
+        model: 'qwen-3-235b-a22b-instruct-2507',
         messages: [{
           role: 'user',
           content: 'Files: server/providers/cerebras.js, server/tests/cerebras-provider.test.js\n\nWorking directory: /tmp/torque\n\nship tests',
@@ -180,10 +180,10 @@ describe('CerebrasProvider', () => {
           tokens: 16,
           input_tokens: 12,
           output_tokens: 4,
-          cost: 0,
-          model: 'llama3.1-8b',
+          model: 'qwen-3-235b-a22b-instruct-2507',
         },
       });
+      expect(result.usage.cost).toBeCloseTo(0.0000096, 10);
       expect(result.usage.duration_ms).toBeGreaterThanOrEqual(0);
       expect(provider.activeTasks).toBe(0);
     });
@@ -222,7 +222,7 @@ describe('CerebrasProvider', () => {
         input_tokens: 0,
         output_tokens: 0,
         cost: 0,
-        model: 'llama3.1-8b',
+        model: 'qwen-3-235b-a22b-instruct-2507',
       });
     });
 
@@ -331,7 +331,7 @@ describe('CerebrasProvider', () => {
       const requestBody = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
 
       expect(requestBody).toMatchObject({
-        model: 'llama3.1-8b',
+        model: 'qwen-3-235b-a22b-instruct-2507',
         max_tokens: 4096,
         stream: true,
       });
@@ -342,10 +342,10 @@ describe('CerebrasProvider', () => {
           tokens: 11,
           input_tokens: 7,
           output_tokens: 4,
-          cost: 0,
-          model: 'llama3.1-8b',
+          model: 'qwen-3-235b-a22b-instruct-2507',
         },
       });
+      expect(result.usage.cost).toBeCloseTo(0.0000066, 10);
       expect(onChunk).toHaveBeenNthCalledWith(1, 'Hello');
       expect(onChunk).toHaveBeenNthCalledWith(2, ' world');
       expect(stream.reader.cancel).toHaveBeenCalledTimes(1);
@@ -521,7 +521,7 @@ describe('CerebrasProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['llama3.1-8b'],
+        models: ['qwen-3-235b-a22b-instruct-2507'],
       });
     });
 

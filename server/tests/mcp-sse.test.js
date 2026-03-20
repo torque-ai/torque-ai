@@ -3,6 +3,8 @@ const http = require('http');
 const db = require('../database');
 const tools = require('../tools');
 
+let nextTestIp = 1;
+
 // Mock response object similar to api-server.test.js pattern
 function createMockResponse() {
   const chunks = [];
@@ -43,6 +45,12 @@ async function dispatchRequest(handler, { method, url, headers = {}, body } = {}
   req.method = method;
   req.url = url;
   req.headers = headers;
+  if (method === 'GET' && typeof url === 'string' && url.startsWith('/sse')) {
+    const socket = { remoteAddress: `127.0.0.${(nextTestIp % 250) + 1}` };
+    nextTestIp += 1;
+    req.socket = socket;
+    req.connection = socket;
+  }
   req.destroy = vi.fn();
 
   const { response, done } = createMockResponse();
@@ -51,7 +59,7 @@ async function dispatchRequest(handler, { method, url, headers = {}, body } = {}
   process.nextTick(() => {
     if (body !== undefined) {
       const payload = typeof body === 'string' ? body : JSON.stringify(body);
-      req.emit('data', payload);
+      req.emit('data', Buffer.from(payload, 'utf8'));
     }
     req.emit('end');
   });

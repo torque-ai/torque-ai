@@ -16,6 +16,7 @@ const MODULE_PATHS = [
 
 const mockDb = {
   countTasks: vi.fn(),
+  countTasksByStatus: vi.fn(),
   getOverallQualityStats: vi.fn(),
   getQualityStatsByProvider: vi.fn(),
   getValidationFailureRate: vi.fn(),
@@ -171,6 +172,13 @@ function countKey(filters = {}) {
 
 function mockCountTasksWithMap(counts) {
   mockDb.countTasks.mockImplementation((filters = {}) => counts[countKey(filters)] ?? 0);
+  mockDb.countTasksByStatus.mockImplementation(() => ({
+    running: counts[countKey({ status: 'running' })] ?? 0,
+    queued: counts[countKey({ status: 'queued' })] ?? 0,
+    completed: counts[countKey({ status: 'completed' })] ?? 0,
+    failed: counts[countKey({ status: 'failed' })] ?? 0,
+    cancelled: counts[countKey({ status: 'cancelled' })] ?? 0,
+  }));
 }
 
 function minutesAgo(minutes) {
@@ -194,6 +202,7 @@ async function withPatchedProperties(target, patch, callback) {
 
 function resetMockDefaults() {
   mockDb.countTasks.mockReset().mockReturnValue(0);
+  mockDb.countTasksByStatus.mockReset().mockReturnValue({});
   mockDb.getOverallQualityStats.mockReset().mockReturnValue({});
   mockDb.getQualityStatsByProvider.mockReset().mockReturnValue([]);
   mockDb.getValidationFailureRate.mockReset().mockReturnValue({});
@@ -569,6 +578,7 @@ describe('api/v2-analytics-handlers', () => {
           model: 'gpt-5',
           provider: 'codex',
           total: 4,
+          task_count: 4,
           completed: 3,
           failed: 1,
           avg_duration_seconds: 10,
@@ -578,6 +588,7 @@ describe('api/v2-analytics-handlers', () => {
           model: 'gpt-5',
           provider: 'openrouter',
           total: 2,
+          task_count: 2,
           completed: 2,
           failed: 0,
           avg_duration_seconds: 20,
@@ -587,6 +598,7 @@ describe('api/v2-analytics-handlers', () => {
           model: 'claude-sonnet',
           provider: 'anthropic',
           total: 1,
+          task_count: 1,
           completed: 0,
           failed: 1,
           avg_duration_seconds: null,
@@ -616,8 +628,10 @@ describe('api/v2-analytics-handlers', () => {
           total: 6,
           completed: 5,
           failed: 1,
-          avg_duration_seconds: 15,
+          avg_duration_seconds: 13.333333333333334,
           last_used: '2026-03-10T03:00:00.000Z',
+          _totalDuration: 80,
+          _totalCount: 6,
           success_rate: 83,
         },
         {
@@ -628,6 +642,8 @@ describe('api/v2-analytics-handlers', () => {
           failed: 1,
           avg_duration_seconds: null,
           last_used: '2026-03-09T08:00:00.000Z',
+          _totalDuration: 0,
+          _totalCount: 0,
           success_rate: 0,
         },
       ]);

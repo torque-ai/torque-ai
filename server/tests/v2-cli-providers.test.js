@@ -491,7 +491,7 @@ describe('v2-cli-providers', () => {
         input_tokens: 12,
         output_tokens: 4,
         total_tokens: 16,
-        cost: 0,
+        cost: 0.000048,
         duration_ms: expect.any(Number),
         model: 'server-model',
       },

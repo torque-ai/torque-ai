@@ -43,8 +43,19 @@ function teardownDb() {
 }
 
 describe('Database Module', () => {
-  beforeAll(() => { setupDb(); });
-  afterAll(() => { teardownDb(); });
+  beforeAll(() => {
+    setupDb();
+    const eventBus = require('../event-bus');
+    emitQueueChangedSpy = vi.spyOn(eventBus, 'emitQueueChanged');
+    emitShutdownSpy = vi.spyOn(eventBus, 'emitShutdown');
+    emitTaskUpdatedSpy = vi.spyOn(eventBus, 'emitTaskUpdated');
+  });
+  afterAll(() => {
+    emitQueueChangedSpy.mockRestore();
+    emitShutdownSpy.mockRestore();
+    emitTaskUpdatedSpy.mockRestore();
+    teardownDb();
+  });
 
   // ── Config CRUD ──────────────────────────────────────────
   describe('Config CRUD', () => {
@@ -119,7 +130,7 @@ describe('Database Module', () => {
           timeout_minutes: 10,
           provider: 'codex',
         });
-        expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
+        expect(emitQueueChangedSpy).toHaveBeenCalled();
       } finally {
         emitSpy.mockRestore();
       }
@@ -138,7 +149,7 @@ describe('Database Module', () => {
           timeout_minutes: 10,
           provider: 'codex',
         });
-        expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
+        expect(emitQueueChangedSpy).toHaveBeenCalled();
       } finally {
         emitSpy.mockRestore();
       }
@@ -159,8 +170,8 @@ describe('Database Module', () => {
         });
         emitSpy.mockClear();
 
-        db.updateTaskStatus(requeueId, 'queued');
-        expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
+                db.updateTaskStatus(requeueId, 'queued');
+                expect(emitQueueChangedSpy).toHaveBeenCalled();
       } finally {
         emitSpy.mockRestore();
       }

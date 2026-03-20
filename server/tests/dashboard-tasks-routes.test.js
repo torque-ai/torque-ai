@@ -230,8 +230,16 @@ describe('dashboard/routes/tasks', () => {
 
       handlers.handleListTasks(createReq(), res, {});
 
-      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 25, offset: 0 });
-      expect(mockDb.countTasks).toHaveBeenCalledWith({});
+      expect(mockDb.listTasks).toHaveBeenCalledWith({
+        limit: 25,
+        offset: 0,
+        orderBy: 'created_at',
+        orderDir: 'desc',
+      });
+      expect(mockDb.countTasks).toHaveBeenCalledWith({
+        orderBy: 'created_at',
+        orderDir: 'desc',
+      });
       expect(mockUtils.enrichTaskWithHostName).toHaveBeenCalledTimes(1);
       expectSuccess(res, {
         tasks: [
@@ -304,9 +312,13 @@ describe('dashboard/routes/tasks', () => {
         archivedOnly: true,
         limit: 25,
         offset: 25,
+        orderBy: 'created_at',
+        orderDir: 'desc',
       });
       expect(mockDb.countTasks).toHaveBeenCalledWith({
         archivedOnly: true,
+        orderBy: 'created_at',
+        orderDir: 'desc',
       });
     });
 
@@ -321,6 +333,8 @@ describe('dashboard/routes/tasks', () => {
       expect(mockDb.listTasks).toHaveBeenCalledWith({
         limit: 100,
         offset: 100,
+        orderBy: 'created_at',
+        orderDir: 'desc',
       });
       expect(res.payload.pagination).toEqual({
         page: 2,
@@ -341,6 +355,8 @@ describe('dashboard/routes/tasks', () => {
       expect(mockDb.listTasks).toHaveBeenCalledWith({
         limit: 25,
         offset: 0,
+        orderBy: 'created_at',
+        orderDir: 'desc',
       });
       expect(res.payload.pagination.page).toBe(1);
       expect(res.payload.pagination.limit).toBe(25);
@@ -443,6 +459,8 @@ describe('dashboard/routes/tasks', () => {
       await handlers.handleTaskAction(createReq(), res, {}, 'task-1', 'retry', context);
 
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-1', 'queued', {
+        retry_count: 1,
+        provider: null,
         error_output: null,
         started_at: null,
         completed_at: null,

@@ -42,6 +42,10 @@ function createConstantsMock(overrides = {}) {
       OLLAMA_API: 4321,
       ...(overrides.TASK_TIMEOUTS || {}),
     },
+    PROVIDER_DEFAULT_TIMEOUTS: {
+      ollama: 30,
+      ...(overrides.PROVIDER_DEFAULT_TIMEOUTS || {}),
+    },
   };
 }
 
@@ -618,7 +622,7 @@ describe('v2-local-providers request handling', () => {
       port: '11434',
       path: '/api/generate',
       method: 'POST',
-      timeout: 4321,
+      timeout: 30 * 60 * 1000,
     });
     expect(JSON.parse(requestMock.getBody())).toMatchObject({
       model: 'qwen2.5-coder:7b',
@@ -723,7 +727,7 @@ describe('v2-local-providers request handling', () => {
     });
     const { providers } = loadProviders({
       constants: {
-        TASK_TIMEOUTS: { OLLAMA_API: 1500 },
+        PROVIDER_DEFAULT_TIMEOUTS: { ollama: 0.025 },
       },
     });
     const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });

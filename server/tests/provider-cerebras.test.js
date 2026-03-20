@@ -68,7 +68,7 @@ describe('CerebrasProvider', () => {
     });
 
     it('uses default model and baseUrl when not provided', () => {
-      expect(provider.defaultModel).toBe('llama3.1-8b');
+      expect(provider.defaultModel).toBe('qwen-3-235b-a22b-instruct-2507');
       expect(provider.baseUrl).toBe('https://api.cerebras.ai');
     });
 
@@ -129,7 +129,7 @@ describe('CerebrasProvider', () => {
       const result = await provider.checkHealth();
 
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['llama3.1-8b']);
+      expect(result.models).toEqual(['qwen-3-235b-a22b-instruct-2507']);
     });
 
     it('filters out falsy model ids', async () => {
@@ -213,7 +213,7 @@ describe('CerebrasProvider', () => {
         Authorization: 'Bearer test-cerebras-key',
       });
       expect(body).toEqual({
-        model: 'llama3.1-8b',
+        model: 'qwen-3-235b-a22b-instruct-2507',
         messages: [{
           role: 'user',
           content: 'Files: a.js, b.js\n\nWorking directory: /tmp/project\n\ntest task',
@@ -227,9 +227,9 @@ describe('CerebrasProvider', () => {
         tokens: 150,
         input_tokens: 100,
         output_tokens: 50,
-        cost: 0,
-        model: 'llama3.1-8b',
+        model: 'qwen-3-235b-a22b-instruct-2507',
       }));
+      expect(result.usage.cost).toBeCloseTo(0.00009, 10);
       expect(result.usage.duration_ms).toBeGreaterThanOrEqual(0);
       expect(httpRequestSpy).not.toHaveBeenCalled();
       expect(httpsRequestSpy).not.toHaveBeenCalled();
@@ -424,9 +424,9 @@ describe('CerebrasProvider', () => {
         tokens: 11,
         input_tokens: 8,
         output_tokens: 3,
-        cost: 0,
-        model: 'llama3.1-8b',
+        model: 'qwen-3-235b-a22b-instruct-2507',
       }));
+      expect(result.usage.cost).toBeCloseTo(0.0000066, 10);
     });
 
     it('sends stream:true in the streaming request body', async () => {

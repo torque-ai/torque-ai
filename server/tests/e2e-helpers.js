@@ -56,6 +56,12 @@ function setupE2eDb(suiteName) {
 
   // Clear task-manager state and skip git in close handlers (no real files modified in E2E tests)
   const tm = require('../task-manager');
+  if (typeof tm.initEarlyDeps === 'function') {
+    tm.initEarlyDeps();
+  }
+  if (typeof tm.initSubModules === 'function') {
+    tm.initSubModules();
+  }
   if (tm._testing && tm._testing.resetForTest) {
     tm._testing.resetForTest();
     tm._testing.skipGitInCloseHandler = true;
@@ -83,6 +89,12 @@ function resetE2eDb() {
   db.setConfig('hashline_capable_models', '');
 
   const tm = require('../task-manager');
+  if (typeof tm.initEarlyDeps === 'function') {
+    tm.initEarlyDeps();
+  }
+  if (typeof tm.initSubModules === 'function') {
+    tm.initSubModules();
+  }
   if (tm._testing && tm._testing.resetForTest) {
     tm._testing.resetForTest();
     tm._testing.skipGitInCloseHandler = true;

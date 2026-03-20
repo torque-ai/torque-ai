@@ -652,7 +652,8 @@ describe('api/v2-governance-handlers.handleImportPlan', () => {
     expect(res.statusCode).toBe(200);
     expect(res._body.data).toEqual({ imported: 2, project_id: 'plan-1' });
     expectMeta(res._body);
-    expect(observedFilePath).toBe(path.join(TEMP_ROOT, 'plan-1773146096789.md'));
+    expect(path.dirname(observedFilePath)).toBe(TEMP_ROOT);
+    expect(path.basename(observedFilePath)).toMatch(/^plan-[0-9a-f-]+\.md$/);
     expect(fs.existsSync(observedFilePath)).toBe(false);
   });
 
@@ -667,12 +668,16 @@ describe('api/v2-governance-handlers.handleImportPlan', () => {
 
     await handlers.handleImportPlan(req, res);
 
-    expect(mockTools.handleToolCall).toHaveBeenCalledWith('import_plan', {
-      file_path: path.join(TEMP_ROOT, 'plan-1773146096789.md'),
+    const [toolName, payload] = mockTools.handleToolCall.mock.calls.at(-1);
+    expect(toolName).toBe('import_plan');
+    expect(payload).toEqual({
+      file_path: expect.any(String),
       project_name: undefined,
       dry_run: false,
       working_directory: undefined,
     });
+    expect(path.dirname(payload.file_path)).toBe(TEMP_ROOT);
+    expect(path.basename(payload.file_path)).toMatch(/^plan-[0-9a-f-]+\.md$/);
   });
 
   it('returns 400 when the import tool reports an error and still cleans up the temp file', async () => {

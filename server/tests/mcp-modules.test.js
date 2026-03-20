@@ -233,6 +233,9 @@ describe('mcp/schema-registry', () => {
     });
 
     it('surfaces JSON parse failures when a schema file is invalid', () => {
+      const logger = require('../logger');
+      const warnSpy = vi.fn();
+      vi.spyOn(logger, 'child').mockReturnValue({ warn: warnSpy });
       const fsMock = createFsMock({
         existsSync: vi.fn(() => true),
         readdirSync: vi.fn(() => ['broken.json']),
@@ -240,7 +243,8 @@ describe('mcp/schema-registry', () => {
       });
       const registry = loadSchemaRegistryModule({ fsModule: fsMock });
 
-      expect(() => registry.loadSchemas()).toThrow(SyntaxError);
+      expect(registry.loadSchemas()).toBe(0);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to parse schema file broken.json'));
     });
 
     it('loads the real schema catalog from disk', () => {

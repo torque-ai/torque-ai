@@ -187,7 +187,7 @@ describe('retry-framework', () => {
     );
     expect(scenario.deps.db.updateTaskStatus).toHaveBeenCalledWith(
       scenario.taskId,
-      'pending',
+      'retry_scheduled',
       expect.objectContaining({
         output: 'sanitized:partial output',
         error_output: `[Retry ${retryCount + 1}/6 - timeout] transient failure`,
@@ -232,7 +232,7 @@ describe('retry-framework', () => {
     expect(mockDispatchTaskEvent).toHaveBeenCalledWith(
       'retry',
       expect.objectContaining({
-        status: 'pending',
+        status: 'retry_scheduled',
         provider: 'anthropic',
         fallback_provider: 'codex',
         provider_switch_reason: 'quota_exceeded',
@@ -241,7 +241,7 @@ describe('retry-framework', () => {
     expect(mockTriggerWebhooks).toHaveBeenCalledWith(
       'retry',
       expect.objectContaining({
-        status: 'pending',
+        status: 'retry_scheduled',
         provider: 'anthropic',
         fallback_provider: 'codex',
         provider_switch_reason: 'quota_exceeded',
@@ -302,7 +302,7 @@ describe('retry-framework', () => {
     expect(scenario.deps.taskCleanupGuard.has(scenario.taskId)).toBe(false);
     expect(scenario.deps.db.updateTaskStatus).toHaveBeenCalledWith(
       scenario.taskId,
-      'pending',
+      'retry_scheduled',
       expect.any(Object),
     );
     expect(scenario.deps.processQueue).toHaveBeenCalledTimes(1);
@@ -335,8 +335,20 @@ describe('retry-framework', () => {
     await Promise.resolve();
 
     expect(scenario.deps.startTask).toHaveBeenCalledWith(scenario.taskId);
-    expect(scenario.deps.db.updateTaskStatus).toHaveBeenCalledTimes(1);
-    expect(scenario.state.task.status).toBe('pending');
+    expect(scenario.deps.db.updateTaskStatus).toHaveBeenCalledTimes(2);
+    expect(scenario.deps.db.updateTaskStatus).toHaveBeenNthCalledWith(
+      1,
+      scenario.taskId,
+      'retry_scheduled',
+      expect.any(Object),
+    );
+    expect(scenario.deps.db.updateTaskStatus).toHaveBeenNthCalledWith(
+      2,
+      scenario.taskId,
+      'queued',
+      { retry_count: 1 },
+    );
+    expect(scenario.state.task.status).toBe('queued');
   });
 
   it('marks the task failed when the final retry attempt cannot be started', async () => {
@@ -352,7 +364,7 @@ describe('retry-framework', () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(scenario.deps.db.updateTaskStatus).toHaveBeenNthCalledWith(
-      2,
+      3,
       scenario.taskId,
       'failed',
       { error_output: 'Retry failed: spawn failed' },
@@ -364,6 +376,10 @@ describe('retry-framework', () => {
     const updateTaskStatus = vi.fn()
       .mockImplementationOnce((id, status, fields = {}) => {
         scenario.state.task = { ...scenario.state.task, status, ...fields };
+        return { ...scenario.state.task };
+      })
+      .mockImplementationOnce(() => {
+        scenario.state.task = { ...scenario.state.task, status: 'queued', retry_count: 1 };
         return { ...scenario.state.task };
       })
       .mockImplementationOnce(() => {
@@ -384,7 +400,7 @@ describe('retry-framework', () => {
     retryFramework.handleRetryLogic(scenario.ctx);
     await vi.runOnlyPendingTimersAsync();
 
-    expect(updateTaskStatus).toHaveBeenCalledTimes(2);
-    expect(scenario.state.task.status).toBe('pending');
+    expect(updateTaskStatus).toHaveBeenCalledTimes(3);
+    expect(scenario.state.task.status).toBe('queued');
   });
 });

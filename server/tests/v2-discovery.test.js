@@ -161,7 +161,7 @@ describe('v2 provider discovery routes', () => {
     ]);
     expect(ollama.limits).toMatchObject({
       max_concurrent: 4,
-      timeout_ms_default: 10000,
+      timeout_ms_default: 30000,
       queue_depth: 1,
     });
   });
@@ -224,7 +224,7 @@ describe('v2 provider discovery routes', () => {
     ]);
     expect(payload.data.provider.limits).toMatchObject({
       max_concurrent: 4,
-      timeout_ms_default: 10000,
+      timeout_ms_default: 30000,
       request_rate_per_minute: 120,
       queue_depth: 0,
     });
