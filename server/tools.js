@@ -43,6 +43,7 @@ const TOOLS = [
   ...require('./tool-defs/model-defs'),
   ...require('./tool-defs/routing-template-defs'),
   ...require('./tool-defs/strategic-config-defs'),
+  ...require('./tool-defs/auth-defs'),
 ];
 
 // ── Handler modules ──
@@ -73,6 +74,7 @@ const HANDLER_MODULES = [
   require('./handlers/model-handlers'),
   require('./handlers/routing-template-handlers'),
   require('./handlers/strategic-config-handlers'),
+  require('./handlers/auth-handlers'),
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──
