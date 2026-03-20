@@ -804,7 +804,7 @@ function getV2ProviderSuccessRatio(providerStats, runtimeHealth) {
   }
 
   const failureRate = Number(runtimeHealth?.failureRate);
-  if (Number.isFinite(failureRate) && failureRate > 0 && failureRate <= 1) {
+  if (Number.isFinite(failureRate) && failureRate >= 0 && failureRate <= 1) {
     return Math.max(0, Math.min(1, Number((1 - failureRate).toFixed(4))));
   }
 
@@ -964,7 +964,7 @@ function formatV2InferenceResult(result) {
 }
 
 function normalizeV2InferenceStatus(rawStatus) {
-  const status = (rawStatus || 'completed').toLowerCase();
+  const status = (rawStatus || 'unknown').toLowerCase();
   if (status === 'queued' || status === 'running' || status === 'completed' || status === 'failed' || status === 'cancelled') {
     return status;
   }

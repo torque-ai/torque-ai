@@ -52,8 +52,8 @@ function handleStatsOverview(req, res) {
   const todayFailed = db.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' });
   const todayRunning = db.countTasks({ from_date: today, to_date: tomorrow, status: 'running' });
   const todayTotal = todayCompleted + todayFailed + todayRunning;
-  const todaySuccessRate = todayTotal > 0
-    ? Math.round((todayCompleted / (todayCompleted + todayFailed || 1)) * 100)
+  const todaySuccessRate = (todayCompleted + todayFailed) > 0
+    ? Math.round((todayCompleted / ((todayCompleted + todayFailed) || 1)) * 100)
     : 0;
 
   // Yesterday's stats — same methodology: completed + failed only

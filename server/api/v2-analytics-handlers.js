@@ -87,7 +87,7 @@ async function handleStatsOverview(req, res) {
   const cancelledCount = statusCounts.cancelled ?? 0;
 
   const successRate = todayTotal > 0
-    ? Math.round((todayCompleted / (todayCompleted + todayFailed || 1)) * 100) : 0;
+    ? Math.round((todayCompleted / ((todayCompleted + todayFailed) || 1)) * 100) : 0;
 
   sendSuccess(res, requestId, {
     today: {
@@ -472,7 +472,7 @@ async function handleRoutingDecisions(req, res) {
       status: task.status,
       fallback_used: !!metadata.user_provider_override || !!metadata.fallback_provider,
       needs_review: !!metadata.needs_review,
-      description: (task.description || '').slice(0, 120),
+      description: (task.task_description || '').slice(0, 120),
     });
   }
 

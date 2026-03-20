@@ -69,8 +69,10 @@ function analyzeCodeComplexity(taskId, filePath, content) {
 
   const linesOfCode = content.split('\n').filter(line => line.trim().length > 0).length;
 
+  const safeLoc = Math.max(1, linesOfCode);
+  const safeComplexity = Math.max(1, cyclomaticComplexity);
   const maintainabilityIndex = Math.max(0, Math.min(100,
-    171 - 5.2 * Math.log(cyclomaticComplexity) - 0.23 * cyclomaticComplexity - 16.2 * Math.log(linesOfCode)
+    171 - 5.2 * Math.log(safeComplexity) - 0.23 * safeComplexity - 16.2 * Math.log(safeLoc)
   ));
 
   db.prepare(`
