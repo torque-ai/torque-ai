@@ -3,6 +3,7 @@ const http = require('http');
 const db = require('../database');
 const tools = require('../tools');
 const adapterRegistry = require('../providers/adapter-registry');
+const eventBus = require('../event-bus');
 
 function createMockResponse() {
   let resolve;
@@ -2650,15 +2651,17 @@ describe('API Server endpoints', () => {
 
   describe('POST /api/shutdown auth', () => {
     let shutdownEvents;
+    let shutdownListener;
 
     beforeEach(() => {
       shutdownEvents = [];
-      process.on('torque:shutdown', (reason) => shutdownEvents.push(reason));
+      shutdownListener = (reason) => shutdownEvents.push(reason);
+      eventBus.onShutdown(shutdownListener);
       vi.useFakeTimers();
     });
 
     afterEach(() => {
-      process.removeAllListeners('torque:shutdown');
+      eventBus.removeListener('shutdown', shutdownListener);
       vi.useRealTimers();
       shutdownEvents = [];
     });

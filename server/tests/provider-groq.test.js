@@ -234,8 +234,9 @@ describe('GroqProvider', () => {
     });
 
     it('uses the flat Groq rate per million tokens', () => {
-      expect(provider._estimateCost({ total_tokens: 1_000_000 })).toBeCloseTo(0.27);
-      expect(provider._estimateCost({ total_tokens: 500_000 })).toBeCloseTo(0.135);
+      // provider.defaultModel is 'llama-3.3-70b-versatile' ($0.59/1M in MODEL_RATES)
+      expect(provider._estimateCost({ total_tokens: 1_000_000 })).toBeCloseTo(0.59);
+      expect(provider._estimateCost({ total_tokens: 500_000 })).toBeCloseTo(0.295);
     });
   });
 
