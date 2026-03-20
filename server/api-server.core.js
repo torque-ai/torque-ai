@@ -2267,6 +2267,11 @@ async function handleClaudeEvent(req, res, _context = {}) {
   if (eventType === 'file_write' && payload.file_path) {
     if (!_claudeEventLog.has(sessionId)) {
       _claudeEventLog.set(sessionId, { files: new Set(), events: [] });
+      // Evict oldest entries if map grows beyond 1000 sessions
+      if (_claudeEventLog.size > 1000) {
+        const firstKey = _claudeEventLog.keys().next().value;
+        _claudeEventLog.delete(firstKey);
+      }
     }
     const session = _claudeEventLog.get(sessionId);
     session.files.add(payload.file_path);

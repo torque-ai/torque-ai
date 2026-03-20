@@ -428,6 +428,8 @@ class ProcessTracker extends Map {
     if (entry.timeoutHandle) clearTimeout(entry.timeoutHandle);
     if (entry.startupTimeoutHandle) clearTimeout(entry.startupTimeoutHandle);
     if (entry.completionGraceHandle) clearTimeout(entry.completionGraceHandle);
+    // Cancel any pending retry timeout
+    this.cancelRetryTimeout(taskId);
     // Remove from all maps
     this.delete(taskId);
     this._stallAttempts.delete(taskId);

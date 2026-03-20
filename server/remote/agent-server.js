@@ -524,7 +524,9 @@ function streamRun(req, res, body, state) {
       exit_code: exitCode,
       duration_ms: Date.now() - startedAt,
     });
-    res.end();
+    try {
+      if (!res.writableEnded) res.end();
+    } catch (_e) { /* connection already closed */ }
   };
 
   const timer = setTimeout(() => {

@@ -784,6 +784,11 @@ function stop() {
     clearInterval(httpServer.statsInterval);
   }
 
+  // Clear debounce/throttle timers to prevent post-stop firing
+  if (taskUpdateTimer) { clearTimeout(taskUpdateTimer); taskUpdateTimer = null; }
+  pendingTaskUpdates.clear();
+  pendingStatsUpdate = false;
+
   // Close all WebSocket connections
   for (const client of clients) {
     client.close();
