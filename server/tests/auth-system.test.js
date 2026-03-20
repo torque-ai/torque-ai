@@ -4,6 +4,9 @@ const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
 const keyManager = require('../auth/key-manager');
 const ticketManager = require('../auth/ticket-manager');
 const sessionManager = require('../auth/session-manager');
+const { resolve } = require('../auth/resolvers');
+const { authenticate, extractCredential, requireRole, isAdminEndpoint, parseCookie } = require('../auth/middleware');
+const { AuthRateLimiter } = require('../auth/rate-limiter');
 
 let db;
 
@@ -510,5 +513,263 @@ describe('session-manager', () => {
     sessionManager.createSession({ id: 'user-2' });
     sessionManager._reset();
     expect(sessionManager.getSessionCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolvers tests
+// ---------------------------------------------------------------------------
+
+describe('resolvers', () => {
+  beforeEach(() => {
+    ticketManager._reset();
+    sessionManager._reset();
+  });
+
+  afterEach(() => {
+    ticketManager._reset();
+    sessionManager._reset();
+  });
+
+  it('resolves api_key credential to identity', () => {
+    const created = keyManager.createKey({ name: 'resolver-key', role: 'admin' });
+    const identity = resolve({ type: 'api_key', value: created.key });
+    expect(identity).toBeTruthy();
+    expect(identity.id).toBe(created.id);
+    expect(identity.name).toBe('resolver-key');
+    expect(identity.role).toBe('admin');
+  });
+
+  it('resolves session credential to identity', () => {
+    const userIdentity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const { sessionId } = sessionManager.createSession(userIdentity);
+    const identity = resolve({ type: 'session', value: sessionId });
+    expect(identity).toEqual(userIdentity);
+  });
+
+  it('resolves ticket credential to identity (and consumes it)', () => {
+    const userIdentity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const ticket = ticketManager.createTicket(userIdentity);
+    const identity = resolve({ type: 'ticket', value: ticket });
+    expect(identity).toEqual(userIdentity);
+    // Ticket is consumed — second resolve returns null
+    const second = resolve({ type: 'ticket', value: ticket });
+    expect(second).toBeNull();
+  });
+
+  it('returns null for unknown credential type', () => {
+    const result = resolve({ type: 'oauth', value: 'some-token' });
+    expect(result).toBeNull();
+  });
+
+  it('returns null for invalid api_key', () => {
+    keyManager.createKey({ name: 'some-key' });
+    const result = resolve({ type: 'api_key', value: 'torque_sk_nonexistent' });
+    expect(result).toBeNull();
+  });
+
+  it('returns null for null/undefined credential', () => {
+    expect(resolve(null)).toBeNull();
+    expect(resolve(undefined)).toBeNull();
+    expect(resolve({})).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// middleware tests
+// ---------------------------------------------------------------------------
+
+describe('middleware', () => {
+  beforeEach(() => {
+    sessionManager._reset();
+  });
+
+  afterEach(() => {
+    sessionManager._reset();
+  });
+
+  it('authenticate returns open-mode identity when no keys exist', () => {
+    // beforeEach already clears api_keys, so no keys exist
+    const req = { headers: {} };
+    const identity = authenticate(req);
+    expect(identity).toEqual({ id: 'open-mode', name: 'Open Mode', role: 'admin' });
+  });
+
+  it('authenticate extracts Bearer token from Authorization header', () => {
+    const created = keyManager.createKey({ name: 'bearer-test', role: 'admin' });
+    const req = { headers: { authorization: `Bearer ${created.key}` } };
+    const identity = authenticate(req);
+    expect(identity).toBeTruthy();
+    expect(identity.id).toBe(created.id);
+    expect(identity.name).toBe('bearer-test');
+  });
+
+  it('authenticate extracts legacy X-Torque-Key header', () => {
+    const created = keyManager.createKey({ name: 'legacy-header-test', role: 'admin' });
+    const req = { headers: { 'x-torque-key': created.key } };
+    const identity = authenticate(req);
+    expect(identity).toBeTruthy();
+    expect(identity.id).toBe(created.id);
+    expect(identity.name).toBe('legacy-header-test');
+  });
+
+  it('authenticate extracts session from cookie', () => {
+    // Create a key first so we're not in open mode
+    keyManager.createKey({ name: 'force-auth-mode' });
+    const userIdentity = { id: 'user-1', name: 'Bob', role: 'operator' };
+    const { sessionId } = sessionManager.createSession(userIdentity);
+    const req = { headers: { cookie: `torque_session=${sessionId}; other=abc` } };
+    const identity = authenticate(req);
+    expect(identity).toEqual(userIdentity);
+  });
+
+  it('authenticate returns null for missing credentials when keys exist', () => {
+    keyManager.createKey({ name: 'key-exists' });
+    const req = { headers: {} };
+    const identity = authenticate(req);
+    expect(identity).toBeNull();
+  });
+
+  it('requireRole: admin can access everything', () => {
+    const admin = { id: 'a', name: 'Admin', role: 'admin' };
+    expect(requireRole(admin, 'admin')).toBe(true);
+    expect(requireRole(admin, 'operator')).toBe(true);
+    expect(requireRole(admin, 'viewer')).toBe(true);
+  });
+
+  it('requireRole: operator can access operator endpoints', () => {
+    const operator = { id: 'o', name: 'Operator', role: 'operator' };
+    expect(requireRole(operator, 'operator')).toBe(true);
+  });
+
+  it('requireRole: operator cannot access admin endpoints', () => {
+    const operator = { id: 'o', name: 'Operator', role: 'operator' };
+    expect(requireRole(operator, 'admin')).toBe(false);
+  });
+
+  it('requireRole: returns false for null identity', () => {
+    expect(requireRole(null, 'admin')).toBe(false);
+    expect(requireRole(undefined, 'operator')).toBe(false);
+  });
+
+  it('extractCredential prioritizes Bearer over X-Torque-Key', () => {
+    const req = {
+      headers: {
+        authorization: 'Bearer key-from-bearer',
+        'x-torque-key': 'key-from-legacy',
+      },
+    };
+    const cred = extractCredential(req);
+    expect(cred).toEqual({ type: 'api_key', value: 'key-from-bearer' });
+  });
+
+  it('extractCredential returns null when no credentials present', () => {
+    const req = { headers: {} };
+    expect(extractCredential(req)).toBeNull();
+  });
+
+  it('isAdminEndpoint matches admin patterns', () => {
+    expect(isAdminEndpoint('/api/auth/keys')).toBe(true);
+    expect(isAdminEndpoint('/api/auth/keys/abc123')).toBe(true);
+    expect(isAdminEndpoint('/api/v2/providers')).toBe(true);
+    expect(isAdminEndpoint('/api/v2/hosts')).toBe(true);
+    expect(isAdminEndpoint('/api/tasks')).toBe(false);
+    expect(isAdminEndpoint('/api/status')).toBe(false);
+  });
+
+  it('parseCookie extracts named cookie from header', () => {
+    expect(parseCookie('a=1; torque_session=abc123; b=2', 'torque_session')).toBe('abc123');
+    expect(parseCookie('torque_session=xyz', 'torque_session')).toBe('xyz');
+    expect(parseCookie('other=val', 'torque_session')).toBeNull();
+    expect(parseCookie(null, 'torque_session')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rate-limiter tests
+// ---------------------------------------------------------------------------
+
+describe('rate-limiter', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('allows requests under the limit', () => {
+    const limiter = new AuthRateLimiter({ maxAttempts: 3, windowMs: 60000 });
+    expect(limiter.recordFailure('1.2.3.4')).toBe(true);
+    expect(limiter.recordFailure('1.2.3.4')).toBe(true);
+    expect(limiter.recordFailure('1.2.3.4')).toBe(true);
+  });
+
+  it('blocks after exceeding max attempts', () => {
+    const limiter = new AuthRateLimiter({ maxAttempts: 3, windowMs: 60000 });
+    limiter.recordFailure('1.2.3.4');
+    limiter.recordFailure('1.2.3.4');
+    limiter.recordFailure('1.2.3.4');
+    // 4th attempt exceeds the limit
+    expect(limiter.recordFailure('1.2.3.4')).toBe(false);
+  });
+
+  it('resets after window expires', () => {
+    vi.useFakeTimers();
+    const limiter = new AuthRateLimiter({ maxAttempts: 2, windowMs: 10000 });
+    limiter.recordFailure('1.2.3.4');
+    limiter.recordFailure('1.2.3.4');
+    // At limit
+    expect(limiter.isLimited('1.2.3.4')).toBe(true);
+
+    // Advance past window
+    vi.advanceTimersByTime(11000);
+
+    // Should be cleared now
+    expect(limiter.isLimited('1.2.3.4')).toBe(false);
+    expect(limiter.recordFailure('1.2.3.4')).toBe(true);
+  });
+
+  it('isLimited returns true when at limit', () => {
+    const limiter = new AuthRateLimiter({ maxAttempts: 2, windowMs: 60000 });
+    expect(limiter.isLimited('1.2.3.4')).toBe(false);
+    limiter.recordFailure('1.2.3.4');
+    expect(limiter.isLimited('1.2.3.4')).toBe(false);
+    limiter.recordFailure('1.2.3.4');
+    expect(limiter.isLimited('1.2.3.4')).toBe(true);
+  });
+
+  it('cleanup removes old entries', () => {
+    vi.useFakeTimers();
+    const limiter = new AuthRateLimiter({ maxAttempts: 5, windowMs: 10000 });
+    limiter.recordFailure('1.2.3.4');
+    limiter.recordFailure('5.6.7.8');
+
+    // Advance past window
+    vi.advanceTimersByTime(11000);
+    limiter.cleanup();
+
+    // Both IPs should be cleaned up
+    expect(limiter.isLimited('1.2.3.4')).toBe(false);
+    expect(limiter.isLimited('5.6.7.8')).toBe(false);
+    // Internal map should be empty
+    expect(limiter._attempts.size).toBe(0);
+  });
+
+  it('tracks different IPs independently', () => {
+    const limiter = new AuthRateLimiter({ maxAttempts: 2, windowMs: 60000 });
+    limiter.recordFailure('1.2.3.4');
+    limiter.recordFailure('1.2.3.4');
+    // 1.2.3.4 is at limit
+    expect(limiter.isLimited('1.2.3.4')).toBe(true);
+    // 5.6.7.8 should still be fine
+    expect(limiter.isLimited('5.6.7.8')).toBe(false);
+    expect(limiter.recordFailure('5.6.7.8')).toBe(true);
+  });
+
+  it('_reset clears all attempts', () => {
+    const limiter = new AuthRateLimiter({ maxAttempts: 2, windowMs: 60000 });
+    limiter.recordFailure('1.2.3.4');
+    limiter.recordFailure('1.2.3.4');
+    expect(limiter.isLimited('1.2.3.4')).toBe(true);
+    limiter._reset();
+    expect(limiter.isLimited('1.2.3.4')).toBe(false);
+    expect(limiter._attempts.size).toBe(0);
   });
 });
