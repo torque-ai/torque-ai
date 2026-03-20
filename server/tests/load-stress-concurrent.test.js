@@ -178,8 +178,8 @@ describe('Concurrent task submission', () => {
       // (It may or may not have started depending on async timing,
       //  but the queue mechanism should have been triggered)
       const task2After = ctx.db.getTask(id2);
-      // Task 2 should have been at least attempted (queued or running)
-      expect(['queued', 'running', 'completed', 'failed']).toContain(task2After.status);
+      // Task 2 should have been picked up by processQueue (no longer queued)
+      expect(['running', 'completed', 'failed']).toContain(task2After.status);
     });
   });
 
@@ -295,8 +295,8 @@ describe('Concurrent task submission', () => {
     // Give a tick for queue processing
     return new Promise(resolve => setTimeout(resolve, 50)).then(() => {
       const task2 = ctx.db.getTask(id2);
-      // Task 2 should have been picked up (running or at least still queued if spawn fails)
-      expect(['running', 'queued', 'completed', 'failed']).toContain(task2.status);
+      // Task 2 should have been picked up by processQueue after cancel freed a slot
+      expect(['running', 'completed', 'failed']).toContain(task2.status);
     });
   });
 });

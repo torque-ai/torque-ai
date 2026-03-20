@@ -133,7 +133,7 @@ describe('Codex worktree isolation integration', () => {
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('Create a utility module', projectDir);
-    if (!result) return; // Queued — skip
+    expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
     const { taskId, child } = result;
 
     simulateSuccess(child, 'Created util.js\n');
@@ -173,7 +173,7 @@ describe('Codex worktree isolation integration', () => {
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('Implement feature X', projectDir);
-    if (!result) return;
+    expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
     const { taskId, child } = result;
 
     simulateSuccess(child, 'Feature X implemented\n');
@@ -203,7 +203,7 @@ describe('Codex worktree isolation integration', () => {
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('This task will fail', projectDir);
-    if (!result) return;
+    expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
     const { taskId, child } = result;
 
     simulateFailure(child, '', 'API error: rate limit', 1);
@@ -230,7 +230,7 @@ describe('Codex worktree isolation integration', () => {
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('Direct execution test', projectDir);
-    if (!result) return;
+    expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
     const { taskId, child } = result;
 
     simulateSuccess(child, 'Done\n');
@@ -272,7 +272,7 @@ describe('Codex worktree isolation integration', () => {
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('Fallback test', projectDir);
-    if (!result) return;
+    expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
     const { taskId, child } = result;
 
     simulateSuccess(child, 'Completed without worktree\n');

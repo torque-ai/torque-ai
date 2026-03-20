@@ -217,6 +217,8 @@ describe('strategic dashboard routes', () => {
     });
 
     it('defaults to limit of 50', () => {
+      // Note: mock only has 3 routed tasks, so this doesn't truly test the 50 limit.
+      // It verifies no artificial cap below 50 is applied.
       const { res } = createMockRes();
       strategic.handleGetRoutingDecisions({}, res, {});
       const data = parseJsonBody(res.body);
@@ -500,6 +502,7 @@ describe('strategic dashboard routes', () => {
       strategic.handleGetRecentOperations({}, res, {});
       const data = parseJsonBody(res.body);
 
+      expect(data.operations.length).toBeGreaterThan(0);
       // Only task-004 contains "strategic" in its description
       for (const op of data.operations) {
         const desc = (op.description || '').toLowerCase();

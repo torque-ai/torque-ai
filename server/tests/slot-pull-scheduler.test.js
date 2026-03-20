@@ -430,7 +430,7 @@ describe('slot-pull-scheduler', () => {
     it('blocks Ollama providers when combined running tasks hit host cap', () => {
       // Get current host cap
       const hosts = db.listOllamaHosts({ enabledOnly: true });
-      if (hosts.length === 0) return; // Skip if no hosts configured
+      expect(hosts.length).toBeGreaterThan(0);
       const hostCap = Math.max(...hosts.map(h => h.max_concurrent || 4));
 
       // Create running tasks across Ollama providers up to host cap

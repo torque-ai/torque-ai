@@ -104,7 +104,7 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
   });
 
   it('sets user_provider_override when provider is explicit', () => {
-    if (!handleSubmitTask) return;
+    expect(handleSubmitTask, 'handleSubmitTask should be importable').toBeTruthy();
     // The metadata passed to createTask should include user_provider_override: true
     const spy = vi.spyOn(mockDb, 'createTask');
     try {
@@ -116,16 +116,15 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     } catch {
       // May fail due to startTask deps, that's OK
     }
-    if (spy.mock.calls.length > 0) {
-      const createArgs = spy.mock.calls[0][0];
-      const metadata = JSON.parse(createArgs.metadata || '{}');
-      expect(metadata.user_provider_override).toBe(true);
-    }
+    expect(spy.mock.calls.length).toBeGreaterThan(0);
+    const createArgs = spy.mock.calls[0][0];
+    const metadata = JSON.parse(createArgs.metadata || '{}');
+    expect(metadata.user_provider_override).toBe(true);
   });
 
   it('does not set user_provider_override when no provider specified', () => {
-    if (!handleSubmitTask) return;
-    const _spy = vi.spyOn(mockDb, 'createTask');
+    expect(handleSubmitTask, 'handleSubmitTask should be importable').toBeTruthy();
+    const spy = vi.spyOn(mockDb, 'createTask');
     try {
       handleSubmitTask({
         task: 'Test task without provider',
@@ -135,11 +134,17 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
       // Expected
     }
     // When no provider, auto_route dispatches to smart_submit_task
-    // which doesn't go through this createTask path
+    // which doesn't go through this createTask path.
+    // If createTask was called, verify no user_provider_override flag.
+    if (spy.mock.calls.length > 0) {
+      const createArgs = spy.mock.calls[0][0];
+      const metadata = JSON.parse(createArgs.metadata || '{}');
+      expect(metadata.user_provider_override).not.toBe(true);
+    }
   });
 
   it('returns error when explicit provider is disabled', () => {
-    if (!handleSubmitTask) return;
+    expect(handleSubmitTask, 'handleSubmitTask should be importable').toBeTruthy();
     mockDb.getProvider.mockReturnValue({ enabled: false, max_concurrent: 5 });
     let result;
     try {
@@ -159,7 +164,7 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
   });
 
   it('preserves explicit provider through to createTask', () => {
-    if (!handleSubmitTask) return;
+    expect(handleSubmitTask, 'handleSubmitTask should be importable').toBeTruthy();
     mockDb.getProvider.mockReturnValue({ enabled: true, max_concurrent: 5 });
     const spy = vi.spyOn(mockDb, 'createTask');
     try {
@@ -171,9 +176,8 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     } catch {
       // May fail in startTask
     }
-    if (spy.mock.calls.length > 0) {
-      expect(spy.mock.calls[0][0].provider).toBe('hashline-ollama');
-    }
+    expect(spy.mock.calls.length).toBeGreaterThan(0);
+    expect(spy.mock.calls[0][0].provider).toBe('hashline-ollama');
   });
 });
 
@@ -203,7 +207,7 @@ describe('TDA-01: resolveProviderRouting — budget reroute sovereignty', () => 
   it('should not reroute user-override task on budget exceeded', () => {
     // When user_provider_override is true in metadata, budget rerouting must be skipped
     // This is tested via the code path in resolveProviderRouting lines 1261-1273
-    if (!resolveProviderRouting) return;
+    expect(resolveProviderRouting, 'resolveProviderRouting should be importable').toBeTruthy();
 
     mockDb.isBudgetExceeded.mockReturnValue({ exceeded: true, budget: 'codex', spent: 100, limit: 50 });
     const task = {
@@ -216,7 +220,7 @@ describe('TDA-01: resolveProviderRouting — budget reroute sovereignty', () => 
   });
 
   it('should reroute auto-routed task on budget exceeded', () => {
-    if (!resolveProviderRouting) return;
+    expect(resolveProviderRouting, 'resolveProviderRouting should be importable').toBeTruthy();
 
     mockDb.isBudgetExceeded.mockReturnValue({ exceeded: true, budget: 'codex', spent: 100, limit: 50 });
     mockDb.listOllamaHosts.mockReturnValue([{ enabled: true, status: 'healthy' }]);
@@ -250,7 +254,7 @@ describe('TDA-01: handleSmartSubmitTask — disabled provider sovereignty', () =
   });
 
   it('returns error when user override provider is disabled (not silent fallback)', async () => {
-    if (!handleSmartSubmitTask) return;
+    expect(handleSmartSubmitTask, 'handleSmartSubmitTask should be importable').toBeTruthy();
 
     mockDb.getProvider.mockImplementation((name) => {
       if (name === 'hashline-ollama') return { enabled: false, max_concurrent: 5 };
@@ -276,7 +280,7 @@ describe('TDA-01: handleSmartSubmitTask — disabled provider sovereignty', () =
   });
 
   it('silently falls back for auto-routed disabled provider', async () => {
-    if (!handleSmartSubmitTask) return;
+    expect(handleSmartSubmitTask, 'handleSmartSubmitTask should be importable').toBeTruthy();
 
     mockDb.getProvider.mockImplementation((name) => {
       if (name === 'groq') return { enabled: false, max_concurrent: 3 };

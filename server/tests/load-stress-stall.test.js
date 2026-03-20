@@ -107,18 +107,15 @@ describe('Stall recovery', () => {
     // Inject a fake entry into runningProcesses with old lastOutputAt
     const procs = ctx.tm._testing.runningProcesses;
     const proc = procs.get(taskId);
-    if (proc) {
-      // Set last output to 10 minutes ago to trigger stall
-      proc.lastOutputAt = Date.now() - 700 * 1000;
-      proc.provider = 'ollama'; // Use ollama which has a real stall threshold
-    }
+    expect(proc).toBeDefined();
+    // Set last output to 10 minutes ago to trigger stall
+    proc.lastOutputAt = Date.now() - 700 * 1000;
+    proc.provider = 'ollama'; // Use ollama which has a real stall threshold
 
     const stalled = ctx.tm.checkStalledTasks(false);
-    if (proc) {
-      // Should detect the stalled task
-      expect(stalled.length).toBeGreaterThanOrEqual(1);
-      expect(stalled.some(s => s.taskId === taskId)).toBe(true);
-    }
+    // Should detect the stalled task
+    expect(stalled.length).toBeGreaterThanOrEqual(1);
+    expect(stalled.some(s => s.taskId === taskId)).toBe(true);
   });
 
   it('multiple tasks stall simultaneously: all detected', () => {

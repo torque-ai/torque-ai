@@ -206,12 +206,8 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
       expect(task).toBeTruthy();
       // When Ollama is down AND the task falls into the aider-ollama/ollama path,
       // and it's a simple greenfield, it should go to Codex Spark
-      // NOTE: This depends on analyzeTaskForRouting returning ollama-based provider.
-      // If it returns something else, the modification routing block won't trigger.
-      if (task.provider === 'codex') {
-        expect(task.model).toBe('gpt-5.3-codex-spark');
-      }
-      // If provider isn't codex, that's also valid — routing may have taken a different path
+      expect(task.provider).toBe('codex');
+      expect(task.model).toBe('gpt-5.3-codex-spark');
     });
 
     it('routes to Codex Spark when all hosts are down', async () => {
@@ -226,9 +222,8 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
       expect(task).toBeTruthy();
       // With all hosts down, hasHealthyOllamaHost() returns false,
       // so greenfield tasks can route to Codex Spark
-      if (task.provider === 'codex') {
-        expect(task.model).toBe('gpt-5.3-codex-spark');
-      }
+      expect(task.provider).toBe('codex');
+      expect(task.model).toBe('gpt-5.3-codex-spark');
     });
   });
 
@@ -287,10 +282,9 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
       const task = extractTaskFromResult(result);
       expect(task).toBeTruthy();
       // Provider is now deferred (null) — check intended_provider in metadata
-      if (db.getConfig('codex_enabled') === '1') {
-        const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
-        expect(meta.intended_provider).toBe('codex');
-      }
+      expect(db.getConfig('codex_enabled')).toBe('1');
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+      expect(meta.intended_provider).toBe('codex');
     });
   });
 

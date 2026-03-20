@@ -599,9 +599,8 @@ describe('Free-tier auto-scale', () => {
           c[2].metadata.includes('free_tier_auto_scale')
       );
 
-      if (rerouteCalls.length > 0) {
-        expect(rerouteCalls[0][2].model).toBeNull();
-      }
+      expect(rerouteCalls.length).toBeGreaterThan(0);
+      expect(rerouteCalls[0][2].model).toBeNull();
     });
 
     it('falls back to getAvailableProviders when Codex is full and getAvailableProvidersSmart is absent', () => {

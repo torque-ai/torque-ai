@@ -145,6 +145,10 @@ describe('db/cost-tracking module', () => {
 
   describe('cost period grouping', () => {
     it('groups by period for day/hour/week/month', () => {
+      // Insert token usage so period grouping has data to return
+      const taskId = createTask();
+      db.recordTokenUsage(taskId, { input_tokens: 500, output_tokens: 200, model: 'codex' });
+
       const periodDays = db.getCostByPeriod('day', 7);
       const periodHours = db.getCostByPeriod('hour', 5);
       const periodWeeks = db.getCostByPeriod('week', 5);
@@ -155,12 +159,11 @@ describe('db/cost-tracking module', () => {
       expect(Array.isArray(periodWeeks)).toBe(true);
       expect(Array.isArray(periodMonths)).toBe(true);
 
-      if (periodDays.length > 0) {
-        expect(periodDays[0]).toHaveProperty('period');
-        expect(periodDays[0]).toHaveProperty('tokens');
-        expect(periodDays[0]).toHaveProperty('cost');
-        expect(periodDays[0]).toHaveProperty('tasks');
-      }
+      expect(periodDays.length).toBeGreaterThan(0);
+      expect(periodDays[0]).toHaveProperty('period');
+      expect(periodDays[0]).toHaveProperty('tokens');
+      expect(periodDays[0]).toHaveProperty('cost');
+      expect(periodDays[0]).toHaveProperty('tasks');
     });
   });
 
