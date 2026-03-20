@@ -62,7 +62,7 @@ set -euo pipefail
 TORQUE_HOST='${torqueHost}'
 AGENT_PORT='${port}'
 AGENT_NAME='${name}'
-INSTALL_SERVICE="${install}"
+INSTALL_SERVICE='${install}'
 AGENT_DIR="$HOME/.torque-agent"
 
 # Parse flags
