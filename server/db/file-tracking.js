@@ -447,13 +447,14 @@ function analyzeChangeImpact(taskId, changedFile, workingDirectory) {
 
   const impacts = [];
   const fileName = path.basename(changedFile, path.extname(changedFile));
+  const escapedName = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   // Simple import/reference search
   const searchPatterns = [
-    `import.*${fileName}`,
-    `require.*${fileName}`,
-    `from.*${fileName}`,
-    `using.*${fileName}`
+    `import.*${escapedName}`,
+    `require.*${escapedName}`,
+    `from.*${escapedName}`,
+    `using.*${escapedName}`
   ];
 
   const pattern = searchPatterns.join('|');

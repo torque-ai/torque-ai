@@ -751,7 +751,8 @@ function getTaskLogs(taskId, options = {}) {
 
   // Filter by search pattern
   if (search) {
-    const regex = new RegExp(search, 'i');
+    function escapeRegex(str) { return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    const regex = new RegExp(escapeRegex(search), 'i');
     logs = logs.filter(l => regex.test(l.content));
   }
 

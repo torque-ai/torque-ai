@@ -162,7 +162,7 @@ function handleInjectClassDependency(args) {
   // 1. Insert import
   let importIdx = -1;
   if (importAfter) {
-    const re = new RegExp(importAfter);
+    const re = new RegExp(escapeRegex(importAfter));
     for (let i = 0; i < lines.length; i++) {
       if (re.test(lines[i])) importIdx = i;
     }
@@ -182,7 +182,7 @@ function handleInjectClassDependency(args) {
   // 2. Insert field
   let fieldIdx = -1;
   if (fieldBefore) {
-    const re = new RegExp(fieldBefore);
+    const re = new RegExp(escapeRegex(fieldBefore));
     for (let i = 0; i < lines.length; i++) {
       if (re.test(lines[i])) { fieldIdx = i; break; }
     }
@@ -210,7 +210,7 @@ function handleInjectClassDependency(args) {
   // 3. Insert initialization
   let initIdx = -1;
   if (initAfter) {
-    const re = new RegExp(initAfter);
+    const re = new RegExp(escapeRegex(initAfter));
     for (let i = 0; i < lines.length; i++) {
       if (re.test(lines[i])) initIdx = i;
     }
@@ -232,7 +232,7 @@ function handleInjectClassDependency(args) {
   if (getterCode) {
     let getterIdx = -1;
     if (getterBefore) {
-      const re = new RegExp(getterBefore);
+      const re = new RegExp(escapeRegex(getterBefore));
       for (let i = 0; i < lines.length; i++) {
         if (re.test(lines[i])) { getterIdx = i; break; }
       }
@@ -1193,11 +1193,11 @@ function handleWireNotificationsToBridge(args) {
   for (const notif of notifications) {
     const { event_name, toast_template, color, icon, condition, else_template } = notif;
     const fieldRefs = new Set();
-    const templateFieldPattern = /\$?\{(\w+)\}/g;
+    const templateFieldPattern = /\$\{(\w+)\}/g;
     let fMatch;
     while ((fMatch = templateFieldPattern.exec(toast_template)) !== null) fieldRefs.add(fMatch[1]);
     if (else_template) {
-      const ep = /\$?\{(\w+)\}/g;
+      const ep = /\$\{(\w+)\}/g;
       let em;
       while ((em = ep.exec(else_template)) !== null) fieldRefs.add(em[1]);
     }
@@ -1208,7 +1208,7 @@ function handleWireNotificationsToBridge(args) {
     }
 
     const destructuredFields = [...fieldRefs].join(', ');
-    const jsTemplate = toast_template.replace(/\$?\{(\w+)\}/g, '${$1}');
+    const jsTemplate = toast_template.replace(/\$\{(\w+)\}/g, '${$1}');
     const iconOpt = icon ? `, icon: "${icon}"` : '';
 
     if (condition) {

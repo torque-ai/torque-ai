@@ -885,7 +885,8 @@ function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchType = '
             if (/\.(cs|ts|tsx|js|jsx)$/.test(entry.name)) {
               try {
                 const content = fs.readFileSync(fullPath, 'utf8');
-                const classPattern = new RegExp(`(class|interface)\\s+${searchTerm}\\b`, 'i');
+                const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const classPattern = new RegExp(`(class|interface)\\s+${escapedTerm}\\b`, 'i');
                 if (classPattern.test(content)) {
                   matches.push(fullPath);
                 }
