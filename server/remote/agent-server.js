@@ -131,7 +131,9 @@ const DEFAULT_ALLOWED_COMMANDS = new Set([
   'vitest', 'jest', 'mocha', 'tsc', 'eslint',
 ]);
 
-const SHELL_METACHAR_RE = /[;|&`$(){}!<>]/;
+// Only block characters that enable command chaining/injection.
+// With shell: false, parentheses/braces/redirects are harmless literal characters.
+const SHELL_METACHAR_RE = /[;|&`$]/;
 
 function prepareShellArgs(args) {
   if (!Array.isArray(args)) {
@@ -140,7 +142,7 @@ function prepareShellArgs(args) {
   return args.map((arg) => {
     const str = String(arg);
     if (SHELL_METACHAR_RE.test(str)) {
-      throw createHttpError(`Argument contains shell metacharacters: ${str.substring(0, 50)}`, 400);
+      throw createHttpError(`Argument contains disallowed shell metacharacter: ${str.substring(0, 50)}`, 400);
     }
     return str;
   });

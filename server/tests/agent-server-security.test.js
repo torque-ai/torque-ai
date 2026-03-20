@@ -57,17 +57,12 @@ describe('prepareShellArgs — shell metacharacter rejection', () => {
     expect(() => prepareShellArgs(['foo && evil'])).toThrow(/shell metacharacters/i);
   });
 
-  it('rejects args containing angle brackets', () => {
-    expect(() => prepareShellArgs(['foo > /tmp/out'])).toThrow(/shell metacharacters/i);
-    expect(() => prepareShellArgs(['< /etc/passwd'])).toThrow(/shell metacharacters/i);
-  });
-
-  it('rejects args containing braces', () => {
-    expect(() => prepareShellArgs(['{evil}'])).toThrow(/shell metacharacters/i);
-  });
-
-  it('rejects args containing exclamation mark', () => {
-    expect(() => prepareShellArgs(['!evil'])).toThrow(/shell metacharacters/i);
+  it('allows parentheses, braces, angle brackets, exclamation (safe with shell:false)', () => {
+    // These are only dangerous with shell: true. With shell: false they're literal characters.
+    expect(prepareShellArgs(['console.log("hello")'])).toEqual(['console.log("hello")']);
+    expect(prepareShellArgs(['{json: true}'])).toEqual(['{json: true}']);
+    expect(prepareShellArgs(['foo > bar'])).toEqual(['foo > bar']);
+    expect(prepareShellArgs(['!important'])).toEqual(['!important']);
   });
 
   it('throws a 400 http error for metachar args', () => {
