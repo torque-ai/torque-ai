@@ -847,9 +847,10 @@ const tools = [
           }
         },
         auto_run: { type: 'boolean', description: 'Immediately start the workflow after creation (default: false)' },
+        routing_template: { type: 'string', description: 'Routing template name (e.g., "Cost Saver", "Quality First"). Applied to all steps that don\'t have an explicit step_providers override. Provides fallback chains and quota-aware routing.' },
         step_providers: {
           type: 'object',
-          description: 'Per-step provider overrides. Keys: types, events, data, system, tests, wire, parallel. Unset steps use project default (codex).',
+          description: 'Per-step provider overrides (take priority over routing_template). Keys: types, events, data, system, tests, wire, parallel. Unset steps use routing_template or smart routing.',
           properties: {
             types: { type: 'string', description: 'Provider for types step' },
             events: { type: 'string', description: 'Provider for events step' },

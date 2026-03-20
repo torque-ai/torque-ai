@@ -1313,6 +1313,7 @@ function handleCreateFeatureWorkflow(args) {
   const pascal = name.charAt(0).toUpperCase() + name.slice(1);
   const wdir = args.working_directory;
   const stepProviders = args.step_providers || {};
+  const routingTemplate = args.routing_template || null;
   const fixedStepNodeIds = [
     `${kebab}-types`,
     `${kebab}-events`,
@@ -1357,15 +1358,28 @@ function handleCreateFeatureWorkflow(args) {
     );
   }
 
-  // Create workflow
+  // Create workflow — store routing_template in context for inheritance by tasks
   const workflowId = uuidv4();
+  const workflowContext = routingTemplate ? { _routing_template: routingTemplate } : undefined;
   db.createWorkflow({
     id: workflowId,
     name: workflowName,
-    description: args.description || `Auto-generated feature workflow for ${pascal}`
+    description: args.description || `Auto-generated feature workflow for ${pascal}`,
+    context: workflowContext,
   });
 
   const tasks = [];
+
+  // Build metadata for a feature workflow task.
+  // step_providers takes priority (explicit provider override).
+  // If no step_provider is set, routing_template is propagated for smart routing.
+  const buildStepMeta = (stepProvider, extraMeta) => {
+    const meta = { ...extraMeta };
+    if (!stepProvider && routingTemplate) {
+      meta._routing_template = routingTemplate;
+    }
+    return Object.keys(meta).length > 0 ? JSON.stringify(meta) : undefined;
+  };
 
   // Step 1: Types (no deps)
   if (args.types_task) {
@@ -1377,7 +1391,8 @@ function handleCreateFeatureWorkflow(args) {
       workflow_id: workflowId,
       workflow_node_id: `${kebab}-types`,
       status: 'pending',
-      provider: stepProviders.types
+      provider: stepProviders.types,
+      metadata: buildStepMeta(stepProviders.types),
     });
     tasks.push({ id: typesId, nodeId: `${kebab}-types`, step: 'types', provider: stepProviders.types });
   }
@@ -1392,7 +1407,8 @@ function handleCreateFeatureWorkflow(args) {
       workflow_id: workflowId,
       workflow_node_id: `${kebab}-events`,
       status: 'pending',
-      provider: stepProviders.events
+      provider: stepProviders.events,
+      metadata: buildStepMeta(stepProviders.events),
     });
     tasks.push({ id: eventsId, nodeId: `${kebab}-events`, step: 'events', provider: stepProviders.events });
   }
@@ -1408,7 +1424,8 @@ function handleCreateFeatureWorkflow(args) {
       workflow_id: workflowId,
       workflow_node_id: `${kebab}-data`,
       status: typesTask ? 'blocked' : 'pending',
-      provider: stepProviders.data
+      provider: stepProviders.data,
+      metadata: buildStepMeta(stepProviders.data),
     });
     if (typesTask) {
       db.addTaskDependency({
@@ -1434,7 +1451,7 @@ function handleCreateFeatureWorkflow(args) {
       workflow_node_id: `${kebab}-system`,
       status: hasDeps ? 'blocked' : 'pending',
       provider: stepProviders.system,
-      metadata: JSON.stringify({ needs_review: true }),
+      metadata: buildStepMeta(stepProviders.system, { needs_review: true }),
     });
     if (dataTask) {
       db.addTaskDependency({
@@ -1464,7 +1481,8 @@ function handleCreateFeatureWorkflow(args) {
       workflow_id: workflowId,
       workflow_node_id: `${kebab}-tests`,
       status: systemTask ? 'blocked' : 'pending',
-      provider: stepProviders.tests
+      provider: stepProviders.tests,
+      metadata: buildStepMeta(stepProviders.tests),
     });
     if (systemTask) {
       db.addTaskDependency({
@@ -1487,7 +1505,8 @@ function handleCreateFeatureWorkflow(args) {
       workflow_id: workflowId,
       workflow_node_id: `${kebab}-wire`,
       status: systemTask ? 'blocked' : 'pending',
-      provider: stepProviders.wire
+      provider: stepProviders.wire,
+      metadata: buildStepMeta(stepProviders.wire),
     });
     if (systemTask) {
       db.addTaskDependency({
@@ -1508,6 +1527,7 @@ function handleCreateFeatureWorkflow(args) {
       if (fixedStepNodeIdSet.has(nodeId)) {
         nodeId = `parallel-${nodeId}`;
       }
+      const ptProvider = pt.provider || stepProviders.parallel;
       db.createTask({
         id: ptId,
         task_description: pt.task,
@@ -1515,9 +1535,10 @@ function handleCreateFeatureWorkflow(args) {
         workflow_id: workflowId,
         workflow_node_id: nodeId,
         status: 'pending',
-        provider: pt.provider || stepProviders.parallel
+        provider: ptProvider,
+        metadata: buildStepMeta(ptProvider),
       });
-      tasks.push({ id: ptId, nodeId, step: 'parallel', provider: pt.provider || stepProviders.parallel });
+      tasks.push({ id: ptId, nodeId, step: 'parallel', provider: ptProvider });
     }
   }
 
@@ -1546,6 +1567,9 @@ function handleCreateFeatureWorkflow(args) {
   output += `**ID:** ${workflowId}\n`;
   output += `**Feature:** ${pascal}\n`;
   output += `**Tasks:** ${tasks.length}\n`;
+  if (routingTemplate) {
+    output += `**Routing Template:** ${routingTemplate}\n`;
+  }
   if (args.auto_run) {
     output += `**Started:** ${started} tasks\n`;
     output += `**Queued:** ${queued} tasks\n`;
@@ -1560,7 +1584,7 @@ function handleCreateFeatureWorkflow(args) {
   output += `\n### DAG\n\n`;
   output += `| Node | Step | Provider | Status |\n|------|------|----------|--------|\n`;
   for (const t of tasks) {
-    const prov = t.provider || 'codex';
+    const prov = t.provider || (routingTemplate ? `via ${routingTemplate}` : 'smart routing');
     output += `| ${t.nodeId} | ${t.step} | ${prov} | ${t.step === 'parallel' || !tasks.find(d => d.step === 'types') ? 'pending' : (t.step === 'types' || t.step === 'events' ? 'pending' : 'blocked')} |\n`;
   }
 
