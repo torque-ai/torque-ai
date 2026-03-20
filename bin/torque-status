@@ -14,6 +14,12 @@
  */
 
 const path = require('path');
+// WARNING: This script opens the SQLite database directly (not via the API server).
+// Running torque-status while the TORQUE server is active on the same database
+// can cause brief write-lock conflicts if both processes issue a write at the same
+// moment. For most read-only queries this is safe because SQLite readers never block
+// readers, but be aware that db.init() here does run migrations which involve writes.
+// Prefer `torque status` (HTTP API) in scripts that run concurrently with the server.
 const db = require(path.join(__dirname, '..', 'server', 'database'));
 
 db.init();

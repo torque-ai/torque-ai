@@ -49,7 +49,16 @@ function detectApiKeys() {
   return { found, missing };
 }
 
-function generateMcpJson(targetDir) {
+/**
+ * Write .mcp.json to targetDir.
+ * If the file already exists and options.force is not set, this is a no-op
+ * and the function returns { dest, skipped: true } so the caller can warn the user.
+ */
+function generateMcpJson(targetDir, options = {}) {
+  const dest = path.join(targetDir, '.mcp.json');
+  if (!options.force && fs.existsSync(dest)) {
+    return { dest, skipped: true };
+  }
   const config = {
     mcpServers: {
       torque: {
@@ -59,12 +68,20 @@ function generateMcpJson(targetDir) {
       },
     },
   };
-  const dest = path.join(targetDir, '.mcp.json');
   fs.writeFileSync(dest, JSON.stringify(config, null, 2) + '\n');
-  return dest;
+  return { dest, skipped: false };
 }
 
-function generateEnvFile(targetDir) {
+/**
+ * Write .env to targetDir.
+ * If the file already exists and options.force is not set, this is a no-op
+ * and the function returns { dest, skipped: true } so the caller can warn the user.
+ */
+function generateEnvFile(targetDir, options = {}) {
+  const dest = path.join(targetDir, '.env');
+  if (!options.force && fs.existsSync(dest)) {
+    return { dest, skipped: true };
+  }
   const lines = ['# TORQUE environment configuration', ''];
   lines.push(`TORQUE_API_KEY=${crypto.randomUUID()}`);
   lines.push('');
@@ -74,12 +91,12 @@ function generateEnvFile(targetDir) {
     lines.push(`${prefix}${key.env}=${value}`);
   }
   lines.push('');
-  const dest = path.join(targetDir, '.env');
   fs.writeFileSync(dest, lines.join('\n'));
-  return dest;
+  return { dest, skipped: false };
 }
 
 async function run(args = []) {
+  const force = args.includes('--force');
   const targetDir = process.cwd();
 
   console.log('TORQUE \u2014 Setup\n');
@@ -115,12 +132,20 @@ async function run(args = []) {
 
   // 4. Generate .mcp.json
   console.log('\nGenerating configuration...');
-  const mcpPath = generateMcpJson(targetDir);
-  console.log(`  Created ${mcpPath}`);
+  const mcpResult = generateMcpJson(targetDir, { force });
+  if (mcpResult.skipped) {
+    console.log(`  Skipped ${mcpResult.dest} (already exists — use --force to overwrite)`);
+  } else {
+    console.log(`  Created ${mcpResult.dest}`);
+  }
 
   // 5. Generate .env
-  const envPath = generateEnvFile(targetDir);
-  console.log(`  Created ${envPath}`);
+  const envResult = generateEnvFile(targetDir, { force });
+  if (envResult.skipped) {
+    console.log(`  Skipped ${envResult.dest} (already exists — use --force to overwrite)`);
+  } else {
+    console.log(`  Created ${envResult.dest}`);
+  }
 
   // 6. Summary
   const providers = [];

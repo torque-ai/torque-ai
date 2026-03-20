@@ -82,7 +82,12 @@ function parseCliArgs(argv) {
     }
     if (token === '-d' || token === '--dir' || token === '--directory') {
       index += 1;
-      flags.directory = argv[index];
+      // Guard: if the flag is last in argv, argv[index] is undefined
+      if (index < argv.length) {
+        flags.directory = argv[index];
+      } else {
+        process.stderr.write(`Warning: ${token} flag requires a value\n`);
+      }
       continue;
     }
     if (token.startsWith('--dir=')) {
@@ -103,8 +108,13 @@ function parseCliArgs(argv) {
     }
     if (token === '--task') {
       index += 1;
-      if (!flags.task) flags.task = [];
-      flags.task.push(argv[index]);
+      // Guard: if the flag is last in argv, argv[index] is undefined
+      if (index < argv.length) {
+        if (!flags.task) flags.task = [];
+        flags.task.push(argv[index]);
+      } else {
+        process.stderr.write('Warning: --task flag requires a value\n');
+      }
       continue;
     }
     if (token.startsWith('--task=')) {

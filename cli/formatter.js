@@ -125,6 +125,21 @@ function parseFieldMap(text) {
   return fields;
 }
 
+/**
+ * Extract the content of a fenced code block that follows a given heading.
+ *
+ * Pattern breakdown (backticks are literal in the source, escaped in the RegExp string):
+ *   ### <heading>  — markdown heading (case-insensitive, optional trailing spaces)
+ *   ```            — opening fence (backticks appear unescaped in the regex source)
+ *   ([\s\S]*?)     — captured block content (non-greedy, matches newlines)
+ *   ```            — closing fence
+ *
+ * The backtick characters in the RegExp template literal are literal backtick
+ * characters — they do not require escaping in a JS string or regex, so the
+ * pattern is correct as written. If this function produces unexpected results,
+ * verify that the input uses ``` fences (not ~~~) and that the heading matches
+ * exactly the `heading` argument (modulo case and surrounding whitespace).
+ */
 function parseCodeSection(text, heading) {
   const pattern = new RegExp(`###\\s+${heading}\\s*\\r?\\n\`\`\`\\r?\\n([\\s\\S]*?)\\r?\\n\`\`\``, 'i');
   const match = String(text || '').match(pattern);

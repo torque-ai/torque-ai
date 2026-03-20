@@ -158,10 +158,25 @@ async function handleBudgetForecast() {
       console.log(text);
     }
   } else {
-    // Delegate to existing status command for budget view
-    const { runCli } = require(path.join(__dirname, '..', 'cli', 'torque-cli'));
-    const code = await runCli(['status']);
-    process.exitCode = code;
+    // No --forecast flag: show the current budget status (spending vs. limit)
+    const raw = await apiPost('/api/tools/get_budget_status', {});
+    const text = extractText(raw);
+
+    // Parse key budget fields from the response
+    const spentMatch = text.match(/(?:spent|total)[:\s]*\$?([^\n|]+)/i);
+    const limitMatch = text.match(/(?:limit|budget)[:\s]*\$?([^\n|]+)/i);
+    const remainingMatch = text.match(/(?:remaining|left)[:\s]*\$?([^\n|]+)/i);
+
+    console.log('Budget Status');
+    console.log('─'.repeat(40));
+    if (spentMatch) console.log(`  Spent:       $${spentMatch[1].trim()}`);
+    if (limitMatch) console.log(`  Limit:       $${limitMatch[1].trim()}`);
+    if (remainingMatch) console.log(`  Remaining:   $${remainingMatch[1].trim()}`);
+    if (!spentMatch && !limitMatch && !remainingMatch) {
+      // Fallback: print raw text when structured fields are not present
+      console.log(text);
+    }
+    console.log('\nTip: Use --forecast to see cost projections');
   }
 }
 
