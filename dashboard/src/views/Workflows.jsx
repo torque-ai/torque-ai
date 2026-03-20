@@ -29,6 +29,7 @@ const TASK_STATUS_ICONS = {
 };
 
 const STATUS_FILTERS = ['all', 'running', 'completed', 'failed', 'pending', 'cancelled'];
+const PAGE_LIMIT = 25;
 
 function StatusBadge({ status }) {
   return (
@@ -270,27 +271,47 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
+  const [page, setPage] = useState(parseInt(searchParams.get('page')) || 1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const toast = useToast();
   const { execute } = useAbortableRequest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
 
-  // Sync filter to URL
+  // Sync filter + page to URL
   useEffect(() => {
     const params = {};
     if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
+    if (page > 1) params.page = String(page);
     setSearchParams(params, { replace: true });
-  }, [statusFilter, setSearchParams]);
+  }, [statusFilter, page, setSearchParams]);
+
+  // Reset to page 1 when filter changes
+  const prevFilterRef = useMemo(() => ({ current: statusFilter }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (prevFilterRef.current !== statusFilter) {
+      prevFilterRef.current = statusFilter;
+      setPage(1);
+    }
+  }, [statusFilter, prevFilterRef]);
 
   const loadWorkflows = useCallback(() => {
     setLoading(true);
     execute(async (isCurrent) => {
       try {
-        const params = { limit: 100 };
+        const params = {
+          limit: PAGE_LIMIT,
+          offset: (page - 1) * PAGE_LIMIT,
+        };
         if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
         const data = await workflowsApi.list(params);
         if (!isCurrent()) return;
-        setWorkflows(Array.isArray(data) ? data : []);
+        const items = Array.isArray(data) ? data : (data?.workflows || data?.items || data || []);
+        const paginationTotal = data?.pagination?.total ?? (Array.isArray(data) ? data.length : items.length);
+        setWorkflows(items);
+        setTotal(paginationTotal);
+        setTotalPages(Math.max(1, Math.ceil(paginationTotal / PAGE_LIMIT)));
       } catch (err) {
         if (!isCurrent()) return;
         console.error('Failed to load workflows:', err);
@@ -299,7 +320,7 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
         if (isCurrent()) setLoading(false);
       }
     });
-  }, [statusFilter, execute, toast]);
+  }, [statusFilter, page, execute, toast]);
 
   useEffect(() => {
     loadWorkflows();
@@ -361,7 +382,7 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Workflows" value={summaryStats.total} />
+        <StatCard label="Total Workflows" value={total} />
         <StatCard
           label="Success Rate"
           value={`${summaryStats.successRate}%`}
@@ -509,6 +530,29 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between mt-4">
+        <p className="text-slate-500 text-sm">
+          Page {page} of {totalPages} ({total} total)
+        </p>
+        <div className="flex gap-2">
+          <button
+            disabled={page <= 1}
+            onClick={() => setPage(p => p - 1)}
+            className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+          >
+            Previous
+          </button>
+          <button
+            disabled={page >= totalPages}
+            onClick={() => setPage(p => p + 1)}
+            className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+          >
+            Next
+          </button>
+        </div>
       </div>
     </div>
   );
