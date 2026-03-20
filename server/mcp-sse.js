@@ -24,6 +24,20 @@ const KEEPALIVE_INTERVAL_MS = 30000; // 30 seconds
 const MAX_PENDING_EVENTS = 100;
 const CHECK_NOTIFICATIONS_MIN_INTERVAL_MS = 1000; // 1s minimum between check_notifications calls
 const DEDUP_WINDOW_MS = 5000; // 5s window: replace existing event for same task instead of queuing duplicate
+
+// Event priority for eviction — higher number = higher priority (kept longer under MAX_PENDING_EVENTS)
+// When the queue is full, lowest-priority events are evicted first.
+// task_failed > task_completed: failures are more actionable and must not be silently dropped.
+const EVENT_PRIORITY = {
+  failed: 10,
+  task_failed: 10,
+  completed: 5,
+  task_completed: 5,
+  cancelled: 3,
+  retry: 2,
+  batch_summary: 1,
+};
+const DEFAULT_EVENT_PRIORITY = 5;
 const DEFAULT_NOTIFICATION_TEMPLATE = '[TORQUE] Task {taskId} {status}{ (}{duration}s{)}{ : }{description}';
 const EVENT_AGGREGATION_WINDOW_MS = 10000; // 10s window for grouping rapid-fire events
 const MAX_SSE_SESSIONS = 50;
@@ -49,6 +63,12 @@ let shutdownAbort = new AbortController();
 
 // Monotonic event counter for SSE event IDs (enables replay on reconnect)
 let eventIdCounter = 0;
+
+// Monotonic sequence counter for structured notification events.
+// Each pendingEvent gets a unique sequence number so consumers can detect gaps
+// and distinguish two separate 'completed' events for the same task.
+// Distinct from eventIdCounter (which tracks SSE wire-protocol event IDs).
+let _notificationSequence = 0;
 
 // Notification delivery metrics — intentionally cumulative over server lifetime.
 // Counters are monotonically increasing integers exposed via /telemetry for
@@ -608,8 +628,10 @@ function notifySubscribedSessions(eventName, taskData) {
     // 2. Queue structured event for check_notifications
     const now = new Date();
     const eventId = ++eventIdCounter;
+    const seq = ++_notificationSequence; // Monotonic per-server sequence number
     const event = {
       id: eventId,
+      seq,
       eventName,
       taskId,
       status: taskData.status,
@@ -619,9 +641,12 @@ function notifySubscribedSessions(eventName, taskData) {
       duration: taskData.duration,
       description: taskData.description,
       timestamp: now.toISOString(),
+      priority: EVENT_PRIORITY[eventName] ?? DEFAULT_EVENT_PRIORITY,
     };
 
-    // Deduplication: if same taskId/eventName/status has a pending event within DEDUP_WINDOW_MS, replace it
+    // Deduplication: if same taskId/eventName/status has a pending event within DEDUP_WINDOW_MS, replace it.
+    // Uses seq to distinguish genuinely distinct events — two 'completed' events for the same task at
+    // different sequence numbers are different events even if they share taskId/eventName/status.
     const existingIdx = session.pendingEvents.findIndex(e =>
       e.taskId === taskId &&
       e.eventName === eventName &&
@@ -630,6 +655,7 @@ function notifySubscribedSessions(eventName, taskData) {
     );
 
     if (existingIdx >= 0) {
+      // Replace with updated event (preserve seq of incoming — it is newer)
       session.pendingEvents[existingIdx] = event;
       notificationMetrics.totalDeduplicated++;
     } else {
@@ -637,9 +663,21 @@ function notifySubscribedSessions(eventName, taskData) {
       notificationMetrics.totalDelivered++;
     }
 
-    // Cap at MAX_PENDING_EVENTS (FIFO eviction)
+    // Cap at MAX_PENDING_EVENTS — evict lowest-priority events first.
+    // failed events (priority 10) survive longer than completed (5) or batch_summary (1).
+    // This ensures actionable failures are never silently dropped in favor of informational events.
     while (session.pendingEvents.length > MAX_PENDING_EVENTS) {
-      session.pendingEvents.shift();
+      // Find index of lowest-priority event (stable: pick earliest if tied)
+      let evictIdx = 0;
+      let evictPriority = session.pendingEvents[0].priority ?? DEFAULT_EVENT_PRIORITY;
+      for (let i = 1; i < session.pendingEvents.length; i++) {
+        const p = session.pendingEvents[i].priority ?? DEFAULT_EVENT_PRIORITY;
+        if (p < evictPriority) {
+          evictPriority = p;
+          evictIdx = i;
+        }
+      }
+      session.pendingEvents.splice(evictIdx, 1);
     }
 
     notificationMetrics.lastDeliveryAt = now.toISOString();
@@ -828,6 +866,13 @@ function persistSubscription(sessionId, session) {
     const rawDb = db.getDbInstance && db.getDbInstance();
     if (!rawDb) return;
 
+    // Storage note: both eventFilter (a Set of event-type strings) and taskFilter
+    // (a Set of task-id strings) are serialised as JSON arrays into single TEXT columns
+    // (`event_types` and `task_id` respectively). This is compact and sufficient for the
+    // current workload (typically 1-5 event types and <100 task IDs per session), but
+    // it means the DB cannot filter or index individual event types or task IDs without
+    // deserialising the column. If subscriptions grow to hundreds of tasks per session,
+    // consider a normalised join table (subscription_id → task_id) to allow indexed lookups.
     const eventTypes = JSON.stringify([...session.eventFilter]);
     const taskIds = session.taskFilter.size > 0 ? JSON.stringify([...session.taskFilter]) : null;
 
@@ -1236,6 +1281,14 @@ async function handleHttpRequest(req, res) {
     const lastEventId = Number.isInteger(queryLastEventId) ? queryLastEventId : queryHeaderEventId;
     const remoteAddress = req.socket?.remoteAddress || req.connection?.remoteAddress || null;
 
+    // No SSE `retry:` field is sent. This intentionally leaves the client's
+    // reconnection interval at its browser/runtime default (typically 3 seconds
+    // for EventSource). TORQUE's SSE server is expected to be always available
+    // on the loopback interface, so unbounded client reconnection is safe and
+    // desirable — it means Claude Code sessions automatically recover after
+    // transient server restarts without any manual intervention.
+    // If a bounded retry policy becomes necessary (e.g. for remote deployments),
+    // add `res.write('retry: 5000\n\n')` here to set a 5-second floor.
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
