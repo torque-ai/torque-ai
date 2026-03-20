@@ -257,15 +257,24 @@ function checkBudgetAlerts(project = null) {
     let currentValue = 0;
     const thresholdValue = alert.threshold_value;
 
+    // Compute 'since' from the alert type (daily vs monthly)
+    const now = new Date();
+    let since;
+    if (alert.alert_type === 'daily_cost' || alert.alert_type === 'daily_tokens') {
+      since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    } else {
+      since = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    }
+
     if (alert.alert_type === 'daily_cost') {
-      const usage = getTokenUsageSummary({ project: alert.project, period: 'day' });
-      currentValue = usage.totalCost || 0;
+      const usage = getTokenUsageSummary({ project: alert.project, since });
+      currentValue = usage.total_cost_usd || 0;
     } else if (alert.alert_type === 'daily_tokens') {
-      const usage = getTokenUsageSummary({ project: alert.project, period: 'day' });
-      currentValue = usage.totalTokens || 0;
+      const usage = getTokenUsageSummary({ project: alert.project, since });
+      currentValue = usage.total_tokens || 0;
     } else if (alert.alert_type === 'monthly_cost') {
-      const usage = getTokenUsageSummary({ project: alert.project, period: 'month' });
-      currentValue = usage.totalCost || 0;
+      const usage = getTokenUsageSummary({ project: alert.project, since });
+      currentValue = usage.total_cost_usd || 0;
     }
 
     if (thresholdValue && currentValue >= thresholdValue * (alert.threshold_percent / 100)) {
@@ -1476,7 +1485,7 @@ function createReportExport(reportType, format, filters = null) {
   db.prepare(`
     INSERT INTO report_exports (id, report_type, format, filters, status, created_at)
     VALUES (?, ?, ?, ?, 'pending', ?)
-  `).run(id, reportType, filters ? JSON.stringify(filters) : null, format, now);
+  `).run(id, reportType, format, filters ? JSON.stringify(filters) : null, now);
 
   return { id, report_type: reportType, format, status: 'pending', created_at: now };
 }

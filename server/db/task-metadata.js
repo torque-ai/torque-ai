@@ -391,30 +391,37 @@ function getTagStats() {
  * @returns {number} Number of tasks cancelled.
  */
 function batchCancelTasks(options = {}) {
-  let query = "UPDATE tasks SET status = 'cancelled', completed_at = ? WHERE status IN ('pending', 'queued', 'running')";
+  const conditions = [];
   const values = [new Date().toISOString()];
 
+  // Status condition
+  if (options.status) {
+    conditions.push('status = ?');
+    values.push(options.status);
+  } else {
+    conditions.push("status IN ('pending', 'queued', 'running')");
+  }
+
+  // Tags condition
   if (options.tags && options.tags.length > 0) {
     const tagConditions = options.tags.map(() => "tags LIKE ? ESCAPE '\\'");
-    query += ` AND (${tagConditions.join(' OR ')})`;
+    conditions.push(`(${tagConditions.join(' OR ')})`);
     options.tags.forEach(tag => values.push(`%"${escapeLikePattern(tag)}"%`));
   }
 
-  if (options.status) {
-    query = query.replace("status IN ('pending', 'queued', 'running')", 'status = ?');
-    values.splice(1, 0, options.status);
-  }
-
+  // Age condition
   if (options.olderThan) {
-    query += ' AND created_at < ?';
+    conditions.push('created_at < ?');
     values.push(options.olderThan);
   }
 
+  // Provider condition
   if (options.provider) {
-    query += ' AND provider = ?';
+    conditions.push('provider = ?');
     values.push(options.provider);
   }
 
+  const query = "UPDATE tasks SET status = 'cancelled', completed_at = ? WHERE " + conditions.join(' AND ');
   const stmt = db.prepare(query);
   const result = stmt.run(...values);
   return result.changes;

@@ -812,7 +812,7 @@ async function detectRegressions(taskId, workingDirectory, baselineResults) {
     baselineResults.tests, currentResults.tests,
     baselineResults.passed, currentResults.passed,
     baselineResults.failed, currentResults.failed,
-    hasRegression ? currentResults.output : null, now
+    newFailures, now
   );
 
   return {
@@ -1214,7 +1214,8 @@ async function runAppSmokeTest(taskId, workingDirectory, options = {}) {
     const startTime = Date.now();
 
     // Use spawn for better control
-    const proc = spawn('dotnet', ['run'], {
+    const spawnArgs = projectFile ? ['run', '--project', projectFile] : ['run'];
+    const proc = spawn('dotnet', spawnArgs, {
       cwd: workingDirectory,
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],

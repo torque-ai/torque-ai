@@ -165,6 +165,7 @@ function getValidationRule(id) {
  */
 function saveValidationRule(rule) {
   const now = new Date().toISOString();
+  const id = rule.id || require('uuid').v4();
   const stmt = db.prepare(`
     INSERT INTO validation_rules (id, name, description, rule_type, pattern, condition, severity, enabled, auto_fail, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -180,7 +181,7 @@ function saveValidationRule(rule) {
       updated_at = excluded.updated_at
   `);
   stmt.run(
-    rule.id || require('uuid').v4(),
+    id,
     rule.name,
     rule.description || null,
     rule.rule_type || 'pattern',
@@ -192,7 +193,7 @@ function saveValidationRule(rule) {
     now,
     now
   );
-  return getValidationRule(rule.id);
+  return getValidationRule(id);
 }
 
 /**
@@ -306,10 +307,19 @@ function getApprovalRules(enabledOnly = true) {
 }
 
 /**
+ * Get a specific approval rule
+ */
+function getApprovalRule(id) {
+  const stmt = db.prepare('SELECT * FROM approval_rules WHERE id = ?');
+  return stmt.get(id);
+}
+
+/**
  * Create or update an approval rule
  */
 function saveApprovalRule(rule) {
   const now = new Date().toISOString();
+  const id = rule.id || require('uuid').v4();
   const stmt = db.prepare(`
     INSERT INTO approval_rules (id, name, description, rule_type, condition, required_approvers, auto_reject, enabled, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -324,7 +334,7 @@ function saveApprovalRule(rule) {
       updated_at = excluded.updated_at
   `);
   stmt.run(
-    rule.id || require('uuid').v4(),
+    id,
     rule.name,
     rule.description || null,
     rule.rule_type || 'condition',
@@ -335,6 +345,7 @@ function saveApprovalRule(rule) {
     now,
     now
   );
+  return getApprovalRule(id);
 }
 
 /**
@@ -534,6 +545,7 @@ function saveRetryRule(rule) {
 function shouldRetryWithCloud(taskId, output, context = {}) {
   const rules = getRetryRules(true);
   const task = getTask(taskId);
+  if (!task) return { shouldRetry: false, reason: 'Task not found' };
   const outputToMatch = (output || '').slice(0, MAX_REGEX_INPUT_LENGTH);
 
   // Check retry attempts to avoid infinite loops
@@ -638,6 +650,7 @@ module.exports = {
   hasValidationFailures,
   validateTaskOutput,
   getApprovalRules,
+  getApprovalRule,
   saveApprovalRule,
   getPendingApprovals,
   decideApproval,
