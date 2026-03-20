@@ -2,6 +2,8 @@
 
 const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
 const keyManager = require('../auth/key-manager');
+const ticketManager = require('../auth/ticket-manager');
+const sessionManager = require('../auth/session-manager');
 
 let db;
 
@@ -321,5 +323,192 @@ describe('key-manager', () => {
       const hash = keyManager.hashKey('any-value');
       expect(hash).toMatch(/^[0-9a-f]{64}$/);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ticket-manager tests
+// ---------------------------------------------------------------------------
+
+describe('ticket-manager', () => {
+  beforeEach(() => {
+    ticketManager._reset();
+  });
+
+  afterEach(() => {
+    ticketManager._reset();
+    vi.useRealTimers();
+  });
+
+  it('createTicket returns a UUID string', () => {
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const ticket = ticketManager.createTicket(identity);
+    expect(typeof ticket).toBe('string');
+    // UUID v4 format
+    expect(ticket).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  it('consumeTicket returns identity and invalidates (single-use)', () => {
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const ticket = ticketManager.createTicket(identity);
+    const result = ticketManager.consumeTicket(ticket);
+    expect(result).toEqual(identity);
+    // Ticket is gone now
+    expect(ticketManager.getTicketCount()).toBe(0);
+  });
+
+  it('consumeTicket returns null on second use', () => {
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const ticket = ticketManager.createTicket(identity);
+    ticketManager.consumeTicket(ticket);
+    const result = ticketManager.consumeTicket(ticket);
+    expect(result).toBeNull();
+  });
+
+  it('consumeTicket returns null after TTL expires', () => {
+    vi.useFakeTimers();
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const ticket = ticketManager.createTicket(identity);
+    // Advance past 30s TTL
+    vi.advanceTimersByTime(31000);
+    const result = ticketManager.consumeTicket(ticket);
+    expect(result).toBeNull();
+  });
+
+  it('createTicket throws when cap (100) is reached', () => {
+    for (let i = 0; i < 100; i++) {
+      ticketManager.createTicket({ id: `user-${i}` });
+    }
+    expect(() => ticketManager.createTicket({ id: 'over-cap' })).toThrow('Ticket cap reached (max 100)');
+  });
+
+  it('cleanupExpiredTickets removes old tickets', () => {
+    vi.useFakeTimers();
+    const identity = { id: 'user-1' };
+    ticketManager.createTicket(identity);
+    ticketManager.createTicket(identity);
+    expect(ticketManager.getTicketCount()).toBe(2);
+
+    // Advance past TTL
+    vi.advanceTimersByTime(31000);
+    ticketManager.cleanupExpiredTickets();
+    expect(ticketManager.getTicketCount()).toBe(0);
+  });
+
+  it('_reset clears all tickets', () => {
+    ticketManager.createTicket({ id: 'user-1' });
+    ticketManager.createTicket({ id: 'user-2' });
+    ticketManager._reset();
+    expect(ticketManager.getTicketCount()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// session-manager tests
+// ---------------------------------------------------------------------------
+
+describe('session-manager', () => {
+  beforeEach(() => {
+    sessionManager._reset();
+  });
+
+  afterEach(() => {
+    sessionManager._reset();
+    vi.useRealTimers();
+  });
+
+  it('createSession returns sessionId and csrfToken', () => {
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const { sessionId, csrfToken } = sessionManager.createSession(identity);
+    expect(typeof sessionId).toBe('string');
+    expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(typeof csrfToken).toBe('string');
+    expect(csrfToken).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('getSession returns identity for valid session', () => {
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const { sessionId } = sessionManager.createSession(identity);
+    const entry = sessionManager.getSession(sessionId);
+    expect(entry).toBeTruthy();
+    expect(entry.identity).toEqual(identity);
+  });
+
+  it('getSession returns null for unknown session', () => {
+    const result = sessionManager.getSession('nonexistent-session-id');
+    expect(result).toBeNull();
+  });
+
+  it('getSession returns null for expired session', () => {
+    vi.useFakeTimers();
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const { sessionId } = sessionManager.createSession(identity);
+    // Advance past 24-hour TTL
+    vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 1000);
+    const result = sessionManager.getSession(sessionId);
+    expect(result).toBeNull();
+  });
+
+  it('getSession updates lastAccess (sliding window)', () => {
+    vi.useFakeTimers();
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const { sessionId } = sessionManager.createSession(identity);
+
+    // First access
+    const entry1 = sessionManager.getSession(sessionId);
+    const firstAccess = entry1.lastAccess;
+
+    // Advance time a bit and access again
+    vi.advanceTimersByTime(5000);
+    const entry2 = sessionManager.getSession(sessionId);
+    expect(entry2.lastAccess).toBeGreaterThan(firstAccess);
+  });
+
+  it('destroySession removes the session', () => {
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const { sessionId } = sessionManager.createSession(identity);
+    sessionManager.destroySession(sessionId);
+    expect(sessionManager.getSession(sessionId)).toBeNull();
+    expect(sessionManager.getSessionCount()).toBe(0);
+  });
+
+  it('validateCsrf returns true for matching token', () => {
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const { sessionId, csrfToken } = sessionManager.createSession(identity);
+    expect(sessionManager.validateCsrf(sessionId, csrfToken)).toBe(true);
+  });
+
+  it('validateCsrf returns false for mismatched token', () => {
+    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const { sessionId } = sessionManager.createSession(identity);
+    expect(sessionManager.validateCsrf(sessionId, 'wrong-token')).toBe(false);
+  });
+
+  it('createSession evicts LRU when cap (50) is reached', () => {
+    vi.useFakeTimers();
+    const sessions = [];
+    // Create 50 sessions, each 10ms apart so we have a clear LRU order
+    for (let i = 0; i < 50; i++) {
+      const { sessionId } = sessionManager.createSession({ id: `user-${i}` });
+      sessions.push(sessionId);
+      vi.advanceTimersByTime(10);
+    }
+    expect(sessionManager.getSessionCount()).toBe(50);
+
+    // Adding one more should evict the oldest (sessions[0])
+    sessionManager.createSession({ id: 'user-50' });
+    expect(sessionManager.getSessionCount()).toBe(50);
+
+    // The LRU session should be gone
+    expect(sessionManager.getSession(sessions[0])).toBeNull();
+    // A more recent session should still exist
+    expect(sessionManager.getSession(sessions[49])).toBeTruthy();
+  });
+
+  it('_reset clears all sessions', () => {
+    sessionManager.createSession({ id: 'user-1' });
+    sessionManager.createSession({ id: 'user-2' });
+    sessionManager._reset();
+    expect(sessionManager.getSessionCount()).toBe(0);
   });
 });
