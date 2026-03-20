@@ -171,6 +171,8 @@ describe('provider-routing module', () => {
       const next = previous === 'codex' ? 'claude-cli' : 'codex';
       const set = mod.setDefaultProvider(next);
       expect(set).toBe(next);
+      // Clear config cache so getDatabaseConfig reads the freshly written value
+      require('../db/config-core').clearConfigCache();
       expect(mod.getDefaultProvider()).toBe(next);
       mod.setDefaultProvider(previous);
     });
@@ -210,6 +212,8 @@ describe('provider-routing module', () => {
         mod.updateProvider('claude-cli', { enabled: 1 });
         mod.updateProvider('ollama', { enabled: 1 });
         mod.setProviderFallbackChain(provider, ['claude-cli', 'ollama']);
+        // Clear config cache so getProviderFallbackChain reads the freshly written chain
+        require('../db/config-core').clearConfigCache();
         db.recordFailoverEvent({
           task_id: taskId,
           from_provider: provider,
@@ -1115,8 +1119,12 @@ describe('provider-routing module', () => {
 
     it('setCodexExhausted(false) clears the flag', () => {
       mod.setCodexExhausted(true);
+      // Clear config cache so isCodexExhausted reads the freshly written value
+      require('../db/config-core').clearConfigCache();
       expect(mod.isCodexExhausted()).toBe(true);
       mod.setCodexExhausted(false);
+      // Clear config cache again after clearing the flag
+      require('../db/config-core').clearConfigCache();
       expect(mod.isCodexExhausted()).toBe(false);
     });
   });
@@ -1195,14 +1203,15 @@ describe('provider-routing module', () => {
       expect(fresh.hasHealthyOllamaHost()).toBe(false);
     });
 
-    it('treats null running_tasks as 0 (has capacity)', () => {
+    it('treats null running_tasks as unknown (no capacity assumed)', () => {
       // Insert host with NULL running_tasks via raw SQL
+      // SQL NULL comparison: NULL < 2 evaluates to NULL (falsy), so host is not matched
       const hostId = id('host');
       rawDb().prepare(`
         INSERT INTO ollama_hosts (id, name, url, enabled, status, running_tasks, max_concurrent, created_at)
         VALUES (?, ?, ?, 1, 'healthy', NULL, 2, ?)
       `).run(hostId, 'NullTasks', 'http://127.0.0.1:19999', new Date().toISOString());
-      expect(mod.hasHealthyOllamaHost()).toBe(true);
+      expect(mod.hasHealthyOllamaHost()).toBe(false);
     });
 
     it('treats null max_concurrent as 1', () => {
