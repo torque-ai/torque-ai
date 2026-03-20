@@ -671,15 +671,15 @@ function init() {
   }, 5000)); // Check every 5 seconds
   queueProcessingInterval.unref();
 
-  // Initialize CI watcher
+  // Reactivate CI watches — individual watches are activated via watchRepo(),
+  // there is no top-level init() export.
   try {
-    ciWatcher.init({ db, providers: { 'github-actions': require('./ci/github-actions') } });
     const activeWatches = db.listActiveCiWatches ? db.listActiveCiWatches() : [];
     for (const watch of activeWatches) {
       ciWatcher.watchRepo({ repo: watch.repo, provider: watch.provider, branch: watch.branch, poll_interval_ms: watch.poll_interval_ms });
     }
     if (db.pruneCiRunCache) db.pruneCiRunCache(7);
-  } catch (e) { debugLog(`CI watcher init: ${e.message}`); }
+  } catch (e) { debugLog(`CI watcher reactivation: ${e.message}`); }
 
   // Start maintenance scheduler
   startMaintenanceScheduler();

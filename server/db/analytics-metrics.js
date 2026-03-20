@@ -23,7 +23,6 @@ function setDbFunctions(fns) {
   eventTracking.setDbFunctions(fns);
   analytics.setDbFunctions(fns);
   analytics.setFindSimilarTasks(taskMetadata.findSimilarTasks);
-  analytics.setSetPriorityWeights(analytics.setPriorityWeights);
 }
 
 module.exports = {

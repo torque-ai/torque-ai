@@ -6,7 +6,10 @@ emitter.setMaxListeners(50);
 module.exports = {
   // Queue events
   onQueueChanged: (fn) => emitter.on('queue-changed', fn),
-  emitQueueChanged: () => emitter.emit('queue-changed'),
+  emitQueueChanged: () => {
+    emitter.emit('queue-changed');
+    process.emit('torque:queue-changed');
+  },
 
   // Shutdown events
   onShutdown: (fn) => emitter.on('shutdown', fn),
