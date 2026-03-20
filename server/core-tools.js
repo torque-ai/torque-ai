@@ -33,6 +33,8 @@ const TIER_1 = [
 ];
 
 const TIER_2 = [
+  // Host management (legacy aliases — manage_host is preferred for new code)
+  'add_ollama_host', 'list_ollama_hosts',
   // Unified management tools (replaces individual host/tuning/webhook tools)
   'manage_host',
   'manage_tuning',

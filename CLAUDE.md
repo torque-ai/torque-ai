@@ -50,6 +50,7 @@ Run locally but require the CLI tool installed and authenticated.
 | Provider | Requirement | Best For |
 |----------|------------|----------|
 | **codex** | Codex CLI installed + authenticated | Greenfield code, complex multi-file tasks |
+| **codex-spark** | Codex CLI installed + authenticated | Fast single-file edits (gpt-5.3-codex-spark model) |
 | **claude-cli** | Claude Code CLI installed + authenticated | Architectural decisions, complex debugging |
 
 ### Cloud (API — Bring Your Own Key)
@@ -142,7 +143,12 @@ If local LLM unavailable:
 4. Falls back to `codex` or `claude-cli` if all other options exhausted
 5. Auto-recovers when Ollama returns
 
-Cloud API providers fall back to each other: `deepinfra` ↔ `hyperbolic` → `anthropic` → `codex`.
+Cloud API provider fallback chains (from `server/db/provider-routing-core.js`):
+- `codex` → `claude-cli` → `deepinfra` → `ollama-cloud` → `hashline-ollama` → `ollama`
+- `deepinfra` → `ollama-cloud` → `hyperbolic` → `claude-cli` → `codex` → `hashline-ollama`
+- `hyperbolic` → `deepinfra` → `ollama-cloud` → `claude-cli` → `codex` → `hashline-ollama`
+
+Chains are user-configurable via `set_provider_fallback_chain`. Anthropic is not in any default fallback chain.
 
 ## Stall Recovery
 
@@ -330,6 +336,76 @@ Simple tasks (types, docs, config) skip review — auto-verify via `tsc`/`vitest
 ### Split Advisory
 
 When `split_advisory: true` appears in task metadata (complexity='complex' + 3 files), consider decomposing into subtasks rather than sending as one large task.
+
+## Economy Mode
+
+Economy mode restricts provider usage to reduce cost or stay within quotas. It lives in `server/economy/`.
+
+### How it works
+
+- **Auto-trigger**: The maintenance scheduler (every minute) checks `economy/triggers.js` for trigger conditions (e.g., budget threshold reached, quota pressure). When conditions are met, economy mode activates automatically with `trigger: 'auto'`.
+- **Auto-lift**: While in `auto` state, the scheduler also checks lift conditions. When resource pressure drops, economy mode deactivates automatically.
+- **Manual state**: If triggered manually (`trigger: 'manual'`), auto-lift does not apply — only explicit deactivation lifts it. This prevents the auto-lift logic from fighting manual cost controls.
+- **Provider filtering**: `economy/policy.js` maintains a global economy policy. `filterProvidersForEconomy(policy)` returns `{ blocked, preferred }` — blocked providers are rejected at submission time; preferred providers get priority routing.
+- **Queue reroute**: `economy/queue-reroute.js` handles tasks already in queue when economy mode activates — they are rerouted to preferred providers.
+- **Per-project overrides**: Projects can opt out of economy mode or set a custom policy via `set_project_defaults`.
+
+### MCP notification
+
+When a session connects (via `initialize`), if economy mode is active, TORQUE sends a `notifications/message` with `type: 'economy_status'` listing `blocked_providers` and `preferred_providers`.
+
+### State values
+
+| State | Meaning |
+|-------|---------|
+| `off` | Economy mode inactive |
+| `auto` | Auto-triggered; will auto-lift when conditions clear |
+| `manual` | Manually triggered; requires explicit deactivation |
+
+## Slot-Pull Scheduler
+
+An alternative scheduling mode where execution slots actively pull tasks from the queue, instead of the default push model (where task submission triggers queue processing).
+
+**Enable with:**
+```
+scheduling_mode = 'slot-pull'   (set via DB config or set_project_defaults)
+```
+
+**Location:** `server/execution/slot-pull-scheduler.js`
+
+When `scheduling_mode` is `slot-pull`, the scheduler starts a heartbeat on server init (`slotPullScheduler.startHeartbeat()`). Each heartbeat cycle scans for open provider slots and pulls queued tasks into them. This model reduces queue contention in high-concurrency scenarios where many tasks complete near-simultaneously.
+
+The default scheduling mode (`push`) has event-driven queue processing triggered by task completion events, with a 5-second safety-net poll as fallback.
+
+## Policy Engine
+
+A rule-based evaluation engine that applies governance policies to tasks before and during execution. Lives in `server/policy-engine/`.
+
+### Components
+
+| File | Purpose |
+|------|---------|
+| `engine.js` | Core evaluation loop — evaluates profiles against tasks |
+| `matchers.js` | Predicate functions — match tasks by provider, project, tags, etc. |
+| `profile-store.js` | Persistent storage for named policy profiles |
+| `profile-loader.js` | Loads profiles from DB and the default built-in set |
+| `evaluation-store.js` | Caches evaluation results for audit/reporting |
+| `promotion.js` | Promotes tasks to higher-priority providers based on policy |
+| `shadow-enforcer.js` | Shadow enforcement — logs policy violations without blocking |
+| `task-hooks.js` | Pre-submission hooks that apply policy before a task starts |
+| `task-execution-hooks.js` | Mid-execution hooks for running tasks |
+| `adapters/` | Provider-specific policy adapters |
+
+### Shadow enforcement
+
+Shadow enforcement mode (`shadow-enforcer.js`) evaluates policies but does not block — it logs what *would* have been blocked. Use to audit policy impact before enforcement goes live. Enable per-profile via the `shadow` flag.
+
+### How policies are applied
+
+1. At submission time, `task-hooks.js` evaluates the task against all active profiles.
+2. Matching profiles may block the task, reroute it, or annotate it with metadata.
+3. At execution time, `task-execution-hooks.js` applies mid-run governance (e.g., output filtering, rate limiting).
+4. Results are stored in `evaluation-store.js` for audit.
 
 ## File Safety
 
