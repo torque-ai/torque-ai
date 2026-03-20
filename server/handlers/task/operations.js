@@ -626,7 +626,7 @@ function handleBatchCancel(args) {
     options.tags = args.tags;
   }
 
-  if (args.older_than_hours) {
+  if (args.older_than_hours !== undefined && args.older_than_hours !== null) {
     const cutoff = new Date(Date.now() - args.older_than_hours * 3600000);
     options.olderThan = cutoff.toISOString();
   }

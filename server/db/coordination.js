@@ -93,12 +93,14 @@ function unregisterAgent(agentId, reassignTasks = true) {
   recordCoordinationEvent('agent_left', agentId, null, JSON.stringify({ name: agent.name }));
 
   // Delete all FK-dependent rows atomically before removing the agent row.
+  // Keep coordination_events for audit trail.
   db.transaction(() => {
     db.prepare('DELETE FROM task_claims WHERE agent_id = ?').run(agentId);
     db.prepare('DELETE FROM agent_metrics WHERE agent_id = ?').run(agentId);
     db.prepare('DELETE FROM work_stealing_log WHERE victim_agent_id = ? OR thief_agent_id = ?').run(agentId, agentId);
-    db.prepare('DELETE FROM coordination_events WHERE agent_id = ?').run(agentId);
     db.prepare('DELETE FROM agent_group_members WHERE agent_id = ?').run(agentId);
+    // Nullify agent_id in coordination_events to preserve audit trail
+    db.prepare('UPDATE coordination_events SET agent_id = NULL WHERE agent_id = ?').run(agentId);
     db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
   })();
 
@@ -242,7 +244,9 @@ function updateAgent(agentId, updates) {
  */
 function checkOfflineAgents() {
   const config = getFailoverConfig();
-  const threshold = parseInt(config.heartbeat_interval_seconds, 10) * parseInt(config.offline_threshold_missed, 10);
+  const interval = parseInt(config.heartbeat_interval_seconds, 10) || 30;
+  const missedThreshold = parseInt(config.offline_threshold_missed, 10) || 3;
+  const threshold = interval * missedThreshold;
   const cutoff = new Date(Date.now() - threshold * 1000).toISOString();
 
   const offlineAgents = db.prepare(`
@@ -1248,7 +1252,12 @@ function forceReleaseStaleLock(lockName) {
   const expiresAt = new Date(lock.expires_at);
   const isExpired = expiresAt <= now;
 
-  if (!isExpired) {
+  // Also consider heartbeat staleness — holder may have died before expiry
+  const lastHeartbeat = lock.last_heartbeat;
+  const heartbeatAge = lastHeartbeat ? (now.getTime() - new Date(lastHeartbeat).getTime()) : Infinity;
+  const isHeartbeatStale = heartbeatAge > (60 * 1000);
+
+  if (!isExpired && !isHeartbeatStale) {
     return { released: false, reason: 'lock_not_stale' };
   }
 

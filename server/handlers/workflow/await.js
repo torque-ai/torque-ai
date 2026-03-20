@@ -799,7 +799,7 @@ function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
           source: 'await_workflow',
           caller: 'formatFinalSummary',
           cwd,
-          timeout: TASK_TIMEOUTS.HTTP_REQUEST,
+          timeout: TASK_TIMEOUTS.GIT_COMMIT,
           encoding: 'utf8',
           stdio: ['pipe', 'pipe', 'pipe']
         });
@@ -875,7 +875,7 @@ function formatStandaloneTaskResult(task, startTime) {
   }
 
   if (task.status === 'failed' && task.error_output) {
-    const errTrimmed = task.error_output.substring(0, 2000);
+    const errTrimmed = task.error_output.substring(task.error_output.length - 2000);
     out += `\n### Error\n\`\`\`\n${errTrimmed}\n\`\`\`\n`;
   }
 
@@ -1034,7 +1034,7 @@ async function handleAwaitTask(args) {
                   source: 'await_task',
                   caller: 'handleAwaitTask',
                   cwd,
-                  timeout: TASK_TIMEOUTS.HTTP_REQUEST,
+                  timeout: TASK_TIMEOUTS.GIT_COMMIT,
                 });
                 const sha = executeValidatedCommandSync('git', ['rev-parse', '--short', 'HEAD'], {
                   profile: 'advanced_shell',

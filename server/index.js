@@ -38,6 +38,9 @@ const mcpProtocol = require('./mcp-protocol');
 const timerRegistry = require('./timer-registry');
 const eventBus = require('./event-bus');
 
+// Stored handler ref for shutdown listener deduplication across init() calls
+let _shutdownHandler = null;
+
 // Virtual session for stdio transport (single-client)
 // stdio is a trusted local pipe — always considered authenticated
 const stdioSession = { toolMode: 'core', authenticated: true };
@@ -259,6 +262,7 @@ async function gracefulShutdown(signal) {
   // Stop CI watchers before shutdown
   try { ciWatcher.shutdownAll(); } catch { /* ok */ }
 
+  // NOTE: Orphan mode disabled — server survives stdin close in headless mode (see line ~1396)
   if (isConnectionLoss) {
     debugLog(`MCP connection lost - checking for running tasks...`);
   } else {
@@ -805,10 +809,15 @@ function init() {
 
   // Listen for shutdown event from tools.js (e.g., restart_server)
   // This avoids circular dependency between tools.js and index.js
-  eventBus.onShutdown((reason) => {
+  // Remove previous handler to prevent accumulation on repeated init() calls
+  if (_shutdownHandler) {
+    eventBus.removeListener('torque:shutdown', _shutdownHandler);
+  }
+  _shutdownHandler = (reason) => {
     debugLog(`torque:shutdown event received: ${reason}`);
     gracefulShutdown(reason || 'torque:shutdown');
-  });
+  };
+  eventBus.onShutdown(_shutdownHandler);
 
   // Log to stderr (not stdout which is for MCP protocol)
   debugLog('TORQUE MCP Server v2.0 started');
@@ -1359,7 +1368,9 @@ function main() {
     const MAX_PENDING_REQUESTS = 100;
     if (activeRequestCount >= MAX_PENDING_REQUESTS) {
       // Return JSON-RPC error — server overloaded
-      const response = JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Server busy — too many pending requests' } });
+      let overloadReqId = null;
+      try { overloadReqId = JSON.parse(trimmedLine)?.id ?? null; } catch {}
+      const response = JSON.stringify({ jsonrpc: '2.0', id: overloadReqId, error: { code: -32000, message: 'Server busy — too many pending requests' } });
       process.stdout.write(response + '\n');
       return;
     }

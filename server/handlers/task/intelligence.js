@@ -507,7 +507,7 @@ function handleAddComment(args) {
 
   // Record audit log (positional args: entityType, entityId, action, actor, oldValue, newValue, metadata)
   try {
-    db.recordAuditLog('comment', String(result), 'create', author, null,
+    db.recordAuditLog('comment', String(result), 'create', author, null, null,
       JSON.stringify({ task_id, comment_type, comment: comment.substring(0, 100) }));
   } catch (err) {
     logger.debug('[task-intelligence] non-critical error writing audit log:', err.message || err);

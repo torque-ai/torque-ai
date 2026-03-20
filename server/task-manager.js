@@ -620,14 +620,14 @@ const CONVERSATIONAL_REFUSAL_PATTERN = /\b(I'm ready to|share the files|provide 
 
 function handleNoFileChangeDetection(ctx) {
   const { taskId, proc, task } = ctx;
-  if (ctx.status !== 'completed' || !task || task.provider !== 'aider-ollama') return;
+  if (ctx.status !== 'completed' || !proc || !task || task.provider !== 'aider-ollama') return;
 
   const workingDir = task.working_directory || process.cwd();
   const actuallyModified = getActualModifiedFiles(workingDir);
   const noFilesChanged = !actuallyModified || actuallyModified.length === 0;
   const taskDesc = task.task_description || '';
   const codeGenVerbs = /\b(implement|build|create|wire|add|write|generate|make)\b/i;
-  const hasRefusal = CONVERSATIONAL_REFUSAL_PATTERN.test(proc.output || '');
+  const hasRefusal = CONVERSATIONAL_REFUSAL_PATTERN.test(proc?.output || '');
 
   if (!(noFilesChanged && (codeGenVerbs.test(taskDesc) || hasRefusal))) return;
 
@@ -1507,6 +1507,7 @@ function shutdown(options = {}) {
   // Explicitly clear all background intervals/timeouts for clean shutdown
   _orphanCleanup.stopTimers();
   clearInterval(_queuePollInterval);
+  _queuePollInterval = null;
   // Stop health check and activity poll intervals (managed by host-monitoring)
   hostMonitoring.stopTimers();
   stopInstanceHeartbeat();
@@ -2049,6 +2050,10 @@ Object.assign(module.exports, {
       if (_processQueueTimer) {
         clearTimeout(_processQueueTimer);
         _processQueueTimer = null;
+      }
+      if (_queuePollInterval) {
+        clearInterval(_queuePollInterval);
+        _queuePollInterval = null;
       }
       providerRegistry.resetInstances();
       _processQueuePending = false;

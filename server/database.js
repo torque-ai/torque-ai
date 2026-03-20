@@ -654,6 +654,7 @@ function validateColumnName(column, allowedSet) {
 function close() {
   dbClosed = true;
   taskCore.setDb(null); // propagates dbClosed to task-core
+  configCore.setDb(null); // propagates dbClosed to config-core
   backupCore.stopBackupScheduler();
   // Run registered cleanup callbacks (e.g., queue-scheduler timer cleanup)
   for (const fn of _closeCallbacks) {

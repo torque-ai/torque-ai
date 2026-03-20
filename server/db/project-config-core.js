@@ -53,7 +53,7 @@ function setDbFunctions(fns) {
 function getDbInstance() { return db; }
 
 // Proxy helpers for injected functions
-function getTask(...args) { return _getTask(...args); }
+function getTask(...args) { if (!_getTask) return null; return _getTask(...args); }
 function getConfig(...args) { return _dbFunctions.getConfig ? _dbFunctions.getConfig(...args) : null; }
 function getAllConfig(...args) { return _dbFunctions.getAllConfig ? _dbFunctions.getAllConfig(...args) : {}; }
 function escapeLikePattern(str) {
@@ -277,12 +277,22 @@ function checkBudgetAlerts(project = null) {
       currentValue = usage.total_cost_usd || 0;
     }
 
-    if (thresholdValue && currentValue >= thresholdValue * (alert.threshold_percent / 100)) {
+    // Resolve effective threshold: use explicit threshold_value, or compute from
+    // global budget config when only threshold_percent is provided.
+    let effectiveThreshold = thresholdValue;
+    if (!effectiveThreshold && alert.threshold_percent) {
+      const globalBudget = parseFloat(getConfig('budget_usd')) || 0;
+      if (globalBudget > 0) {
+        effectiveThreshold = globalBudget;
+      }
+    }
+
+    if (effectiveThreshold && currentValue >= effectiveThreshold * (alert.threshold_percent / 100)) {
       triggered.push({
         alert,
         currentValue,
-        thresholdValue,
-        percentUsed: thresholdValue > 0 ? Math.round((currentValue / thresholdValue) * 100) : 0
+        thresholdValue: effectiveThreshold,
+        percentUsed: effectiveThreshold > 0 ? Math.round((currentValue / effectiveThreshold) * 100) : 0
       });
     }
   }

@@ -423,7 +423,7 @@ function handleRunPipeline(args) {
       for (const [key, value] of Object.entries(args.variables)) {
         // Escape special regex characters to prevent ReDoS
         const escapedKey = escapeRegExp(key);
-        taskDescription = taskDescription.replace(new RegExp(`\\$\\{${escapedKey}\\}`, 'g'), value);
+        taskDescription = taskDescription.replace(new RegExp(`\\{${escapedKey}\\}`, 'g'), value);
       }
     }
 

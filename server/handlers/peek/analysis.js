@@ -804,6 +804,10 @@ async function handlePeekRegression(args) {
     if (action === 'compare') {
       let snapshotDir;
       if (args.snapshot_id) {
+        const resolved = path.resolve(regressionRoot, args.snapshot_id);
+        if (!resolved.startsWith(path.resolve(regressionRoot) + path.sep)) {
+          return makeError(ErrorCodes.INVALID_PARAM, 'Invalid snapshot_id');
+        }
         snapshotDir = path.join(regressionRoot, args.snapshot_id);
       } else {
         if (!fs.existsSync(regressionRoot)) {
