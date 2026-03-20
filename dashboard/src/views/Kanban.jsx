@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { tasks as tasksApi, stats as statsApi, providers as providersApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { getRelevantModel } from '../utils/providerModels';
 import { STATUS_ICONS } from '../constants';
+import { format as dateFnsFormat } from 'date-fns';
 import StatCard from '../components/StatCard';
 import TaskSubmitForm from '../components/TaskSubmitForm';
 import HealthBar from '../components/HealthBar';
@@ -319,14 +321,14 @@ const TaskCard = memo(function TaskCard({
           )}
           {task.status === 'completed' && task.completed_at && (
             <span className="text-green-400">
-              {new Date(task.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              {dateFnsFormat(new Date(task.completed_at), 'hh:mm aa')}
             </span>
           )}
           {task.status === 'failed' && (
             <>
               {task.completed_at && (
                 <span className="text-red-400">
-                  {new Date(task.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  {dateFnsFormat(new Date(task.completed_at), 'hh:mm aa')}
                 </span>
               )}
               <button
@@ -341,7 +343,7 @@ const TaskCard = memo(function TaskCard({
             <>
               {task.completed_at && (
                 <span className="text-amber-400">
-                  {new Date(task.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  {dateFnsFormat(new Date(task.completed_at), 'hh:mm aa')}
                 </span>
               )}
               <button
@@ -594,6 +596,7 @@ const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOp
 });
 
 export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, statsVersion, tasksTick, wsStats }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [allTasks, setAllTasks] = useState([]);
   const [providerList, setProviderList] = useState([]);
   const [overview, setOverview] = useState(null);
@@ -623,8 +626,8 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   });
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef(null);
-  const [searchInput, setSearchInput] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '');
+  const [searchQuery, setSearchQuery] = useState(() => (searchParams.get('q') || '').trim().toLowerCase());
   const searchTimerRef = useRef(null);
   const prevTaskMapRef = useRef(new Map());
   const prevLiveIdsRef = useRef(new Set()); // Track WS-pushed task IDs for deletion detection (RB-056)
@@ -711,6 +714,13 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   useEffect(() => {
     return () => clearTimeout(searchTimerRef.current);
   }, []);
+
+  // Sync search query to URL params
+  useEffect(() => {
+    const params = {};
+    if (searchQuery) params.q = searchQuery;
+    setSearchParams(params, { replace: true });
+  }, [searchQuery, setSearchParams]);
 
   const mergeTasks = useCallback((freshTasks) => {
     setAllTasks((prev) => {

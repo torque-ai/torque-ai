@@ -1,3 +1,5 @@
+import { format } from 'date-fns';
+
 /**
  * Format a duration in seconds to human-readable string.
  * @param {number} seconds
@@ -22,14 +24,14 @@ export function formatDurationMs(ms) {
 }
 
 /**
- * Format a date to localized string.
+ * Format a date to a consistent datetime string using date-fns.
  * @param {string|Date} date
  * @returns {string}
  */
 export function formatDate(date) {
   if (!date) return 'N/A';
   try {
-    return new Date(date).toLocaleString();
+    return format(new Date(date), 'MMM d, yyyy HH:mm');
   } catch {
     return String(date);
   }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { planProjects as projectsApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
@@ -501,13 +502,14 @@ function ImportModal({ onClose, onImport }) {
 }
 
 export default function PlanProjects() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState(null);
   const [showImport, setShowImport] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '');
+  const [searchInput, setSearchInput] = useState(searchParams.get('q') || '');
+  const [search, setSearch] = useState(searchParams.get('q') || '');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const searchTimerRef = useRef(null);
 
@@ -523,6 +525,14 @@ export default function PlanProjects() {
   useEffect(() => {
     return () => clearTimeout(searchTimerRef.current);
   }, []);
+
+  // Sync search + status filter to URL params
+  useEffect(() => {
+    const params = {};
+    if (search) params.q = search;
+    if (statusFilter) params.status = statusFilter;
+    setSearchParams(params, { replace: true });
+  }, [search, statusFilter, setSearchParams]);
 
   const loadProjects = useCallback(() => {
     execute(async (isCurrent) => {

@@ -3,7 +3,7 @@ import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import LoadingSkeleton from '../components/LoadingSkeleton';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 
 const STATUS_STYLES = {
   healthy: { dot: 'bg-green-500', label: 'Healthy', badge: 'bg-green-600' },
@@ -415,12 +415,12 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
       {/* Last check & uptime */}
       <div className="flex items-center justify-between mt-3 text-xs text-slate-500">
         {host.last_health_check && (
-          <span title={new Date(host.last_health_check).toLocaleString('en-US')}>
+          <span title={format(new Date(host.last_health_check), 'MMM d, yyyy HH:mm:ss')}>
             Checked {formatDistanceToNow(new Date(host.last_health_check), { addSuffix: true })}
           </span>
         )}
         {host.created_at && (
-          <span title={new Date(host.created_at).toLocaleString('en-US')}>
+          <span title={format(new Date(host.created_at), 'MMM d, yyyy HH:mm:ss')}>
             Added {formatDistanceToNow(new Date(host.created_at), { addSuffix: true })}
           </span>
         )}
@@ -533,7 +533,7 @@ function WorkstationCard({ workstation, onProbe, onRemove, probing }) {
       <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-800">
         <div className="text-xs text-slate-500">
           {workstation.last_health_check ? (
-            <span title={new Date(workstation.last_health_check).toLocaleString('en-US')}>
+            <span title={format(new Date(workstation.last_health_check), 'MMM d, yyyy HH:mm:ss')}>
               Checked {formatDistanceToNow(new Date(workstation.last_health_check), { addSuffix: true })}
             </span>
           ) : (
@@ -1050,7 +1050,7 @@ export default function Hosts({ hostActivity }) {
       loadHosts();
       loadWorkstations();
       loadPeekHosts();
-    }, 10000);
+    }, 30000); // 30s — WebSocket provides real-time updates; polling is a fallback
     return () => clearInterval(interval);
   }, [loadHosts, loadPeekHosts, loadWorkstations]);
 

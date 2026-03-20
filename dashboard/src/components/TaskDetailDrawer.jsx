@@ -6,10 +6,12 @@ import LoadingSkeleton from './LoadingSkeleton';
 import { parseAnsi } from '../utils/ansiToHtml';
 import { getRelevantModel } from '../utils/providerModels';
 import { formatDurationMs } from '../utils/formatters';
+import { format } from 'date-fns';
 
 function formatTime(iso) {
   if (!iso) return '-';
-  return new Date(iso).toLocaleString('en-US');
+  try { return format(new Date(iso), 'MMM d, yyyy HH:mm:ss'); }
+  catch { return String(iso); }
 }
 
 const STATUS_COLORS = {

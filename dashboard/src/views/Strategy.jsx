@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { format } from 'date-fns';
 import { strategic as strategicApi } from '../api';
 import StatCard from '../components/StatCard';
 import { PROVIDER_COLORS } from '../constants';
@@ -295,7 +296,7 @@ function DecisionHistoryTable({ decisions }) {
               return (
                 <tr key={d.task_id} className="hover:bg-slate-800/50">
                   <td className="py-2 pr-4 text-slate-500 text-xs whitespace-nowrap">
-                    {d.created_at ? new Date(d.created_at).toLocaleString('en-US') : '-'}
+                    {d.created_at ? format(new Date(d.created_at), 'MMM d, yyyy HH:mm') : '-'}
                   </td>
                   <td className="py-2 pr-4">
                     <span className="text-slate-300 font-mono text-xs" title={d.task_id}>
@@ -407,7 +408,7 @@ function OperationsTable({ operations }) {
                 </td>
                 <td className="py-2 pr-4 text-slate-400 capitalize">{op.provider || '-'}</td>
                 <td className="py-2 text-slate-500 text-xs">
-                  {op.created_at ? new Date(op.created_at).toLocaleString('en-US') : '-'}
+                  {op.created_at ? format(new Date(op.created_at), 'MMM d, yyyy HH:mm') : '-'}
                 </td>
               </tr>
             ))}
