@@ -29,6 +29,7 @@ const SENSITIVE_KEY_NAMES = new Set([
   'openrouter_api_key',
   'ollama_cloud_api_key',
   'api_key', // TORQUE's own API key
+  'auth_server_secret', // HMAC signing secret for API key hashing
   'torque_secret_key',
 ]);
 

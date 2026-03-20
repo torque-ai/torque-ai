@@ -26,6 +26,7 @@ const VALID_CONFIG_KEYS = new Set([
   'aider_subtree_only',
   'anthropic_api_key',
   'api_key',
+  'auth_server_secret',
   'audit_trail_enabled',
   'auto_compute_max_concurrent',
   'auto_archive_days',

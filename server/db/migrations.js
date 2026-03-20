@@ -90,6 +90,25 @@ const MIGRATIONS = [
     ].join('\n'),
     down: 'DROP TABLE IF EXISTS benchmark_results',
   },
+  {
+    version: 7,
+    name: 'add_api_keys_table_and_server_secret',
+    up: [
+      [
+        'CREATE TABLE IF NOT EXISTS api_keys (',
+        '  id TEXT PRIMARY KEY,',
+        '  key_hash TEXT NOT NULL,',
+        '  name TEXT NOT NULL,',
+        "  role TEXT NOT NULL DEFAULT 'admin',",
+        "  created_at TEXT NOT NULL DEFAULT (datetime('now')),",
+        '  last_used_at TEXT,',
+        '  revoked_at TEXT',
+        ')',
+      ].join('\n'),
+      'CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)',
+    ].join('; '),
+    down: 'DROP TABLE IF EXISTS api_keys',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

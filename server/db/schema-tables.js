@@ -6,6 +6,7 @@ const VALID_TABLE_NAMES = new Set([
   'agent_metrics',
   'agentic_model_probes',
   'agents',
+  'api_keys',
   'analytics',
   'api_contract_results',
   'approval_requests',
@@ -3063,6 +3064,24 @@ function createTables(db, logger) {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_ci_run_cache_sha ON ci_run_cache(commit_sha)`);
   } catch (e) {
     logger.debug(`Schema migration (idx_ci_run_cache_sha): ${e.message}`);
+  }
+
+  // Auth: API keys table for HMAC-hashed key storage
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id TEXT PRIMARY KEY,
+        key_hash TEXT NOT NULL,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'admin',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_used_at TEXT,
+        revoked_at TEXT
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)');
+  } catch (e) {
+    logger.debug(`Schema migration (api_keys table): ${e.message}`);
   }
 
   const peekFixtureCatalog = require('./peek-fixture-catalog');
