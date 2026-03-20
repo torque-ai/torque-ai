@@ -59,9 +59,9 @@ set -euo pipefail
 #   curl -s http://${torqueHost}/api/bootstrap/workstation | bash -s -- --install
 # ────────────────────────────────────────────────────────────────────────
 
-TORQUE_HOST="${torqueHost}"
-AGENT_PORT="${port}"
-AGENT_NAME="${name}"
+TORQUE_HOST='${torqueHost}'
+AGENT_PORT='${port}'
+AGENT_NAME='${name}'
 INSTALL_SERVICE="${install}"
 AGENT_DIR="$HOME/.torque-agent"
 
@@ -122,7 +122,7 @@ const PORT = parseInt(process.env.TORQUE_AGENT_PORT || '3460', 10);
 const SECRET = process.env.TORQUE_AGENT_SECRET || '';
 
 const server = http.createServer((req, res) => {
-  if (SECRET && req.headers['x-torque-secret'] !== SECRET) {
+  if (!SECRET || req.headers['x-torque-secret'] !== SECRET) {
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized' }));
     return;
@@ -142,7 +142,13 @@ const server = http.createServer((req, res) => {
   }
   if (req.url === '/run' && req.method === 'POST') {
     let body = '';
-    req.on('data', c => { body += c; });
+    let bodySize = 0;
+    const MAX_BODY = 1048576; // 1MB
+    req.on('data', c => {
+      bodySize += c.length;
+      if (bodySize > MAX_BODY) { req.destroy(); return; }
+      body += c;
+    });
     req.on('end', () => {
       try {
         const { command, args, cwd } = JSON.parse(body);
@@ -256,8 +262,25 @@ function handleBootstrapWorkstation(req, res) {
   const name = url.searchParams.get('name') || '';
   const port = url.searchParams.get('port') || '3460';
   const install = url.searchParams.get('install') === 'true';
-
   const torqueHost = req.headers.host || `${getLocalIP()}:3457`;
+
+  // Validate inputs to prevent shell injection in the generated script
+  if (name && !/^[a-zA-Z0-9._-]{0,64}$/.test(name)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Invalid name — must be alphanumeric, dots, hyphens, underscores (max 64 chars)');
+    return;
+  }
+  if (!/^\d{1,5}$/.test(port) || parseInt(port, 10) < 1 || parseInt(port, 10) > 65535) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Invalid port — must be a number between 1 and 65535');
+    return;
+  }
+  if (!/^[a-zA-Z0-9._:\[\]-]+$/.test(torqueHost)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Invalid host header');
+    return;
+  }
+
   const script = generateBootstrapScript(torqueHost, { name, port, install });
 
   res.writeHead(200, {
