@@ -50,6 +50,16 @@ let mcpPlatform = null;
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 
 // PID file for reliable external shutdown (written on startup, cleaned on shutdown)
+// PID REUSE NOTE: On Linux, PIDs cycle through the available range (typically 32768).
+// After a reboot, the OS assigns new PIDs starting from 1, and a stale PID from before
+// the reboot could theoretically be reused by a completely different process. However:
+//   1. The PID heartbeat (10s interval) detects this: a reused PID will not write our
+//      JSON heartbeat format, so heartbeatAt will be stale (>30s) after one cycle.
+//   2. The command-line check (wmic/ps) further verifies the process contains 'torque'.
+//   3. Both guards must pass before any kill is attempted.
+// The probability of PID reuse within the heartbeat stale window (30s) AND matching the
+// 'torque' command-line check is astronomically low in practice (requires another node
+// process running a torque-named script to claim the exact same PID within 30s of reboot).
 const PID_FILE = path.join(db.getDataDir(), 'torque.pid');
 
 // PID heartbeat — periodic updates prove the server is alive, not just started
@@ -424,16 +434,26 @@ function killStaleInstance() {
     // Legacy format (raw PID) or stale heartbeat — treat as stale, proceed with kill
 
     // Verify the stale PID is still the same TORQUE process before killing.
+    // On Windows, tasklist only shows the image name ("node.exe") — not the script path.
+    // Use wmic to get the full CommandLine so we can match against the TORQUE script path
+    // and avoid killing unrelated node.exe processes. oldPid is a parsed integer so safe.
     try {
       let commandLine;
       if (process.platform === 'win32') {
-        commandLine = childProcess.execSync(`tasklist /FI "PID eq ${oldPid}" /FO CSV /V /NH`, { encoding: 'utf-8', timeout: 5000 });
+        // wmic reports the full CommandLine including the script path.
+        // execFileSync avoids shell injection risk (args passed as array).
+        commandLine = childProcess.execFileSync('wmic', [
+          'process', 'where', `ProcessId=${oldPid}`, 'get', 'CommandLine', '/format:list',
+        ], { encoding: 'utf-8', timeout: 5000 });
       } else {
         commandLine = String(childProcess.execSync(`ps -p ${oldPid} -o args=`, { encoding: 'utf8' }));
       }
       commandLine = String(commandLine).toLowerCase();
 
-      if (!commandLine.includes('torque')) {
+      // Require both 'node' and 'torque' in the command line to avoid false-positive kills.
+      // A node.exe process unrelated to TORQUE will not contain 'torque' in its args.
+      const isTorqueProcess = commandLine.includes('node') && commandLine.includes('torque');
+      if (!isTorqueProcess) {
         process.stderr.write(`[TORQUE] Kill guard: PID ${oldPid} now maps to non-TORQUE process, skipping stale cleanup\n`);
         return;
       }
@@ -1410,9 +1430,35 @@ function main() {
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
   // Global error handlers to prevent silent crashes
+  //
+  // Unhandled rejection counter — tracks rejections within a rolling window.
+  // A small number of rejections (e.g., transient network errors) is recoverable.
+  // A rapid burst indicates a systematic problem (bug loop, resource exhaustion)
+  // that warrants a graceful restart rather than silent degradation.
+  const UNHANDLED_REJECTION_WINDOW_MS = 60 * 1000; // 1-minute rolling window
+  const UNHANDLED_REJECTION_THRESHOLD = 20; // restart after this many within the window
+  const _unhandledRejectionTimestamps = [];
+
   process.on('unhandledRejection', (reason) => {
     debugLog(`Unhandled Promise Rejection: ${reason}`);
-    // Log but don't crash - let the server continue handling other requests
+
+    // Track timestamps and purge entries outside the rolling window
+    const now = Date.now();
+    _unhandledRejectionTimestamps.push(now);
+    while (_unhandledRejectionTimestamps.length > 0 &&
+           now - _unhandledRejectionTimestamps[0] > UNHANDLED_REJECTION_WINDOW_MS) {
+      _unhandledRejectionTimestamps.shift();
+    }
+
+    const recentCount = _unhandledRejectionTimestamps.length;
+    if (recentCount >= UNHANDLED_REJECTION_THRESHOLD) {
+      // Burst of unhandled rejections — something is systematically wrong.
+      // Trigger graceful restart so the next session gets a clean slate.
+      debugLog(`[FATAL] ${recentCount} unhandled rejections in last 60s — triggering graceful restart`);
+      process.stderr.write(`[TORQUE] ${recentCount} unhandled rejections in 60s — restarting for stability\n`);
+      gracefulShutdown('unhandled-rejection-burst');
+    }
+    // Below threshold: log but don't crash — let the server continue handling other requests
   });
 
   process.on('uncaughtException', (err) => {

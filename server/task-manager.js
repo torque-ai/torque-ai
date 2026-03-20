@@ -55,6 +55,33 @@ const activityMonitoring = require('./utils/activity-monitoring');
 const taskHooks = require('./policy-engine/task-hooks');
 const _taskExecutionHooks = require('./policy-engine/task-execution-hooks');
 
+// TIMEOUT MECHANISM OVERLAP — authoritative summary:
+//
+// TORQUE has three partially-overlapping timeout/cleanup mechanisms for running tasks.
+// Understanding which is authoritative prevents confusion when diagnosing stuck tasks:
+//
+// 1. STALL DETECTION (execution/stall-detection.js) — per-task, real-time, AUTHORITATIVE for timeouts
+//    Watches stdout/stderr for inactivity. Threshold: provider-specific (Ollama=180s, Codex=600s).
+//    When triggered: cancels the task and resubmits with provider fallback.
+//    This is the primary mechanism — it fires while the task is running and has provider context.
+//
+// 2. STARTUP ORPHAN CLEANUP (index.js init()) — one-shot at server start, catch-up only
+//    At startup, scans all tasks in 'running' state that belong to dead/missing instances.
+//    Uses task.timeout_minutes (per-task config, default 30min) as the grace threshold.
+//    Requeues tasks (up to max_retries) rather than failing, since the owning instance crashed.
+//    NOT a real-time mechanism — only fires once per server start.
+//
+// 3. MAINTENANCE SCHEDULER (index.js startMaintenanceScheduler, 'cleanup_stale_tasks') — periodic sweep
+//    Runs every minute (maintenance interval) when 'cleanup_stale_tasks' is due.
+//    Uses DB config: stale_running_minutes (default 60), stale_queued_minutes (default 1440).
+//    Marks tasks failed if they exceed these thresholds regardless of active instance.
+//    This is the long-stop — catches tasks that stall detection missed (e.g., Ollama provider
+//    that lost its stall handler due to a partial crash).
+//
+// PRECEDENCE: Stall detection > Startup orphan cleanup > Maintenance sweep.
+// If all three agree a task is dead, maintenance sweep wins by sheer time elapsed.
+// If stall detection is disabled for a provider, maintenance sweep becomes the authority.
+
 // Extracted modules (Phase 3 decomposition — re-wired)
 const _executionModule = require('./providers/execution');
 const executeApi = require('./providers/execute-api');
@@ -283,6 +310,12 @@ let isShuttingDown = false;
 // SECURITY (M7): Use crypto.randomUUID() instead of Math.random() for lock IDs
 const QUEUE_LOCK_HOLDER_ID = `mcp-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
 const QUEUE_LOCK_NAME = 'queue_processor';
+// SINGLE-MACHINE ASSUMPTION: The distributed lock lease expiry (30s) does not account for
+// cross-machine clock skew. This is intentional — TORQUE's SQLite DB is a local file and
+// is not shared across machines. Multiple TORQUE instances coordinate via the mcp_instances
+// table (process.pid + instance UUID) on the same host only. If a shared-disk multi-host
+// deployment were added in the future, lease expiry logic would need NTP-synchronized clocks
+// or a clock-skew tolerance margin added to QUEUE_LOCK_LEASE_SECONDS.
 const QUEUE_LOCK_LEASE_SECONDS = 30; // Lock expires after 30 seconds if not released
 
 // Shell escaping — delegated to execution/task-utils.js
@@ -331,7 +364,7 @@ function tryReserveHostSlotWithFallback(...args) { return _providerRouter.tryRes
 
 // Track last cleanup time to avoid excessive cleanup overhead
 let lastRetryCleanupTime = 0;
-const RETRY_CLEANUP_INTERVAL_MS = 60000; // Cleanup at most once per minute
+const RETRY_CLEANUP_INTERVAL_MS = 30000; // Cleanup at most once per 30s (reduced from 60s for faster leak recovery)
 
 // ============================================================
 // LLM Output Safeguards
