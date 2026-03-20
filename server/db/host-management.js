@@ -940,15 +940,14 @@ function getRoutingRules() {
 function addRoutingRule(rule) {
   const now = new Date().toISOString();
   const stmt = db.prepare(`
-    INSERT INTO complexity_routing (name, complexity, target_provider, target_host, model, priority, enabled, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO routing_rules (name, rule_type, pattern, target_provider, priority, enabled, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const result = stmt.run(
     rule.name,
-    rule.complexity,
+    rule.rule_type || 'complexity',
+    rule.pattern || rule.complexity || '',
     rule.target_provider || null,
-    rule.target_host || null,
-    rule.model || null,
     rule.priority || 10,
     rule.enabled !== false ? 1 : 0,
     now

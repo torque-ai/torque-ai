@@ -306,81 +306,6 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
 
   const descLower = (taskDescription || '').toLowerCase();
 
-  // API provider routing: Groq for docs/explanations, DeepInfra/Hyperbolic for complex
-  const groqApiKey = serverConfig.getApiKey('groq');
-
-  const isSecurityTask = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i.test(taskDescription);
-  const isXamlTask = /\b(xaml|wpf|uwp|maui|avalonia)\b/i.test(taskDescription) ||
-    (files && files.some(f => /\.xaml$/i.test(f)));
-  const isArchitecturalTask = /\b(architect|refactor.*multi|redesign|migration strategy|system design)\b/i.test(taskDescription);
-
-  // DeepInfra/Hyperbolic routing: complex reasoning and large-scope tasks to big models
-  const deepinfraApiKey = serverConfig.getApiKey('deepinfra');
-  const hyperbolicApiKey = serverConfig.getApiKey('hyperbolic');
-
-  const isReasoningTask = /\b(reason|analyze|debug complex|root cause|review.*entire|explain.*architecture|deep.*analysis)\b/i.test(taskDescription);
-  const isLargeCodeTask = /\b(implement.*system|build.*feature|create.*module|complex.*generation|multi.*file.*refactor)\b/i.test(taskDescription);
-
-  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && deepinfraApiKey) {
-    const diProvider = getProvider('deepinfra');
-    if (diProvider && diProvider.enabled) {
-      const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
-      return {
-        provider: 'deepinfra',
-        rule: null,
-        reason: `API routing: ${matchType} task → deepinfra (large model)`
-      };
-    }
-  }
-
-  // Hyperbolic as fallback for large-model tasks when DeepInfra unavailable
-  if ((isReasoningTask || isLargeCodeTask) && hyperbolicApiKey && !deepinfraApiKey) {
-    const hProvider = getProvider('hyperbolic');
-    if (hProvider && hProvider.enabled) {
-      const matchType = isReasoningTask ? 'complex reasoning' : 'large code generation';
-      return {
-        provider: 'hyperbolic',
-        rule: null,
-        reason: `API routing: ${matchType} task → hyperbolic (large model)`
-      };
-    }
-  }
-
-  // Ollama Cloud routing: reasoning/analysis/large-code tasks to 480B+ models (free tier)
-  // Falls after deepinfra/hyperbolic (paid large models) but before groq/local ollama
-  const ollamaCloudApiKey = serverConfig.getApiKey('ollama-cloud');
-  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && ollamaCloudApiKey) {
-    const ocProvider = getProvider('ollama-cloud');
-    if (ocProvider && ocProvider.enabled) {
-      const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
-      return {
-        provider: 'ollama-cloud',
-        rule: null,
-        reason: `API routing: ${matchType} task → ollama-cloud (480B+ model, free)`
-      };
-    }
-  }
-
-  const isDocsTask = /\b(document|summarize|comment|readme|changelog|jsdoc|docstring)\b/i.test(taskDescription);
-  const isSimpleGenTask = /\b(commit message|boilerplate|scaffold|template|stub)\b/i.test(taskDescription);
-  // "explain" and "describe" removed from groq routing — these often need multi-file reads
-  // which require 2+ tool calls, and groq's tool calling fails on multi-step tasks.
-  // They'll route to cerebras or other providers via template-based routing instead.
-
-  // Only route to groq if the task won't need multiple tool calls
-  const hasMultipleFileRefs = (taskDescription.match(/\b[\w./\\-]+\.\w{1,5}\b/g) || []).length > 1;
-  if ((isDocsTask || isSimpleGenTask) && !hasMultipleFileRefs && groqApiKey) {
-    const groqProvider = getProvider('groq');
-    if (groqProvider && groqProvider.enabled) {
-      const matchType = isDocsTask ? 'documentation' : 'simple generation';
-      return {
-        provider: 'groq',
-        rule: null,
-        reason: `API routing: ${matchType} task → groq`
-      };
-    }
-  }
-
   // Collect all file extensions from working directory and explicit files
   const fileExtensions = new Set();
   if (files && Array.isArray(files)) {
@@ -439,7 +364,15 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     return result;
   };
 
-  // Per-task routing template (overrides global active template)
+  // ─── ROUTING EVALUATION ORDER ──────────────────────────────────────────
+  // 1. Per-task routing template (explicit user override per task)
+  // 2. Global active routing template (explicit user activation)
+  // 3. Hard-coded API provider rules (pattern-based fallback)
+  // 4. Complexity-based routing
+  // 5. Legacy keyword/extension rules
+  // 6. Default provider
+
+  // ─── 1. Per-task routing template ──────────────────────────────────────
   // Callers can pass options.taskMetadata._routing_template = "Template Name" or ID
   // to override the globally active template for this specific task.
   const taskMeta = options.taskMetadata || {};
@@ -455,16 +388,20 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       if (resolved) {
         const provConfig = getProvider(resolved.provider);
         if (provConfig && provConfig.enabled) {
-          return maybeApplyFallback({
-            provider: resolved.provider,
-            model: resolved.model,
-            chain: resolved.chain,
-            rule: null,
-            complexity,
-            reason: `Task template '${taskTemplate.name}': ${category} -> ${resolved.provider}`,
-          });
+          const qs = getQuotaStoreIfAvailable();
+          if (!(qs && qs.isExhausted(resolved.provider))) {
+            return maybeApplyFallback({
+              provider: resolved.provider,
+              model: resolved.model,
+              chain: resolved.chain,
+              rule: null,
+              complexity,
+              reason: `Task template '${taskTemplate.name}': ${category} -> ${resolved.provider}`,
+            });
+          }
+          logger.info('[SmartRouting] Skipping primary ' + resolved.provider + ' — quota exhausted');
         }
-        // Primary unavailable — try chain
+        // Primary unavailable or exhausted — try chain
         if (resolved.chain && resolved.chain.length > 1) {
           for (let i = 1; i < resolved.chain.length; i++) {
             const fb = resolved.chain[i];
@@ -487,7 +424,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     }
   }
 
-  // Template-based routing (user-configurable category -> provider mapping)
+  // ─── 2. Global active routing template ─────────────────────────────────
   // Only active when a user has explicitly set a template via activate_routing_template.
   // getActiveTemplate() falls back to System Default — we skip that fallback here
   // so existing users see zero behavior change until they opt in.
@@ -505,16 +442,20 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
         // Check primary provider availability
         const providerConfig = getProvider(resolved.provider);
         if (providerConfig && providerConfig.enabled) {
-          return maybeApplyFallback({
-            provider: resolved.provider,
-            model: resolved.model || null,
-            chain: resolved.chain,
-            rule: null,
-            complexity,
-            reason: `Template '${activeTemplate.name}': ${category} -> ${resolved.provider}`,
-          });
+          const qs = getQuotaStoreIfAvailable();
+          if (!(qs && qs.isExhausted(resolved.provider))) {
+            return maybeApplyFallback({
+              provider: resolved.provider,
+              model: resolved.model || null,
+              chain: resolved.chain,
+              rule: null,
+              complexity,
+              reason: `Template '${activeTemplate.name}': ${category} -> ${resolved.provider}`,
+            });
+          }
+          logger.info('[SmartRouting] Skipping primary ' + resolved.provider + ' — quota exhausted');
         }
-        // Primary unavailable — iterate chain to find next enabled provider
+        // Primary unavailable or exhausted — iterate chain to find next enabled provider
         if (resolved.chain && resolved.chain.length > 1) {
           for (let i = 1; i < resolved.chain.length; i++) {
             const entry = resolved.chain[i];
@@ -552,6 +493,117 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
           }
         }
       }
+    }
+  }
+
+  // ─── 3. Hard-coded API provider routing ────────────────────────────────
+  // Pattern-based routing to cloud providers when no template is active.
+  // Each block checks quota exhaustion before routing.
+  const groqApiKey = serverConfig.getApiKey('groq');
+
+  const isSecurityTask = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i.test(taskDescription);
+  const isXamlTask = /\b(xaml|wpf|uwp|maui|avalonia)\b/i.test(taskDescription) ||
+    (files && files.some(f => /\.xaml$/i.test(f)));
+  const isArchitecturalTask = /\b(architect|refactor.*multi|redesign|migration strategy|system design)\b/i.test(taskDescription);
+
+  // DeepInfra/Hyperbolic routing: complex reasoning and large-scope tasks to big models
+  const deepinfraApiKey = serverConfig.getApiKey('deepinfra');
+  const hyperbolicApiKey = serverConfig.getApiKey('hyperbolic');
+
+  const isReasoningTask = /\b(reason|analyze|debug complex|root cause|review.*entire|explain.*architecture|deep.*analysis)\b/i.test(taskDescription);
+  const isLargeCodeTask = /\b(implement.*system|build.*feature|create.*module|complex.*generation|multi.*file.*refactor)\b/i.test(taskDescription);
+
+  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && deepinfraApiKey) {
+    const diProvider = getProvider('deepinfra');
+    const qs = getQuotaStoreIfAvailable();
+    if (diProvider && diProvider.enabled && !(qs && qs.isExhausted('deepinfra'))) {
+      const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
+      return {
+        provider: 'deepinfra',
+        rule: null,
+        reason: `API routing: ${matchType} task → deepinfra (large model)`
+      };
+    }
+  }
+
+  // Hyperbolic as fallback for large-model tasks when DeepInfra unavailable
+  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && hyperbolicApiKey) {
+    // Only try Hyperbolic if DeepInfra didn't already handle this task
+    const diProvider = getProvider('deepinfra');
+    const diAvailable = diProvider && diProvider.enabled && deepinfraApiKey;
+    if (!diAvailable) {
+      const hProvider = getProvider('hyperbolic');
+      const qs = getQuotaStoreIfAvailable();
+      if (hProvider && hProvider.enabled && !(qs && qs.isExhausted('hyperbolic'))) {
+        const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
+        return {
+          provider: 'hyperbolic',
+          rule: null,
+          reason: `API routing: ${matchType} task → hyperbolic (DeepInfra unavailable)`
+        };
+      }
+    }
+  }
+
+  // Ollama Cloud routing: reasoning/analysis/large-code tasks to 480B+ models (free tier)
+  // Falls after deepinfra/hyperbolic (paid large models) but before groq/local ollama
+  const ollamaCloudApiKey = serverConfig.getApiKey('ollama-cloud');
+  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && ollamaCloudApiKey) {
+    const ocProvider = getProvider('ollama-cloud');
+    const qs = getQuotaStoreIfAvailable();
+    if (ocProvider && ocProvider.enabled && !(qs && qs.isExhausted('ollama-cloud'))) {
+      const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
+      return {
+        provider: 'ollama-cloud',
+        rule: null,
+        reason: `API routing: ${matchType} task → ollama-cloud (480B+ model, free)`
+      };
+    }
+  }
+
+  // Security tasks → anthropic or claude-cli
+  if (isSecurityTask && !isUserOverride) {
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (anthropicKey) {
+      const anthropicProvider = getProvider('anthropic');
+      if (anthropicProvider && anthropicProvider.enabled) {
+        return { provider: 'anthropic', rule: null, reason: 'Security task routed to Anthropic' };
+      }
+    }
+    // Fallback to claude-cli for security tasks
+    const claudeProvider = getProvider('claude-cli');
+    if (claudeProvider && claudeProvider.enabled) {
+      return { provider: 'claude-cli', rule: null, reason: 'Security task routed to Claude CLI' };
+    }
+  }
+
+  // XAML/WPF tasks → cloud (local LLMs struggle with WPF semantics)
+  if (isXamlTask && !isUserOverride) {
+    const codexProvider = getProvider('codex');
+    if (codexProvider && codexProvider.enabled) {
+      return { provider: 'codex', rule: null, reason: 'XAML/WPF task routed to Codex' };
+    }
+  }
+
+  const isDocsTask = /\b(document|summarize|comment|readme|changelog|jsdoc|docstring)\b/i.test(taskDescription);
+  // "template" removed — matched routing template names in task descriptions, causing false routing to groq
+  const isSimpleGenTask = /\b(commit message|boilerplate|scaffold|stub)\b/i.test(taskDescription);
+  // "explain" and "describe" removed from groq routing — these often need multi-file reads
+  // which require 2+ tool calls, and groq's tool calling fails on multi-step tasks.
+  // They'll route to cerebras or other providers via template-based routing instead.
+
+  // Only route to groq if the task won't need multiple tool calls
+  const hasMultipleFileRefs = (taskDescription.match(/\b[\w./\\-]+\.\w{1,5}\b/g) || []).length > 1;
+  if ((isDocsTask || isSimpleGenTask) && !hasMultipleFileRefs && groqApiKey) {
+    const groqProvider = getProvider('groq');
+    const qs = getQuotaStoreIfAvailable();
+    if (groqProvider && groqProvider.enabled && !(qs && qs.isExhausted('groq'))) {
+      const matchType = isDocsTask ? 'documentation' : 'simple generation';
+      return {
+        provider: 'groq',
+        rule: null,
+        reason: `API routing: ${matchType} task → groq`
+      };
     }
   }
 
@@ -1686,7 +1738,7 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440) {
     UPDATE tasks
     SET status = 'failed',
         completed_at = ?,
-        error_output = 'Task marked as failed: no heartbeat (stale session cleanup)'
+        error_output = COALESCE(error_output || char(10), '') || 'Task marked as failed: no heartbeat (stale session cleanup)'
     WHERE status = 'running'
       AND (started_at < ? OR (started_at IS NULL AND created_at < ?))
   `).run(now, runningCutoff, runningCutoff);
@@ -1696,7 +1748,7 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440) {
     UPDATE tasks
     SET status = 'cancelled',
         completed_at = ?,
-        error_output = 'Task cancelled: queued too long (stale session cleanup)'
+        error_output = COALESCE(error_output || char(10), '') || 'Task cancelled: queued too long (stale session cleanup)'
     WHERE status = 'queued'
       AND created_at < ?
   `).run(now, queuedCutoff);
