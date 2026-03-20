@@ -47,11 +47,12 @@ function createMockResponse() {
   return { response, done };
 }
 
-async function dispatchRequest(handler, { method, url, headers = {} } = {}) {
+async function dispatchRequest(handler, { method, url, headers = {}, remoteAddress = '127.0.0.1' } = {}) {
   const req = new EventEmitter();
   req.method = method;
   req.url = url;
   req.headers = headers;
+  req.socket = { remoteAddress };
   req.destroy = vi.fn();
 
   const { response, done } = createMockResponse();
@@ -125,6 +126,7 @@ describe('MCP SSE session cap', () => {
         method: 'GET',
         url: '/sse',
         headers: { host: 'localhost:3458' },
+        remoteAddress: `10.0.${Math.floor(i / 255)}.${i % 255}`,
       });
 
       openRequests.push(request.req);
@@ -135,6 +137,7 @@ describe('MCP SSE session cap', () => {
       method: 'GET',
       url: '/sse',
       headers: { host: 'localhost:3458' },
+      remoteAddress: '10.99.99.99',
     });
 
     expect(overflow.response.statusCode).toBe(503);

@@ -218,7 +218,7 @@ describe('REST passthrough route dispatch', () => {
     expect(response.statusCode).toBe(500);
 
     const payload = parseJson(response);
-    expect(payload.error.message).toBe('Tool exploded');
+    expect(payload.error.message).toBe('Internal server error');
     expect(payload.error.code).toEqual(expect.any(String));
     expect(payload.error.request_id).toEqual(expect.any(String));
     expect(payload.meta).toEqual(expect.objectContaining({

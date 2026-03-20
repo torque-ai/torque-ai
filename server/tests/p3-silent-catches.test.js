@@ -21,15 +21,15 @@ function walkAst(node, onNode) {
 
 // Intentional empty catches in handler files (crypto fallthrough, config defaults)
 const ALLOWED_SILENT_CATCHES = new Set([
-  'provider-crud-handlers.js:629',
-  'provider-crud-handlers.js:663',
-  'provider-crud-handlers.js:667',
-  'provider-crud-handlers.js:688',
-  'provider-crud-handlers.js:717',
-  'provider-crud-handlers.js:721',
+  'provider-crud-handlers.js:619',
+  'provider-crud-handlers.js:653',
+  'provider-crud-handlers.js:657',
+  'provider-crud-handlers.js:678',
+  'provider-crud-handlers.js:707',
+  'provider-crud-handlers.js:711',
   'orchestrator-handlers.js:12',
   'orchestrator-handlers.js:31',
-  'strategic-config-handlers.js:23',
+  'strategic-config-handlers.js:25',
 ]);
 
 describe('p3-silent-catches', () => {

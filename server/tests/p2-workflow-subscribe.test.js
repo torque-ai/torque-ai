@@ -58,7 +58,7 @@ async function dispatchRequest(handler, { method, url, headers = {}, body } = {}
   process.nextTick(() => {
     if (body !== undefined) {
       const payload = typeof body === 'string' ? body : JSON.stringify(body);
-      req.emit('data', payload);
+      req.emit('data', Buffer.from(payload, 'utf8'));
     }
     req.emit('end');
   });

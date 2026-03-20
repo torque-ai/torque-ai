@@ -21,6 +21,7 @@ function setup() {
   db.resetForTest(templateBuffer);
 
   taskManager = require('../task-manager');
+  taskManager.initSubModules();
   taskManager._testing.resetForTest();
 }
 

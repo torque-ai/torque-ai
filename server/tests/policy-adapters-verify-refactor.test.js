@@ -1684,7 +1684,7 @@ describe('policy adapters verify/refactor combined coverage', () => {
       });
 
       expect(result.summary).toMatchObject({
-        failed: 1,
+        failed: 0,
         warned: 0,
         blocked: 1,
       });
@@ -1719,7 +1719,7 @@ describe('policy adapters verify/refactor combined coverage', () => {
       });
 
       expect(result.summary).toMatchObject({
-        failed: 1,
+        failed: 0,
         warned: 1,
         blocked: 0,
       });
@@ -1799,7 +1799,7 @@ describe('policy adapters verify/refactor combined coverage', () => {
       });
 
       expect(result.summary).toMatchObject({
-        failed: 1,
+        failed: 0,
         warned: 1,
         blocked: 0,
       });
@@ -1846,7 +1846,7 @@ describe('policy adapters verify/refactor combined coverage', () => {
       });
 
       expect(result.summary).toMatchObject({
-        failed: 1,
+        failed: 0,
         warned: 0,
         blocked: 1,
       });

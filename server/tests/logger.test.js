@@ -10,6 +10,7 @@ function createMockStream() {
       const chunkValue = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
       mockChunkBuffer.push(chunkValue);
     }),
+    on: vi.fn(),
     end: vi.fn(),
     destroy: vi.fn(),
   };

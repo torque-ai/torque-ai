@@ -177,6 +177,8 @@ describe('Harness Improvements — Internal Functions', () => {
     beforeAll(() => {
       tmpDir = path.join(os.tmpdir(), `fuzzy-repair-test-${Date.now()}`);
       fs.mkdirSync(tmpDir, { recursive: true });
+      // hashline-verify.js needs lineSimilarity injected via init() before use
+      require('../validation/hashline-verify').init({ lineSimilarity, computeLineHash });
     });
 
     afterAll(() => {

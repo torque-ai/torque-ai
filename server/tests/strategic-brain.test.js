@@ -49,7 +49,7 @@ describe('StrategicBrain', () => {
       const instance = new StrategicBrain({ provider: 'ollama' });
       expect(instance.provider).toBe('ollama');
       expect(() => instance._getProvider()).not.toThrow();
-      expect(instance._getProvider().name).toBe('ollama');
+      expect(instance._getProvider().name).toBe('ollama-strategic');
     });
   });
 

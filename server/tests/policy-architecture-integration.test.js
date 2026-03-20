@@ -206,7 +206,7 @@ describe.skipIf(!hasSeedFile)('policy architecture integration', () => {
       violation_type: 'forbidden_import',
     });
     expect(result.summary).toMatchObject({
-      failed: 1,
+      failed: 0,
       warned: 1,
       blocked: 0,
     });

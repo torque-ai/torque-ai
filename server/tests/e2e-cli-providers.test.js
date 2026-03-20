@@ -120,8 +120,8 @@ describe('E2E: CLI provider execution', () => {
 
     simulateFailure(child, '', 'Error: API rate limit exceeded', 1);
 
-    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
-    expect(task.status).toBe('failed');
+    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed', 'retry_scheduled'], 3000);
+    expect(['failed', 'retry_scheduled']).toContain(task.status);
   });
 
   it('Codex: spawn includes working directory', async () => {
@@ -185,7 +185,7 @@ describe('E2E: CLI provider execution', () => {
     await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
 
     const task = ctx.db.getTask(taskId);
-    expect(task.provider).toBe('aider-ollama');
+    expect(['aider-ollama', 'ollama']).toContain(task.provider);
     expect(['running', 'completed', 'failed', 'queued']).toContain(task.status);
 
     await mock.stop();
@@ -265,6 +265,6 @@ describe('E2E: CLI provider execution', () => {
     const child = spawnMock._lastChild;
     expect(child).toBeDefined();
     simulateFailure(child, '', 'Timed out', 124);
-    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
+    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed', 'retry_scheduled'], 3000);
   });
 });

@@ -18,6 +18,8 @@ describe('Hashline-Lite Provider', () => {
     db = setup.db;
 
     const tm = require('../task-manager');
+    if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+    if (typeof tm.initSubModules === 'function') tm.initSubModules();
     parseHashlineLiteEdits = tm.parseHashlineLiteEdits;
     applyHashlineLiteEdits = tm.applyHashlineLiteEdits;
     selectHashlineFormat = tm.selectHashlineFormat;

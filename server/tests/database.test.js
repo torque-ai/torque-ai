@@ -15,6 +15,9 @@ let origDataDir;
 let db;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
+let emitQueueChangedSpy;
+let emitShutdownSpy;
+let emitTaskUpdatedSpy;
 
 function setupDb() {
   testDir = path.join(os.tmpdir(), `torque-vtest-database-${Date.now()}`);

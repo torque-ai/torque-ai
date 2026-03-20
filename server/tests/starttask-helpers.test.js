@@ -608,7 +608,6 @@ describe('resolveProviderRouting (via startTask)', () => {
       spent: 100.00,
       limit: 50.00,
     });
-    const auditSpy = vi.spyOn(db, 'recordAuditEvent');
 
     const id = createTask({ provider: 'codex', working_directory: os.tmpdir() });
     const execution = tm.startTask(id);
@@ -616,12 +615,11 @@ describe('resolveProviderRouting (via startTask)', () => {
       void execution.catch(() => {});
     }
 
-    const taskStartedCall = auditSpy.mock.calls.find((call) => call[0] === 'task_started' && call[2] === id);
-    expect(taskStartedCall).toBeDefined();
-    expect(taskStartedCall[4]).toBe('ollama');
-    expect(taskStartedCall[6]).toEqual(expect.objectContaining({
-      provider: 'ollama',
-    }));
+    // Budget routing re-routes codex → ollama; verify the provider was resolved correctly.
+    // The ollama provider takes a direct execution path that does not emit a task_started
+    // audit event, so we verify routing via the task record instead.
+    const task = db.getTask(id);
+    expect(task.provider).toBe('ollama');
   });
 
   it('keeps paid provider when budget exceeded but no Ollama hosts available', () => {

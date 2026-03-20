@@ -58,6 +58,7 @@ describe('await_workflow yield-on-completion', () => {
   beforeAll(() => {
     const setup = setupTestDb('await-workflow-yield');
     db = setup.db;
+    require('../task-manager').initSubModules();
   });
   afterAll(() => { teardownTestDb(); });
 
@@ -191,8 +192,11 @@ describe('await_workflow yield-on-completion', () => {
         { node_id: 'slow', task: 'Slow task' }
       ]);
 
-      await safeTool('run_workflow', { workflow_id: wf.workflowId });
-      // Don't complete the task — let it timeout
+      // Manually set workflow to running and task to running without triggering startTask.
+      // Use 'running' status so the queue won't pick up the task or emit retry events.
+      db.updateWorkflow(wf.workflowId, { status: 'running' });
+      db.updateTaskStatus(wf.taskIds.slow, 'running', { started_at: new Date().toISOString() });
+      // Don't complete the task — let await_workflow timeout
 
       const result = await safeTool('await_workflow', {
         workflow_id: wf.workflowId,

@@ -382,7 +382,14 @@ describe('test-hardening parity', () => {
         task: `task-${index}`,
         working_directory: process.cwd(),
       }));
-      const result = await tools.handleToolCall('import_data', { json_data: JSON.stringify({ tasks: largeTasks }) });
+      const tmpFile = path.join(os.tmpdir(), `torque-import-test-${Date.now()}.json`);
+      fs.writeFileSync(tmpFile, JSON.stringify({ tasks: largeTasks }), 'utf8');
+      let result;
+      try {
+        result = await tools.handleToolCall('import_data', { file_path: tmpFile });
+      } finally {
+        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+      }
 
       expect(result).toBeTruthy();
       expect(result.isError).toBe(true);

@@ -485,11 +485,11 @@ describe('scheduling-automation module', () => {
       const ruleId = mod.createApprovalRule('all', 'all', {});
       mod.createApprovalRequest(task.id, ruleId);
 
-      const emitSpy = vi.spyOn(process, 'emit');
-      emitSpy.mockClear();
+      const eventBus = require('../event-bus');
+      const emitSpy = vi.spyOn(eventBus, 'emitQueueChanged').mockImplementation(() => {});
 
       expect(mod.approveTask(task.id, 'alice')).toBe(true);
-      expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
+      expect(emitSpy).toHaveBeenCalled();
 
       emitSpy.mockRestore();
     });

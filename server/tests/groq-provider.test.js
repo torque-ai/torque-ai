@@ -480,21 +480,22 @@ describe('GroqProvider', () => {
       expect(provider._estimateCost(undefined)).toBe(0);
     });
 
-    it('calculates flat cost at $0.27 per 1M tokens', () => {
+    it('calculates cost using default model rate ($0.59 per 1M tokens)', () => {
+      // Default model is llama-3.3-70b-versatile at $0.59/1M
       const cost = provider._estimateCost({ total_tokens: 1_000_000 });
-      expect(cost).toBeCloseTo(0.27, 10);
+      expect(cost).toBeCloseTo(0.59, 10);
     });
 
     it('calculates cost for partial token usage', () => {
-      // 10000 tokens * 0.27/1M = 0.0027
+      // 10000 tokens * 0.59/1M (llama-3.3-70b-versatile) = 0.0059
       const cost = provider._estimateCost({ total_tokens: 10_000 });
-      expect(cost).toBeCloseTo(0.0027, 8);
+      expect(cost).toBeCloseTo(0.0059, 8);
     });
 
     it('calculates cost for small token amounts', () => {
-      // 1000 tokens @ $0.27/1M = $0.00000027
+      // 1000 tokens @ $0.59/1M (llama-3.3-70b-versatile) = 0.00000059 * 1000
       const cost = provider._estimateCost({ total_tokens: 1000 });
-      expect(cost).toBeCloseTo(0.00000027 * 1000, 10);
+      expect(cost).toBeCloseTo(0.00000059 * 1000, 10);
     });
 
     it('returns 0 for zero tokens', () => {
@@ -507,11 +508,11 @@ describe('GroqProvider', () => {
       expect(cost).toBe(0);
     });
 
-    it('does not depend on model parameter (flat rate)', () => {
+    it('uses model-specific rate when model is provided', () => {
       const usage = { total_tokens: 500_000 };
-      const cost1 = provider._estimateCost(usage);
-      // Groq has a single flat rate regardless of model
-      expect(cost1).toBeCloseTo(0.135, 6);
+      // mixtral-8x7b-32768 is $0.24/1M -> 500_000 * 0.24/1M = 0.12
+      const cost1 = provider._estimateCost(usage, 'mixtral-8x7b-32768');
+      expect(cost1).toBeCloseTo(0.12, 6);
     });
   });
 

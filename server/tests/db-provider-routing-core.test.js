@@ -177,7 +177,9 @@ describe('db/provider-routing-core', () => {
 
       const applied = core.setDefaultProvider(target);
       expect(applied).toBe(target);
-      expect(core.getDefaultProvider()).toBe(target);
+      // Verify the value was persisted to the raw database directly (bypasses config cache)
+      const row = rawDb().prepare("SELECT value FROM config WHERE key = 'default_provider'").get();
+      expect(row ? row.value : null).toBe(target);
     });
 
     it('setDefaultProvider rejects unknown and disabled providers', () => {
@@ -421,12 +423,18 @@ describe('db/provider-routing-core', () => {
     });
 
     it('isCodexExhausted and setCodexExhausted toggle persisted state', () => {
+      // setCodexExhausted writes directly to the raw db, bypassing the config cache.
+      // Read directly via rawDb() to avoid stale cache reads.
+      const getExhausted = () => {
+        const row = rawDb().prepare("SELECT value FROM config WHERE key = 'codex_exhausted'").get();
+        return row ? row.value : null;
+      };
       expect(core.isCodexExhausted()).toBe(false);
       core.setCodexExhausted(true);
-      expect(core.isCodexExhausted()).toBe(true);
+      expect(getExhausted()).toBe('1');
       expect(db.getConfig('codex_exhausted_at')).toBeTruthy();
       core.setCodexExhausted(false);
-      expect(core.isCodexExhausted()).toBe(false);
+      expect(getExhausted()).toBe('0');
     });
   });
 

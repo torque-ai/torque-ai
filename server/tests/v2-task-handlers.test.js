@@ -1,5 +1,7 @@
 'use strict';
 
+const eventBus = require('../event-bus');
+
 const mockDb = {
   countTasks: vi.fn(),
   createTask: vi.fn(),
@@ -211,7 +213,7 @@ beforeEach(() => {
 
 describe('api/v2-task-handlers.handleSubmitTask', () => {
   it('returns 201 and task data for a valid submission', async () => {
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitTaskUpdatedSpy = vi.spyOn(eventBus, 'emitTaskUpdated');
     const res = createRes();
     const req = createReq({
       body: {
@@ -253,7 +255,7 @@ describe('api/v2-task-handlers.handleSubmitTask', () => {
         metadata: '{"intended_provider":"codex"}',
       }));
       expect(mockTaskManager.startTask).toHaveBeenCalledWith('submit-task-1');
-      expect(emitSpy).toHaveBeenCalledWith('torque:task-updated', {
+      expect(emitTaskUpdatedSpy).toHaveBeenCalledWith({
         taskId: 'submit-task-1',
         status: 'running',
       });
@@ -273,7 +275,7 @@ describe('api/v2-task-handlers.handleSubmitTask', () => {
       });
       expect(mockMiddleware.parseBody).not.toHaveBeenCalled();
     } finally {
-      emitSpy.mockRestore();
+      emitTaskUpdatedSpy.mockRestore();
     }
   });
 
@@ -682,7 +684,7 @@ describe('api/v2-task-handlers.handleCancelTask', () => {
 
 describe('api/v2-task-handlers.handleRetryTask', () => {
   it('creates a new task from a failed task', async () => {
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitTaskUpdatedSpy = vi.spyOn(eventBus, 'emitTaskUpdated');
     const req = createReq({ params: { task_id: 'failed-task' } });
     const res = createRes();
 
@@ -726,10 +728,12 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
         priority: 2,
         provider: null,
         model: 'gpt-5',
-        metadata: '{"retry_of":"failed-task","intended_provider":"codex"}',
+        // Smart-routed tasks (no user_provider_override) get intended_provider: null
+        // so routing re-evaluates on retry
+        metadata: '{"retry_of":"failed-task","intended_provider":null}',
       });
       expect(mockTaskManager.startTask).toHaveBeenCalledWith('retry-task-1');
-      expect(emitSpy).toHaveBeenCalledWith('torque:task-updated', {
+      expect(emitTaskUpdatedSpy).toHaveBeenCalledWith({
         taskId: 'retry-task-1',
         status: 'queued',
       });
@@ -746,7 +750,7 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
         req,
       });
     } finally {
-      emitSpy.mockRestore();
+      emitTaskUpdatedSpy.mockRestore();
     }
   });
 
@@ -790,12 +794,14 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
   });
 
   it('returns 400 when retrying a task with an unknown stored provider', async () => {
+    // user_provider_override: true means this was explicitly user-chosen, so we
+    // validate the stored provider and reject if it's unknown
     mockDb.getTask.mockReturnValue({
       id: 'failed-task',
       status: 'failed',
       task_description: 'Retry me',
       provider: 'missing-provider',
-      metadata: {},
+      metadata: { user_provider_override: true },
     });
     mockDb.getProvider.mockReturnValue(null);
 
@@ -910,7 +916,8 @@ describe('api/v2-task-handlers.handleReassignTaskProvider', () => {
   });
 
   it('emits queue processing and task updates after a successful reassignment', async () => {
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitQueueChangedSpy = vi.spyOn(eventBus, 'emitQueueChanged');
+    const emitTaskUpdatedSpy = vi.spyOn(eventBus, 'emitTaskUpdated');
     try {
       mockDb.getTask.mockReturnValue({
         id: 'task-queued',
@@ -934,14 +941,15 @@ describe('api/v2-task-handlers.handleReassignTaskProvider', () => {
       );
 
       expect(mockDb.updateTask).toHaveBeenCalled();
-      expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
-      expect(emitSpy).toHaveBeenCalledWith('torque:task-updated', {
+      expect(emitQueueChangedSpy).toHaveBeenCalled();
+      expect(emitTaskUpdatedSpy).toHaveBeenCalledWith({
         taskId: 'task-queued',
         status: 'queued',
       });
-      expect(mockDb.updateTask.mock.invocationCallOrder[0]).toBeLessThan(emitSpy.mock.invocationCallOrder[0]);
+      expect(mockDb.updateTask.mock.invocationCallOrder[0]).toBeLessThan(emitQueueChangedSpy.mock.invocationCallOrder[0]);
     } finally {
-      emitSpy.mockRestore();
+      emitQueueChangedSpy.mockRestore();
+      emitTaskUpdatedSpy.mockRestore();
     }
   });
 
@@ -1481,7 +1489,8 @@ describe('api/v2-task-handlers.handleApproveSwitch', () => {
   it('queues the task with the metadata target provider and emits dashboard updates', async () => {
     const req = createReq({ params: { task_id: 'task-switch' } });
     const res = createRes();
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitQueueChangedSpy = vi.spyOn(eventBus, 'emitQueueChanged');
+    const emitTaskUpdatedSpy = vi.spyOn(eventBus, 'emitTaskUpdated');
 
     const task = {
       id: 'task-switch',
@@ -1522,8 +1531,8 @@ describe('api/v2-task-handlers.handleApproveSwitch', () => {
         ollama_host_id: null,
       });
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
-      expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
-      expect(emitSpy).toHaveBeenCalledWith('torque:task-updated', {
+      expect(emitQueueChangedSpy).toHaveBeenCalled();
+      expect(emitTaskUpdatedSpy).toHaveBeenCalledWith({
         taskId: 'task-switch',
         status: 'queued',
       });
@@ -1535,14 +1544,15 @@ describe('api/v2-task-handlers.handleApproveSwitch', () => {
         req,
       });
     } finally {
-      emitSpy.mockRestore();
+      emitQueueChangedSpy.mockRestore();
+      emitTaskUpdatedSpy.mockRestore();
     }
   });
 
   it('falls back to updateTaskStatus when updateTask rejects status changes (production path)', async () => {
     const req = createReq({ params: { task_id: 'task-switch-prod' } });
     const res = createRes();
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitQueueChangedSpy = vi.spyOn(eventBus, 'emitQueueChanged');
 
     const task = {
       id: 'task-switch-prod',
@@ -1585,12 +1595,12 @@ describe('api/v2-task-handlers.handleApproveSwitch', () => {
         model: null,
         ollama_host_id: null,
       });
-      expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
+      expect(emitQueueChangedSpy).toHaveBeenCalled();
       expect(getLastSuccess()).toMatchObject({
         status: 200,
       });
     } finally {
-      emitSpy.mockRestore();
+      emitQueueChangedSpy.mockRestore();
     }
   });
 });
@@ -1693,7 +1703,8 @@ describe('api/v2-task-handlers.handleRejectSwitch', () => {
   it('queues the task with task.provider when metadata.original_provider is stale and emits dashboard updates', async () => {
     const req = createReq({ params: { task_id: 'task-reject' } });
     const res = createRes();
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitQueueChangedSpy = vi.spyOn(eventBus, 'emitQueueChanged');
+    const emitTaskUpdatedSpy = vi.spyOn(eventBus, 'emitTaskUpdated');
 
     const task = {
       id: 'task-reject',
@@ -1732,8 +1743,8 @@ describe('api/v2-task-handlers.handleRejectSwitch', () => {
         progress_percent: 0,
       });
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
-      expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
-      expect(emitSpy).toHaveBeenCalledWith('torque:task-updated', {
+      expect(emitQueueChangedSpy).toHaveBeenCalled();
+      expect(emitTaskUpdatedSpy).toHaveBeenCalledWith({
         taskId: 'task-reject',
         status: 'queued',
       });
@@ -1745,14 +1756,16 @@ describe('api/v2-task-handlers.handleRejectSwitch', () => {
         req,
       });
     } finally {
-      emitSpy.mockRestore();
+      emitQueueChangedSpy.mockRestore();
+      emitTaskUpdatedSpy.mockRestore();
     }
   });
 
   it('falls back to metadata.original_provider when task.provider is empty (production path)', async () => {
     const req = createReq({ params: { task_id: 'task-reject-prod' } });
     const res = createRes();
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitQueueChangedSpy = vi.spyOn(eventBus, 'emitQueueChanged');
+    const emitTaskUpdatedSpy = vi.spyOn(eventBus, 'emitTaskUpdated');
 
     const task = {
       id: 'task-reject-prod',
@@ -1795,8 +1808,8 @@ describe('api/v2-task-handlers.handleRejectSwitch', () => {
         model: null,
         ollama_host_id: null,
       });
-      expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
-      expect(emitSpy).toHaveBeenCalledWith('torque:task-updated', {
+      expect(emitQueueChangedSpy).toHaveBeenCalled();
+      expect(emitTaskUpdatedSpy).toHaveBeenCalledWith({
         taskId: 'task-reject-prod',
         status: 'queued',
       });
@@ -1808,7 +1821,8 @@ describe('api/v2-task-handlers.handleRejectSwitch', () => {
         req,
       });
     } finally {
-      emitSpy.mockRestore();
+      emitQueueChangedSpy.mockRestore();
+      emitTaskUpdatedSpy.mockRestore();
     }
   });
 });

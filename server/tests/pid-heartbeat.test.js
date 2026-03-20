@@ -151,7 +151,10 @@ describe('PID heartbeat stale detection (RB-050)', () => {
     mockTaskManager.getMcpInstanceId.mockReturnValue('test-instance');
     mockTaskManager.hasRunningProcess.mockReturnValue(false);
     mockTaskManager.isInstanceAlive.mockReturnValue(false);
-    execFileSyncSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => '');
+    execFileSyncSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((cmd) => {
+      if (cmd === 'wmic') return 'CommandLine=node C:/Users/kenten/projects/torque-public/server/index.js';
+      return '';
+    });
     _execSyncSpy = vi.spyOn(childProcess, 'execSync').mockImplementation(() => 'node torque/server/index.js');
     index = loadIndex(tempDir);
   });

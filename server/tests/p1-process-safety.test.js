@@ -84,6 +84,7 @@ describe('index.killStaleInstance process safety', () => {
 
     const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
     vi.spyOn(childProcess, 'execSync').mockReturnValue(`node ${path.join(tempDir, 'torque.js')} --worker`);
+    vi.spyOn(childProcess, 'execFileSync').mockReturnValue(`node ${path.join(tempDir, 'torque.js')} --worker`);
 
     index.killStaleInstance();
 

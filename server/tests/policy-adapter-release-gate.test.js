@@ -959,7 +959,7 @@ describe('policy-engine/adapters/release-gate', () => {
 
         const gate = evaluateGates('release-15', 'Torque').gates[0];
 
-        expect(gate.threshold).toEqual({});
+        expect(gate.threshold).toEqual([]);
         expect(gate).toMatchObject({
           status: 'failed',
           reason: 'policy aggregate has 0 evaluations; requires at least 1',

@@ -31,6 +31,8 @@ describe('Hashline Local Model Escalation', () => {
 
     beforeAll(() => {
       taskManager = require('../task-manager');
+      if (typeof taskManager.initEarlyDeps === 'function') taskManager.initEarlyDeps();
+      if (typeof taskManager.initSubModules === 'function') taskManager.initSubModules();
     });
 
     /**

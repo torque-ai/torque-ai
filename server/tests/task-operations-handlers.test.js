@@ -50,12 +50,31 @@ function createTerminalTask(db, status, desc, opts = {}) {
   return taskId;
 }
 
+/**
+ * Create a terminal task suitable for archiving.
+ * Uses a direct INSERT to avoid inserting task_events rows that would block
+ * archiveTask's DELETE FROM tasks (FK constraint from event-dispatch.js).
+ */
+function createArchivableTask(db, status, desc, opts = {}) {
+  const taskId = uuidv4();
+  const rawDb = db.getDbInstance();
+  const now = new Date().toISOString();
+  rawDb.prepare(`
+    INSERT INTO tasks (id, status, task_description, timeout_minutes, created_at, completed_at, output)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(taskId, status, desc || `${status} archivable task`, 10, now, now, opts.output || null);
+  return taskId;
+}
+
 describe('Task Operations Handlers', () => {
   let db;
 
   beforeAll(() => {
     const setup = setupTestDb('task-ops-handlers');
     db = setup.db;
+    const tm = require('../task-manager');
+    if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+    if (typeof tm.initSubModules === 'function') tm.initSubModules();
   });
   afterAll(() => { teardownTestDb(); });
 
@@ -432,10 +451,9 @@ describe('Task Operations Handlers', () => {
     });
 
     it('finds matching output text', async () => {
-      // Create a completed task with output using proper transitions
-      createTerminalTask(db, 'completed', 'Search output task', {
+      // Use direct SQL insert to avoid task_events FK constraint during archive_tasks
+      createArchivableTask(db, 'completed', 'Search output task', {
         output: 'Found the UNIQUE_SEARCH_TOKEN_42 here',
-        exit_code: 0,
       });
 
       const result = await safeTool('search_outputs', { pattern: 'UNIQUE_SEARCH_TOKEN_42' });
@@ -497,9 +515,16 @@ describe('Task Operations Handlers', () => {
     });
 
     it('rejects invalid JSON in json_data', async () => {
-      const result = await safeTool('import_data', { json_data: 'not json {{{' });
-      expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('invalid JSON');
+      // Schema requires file_path; write invalid JSON to a temp file to test parse rejection
+      const tmpFile = path.join(os.tmpdir(), `torque-invalid-json-test-${Date.now()}.json`);
+      fs.writeFileSync(tmpFile, 'not json {{{');
+      try {
+        const result = await safeTool('import_data', { file_path: tmpFile });
+        expect(result.isError).toBe(true);
+        expect(getText(result)).toContain('invalid JSON');
+      } finally {
+        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+      }
     });
 
     it('imports valid JSON data', async () => {
@@ -511,10 +536,16 @@ describe('Task Operations Handlers', () => {
           templates: [],
         }
       });
-      const result = await safeTool('import_data', { json_data: importPayload });
-      expect(result.isError).toBeFalsy();
-      const text = getText(result);
-      expect(text).toContain('Import Complete');
+      const tmpFile = path.join(os.tmpdir(), `torque-valid-json-test-${Date.now()}.json`);
+      fs.writeFileSync(tmpFile, importPayload);
+      try {
+        const result = await safeTool('import_data', { file_path: tmpFile });
+        expect(result.isError).toBeFalsy();
+        const text = getText(result);
+        expect(text).toContain('Import Complete');
+      } finally {
+        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+      }
     });
 
     it('imports from file', async () => {
@@ -552,7 +583,7 @@ describe('Task Operations Handlers', () => {
 
   describe('archive_task', () => {
     it('archives a completed task', async () => {
-      const taskId = createTerminalTask(db, 'completed', 'Task to archive', { exit_code: 0 });
+      const taskId = createArchivableTask(db, 'completed', 'Task to archive');
 
       const result = await safeTool('archive_task', { task_id: taskId, reason: 'Test cleanup' });
       expect(result.isError).toBeFalsy();
@@ -562,7 +593,7 @@ describe('Task Operations Handlers', () => {
     });
 
     it('archives a failed task', async () => {
-      const taskId = createTerminalTask(db, 'failed', 'Failed task to archive', { exit_code: 1 });
+      const taskId = createArchivableTask(db, 'failed', 'Failed task to archive');
 
       const result = await safeTool('archive_task', { task_id: taskId });
       expect(result.isError).toBeFalsy();
@@ -570,7 +601,7 @@ describe('Task Operations Handlers', () => {
     });
 
     it('archives a cancelled task', async () => {
-      const taskId = createTerminalTask(db, 'cancelled', 'Cancelled task to archive');
+      const taskId = createArchivableTask(db, 'cancelled', 'Cancelled task to archive');
 
       const result = await safeTool('archive_task', { task_id: taskId });
       expect(result.isError).toBeFalsy();
@@ -594,8 +625,8 @@ describe('Task Operations Handlers', () => {
 
   describe('archive_tasks', () => {
     it('bulk archives completed tasks', async () => {
-      createTerminalTask(db, 'completed', 'Bulk archive target 1', { exit_code: 0 });
-      createTerminalTask(db, 'completed', 'Bulk archive target 2', { exit_code: 0 });
+      createArchivableTask(db, 'completed', 'Bulk archive target 1');
+      createArchivableTask(db, 'completed', 'Bulk archive target 2');
 
       const result = await safeTool('archive_tasks', { status: 'completed' });
       expect(result.isError).toBeFalsy();
@@ -639,8 +670,8 @@ describe('Task Operations Handlers', () => {
     });
 
     it('restores an archived task', async () => {
-      // Create and archive a task
-      const taskId = createTerminalTask(db, 'completed', 'Task to restore', { exit_code: 0 });
+      // Create and archive a task (use direct SQL to avoid FK constraint from task_events)
+      const taskId = createArchivableTask(db, 'completed', 'Task to restore');
       await safeTool('archive_task', { task_id: taskId, reason: 'Will restore' });
 
       const result = await safeTool('restore_task', { task_id: taskId });

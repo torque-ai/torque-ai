@@ -12,6 +12,7 @@ describe('policy task lifecycle', () => {
   beforeEach(() => {
     ({ db, testDir } = setupTestDb('policy-task-lifecycle'));
     taskManager._testing.resetForTest();
+    taskManager.initSubModules();
   });
 
   afterEach(() => {

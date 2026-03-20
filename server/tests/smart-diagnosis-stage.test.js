@@ -2,6 +2,11 @@
 
 const { smartDiagnosisStage } = require('../execution/smart-diagnosis-stage');
 
+function parseMeta(metadata) {
+  if (typeof metadata === 'string') return JSON.parse(metadata);
+  return metadata;
+}
+
 function makeCtx(overrides = {}) {
   return {
     taskId: 'test-task-001',
@@ -26,14 +31,14 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
     it('skips when task status is completed', () => {
       const ctx = makeCtx({ status: 'completed' });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis).toBeUndefined();
     });
 
     it('skips when task status is cancelled', () => {
       const ctx = makeCtx({ status: 'cancelled' });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis).toBeUndefined();
     });
   });
@@ -44,7 +49,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'Process timed out after 300s',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('retry');
       expect(metadata.strategic_diagnosis.reason).toContain('timed out');
     });
@@ -54,7 +59,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'Error: connect ETIMEDOUT 192.168.1.100:11434',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('retry');
     });
   });
@@ -65,7 +70,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'CUDA out of memory. Tried to allocate 4GB',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('switch_provider');
       expect(metadata.strategic_diagnosis.suggested_provider).toBe('deepinfra');
       expect(metadata.suggested_provider).toBe('deepinfra');
@@ -78,7 +83,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'Error 429: too many requests',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('retry');
     });
   });
@@ -89,7 +94,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'Error: connect ECONNREFUSED 192.168.1.100:11434',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('switch_provider');
       expect(metadata.suggested_provider).toBe('deepinfra');
     });
@@ -101,7 +106,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: "error TS2304: Cannot find name 'Observable'.",
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('fix_task');
       expect(metadata.fix_suggestion).toContain('TypeScript');
     });
@@ -111,7 +116,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'SyntaxError: Unexpected token }',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('fix_task');
     });
 
@@ -120,7 +125,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'FAILED tests/auth.test.js > login > should validate email\nAssertionError: expected true to be false',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('fix_task');
     });
   });
@@ -131,7 +136,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'Something completely unexpected happened in the quantum flux capacitor',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.strategic_diagnosis.action).toBe('escalate');
       expect(metadata.needs_escalation).toBe(true);
     });
@@ -146,7 +151,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
       smartDiagnosisStage(ctx);
       // null metadata is not a string, so stage stores as object
       const metadata = typeof ctx.task.metadata === 'string'
-        ? JSON.parse(ctx.task.metadata)
+        ? parseMeta(ctx.task.metadata)
         : ctx.task.metadata;
       expect(metadata.strategic_diagnosis.action).toBe('retry');
     });
@@ -160,7 +165,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
         errorOutput: 'timeout',
       });
       smartDiagnosisStage(ctx);
-      const metadata = JSON.parse(ctx.task.metadata);
+      const metadata = parseMeta(ctx.task.metadata);
       expect(metadata.existing).toBe('value');
       expect(metadata.strategic_diagnosis).toBeDefined();
     });
@@ -173,7 +178,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
       smartDiagnosisStage(ctx);
       // When metadata is an object, it should be serialized back
       const metadata = typeof ctx.task.metadata === 'string'
-        ? JSON.parse(ctx.task.metadata)
+        ? parseMeta(ctx.task.metadata)
         : ctx.task.metadata;
       expect(metadata.strategic_diagnosis.action).toBe('fix_task');
     });

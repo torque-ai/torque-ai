@@ -101,6 +101,7 @@ describe('retry scheduling exponential backoff', () => {
   }
 
   function getScheduledDelayForRetryCount(retryCount) {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     vi.useFakeTimers();
     setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
 

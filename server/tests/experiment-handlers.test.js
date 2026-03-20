@@ -4,9 +4,15 @@
  * Tests for Experiment 6: A/B Provider Comparison Tool
  */
 
+// rawDb mock with transaction support (returns a function that calls the callback)
+const mockRawDb = {
+  transaction: vi.fn((fn) => fn),
+};
+
 const mockDb = {
   createTask: vi.fn(),
   getTask: vi.fn(),
+  getDbInstance: vi.fn(() => mockRawDb),
 };
 
 function installMock(modulePath, exports) {
@@ -34,6 +40,11 @@ describe('experiment-handlers (Experiment 6)', () => {
     mockDb.createTask.mockImplementation(() => undefined);
     mockDb.getTask.mockReset();
     mockDb.getTask.mockReturnValue(null);
+    mockDb.getDbInstance.mockReset();
+    mockDb.getDbInstance.mockReturnValue(mockRawDb);
+    mockRawDb.transaction.mockReset();
+    // transaction() receives a callback and returns a function; calling that function runs the callback
+    mockRawDb.transaction.mockImplementation((fn) => fn);
     handlers = loadHandlers();
   });
 

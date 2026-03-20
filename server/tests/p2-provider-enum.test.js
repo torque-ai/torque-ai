@@ -6,7 +6,10 @@ describe('submit_task provider enum completeness', () => {
   const providerEnum = submitTaskDef?.inputSchema?.properties?.provider?.enum ?? [];
 
   it('includes all providers from PROVIDER_DEFAULT_TIMEOUTS', () => {
-    const timeoutProviders = Object.keys(PROVIDER_DEFAULT_TIMEOUTS);
+    // codex-spark is an internal routing alias, not a user-selectable provider
+    const INTERNAL_PROVIDERS = new Set(['codex-spark']);
+    const timeoutProviders = Object.keys(PROVIDER_DEFAULT_TIMEOUTS)
+      .filter((p) => !INTERNAL_PROVIDERS.has(p));
 
     for (const provider of timeoutProviders) {
       expect(providerEnum).toContain(provider);

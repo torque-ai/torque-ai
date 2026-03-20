@@ -2,15 +2,22 @@ const tools = require('../tools');
 const db = require('../database');
 const taskManager = require('../task-manager');
 const logger = require('../logger');
+const eventBus = require('../event-bus');
 
 describe('restart_server tool', () => {
+  let shutdownListeners = [];
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.restoreAllMocks();
+    shutdownListeners = [];
   });
 
   afterEach(() => {
-    process.removeAllListeners('torque:shutdown');
+    for (const fn of shutdownListeners) {
+      eventBus.removeListener('shutdown', fn);
+    }
+    shutdownListeners = [];
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -21,7 +28,9 @@ describe('restart_server tool', () => {
     vi.spyOn(logger, 'info').mockImplementation(() => {});
 
     const shutdownEvents = [];
-    process.on('torque:shutdown', (reason) => shutdownEvents.push(reason));
+    const listener = (reason) => shutdownEvents.push(reason);
+    shutdownListeners.push(listener);
+    eventBus.onShutdown(listener);
 
     const result = await tools.handleToolCall('restart_server', { reason: 'unit restart' });
 
@@ -44,7 +53,9 @@ describe('restart_server tool', () => {
     vi.spyOn(logger, 'info').mockImplementation(() => {});
 
     const shutdownEvents = [];
-    process.on('torque:shutdown', (reason) => shutdownEvents.push(reason));
+    const listener = (reason) => shutdownEvents.push(reason);
+    shutdownListeners.push(listener);
+    eventBus.onShutdown(listener);
 
     const result = await tools.handleToolCall('restart_server', { reason: 'blocked restart' });
 

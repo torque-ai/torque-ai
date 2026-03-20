@@ -248,20 +248,23 @@ describe('cross-workflow priority', () => {
     });
 
     it('joins workflows in queue selection queries', () => {
-      const databaseSource = readServerFile('database.js');
+      // SQL lives in db/task-core.js which database.js delegates to via facade
+      const taskCoreSource = readServerFile('db', 'task-core.js');
 
-      expect(databaseSource).toContain('COALESCE(w.priority, 0) as workflow_priority');
-      expect(databaseSource).toContain('LEFT JOIN workflows w ON t.workflow_id = w.id');
-      expect(databaseSource).toContain('ORDER BY COALESCE(w.priority, 0) DESC, t.priority DESC, t.created_at ASC');
-      expect(databaseSource).toMatch(/COALESCE\(w\.priority,\s*0\) DESC,\s*COALESCE\(p\.combined_score,\s*0\) DESC,\s*t\.priority DESC,\s*t\.created_at ASC/);
+      expect(taskCoreSource).toContain('COALESCE(w.priority, 0) as workflow_priority');
+      expect(taskCoreSource).toContain('LEFT JOIN workflows w ON t.workflow_id = w.id');
+      expect(taskCoreSource).toContain('ORDER BY COALESCE(w.priority, 0) DESC, t.priority DESC, t.created_at ASC');
     });
 
-    it('joins workflows in slot-pull scheduling queries', () => {
+    it('joins workflows in slot-pull scheduling queries via db delegation', () => {
+      // The slot-pull scheduler delegates queue ordering to db.listQueuedTasksLightweight,
+      // which contains the workflow JOIN SQL in db/task-core.js.
       const schedulerSource = readServerFile('execution', 'slot-pull-scheduler.js');
+      const taskCoreSource = readServerFile('db', 'task-core.js');
 
-      expect(schedulerSource).toContain('LEFT JOIN workflows w ON t.workflow_id = w.id');
-      expect(schedulerSource).toContain('COALESCE(w.priority, 0) as workflow_priority');
-      expect(schedulerSource).toContain("WHERE t.status = 'queued' ORDER BY COALESCE(w.priority, 0) DESC, t.priority DESC, t.created_at ASC LIMIT ?");
+      expect(schedulerSource).toContain('listQueuedTasksLightweight');
+      expect(taskCoreSource).toContain('LEFT JOIN workflows w ON t.workflow_id = w.id');
+      expect(taskCoreSource).toContain('COALESCE(w.priority, 0) as workflow_priority');
     });
   });
 });

@@ -20,6 +20,7 @@ describe('submit_task timeout and metadata behavior', () => {
   beforeAll(() => {
     const setup = setupTestDb('p1-handler-timeout');
     db = setup.db;
+    require('../task-manager').initSubModules();
     const providerName = db.getDefaultProvider();
     const configDefaultTimeout = parseInt(db.getConfig('default_timeout') || '30', 10);
     fallbackTimeout = PROVIDER_DEFAULT_TIMEOUTS[providerName] ?? configDefaultTimeout;

@@ -212,7 +212,8 @@ describe('db/backup-core', () => {
     subject.backupDatabase(path.join('C:\\tmp', 'existing', 'backup.db'));
 
     expect(fs.mkdirSync).not.toHaveBeenCalled();
-    expect(fs.writeFileSync).toHaveBeenCalledTimes(1);
+    // Two writes: the .db file and the .sha256 integrity file
+    expect(fs.writeFileSync).toHaveBeenCalledTimes(2);
   });
 
   it('replaces an existing backup scheduler timer and clears it on stop', () => {
@@ -345,7 +346,7 @@ describe('db/backup-core', () => {
 
     fs.existsSync.mockReturnValue(true);
 
-    await expect(subject.restoreDatabase('C:\\backups\\restore.db', true))
+    await expect(subject.restoreDatabase('C:\\backups\\restore.db', true, { force: true }))
       .rejects
       .toThrow('Database not initialized');
   });
@@ -368,7 +369,7 @@ describe('db/backup-core', () => {
     subject.setDb(liveDb);
     fs.existsSync.mockReturnValue(true);
 
-    const result = await subject.restoreDatabase(backupPath, true);
+    const result = await subject.restoreDatabase(backupPath, true, { force: true });
 
     expect(Database).toHaveBeenNthCalledWith(1, backupPath, { readonly: true });
     expect(Database).toHaveBeenNthCalledWith(2, livePath);
@@ -413,7 +414,7 @@ describe('db/backup-core', () => {
     subject.setDb(liveDb);
     fs.existsSync.mockReturnValue(true);
 
-    await expect(subject.restoreDatabase('C:\\backups\\broken.db', true))
+    await expect(subject.restoreDatabase('C:\\backups\\broken.db', true, { force: true }))
       .rejects
       .toThrow('Restored database failed integrity check: row 7 missing from index foo; malformed page 3');
 
@@ -439,7 +440,7 @@ describe('db/backup-core', () => {
     setCommonInternals(subject);
     fs.existsSync.mockReturnValue(true);
 
-    await expect(subject.restoreDatabase('C:\\backups\\fk.db', true))
+    await expect(subject.restoreDatabase('C:\\backups\\fk.db', true, { force: true }))
       .rejects
       .toThrow('Restored database has 2 foreign key violation(s): table=projects, rowid=9, parent=users; table=tasks, rowid=10, parent=projects');
 
@@ -460,7 +461,7 @@ describe('db/backup-core', () => {
     setCommonInternals(subject);
     fs.existsSync.mockReturnValue(true);
 
-    await expect(subject.restoreDatabase('C:\\backups\\missing-tasks.db', true))
+    await expect(subject.restoreDatabase('C:\\backups\\missing-tasks.db', true, { force: true }))
       .rejects
       .toThrow('Restored database is invalid — missing tasks table');
 

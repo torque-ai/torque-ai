@@ -25,28 +25,28 @@ describe('Local-First Fallback', () => {
   describe('Default fallback chains', () => {
     it('aider-ollama chain includes local providers first', () => {
       const chain = db.getProviderFallbackChain('aider-ollama');
-      expect(chain).toEqual(['ollama', 'hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
+      expect(chain).toEqual(['hashline-ollama', 'ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
     });
 
     it('ollama chain includes local providers first', () => {
       const chain = db.getProviderFallbackChain('ollama');
-      expect(chain).toEqual(['aider-ollama', 'hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
+      expect(chain).toEqual(['hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
     });
 
     it('hashline-ollama chain includes local providers first', () => {
       const chain = db.getProviderFallbackChain('hashline-ollama');
-      expect(chain).toEqual(['aider-ollama', 'ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
+      expect(chain).toEqual(['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
     });
 
     it('unknown provider defaults to local-first chain', () => {
       const chain = db.getProviderFallbackChain('unknown-provider');
-      expect(chain).toEqual(['aider-ollama', 'ollama', 'deepinfra', 'codex', 'claude-cli']);
+      expect(chain).toEqual(['hashline-ollama', 'ollama', 'deepinfra', 'codex', 'claude-cli']);
     });
 
     it('codex chain still includes local providers', () => {
       const chain = db.getProviderFallbackChain('codex');
       expect(chain[0]).toBe('claude-cli');
-      expect(chain).toContain('aider-ollama');
+      expect(chain).toContain('hashline-ollama');
       expect(chain).toContain('ollama');
     });
   });

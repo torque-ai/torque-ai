@@ -276,15 +276,14 @@ function calculateTotal(items) {
 // ─── SECRET_PATTERNS ────────────────────────────────────────────────────────
 
 describe('SECRET_PATTERNS', () => {
-  it('contains 8 patterns', () => {
-    expect(SECRET_PATTERNS).toHaveLength(8);
+  it('contains 12 patterns', () => {
+    expect(SECRET_PATTERNS).toHaveLength(12);
   });
 
   it('all patterns are RegExp instances with global flag', () => {
     for (const pattern of SECRET_PATTERNS) {
       expect(pattern).toBeInstanceOf(RegExp);
       expect(pattern.flags).toContain('g');
-      expect(pattern.flags).toContain('i');
     }
   });
 

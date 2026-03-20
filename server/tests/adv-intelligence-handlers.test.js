@@ -25,6 +25,9 @@ describe('Advanced Intelligence Handlers', () => {
   beforeAll(() => {
     const setup = setupTestDb('adv-intelligence');
     db = setup.db;
+    const tm = require('../task-manager');
+    if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+    if (typeof tm.initSubModules === 'function') tm.initSubModules();
   });
 
   afterAll(() => {

@@ -183,7 +183,7 @@ describe('orchestrator integration', () => {
         }));
 
       expect(brain.provider).toBe('ollama');
-      expect(brain._getProvider().name).toBe('ollama');
+      expect(brain._getProvider().name).toMatch(/^ollama/);
 
       const decomposition = await brain.decompose({
         feature_name: 'OrchestratorIntegration',
@@ -449,12 +449,12 @@ describe('orchestrator integration', () => {
       expect(global.fetch).toHaveBeenNthCalledWith(
         1,
         'http://127.0.0.1:3457/healthz',
-        { method: 'GET' },
+        expect.objectContaining({ method: 'GET' }),
       );
       expect(global.fetch).toHaveBeenNthCalledWith(
         2,
         'http://127.0.0.1:3457/api/tasks?status=running&limit=5',
-        { method: 'GET' },
+        expect.objectContaining({ method: 'GET' }),
       );
       expect(formatted).toContain('Server Health');
       expect(formatted).toContain('Running Tasks');

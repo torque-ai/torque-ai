@@ -4,6 +4,7 @@ const { randomUUID } = require('crypto');
 
 const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 const registry = require('../models/registry');
+const eventBus = require('../event-bus');
 
 function getModel(provider, modelName, hostId) {
   const values = [provider, modelName];
@@ -132,7 +133,7 @@ describe('models/registry', () => {
   });
 
   it('registerModel inserts a new pending record and emits discovery', () => {
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitSpy = vi.spyOn(eventBus, 'emitModelDiscovered');
 
     const result = registry.registerModel({
       provider: 'ollama',
@@ -155,9 +156,8 @@ describe('models/registry', () => {
     expect(row.first_seen_at).toBeTruthy();
     expect(row.last_seen_at).toBeTruthy();
 
-    const discoveryCall = emitSpy.mock.calls.find(([eventName]) => eventName === 'torque:model-discovered');
-    expect(discoveryCall).toBeTruthy();
-    expect(discoveryCall[1]).toMatchObject({
+    expect(emitSpy).toHaveBeenCalled();
+    expect(emitSpy.mock.calls[0][0]).toMatchObject({
       provider: 'ollama',
       host_id: 'host-a',
       model_name: 'test-model-registry-alpha',
@@ -174,7 +174,7 @@ describe('models/registry', () => {
     const initial = getModel('ollama', 'test-model-registry-repeat', null);
     rawDb().prepare('UPDATE model_registry SET last_seen_at = ? WHERE id = ?').run('2001-01-01T00:00:00.000Z', initial.id);
 
-    const emitSpy = vi.spyOn(process, 'emit');
+    const emitSpy = vi.spyOn(eventBus, 'emitModelDiscovered');
     const result = registry.registerModel({
       provider: 'ollama',
       modelName: 'test-model-registry-repeat',
@@ -182,7 +182,6 @@ describe('models/registry', () => {
     });
 
     const updated = getModel('ollama', 'test-model-registry-repeat', null);
-    const discoveryCalls = emitSpy.mock.calls.filter(([eventName]) => eventName === 'torque:model-discovered');
 
     expect(result.inserted).toBe(false);
     expect(updated.id).toBe(initial.id);
@@ -190,7 +189,7 @@ describe('models/registry', () => {
     expect(updated.last_seen_at).not.toBe('2001-01-01T00:00:00.000Z');
     expect(updated.size_bytes).toBe(222);
     expect(rawDb().prepare('SELECT COUNT(*) AS count FROM model_registry').get().count).toBe(1);
-    expect(discoveryCalls).toHaveLength(0);
+    expect(emitSpy).not.toHaveBeenCalled();
   });
 
   it('approveModel marks matching models approved with approval metadata', () => {
@@ -411,8 +410,7 @@ describe('models/registry', () => {
       sizeBytes: 100,
     });
 
-    const emitSpy = vi.spyOn(process, 'emit');
-    emitSpy.mockClear();
+    const emitSpy = vi.spyOn(eventBus, 'emitModelDiscovered');
 
     const result = registry.syncModelsFromHealthCheck('ollama', 'host-a', [
       { name: 'test-model-registry-existing', size: 250 },
@@ -422,15 +420,14 @@ describe('models/registry', () => {
 
     const updated = getModel('ollama', 'test-model-registry-existing', 'host-a');
     const inserted = getModel('ollama', 'test-model-registry-fresh', 'host-a');
-    const discoveryCalls = emitSpy.mock.calls.filter(([eventName]) => eventName === 'torque:model-discovered');
 
     expect(result.new.map((row) => row.model_name)).toEqual(['test-model-registry-fresh']);
     expect(result.updated.map((row) => row.model_name)).toEqual(['test-model-registry-existing']);
     expect(result.removed).toEqual([]);
     expect(updated.size_bytes).toBe(250);
     expect(inserted.size_bytes).toBe(500);
-    expect(discoveryCalls).toHaveLength(1);
-    expect(discoveryCalls[0][1]).toMatchObject({ model_name: 'test-model-registry-fresh' });
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    expect(emitSpy.mock.calls[0][0]).toMatchObject({ model_name: 'test-model-registry-fresh' });
   });
 
   it('syncModelsFromHealthCheck removes missing approved models, emits removal, and reroutes queued tasks', () => {
@@ -465,8 +462,7 @@ describe('models/registry', () => {
     });
     rawDb().prepare('UPDATE tasks SET complexity = ? WHERE id = ?').run('complex', taskId);
 
-    const emitSpy = vi.spyOn(process, 'emit');
-    emitSpy.mockClear();
+    const removedSpy = vi.spyOn(eventBus, 'emitModelRemoved');
 
     const result = registry.syncModelsFromHealthCheck('ollama', 'host-a', [
       { name: 'test-model-registry-fallback', size: 444 },
@@ -474,7 +470,6 @@ describe('models/registry', () => {
 
     const removedRow = getModel('ollama', 'test-model-registry-gone', 'host-a');
     const reroutedTask = rawDb().prepare('SELECT provider, model FROM tasks WHERE id = ?').get(taskId);
-    const removedCalls = emitSpy.mock.calls.filter(([eventName]) => eventName === 'torque:model-removed');
 
     expect(result.removed.map((row) => row.model_name)).toEqual(['test-model-registry-gone']);
     expect(removedRow.status).toBe('removed');
@@ -482,8 +477,8 @@ describe('models/registry', () => {
       provider: 'ollama',
       model: 'test-model-registry-fallback',
     });
-    expect(removedCalls).toHaveLength(1);
-    expect(removedCalls[0][1]).toMatchObject({ model_name: 'test-model-registry-gone' });
+    expect(removedSpy).toHaveBeenCalledTimes(1);
+    expect(removedSpy.mock.calls[0][0]).toMatchObject({ model_name: 'test-model-registry-gone' });
   });
 
   it('getModelCount returns grouped counts for a provider', () => {

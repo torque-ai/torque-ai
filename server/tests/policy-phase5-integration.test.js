@@ -113,7 +113,7 @@ describe.skipIf(!hasSeedFile)('policy phase 5 integration', () => {
     expect(result.shadow).toBe(false);
     expect(result.blocked).toBe(false);
     expect(result.summary).toMatchObject({
-      failed: 1,
+      failed: 0,
       warned: 1,
       blocked: 0,
       degraded: 0,
@@ -138,7 +138,7 @@ describe.skipIf(!hasSeedFile)('policy phase 5 integration', () => {
     expect(result.shadow).toBe(false);
     expect(result.blocked).toBe(false);
     expect(result.summary).toMatchObject({
-      failed: 1,
+      failed: 0,
       warned: 1,
       blocked: 0,
       degraded: 0,

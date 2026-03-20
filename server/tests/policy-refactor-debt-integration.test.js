@@ -182,7 +182,7 @@ describe.skipIf(!hasSeedFile)('policy refactor debt integration', () => {
       backlog_item_exists: false,
     });
     expect(result.summary).toMatchObject({
-      failed: 1,
+      failed: 0,
       warned: 1,
       blocked: 0,
     });

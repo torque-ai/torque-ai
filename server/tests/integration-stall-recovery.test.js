@@ -48,7 +48,11 @@ function teardownDb() {
 }
 
 describe('Integration: Stall Detection & Recovery', () => {
-  beforeAll(() => { setupDb(); });
+  beforeAll(() => {
+    setupDb();
+    if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+    if (typeof tm.initSubModules === 'function') tm.initSubModules();
+  });
   afterAll(() => { teardownDb(); });
 
   // ── Stall Threshold Configuration ───────────────────────

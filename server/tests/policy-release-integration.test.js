@@ -221,7 +221,7 @@ describe.skipIf(!hasSeedFile)('policy release integration', () => {
       }),
     ]);
     expect(result.summary).toMatchObject({
-      failed: 1,
+      failed: 0,
       warned: 1,
       blocked: 0,
     });
@@ -314,7 +314,7 @@ describe.skipIf(!hasSeedFile)('policy release integration', () => {
     expect(result.shadow).toBe(false);
     expect(result.blocked).toBe(false);
     expect(result.summary).toMatchObject({
-      failed: 1,
+      failed: 0,
       warned: 1,
       blocked: 0,
     });

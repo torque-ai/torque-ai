@@ -1068,7 +1068,7 @@ describe('server/db/analytics', () => {
       installDb([
         contains('INSERT INTO adaptive_retry_rules', insertRule),
         exact('SELECT * FROM adaptive_retry_rules WHERE enabled = 1', listAll),
-        contains("SELECT * FROM adaptive_retry_rules WHERE enabled = 1 AND ? LIKE '%' || error_pattern || '%' ORDER BY success_count DESC", listFiltered),
+        contains("SELECT * FROM adaptive_retry_rules WHERE enabled = 1 AND ? LIKE '%' || error_pattern || '%' -- errorText contains error_pattern ORDER BY success_count DESC", listFiltered),
       ]);
 
       const id = analytics.createAdaptiveRetryRule('timeout', 'delay', { delay_seconds: 30 });

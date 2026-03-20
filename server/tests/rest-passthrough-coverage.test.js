@@ -100,8 +100,10 @@ const EXPECTED_DOMAINS = [
   'experiments',
   'integration',
   'intelligence',
+  'notifications',
   'peek',
   'providers',
+  'routing',
   'strategic',
   'system',
   'tasks',
@@ -110,6 +112,12 @@ const EXPECTED_DOMAINS = [
   'webhooks',
   'workflows',
 ];
+
+// Passthrough tools that are built-in MCP-SSE handlers, not registered in tool-defs files
+const BUILTIN_PASSTHROUGH_TOOLS = new Set(['check_notifications']);
+
+// Passthrough routes intentionally duplicated in v2CpRoutes (routing layer handles priority)
+const KNOWN_PASSTHROUGH_CP_OVERLAPS = new Set(['GET string:/api/v2/routing/categories']);
 
 function serializePath(routePath) {
   if (typeof routePath === 'string') {
@@ -229,14 +237,14 @@ describe('REST passthrough route coverage', () => {
 
       const missing = passthroughRoutes
         .map((route) => route.tool)
-        .filter((tool) => !toolDefNames.has(tool));
+        .filter((tool) => !toolDefNames.has(tool) && !BUILTIN_PASSTHROUGH_TOOLS.has(tool));
 
       expect(missing).toEqual([]);
     });
   });
 
   describe('domain coverage', () => {
-    it('covers all 18 expected passthrough domains', () => {
+    it('covers all 21 expected passthrough domains', () => {
       const coveredDomains = [...new Set(
         passthroughRoutes
           .map(extractDomain)
@@ -254,7 +262,8 @@ describe('REST passthrough route coverage', () => {
       const passthroughSignatures = new Set(passthroughRoutes.map(routeSignature));
       const overlaps = v2CpRoutes
         .filter((route) => passthroughSignatures.has(routeSignature(route)))
-        .map(routeSignature);
+        .map(routeSignature)
+        .filter((sig) => !KNOWN_PASSTHROUGH_CP_OVERLAPS.has(sig));
 
       expect(overlaps).toEqual([]);
     });
