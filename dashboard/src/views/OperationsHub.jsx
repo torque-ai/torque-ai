@@ -30,12 +30,7 @@ export default function OperationsHub(props) {
 
       {tab === 'routing' && (
         <Suspense fallback={LOADING_FALLBACK}>
-          <div className="space-y-6">
-            <Strategy {...props} />
-            <div className="px-6 pb-6">
-              <RoutingTemplates {...props} />
-            </div>
-          </div>
+          <Strategy {...props} />
         </Suspense>
       )}
 
