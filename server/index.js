@@ -1390,9 +1390,21 @@ function main() {
   });
 
   // Handle readline close (stdin closed)
+  // In SSE mode, stdin close just means the launching terminal disconnected.
+  // The server continues running as a headless HTTP/SSE daemon — SSE clients
+  // connect over HTTP and don't depend on stdin.
   readlineInterface.on('close', () => {
     debugLog(`Readline close event received - stdin closed`);
-    gracefulShutdown('stdin-close');
+    // Clean up stdio transport resources
+    if (readlineInterface) {
+      readlineInterface = null;
+    }
+    if (stdioHeartbeatInterval) {
+      timerRegistry.remove(stdioHeartbeatInterval);
+      clearInterval(stdioHeartbeatInterval);
+      stdioHeartbeatInterval = null;
+    }
+    debugLog('Stdin closed — continuing as headless SSE server');
   });
 
   // Handle shutdown signals - use idempotent handler
