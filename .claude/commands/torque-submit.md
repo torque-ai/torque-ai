@@ -60,5 +60,8 @@ Submit a task to TORQUE. Fast by default — submit first, safeguards are applie
 - `model=X` — override model selection
 - `priority=N` — set priority (0=normal, 1=high, 2=urgent)
 - `provider=X` — force provider (ollama, claude-cli, codex)
+- `template=X` — use a specific routing template for this task (e.g., `template=Quality First`)
 
 Do NOT run health checks or baseline captures by default. The server handles routing and fallback automatically.
+
+Tasks are auto-classified into categories (security, architectural, large_code_gen, etc.) and routed via the active routing template. Use `/torque-templates` to view or change the active template.

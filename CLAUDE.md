@@ -85,6 +85,42 @@ To enable a cloud API provider:
 
 **Route XAML/WPF tasks to cloud** — local LLMs struggle with WPF semantics.
 
+### Routing Templates
+
+Smart routing's defaults work well, but **routing templates** give you explicit control over which providers handle which task categories. Templates map 9 auto-detected task categories to provider fallback chains.
+
+**Available presets:**
+
+| Template | Strategy | Best For |
+|----------|----------|----------|
+| **System Default** | Codex for hard problems, free cloud for rest | General development |
+| **Quality First** | Codex primary for all code work | Critical features, production code |
+| **Cost Saver** | Free models first, Codex as last resort | Budget-conscious development |
+| **Cloud Sprint** | Cerebras primary, maximum speed | Tight deadlines, batch throughput |
+| **Free Agentic** | Zero-cost providers only (no Codex) | Free-tier-only environments |
+| **Free Speed** | Cerebras for lowest latency, Codex safety net | Fast iteration, quick fixes |
+| **All Local** | Ollama for everything, Codex escape hatch for complex | Privacy-first, air-gapped |
+
+**Task categories** (auto-detected from task description):
+`security`, `xaml_wpf`, `architectural`, `reasoning`, `large_code_gen`, `documentation`, `simple_generation`, `targeted_file_edit`, `default`
+
+**How to use:**
+- **Activate globally:** `activate_routing_template({ name: "Cost Saver" })` — all tasks use this template
+- **Per-task override:** `smart_submit_task({ ..., routing_template: "Quality First" })` — one task only
+- **Check active:** `get_active_routing()` — see current template + category mappings
+- **List all:** `list_routing_templates()` — see all presets + custom templates
+- **Create custom:** `set_routing_template({ name: "My Template", rules: { ... } })`
+
+**When to activate a template:**
+- Starting a new project → activate the template matching the project's cost/quality needs
+- Switching between exploration (Cost Saver) and production work (Quality First)
+- Running batch workflows → Cloud Sprint for maximum parallelism
+- Budget running low → Cost Saver or Free Agentic
+
+**Template precedence:** User override (`provider: "X"`) > per-task template > global active template > smart routing defaults.
+
+Use `/torque-templates` to manage templates interactively.
+
 ### Context-Stuffed Free Providers
 
 Free API providers (groq, cerebras, google-ai, openrouter) automatically receive project file contents in their prompts when the task mentions files or has a `working_directory`. At submission time, smart scan discovers imports and convention matches (test files, types). At execution time, file contents are read and prepended to the prompt with token budget enforcement.

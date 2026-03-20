@@ -85,7 +85,22 @@ if command -v curl &>/dev/null; then
       fi
     fi
 
-    status_text="${status_text}\n\nUse /torque-submit to submit tasks, /torque-status to check progress.\nUse await_task with heartbeat_minutes for progress check-ins."
+    # --- Active routing template ---
+    routing=$(curl -s --max-time 2 "$TORQUE_API/api/v2/routing/active" 2>/dev/null || echo "")
+    if command -v jq &>/dev/null && [ -n "$routing" ]; then
+      template_name=$(echo "$routing" | jq -r '.template.name // empty' 2>/dev/null || true)
+      template_desc=$(echo "$routing" | jq -r '.template.description // empty' 2>/dev/null || true)
+      if [ -n "$template_name" ]; then
+        status_text="${status_text}\nRouting template: ${template_name}"
+        if [ -n "$template_desc" ]; then
+          status_text="${status_text} — ${template_desc}"
+        fi
+      else
+        status_text="${status_text}\nRouting template: none active (using smart routing defaults)"
+      fi
+    fi
+
+    status_text="${status_text}\n\nUse /torque-submit to submit tasks, /torque-status to check progress.\nUse await_task with heartbeat_minutes for progress check-ins.\nUse /torque-templates to view or change the active routing template."
   else
     status_text="TORQUE is installed but not running.\nStart the server to enable task orchestration.\n\nSkills and commands are available but MCP tools will not work until the server starts."
   fi
