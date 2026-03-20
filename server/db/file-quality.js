@@ -86,7 +86,7 @@ async function runSyntaxValidation(filePath, workingDirectory) {
         proc.stderr.on('data', data => errorOutput += data.toString());
 
         proc.on('close', code => {
-          const successCodes = validator.success_exit_codes.split(',').map(c => parseInt(c.trim()));
+          const successCodes = validator.success_exit_codes.split(',').map(c => parseInt(c.trim(), 10));
           resolve({
             validator: validator.name,
             success: successCodes.includes(code),

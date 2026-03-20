@@ -1254,7 +1254,7 @@ async function attemptOllamaStart() {
     }
 
     // Wait for Ollama to be ready
-    const timeoutMs = parseInt(getDatabaseConfig('ollama_auto_start_timeout_ms') || '15000');
+    const timeoutMs = parseInt(getDatabaseConfig('ollama_auto_start_timeout_ms') || '15000', 10);
     logger.info(`[Ollama] Waiting up to ${timeoutMs}ms for Ollama to start...`);
 
     const isReady = await waitForOllamaReady(timeoutMs);

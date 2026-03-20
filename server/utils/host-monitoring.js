@@ -512,10 +512,10 @@ async function probeLocalGpuMetrics(hosts) {
     const parts = output.split(',').map(s => s.trim());
     if (parts.length >= 5) {
       const gpuMetrics = {
-        gpuUtilizationPercent: parseInt(parts[0]) || 0,
-        vramUsedMb: parseInt(parts[1]) || 0,
-        vramTotalMb: parseInt(parts[2]) || 0,
-        temperatureC: parseInt(parts[3]) || 0,
+        gpuUtilizationPercent: parseInt(parts[0], 10) || 0,
+        vramUsedMb: parseInt(parts[1], 10) || 0,
+        vramTotalMb: parseInt(parts[2], 10) || 0,
+        temperatureC: parseInt(parts[3], 10) || 0,
         powerDrawW: parseFloat(parts[4]) || 0
       };
       let getCpuPercent, getRamPercent;

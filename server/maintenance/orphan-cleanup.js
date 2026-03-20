@@ -119,7 +119,7 @@ function cleanupOrphanedAiderProcesses() {
         const result = execFileSync('wmic', [
           'process', 'where', 'name like \'%aider%\'', 'get', 'processid', '/format:list'
         ], { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY });
-        aiderPids = result.match(/ProcessId=(\d+)/g)?.map(m => parseInt(m.split('=')[1])) || [];
+        aiderPids = result.match(/ProcessId=(\d+)/g)?.map(m => parseInt(m.split('=')[1], 10)) || [];
       } catch {
         // WMIC might not be available or no matches
       }
@@ -131,7 +131,7 @@ function cleanupOrphanedAiderProcesses() {
           encoding: 'utf8',
           timeout: TASK_TIMEOUTS.PROCESS_QUERY
         });
-        aiderPids = result.trim().split('\n').filter(p => p).map(p => parseInt(p));
+        aiderPids = result.trim().split('\n').filter(p => p).map(p => parseInt(p, 10));
       } catch {
         // pgrep returns non-zero if no matches - this is expected
       }
@@ -184,7 +184,7 @@ function cleanupOrphanedDotnetProcesses() {
           if (line.startsWith('CommandLine=')) {
             currentCmd = line.slice(12).toLowerCase();
           } else if (line.startsWith('ProcessId=')) {
-            currentPid = parseInt(line.slice(10));
+            currentPid = parseInt(line.slice(10), 10);
             // Only target test/build/run processes, not VS or other dotnet tools
             if (currentPid && (currentCmd.includes('dotnet test') ||
                 currentCmd.includes('dotnet build') ||
@@ -208,7 +208,7 @@ function cleanupOrphanedDotnetProcesses() {
             encoding: 'utf8',
             timeout: TASK_TIMEOUTS.PROCESS_QUERY
           });
-          const pids = result.trim().split('\n').filter(p => p).map(p => parseInt(p));
+          const pids = result.trim().split('\n').filter(p => p).map(p => parseInt(p, 10));
           dotnetPids.push(...pids);
         } catch {
           // pgrep returns non-zero if no matches - this is expected
@@ -594,13 +594,12 @@ function getStallThreshold(model, provider) {
   const configKey = PROVIDER_STALL_CONFIG_KEYS[provider];
   if (configKey) {
     const configValue = serverConfig.get(configKey);
+    if (configValue === 'null') return null;  // Explicitly disabled
+    if (configValue === '0') return null;     // Explicitly disabled
     if (configValue && configValue !== 'null') {
       const override = parseInt(configValue, 10);
       if (!isNaN(override) && override > 0) {
         return override;  // Runtime override takes priority
-      }
-      if (configValue === '0' || configValue === 'null') {
-        return null;  // Explicitly disabled via config
       }
     }
   }

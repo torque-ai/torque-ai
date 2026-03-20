@@ -897,15 +897,15 @@ function handleUpdateProjectStats(args) {
     const testOutput = testResult.exitCode === 0 ? testResult.output : `${testResult.output}\n${testResult.error || ''}`;
     // Try vitest/jest pattern, then mocha pattern
     const testMatch = testOutput.match(/(\d+)\s+(?:passed|passing)/);
-    if (testMatch) testCount = parseInt(testMatch[1]);
+    if (testMatch) testCount = parseInt(testMatch[1], 10);
     const fileMatch = testOutput.match(/(\d+)\s+passed\s*\((\d+)\)/) || testOutput.match(/Test Files\s+(\d+)\s+passed/);
-    if (fileMatch) testFileCount = parseInt(fileMatch[fileMatch.length > 2 ? 2 : 1]);
+    if (fileMatch) testFileCount = parseInt(fileMatch[fileMatch.length > 2 ? 2 : 1], 10);
   } catch (err) {
     const stderr = (err.stdout || '') + '\n' + (err.stderr || '');
     const testMatch = stderr.match(/(\d+)\s+(?:passed|passing)/);
-    if (testMatch) testCount = parseInt(testMatch[1]);
+    if (testMatch) testCount = parseInt(testMatch[1], 10);
     const fileMatch = stderr.match(/Test Files\s+(\d+)\s+passed/);
-    if (fileMatch) testFileCount = parseInt(fileMatch[1]);
+    if (fileMatch) testFileCount = parseInt(fileMatch[1], 10);
   }
 
   // Count features (configurable dir + pattern)

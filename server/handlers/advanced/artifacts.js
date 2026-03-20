@@ -61,7 +61,7 @@ function handleStoreArtifact(args) {
   if (taskErr) return taskErr;
 
   const config = db.getArtifactConfig();
-  const maxSizeMb = parseInt(config.max_size_mb || '50');
+  const maxSizeMb = parseInt(config.max_size_mb || '50', 10);
 
   // Open file descriptor first to prevent TOCTOU race condition
   // This ensures the file we check is the same file we copy

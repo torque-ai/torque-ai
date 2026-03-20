@@ -488,7 +488,7 @@ function handleProviderQuotas(req, res) {
  * GET /api/providers/:id/stats - Provider statistics
  */
 function handleProviderStats(req, res, query, providerId) {
-  const days = parseInt(query.days) || 7;
+  const days = parseInt(query.days, 10) || 7;
   const stats = db.getProviderStats(providerId, days);
 
   // Get time series data
@@ -504,7 +504,7 @@ function handleProviderStats(req, res, query, providerId) {
  * GET /api/providers/:id/percentiles - Duration percentiles for a provider
  */
 function handleProviderPercentiles(req, res, query, providerId) {
-  const days = parseInt(query.days) || 7;
+  const days = parseInt(query.days, 10) || 7;
   const since = new Date(Date.now() - days * 86400000).toISOString();
   try {
     const tasks = db.listTasks({ provider: providerId, since, limit: 1000 });
@@ -538,7 +538,7 @@ function handleProviderPercentiles(req, res, query, providerId) {
  * Returns per-provider daily success rate, throughput, and duration.
  */
 function handleProviderTrends(req, res, query) {
-  const days = parseInt(query.days) || 7;
+  const days = parseInt(query.days, 10) || 7;
   const providers = db.listProviders();
 
   // Build a date range

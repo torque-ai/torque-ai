@@ -276,14 +276,14 @@ function getHostSettings(hostId) {
 
   // Global defaults
   const globalSettings = {
-    num_gpu: parseInt(getDatabaseConfig('ollama_num_gpu') || '-1'),
-    num_thread: parseInt(getDatabaseConfig('ollama_num_thread') || '0'),
+    num_gpu: parseInt(getDatabaseConfig('ollama_num_gpu') || '-1', 10),
+    num_thread: parseInt(getDatabaseConfig('ollama_num_thread') || '0', 10),
     keep_alive: getDatabaseConfig('ollama_keep_alive') || '5m',
-    num_ctx: parseInt(getDatabaseConfig('ollama_num_ctx') || '8192'),
+    num_ctx: parseInt(getDatabaseConfig('ollama_num_ctx') || '8192', 10),
     temperature: parseFloat(getDatabaseConfig('ollama_temperature') || '0.3'),
     top_p: parseFloat(getDatabaseConfig('ollama_top_p') || '0.9'),
-    top_k: parseInt(getDatabaseConfig('ollama_top_k') || '40'),
-    mirostat: parseInt(getDatabaseConfig('ollama_mirostat') || '0')
+    top_k: parseInt(getDatabaseConfig('ollama_top_k') || '40', 10),
+    mirostat: parseInt(getDatabaseConfig('ollama_mirostat') || '0', 10)
   };
 
   // Parse host-specific settings
@@ -430,10 +430,10 @@ function getMergedProjectTuning(workingDirectory) {
   // Global defaults from config
   const globalSettings = {
     temperature: parseFloat(getDatabaseConfig('ollama_temperature') || '0.3'),
-    num_ctx: parseInt(getDatabaseConfig('ollama_num_ctx') || '8192'),
+    num_ctx: parseInt(getDatabaseConfig('ollama_num_ctx') || '8192', 10),
     top_p: parseFloat(getDatabaseConfig('ollama_top_p') || '0.9'),
-    top_k: parseInt(getDatabaseConfig('ollama_top_k') || '40'),
-    mirostat: parseInt(getDatabaseConfig('ollama_mirostat') || '0'),
+    top_k: parseInt(getDatabaseConfig('ollama_top_k') || '40', 10),
+    mirostat: parseInt(getDatabaseConfig('ollama_mirostat') || '0', 10),
     repeat_penalty: parseFloat(getDatabaseConfig('ollama_repeat_penalty') || '1.1'),
   };
 

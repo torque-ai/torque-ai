@@ -781,9 +781,9 @@ async function captureTestBaseline(taskId, workingDirectory) {
   return {
     captured: true,
     test_command: `${testCmd} ${testArgs.join(' ')}`,
-    tests: totalMatch ? parseInt(totalMatch[1]) : 0,
-    passed: passedMatch ? parseInt(passedMatch[1]) : 0,
-    failed: failedMatch ? parseInt(failedMatch[1]) : 0,
+    tests: totalMatch ? parseInt(totalMatch[1], 10) : 0,
+    passed: passedMatch ? parseInt(passedMatch[1], 10) : 0,
+    failed: failedMatch ? parseInt(failedMatch[1], 10) : 0,
     output: result.output
   };
 }

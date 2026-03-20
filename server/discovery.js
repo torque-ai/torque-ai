@@ -154,7 +154,7 @@ function startAdvertising() {
 
   try {
     const configUrl = new URL(ollamaHost);
-    const port = parseInt(configUrl.port) || 11434;
+    const port = parseInt(configUrl.port, 10) || 11434;
     const hostname = os.hostname();
 
     // Detect LAN IP for advertising (not the WSL2 internal IP)

@@ -10,7 +10,7 @@ const { sendJson, sendError, parseBody, safeDecodeParam } = require('../utils');
 // ── Coordination ────────────────────────────────────────────────────────
 
 function handleGetDashboard(req, res, query) {
-  const hours = parseInt(query.hours) || 24;
+  const hours = parseInt(query.hours, 10) || 24;
   const dashboard = db.getCoordinationDashboard ? db.getCoordinationDashboard(hours) : {};
   sendJson(res, dashboard);
 }
@@ -38,7 +38,7 @@ function handleListPendingApprovals(req, res, query) {
 }
 
 function handleGetApprovalHistory(req, res, query) {
-  const limit = parseInt(query.limit) || 50;
+  const limit = parseInt(query.limit, 10) || 50;
   const history = db.getApprovalHistory ? db.getApprovalHistory(limit) : [];
   sendJson(res, { history });
 }
@@ -161,7 +161,7 @@ function handleDeleteProjectTuning(req, res, query, projectPath) {
 function handleListPlanProjects(req, res, query) {
   const projects = db.listPlanProjects({
     status: query.status,
-    limit: parseInt(query.limit) || 20
+    limit: parseInt(query.limit, 10) || 20
   });
 
   sendJson(res, {

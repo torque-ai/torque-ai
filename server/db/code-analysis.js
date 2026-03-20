@@ -394,7 +394,7 @@ function checkAccessibility(taskId, filePath, content) {
     }
 
     const headings = content.match(/<h[1-6]/gi) || [];
-    const levels = headings.map(h => parseInt(h.charAt(2)));
+    const levels = headings.map(h => parseInt(h.charAt(2), 10));
     for (let i = 1; i < levels.length; i++) {
       if (levels[i] - levels[i - 1] > 1) {
         violations.push({
@@ -584,7 +584,7 @@ function analyzeBuildOutput(taskId, buildOutput) {
     {
       regex: /([^\s(]+)\((\d+),\d+\):\s*error\s+(\w+):/g,
       type: 'file_location',
-      extract: (m) => ({ filePath: m[1], lineNumber: parseInt(m[2]), code: m[3] })
+      extract: (m) => ({ filePath: m[1], lineNumber: parseInt(m[2], 10), code: m[3] })
     }
   ];
 

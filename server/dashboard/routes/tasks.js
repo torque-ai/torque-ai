@@ -11,8 +11,8 @@ const { sendJson, sendError, parseBody, enrichTaskWithHostName } = require('../u
  * GET /api/tasks - List tasks with filtering and pagination
  */
 function handleListTasks(req, res, query) {
-  const page = parseInt(query.page) || 1;
-  const limit = Math.min(parseInt(query.limit) || 25, 100);
+  const page = parseInt(query.page, 10) || 1;
+  const limit = Math.min(parseInt(query.limit, 10) || 25, 100);
   const offset = (page - 1) * limit;
 
   // Validate ORDER BY against an allowlist to prevent SQL injection

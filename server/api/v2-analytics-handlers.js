@@ -423,7 +423,7 @@ async function handleSetBudget(req, res) {
       budgetUsd,
       body.provider || null,
       body.period || 'monthly',
-      parseInt(body.alert_threshold) || 80
+      parseInt(body.alert_threshold, 10) || 80
     );
     sendSuccess(res, requestId, result, 201, req);
   } catch (err) {

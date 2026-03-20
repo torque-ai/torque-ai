@@ -194,7 +194,7 @@ function selectOllamaHostForModel(modelName = null, options = {}) {
     };
   }
 
-  const defaultMemoryLimitMb = parseInt(getConfig('default_host_memory_limit_mb') || '0');
+  const defaultMemoryLimitMb = parseInt(getConfig('default_host_memory_limit_mb') || '0', 10);
   const strictMemoryMode = getConfig('strict_memory_mode') === '1';
   const rejectUnknownSizes = getConfig('reject_unknown_model_sizes') === '1';
 

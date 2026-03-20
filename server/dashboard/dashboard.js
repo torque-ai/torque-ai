@@ -390,7 +390,7 @@
       var fd = new FormData(agentRegisterForm);
       var payload = {
         id: fd.get('id'), name: fd.get('name'), host: fd.get('host'),
-        port: parseInt(fd.get('port')) || 3460, secret: fd.get('secret')
+        port: parseInt(fd.get('port'), 10) || 3460, secret: fd.get('secret')
       };
       fetch('/api/agents', { method: 'POST', headers: API_HEADERS, body: JSON.stringify(payload) })
         .then(function (r) { return r.json(); })

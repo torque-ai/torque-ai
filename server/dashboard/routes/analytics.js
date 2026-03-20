@@ -170,7 +170,7 @@ function handleTimeSeries(req, res, query) {
  * Returns average quality, provider breakdown, and validation failure rate.
  */
 function handleQualityStats(req, res, query) {
-  const hours = parseInt(query.hours) || 24;
+  const hours = parseInt(query.hours, 10) || 24;
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
   // Get overall quality stats
@@ -477,7 +477,7 @@ function handleGetStrategicStatus(_req, res) {
 }
 
 function handleGetRecentOperations(_req, res, query) {
-  const limit = parseInt(query.limit) || 20;
+  const limit = parseInt(query.limit, 10) || 20;
   // Strategic operations are tasks that used strategic_decompose, strategic_diagnose, or strategic_review
   const tasks = db.listTasks ? db.listTasks({
     limit,
@@ -500,7 +500,7 @@ function handleGetRecentOperations(_req, res, query) {
  * complexity, provider, model, and whether fallback was used.
  */
 function handleGetRoutingDecisions(_req, res, query) {
-  const limit = parseInt(query.limit) || 50;
+  const limit = parseInt(query.limit, 10) || 50;
 
   // Fetch recent tasks — smart-routed tasks have metadata.smart_routing=true or metadata.auto_routed=true
   const rawTasks = db.listTasks ? db.listTasks({
@@ -597,7 +597,7 @@ function handleGetProviderHealth(_req, res) {
 // ── Finance ──────────────────────────────────────────────────────────────
 
 function handleBudgetSummary(req, res, query) {
-  const days = parseInt(query.days) || 30;
+  const days = parseInt(query.days, 10) || 30;
 
   const providerRows = db.getCostSummary(null, days);
 
@@ -652,7 +652,7 @@ async function handleSetBudget(req, res) {
   const name = body.name || 'Monthly Budget';
   const provider = body.provider || null;
   const period = body.period || 'monthly';
-  const alertThreshold = parseInt(body.alert_threshold) || 80;
+  const alertThreshold = parseInt(body.alert_threshold, 10) || 80;
 
   const result = db.setBudget(name, budgetUsd, provider, period, alertThreshold);
   return sendJson(res, result, 201);
@@ -745,7 +745,7 @@ function enrichWorkflowVisibility(workflow) {
 function handleListWorkflows(req, res, query) {
   const options = {};
   if (query.status) options.status = query.status;
-  if (query.limit) options.limit = parseInt(query.limit);
+  if (query.limit) options.limit = parseInt(query.limit, 10);
   if (query.since) options.since = query.since;
   const workflows = db.listWorkflows(options);
   const enriched = workflows.map((workflow) => {

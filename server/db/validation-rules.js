@@ -264,7 +264,7 @@ function validateTaskOutput(taskId, fileChanges = []) {
             'File is empty (0 bytes)', file.path, null);
           results.push({ rule: rule.name, status: 'fail', severity: rule.severity, file: file.path });
         } else if (rule.condition.includes('size:<')) {
-          const threshold = parseInt(rule.condition.match(/size:<(\d+)/)?.[1] || '0');
+          const threshold = parseInt(rule.condition.match(/size:<(\d+)/)?.[1] || '0', 10);
           const ext = rule.condition.match(/extension:(\.\w+)/)?.[1];
           if (file.path.endsWith(ext) && file.size < threshold) {
             recordValidationResult(taskId, rule.id, rule.name, 'fail', rule.severity,
@@ -278,7 +278,7 @@ function validateTaskOutput(taskId, fileChanges = []) {
       for (const file of fileChanges) {
         if (rule.condition.includes('size_decrease_percent') && file.originalSize && file.size) {
           const decreasePercent = ((file.originalSize - file.size) / file.originalSize) * 100;
-          const threshold = parseInt(rule.condition.match(/>(\d+)/)?.[1] || '50');
+          const threshold = parseInt(rule.condition.match(/>(\d+)/)?.[1] || '50', 10);
           if (decreasePercent > threshold) {
             recordValidationResult(taskId, rule.id, rule.name, 'fail', rule.severity,
               `File size decreased by ${decreasePercent.toFixed(1)}% (threshold: ${threshold}%)`, file.path, null);
@@ -579,13 +579,13 @@ function shouldRetryWithCloud(taskId, output, context = {}) {
         shouldRetry = true;
         reason = 'Output is empty';
       } else if (rule.trigger_condition.includes('file_size') && context.fileSize !== undefined) {
-        const threshold = parseInt(rule.trigger_condition.match(/<\s*(\d+)/)?.[1] || '10');
+        const threshold = parseInt(rule.trigger_condition.match(/<\s*(\d+)/)?.[1] || '10', 10);
         if (context.fileSize < threshold) {
           shouldRetry = true;
           reason = `File size ${context.fileSize} below threshold`;
         }
       } else if (rule.trigger_condition.includes('size_decrease_percent') && context.sizeDecreasePercent) {
-        const threshold = parseInt(rule.trigger_condition.match(/>\s*(\d+)/)?.[1] || '50');
+        const threshold = parseInt(rule.trigger_condition.match(/>\s*(\d+)/)?.[1] || '50', 10);
         if (context.sizeDecreasePercent > threshold) {
           shouldRetry = true;
           reason = `Size decreased by ${context.sizeDecreasePercent.toFixed(1)}%`;

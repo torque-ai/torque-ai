@@ -928,7 +928,7 @@ if (require.main === module) {
   // Initialize database when running standalone
   db.init();
 
-  const port = parseInt(process.env.PORT) || 3456;
+  const port = parseInt(process.env.PORT, 10) || 3456;
   console.log(`Starting dashboard on port ${port}...`);
   start({ port, openBrowser: false });
 

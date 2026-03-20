@@ -242,7 +242,7 @@ function updateAgent(agentId, updates) {
  */
 function checkOfflineAgents() {
   const config = getFailoverConfig();
-  const threshold = parseInt(config.heartbeat_interval_seconds) * parseInt(config.offline_threshold_missed);
+  const threshold = parseInt(config.heartbeat_interval_seconds, 10) * parseInt(config.offline_threshold_missed, 10);
   const cutoff = new Date(Date.now() - threshold * 1000).toISOString();
 
   const offlineAgents = db.prepare(`

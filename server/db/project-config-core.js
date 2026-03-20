@@ -1377,8 +1377,8 @@ function getProjectDailyUsage(project) {
 function canProjectStartTask(project) {
   const config = getProjectConfig(project);
   const globalConfig = getAllConfig();
-  const globalMax = parseInt(globalConfig.max_concurrent) || 10;
-  const defaultProjectMax = parseInt(globalConfig.default_project_max_concurrent) || 3;
+  const globalMax = parseInt(globalConfig.max_concurrent, 10) || 10;
+  const defaultProjectMax = parseInt(globalConfig.default_project_max_concurrent, 10) || 3;
 
   // Check if project is enabled
   if (config && !config.enabled) {
@@ -1455,18 +1455,18 @@ function deleteProjectConfig(project) {
 function getEffectiveProjectConfig(project) {
   const projConfig = getProjectConfig(project);
   const globalConfig = getAllConfig();
-  const defaultProjectMax = parseInt(globalConfig.default_project_max_concurrent) || 3;
+  const defaultProjectMax = parseInt(globalConfig.default_project_max_concurrent, 10) || 3;
 
   return {
     project,
     max_concurrent: projConfig?.max_concurrent || defaultProjectMax, // Use default if not set
     max_daily_cost: projConfig?.max_daily_cost || 0, // 0 means unlimited
     max_daily_tokens: projConfig?.max_daily_tokens || 0, // 0 means unlimited
-    default_timeout: projConfig?.default_timeout || parseInt(globalConfig.default_timeout) || 30,
+    default_timeout: projConfig?.default_timeout || parseInt(globalConfig.default_timeout, 10) || 30,
     default_priority: projConfig?.default_priority || 0,
     auto_approve: projConfig?.auto_approve || false,
     enabled: projConfig?.enabled !== false,
-    global_max_concurrent: parseInt(globalConfig.max_concurrent) || 10,
+    global_max_concurrent: parseInt(globalConfig.max_concurrent, 10) || 10,
     default_project_max_concurrent: defaultProjectMax
   };
 }
