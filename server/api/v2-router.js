@@ -71,6 +71,15 @@ function buildV2MetaEnvelope(requestId) {
   };
 }
 
+/**
+ * Send a v2 success response.
+ *
+ * The response includes both the v2 envelope (`data` + `meta`) AND a legacy
+ * top-level spread of `legacyPayload`. The spread is intentional for backward
+ * compatibility: older dashboard and CLI consumers read top-level fields such
+ * as `providers` or `provider_id` directly. New consumers should read from
+ * `data`. Do NOT remove the spread until all consumers have migrated.
+ */
 function sendV2DiscoverySuccess(res, requestId, data, status = 200, req = null, legacyPayload = {}) {
   sendJson(
     res,
@@ -78,7 +87,7 @@ function sendV2DiscoverySuccess(res, requestId, data, status = 200, req = null, 
       data,
       meta: buildV2MetaEnvelope(requestId),
       request_id: requestId,
-      ...legacyPayload,
+      ...legacyPayload, // backward compat: keep top-level fields for legacy consumers
     },
     status,
     req,

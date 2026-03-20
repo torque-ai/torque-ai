@@ -17,6 +17,10 @@ const ERROR_STATUS_BY_CODE = Object.freeze({
   timeout: 504,
   not_implemented: 501,
   provider_unavailable: 500,
+  // Used by v2-dispatch throwToolResultError and control-plane handlers:
+  operation_failed: 500,  // Generic operation error from tool results
+  task_blocked: 409,      // Task cannot proceed due to a conflict or block
+  invalid_status: 422,    // Invalid status transition or unrecognised status value
 });
 
 function hasOwn(value, key) {

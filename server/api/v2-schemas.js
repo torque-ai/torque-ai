@@ -10,11 +10,19 @@ const ROUTE_STATUSES = Object.freeze([
 
 const ERROR_CODES = Object.freeze([
   'validation_error',
+  'unauthorized',
   'provider_not_found',
-  'provider_unavailable',
   'model_not_found',
+  'task_not_found',
   'stream_not_supported',
+  'rate_limit_exceeded',
   'timeout',
+  'not_implemented',
+  'provider_unavailable',
+  // Extended codes used by control-plane handlers and v2-dispatch:
+  'operation_failed',  // Generic tool-result error
+  'task_blocked',      // Task conflict or block (409)
+  'invalid_status',    // Invalid status value or transition (422)
 ]);
 
 const PROVIDER_TRANSPORTS = Object.freeze([
@@ -349,13 +357,21 @@ function validateInferenceRequest(payload, options = {}) {
   }
 
   if (hasOwn(payload, 'max_tokens')) {
-    if (typeof payload.max_tokens === 'number' && Number.isFinite(payload.max_tokens) && payload.max_tokens > 0) {
+    if (typeof payload.max_tokens !== 'number' || !Number.isFinite(payload.max_tokens)) {
+      collectValidationError(errors, 'max_tokens', 'type', '`max_tokens` must be a number');
+    } else if (payload.max_tokens < 1 || payload.max_tokens > 1000000) {
+      collectValidationError(errors, 'max_tokens', 'range', '`max_tokens` must be between 1 and 1000000');
+    } else {
       value.max_tokens = payload.max_tokens;
     }
   }
 
   if (hasOwn(payload, 'temperature')) {
-    if (typeof payload.temperature === 'number' && Number.isFinite(payload.temperature)) {
+    if (typeof payload.temperature !== 'number' || !Number.isFinite(payload.temperature)) {
+      collectValidationError(errors, 'temperature', 'type', '`temperature` must be a number');
+    } else if (payload.temperature < 0 || payload.temperature > 2) {
+      collectValidationError(errors, 'temperature', 'range', '`temperature` must be between 0 and 2');
+    } else {
       value.temperature = payload.temperature;
     }
   }
