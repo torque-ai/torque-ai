@@ -1585,7 +1585,7 @@ async function handleRunFullBatch(args) {
 
     // Step 3: Run batch (generate tasks + create workflow + execute)
     output += `### Step 3: Running batch for ${resolvedFeatureName}...\n\n`;
-    const batchResult = handleRunBatch({
+    const batchResult = await handleRunBatch({
       working_directory: workDir,
       feature_name: resolvedFeatureName,
       spec: resolvedSpec || `Implement ${resolvedFeatureName} system`,

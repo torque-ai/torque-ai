@@ -245,7 +245,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
           metadata: JSON.stringify(metadata),
           error_output: priorErrors + `\n[Local-First] Trying ${currentModel} on host ${otherHost.name || otherHost.id}\n`
         });
-        dashboard.notifyTaskUpdated(taskId);
+        if (dashboard) dashboard.notifyTaskUpdated(taskId);
         _processQueue();
         return true;
       }
@@ -292,7 +292,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
           metadata: JSON.stringify(metadata),
           error_output: priorErrors + `\n[Local-First] Trying model ${nextModel.name}\n`
         });
-        dashboard.notifyTaskUpdated(taskId);
+        if (dashboard) dashboard.notifyTaskUpdated(taskId);
         _processQueue();
         return true;
       }
@@ -338,7 +338,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
     } catch (e) {
       // Non-fatal
     }
-    dashboard.notifyTaskUpdated(taskId);
+    if (dashboard) dashboard.notifyTaskUpdated(taskId);
     _processQueue();
     return true;
   }
@@ -466,7 +466,7 @@ function tryStallRecovery(taskId, activity) {
 
   try {
     db.updateTaskStatus(taskId, 'queued', updateFields);
-    dashboard.notifyTaskUpdated(taskId);
+    if (dashboard) dashboard.notifyTaskUpdated(taskId);
   } catch (err) {
     // If re-queue fails, mark as failed to prevent zombie 'running' state
     logger.info(`[StallRecovery] Task ${taskId}: failed to re-queue, marking failed: ${err.message}`);
@@ -650,7 +650,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
               pid: null, started_at: null,
               error_output: priorErrors + `\n[Hashline-Local] Trying ${currentModel} on host ${otherHost.name || otherHost.id}`
             });
-            dashboard.notifyTaskUpdated(taskId);
+            if (dashboard) dashboard.notifyTaskUpdated(taskId);
             scheduleProcessQueue(task);
             return true;
           }
@@ -671,7 +671,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
           pid: null, started_at: null,
           error_output: priorErrors + `\n[Hashline-Local] Trying model ${nextModel.name}`
         });
-        dashboard.notifyTaskUpdated(taskId);
+        if (dashboard) dashboard.notifyTaskUpdated(taskId);
         scheduleProcessQueue(task);
         return true;
       }
@@ -717,7 +717,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
   } catch (e) {
     // Non-fatal
   }
-  dashboard.notifyTaskUpdated(taskId);
+  if (dashboard) dashboard.notifyTaskUpdated(taskId);
   scheduleProcessQueue(task);
   return true;
 }

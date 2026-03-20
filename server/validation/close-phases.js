@@ -424,6 +424,7 @@ function handleProviderFailover(ctx) {
       if (handled) {
         logger.info(`[Local-Fallback] Task ${taskId} re-queued via fallback chain`);
         _processQueue();
+        ctx.earlyExit = true;
       }
     }
   }

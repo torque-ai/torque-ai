@@ -47,7 +47,6 @@ function handleRetryLogic(ctx) {
   const task = deps.db.getTask(taskId);
   if (!task) {
     logger.info(`Task ${taskId} not found during retry - skipping retry`);
-    ctx.earlyExit = true;
     return;
   }
   const delayMs = deps.db.calculateRetryDelay(task) * 1000;
