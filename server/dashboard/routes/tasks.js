@@ -103,13 +103,15 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
       try {
         const taskManager = require('../../task-manager');
         taskManager.cancelTask(taskId, 'Cancelled by user via dashboard');
+        broadcastTaskUpdate(taskId);
+        sendJson(res, { success: true, message: 'Task cancelled' });
       } catch (cancelErr) {
         db.updateTaskStatus(taskId, 'failed', {
           error_output: 'Cancelled by user via dashboard',
         });
+        broadcastTaskUpdate(taskId);
+        sendJson(res, { success: false, message: 'Task force-failed (cancel failed)', status: 'failed' });
       }
-      broadcastTaskUpdate(taskId);
-      sendJson(res, { success: true, message: 'Task cancelled' });
       break;
 
     case 'approve-switch':

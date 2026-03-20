@@ -88,6 +88,10 @@ function unregisterAgent(agentId, reassignTasks = true) {
     }
   }
 
+  // Record the event BEFORE deleting the agent row, otherwise the FK
+  // constraint on coordination_events.agent_id would be violated.
+  recordCoordinationEvent('agent_left', agentId, null, JSON.stringify({ name: agent.name }));
+
   // Delete all FK-dependent rows atomically before removing the agent row.
   db.transaction(() => {
     db.prepare('DELETE FROM task_claims WHERE agent_id = ?').run(agentId);
@@ -97,8 +101,6 @@ function unregisterAgent(agentId, reassignTasks = true) {
     db.prepare('DELETE FROM agent_group_members WHERE agent_id = ?').run(agentId);
     db.prepare('DELETE FROM agents WHERE id = ?').run(agentId);
   })();
-
-  recordCoordinationEvent('agent_left', agentId, null, JSON.stringify({ name: agent.name }));
 
   return agent;
 }
@@ -166,20 +168,32 @@ function getAgent(agentId, includeMetrics = false) {
  * @returns {any}
  */
 function listAgents({ status, group_id, capability, limit = 50 } = {}) {
-  let query = 'SELECT * FROM agents WHERE 1=1';
+  let query;
   const params = [];
 
+  if (group_id) {
+    // Join against agent_group_members in SQL so LIMIT applies after the
+    // group filter, not before (the previous post-query JS filter missed
+    // members beyond the first `limit` rows).
+    query = `SELECT a.* FROM agents a
+      INNER JOIN agent_group_members agm ON agm.agent_id = a.id
+      WHERE agm.group_id = ?`;
+    params.push(group_id);
+  } else {
+    query = 'SELECT a.* FROM agents a WHERE 1=1';
+  }
+
   if (status) {
-    query += ' AND status = ?';
+    query += ' AND a.status = ?';
     params.push(status);
   }
 
   if (capability) {
-    query += " AND capabilities LIKE ? ESCAPE '\\'";
+    query += " AND a.capabilities LIKE ? ESCAPE '\\'";
     params.push(`%"${capability.replace(/[\\%_]/g, '\\$&')}"%`);
   }
 
-  query += ' ORDER BY priority DESC, registered_at ASC LIMIT ?';
+  query += ' ORDER BY a.priority DESC, a.registered_at ASC LIMIT ?';
   params.push(limit);
 
   const agents = db.prepare(query).all(...params);
@@ -188,18 +202,6 @@ function listAgents({ status, group_id, capability, limit = 50 } = {}) {
     if (!agent) continue;
     agent.capabilities = safeJsonParse(agent.capabilities, []);
     agent.metadata = safeJsonParse(agent.metadata, null);
-  }
-
-  // Filter by group if specified
-  if (group_id) {
-    const memberRows = db.prepare('SELECT agent_id FROM agent_group_members WHERE group_id = ?').all(group_id) || [];
-    const rows = Array.isArray(memberRows) ? memberRows : [];
-    const memberIds = new Set(
-      rows
-        .map(member => member && member.agent_id)
-        .filter(memberId => memberId !== undefined && memberId !== null)
-    );
-    return agents.filter(a => a && memberIds.has(a.id));
   }
 
   return agents;
@@ -819,9 +821,7 @@ function selectAgentByStrategy(agents, strategy) {
  * @returns {any}
  */
 function stealTask(taskId, thiefAgentId, reason = 'manual') {
-  let stealError = null;
-
-  const result = db.transaction(() => {
+  return db.transaction(() => {
     const claim = db.prepare(`
       SELECT * FROM task_claims WHERE task_id = ? AND status = 'active'
     `).get(taskId);
@@ -858,20 +858,11 @@ function stealTask(taskId, thiefAgentId, reason = 'manual') {
       reason
     }));
 
-    // Create new claim for thief
-    try {
-      return createTaskClaim(taskId, thiefAgentId, leaseSeconds, now);
-    } catch (err) {
-      stealError = err;
-      return null;
-    }
+    // Create new claim for thief — if this throws, the entire transaction
+    // rolls back so the victim's claim is not left marked 'stolen' without
+    // a replacement.
+    return createTaskClaim(taskId, thiefAgentId, leaseSeconds, now);
   })();
-
-  if (stealError) {
-    throw stealError;
-  }
-
-  return result;
 }
 
 /**
@@ -918,9 +909,8 @@ function triggerFailover(agentId, reassignTo = null) {
 
       results.tasks_released++;
 
-      // Release the claim
-      // Return task to queue
-      const returnedTasks = db.prepare(`UPDATE tasks SET status = 'queued' WHERE id = ?`).run(claim.task_id);
+      // Return task to queue — only if still running (avoid re-queuing completed tasks)
+      const returnedTasks = db.prepare(`UPDATE tasks SET status = 'queued' WHERE id = ? AND status = 'running'`).run(claim.task_id);
       if (returnedTasks && returnedTasks.changes > 0) {
         emitQueueChanged();
       }

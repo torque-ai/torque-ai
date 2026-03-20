@@ -545,6 +545,13 @@ function handleCancelScheduled(args) {
  * Pause or resume a scheduled task
  */
 function handlePauseScheduled(args) {
+  if (!args.schedule_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'schedule_id is required');
+  }
+  if (args.action !== 'pause' && args.action !== 'resume') {
+    return makeError(ErrorCodes.INVALID_PARAM, 'action must be "pause" or "resume"');
+  }
+
   const scheduled = db.getScheduledTask(args.schedule_id);
 
   if (!scheduled) {

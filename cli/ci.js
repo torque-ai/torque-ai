@@ -40,7 +40,7 @@ async function handleCiStatus(args) {
   }));
 
   return {
-    command: 'ci-status',
+    command: 'ci_status',
     raw,
   };
 }
@@ -57,7 +57,7 @@ async function handleCiWatch(args) {
   }));
 
   return {
-    command: 'ci-watch',
+    command: 'ci_watch',
     raw,
   };
 }
@@ -70,7 +70,7 @@ async function handleCiStop(args) {
   }));
 
   return {
-    command: 'ci-stop',
+    command: 'ci_stop',
     raw,
   };
 }
@@ -83,7 +83,7 @@ async function handleCiDiagnose(args) {
   }));
 
   return {
-    command: 'ci-diagnose',
+    command: 'ci_diagnose',
     raw,
   };
 }
@@ -98,7 +98,7 @@ async function handleCiRuns(args) {
   }));
 
   return {
-    command: 'ci-runs',
+    command: 'ci_runs',
     raw,
   };
 }
@@ -113,7 +113,7 @@ async function handleCiConfigure(args) {
   }));
 
   return {
-    command: 'ci-configure',
+    command: 'ci_configure',
     raw,
   };
 }
