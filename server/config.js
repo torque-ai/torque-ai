@@ -83,6 +83,7 @@ const API_KEY_ENV_VARS = {
   deepinfra:        'DEEPINFRA_API_KEY',
   hyperbolic:       'HYPERBOLIC_API_KEY',
   codex:            'OPENAI_API_KEY',
+  'codex-spark':    'OPENAI_API_KEY',
 };
 
 // ── Core Accessors ───────────────────────────────────────────────────────
@@ -152,11 +153,15 @@ function getBool(key, fallback) {
 }
 
 /**
- * Check if a feature is opt-in enabled (requires explicit '1' or 'true').
+ * Check if a feature is opt-in enabled (requires explicit '1', 'true', 'yes', or 'on').
+ * Stricter than getBool — empty strings, '0', 'false', etc. all return false.
  * Use for features requiring setup (API keys, external services).
  */
 function isOptIn(key) {
-  return getBool(key, false);
+  const val = get(key);
+  if (val === null || val === undefined) return false;
+  const str = String(val).toLowerCase().trim();
+  return str === '1' || str === 'true' || str === 'yes' || str === 'on';
 }
 
 /**
