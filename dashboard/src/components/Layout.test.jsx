@@ -89,11 +89,13 @@ describe('Layout', () => {
   it('renders all navigation items from route config', () => {
     renderLayout();
     expect(screen.getByText('Workflows')).toBeTruthy();
-    expect(screen.getByText('Batches')).toBeTruthy();
-    expect(screen.getByText('Projects')).toBeTruthy();
-    expect(screen.getByText('Hosts')).toBeTruthy();
-    expect(screen.getByText('Budget')).toBeTruthy();
-    expect(screen.getByText('Models')).toBeTruthy();
+    expect(screen.getByText('Infrastructure')).toBeTruthy();
+    expect(screen.getByText('Operations')).toBeTruthy();
+    expect(screen.queryByText('Batches')).toBeNull();
+    expect(screen.queryByText('Projects')).toBeNull();
+    expect(screen.queryByText('Hosts')).toBeNull();
+    expect(screen.queryByText('Budget')).toBeNull();
+    expect(screen.queryByText('Models')).toBeNull();
   });
 
   it('does not show notification badge when no alerts', () => {

@@ -69,11 +69,14 @@ vi.mock('./api', () => ({
 }));
 
 // Mock useAbortableRequest (used by Kanban, History, etc.)
-vi.mock('./hooks/useAbortableRequest', () => ({
-  useAbortableRequest: () => ({
-    execute: (fn) => fn(() => true),
-  }),
-}));
+// Stable reference outside the mock factory prevents useEffect re-runs on every render
+vi.mock('./hooks/useAbortableRequest', () => {
+  const stableExecute = (fn) => fn(() => true);
+  const stableReturn = { execute: stableExecute };
+  return {
+    useAbortableRequest: () => stableReturn,
+  };
+});
 
 // Mock date-fns (used by History)
 vi.mock('date-fns', () => ({
