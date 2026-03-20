@@ -465,6 +465,13 @@ const routes = [
   { method: 'GET', path: '/api/v2/ci/runs', tool: 'list_ci_runs', mapQuery: true },
   { method: 'POST', path: '/api/v2/ci/configure', tool: 'configure_ci_provider', mapBody: true },
 
+  // ─── Notifications ──────────────────────────────────────────────────────
+  { method: 'GET', path: '/api/v2/notifications', tool: 'check_notifications', mapQuery: true },
+
+  // ─── Routing Templates (passthrough aliases for handler-based routes) ───
+  { method: 'POST', path: '/api/v2/routing/activate', tool: 'activate_routing_template', mapBody: true },
+  { method: 'GET', path: '/api/v2/routing/categories', tool: 'list_routing_categories', mapQuery: true },
+
 ];
 
 module.exports = routes;
