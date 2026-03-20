@@ -190,6 +190,15 @@ export default function WorkflowDAG({ tasks = [], onOpenDrawer }) {
               key={node.id}
               transform={`translate(${node.x - NODE_W / 2}, ${node.y - NODE_H / 2})`}
               onClick={() => onOpenDrawer?.(t.id || t.task_id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenDrawer?.(t.id || t.task_id);
+                }
+              }}
+              tabIndex={0}
+              role="button"
+              aria-label={`${label} — ${t.status}`}
               style={{ cursor: 'pointer' }}
               data-testid={`dag-node-${node.id}`}
             >
