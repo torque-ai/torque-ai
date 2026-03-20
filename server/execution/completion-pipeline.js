@@ -149,10 +149,11 @@ function handlePostCompletion(ctx) {
     const outcomeTask = deps.db.getTask(taskId);
     const outcomeMetadata = deps.parseTaskMetadata(outcomeTask?.metadata);
     const finalizedByTaskFinalizer = Boolean(outcomeMetadata?.finalization?.finalized_at);
+    const outcomeSuccess = ctx.status === 'completed';
     if (!finalizedByTaskFinalizer) {
-      recordModelOutcome(outcomeTask, code === 0);
+      recordModelOutcome(outcomeTask, outcomeSuccess);
     }
-    recordProviderHealth(outcomeTask, code === 0);
+    recordProviderHealth(outcomeTask, outcomeSuccess);
   } catch (outcomeErr) {
     logger.info('[Outcomes] Non-fatal error:', outcomeErr.message);
   }

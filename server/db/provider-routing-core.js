@@ -559,7 +559,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   // These are tasks that reference specific files and make bounded changes
   const isTargetedFileEdit = (desc) => {
     // Must reference at least one file
-    const hasFileRef = /[\w\-./\\]+\.\w{1,5}\b/.test(taskDescription);
+    const hasFileRef = /[\w\-./\\]+\.\w{1,5}\b/.test(desc);
     if (!hasFileRef) return false;
     // Match edit-type verbs applied to specific targets
     const editPatterns = [

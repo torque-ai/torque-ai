@@ -1606,7 +1606,7 @@ function start(options = {}) {
         const argsWithSignal = {
           ...args,
           __shutdownSignal: shutdownAbort ? shutdownAbort.signal : undefined,
-          __sessionId: session?.id || null,
+          __sessionId: session?._sessionId || null,
         };
 
         // Lazy agent name update on first tool call with working_directory
@@ -1614,7 +1614,7 @@ function start(options = {}) {
           try {
             const projectName = require('path').basename(args.working_directory);
             const coord = require('./db/coordination');
-            coord.updateAgent(session.id, { name: `claude-code@${projectName}` });
+            coord.updateAgent(session._sessionId, { name: `claude-code@${projectName}` });
             session._nameUpdated = true;
           } catch (e) {
             // Non-fatal
