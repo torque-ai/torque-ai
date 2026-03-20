@@ -513,6 +513,28 @@ function init() {
 
   // Initialize database
   db.init();
+
+  // Auth system initialization — migrate legacy keys, bootstrap first-run admin key
+  try {
+    const keyManager = require('./auth/key-manager');
+    keyManager.init(db.getDbInstance());
+    keyManager.migrateConfigApiKey(); // migrate existing config.api_key if present
+
+    if (!keyManager.hasAnyKeys()) {
+      const { key } = keyManager.createKey({ name: 'Bootstrap admin key', role: 'admin' });
+      console.log('\u2550'.repeat(59));
+      console.log('  TORQUE Admin API Key (save this \u2014 it won\'t be shown again):');
+      console.log('');
+      console.log(`  ${key}`);
+      console.log('');
+      console.log('  Set as environment variable:');
+      console.log(`  export TORQUE_API_KEY="${key}"`);
+      console.log('\u2550'.repeat(59));
+    }
+  } catch (err) {
+    debugLog(`Auth initialization error: ${err.message}`);
+  }
+
   // Initialize task-manager early deps (provider registry, config) now that DB is ready.
   // initSubModules() wires the extracted module graph; must run before queue processing.
   taskManager.initEarlyDeps();

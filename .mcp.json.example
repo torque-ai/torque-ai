@@ -6,6 +6,11 @@
       "args": ["PATH_TO_TORQUE/server/index.js"],
       "cwd": "PATH_TO_TORQUE/server",
       "description": "TORQUE - Task Orchestration System with local LLM routing"
+    },
+    "torque-sse": {
+      "type": "sse",
+      "url": "http://127.0.0.1:3458/sse?apiKey=${TORQUE_API_KEY}",
+      "description": "TORQUE (SSE transport) - authenticated via API key"
     }
   }
 }

@@ -998,3 +998,98 @@ describe('REST API auth', () => {
     expect(headers['Access-Control-Allow-Headers']).toContain('Authorization');
   });
 });
+
+// ---------------------------------------------------------------------------
+// End-to-end integration tests
+// ---------------------------------------------------------------------------
+
+describe('auth integration', () => {
+  it('full flow: create key -> validate -> ticket -> consume -> revoke', () => {
+    // 1. Create admin key
+    const { key, id } = keyManager.createKey({ name: 'integration-test', role: 'admin' });
+    expect(key).toMatch(/^torque_sk_/);
+
+    // 2. Validate returns identity
+    const identity = keyManager.validateKey(key);
+    expect(identity).toBeDefined();
+    expect(identity.role).toBe('admin');
+
+    // 3. Create ticket from identity
+    const ticket = ticketManager.createTicket(identity);
+    expect(ticket).toBeDefined();
+
+    // 4. Consume ticket returns same identity
+    const ticketIdentity = ticketManager.consumeTicket(ticket);
+    expect(ticketIdentity.id).toBe(identity.id);
+
+    // 5. Consume again fails (single-use)
+    expect(ticketManager.consumeTicket(ticket)).toBeNull();
+
+    // 6. Revoke key — need a second admin so we can revoke
+    const { id: id2 } = keyManager.createKey({ name: 'keep-alive', role: 'admin' });
+    keyManager.revokeKey(id);
+    expect(keyManager.validateKey(key)).toBeNull();
+  });
+
+  it('full flow: create key -> login -> session -> CSRF -> logout', () => {
+    // 1. Create key
+    const { key } = keyManager.createKey({ name: 'session-test', role: 'admin' });
+
+    // 2. Validate key -> identity
+    const identity = keyManager.validateKey(key);
+
+    // 3. Create session
+    const { sessionId, csrfToken } = sessionManager.createSession(identity);
+
+    // 4. Get session
+    const session = sessionManager.getSession(sessionId);
+    expect(session.identity.id).toBe(identity.id);
+
+    // 5. CSRF validation
+    expect(sessionManager.validateCsrf(sessionId, csrfToken)).toBe(true);
+    expect(sessionManager.validateCsrf(sessionId, 'wrong')).toBe(false);
+
+    // 6. Logout
+    sessionManager.destroySession(sessionId);
+    expect(sessionManager.getSession(sessionId)).toBeNull();
+  });
+
+  it('open mode -> create first key -> auth enforced', () => {
+    // Start with no keys
+    expect(keyManager.hasAnyKeys()).toBe(false);
+
+    // Open mode: middleware returns admin identity
+    const openIdentity = authenticate({ headers: {} });
+    expect(openIdentity.role).toBe('admin');
+
+    // Create first key
+    const { key } = keyManager.createKey({ name: 'first-key', role: 'admin' });
+    expect(keyManager.hasAnyKeys()).toBe(true);
+
+    // Now middleware requires auth
+    expect(authenticate({ headers: {} })).toBeNull();
+
+    // Valid key works
+    const authed = authenticate({
+      headers: { authorization: `Bearer ${key}` },
+    });
+    expect(authed.role).toBe('admin');
+  });
+
+  it('migration: config.api_key -> api_keys table', () => {
+    // Set a "legacy" key in config
+    const legacyKey = 'legacy-test-key-12345';
+    db.setConfig('api_key', legacyKey);
+
+    // Run migration
+    keyManager.migrateConfigApiKey();
+
+    // Config is cleared
+    expect(db.getConfig('api_key')).toBeFalsy();
+
+    // Legacy key validates through new system
+    const identity = keyManager.validateKey(legacyKey);
+    expect(identity).toBeDefined();
+    expect(identity.name).toBe('Migrated Legacy Key');
+  });
+});
