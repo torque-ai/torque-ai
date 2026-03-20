@@ -175,12 +175,13 @@ function handleGetAuditTrail(args) {
  * Get audit summary statistics
  */
 function handleGetAuditSummary(args) {
-  const summary = db.getAuditSummary(args.period || 'daily');
+  const days = args.days || 7;
+  const summary = db.getAuditSummary(days);
   return {
     content: [{
       type: 'text',
       text: JSON.stringify({
-        period: args.period || 'daily',
+        days,
         summary: summary
       }, null, 2)
     }]

@@ -811,7 +811,7 @@ function init() {
   // This avoids circular dependency between tools.js and index.js
   // Remove previous handler to prevent accumulation on repeated init() calls
   if (_shutdownHandler) {
-    eventBus.removeListener('torque:shutdown', _shutdownHandler);
+    eventBus.removeListener('shutdown', _shutdownHandler);
   }
   _shutdownHandler = (reason) => {
     debugLog(`torque:shutdown event received: ${reason}`);

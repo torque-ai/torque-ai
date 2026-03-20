@@ -193,9 +193,18 @@ function parseBody(req) {
     let settled = false;
     const MAX_BODY = 1024 * 1024;
 
+    const bodyTimeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error('Body parse timeout'));
+      }
+      req.destroy();
+    }, 30000);
+
     req.on('data', (chunk) => {
       body += chunk;
       if (body.length > MAX_BODY) {
+        clearTimeout(bodyTimeout);
         if (!settled) { settled = true; reject(new Error('Payload too large')); }
         req.destroy();
         return;
@@ -203,6 +212,7 @@ function parseBody(req) {
     });
 
     req.on('end', () => {
+      clearTimeout(bodyTimeout);
       if (settled) return;
       if (!body) { settled = true; return resolve({}); }
       try {
@@ -215,6 +225,7 @@ function parseBody(req) {
     });
 
     req.on('error', (err) => {
+      clearTimeout(bodyTimeout);
       if (!settled) { settled = true; reject(err); }
     });
   });
@@ -1378,7 +1389,7 @@ function executeInternalMcpTool(mappedTool, args) {
         subscription_id: subscriptionId,
         event_count: events.length,
         events,
-        has_more: false,
+        has_more: false, // All matching events are returned in a single batch (no pagination limit)
         next_cursor: nextCursor,
       },
     };
@@ -1806,7 +1817,14 @@ async function handleValidate(req, res, toolName) {
 }
 
 async function handleRequest(req, res) {
-  const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+  let url;
+  try {
+    url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+  } catch (_e) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Malformed request URL' }));
+    return;
+  }
 
   if (req.method === 'GET' && url.pathname === '/health') {
     handleHealth(req, res);

@@ -850,7 +850,7 @@ function handleGetCostSummary(args) {
 }
 
 function handleGetBudgetStatus(args) {
-  const status = db.getBudgetStatus(args.budget_name);
+  const status = db.getBudgetStatus(args.budget_id);
   return {
     content: [{
       type: 'text',

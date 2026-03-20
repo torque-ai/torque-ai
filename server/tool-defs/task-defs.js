@@ -13,7 +13,7 @@ module.exports = [
         "max_concurrent": {
           "type": "number",
           "description": "Maximum concurrent provider instances (1-20)",
-          "minimum": 0
+          "minimum": 1
         },
         "default_timeout": {
           "type": "number",
@@ -206,7 +206,8 @@ module.exports = [
               },
               "condition": {
                 "type": "string",
-                "description": "Condition to run step: \"always\", \"on_success\", \"on_failure\""
+                "description": "Condition to run step: \"always\", \"on_success\", \"on_failure\"",
+                "enum": ["always", "on_success", "on_failure"]
               },
               "timeout_minutes": {
                 "type": "number",

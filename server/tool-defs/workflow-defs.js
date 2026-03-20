@@ -11,7 +11,7 @@ const tools = [
       type: 'object',
       properties: {
         pipeline_id: {
-          type: 'number',
+          type: 'string',
           description: 'ID of the pipeline to clone'
         },
         new_name: {

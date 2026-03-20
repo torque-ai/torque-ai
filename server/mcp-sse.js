@@ -1255,7 +1255,7 @@ async function handleHttpRequest(req, res) {
     }
 
     const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
-    if (!existingSession) {
+    if (!existingSession && ip !== 'unknown') {
       const currentIpCount = _perIpSessionCount.get(ip) || 0;
       if (currentIpCount >= MAX_SESSIONS_PER_IP) {
         logger.warn(`[SSE] Per-IP session limit reached for ${ip}`);
@@ -1699,6 +1699,15 @@ function stop() {
     server.close(() => {
       debugLog('Server fully closed');
     });
+    // Remove model event listeners to prevent leaks across restart cycles
+    if (_modelDiscoveredHandler) {
+      eventBus.removeListener('model-discovered', _modelDiscoveredHandler);
+      _modelDiscoveredHandler = null;
+    }
+    if (_modelRemovedHandler) {
+      eventBus.removeListener('model-removed', _modelRemovedHandler);
+      _modelRemovedHandler = null;
+    }
     debugLog('Server stopping');
   }
 }
@@ -1709,7 +1718,10 @@ function setShuttingDown(value) {
 
 // ── Model registry notifications ─────────────────────────────────────────────
 
-eventBus.onModelDiscovered((data) => {
+let _modelDiscoveredHandler = null;
+let _modelRemovedHandler = null;
+
+_modelDiscoveredHandler = (data) => {
   for (const [, session] of sessions) {
     try {
       sendJsonRpcNotification(session, 'notifications/message', {
@@ -1724,9 +1736,10 @@ eventBus.onModelDiscovered((data) => {
       });
     } catch (_e) { void _e; /* ignore disconnected sessions */ }
   }
-});
+};
+eventBus.onModelDiscovered(_modelDiscoveredHandler);
 
-eventBus.onModelRemoved((data) => {
+_modelRemovedHandler = (data) => {
   for (const [, session] of sessions) {
     try {
       sendJsonRpcNotification(session, 'notifications/message', {
@@ -1742,7 +1755,8 @@ eventBus.onModelRemoved((data) => {
       });
     } catch (_e) { void _e; }
   }
-});
+};
+eventBus.onModelRemoved(_modelRemovedHandler);
 
 module.exports = {
   start,

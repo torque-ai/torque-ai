@@ -520,8 +520,7 @@ module.exports = [
             enum: [
               'validation',
               'syntax',
-              'build',
-              'approval'
+              'build'
             ]
           },
           description: 'Checks to run in pre-commit hook'
