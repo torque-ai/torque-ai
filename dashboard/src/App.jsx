@@ -10,6 +10,7 @@ import { useWebSocket } from './websocket';
 import { hosts as hostsApi } from './api';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useTick } from './hooks/useTick';
+import Login from './components/Login';
 
 // Code-split secondary routes — only loaded when visited
 const History = lazy(() => import('./views/History'));
@@ -292,6 +293,38 @@ function AppInner() {
 }
 
 function App() {
+  // null = checking, true = authenticated, false = not authenticated
+  const [authenticated, setAuthenticated] = useState(null);
+
+  useEffect(() => {
+    // Probe a lightweight endpoint to determine auth state.
+    // 401 → show login; anything else (200, open mode) → show dashboard.
+    fetch('/api/auth/status')
+      .then(res => {
+        setAuthenticated(res.status !== 401);
+      })
+      .catch(() => {
+        // Network error — assume open mode / no auth configured
+        setAuthenticated(true);
+      });
+  }, []);
+
+  if (authenticated === null) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-950 text-slate-400">
+        Loading...
+      </div>
+    );
+  }
+
+  if (authenticated === false) {
+    return (
+      <ToastProvider>
+        <Login onLogin={() => setAuthenticated(true)} />
+      </ToastProvider>
+    );
+  }
+
   return (
     <ToastProvider>
       <BrowserRouter>

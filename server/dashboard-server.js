@@ -34,6 +34,121 @@ const { sendError } = require('./dashboard/utils');
 const { dispatchV2, init: initV2Dispatch } = require('./api/v2-dispatch');
 const eventBus = require('./event-bus');
 
+// ============================================
+// Auth handlers (dashboard port)
+// ============================================
+
+/**
+ * POST /api/auth/login — validate API key and issue a session cookie.
+ * Mirrors the handler in api-server.core.js, scoped to the dashboard port.
+ */
+async function handleAuthLogin(req, res) {
+  const keyManager = require('./auth/key-manager');
+  const sessionManager = require('./auth/session-manager');
+  const { loginLimiter } = require('./auth/rate-limiter');
+  const { parseBody } = require('./dashboard/utils');
+
+  const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+
+  if (loginLimiter.isLimited(ip)) {
+    res.writeHead(429, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ error: 'Too many login attempts. Please try again later.' }));
+    return;
+  }
+
+  try {
+    const body = await parseBody(req);
+    const { key } = body || {};
+
+    // Open mode: no keys configured — auto-login as admin
+    if (!keyManager.hasAnyKeys()) {
+      const identity = { id: 'open-mode', name: 'Open Mode', role: 'admin' };
+      const { sessionId, csrfToken } = sessionManager.createSession(identity);
+      res.setHeader('Set-Cookie', [
+        `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
+        `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
+      ]);
+      res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+      res.end(JSON.stringify({ success: true, role: identity.role, csrfToken }));
+      return;
+    }
+
+    if (!key) {
+      loginLimiter.recordFailure(ip);
+      res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+      res.end(JSON.stringify({ error: 'API key is required' }));
+      return;
+    }
+
+    const identity = keyManager.validateKey(key);
+    if (!identity) {
+      loginLimiter.recordFailure(ip);
+      res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+      res.end(JSON.stringify({ error: 'Invalid API key' }));
+      return;
+    }
+
+    const { sessionId, csrfToken } = sessionManager.createSession(identity);
+    res.setHeader('Set-Cookie', [
+      `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
+      `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
+    ]);
+    res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ success: true, role: identity.role, csrfToken }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+/**
+ * POST /api/auth/logout — destroy the session and clear cookies.
+ */
+function handleAuthLogout(req, res) {
+  const sessionManager = require('./auth/session-manager');
+  const { parseCookie } = require('./auth/middleware');
+
+  const sessionId = parseCookie(req.headers?.cookie, 'torque_session');
+  if (sessionId) {
+    sessionManager.destroySession(sessionId);
+  }
+
+  res.setHeader('Set-Cookie', [
+    'torque_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0',
+    'torque_csrf=; SameSite=Strict; Path=/; Max-Age=0',
+  ]);
+  res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+  res.end(JSON.stringify({ success: true }));
+}
+
+/**
+ * GET /api/auth/status — returns 200 if authenticated or in open mode, 401 otherwise.
+ * Used by the React app to determine whether to show the login screen on load.
+ */
+function handleAuthStatus(req, res) {
+  const keyManager = require('./auth/key-manager');
+
+  // Open mode: no keys configured — everyone is authenticated
+  if (!keyManager.hasAnyKeys()) {
+    res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ authenticated: true, mode: 'open' }));
+    return;
+  }
+
+  const { parseCookie } = require('./auth/middleware');
+  const sessionManager = require('./auth/session-manager');
+  const sessionId = parseCookie(req.headers?.cookie, 'torque_session');
+  const session = sessionId ? sessionManager.getSession(sessionId) : null;
+
+  if (session) {
+    res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ authenticated: true, role: session.identity?.role }));
+  } else {
+    res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ authenticated: false }));
+  }
+}
+
 // Server state
 let httpServer = null;
 let wss = null;
@@ -705,7 +820,49 @@ async function start(options = {}) {
 
   // Create HTTP server
   httpServer = http.createServer((req, res) => {
-    if (req.url.startsWith('/api/v2/')) {
+    const urlPath = req.url.split('?')[0];
+
+    // Auth routes — handled directly here so they're available on the dashboard port
+    if (urlPath === '/api/auth/login' && req.method === 'POST') {
+      handleAuthLogin(req, res);
+      return;
+    }
+    if (urlPath === '/api/auth/logout' && req.method === 'POST') {
+      handleAuthLogout(req, res);
+      return;
+    }
+    if (urlPath === '/api/auth/status' && req.method === 'GET') {
+      handleAuthStatus(req, res);
+      return;
+    }
+
+    // Cookie auth check for all other API requests
+    if (urlPath.startsWith('/api/')) {
+      const keyManager = require('./auth/key-manager');
+      // In open mode (no keys configured), allow everything through
+      if (keyManager.hasAnyKeys()) {
+        const { parseCookie } = require('./auth/middleware');
+        const sessionManager = require('./auth/session-manager');
+        const sessionId = parseCookie(req.headers?.cookie, 'torque_session');
+        const session = sessionId ? sessionManager.getSession(sessionId) : null;
+        if (!session) {
+          res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
+        // For mutating requests, validate CSRF token
+        if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
+          const csrfToken = req.headers?.['x-csrf-token'];
+          if (!csrfToken || session.csrfToken !== csrfToken) {
+            res.writeHead(403, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+            res.end(JSON.stringify({ error: 'Invalid CSRF token' }));
+            return;
+          }
+        }
+      }
+    }
+
+    if (urlPath.startsWith('/api/v2/')) {
       // V2 control-plane routes — served directly from v2 handler modules
       dispatchV2(req, res).then(handled => {
         if (!handled) {
@@ -723,7 +880,7 @@ async function start(options = {}) {
           sendError(res, 'Internal server error', 500);
         }
       });
-    } else if (req.url.startsWith('/api/')) {
+    } else if (urlPath.startsWith('/api/')) {
       dispatch(req, res, routeContext).catch(err => {
         process.stderr.write(`Unhandled API error: ${err.message}\n`);
         if (!res.headersSent) {
