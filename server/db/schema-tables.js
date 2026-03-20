@@ -229,6 +229,30 @@ function ensureTableColumns(db, tableName, columnDefs = []) {
   }
 }
 
+// ============================================================
+// Timestamp convention — ALL timestamp columns MUST use UTC ISO 8601 strings.
+//
+// Standard: new Date().toISOString()  →  "2026-03-19T12:34:56.789Z"
+//
+// NEVER use:
+//   - datetime('now')        — SQLite returns local time on some platforms
+//   - CURRENT_TIMESTAMP      — same issue; timezone depends on OS locale
+//   - Date.now()             — returns a number, not a readable string
+//
+// Rationale: SQLite has no native TIMESTAMP type; all times are stored as TEXT.
+// Using ISO 8601 UTC strings ensures correct lexicographic sort order and
+// prevents subtle off-by-hours bugs when servers are in non-UTC timezones.
+//
+// For schema DEFAULT clauses that need a server-side default, prefer leaving
+// the column nullable and setting the value from JS, or use:
+//   DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+// which explicitly forces UTC (SQLite's 'now' in strftime is always UTC).
+//
+// Existing DEFAULT (datetime('now')) and DEFAULT CURRENT_TIMESTAMP in legacy
+// table definitions are kept for backwards compatibility (column already exists),
+// but new columns must follow the ISO 8601 UTC convention above.
+// ============================================================
+
 function createTables(db, logger) {
   const rawDb = db;
   db.exec(`

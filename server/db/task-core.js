@@ -1284,8 +1284,8 @@ function requeueAfterSlotFailure(taskId, failedProvider, options = {}, getMaxRet
           db.prepare('UPDATE tasks SET metadata = ? WHERE id = ?').run(JSON.stringify(meta), taskId);
           return { requeued: false, exhausted: true };
         }
-        db.prepare("UPDATE tasks SET status = 'failed', provider = NULL, metadata = ?, completed_at = datetime('now') WHERE id = ?")
-          .run(JSON.stringify(meta), taskId);
+        db.prepare("UPDATE tasks SET status = 'failed', provider = NULL, metadata = ?, completed_at = ? WHERE id = ?")
+          .run(JSON.stringify(meta), new Date().toISOString(), taskId);
         return { requeued: false, exhausted: true };
       }
       meta.eligible_providers = eligible;
