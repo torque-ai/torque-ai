@@ -1,9 +1,26 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { schedules as schedulesApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import { formatDate } from '../utils/formatters';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+
+function SortHeader({ column, label, sortCol, sortDir, onSort }) {
+  const active = sortCol === column;
+  return (
+    <th
+      className="text-left p-4 heading-sm cursor-pointer select-none hover:text-white transition-colors group"
+      onClick={() => onSort(column)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <span className={`text-[10px] ${active ? 'text-blue-400' : 'text-slate-600 opacity-0 group-hover:opacity-100'} transition-opacity`}>
+          {active ? (sortDir === 'asc' ? '▲' : '▼') : '▲'}
+        </span>
+      </span>
+    </th>
+  );
+}
 
 function StatusBadge({ enabled }) {
   return (
@@ -23,6 +40,8 @@ function normalizeSchedulesResponse(data) {
 export default function Schedules() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [sortCol, setSortCol] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
   const [showForm, setShowForm] = useState(false);
   const [showConfirm, setShowConfirm] = useState(null);
   const [form, setForm] = useState({ name: '', cron_expression: '', task_description: '', provider: '', model: '', working_directory: '' });
@@ -49,6 +68,31 @@ export default function Schedules() {
     }, 60000);
     return () => clearInterval(interval);
   }, [loadSchedules]);
+
+  function handleSort(col) {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+  }
+
+  const sortedItems = useMemo(() => {
+    if (!items.length) return items;
+    return [...items].sort((a, b) => {
+      let av = '', bv = '';
+      if (sortCol === 'status') {
+        av = String(a.enabled !== false && a.enabled !== 0 ? 1 : 0);
+        bv = String(b.enabled !== false && b.enabled !== 0 ? 1 : 0);
+      } else {
+        av = String(a[sortCol] ?? '');
+        bv = String(b[sortCol] ?? '');
+      }
+      const cmp = av.localeCompare(bv, undefined, { numeric: true });
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [items, sortCol, sortDir]);
 
   async function handleToggle(id, currentEnabled) {
     try {
@@ -237,23 +281,23 @@ export default function Schedules() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-700/50">
-              <th className="text-left p-4 heading-sm">Name</th>
-              <th className="text-left p-4 heading-sm">Cron</th>
-              <th className="text-left p-4 heading-sm">Next Run</th>
+              <SortHeader column="name" label="Name" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+              <SortHeader column="cron_expression" label="Cron" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+              <SortHeader column="next_run" label="Next Run" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <th className="text-left p-4 heading-sm">Last Run</th>
-              <th className="text-left p-4 heading-sm">Status</th>
+              <SortHeader column="status" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <th className="text-left p-4 heading-sm">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 ? (
+            {sortedItems.length === 0 ? (
               <tr>
                 <td colSpan={6} className="p-8 text-center text-slate-500">
                   No scheduled tasks. Click "New Schedule" to create one.
                 </td>
               </tr>
             ) : (
-              items.map((schedule) => {
+              sortedItems.map((schedule) => {
                 const isEnabled = schedule.enabled !== false && schedule.enabled !== 0;
                 return (
                   <tr key={schedule.id} className="border-b border-slate-700/30 hover:bg-slate-700/30 transition-colors">
