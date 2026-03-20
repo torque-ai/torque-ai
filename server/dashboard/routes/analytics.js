@@ -23,7 +23,7 @@ function parseEventDataOrNull(raw) {
 
 function clampQueryInt(value, min, max, fallback) {
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || Number.isNaN(parsed)) {
+  if (!Number.isInteger(parsed)) {
     return fallback;
   }
   return Math.max(min, Math.min(max, parsed));

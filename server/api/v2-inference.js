@@ -167,13 +167,12 @@ function buildV2ExecutionPlan({
     return [{
       provider: providerId,
       transport,
-      reason: providerId === 'claude-cli' ? 'provider_requested' : 'provider_route',
+      reason: 'provider_route',
       status: 'pending',
     }];
   }
 
-  const useClaudePrimary = providerId === 'claude-cli';
-  const primaryProvider = useClaudePrimary ? 'claude-cli' : 'codex';
+  const primaryProvider = 'codex';
 
   if (transport === 'cli') {
     return [

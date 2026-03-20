@@ -178,7 +178,7 @@ const tools = [
       type: 'object',
       properties: {
         schedule_id: {
-          type: 'number',
+          type: 'string',
           description: 'Schedule ID or name'
         },
         enabled: {

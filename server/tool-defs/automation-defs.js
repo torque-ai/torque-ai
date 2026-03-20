@@ -10,7 +10,7 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        provider: { type: 'string', description: 'Provider to configure (codex, ollama, aider-ollama, hashline-ollama, claude-cli, or "all"). Default: all', enum: ['codex', 'ollama', 'aider-ollama', 'hashline-ollama', 'claude-cli', 'all'] },
+        provider: { type: 'string', description: 'Provider to configure (any provider name or "all"). Default: all', enum: ['codex', 'codex-spark', 'ollama', 'aider-ollama', 'hashline-ollama', 'claude-cli', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'anthropic', 'ollama-cloud', 'all'] },
         stall_threshold_seconds: { type: 'number', description: 'Seconds of no output before a task is considered stalled. Recommended: 120-180 for codex, 90-120 for local LLMs.' },
         auto_resubmit: { type: 'boolean', description: 'Automatically resubmit stalled tasks (default: false). When true, stalled tasks are cancelled and resubmitted with the same description.' },
         max_resubmit_attempts: { type: 'number', description: 'Max resubmit attempts before giving up (default: 3)' }
@@ -459,7 +459,7 @@ const tools = [
             type: 'object',
             properties: {
               name: { type: 'string', description: 'Enum member name (e.g., "Active")' },
-              value: { description: 'Enum value — string (e.g., "active") or number (e.g., 5)' }
+              value: { description: 'Enum value — string (e.g., "active") or number (e.g., 5)', oneOf: [{ type: 'string' }, { type: 'number' }] }
             },
             required: ['name', 'value']
           },

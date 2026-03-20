@@ -14,8 +14,6 @@
 let db;
 let _getTaskFn;
 let recordTaskEventFn;
-let _getTaskEventsFn;
-let _getRetryHistoryFn;
 let getPipelineFn;
 let createPipelineFn;
 const { createHash } = require('crypto');
@@ -32,14 +30,6 @@ function setGetTask(fn) {
 
 function setRecordTaskEvent(fn) {
   recordTaskEventFn = fn;
-}
-
-function _setGetTaskEvents(fn) {
-  _getTaskEventsFn = fn;
-}
-
-function _setGetRetryHistory(fn) {
-  _getRetryHistoryFn = fn;
 }
 
 function setGetPipeline(fn) {

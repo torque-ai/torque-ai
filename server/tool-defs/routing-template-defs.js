@@ -46,7 +46,7 @@ const tools = [
         id: { type: 'string', description: 'Template ID' },
         name: { type: 'string', description: 'Template name (alternative to ID)' },
       },
-      required: ['name'],
+      required: [],
     },
   },
   {

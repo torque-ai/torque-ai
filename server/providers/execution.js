@@ -587,7 +587,7 @@ async function executeOllamaTaskWithAgentic(task) {
   const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
   const abortController = new AbortController();
   // Register abort controller so cancelTask() can find and abort agentic tasks
-  const apiAbortControllers = _agenticDeps.apiAbortControllers || (_executeApiModule && _executeApiModule._apiAbortControllers);
+  const apiAbortControllers = _agenticDeps.apiAbortControllers;
   if (apiAbortControllers) apiAbortControllers.set(taskId, abortController);
   const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
   const cancelCheckInterval = setInterval(() => {

@@ -263,19 +263,7 @@ function warmCache(limit = 100, _minSuccessRate = 0.9, since = null) {
   const whereClause = since ? 'AND created_at >= ?' : '';
   const params = since ? [since] : [];
 
-  // Get successful tasks that aren't already cached
-  const _tasks = db.prepare(`
-    SELECT t.* FROM tasks t
-    LEFT JOIN task_cache c ON c.content_hash = ?
-    WHERE t.status = 'completed'
-    AND t.exit_code = 0
-    AND c.id IS NULL
-    ${whereClause}
-    ORDER BY t.completed_at DESC
-    LIMIT ?
-  `).all('placeholder', ...params, limit);
-
-  // Actually we need to check each task's hash
+  // Check each task's hash
   const successfulTasks = db.prepare(`
     SELECT * FROM tasks
     WHERE status = 'completed' AND exit_code = 0

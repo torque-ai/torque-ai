@@ -738,33 +738,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     });
   }, []);
 
-  // Phase 1: Active data only (running + queued + overview) — fast, used for WS-driven refreshes
-  function loadActiveData() { // eslint-disable-line no-unused-vars
-    execute(async (isCurrent) => {
-      try {
-        const [queuedData, runningData, pendingData, overviewData] = await Promise.all([
-          tasksApi.list({ status: 'queued', limit: 50 }),
-          tasksApi.list({ status: 'running', limit: 50 }),
-          tasksApi.list({ status: 'pending_provider_switch', limit: 20 }),
-          statsApi.overview(),
-        ]);
-        if (!isCurrent()) return;
-        mergeTasks([...queuedData.tasks, ...runningData.tasks, ...pendingData.tasks]);
-        setOverview(overviewData);
-        failCountRef.current = 0;
-        setStaleData(false);
-        setLastRefreshed(Date.now());
-      } catch {
-        if (!isCurrent()) return;
-        failCountRef.current++;
-        if (failCountRef.current >= 3) setStaleData(true);
-      } finally {
-        if (isCurrent()) setLoading(false);
-      }
-    });
-  }
-
-  // Phase 2: Full load — all columns + supplementary stats
+  // Full load — all columns + supplementary stats
   const loadData = useCallback(() => {
     return execute(async (isCurrent) => {
       try {

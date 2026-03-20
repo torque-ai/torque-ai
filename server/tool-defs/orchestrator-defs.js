@@ -30,7 +30,7 @@ module.exports = [
         auto_act: { type: 'boolean', description: 'If true, automatically execute the recommended recovery action (default: false)' },
         strategic_provider: { type: 'string', enum: ['deepinfra', 'hyperbolic'], description: 'Cloud provider for the strategic model (default: deepinfra)' },
       },
-      required: ['task_id'],
+      required: [],
     },
   },
   {
@@ -48,7 +48,7 @@ module.exports = [
         file_size_delta_pct: { type: 'number', description: 'File size change percentage' },
         strategic_provider: { type: 'string', enum: ['deepinfra', 'hyperbolic'], description: 'Cloud provider for the strategic model (default: deepinfra)' },
       },
-      required: ['task_id'],
+      required: [],
     },
   },
   {

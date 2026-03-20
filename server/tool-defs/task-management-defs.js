@@ -51,7 +51,7 @@ module.exports = [
           "description": "Task ID to check (omit for all tasks summary)"
         }
       },
-      "required": ["task_id"]
+      "required": []
     }
   },
   {
@@ -183,9 +183,7 @@ module.exports = [
           "description": "Delete ALL tasks with this status (bulk delete). Use with caution."
         }
       },
-      "required": [
-        "task_id"
-      ]
+      "required": []
     }
   },
   {
@@ -605,9 +603,7 @@ module.exports = [
           "description": "Default working directory for imported tasks"
         }
       },
-      "required": [
-        "file_path"
-      ]
+      "required": []
     }
   },
   {
@@ -668,35 +664,6 @@ module.exports = [
       "required": [
         "task_id"
       ]
-    }
-  },
-  {
-    "name": "subscribe_task_events",
-    "description": "Register for task state change notifications. Returns a subscription ID for polling.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "task_id": {
-          "type": "string",
-          "description": "Task ID to subscribe to (omit for all tasks)"
-        },
-        "event_types": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Event types to subscribe to: status_change, progress_update, output, error. Use [\"*\"] for all.",
-          "default": [
-            "status_change"
-          ]
-        },
-        "expires_in_minutes": {
-          "type": "number",
-          "description": "Subscription expiration time in minutes",
-          "default": 60
-        }
-      },
-      "required": []
     }
   },
   {
