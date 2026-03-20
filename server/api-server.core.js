@@ -2741,5 +2741,8 @@ module.exports = {
   _testing: {
     handleV2TaskCancel,
     setV2TaskManager: (tm) => { _v2TaskManager = tm; },
+    handleClaudeEvent,
+    handleClaudeFiles,
+    _claudeEventLog,
   },
 };
