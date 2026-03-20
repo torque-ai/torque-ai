@@ -133,7 +133,7 @@ function csvField(value) {
   return `"${str.replace(/"/g, '""')}"`;
 }
 
-function exportCSV(tasks) {
+function exportCSV(tasks, onSuccess) {
   const headers = ['ID', 'Status', 'Description', 'Provider', 'Model', 'Host', 'Duration (s)', 'Created'];
   const rows = tasks.map((t) => {
     const dur = t.completed_at && t.started_at
@@ -158,6 +158,7 @@ function exportCSV(tasks) {
   a.download = `torque-tasks-${format(new Date(), 'yyyy-MM-dd')}.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 100);
+  onSuccess?.(`Exported ${tasks.length} task${tasks.length !== 1 ? 's' : ''} to CSV`);
 }
 
 function getDurationColor(seconds) {
@@ -498,7 +499,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
       <div className="flex items-center justify-between mb-6">
         <h2 className="heading-lg text-white">Task History</h2>
         <button
-          onClick={() => exportCSV(tasks)}
+          onClick={() => exportCSV(tasks, toast.success)}
           disabled={tasks.length === 0}
           className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >

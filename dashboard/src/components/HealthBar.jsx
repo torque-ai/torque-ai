@@ -38,11 +38,15 @@ function getRunningTaskCount(raw) {
   return Number.isFinite(total) ? total : 0;
 }
 
-function Section({ label, value, title }) {
+function Section({ label, value, title, error }) {
   return (
-    <div className="flex items-center gap-2" title={title}>
+    <div className="flex items-center gap-2" title={error ? `Error: ${error}` : title}>
       <span>{label}:</span>
-      <span className="font-medium tabular-nums text-slate-200">{value}</span>
+      {error ? (
+        <span className="font-medium tabular-nums text-red-400" title={error}>err</span>
+      ) : (
+        <span className="font-medium tabular-nums text-slate-200">{value}</span>
+      )}
     </div>
   );
 }
@@ -50,19 +54,33 @@ function Section({ label, value, title }) {
 export default function HealthBar() {
   const [quotas, setQuotas] = useState([]);
   const [runningCount, setRunningCount] = useState(0);
+  const [quotaError, setQuotaError] = useState(null);
+  const [tasksError, setTasksError] = useState(null);
 
   useEffect(() => {
     let active = true;
 
     async function refresh() {
-      const [quotaData, runningTasks] = await Promise.all([
-        request('/provider-quotas').catch(() => null),
-        request('/tasks?status=running').catch(() => null),
+      const [quotaResult, runningResult] = await Promise.allSettled([
+        request('/provider-quotas'),
+        request('/tasks?status=running'),
       ]);
 
       if (!active) return;
-      setQuotas(normalizeQuotaEntries(quotaData));
-      setRunningCount(getRunningTaskCount(runningTasks));
+
+      if (quotaResult.status === 'fulfilled') {
+        setQuotas(normalizeQuotaEntries(quotaResult.value));
+        setQuotaError(null);
+      } else {
+        setQuotaError(quotaResult.reason?.message || 'Failed to load quotas');
+      }
+
+      if (runningResult.status === 'fulfilled') {
+        setRunningCount(getRunningTaskCount(runningResult.value));
+        setTasksError(null);
+      } else {
+        setTasksError(runningResult.reason?.message || 'Failed to load tasks');
+      }
     }
 
     refresh();
@@ -85,21 +103,13 @@ export default function HealthBar() {
         label="Providers"
         value={providerSummary}
         title={`Providers: ${providerSummary} green`}
-      />
-      <Section
-        label="Hosts"
-        value="—"
-        title="Hosts: placeholder"
+        error={quotaError}
       />
       <Section
         label="Queue"
         value={String(runningCount)}
         title={`Queue: ${runningCount} running`}
-      />
-      <Section
-        label="Budget"
-        value="—"
-        title="Budget: placeholder"
+        error={tasksError}
       />
     </div>
   );

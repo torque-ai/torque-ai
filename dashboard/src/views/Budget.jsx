@@ -53,6 +53,7 @@ export default function Budget() {
   const [forecast, setForecast] = useState(null);
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState(null);
   const [chartType, setChartType] = useState('bar');
   const [showBudgetForm, setShowBudgetForm] = useState(false);
   const [budgetForm, setBudgetForm] = useState({ budget_usd: '', period: 'monthly', alert_threshold: '80' });
@@ -69,8 +70,10 @@ export default function Budget() {
       setSummary(s);
       setBudgetStatus(b);
       setForecast(f);
+      setApiError(null);
     } catch (err) {
       console.error('Failed to load budget data:', err);
+      setApiError(err?.message || 'Failed to load budget data');
       toast.error('Failed to load budget data');
     } finally {
       setLoading(false);
@@ -152,6 +155,21 @@ export default function Budget() {
 
   return (
     <div className="p-6">
+      {/* API error indicator */}
+      {apiError && (
+        <div className="mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-950/50 border border-red-600/40 text-red-300 text-sm">
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>Budget data unavailable: {apiError}</span>
+          <button
+            onClick={loadData}
+            className="ml-auto text-xs underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {/* Budget alert bar */}
       {budgetLimit > 0 && budgetPct >= 80 && (
         <div className={`mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm ${

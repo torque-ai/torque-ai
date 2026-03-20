@@ -45,14 +45,21 @@ function getProvidersTone(quotas) {
 
 export default function HealthDots() {
   const [quotas, setQuotas] = useState([]);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     let active = true;
 
     async function refresh() {
-      const quotaData = await request('/provider-quotas').catch(() => null);
-      if (!active) return;
-      setQuotas(normalizeQuotaEntries(quotaData));
+      try {
+        const quotaData = await request('/provider-quotas');
+        if (!active) return;
+        setQuotas(normalizeQuotaEntries(quotaData));
+        setError(null);
+      } catch (err) {
+        if (!active) return;
+        setError(err?.message || 'Failed to load provider quotas');
+      }
     }
 
     refresh();
@@ -72,18 +79,17 @@ export default function HealthDots() {
 
   return (
     <div className="flex items-center gap-2 px-4 py-3">
-      <span
-        title={`Providers: ${healthyProviders}/${quotas.length} healthy`}
-        className={`h-2.5 w-2.5 rounded-full ${TONE_CLASSES[providersTone]}`}
-      />
-      <span
-        title="Hosts: placeholder"
-        className="h-2.5 w-2.5 rounded-full bg-green-500"
-      />
-      <span
-        title="Budget: placeholder"
-        className="h-2.5 w-2.5 rounded-full bg-green-500"
-      />
+      {error ? (
+        <span
+          title={`Health check error: ${error}`}
+          className="h-2.5 w-2.5 rounded-full bg-red-500"
+        />
+      ) : (
+        <span
+          title={`Providers: ${healthyProviders}/${quotas.length} healthy`}
+          className={`h-2.5 w-2.5 rounded-full ${TONE_CLASSES[providersTone]}`}
+        />
+      )}
     </div>
   );
 }

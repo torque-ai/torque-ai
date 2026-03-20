@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { stats as statsApi, models as modelsApi } from '../api';
 import StatCard from '../components/StatCard';
 import { formatDate, formatDuration } from '../utils/formatters';
@@ -38,15 +38,31 @@ export default function Models() {
   const [leaderboard, setLeaderboard] = useState([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
 
+  const intervalRef = useRef(null);
+
   useEffect(() => {
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
-    statsApi.models(days).then(d => {
-      if (!cancelled) { setData(d); setLoading(false); }
-    }).catch((err) => { if (!cancelled) { setError(err.message); setLoading(false); } });
-    return () => { cancelled = true; };
+
+    function fetchData() {
+      statsApi.models(days).then(d => {
+        if (!cancelled) { setData(d); setLoading(false); }
+      }).catch((err) => { if (!cancelled) { setError(err.message); setLoading(false); } });
+    }
+
+    fetchData();
+
+    // Poll every 30s — models data changes as tasks complete
+    intervalRef.current = setInterval(() => {
+      if (!cancelled && !document.hidden) fetchData();
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalRef.current);
+    };
   }, [days]);
 
   useEffect(() => {
