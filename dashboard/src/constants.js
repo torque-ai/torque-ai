@@ -36,6 +36,18 @@ export const STATUS_DOT_COLORS = {
   pending_provider_switch: 'bg-orange-400',
 };
 
+/** Unicode symbol icons for task statuses — secondary visual indicator for colorblind accessibility */
+export const STATUS_ICONS = {
+  completed: '✓',
+  failed: '✗',
+  running: '◉',
+  queued: '◌',
+  cancelled: '⊘',
+  pending: '○',
+  blocked: '⊞',
+  skipped: '–',
+};
+
 export const PROVIDER_COLORS = {
   codex: 'text-green-400',
   'claude-cli': 'text-purple-400',

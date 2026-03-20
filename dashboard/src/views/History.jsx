@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { tasks as tasksApi, providers as providersApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
-import { STATUS_BG_COLORS } from '../constants';
+import { STATUS_BG_COLORS, STATUS_ICONS } from '../constants';
 import { getRelevantModel } from '../utils/providerModels';
 import { formatDuration } from '../utils/formatters';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -63,8 +63,10 @@ function buildProviderOptions(providerList, currentProvider) {
 }
 
 function StatusBadge({ status }) {
+  const icon = STATUS_ICONS[status];
   return (
     <span className={`px-2 py-1 rounded-full text-[11px] font-medium text-white ${STATUS_BADGES[status] || 'bg-gray-500'}`}>
+      {icon && <span className="mr-1" aria-hidden="true">{icon}</span>}
       {status?.replace(/_/g, ' ')}
     </span>
   );
@@ -508,7 +510,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 mb-6">
+      <div className="flex flex-wrap gap-3 mb-6">
         <input
           type="text"
           placeholder="Search tasks..."

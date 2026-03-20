@@ -3,6 +3,7 @@ import { tasks as tasksApi, stats as statsApi, providers as providersApi } from 
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { getRelevantModel } from '../utils/providerModels';
+import { STATUS_ICONS } from '../constants';
 import StatCard from '../components/StatCard';
 import TaskSubmitForm from '../components/TaskSubmitForm';
 import HealthBar from '../components/HealthBar';
@@ -308,6 +309,11 @@ const TaskCard = memo(function TaskCard({
           )}
         </div>
         <div className="flex items-center gap-2 text-[11px] text-slate-400">
+          {STATUS_ICONS[task.status] && (
+            <span aria-hidden="true" className="text-[11px] font-mono text-slate-500" title={task.status}>
+              {STATUS_ICONS[task.status]}
+            </span>
+          )}
           {task.status === 'running' && task.started_at && (
             <LiveElapsed startedAt={task.started_at} now={now} />
           )}
@@ -1174,7 +1180,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       )}
 
       {/* Toolbar: density toggle + bulk actions */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-y-2 mb-3">
         <div className="flex items-center gap-2">
           {/* Task count summary */}
           <span className="text-xs text-slate-500">
