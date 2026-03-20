@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
-import SessionSwitcher from './SessionSwitcher';
+// SessionSwitcher removed — multi-session switching no longer needed
 import EconomyIndicator from './EconomyIndicator';
 import HealthDots from './HealthDots';
 
@@ -157,7 +157,7 @@ function getInitialCollapsed() {
 }
 
 
-export default function Layout({ isConnected, isReconnecting, failedCount = 0, stuckCount = 0, instanceId = null, shortId = null }) {
+export default function Layout({ isConnected, isReconnecting, failedCount = 0, stuckCount = 0 }) {
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
@@ -300,8 +300,6 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
             )}
           </div>
           <div className="flex items-center gap-3">
-            {/* Session switcher */}
-            <SessionSwitcher shortId={shortId} instanceId={instanceId} />
             <EconomyIndicator />
             {/* Keyboard shortcut hint */}
             <span className="text-slate-600 text-xs hidden md:block">

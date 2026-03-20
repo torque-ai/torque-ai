@@ -142,7 +142,7 @@ function AppInner() {
     }
   }, []);
 
-  const { isConnected, isReconnecting, instanceId, shortId, subscribe, unsubscribe } = useWebSocket(handleMessage);
+  const { isConnected, isReconnecting, subscribe, unsubscribe } = useWebSocket(handleMessage);
 
   // Guard Onboarding against flash before initial load completes
   useEffect(() => {
@@ -238,7 +238,7 @@ function AppInner() {
       <ErrorBoundary>
         <Suspense fallback={<div className="flex items-center justify-center h-screen text-slate-400">Loading...</div>}>
           <Routes>
-            <Route element={<Layout isConnected={isConnected} isReconnecting={isReconnecting} failedCount={failedCount} stuckCount={stuckCount} instanceId={instanceId} shortId={shortId} />}>
+            <Route element={<Layout isConnected={isConnected} isReconnecting={isReconnecting} failedCount={failedCount} stuckCount={stuckCount} />}>
               <Route
                 index
                 element={
