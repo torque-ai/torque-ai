@@ -390,6 +390,10 @@ function getTask(id) {
         row.metadata = JSON.parse(row.metadata);
       } catch (_err) {
         void _err;
+        // Corrupted metadata — return empty object so callers always get an object,
+        // never a raw JSON string. The bad value stays in the DB and can be inspected;
+        // we don't silently overwrite it here.
+        row.metadata = {};
       }
     }
   }
@@ -429,6 +433,11 @@ function updateTask(id, additionalFields = {}) {
   const updates = [];
   const values = [];
 
+  // JSON column list — MUST be kept in sync with the equivalent list in updateTaskStatus().
+  // Any column that stores serialized JSON must appear in BOTH lists so callers that
+  // pass object values get them stringified regardless of which update path is used.
+  // Currently: files_modified, context, tags, metadata, depends_on, required_capabilities.
+  // If you add a new JSON column to the tasks table, add it to both lists.
   for (const [key, value] of Object.entries(additionalFields)) {
     validateColumnName(key, ALLOWED_TASK_COLUMNS);
     updates.push(`${key} = ?`);

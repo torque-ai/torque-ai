@@ -86,7 +86,13 @@ function addOllamaHost(host) {
 }
 
 /**
- * Get an Ollama host by ID
+ * Get an Ollama host by ID.
+ *
+ * JSON repair: if models_cache is present but unparseable (e.g., partial write
+ * or truncation), the corrupted value is cleared in the DB and models falls back
+ * to [] so routing continues without crashing. The repair is a targeted UPDATE
+ * rather than a full host update to avoid triggering unrelated side effects.
+ *
  * @param {any} hostId
  * @returns {any}
  */
@@ -99,6 +105,12 @@ function getOllamaHost(hostId) {
     } catch (_e) {
       void _e;
       host.models = [];
+      // Corrupted models_cache — clear it so the next health check can repopulate.
+      // Leave other host fields intact; only the cache column needs repair.
+      try {
+        db.prepare('UPDATE ollama_hosts SET models_cache = NULL WHERE id = ?').run(hostId);
+        logger.warn(`[Host Management] Cleared corrupted models_cache for host "${hostId}" — will be repopulated on next health check`);
+      } catch (_repairErr) { void _repairErr; }
     }
   } else if (host) {
     host.models = [];
