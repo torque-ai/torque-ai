@@ -7,18 +7,11 @@ import HealthDots from './HealthDots';
 
 const ROUTE_NAMES = {
   '/': 'Kanban',
-  '/projects': 'Projects',
   '/history': 'History',
-  '/batches': 'Batches',
   '/workflows': 'Workflows',
   '/providers': 'Providers',
-  '/models': 'Models',
-  '/hosts': 'Hosts',
-  '/budget': 'Budget',
-  '/schedules': 'Schedules',
-  '/approvals': 'Approvals',
-  '/coordination': 'Coordination',
-  '/strategy': 'Strategy',
+  '/infrastructure': 'Infrastructure',
+  '/operations': 'Operations',
 };
 
 // Simple SVG icons as components
@@ -127,18 +120,11 @@ const BellIcon = () => (
 
 const navItems = [
   { to: '/', icon: KanbanIcon, label: 'Kanban' },
-  { to: '/projects', icon: FolderIcon, label: 'Projects' },
   { to: '/history', icon: HistoryIcon, label: 'History' },
-  { to: '/batches', icon: BatchIcon, label: 'Batches' },
   { to: '/workflows', icon: WorkflowIcon, label: 'Workflows' },
   { to: '/providers', icon: ChartIcon, label: 'Providers' },
-  { to: '/models', icon: ModelIcon, label: 'Models' },
-  { to: '/hosts', icon: HostIcon, label: 'Hosts' },
-  { to: '/budget', icon: BudgetIcon, label: 'Budget' },
-  { to: '/schedules', icon: ScheduleIcon, label: 'Schedules' },
-  { to: '/approvals', icon: ApprovalIcon, label: 'Approvals' },
-  { to: '/coordination', icon: CoordIcon, label: 'Coordination' },
-  { to: '/strategy', icon: StrategicIcon, label: 'Strategy' },
+  { to: '/infrastructure', icon: HostIcon, label: 'Infrastructure' },
+  { to: '/operations', icon: StrategicIcon, label: 'Operations' },
 ];
 
 function NavItem({ to, icon, label, collapsed }) {
