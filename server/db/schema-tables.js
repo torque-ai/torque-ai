@@ -327,6 +327,8 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
       CREATE INDEX IF NOT EXISTS idx_tasks_provider_completed ON tasks(provider, completed_at);
       CREATE INDEX IF NOT EXISTS idx_tasks_status_completed ON tasks(status, completed_at DESC);
+      -- countTasksByStatus filters on archived=0; this index prevents a full table scan.
+      CREATE INDEX IF NOT EXISTS idx_tasks_archived ON tasks(archived);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS pipelines (

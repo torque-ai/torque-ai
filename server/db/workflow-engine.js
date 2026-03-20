@@ -257,28 +257,41 @@ function listWorkflows(options = {}) {
  * Reconcile active workflows whose tasks are already terminal.
  * This can happen after manual DB updates or partial recovery paths.
  * Returns the count of workflows reconciled.
+ *
+ * Perf: uses a single JOIN + GROUP BY query to get per-workflow status counts
+ * instead of calling getWorkflowTasks (which fetches all columns including output
+ * blobs) once per workflow (N+1 pattern).
+ *
  * @param {string|null} workflowId Optional workflow ID to scope reconciliation
  */
 function reconcileStaleWorkflows(workflowId = null) {
-  const filter = workflowId ? 'AND id = ?' : '';
-  const rows = db.prepare(`SELECT id, status FROM workflows WHERE status IN ('pending', 'running', 'paused') ${filter}`)
-    .all(...(workflowId ? [workflowId] : []));
+  const filter = workflowId ? 'AND w.id = ?' : '';
+
+  // Single query: for each active workflow, count tasks by terminal vs non-terminal.
+  // Only includes workflows that have at least one task.
+  const rows = db.prepare(`
+    SELECT
+      w.id,
+      w.status,
+      COUNT(t.id)                                                       AS total,
+      SUM(CASE WHEN t.status IN ('completed','failed','cancelled','skipped') THEN 1 ELSE 0 END) AS terminal_count,
+      SUM(CASE WHEN t.status = 'failed'    THEN 1 ELSE 0 END)          AS failed_count,
+      SUM(CASE WHEN t.status = 'cancelled' THEN 1 ELSE 0 END)          AS cancelled_count
+    FROM workflows w
+    JOIN tasks t ON t.workflow_id = w.id
+    WHERE w.status IN ('pending', 'running', 'paused') ${filter}
+    GROUP BY w.id
+  `).all(...(workflowId ? [workflowId] : []));
 
   let reconciled = 0;
   for (const row of rows) {
-    const tasks = getWorkflowTasks(row.id);
-    if (tasks.length === 0) {
-      continue;
+    if (row.terminal_count < row.total) {
+      continue; // Some tasks still active — workflow is not done
     }
 
-    const terminalCount = tasks.filter(t => ['completed', 'failed', 'cancelled', 'skipped'].includes(t.status)).length;
-    if (terminalCount < tasks.length) {
-      continue;
-    }
-
-    const failed = tasks.some(t => t.status === 'failed');
-    const cancelled = tasks.some(t => t.status === 'cancelled');
-    const finalStatus = failed ? 'failed' : cancelled ? 'cancelled' : 'completed';
+    const finalStatus = row.failed_count > 0 ? 'failed'
+      : row.cancelled_count === row.total ? 'cancelled'
+        : 'completed';
     updateWorkflow(row.id, {
       status: finalStatus,
       completed_at: new Date().toISOString()
@@ -863,6 +876,8 @@ function evaluateAST(ast, context) {
 
 /**
  * Update workflow task counts
+ * Perf: uses a single GROUP BY aggregate query instead of fetching full task rows
+ * (avoids pulling output/error_output blobs from tasks just to count statuses).
  * @param {any} workflowId
  * @returns {any}
  */
@@ -870,37 +885,43 @@ function updateWorkflowCounts(workflowId) {
   // Guard: skip if workflow is already in a terminal state to prevent double-completion fires.
   const workflow = getWorkflow(workflowId);
   if (!workflow) return { total_tasks: 0, completed_tasks: 0, failed_tasks: 0, skipped_tasks: 0 };
-  if (['completed', 'failed', 'cancelled'].includes(workflow.status)) {
-    // Return current counts without modifying status.
-    const tasks = getWorkflowTasks(workflowId);
-    return {
-      total_tasks: tasks.length,
-      completed_tasks: tasks.filter(t => t.status === 'completed').length,
-      failed_tasks: tasks.filter(t => t.status === 'failed').length,
-      skipped_tasks: tasks.filter(t => t.status === 'skipped').length
-    };
+
+  // Aggregate status counts in one round-trip — no blob columns loaded.
+  const statusRows = db.prepare(
+    'SELECT status, COUNT(*) as cnt FROM tasks WHERE workflow_id = ? GROUP BY status'
+  ).all(workflowId);
+
+  const statusMap = {};
+  let total = 0;
+  for (const row of statusRows) {
+    statusMap[row.status] = row.cnt;
+    total += row.cnt;
   }
 
-  const tasks = getWorkflowTasks(workflowId);
   const counts = {
-    total_tasks: tasks.length,
-    completed_tasks: tasks.filter(t => t.status === 'completed').length,
-    failed_tasks: tasks.filter(t => t.status === 'failed').length,
-    skipped_tasks: tasks.filter(t => t.status === 'skipped').length
+    total_tasks: total,
+    completed_tasks: statusMap['completed'] || 0,
+    failed_tasks: statusMap['failed'] || 0,
+    skipped_tasks: statusMap['skipped'] || 0
   };
+
+  if (['completed', 'failed', 'cancelled'].includes(workflow.status)) {
+    // Return current counts without modifying status.
+    return counts;
+  }
 
   updateWorkflow(workflowId, counts);
 
   // Check if workflow should complete
-  const pending = tasks.filter(t =>
-    !['completed', 'failed', 'cancelled', 'skipped'].includes(t.status)
-  ).length;
+  const nonTerminalCount = Object.entries(statusMap)
+    .filter(([s]) => !['completed', 'failed', 'cancelled', 'skipped'].includes(s))
+    .reduce((sum, [, n]) => sum + n, 0);
 
-  if (pending === 0 && tasks.length > 0) {
-    const cancelled = tasks.filter(t => t.status === 'cancelled').length;
+  if (nonTerminalCount === 0 && total > 0) {
+    const cancelledCount = statusMap['cancelled'] || 0;
     const failed = counts.failed_tasks > 0;
     // All-cancelled with no failures → cancelled (not completed)
-    const finalStatus = failed ? 'failed' : cancelled === tasks.length ? 'cancelled' : 'completed';
+    const finalStatus = failed ? 'failed' : cancelledCount === total ? 'cancelled' : 'completed';
     updateWorkflow(workflowId, {
       status: finalStatus,
       completed_at: new Date().toISOString()

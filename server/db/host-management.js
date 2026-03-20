@@ -861,13 +861,21 @@ function disableStaleHosts(staleHoursThreshold = 24) {
 /**
  * Check if any healthy Ollama host has available capacity.
  * Used by routing to decide if local LLM can accept tasks.
+ *
+ * Perf: uses a targeted SELECT 1 ... LIMIT 1 instead of loading ALL hosts
+ * (including JSON models_cache blobs) and filtering in JS.
+ *
  * @returns {boolean}
  */
 function hasHealthyOllamaHost() {
-  const hosts = listOllamaHosts().filter(h =>
-    h.enabled && h.status === 'healthy' && (h.running_tasks || 0) < (h.max_concurrent || 1)
-  );
-  return hosts.length > 0;
+  const row = db.prepare(`
+    SELECT 1 FROM ollama_hosts
+    WHERE enabled = 1
+      AND status = 'healthy'
+      AND (max_concurrent <= 0 OR running_tasks < max_concurrent)
+    LIMIT 1
+  `).get();
+  return row !== undefined;
 }
 
 // fetchModelsFromHost + fetchHostModelsSync — canonical implementation in host-benchmarking.js

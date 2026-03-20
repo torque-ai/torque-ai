@@ -956,6 +956,11 @@ function getRunningTasksLightweight() {
  * @returns {object|null}
  */
 function getNextQueuedTask() {
+  // Perf note: the LEFT JOINs on task_priority_scores and workflows are intentional.
+  // Both tables are small (indexed by task_id / id) and most queued tasks won't have
+  // priority score rows, so SQLite uses the idx_tasks_status index on tasks first and
+  // probes the two small tables per candidate row. The LIMIT 1 keeps the total work
+  // proportional to the priority-score table size, not the full tasks table.
   const priorityStmt = db.prepare(`
     SELECT t.* FROM tasks t
     LEFT JOIN task_priority_scores p ON t.id = p.task_id
