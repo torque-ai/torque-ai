@@ -539,26 +539,27 @@ function createApprovalRequest(taskId, ruleId) {
   const id = require('uuid').v4();
 
   const transaction = db.transaction(() => {
-    const insertStmt = db.prepare(`
-      INSERT INTO approval_requests (id, task_id, rule_id, status, requested_at)
-      VALUES (?, ?, ?, 'pending', datetime('now'))
-      ON CONFLICT(task_id, rule_id) DO UPDATE SET requested_at = requested_at
-    `);
-    insertStmt.run(id, taskId, ruleId);
-
-    // Update task approval status
-    db.prepare(`UPDATE tasks SET approval_status = 'pending' WHERE id = ?`).run(taskId);
-
+    // Check if an approval already exists for this task+rule
     const existing = db.prepare(`
-      SELECT id
+      SELECT id, status
       FROM approval_requests
       WHERE task_id = ? AND rule_id = ?
     `).get(taskId, ruleId);
-    if (!existing || !existing.id) {
-      throw new Error(`No approval request found for task ${taskId} and rule ${ruleId}`);
+
+    if (existing) {
+      // Duplicate request — return existing ID without reverting approval state
+      return existing.id;
     }
 
-    return existing.id;
+    // New request — insert and set task to pending
+    db.prepare(`
+      INSERT INTO approval_requests (id, task_id, rule_id, status, requested_at)
+      VALUES (?, ?, ?, 'pending', datetime('now'))
+    `).run(id, taskId, ruleId);
+
+    db.prepare(`UPDATE tasks SET approval_status = 'pending' WHERE id = ?`).run(taskId);
+
+    return id;
   });
 
   return transaction();
@@ -652,7 +653,7 @@ function rejectApproval(taskId, rejectedBy, comment = null) {
     // If another process already approved/rejected, changes will be 0
     const stmt = db.prepare(`
       UPDATE approval_requests
-      SET status = 'rejected', approved_at = datetime('now'), approved_by = ?, comment = ?
+      SET status = 'rejected', updated_at = datetime('now'), approved_by = ?, comment = ?
       WHERE id = ? AND status = 'pending'
     `);
     const result = stmt.run(rejectedBy, comment, request.id);
@@ -755,6 +756,11 @@ function processAutoApprovals() {
       recordTaskEventFn(request.task_id, 'approval', 'pending', 'auto_approved', null);
     }
     autoApproved++;
+  }
+
+  // Wake the scheduler so auto-approved tasks get picked up immediately
+  if (autoApproved > 0) {
+    eventBus.emitQueueChanged();
   }
 
   return autoApproved;
@@ -1609,7 +1615,11 @@ function updateScheduledTask(id, updates) {
     params.push(updates.cron_expression);
 
     // Recalculate next run (use updated timezone if provided, else fetch existing schedule's timezone)
-    const tz = updates.timezone !== undefined ? (updates.timezone || null) : null;
+    let tz = updates.timezone !== undefined ? (updates.timezone || null) : null;
+    if (tz === null && updates.cron_expression !== undefined && updates.timezone === undefined) {
+      const existing = getScheduledTask(id);
+      tz = existing?.timezone || null;
+    }
     const nextRun = calculateNextRun(updates.cron_expression, new Date(), tz);
     fields.push('next_run_at = ?');
     params.push(nextRun ? nextRun.toISOString() : null);

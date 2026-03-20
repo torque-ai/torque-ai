@@ -612,6 +612,9 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   // Heartbeat: partial output capture for streaming providers
   safeAddColumn('tasks', 'partial_output TEXT DEFAULT NULL');
 
+  // Approval requests: add updated_at for rejection/decision timestamps (approved_at is for approvals only)
+  safeAddColumn('approval_requests', 'updated_at TEXT DEFAULT NULL');
+
   // Validate task statuses on startup
   if (logger) {
     try { validateTaskStatuses(db, logger); } catch (_e) { void _e; }
