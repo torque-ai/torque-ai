@@ -779,7 +779,6 @@ function init() {
     coreToolNames: CORE_TOOL_NAMES,
     extendedToolNames: EXTENDED_TOOL_NAMES,
     handleToolCall: async (name, args, _session) => callTool(name, args),
-    isAuthConfigured: () => !!serverConfig.get('api_key'),
   });
 
   // Listen for shutdown event from tools.js (e.g., restart_server)

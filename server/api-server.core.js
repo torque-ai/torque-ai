@@ -1953,6 +1953,39 @@ async function handleV2RemoteTest(req, res, _context = {}) {
 }
 
 // ============================================
+// Auth: ticket exchange
+// ============================================
+
+async function handleCreateTicket(req, res, _context = {}) {
+  const keyManager = require('./auth/key-manager');
+  const ticketManager = require('./auth/ticket-manager');
+
+  // Extract Bearer token from Authorization header
+  const authHeader = req.headers['authorization'] || req.headers['Authorization'] || '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKey = bearerMatch ? bearerMatch[1] : null;
+
+  if (!apiKey) {
+    sendJson(res, { error: 'Authorization header with Bearer token required' }, 401, req);
+    return;
+  }
+
+  const identity = keyManager.validateKey(apiKey);
+  if (!identity) {
+    sendJson(res, { error: 'Invalid API key' }, 401, req);
+    return;
+  }
+
+  try {
+    const ticket = ticketManager.createTicket(identity);
+    sendJson(res, { ticket }, 200, req);
+  } catch (err) {
+    // Ticket cap reached
+    sendJson(res, { error: err.message }, 503, req);
+  }
+}
+
+// ============================================
 // Route definitions
 // ============================================
 
@@ -1972,6 +2005,7 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
   handleShutdown,
+  handleCreateTicket,
   handleClaudeEvent,
   handleClaudeFiles,
   handleGetFreeTierStatus,

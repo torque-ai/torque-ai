@@ -773,3 +773,153 @@ describe('rate-limiter', () => {
     expect(limiter._attempts.size).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// SSE auth integration tests
+// ---------------------------------------------------------------------------
+
+describe('SSE auth integration', () => {
+  beforeEach(() => {
+    ticketManager._reset();
+  });
+
+  afterEach(() => {
+    ticketManager._reset();
+  });
+
+  /**
+   * Helper that replicates the SSE auth logic from mcp-sse.js.
+   * This tests the extracted auth flow without needing a full SSE server.
+   */
+  function sseAuth({ ticket, apiKey }) {
+    let identity = null;
+
+    if (ticket) {
+      identity = ticketManager.consumeTicket(ticket);
+    } else if (apiKey) {
+      identity = keyManager.validateKey(apiKey);
+    }
+
+    // Open mode: no keys = admin
+    if (!identity && !keyManager.hasAnyKeys()) {
+      identity = { id: 'open-mode', name: 'Open Mode', role: 'admin' };
+    }
+
+    return { isAuthenticated: !!identity, identity };
+  }
+
+  it('validates API key from query param', () => {
+    const created = keyManager.createKey({ name: 'sse-key-test', role: 'admin' });
+    const result = sseAuth({ apiKey: created.key });
+    expect(result.isAuthenticated).toBe(true);
+    expect(result.identity.id).toBe(created.id);
+    expect(result.identity.name).toBe('sse-key-test');
+  });
+
+  it('validates ticket from query param', () => {
+    const userIdentity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const ticket = ticketManager.createTicket(userIdentity);
+    const result = sseAuth({ ticket });
+    expect(result.isAuthenticated).toBe(true);
+    expect(result.identity).toEqual(userIdentity);
+  });
+
+  it('ticket takes precedence over apiKey when both present', () => {
+    const created = keyManager.createKey({ name: 'sse-both-test', role: 'operator' });
+    const ticketIdentity = { id: 'ticket-user', name: 'TicketUser', role: 'admin' };
+    const ticket = ticketManager.createTicket(ticketIdentity);
+
+    const result = sseAuth({ ticket, apiKey: created.key });
+    expect(result.isAuthenticated).toBe(true);
+    // Should use ticket identity, not the API key identity
+    expect(result.identity.id).toBe('ticket-user');
+    expect(result.identity.name).toBe('TicketUser');
+    expect(result.identity.role).toBe('admin');
+  });
+
+  it('open mode allows unauthenticated SSE', () => {
+    // No keys created — open mode
+    const result = sseAuth({});
+    expect(result.isAuthenticated).toBe(true);
+    expect(result.identity).toEqual({ id: 'open-mode', name: 'Open Mode', role: 'admin' });
+  });
+
+  it('rejects unauthenticated SSE when keys exist', () => {
+    keyManager.createKey({ name: 'force-auth-mode' });
+    const result = sseAuth({});
+    expect(result.isAuthenticated).toBe(false);
+    expect(result.identity).toBeNull();
+  });
+
+  it('rejects invalid API key when keys exist', () => {
+    keyManager.createKey({ name: 'force-auth-mode' });
+    const result = sseAuth({ apiKey: 'torque_sk_bogus-key' });
+    expect(result.isAuthenticated).toBe(false);
+    expect(result.identity).toBeNull();
+  });
+
+  it('rejects expired ticket', () => {
+    vi.useFakeTimers();
+    keyManager.createKey({ name: 'force-auth-mode' });
+    const userIdentity = { id: 'user-1', name: 'Alice', role: 'admin' };
+    const ticket = ticketManager.createTicket(userIdentity);
+    // Advance past 30s TTL
+    vi.advanceTimersByTime(31000);
+    const result = sseAuth({ ticket });
+    expect(result.isAuthenticated).toBe(false);
+    vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Protocol auth integration tests
+// ---------------------------------------------------------------------------
+
+describe('Protocol auth integration', () => {
+  /**
+   * Helper that replicates the protocol auth logic from mcp-protocol.js.
+   */
+  function protocolAuth({ method, sessionAuthenticated }) {
+    if (method !== 'initialize' && !method.startsWith('notifications/') && !sessionAuthenticated) {
+      try {
+        if (keyManager.hasAnyKeys()) {
+          return { blocked: true, code: -32600 };
+        }
+      } catch (e) {
+        if (e.code === -32600) return { blocked: true, code: -32600 };
+        // If key-manager fails to load, allow
+      }
+    }
+    return { blocked: false };
+  }
+
+  it('allows initialize without auth', () => {
+    keyManager.createKey({ name: 'proto-test' });
+    const result = protocolAuth({ method: 'initialize', sessionAuthenticated: false });
+    expect(result.blocked).toBe(false);
+  });
+
+  it('allows notifications without auth', () => {
+    keyManager.createKey({ name: 'proto-test' });
+    const result = protocolAuth({ method: 'notifications/initialized', sessionAuthenticated: false });
+    expect(result.blocked).toBe(false);
+  });
+
+  it('blocks unauthenticated tools/call when keys exist', () => {
+    keyManager.createKey({ name: 'proto-test' });
+    const result = protocolAuth({ method: 'tools/call', sessionAuthenticated: false });
+    expect(result.blocked).toBe(true);
+    expect(result.code).toBe(-32600);
+  });
+
+  it('allows unauthenticated tools/call when no keys exist (open mode)', () => {
+    const result = protocolAuth({ method: 'tools/call', sessionAuthenticated: false });
+    expect(result.blocked).toBe(false);
+  });
+
+  it('allows authenticated tools/call when keys exist', () => {
+    keyManager.createKey({ name: 'proto-test' });
+    const result = protocolAuth({ method: 'tools/call', sessionAuthenticated: true });
+    expect(result.blocked).toBe(false);
+  });
+});

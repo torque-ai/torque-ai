@@ -1293,6 +1293,7 @@ async function handleHttpRequest(req, res) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'Referrer-Policy': 'no-referrer',
     });
 
     // Keepalive timer to prevent silent connection drops
@@ -1346,11 +1347,26 @@ async function handleHttpRequest(req, res) {
       }
     }
 
-    // Authenticate the session: check X-Torque-Key header against stored api_key.
-    // If no api_key is configured, all connections are accepted (open mode).
-    const configuredKey = db.getConfig('api_key');
-    const providedKey = req.headers['x-torque-key'] || url.searchParams.get('apiKey');
-    const isAuthenticated = !configuredKey || (!!providedKey && providedKey === configuredKey);
+    // Auth: ticket > apiKey > open mode
+    const keyManager = require('./auth/key-manager');
+    const ticketManager = require('./auth/ticket-manager');
+
+    let identity = null;
+    const ticket = url.searchParams.get('ticket');
+    const apiKey = url.searchParams.get('apiKey') || req.headers['x-torque-key'];
+
+    if (ticket) {
+      identity = ticketManager.consumeTicket(ticket);
+    } else if (apiKey) {
+      identity = keyManager.validateKey(apiKey);
+    }
+
+    // Open mode: no keys = admin
+    if (!identity && !keyManager.hasAnyKeys()) {
+      identity = { id: 'open-mode', name: 'Open Mode', role: 'admin' };
+    }
+
+    const isAuthenticated = !!identity;
 
     const session = existingSession || {
       keepaliveTimer,
@@ -1601,7 +1617,6 @@ function start(options = {}) {
       tools: TOOLS,
       coreToolNames: Array.isArray(CORE_TOOL_NAMES) ? CORE_TOOL_NAMES : [...CORE_TOOL_NAMES],
       extendedToolNames: Array.isArray(EXTENDED_TOOL_NAMES) ? EXTENDED_TOOL_NAMES : [...EXTENDED_TOOL_NAMES],
-      isAuthConfigured: () => !!serverConfig.get('api_key'),
       handleToolCall: async (name, args, session) => {
         const argsWithSignal = {
           ...args,

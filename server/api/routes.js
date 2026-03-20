@@ -92,7 +92,7 @@ const routes = [
   // Providers
   { method: 'GET', path: '/api/providers', tool: 'list_providers' },
   { method: 'GET', path: '/api/provider-quotas', handlerName: 'handleGetProviderQuotas' },
-  { method: 'GET', path: '/api/bootstrap/workstation', handlerName: 'handleBootstrapWorkstation' },
+  { method: 'GET', path: '/api/bootstrap/workstation', handlerName: 'handleBootstrapWorkstation', skipAuth: true },
   { method: 'POST', path: '/api/providers/configure', tool: 'configure_provider', mapBody: true },
   { method: 'POST', path: '/api/providers/default', tool: 'set_default_provider', mapBody: true },
   // TDA-10: Legacy Ollama host routes — use /api/v2/hosts/* instead
@@ -1231,6 +1231,9 @@ const routes = [
   { method: 'POST', path: '/api/v2/models/approve', handlerName: 'handleV2CpApproveModel', middleware: buildV2Middleware() },
   { method: 'POST', path: '/api/v2/models/deny', handlerName: 'handleV2CpDenyModel', middleware: buildV2Middleware() },
   { method: 'POST', path: '/api/v2/models/bulk-approve', handlerName: 'handleV2CpBulkApproveModels', middleware: buildV2Middleware() },
+
+  // Auth: ticket exchange (key → short-lived SSE ticket)
+  { method: 'POST', path: '/api/auth/ticket', handlerName: 'handleCreateTicket' },
 
   // Shutdown — auth is handled inside handleShutdown (localhost bypass + key check)
   { method: 'POST', path: '/api/shutdown', handlerName: 'handleShutdown', skipAuth: true },

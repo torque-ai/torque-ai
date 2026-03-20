@@ -7,7 +7,6 @@ let _coreToolNames = [];
 let _extendedToolNames = [];
 let _handleToolCall = null;
 let _onInitialize = null;
-let _isAuthConfigured = null;
 
 /**
  * Initialize the protocol handler with tool registry and dispatch function.
@@ -18,15 +17,13 @@ let _isAuthConfigured = null;
  * @param {string[]} opts.extendedToolNames- Names visible in 'extended' mode.
  * @param {Function} opts.handleToolCall   - async (name, args, session) => result
  * @param {Function} [opts.onInitialize]   - Optional callback invoked on 'initialize' with (session).
- * @param {Function} [opts.isAuthConfigured] - Returns true if an API key is configured.
  */
-function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onInitialize, isAuthConfigured }) {
+function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onInitialize }) {
   _tools = tools || [];
   _coreToolNames = coreToolNames || [];
   _extendedToolNames = extendedToolNames || [];
   _handleToolCall = handleToolCall;
   _onInitialize = onInitialize || null;
-  _isAuthConfigured = isAuthConfigured || null;
 }
 
 /**
@@ -47,9 +44,14 @@ async function handleRequest(request, session) {
   // Allow notifications without auth (they're fire-and-forget)
   // When no API key is configured, all sessions are considered authenticated (open mode)
   if (method !== 'initialize' && !method.startsWith('notifications/') && !session.authenticated) {
-    // Only enforce if auth is actually configured
-    if (_isAuthConfigured && _isAuthConfigured()) {
-      throw { code: -32600, message: 'Authentication required. Provide API key via X-Torque-Key header.' };
+    try {
+      const keyManager = require('./auth/key-manager');
+      if (keyManager.hasAnyKeys()) {
+        throw { code: -32600, message: 'Authentication required. Set TORQUE_API_KEY environment variable and add ?apiKey=${TORQUE_API_KEY} to your .mcp.json SSE URL.' };
+      }
+    } catch (e) {
+      if (e.code === -32600) throw e;
+      // If key-manager fails to load, allow (don't break on import errors)
     }
   }
 
@@ -60,7 +62,13 @@ async function handleRequest(request, session) {
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
       };
-      if (_isAuthConfigured && !_isAuthConfigured()) {
+      try {
+        const keyManager = require('./auth/key-manager');
+        if (!keyManager.hasAnyKeys()) {
+          response._meta = { security_warning: 'TORQUE running without authentication' };
+        }
+      } catch (e) {
+        // If key-manager fails to load, include warning as a safe default
         response._meta = { security_warning: 'TORQUE running without authentication' };
       }
       if (_onInitialize) _onInitialize(session);
