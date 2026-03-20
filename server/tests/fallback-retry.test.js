@@ -1508,6 +1508,7 @@ describe('classifyError', () => {
 describe('scheduleProcessQueue debouncing', () => {
   it('debounces rapid tryHashlineTieredFallback calls into one processQueue run', () => {
     vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
     try {
       // Full setup with fake timers active so setTimeout is properly intercepted
