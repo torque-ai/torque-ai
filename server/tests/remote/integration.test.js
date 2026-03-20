@@ -225,8 +225,9 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
 
   describe('run a whitelisted command', () => {
     it('should run node -e and return stdout', async () => {
-      // Use single quotes inside the eval string — Windows cmd.exe strips double quotes
-      const result = await client.run('node', ['-e', "console.log('hello')"], {
+      // Avoid shell metacharacters (quotes) in args — the agent blocks them on Windows.
+      // Use String.fromCharCode to produce "hello\n" without any quote characters.
+      const result = await client.run('node', ['-e', 'process.stdout.write(String.fromCharCode(104,101,108,108,111,10))'], {
         cwd: tmpDir,
         timeout: 10000,
       });
@@ -310,8 +311,9 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
 
   describe('stderr streaming', () => {
     it('should capture stderr output', async () => {
-      // Use single quotes inside the eval string — Windows cmd.exe strips double quotes
-      const result = await client.run('node', ['-e', "console.error('warning')"], {
+      // Avoid shell metacharacters (quotes) in args — the agent blocks them on Windows.
+      // Use String.fromCharCode to produce "warning" without any quote characters.
+      const result = await client.run('node', ['-e', 'process.stderr.write(String.fromCharCode(119,97,114,110,105,110,103,10))'], {
         cwd: tmpDir,
         timeout: 10000,
       });

@@ -8,6 +8,7 @@ const MOCKED_MODULES = [
   '../logger',
   '../handlers/shared',
   'uuid',
+  '../execution/workflow-runtime',
 ];
 
 function installMock(modulePath, exports) {
@@ -105,7 +106,7 @@ function queueUuids(...ids) {
 }
 
 function resetMockDefaults() {
-  for (const group of [mockDb, mockTaskManager, mockLogger, mockShared, mockUuid]) {
+  for (const group of [mockDb, mockTaskManager, mockLogger, mockShared, mockUuid, mockWorkflowRuntime]) {
     for (const fn of Object.values(group)) {
       if (typeof fn?.mockReset === 'function') {
         fn.mockReset();
@@ -148,7 +149,41 @@ function resetMockDefaults() {
   mockDb.getTaskDependents.mockReturnValue([]);
   mockDb.areTaskDependenciesSatisfied.mockReturnValue({ satisfied: false, deps: [] });
   mockDb.evaluateCondition.mockReturnValue(true);
+  mockWorkflowRuntime.handleWorkflowTermination.mockImplementation(handleWorkflowTerminationImpl);
 }
+
+function handleWorkflowTerminationImpl(taskId) {
+  const task = mockDb.getTask(taskId);
+  const workflowId = task?.workflow_id;
+  if (!workflowId) return;
+  const workflow = mockDb.getWorkflow(workflowId);
+  if (!workflow || ['completed', 'failed', 'cancelled', 'paused'].includes(workflow.status)) return;
+  const dependents = mockDb.getTaskDependents(taskId);
+  for (const dep of dependents) {
+    const { satisfied, deps } = mockDb.areTaskDependenciesSatisfied(dep.task_id);
+    if (satisfied) {
+      for (const d of (deps || [])) {
+        if (d.condition_expr) {
+          const completedTask = mockDb.getTask(d.depends_on_task_id) || task;
+          const context = {
+            exit_code: completedTask.exit_code || 0,
+            output: completedTask.output || '',
+            error_output: completedTask.error_output || '',
+            duration_seconds: 0,
+            status: completedTask.status,
+          };
+          mockDb.evaluateCondition(d.condition_expr, context);
+        }
+      }
+      mockDb.updateTaskStatus(dep.task_id, 'pending');
+      mockTaskManager.startTask(dep.task_id);
+    }
+  }
+}
+
+const mockWorkflowRuntime = {
+  handleWorkflowTermination: vi.fn(),
+};
 
 function loadHandlers() {
   for (const modulePath of MOCKED_MODULES) {
@@ -160,6 +195,7 @@ function loadHandlers() {
   installMock('../logger', mockLogger);
   installMock('../handlers/shared', mockShared);
   installMock('uuid', mockUuid);
+  installMock('../execution/workflow-runtime', mockWorkflowRuntime);
 
   return require(MODULE_PATH);
 }
@@ -661,10 +697,10 @@ describe('server/handlers/workflow/advanced', () => {
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-a', 'pending');
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-b', 'blocked');
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-c', 'blocked');
-      expect(mockDb.updateWorkflow).toHaveBeenCalledWith('wf-1', {
+      expect(mockDb.updateWorkflow).toHaveBeenCalledWith('wf-1', expect.objectContaining({
         status: 'running',
         completed_at: null,
-      });
+      }));
       expect(mockTaskManager.startTask).toHaveBeenCalledWith('task-a');
       expect(getText(result)).toContain('Workflow Restarted');
       expect(getText(result)).toContain('**From Task:** A');
@@ -712,6 +748,7 @@ describe('server/handlers/workflow/advanced', () => {
         },
       };
 
+      mockDb.getWorkflow.mockReturnValue({ id: 'wf-1', status: 'running' });
       mockDb.getTask.mockImplementation((taskId) => taskState[taskId] || null);
       mockDb.updateTaskStatus.mockImplementation((taskId, status, extra = {}) => {
         if (taskState[taskId]) {

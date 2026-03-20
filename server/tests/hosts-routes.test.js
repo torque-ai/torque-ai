@@ -1,3 +1,4 @@
+const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { EventEmitter } = require('events');
@@ -88,6 +89,11 @@ function createMockHealthCheckGet(statusCode = 200) {
 }
 
 beforeAll(async () => {
+  // On Windows, fs.fsyncSync on certain temp-dir paths fails with EPERM.
+  // Mock it to a no-op since fsync is a durability hint used by getOrCreateKey().
+  vi.spyOn(fs, 'fsyncSync').mockImplementation(() => {});
+  vi.spyOn(fs, 'closeSync').mockImplementation(() => {});
+
   const env = setupTestDb('hosts-routes');
   db = env.db;
   hostCreds = require('../db/host-management');
@@ -121,6 +127,7 @@ afterAll(async () => {
       });
     });
   }
+  vi.restoreAllMocks();
   teardownTestDb();
 });
 

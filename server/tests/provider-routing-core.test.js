@@ -1068,7 +1068,8 @@ describe('provider-routing-core', () => {
     });
 
     it('approves provider switches, resets task execution fields, and emits queue-changed', () => {
-      const emitSpy = vi.spyOn(process, 'emit');
+      const eventBus = require('../event-bus');
+      const emitSpy = vi.spyOn(eventBus, 'emitQueueChanged');
       const { core } = loadCore({
         db: {
           tasks: {
@@ -1112,7 +1113,7 @@ describe('provider-routing-core', () => {
         },
       });
       expect(updated.provider_switched_at).toEqual(expect.any(String));
-      expect(emitSpy).toHaveBeenCalledWith('torque:queue-changed');
+      expect(emitSpy).toHaveBeenCalled();
     });
 
     it('rejects provider approval when the task is not pending or the provider is unavailable', () => {

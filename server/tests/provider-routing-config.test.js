@@ -601,6 +601,12 @@ function createMockDb(options = {}) {
 
       throw new Error(`Unexpected SQL in provider-routing-config test mock: ${normalized}`);
     },
+    getConfig(key) {
+      if (!Object.prototype.hasOwnProperty.call(state.config, key)) {
+        return null;
+      }
+      return String(state.config[key]);
+    },
   };
 
   return { db, state };

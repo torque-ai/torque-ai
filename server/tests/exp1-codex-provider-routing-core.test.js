@@ -107,7 +107,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
 
     const result = core.analyzeTaskForRouting(taskDescription, 'C:/repo');
 
-    expect(result.provider).toBe('aider-ollama');
+    expect(result.provider).toBe('hashline-ollama');
     expect(result.reason).toContain('No rule matched');
   });
 
@@ -124,7 +124,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
 
     const result = core.analyzeTaskForRouting(taskDescription, 'C:/repo');
 
-    expect(result.provider).toBe('aider-ollama');
+    expect(result.provider).toBe('hashline-ollama');
     expect(result.reason).toContain('No rule matched');
   });
 

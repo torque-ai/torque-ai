@@ -155,7 +155,11 @@ describe('API key timing-safe authentication', () => {
     const [a, b] = timingSafeEqualSpy.mock.calls[0];
     expect(Buffer.isBuffer(a)).toBe(true);
     expect(Buffer.isBuffer(b)).toBe(true);
-    expect(a.toString()).toBe(INVALID_API_KEY);
-    expect(b.toString()).toBe(VALID_API_KEY);
+    // Auth now compares SHA-256 digests, not raw key strings.
+    // Verify the buffers are hashes of the respective keys.
+    const expectedA = crypto.createHash('sha256').update(INVALID_API_KEY).digest();
+    const expectedB = crypto.createHash('sha256').update(VALID_API_KEY).digest();
+    expect(a).toEqual(expectedA);
+    expect(b).toEqual(expectedB);
   });
 });

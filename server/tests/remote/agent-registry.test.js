@@ -63,7 +63,9 @@ describe('RemoteAgentRegistry', () => {
       expect(agent.name).toBe('Test Agent');
       expect(agent.host).toBe('192.168.1.100');
       expect(agent.port).toBe(3460);
-      expect(agent.secret).toBe('test-secret');
+      // Secrets are stored hashed (scrypt:salt:hash) in the DB; verify it is
+      // not stored as plaintext and matches the scrypt format.
+      expect(agent.secret).toMatch(/^scrypt:[0-9a-f]+:[0-9a-f]+$/);
       expect(agent.max_concurrent).toBe(5);
       expect(agent.status).toBe('unknown');
       expect(agent.consecutive_failures).toBe(0);
@@ -121,11 +123,12 @@ describe('RemoteAgentRegistry', () => {
         name: 'Secure Agent',
         host: 'secure.example.test',
         port: 443,
-        secret: 'tls-secret',
         max_concurrent: 6,
         tls: 1,
         rejectUnauthorized: 0,
       });
+      // Secret is stored hashed — verify format only
+      expect(agent.secret).toMatch(/^scrypt:[0-9a-f]+:[0-9a-f]+$/);
       expect(registry.getAll()).toContainEqual(expect.objectContaining({
         id: 'secure-agent',
         tls: 1,
@@ -157,11 +160,12 @@ describe('RemoteAgentRegistry', () => {
         name: 'Secure Agent',
         host: 'worker.example.test',
         port: 8080,
-        secret: 'updated-secret',
         max_concurrent: 2,
         tls: 0,
         rejectUnauthorized: 1,
       });
+      // Secret is stored hashed after re-register
+      expect(agent.secret).toMatch(/^scrypt:[0-9a-f]+:[0-9a-f]+$/);
       expect(registry.getAll()).toContainEqual(expect.objectContaining({
         id: 'secure-agent',
         tls: 0,

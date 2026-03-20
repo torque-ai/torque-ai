@@ -60,6 +60,7 @@ describe('prefer_free routing in analyzeTaskForRouting', () => {
       all: () => [],
       run: () => ({}),
     }),
+    getConfig: (key) => (configValues[key] !== undefined ? configValues[key] : null),
   };
 
   beforeAll(() => {

@@ -989,6 +989,7 @@ describe('workflow-runtime', () => {
         output: 'src-output',
         error_output: 'src-error',
         exit_code: 0,
+        status: 'completed',
       });
     });
 

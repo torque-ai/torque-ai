@@ -398,6 +398,8 @@ describe('Host Distribution & Load Balancing', () => {
 
     beforeAll(() => {
       taskManager = require('../task-manager');
+      if (typeof taskManager.initEarlyDeps === 'function') taskManager.initEarlyDeps();
+      if (typeof taskManager.initSubModules === 'function') taskManager.initSubModules();
     });
 
     it('step 1: tries same model on different host before anything else', () => {
@@ -467,13 +469,16 @@ describe('Host Distribution & Load Balancing', () => {
       db.setConfig('codex_enabled', '1');
 
       const taskId = createTask('aider-ollama', 'qwen2.5-coder:7b', null);
-      // Simulate 3 prior local retries
+      // Simulate 3 prior local retries via the metadata counter (authoritative source)
       const priorErrors = [
         '[Local-First] Trying qwen2.5-coder:7b on host X',
         '[Local-First] Trying deepseek-coder:6.7b',
         '[Local-First] Trying provider ollama'
       ].join('\n');
-      db.updateTaskStatus(taskId, 'running', { error_output: priorErrors });
+      db.updateTaskStatus(taskId, 'running', {
+        error_output: priorErrors,
+        metadata: JSON.stringify({ local_first_attempts: 3 }),
+      });
 
       const task = db.getTask(taskId);
       const result = taskManager.tryLocalFirstFallback(taskId, task, 'final failure');
@@ -506,6 +511,8 @@ describe('Host Distribution & Load Balancing', () => {
 
     beforeAll(() => {
       taskManager = require('../task-manager');
+      if (typeof taskManager.initEarlyDeps === 'function') taskManager.initEarlyDeps();
+      if (typeof taskManager.initSubModules === 'function') taskManager.initSubModules();
     });
 
     it('tries larger local model before any cloud provider', () => {

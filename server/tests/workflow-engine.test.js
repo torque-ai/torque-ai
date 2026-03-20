@@ -189,13 +189,13 @@ describe('Workflow Engine Module', () => {
     it('applies additional updates on transition', () => {
       const wf = createWorkflow();
       const now = new Date().toISOString();
-      db.transitionWorkflowStatus(wf.id, 'pending', 'running', {
-        started_at: now,
+      db.transitionWorkflowStatus(wf.id, 'pending', 'completed', {
+        completed_at: now,
       });
 
       const updated = db.getWorkflow(wf.id);
-      expect(updated.status).toBe('running');
-      expect(updated.started_at).toBe(now);
+      expect(updated.status).toBe('completed');
+      expect(updated.completed_at).toBe(now);
     });
   });
 

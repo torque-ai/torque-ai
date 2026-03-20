@@ -58,7 +58,10 @@ vi.mock('../providers/registry', () => ({
   getProviderInstance: vi.fn().mockReturnValue({}),
   listProviders: vi.fn().mockReturnValue([]),
   getProviderConfig: vi.fn(),
-  getCategory: vi.fn().mockReturnValue(null),
+  getCategory: vi.fn().mockImplementation((provider) => {
+    if (provider === 'codex' || provider === 'codex-spark' || provider === 'claude-cli') return 'codex';
+    return null;
+  }),
 }));
 
 // ────────────────────────────────────────────────────────────────
@@ -193,8 +196,8 @@ describe('BUG-001: override_provider respected in smart_submit_task', () => {
       override_provider: 'ollama', // legacy alias, should be overridden by provider
     });
     expect(error).toBeFalsy();
-    // Provider is now deferred (null) — check intended_provider in metadata
-    expect(task.provider).toBeNull();
+    // Provider is assigned immediately in legacy mode
+    expect(task.provider).toBe('codex');
     const meta = parseMeta(task);
     expect(meta.intended_provider || meta.requested_provider).toBe('codex');
   });
@@ -405,6 +408,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
 
     mockDb.getConfig.mockImplementation(createConfigMock({
       codex_enabled: '1',
+      codex_overflow_to_local: '1',
       ollama_balanced_model: 'qwen2.5-coder:32b',
       ollama_fast_model: 'qwen2.5-coder:7b',
       ...(configOverrides || {}),
@@ -599,6 +603,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
 
     mockDb.getConfig.mockImplementation(createConfigMock({
       codex_enabled: '1',
+      codex_overflow_to_local: '1',
       ollama_balanced_model: 'qwen2.5-coder:32b',
     }));
 
@@ -729,8 +734,8 @@ describe('BUG-001 regression: explicit Codex override must not route to ollama',
     expect(match).toBeTruthy();
 
     const task = db.getTask(match[1]);
-    // Provider is now deferred (null) — check intended_provider in metadata
-    expect(task.provider).toBeNull();
+    // Provider is assigned immediately in legacy mode (not deferred)
+    expect(task.provider).toBe('codex');
     const meta = parseMeta(task);
     expect(meta.intended_provider || meta.requested_provider).toBe('codex');
     expect(meta.user_provider_override).toBe(true);
@@ -749,8 +754,8 @@ describe('BUG-001 regression: explicit Codex override must not route to ollama',
     expect(match).toBeTruthy();
 
     const task = db.getTask(match[1]);
-    // Provider is now deferred (null) — check intended_provider in metadata
-    expect(task.provider).toBeNull();
+    // Provider is assigned immediately in legacy mode (not deferred)
+    expect(task.provider).toBe('codex');
     const meta = parseMeta(task);
     expect(meta.intended_provider || meta.requested_provider).toBe('codex');
   });

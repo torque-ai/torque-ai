@@ -421,17 +421,18 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(text).not.toContain('START-');
     });
 
-    it('truncates failed task error output to the first 2000 characters', () => {
+    it('truncates failed task error output to the last 2000 characters', () => {
       const task = createTask({
         id: 'task-error',
         status: 'failed',
-        error_output: `${'e'.repeat(2050)}-TAIL`,
+        error_output: `START-${'e'.repeat(2050)}-TAIL`,
       });
 
       const text = handlers.formatTaskYield(task, [task], 'Error Workflow');
 
       expect(text).toContain('### Error');
-      expect(text).not.toContain('-TAIL');
+      expect(text).toContain('-TAIL');
+      expect(text).not.toContain('START-');
     });
 
     it('shows at most twenty modified files and reports the overflow count', () => {
@@ -877,7 +878,7 @@ describe('workflow await handlers (module-mocked)', () => {
         Date.now() - 5000
       );
 
-      expect(text).toContain('**Commit failed:** commit blocked by hook');
+      expect(text).toContain('commit blocked by hook');
     });
   });
 

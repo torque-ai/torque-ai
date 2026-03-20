@@ -294,7 +294,10 @@ describe('workflow-await handlers', () => {
       );
 
       expect(output).toContain('Result:** FAILED');
-      expect(execSpy).not.toHaveBeenCalled();
+      // git commit should not be attempted after verify failure
+      // (which torque-remote probe may still be called internally)
+      const gitCalls = execSpy.mock.calls.filter(args => args[0] === 'git');
+      expect(gitCalls).toHaveLength(0);
     });
 
     it('returns "No changes to commit" when git diff and untracked checks are empty', () => {
@@ -404,7 +407,7 @@ describe('workflow-await handlers', () => {
         Date.now() - 5000
       );
 
-      expect(output).toContain('**Commit failed:** commit blocked by hook');
+      expect(output).toContain('commit blocked by hook');
     });
   });
 

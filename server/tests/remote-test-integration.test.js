@@ -51,13 +51,20 @@ describe.skipIf(process.env.CI === 'true')('remote test execution integration', 
       secret: TEST_SECRET,
       projectsDir,
     });
+    // Allow shell wrappers used by _buildShellInvocation on each platform
+    // (cmd.exe on Windows, /bin/sh on Unix) since handleRunRemoteCommand
+    // wraps the command string in a platform shell before calling client.run().
+    server.torqueAgent.state.config = {
+      allowed_commands: ['node', 'npm', 'npx', 'git', 'dotnet', 'cargo', 'python', 'python3', 'cmd', 'sh'],
+    };
     server.listen(0, '127.0.0.1');
     await waitForListening(server);
     port = server.address().port;
   });
 
   beforeEach(() => {
-    workingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-remote-test-run-'));
+    // Must be inside projectsDir so agent-server's allowed_roots check passes.
+    workingDir = fs.mkdtempSync(path.join(projectsDir, 'run-'));
   });
 
   afterEach(() => {

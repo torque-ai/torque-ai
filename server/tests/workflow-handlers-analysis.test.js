@@ -6,6 +6,9 @@ describe('Workflow Handlers', () => {
   beforeAll(() => {
     const env = setupTestDb('workflow-handlers');
     db = env.db;
+    // initSubModules wires the extracted module graph (provider routing, execution, etc.)
+    // In production this is called by index.js:init(); in tests we must call it explicitly.
+    require('../task-manager').initSubModules();
   });
   afterAll(() => { teardownTestDb(); });
 

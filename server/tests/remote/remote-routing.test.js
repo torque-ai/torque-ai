@@ -221,6 +221,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
 
   // ── runRemoteOrLocal ─────────────────────────────────────
   describe('runRemoteOrLocal()', () => {
+
     it('should fall back to local when no remote config exists', async () => {
       const mockDb = createMockDb();
       const logger = createMockLogger();
@@ -293,7 +294,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       const registry = createMockRegistry({ 'agent-1': client });
 
       const router = createRemoteTestRouter({ agentRegistry: registry, db: mockDb, logger });
-      const result = await router.runRemoteOrLocal('npx', ['vitest', 'run'], '/some/my-project', { branch: 'dev' });
+      const result = await router.runRemoteOrLocal('npx', ['vitest', 'run'], process.cwd(), { branch: 'dev' });
 
       expect(result.remote).toBe(true);
       expect(result.success).toBe(true);
@@ -301,9 +302,12 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       expect(result.exitCode).toBe(0);
       expect(result.durationMs).toBe(123);
 
-      // Verify sync was called
+      // Verify sync was called.
+      // getSyncProjectName() runs git rev-parse --show-toplevel which is stubbed
+      // by worker-setup.js to return '/mock/repo' in all test workers.
+      // The basename is therefore 'repo' regardless of the actual cwd.
       expect(client._syncCalls).toHaveLength(1);
-      expect(client._syncCalls[0].project).toBe('my-project');
+      expect(client._syncCalls[0].project).toBe('repo');
       expect(client._syncCalls[0].branch).toBe('dev');
 
       // Verify run was called

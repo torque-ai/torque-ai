@@ -806,7 +806,9 @@ describe('Provider Handlers', () => {
 
       expect(result.isError).toBeFalsy();
       expect(() => JSON.parse(getText(result))).not.toThrow();
-      expect(JSON.parse(getText(result))).toEqual(expect.objectContaining({
+      const parsed = JSON.parse(getText(result));
+      const providerData = Array.isArray(parsed) ? parsed[0] : parsed;
+      expect(providerData).toEqual(expect.objectContaining({
         provider: 'ollama',
         days: 7,
       }));

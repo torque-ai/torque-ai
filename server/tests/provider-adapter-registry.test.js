@@ -117,7 +117,7 @@ describe('provider adapter registry', () => {
     });
     expect(matrix.codex).toMatchObject({
       supportsStream: false,
-      supportsAsync: false,
+      supportsAsync: true,
       supportsCancellation: false,
     });
   });
@@ -126,9 +126,8 @@ describe('provider adapter registry', () => {
     const codex = getProviderAdapter('codex');
 
     expect(codex.supportsStream).toBe(false);
-    expect(codex.supportsAsync).toBe(false);
+    expect(codex.supportsAsync).toBe(true);
     await expect(codex.stream('task', 'model')).rejects.toThrow(/not implemented for v2/i);
-    await expect(codex.submitAsync('task', 'model')).rejects.toThrow(/not implemented for v2/i);
   });
 
   it('delegates submit/checkHealth/listModels to API-backed provider adapters', async () => {

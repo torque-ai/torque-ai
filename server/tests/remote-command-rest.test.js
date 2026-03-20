@@ -124,12 +124,12 @@ describe('remote command REST control-plane wiring', () => {
     expect(routes).toContainEqual(expect.objectContaining({
       method: 'POST',
       path: '/api/v2/remote/run',
-      handlerName: 'handleV2CpRunRemoteCommand',
+      handlerName: 'handleV2RemoteRun',
     }));
     expect(routes).toContainEqual(expect.objectContaining({
       method: 'POST',
       path: '/api/v2/remote/test',
-      handlerName: 'handleV2CpRunTests',
+      handlerName: 'handleV2RemoteTest',
     }));
   });
 

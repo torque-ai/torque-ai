@@ -134,8 +134,8 @@ describe('remote/agent-server', () => {
       pathname: '/run',
       headers: authHeaders(),
       body: {
-        command: 'echo',
-        args: ['hello from remote agent'],
+        command: process.execPath,
+        args: ['-e', 'process.stdout.write("hello from remote agent\\n")'],
         cwd: projectsDir,
         timeout: 5000,
       },
@@ -177,8 +177,8 @@ describe('remote/agent-server', () => {
       pathname: '/run',
       headers: authHeaders(),
       body: {
-        command: 'echo',
-        args: ['ndjson validation'],
+        command: process.execPath,
+        args: ['-e', 'process.stdout.write("ndjson validation\\n")'],
         cwd: projectsDir,
         timeout: 5000,
       },

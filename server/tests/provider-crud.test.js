@@ -1,12 +1,22 @@
 const { setupTestDb, teardownTestDb, safeTool, getText, rawDb } = require('./vitest-setup');
 
 describe('provider CRUD tools', () => {
+  let origSecretKey;
+
   beforeAll(() => {
+    // Set TORQUE_SECRET_KEY to avoid fs.fsyncSync (EPERM on Windows in temp dirs)
+    origSecretKey = process.env.TORQUE_SECRET_KEY;
+    process.env.TORQUE_SECRET_KEY = 'a'.repeat(64);
     setupTestDb('provider-crud');
   });
 
   afterAll(() => {
     teardownTestDb();
+    if (origSecretKey !== undefined) {
+      process.env.TORQUE_SECRET_KEY = origSecretKey;
+    } else {
+      delete process.env.TORQUE_SECRET_KEY;
+    }
   });
 
   beforeEach(() => {

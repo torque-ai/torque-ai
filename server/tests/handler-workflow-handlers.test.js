@@ -492,10 +492,15 @@ describe('handler:workflow-handlers', () => {
       });
       vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
       const updateTaskStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
+      // Track call counts to distinguish pre-start check from post-start classification
+      const getTaskCallCount = {};
       vi.spyOn(db, 'getTask').mockImplementation((taskId) => {
-        if (taskId === 't1') return { id: 't1', status: 'running' };
-        if (taskId === 't2') return { id: 't2', status: 'queued' };
-        if (taskId === 't3') return { id: 't3', status: 'running' };
+        getTaskCallCount[taskId] = (getTaskCallCount[taskId] || 0) + 1;
+        const isPreCheck = getTaskCallCount[taskId] === 1;
+        if (taskId === 't1') return { id: 't1', status: isPreCheck ? 'pending' : 'running' };
+        if (taskId === 't2') return { id: 't2', status: 'pending' };
+        if (taskId === 't3') return { id: 't3', status: isPreCheck ? 'pending' : 'running' };
+        if (taskId === 't4') return { id: 't4', status: 'blocked' };
         return null;
       });
       vi.spyOn(taskManager, 'startTask')

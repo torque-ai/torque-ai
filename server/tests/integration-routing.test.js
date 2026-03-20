@@ -56,6 +56,7 @@ const mockDb = {
   createRoutingRule: vi.fn(),
   updateRoutingRule: vi.fn(),
   deleteRoutingRule: vi.fn(),
+  patchTaskMetadata: vi.fn(),
 };
 
 const mockTaskManager = {
@@ -469,6 +470,16 @@ function resetMockState() {
       target_provider: 'codex',
     },
   }));
+
+  mockDb.patchTaskMetadata.mockReset();
+  mockDb.patchTaskMetadata.mockImplementation((taskId, metadata) => {
+    const task = taskStore.get(taskId);
+    if (task) {
+      task.metadata = metadata;
+      taskStore.set(taskId, task);
+    }
+    return { changes: task ? 1 : 0 };
+  });
 }
 
 beforeAll(() => {
@@ -678,7 +689,7 @@ describe('integration routing handlers', () => {
 
       const task = taskFromResult(result);
       expect(task).toBeTruthy();
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('claude-cli');
       expect(task.metadata.user_provider_override).toBe(true);
       expect(task.metadata.requested_provider).toBe('claude-cli');
       expect(mockDb.analyzeTaskForRouting).not.toHaveBeenCalled();
@@ -806,7 +817,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('codex');
       expect(task.model).toBe('gpt-5.3-codex-spark');
       expect(task.timeout_minutes).toBe(25);
     });
@@ -822,7 +833,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('codex');
       expect(task.model).toBe('gpt-5.3-codex-spark');
     });
   });
@@ -842,7 +853,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('ollama');
       expect(task.model).toBe('qwen2.5-coder:32b');
       expect(textOf(result)).toContain('local model (safe)');
     });
@@ -861,7 +872,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('codex');
       expect(task.model).toBe('gpt-5.3-codex-spark');
       expect(textOf(result)).toContain('Codex Spark');
     });
@@ -881,7 +892,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('claude-cli');
       expect(task.model).toBeNull();
     });
 
@@ -900,7 +911,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('ollama');
       expect(task.model).toBe('codestral:22b');
     });
 
@@ -932,7 +943,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('ollama');
       expect(task.model).toBe('smart-secondary');
     });
 
@@ -975,7 +986,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('codex');
       expect(task.metadata.routing_reason).toContain('original provider disabled');
     });
 
@@ -998,7 +1009,7 @@ describe('integration routing handlers', () => {
       });
 
       const task = taskFromResult(result);
-      expect(task.provider).toBeNull();
+      expect(task.provider).toBe('claude-cli');
       expect(textOf(result)).toContain('openrouter unhealthy');
     });
 

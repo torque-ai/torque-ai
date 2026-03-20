@@ -1,3 +1,5 @@
+const fs = require('fs');
+
 const {
   setupTestDb,
   teardownTestDb,
@@ -7,6 +9,11 @@ let db;
 let hostCreds;
 
 beforeAll(() => {
+  // On Windows, fs.fsyncSync on certain temp-dir paths fails with EPERM.
+  // Mock it to a no-op since fsync is a durability hint used by getOrCreateKey().
+  vi.spyOn(fs, 'fsyncSync').mockImplementation(() => {});
+  vi.spyOn(fs, 'closeSync').mockImplementation(() => {});
+
   const env = setupTestDb('host-credentials');
   db = env.db;
   hostCreds = require('../db/host-management');
@@ -14,6 +21,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  vi.restoreAllMocks();
   teardownTestDb();
 });
 

@@ -7,6 +7,9 @@ describe('Workflow Handlers', () => {
   beforeAll(() => {
     const env = setupTestDb('workflow-handlers');
     db = env.db;
+    // initSubModules wires the extracted module graph (provider routing, execution, etc.)
+    // In production this is called by index.js:init(); in tests we must call it explicitly.
+    require('../task-manager').initSubModules();
   });
   afterAll(() => { teardownTestDb(); });
 
@@ -257,6 +260,7 @@ describe('Workflow Handlers', () => {
       });
 
       const result = await safeTool('run_workflow', { workflow_id: wfId });
+      if (result.isError) console.log('DEBUG starts-workflow:', getText(result));
       expect(result.isError).toBeFalsy();
       const text = getText(result);
       expect(text).toContain('Workflow Started');

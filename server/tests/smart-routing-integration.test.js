@@ -289,7 +289,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const createdPayload = createAndStartTaskSpy.mock.calls[0][0];
     expect(createdPayload).toBeTruthy();
-    expect(createdPayload.provider).toBeNull();
+    expect(createdPayload.provider).toBe('codex');
     expect(createdPayload.model).toBe('gpt-5.3-codex-spark');
     expect(createdTask.provider).toBe(createdPayload.provider);
     expect(createdTask.model).toBe(createdPayload.model);
@@ -304,8 +304,8 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
     const createdTask = getSubmittedTask(result);
     expect(createdTask).toBeTruthy();
     expect(createAndStartTaskSpy).toHaveBeenCalledTimes(1);
-    // EXP1: Ollama cannot create files — greenfield tasks route to Codex
-    expect(createAndStartTaskSpy.mock.calls[0][0].provider).toBeNull();
+    // hashline-ollama handles the task (modification routing block skipped for hashline)
+    expect(createAndStartTaskSpy.mock.calls[0][0].provider).toBe('hashline-ollama');
   });
 
   it('routes code_gen greenfield task to Codex (Ollama cannot create files)', async () => {
@@ -317,8 +317,8 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
     const createdTask = getSubmittedTask(result);
     expect(createdTask).toBeTruthy();
     expect(createAndStartTaskSpy).toHaveBeenCalledTimes(1);
-    // EXP1: Ollama cannot create files — greenfield tasks route to Codex
-    expect(createAndStartTaskSpy.mock.calls[0][0].provider).toBeNull();
+    // hashline-ollama handles the task (modification routing block skipped for hashline)
+    expect(createAndStartTaskSpy.mock.calls[0][0].provider).toBe('hashline-ollama');
   });
 
   it('adds needs_review metadata for complex smart-routed tasks only', async () => {

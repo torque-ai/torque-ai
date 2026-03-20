@@ -20,9 +20,15 @@ beforeEach(() => {
   process.env.TORQUE_DATA_DIR = testDir;
   delete process.env.TORQUE_SECRET_KEY;
   delete require.cache[MODULE_PATH];
+  // On Windows, fsyncSync on certain temp-dir paths fails with EPERM.
+  // Mock it to a no-op since fsync is a durability hint, not a correctness
+  // requirement for tests. closeSync is mocked for symmetry.
+  vi.spyOn(fs, 'fsyncSync').mockImplementation(() => {});
+  vi.spyOn(fs, 'closeSync').mockImplementation(() => {});
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   delete require.cache[MODULE_PATH];
 
   if (testDir) {

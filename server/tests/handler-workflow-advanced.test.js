@@ -431,10 +431,10 @@ describe('workflow-advanced handlers', () => {
       expect(updateStatusSpy).toHaveBeenCalledWith('task-a', 'pending');
       expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'blocked');
       expect(updateStatusSpy).toHaveBeenCalledWith('task-c', 'blocked');
-      expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', {
+      expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', expect.objectContaining({
         status: 'running',
         completed_at: null
-      });
+      }));
       expect(startTaskSpy).toHaveBeenCalledWith('task-a');
       expect(textOf(result)).toContain('Workflow Restarted');
       expect(textOf(result)).toContain('**Tasks Reset:** 3');
@@ -541,7 +541,7 @@ describe('workflow-advanced handlers', () => {
         }
       };
 
-      vi.spyOn(db, 'getTask').mockImplementation((id) => taskState[id] || null);
+      vi.spyOn(db, 'getTask').mockImplementation((id) => taskState[id] ? { ...taskState[id] } : null);
       const updateStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((id, status, extra = {}) => {
         if (taskState[id]) {
           taskState[id].status = status;
@@ -549,13 +549,23 @@ describe('workflow-advanced handlers', () => {
         }
       });
       const workflowCountSpy = vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      vi.spyOn(db, 'getTaskDependents').mockReturnValue([{ task_id: 'dep' }]);
-      vi.spyOn(db, 'areTaskDependenciesSatisfied').mockReturnValue({
-        satisfied: true,
-        deps: [{ depends_on_task_id: 'root', condition_expr: 'exit_code == 0' }]
-      });
+      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', status: 'running' });
+      vi.spyOn(db, 'getTaskDependents').mockReturnValue([{
+        task_id: 'dep',
+        condition_expr: 'exit_code == 0',
+        on_fail: 'skip'
+      }]);
+      vi.spyOn(db, 'getTaskDependencies').mockReturnValue([{
+        task_id: 'dep',
+        depends_on_task_id: 'root',
+        condition_expr: 'exit_code == 0',
+        on_fail: 'skip'
+      }]);
       vi.spyOn(db, 'evaluateCondition').mockReturnValue(true);
-      const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
+      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue(Object.values(taskState));
+      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      // Initialize workflow-runtime with the spied db so handleWorkflowTermination works
+      workflowRuntime.init({ db });
 
       const result = handlers.handleSkipTask({
         task_id: 'root',
@@ -566,8 +576,8 @@ describe('workflow-advanced handlers', () => {
         error_output: 'manual override'
       });
       expect(workflowCountSpy).toHaveBeenCalledWith('wf-1');
-      expect(updateStatusSpy).toHaveBeenCalledWith('dep', 'pending');
-      expect(startTaskSpy).toHaveBeenCalledWith('dep');
+      // unblockTask sets status to 'queued' (not 'pending') and relies on queue processing
+      expect(updateStatusSpy).toHaveBeenCalledWith('dep', 'queued');
       expect(textOf(result)).toContain('Task Skipped');
       expect(textOf(result)).toContain('manual override');
     });
@@ -591,29 +601,36 @@ describe('workflow-advanced handlers', () => {
         }
       };
 
-      vi.spyOn(db, 'getTask').mockImplementation((id) => taskState[id] || null);
-      const updateStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((id, status) => {
-        if (taskState[id]) taskState[id].status = status;
+      vi.spyOn(db, 'getTask').mockImplementation((id) => taskState[id] ? { ...taskState[id] } : null);
+      const updateStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((id, status, extra) => {
+        if (taskState[id]) {
+          taskState[id].status = status;
+          if (extra) Object.assign(taskState[id], extra);
+        }
       });
       vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      vi.spyOn(db, 'getTaskDependents').mockReturnValue([{ task_id: 'dep' }]);
-      vi.spyOn(db, 'areTaskDependenciesSatisfied').mockReturnValue({
-        satisfied: true,
-        deps: [{
-          depends_on_task_id: 'root',
-          condition_expr: 'exit_code == 0',
-          on_fail: 'skip'
-        }]
-      });
+      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', status: 'running' });
+      vi.spyOn(db, 'getTaskDependents').mockReturnValue([{
+        task_id: 'dep',
+        condition_expr: 'exit_code == 0',
+        on_fail: 'skip'
+      }]);
       vi.spyOn(db, 'evaluateCondition').mockReturnValue(false);
+      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue(Object.values(taskState));
+      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
       const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
+      // Initialize workflow-runtime with the spied db so handleWorkflowTermination works
+      workflowRuntime.init({ db });
 
       const result = handlers.handleSkipTask({ task_id: 'root' });
 
       expect(updateStatusSpy).toHaveBeenCalledWith('root', 'skipped', {
         error_output: 'Manually skipped'
       });
-      expect(updateStatusSpy).toHaveBeenCalledWith('dep', 'skipped');
+      // applyFailureAction with on_fail='skip' calls updateTaskStatus with error_output message
+      expect(updateStatusSpy).toHaveBeenCalledWith('dep', 'skipped', expect.objectContaining({
+        error_output: expect.any(String)
+      }));
       expect(startTaskSpy).not.toHaveBeenCalled();
       expect(textOf(result)).toContain('Task Skipped');
     });

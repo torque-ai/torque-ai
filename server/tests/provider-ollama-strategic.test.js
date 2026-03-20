@@ -78,7 +78,7 @@ describe('OllamaStrategicProvider', () => {
 
   describe('constructor', () => {
     it('sets inherited and strategic defaults', () => {
-      expect(provider.name).toBe('ollama');
+      expect(provider.name).toBe('ollama-strategic');
       expect(provider.enabled).toBe(true);
       expect(provider.maxConcurrent).toBe(3);
       expect(provider.activeTasks).toBe(0);
