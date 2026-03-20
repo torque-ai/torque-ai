@@ -55,7 +55,7 @@ Run locally but require the CLI tool installed and authenticated.
 
 ### Cloud (API — Bring Your Own Key)
 
-Call cloud LLM APIs directly using your API keys. Start disabled — set your key and enable with `update_provider`.
+Call cloud LLM APIs directly using your API keys. Start disabled — set your key and enable with `configure_provider`.
 
 | Provider | API Key Env Var | Best For |
 |----------|----------------|----------|
@@ -70,7 +70,7 @@ Call cloud LLM APIs directly using your API keys. Start disabled — set your ke
 
 To enable a cloud API provider:
 1. Set the env var: `export DEEPINFRA_API_KEY=your-key`
-2. Enable: `update_provider { provider: "deepinfra", enabled: true }`
+2. Enable: `configure_provider { provider: "deepinfra", enabled: true }`
 
 ### Smart Routing
 
@@ -184,7 +184,7 @@ Cloud API provider fallback chains (from `server/db/provider-routing-core.js`):
 - `deepinfra` → `ollama-cloud` → `hyperbolic` → `claude-cli` → `codex` → `hashline-ollama`
 - `hyperbolic` → `deepinfra` → `ollama-cloud` → `claude-cli` → `codex` → `hashline-ollama`
 
-Chains are user-configurable via `set_provider_fallback_chain`. Anthropic is not in any default fallback chain.
+Chains are user-configurable via `configure_fallback_chain`. Anthropic is not in any default fallback chain.
 
 ## Stall Recovery
 
