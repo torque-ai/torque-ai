@@ -289,7 +289,31 @@ function createTables(db, logger) {
         original_provider TEXT,
         provider_switched_at TEXT,
         -- Heartbeat: partial output from streaming providers
-        partial_output TEXT
+        partial_output TEXT,
+        -- Columns added via migrations (synced to base schema)
+        tags TEXT,
+        project TEXT,
+        model TEXT,
+        complexity TEXT DEFAULT 'normal',
+        review_status TEXT,
+        ollama_host_id TEXT,
+        metadata TEXT,
+        workflow_id TEXT,
+        workflow_node_id TEXT,
+        stall_timeout_seconds INTEGER,
+        mcp_instance_id TEXT,
+        retry_strategy TEXT DEFAULT 'same_provider',
+        retry_delay_seconds INTEGER DEFAULT 30,
+        last_retry_at TEXT,
+        group_id TEXT,
+        paused_at TEXT,
+        pause_reason TEXT,
+        approval_status TEXT DEFAULT 'none',
+        claimed_by_agent TEXT,
+        required_capabilities TEXT,
+        git_before_sha TEXT,
+        git_after_sha TEXT,
+        git_stash_ref TEXT
       )
     `);
   db.exec(`
@@ -352,6 +376,7 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_tasks_status_created ON tasks(status, created_at);
       CREATE INDEX IF NOT EXISTS idx_tasks_provider_completed ON tasks(provider, completed_at);
       CREATE INDEX IF NOT EXISTS idx_tasks_status_completed ON tasks(status, completed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks(workflow_id);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS pipelines (
@@ -1275,7 +1300,18 @@ function createTables(db, logger) {
         suggested_intervention TEXT,
         confidence REAL DEFAULT 0.5,
         last_updated_at TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        -- Columns added via migrations (synced to base schema)
+        name TEXT,
+        description TEXT,
+        signature TEXT,
+        task_types TEXT,
+        provider TEXT,
+        occurrence_count INTEGER DEFAULT 0,
+        recommended_action TEXT,
+        auto_learned INTEGER DEFAULT 0,
+        enabled INTEGER DEFAULT 1,
+        updated_at TEXT
       )
     `);
   db.exec(`
@@ -2068,6 +2104,7 @@ function createTables(db, logger) {
       );
       CREATE INDEX IF NOT EXISTS idx_cost_tracking_provider ON cost_tracking(provider);
       CREATE INDEX IF NOT EXISTS idx_cost_tracking_task ON cost_tracking(task_id);
+      CREATE INDEX IF NOT EXISTS idx_cost_tracking_tracked ON cost_tracking(provider, tracked_at);
     
       -- Cost budgets and alerts
       CREATE TABLE IF NOT EXISTS cost_budgets (
