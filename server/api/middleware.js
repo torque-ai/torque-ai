@@ -241,7 +241,7 @@ function sendJson(res, data, status = 200, req = null) {
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': corsOrigin,
-    'Access-Control-Allow-Headers': 'Content-Type, X-Torque-Key, X-Request-ID',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Torque-Key, X-Request-ID, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     ...SECURITY_HEADERS,
   };
@@ -365,6 +365,31 @@ function applyMiddleware(_server, deps = {}) {
   };
 }
 
+// Auth paths that bypass key-based auth (handled by their own logic)
+const AUTH_OPEN_PATHS = ['/api/auth/login', '/api/auth/ticket', '/api/auth/logout'];
+
+/**
+ * Check auth for a REST API request using the new key-manager-based system.
+ * Returns an identity object (or open-mode identity) on success, or null on failure.
+ *
+ * - Open paths (login, ticket, logout) always return { type: 'open-path' }
+ * - If no keys exist, returns open-mode admin identity
+ * - Otherwise validates Bearer token or X-Torque-Key via auth/middleware
+ */
+function authenticateRequest(req, url) {
+  const authMiddleware = require('../auth/middleware');
+
+  // Strip query string for path matching
+  const path = typeof url === 'string' ? url.split('?')[0] : (req.url || '').split('?')[0];
+
+  // Open paths skip auth entirely — the handlers do their own validation
+  if (AUTH_OPEN_PATHS.some(p => path === p || path.startsWith(p + '/'))) {
+    return { type: 'open-path' };
+  }
+
+  return authMiddleware.authenticate(req);
+}
+
 module.exports = {
   createRateLimiter,
   extractApiKey,
@@ -377,6 +402,8 @@ module.exports = {
   checkAuth,
   parseQuery,
   applyMiddleware,
+  authenticateRequest,
+  AUTH_OPEN_PATHS,
   UNAUTHENTICATED_HEALTH_ROUTES,
   DEFAULT_RATE_WINDOW_MS,
   SECURITY_HEADERS,

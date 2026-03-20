@@ -923,3 +923,78 @@ describe('Protocol auth integration', () => {
     expect(result.blocked).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// REST API auth integration tests
+// ---------------------------------------------------------------------------
+
+describe('REST API auth', () => {
+  const { authenticateRequest, AUTH_OPEN_PATHS } = require('../api/middleware');
+
+  beforeEach(() => {
+    sessionManager._reset();
+  });
+
+  afterEach(() => {
+    sessionManager._reset();
+  });
+
+  it('authenticateRequest returns open-mode identity when no keys', () => {
+    // No keys created — open mode
+    const req = { headers: {} };
+    const result = authenticateRequest(req, '/api/tasks');
+    expect(result).toEqual({ id: 'open-mode', name: 'Open Mode', role: 'admin' });
+  });
+
+  it('authenticateRequest returns identity for valid bearer token', () => {
+    const created = keyManager.createKey({ name: 'rest-auth-test', role: 'admin' });
+    const req = { headers: { authorization: `Bearer ${created.key}` } };
+    const result = authenticateRequest(req, '/api/tasks');
+    expect(result).toBeTruthy();
+    expect(result.id).toBe(created.id);
+    expect(result.name).toBe('rest-auth-test');
+    expect(result.role).toBe('admin');
+  });
+
+  it('authenticateRequest returns null for invalid bearer token', () => {
+    keyManager.createKey({ name: 'force-auth-mode' });
+    const req = { headers: { authorization: 'Bearer torque_sk_bogus-key-value' } };
+    const result = authenticateRequest(req, '/api/tasks');
+    expect(result).toBeNull();
+  });
+
+  it('authenticateRequest skips auth for open paths', () => {
+    keyManager.createKey({ name: 'force-auth-mode' });
+    for (const openPath of AUTH_OPEN_PATHS) {
+      const req = { headers: {} };
+      const result = authenticateRequest(req, openPath);
+      expect(result).toEqual({ type: 'open-path' });
+    }
+  });
+
+  it('authenticateRequest skips auth for paths prefixed with open paths', () => {
+    keyManager.createKey({ name: 'force-auth-mode' });
+    const req = { headers: {} };
+    // /api/auth/login/anything should also be open
+    const result = authenticateRequest(req, '/api/auth/login/extra');
+    expect(result).toEqual({ type: 'open-path' });
+  });
+
+  it('authenticateRequest returns null when keys exist and no credential provided', () => {
+    keyManager.createKey({ name: 'force-auth-mode' });
+    const req = { headers: {} };
+    const result = authenticateRequest(req, '/api/tasks');
+    expect(result).toBeNull();
+  });
+
+  it('CORS allows Authorization header', () => {
+    const { sendJson } = require('../api/middleware');
+    const headers = {};
+    const mockRes = {
+      writeHead: (_status, h) => { Object.assign(headers, h); },
+      end: () => {},
+    };
+    sendJson(mockRes, {}, 200, null);
+    expect(headers['Access-Control-Allow-Headers']).toContain('Authorization');
+  });
+});

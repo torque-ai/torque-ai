@@ -1232,6 +1232,14 @@ const routes = [
   { method: 'POST', path: '/api/v2/models/deny', handlerName: 'handleV2CpDenyModel', middleware: buildV2Middleware() },
   { method: 'POST', path: '/api/v2/models/bulk-approve', handlerName: 'handleV2CpBulkApproveModels', middleware: buildV2Middleware() },
 
+  // Auth: key management
+  { method: 'POST', path: '/api/auth/keys', handlerName: 'handleCreateApiKey' },
+  { method: 'GET', path: '/api/auth/keys', handlerName: 'handleListApiKeys' },
+  { method: 'DELETE', path: /^\/api\/auth\/keys\/([^/]+)$/, handlerName: 'handleRevokeApiKey', mapParams: ['key_id'] },
+  // Auth: dashboard login/logout (skipAuth — handlers validate credentials themselves)
+  { method: 'POST', path: '/api/auth/login', handlerName: 'handleDashboardLogin', skipAuth: true },
+  { method: 'POST', path: '/api/auth/logout', handlerName: 'handleDashboardLogout' },
+
   // Auth: ticket exchange (key → short-lived SSE ticket)
   { method: 'POST', path: '/api/auth/ticket', handlerName: 'handleCreateTicket' },
 

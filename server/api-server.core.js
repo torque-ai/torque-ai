@@ -1986,6 +1986,154 @@ async function handleCreateTicket(req, res, _context = {}) {
 }
 
 // ============================================
+// Auth: key management REST handlers
+// ============================================
+
+async function handleCreateApiKey(req, res, _context = {}) {
+  const keyManager = require('./auth/key-manager');
+  const authMiddleware = require('./auth/middleware');
+
+  // Only admin may create keys
+  const identity = authMiddleware.authenticate(req);
+  if (!identity || identity.role !== 'admin') {
+    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+    return;
+  }
+
+  try {
+    const body = Object.prototype.hasOwnProperty.call(req, 'body')
+      ? req.body
+      : await parseBody(req);
+    const { name, role } = body || {};
+    if (!name) {
+      sendJson(res, { error: '`name` is required' }, 400, req);
+      return;
+    }
+    const result = keyManager.createKey({ name, role });
+    sendJson(res, { id: result.id, key: result.key, name: result.name, role: result.role }, 201, req);
+  } catch (err) {
+    sendJson(res, { error: err.message }, 400, req);
+  }
+}
+
+async function handleListApiKeys(req, res, _context = {}) {
+  const keyManager = require('./auth/key-manager');
+  const authMiddleware = require('./auth/middleware');
+
+  // Only admin may list keys
+  const identity = authMiddleware.authenticate(req);
+  if (!identity || identity.role !== 'admin') {
+    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+    return;
+  }
+
+  try {
+    const keys = keyManager.listKeys();
+    sendJson(res, { keys }, 200, req);
+  } catch (err) {
+    sendJson(res, { error: err.message }, 500, req);
+  }
+}
+
+async function handleRevokeApiKey(req, res, _context = {}) {
+  const keyManager = require('./auth/key-manager');
+  const authMiddleware = require('./auth/middleware');
+
+  // Only admin may revoke keys
+  const identity = authMiddleware.authenticate(req);
+  if (!identity || identity.role !== 'admin') {
+    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+    return;
+  }
+
+  const key_id = req.params?.key_id;
+  if (!key_id) {
+    sendJson(res, { error: '`key_id` is required' }, 400, req);
+    return;
+  }
+
+  try {
+    keyManager.revokeKey(key_id);
+    sendJson(res, { success: true }, 200, req);
+  } catch (err) {
+    const status = err.message === 'Key not found' ? 404 : 400;
+    sendJson(res, { error: err.message }, status, req);
+  }
+}
+
+async function handleDashboardLogin(req, res, _context = {}) {
+  const keyManager = require('./auth/key-manager');
+  const sessionManager = require('./auth/session-manager');
+  const { loginLimiter } = require('./auth/rate-limiter');
+
+  const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+
+  // Rate limit check
+  if (loginLimiter.isLimited(ip)) {
+    sendJson(res, { error: 'Too many login attempts. Please try again later.' }, 429, req);
+    return;
+  }
+
+  try {
+    const body = Object.prototype.hasOwnProperty.call(req, 'body')
+      ? req.body
+      : await parseBody(req);
+    const { key } = body || {};
+
+    // Open mode: no keys configured — auto-login as admin
+    if (!keyManager.hasAnyKeys()) {
+      const identity = { id: 'open-mode', name: 'Open Mode', role: 'admin' };
+      const { sessionId, csrfToken } = sessionManager.createSession(identity);
+      res.setHeader('Set-Cookie', [
+        `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
+        `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
+      ]);
+      sendJson(res, { success: true, role: identity.role, csrfToken }, 200, req);
+      return;
+    }
+
+    if (!key) {
+      loginLimiter.recordFailure(ip);
+      sendJson(res, { error: 'API key is required' }, 401, req);
+      return;
+    }
+
+    const identity = keyManager.validateKey(key);
+    if (!identity) {
+      loginLimiter.recordFailure(ip);
+      sendJson(res, { error: 'Invalid API key' }, 401, req);
+      return;
+    }
+
+    const { sessionId, csrfToken } = sessionManager.createSession(identity);
+    res.setHeader('Set-Cookie', [
+      `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
+      `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
+    ]);
+    sendJson(res, { success: true, role: identity.role, csrfToken }, 200, req);
+  } catch (err) {
+    sendJson(res, { error: err.message }, 500, req);
+  }
+}
+
+async function handleDashboardLogout(req, res, _context = {}) {
+  const sessionManager = require('./auth/session-manager');
+  const { parseCookie } = require('./auth/middleware');
+
+  const sessionId = parseCookie(req.headers?.cookie, 'torque_session');
+  if (sessionId) {
+    sessionManager.destroySession(sessionId);
+  }
+
+  // Clear cookies
+  res.setHeader('Set-Cookie', [
+    'torque_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0',
+    'torque_csrf=; SameSite=Strict; Path=/; Max-Age=0',
+  ]);
+  sendJson(res, { success: true }, 200, req);
+}
+
+// ============================================
 // Route definitions
 // ============================================
 
@@ -2006,6 +2154,11 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
   handleShutdown,
   handleCreateTicket,
+  handleCreateApiKey,
+  handleListApiKeys,
+  handleRevokeApiKey,
+  handleDashboardLogin,
+  handleDashboardLogout,
   handleClaudeEvent,
   handleClaudeFiles,
   handleGetFreeTierStatus,
