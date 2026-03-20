@@ -467,6 +467,44 @@ function cleanupHealthHistory(daysToKeep = 7) {
   return result.changes;
 }
 
+/**
+ * Purge rows from high-growth tables that are not covered by user-configured
+ * log retention settings. These tables grow continuously and must always be
+ * trimmed regardless of whether cleanup_log_days is set.
+ *
+ * - coordination_events: retain 7 days
+ * - health_status: retain 7 days
+ * - task_file_writes: retain 30 days (no FK constraint — no cascade delete)
+ *
+ * @param {object} dbInstance - better-sqlite3 Database instance
+ * @returns {{ coordination_events: number, health_status: number, task_file_writes: number }}
+ */
+function purgeGrowthTables(dbInstance) {
+  const conn = dbInstance || db;
+  const now = Date.now();
+  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  let deleted = { coordination_events: 0, health_status: 0, task_file_writes: 0 };
+  try {
+    deleted.coordination_events = conn.prepare(
+      'DELETE FROM coordination_events WHERE created_at < ?'
+    ).run(sevenDaysAgo).changes;
+  } catch (_e) { void _e; }
+  try {
+    deleted.health_status = conn.prepare(
+      'DELETE FROM health_status WHERE checked_at < ?'
+    ).run(sevenDaysAgo).changes;
+  } catch (_e) { void _e; }
+  try {
+    // task_file_writes has no FK constraint and no created_at column — use written_at
+    deleted.task_file_writes = conn.prepare(
+      'DELETE FROM task_file_writes WHERE written_at < ?'
+    ).run(thirtyDaysAgo).changes;
+  } catch (_e) { void _e; }
+  return deleted;
+}
+
 // ============================================================
 // Resource metrics and memory pressure
 // ============================================================
@@ -2372,6 +2410,7 @@ const ownExports = {
   isParallelGroupComplete,
   getNextPipelineSteps,
   reconcilePipelineStepStatus,
+  purgeGrowthTables,
 };
 
 module.exports = ownExports;

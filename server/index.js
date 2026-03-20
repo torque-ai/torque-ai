@@ -910,6 +910,19 @@ function startMaintenanceScheduler() {
       } catch (cronErr) {
         debugLog(`Cron schedule check error: ${cronErr.message}`);
       }
+
+      // Unconditional growth table purge — trim high-volume tables regardless
+      // of cleanup_log_days setting to prevent unbounded DB growth
+      try {
+        if (db.purgeGrowthTables) {
+          const purged = db.purgeGrowthTables();
+          if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0) {
+            debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}`);
+          }
+        }
+      } catch (purgeErr) {
+        debugLog(`Growth table purge error: ${purgeErr.message}`);
+      }
     } catch (err) {
       debugLog(`Maintenance scheduler error: ${err.message}`);
     }

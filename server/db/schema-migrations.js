@@ -1,7 +1,29 @@
 'use strict';
 
+/**
+ * Validate that all tasks have a recognized status value.
+ * SQLite does not support ALTER TABLE ADD CHECK, so this runs as a startup
+ * validation that logs warnings for any rows that violate the expected set.
+ * @param {object} db - better-sqlite3 Database instance
+ * @param {object} logger - Logger instance
+ */
+function validateTaskStatuses(db, logger) {
+  const validStatuses = ['pending', 'queued', 'running', 'completed', 'failed', 'cancelled', 'blocked', 'skipped', 'retry_scheduled'];
+  const placeholders = validStatuses.map(() => '?').join(',');
+  const invalid = db.prepare(
+    ["SELECT id, status FROM tasks WHERE status NOT IN (", placeholders, ")"].join("")
+  ).all(...validStatuses);
+  if (invalid.length > 0) {
+    logger.warn("[DB] Found " + invalid.length + " task(s) with invalid status values");
+  }
+  return invalid;
+}
+
 function runMigrations(db, logger, safeAddColumn, extras = {}) {
   const { getConfig, setConfig } = extras;
+  // Wrap all migrations in a savepoint so partial failures can be rolled back
+  db.exec("SAVEPOINT migration_batch");
+  try {
   safeAddColumn('tasks', 'git_before_sha TEXT');
   safeAddColumn('tasks', 'git_after_sha TEXT');
   safeAddColumn('tasks', 'git_stash_ref TEXT');
@@ -581,6 +603,17 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
 
   // Heartbeat: partial output capture for streaming providers
   safeAddColumn('tasks', 'partial_output TEXT DEFAULT NULL');
+
+  // Validate task statuses on startup
+  if (logger) {
+    try { validateTaskStatuses(db, logger); } catch (_e) { void _e; }
+  }
+
+  db.exec("RELEASE SAVEPOINT migration_batch");
+  } catch (err) {
+    try { db.exec("ROLLBACK TO SAVEPOINT migration_batch"); } catch (_e) { void _e; }
+    throw err;
+  }
 }
 
-module.exports = { runMigrations };
+module.exports = { runMigrations, validateTaskStatuses };

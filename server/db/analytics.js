@@ -1242,6 +1242,22 @@ function getIntelligenceDashboard(since = null) {
 }
 
 
+// ============================================================
+// Analytics Table Maintenance
+// ============================================================
+
+/**
+ * Delete analytics rows older than maxAgeDays to prevent unbounded table growth.
+ * @param {number} maxAgeDays - Maximum age to retain (default: 90 days)
+ * @returns {number} Number of rows deleted
+ */
+function purgeOldAnalytics(maxAgeDays = 90) {
+  const boundedDays = Math.max(1, Math.min(parseInt(maxAgeDays, 10) || 90, 3650));
+  const cutoff = new Date(Date.now() - boundedDays * 24 * 60 * 60 * 1000).toISOString();
+  const result = db.prepare('DELETE FROM analytics WHERE timestamp < ?').run(cutoff);
+  return result.changes;
+}
+
 module.exports = {
   // DI
   setDb,
@@ -1295,4 +1311,6 @@ module.exports = {
   computeExperimentSignificance,
   concludeExperiment,
   getIntelligenceDashboard,
+  // Maintenance
+  purgeOldAnalytics,
 };
