@@ -2106,7 +2106,9 @@ function updatePipelineStatus(id, status, additionalFields = {}) {
     values.push(new Date().toISOString());
   }
 
+  const PIPELINE_STATUS_FIELDS = new Set(['started_at', 'completed_at', 'error', 'output', 'result']);
   for (const [key, value] of Object.entries(additionalFields)) {
+    if (!PIPELINE_STATUS_FIELDS.has(key)) continue; // skip unknown keys
     updates.push(`${key} = ?`);
     values.push(value);
   }
@@ -2126,7 +2128,9 @@ function updatePipelineStep(stepId, updates) {
   const setClauses = [];
   const values = [];
 
+  const PIPELINE_STEP_FIELDS = new Set(['status', 'started_at', 'completed_at', 'output', 'error', 'exit_code', 'duration_ms', 'output_vars']);
   for (const [key, value] of Object.entries(updates)) {
+    if (!PIPELINE_STEP_FIELDS.has(key)) continue; // skip unknown keys
     setClauses.push(`${key} = ?`);
     if (key === 'output_vars') {
       values.push(JSON.stringify(value));

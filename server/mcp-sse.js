@@ -102,7 +102,6 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'X-Content-Type-Options': 'nosniff',
   'X-XSS-Protection': '1; mode=block',
-  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
 };
 
 // Active SSE sessions: sessionId → { res, toolMode, keepaliveTimer, pendingEvents, eventFilter, taskFilter }
@@ -953,14 +952,10 @@ function handleSubscribeTaskEvents(session, args) {
 
   // Update task filter
   if (Array.isArray(args.task_ids)) {
-    // SECURITY (M3): Check cumulative subscription limit before adding new IDs
-    const newIds = args.task_ids.filter(id => {
-      const norm = normalizeTaskId(id);
-      return norm && !session.taskFilter.has(norm);
-    });
-    if (session.taskFilter.size + newIds.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
+    // SECURITY (M3): Check incoming array size against subscription limit
+    if (args.task_ids.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
       return {
-        content: [{ type: 'text', text: `Subscription limit reached (${MAX_SUBSCRIPTIONS_PER_SESSION}). Unsubscribe from some tasks first.` }],
+        content: [{ type: 'text', text: `Subscription limit: max ${MAX_SUBSCRIPTIONS_PER_SESSION} task IDs per session` }],
         isError: true,
       };
     }

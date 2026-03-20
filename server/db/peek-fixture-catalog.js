@@ -182,7 +182,10 @@ function normalizeUpdateInput(updates = {}) {
   };
 }
 
+const ALLOWED_FIXTURE_FIELDS = new Set(['id', 'name']);
+
 function selectFixtureByField(field, value) {
+  if (!ALLOWED_FIXTURE_FIELDS.has(field)) throw new Error(`Invalid fixture lookup field: ${field}`);
   const row = db.prepare(`SELECT * FROM peek_fixture_catalog WHERE ${field} = ?`).get(value);
   return mapFixtureRow(row);
 }
