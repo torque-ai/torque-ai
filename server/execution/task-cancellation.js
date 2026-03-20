@@ -87,6 +87,7 @@ function createCancellationHandler({
     // here; running tasks are handled by their abort signal and close handlers.
     const task = db.getTask(fullId);
     if (task && task.status === 'queued') {
+      stallRecoveryAttempts.delete(fullId);
       db.updateTaskStatus(fullId, 'cancelled', {
         error_output: reason
       });
@@ -99,6 +100,7 @@ function createCancellationHandler({
     }
 
     if (task && (task.status === 'blocked' || task.status === 'pending')) {
+      stallRecoveryAttempts.delete(fullId);
       db.updateTaskStatus(fullId, 'cancelled', {
         error_output: reason
       });
@@ -109,6 +111,7 @@ function createCancellationHandler({
     }
 
     if (task && task.status === 'running') {
+      stallRecoveryAttempts.delete(fullId);
       safeDecrementHostSlot({ ollamaHostId: task.ollama_host_id });
       db.updateTaskStatus(fullId, 'cancelled', {
         error_output: `${reason}\nNote: Process was not found in memory (likely exited without cleanup)`

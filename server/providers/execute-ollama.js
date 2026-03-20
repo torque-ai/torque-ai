@@ -305,8 +305,7 @@ async function executeOllamaTask(task) {
       } else {
         // Race condition - host went to capacity, requeue task
         logger.info(`[Ollama] ${slotResult.reason}, requeuing task ${taskId}`);
-        // Issue #1 fix: release the host slot that was reserved before the race failed
-        try { db.decrementHostTasks(selectedHostId); } catch { /* non-fatal */ }
+        // No slot was acquired (tryReserveHostSlotWithFallback failed), so no decrement needed
         requeueTaskAfterAttemptedStart(taskId, {
           error_output: (task.error_output || '') + `\nTemporarily requeued: ${slotResult.reason}`
         });

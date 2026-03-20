@@ -162,6 +162,7 @@ function handlePlanProjectTaskCompletion(taskId) {
 
   // Check if project is complete
   const updatedProject = db.getPlanProject(projectId);
+  if (!updatedProject) return;
   if (updatedProject.completed_tasks >= updatedProject.total_tasks) {
     db.updatePlanProject(projectId, {
       status: 'completed',
@@ -896,10 +897,6 @@ function unblockTask(taskId) {
     eventBus.emitQueueChanged();
     return true;
   } catch (err) {
-    try {
-    } catch (_rollbackErr) {
-      logger.info(`unblockTask rollback failed for ${taskId}: ${_rollbackErr.message}`);
-    }
     logger.info(`unblockTask failed for ${taskId}: ${err.message}`);
     return false;
   }

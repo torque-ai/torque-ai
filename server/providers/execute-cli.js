@@ -859,20 +859,22 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
   // Set up startup timeout
   const procRef = runningProcesses.get(taskId);
-  const startupTimeoutMs = PROVIDER_DEFAULTS.STARTUP_TIMEOUT_MS;
-  procRef.startupTimeoutHandle = setTimeout(() => {
-    const proc = runningProcesses.get(taskId);
-    if (proc && proc.output.length === 0 && proc.errorOutput.length === 0) {
-      logger.info(`Task ${taskId} produced no output in ${startupTimeoutMs/1000}s - may be hung`);
-    }
-  }, startupTimeoutMs);
+  if (procRef) {
+    const startupTimeoutMs = PROVIDER_DEFAULTS.STARTUP_TIMEOUT_MS;
+    procRef.startupTimeoutHandle = setTimeout(() => {
+      const proc = runningProcesses.get(taskId);
+      if (proc && proc.output.length === 0 && proc.errorOutput.length === 0) {
+        logger.info(`Task ${taskId} produced no output in ${startupTimeoutMs/1000}s - may be hung`);
+      }
+    }, startupTimeoutMs);
+  }
 
   // Set up main timeout — timeout_minutes=0 means no timeout enforcement
   const MIN_TIMEOUT_MINUTES = 1;
   const MAX_TIMEOUT_MINUTES = PROVIDER_DEFAULTS.MAX_TIMEOUT_MINUTES;
   const parsedTimeout = parseInt(task.timeout_minutes, 10);
   const rawTimeout = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
-  if (rawTimeout > 0) {
+  if (rawTimeout > 0 && procRef) {
     const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
     const timeoutMs = boundedTimeout * 60 * 1000;
     procRef.timeoutHandle = setTimeout(() => {

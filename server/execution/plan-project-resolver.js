@@ -47,6 +47,7 @@ function handleProjectDependencyResolution(taskId, newStatus) {
   };
 
   const notifyTaskUpdated = (dependentTaskId) => {
+    if (!_dashboard) return;
     try {
       _dashboard.notifyTaskUpdated(dependentTaskId);
     } catch {

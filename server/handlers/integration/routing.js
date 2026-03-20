@@ -239,11 +239,10 @@ function resolveSmartSubmitTuning(rawTuning) {
   if (rawTuning.mirostat !== undefined) {
     addValidated(tuning, 'mirostat', rawTuning.mirostat, (value, name) => {
       const numeric = toNumber(value, name);
-      const intValue = Math.trunc(numeric);
-      if (!Number.isInteger(numeric) || ![0, 1, 2].includes(intValue)) {
+      if (!Number.isInteger(numeric) || ![0, 1, 2].includes(numeric)) {
         throw Object.assign(new Error('tuning.mirostat must be 0, 1, or 2'), { code: ErrorCodes.INTERNAL_ERROR });
       }
-      return intValue;
+      return numeric;
     });
   }
 
@@ -1167,14 +1166,13 @@ function handleTestRouting(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task must be a non-empty string');
   }
 
-  const routingFiles = safeFiles || files;
-  const result = db.analyzeTaskForRouting(task, null, routingFiles);
+  const result = db.analyzeTaskForRouting(task, null, safeFiles);
 
   let text = `## Routing Test Result\n\n`;
   text += `**Task:** "${task.substring(0, 100)}${task.length > 100 ? '...' : ''}"\n\n`;
 
-  if (routingFiles && routingFiles.length > 0) {
-    text += `**Files:** ${routingFiles.join(', ')}\n\n`;
+  if (safeFiles && safeFiles.length > 0) {
+    text += `**Files:** ${safeFiles.join(', ')}\n\n`;
   }
 
   text += `### Decision\n\n`;

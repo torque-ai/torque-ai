@@ -374,6 +374,10 @@ function serveStatic(req, res) {
           mtimeMs: cacheMtime,
           size: data.length,
         });
+        if (staticFileCache.size > 200) {
+          const firstKey = staticFileCache.keys().next().value;
+          staticFileCache.delete(firstKey);
+        }
       } else {
         staticFileCache.delete(filePath);
       }

@@ -754,8 +754,17 @@ async function executeHashlineOllamaTask(task) {
     const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
     const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
     const abortController = new AbortController();
+    const mainTimeoutHandle = setTimeout(() => abortController.abort(), timeoutMs || 300000);
+    const mainCancelCheck = setInterval(() => {
+      try {
+        const cur = db.getTask(taskId);
+        if (cur && cur.status === 'cancelled') { abortController.abort(); clearInterval(mainCancelCheck); }
+      } catch {}
+    }, 2000);
 
-    const response = await new Promise((resolve, reject) => {
+    let response;
+    try {
+    response = await new Promise((resolve, reject) => {
       // Guard against double-resolve: the 'data' handler resolves on parsed.done,
       // and the 'end' handler resolves as a fallback. Without the guard, both can
       // fire on well-formed streaming responses.
@@ -860,6 +869,10 @@ async function executeHashlineOllamaTask(task) {
       req.write(requestBody);
       req.end();
     });
+    } finally {
+      clearTimeout(mainTimeoutHandle);
+      clearInterval(mainCancelCheck);
+    }
 
     db.updateTaskStatus(taskId, 'running', { progress_percent: 80 });
     dashboard.notifyTaskUpdated(taskId);
