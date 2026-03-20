@@ -1,6 +1,6 @@
 {
   "name": "torque",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "AI task orchestration — multi-provider routing, DAG workflows, quality gates, and distributed execution across local and cloud LLMs. Delegates work to Codex, Claude, Ollama, DeepInfra, and more while you keep working.",
   "author": {
     "name": "TORQUE AI",
@@ -27,5 +27,9 @@
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/index.js"],
       "cwd": "${CLAUDE_PLUGIN_ROOT}/server"
     }
-  }
+  },
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills",
+  "agents": "./agents",
+  "commands": "./.claude/commands"
 }
