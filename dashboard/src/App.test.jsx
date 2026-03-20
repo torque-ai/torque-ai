@@ -18,6 +18,8 @@ vi.mock('recharts', () => ({
 
 // Mock the api module
 vi.mock('./api', () => ({
+  request: vi.fn().mockResolvedValue({}),
+  requestV2: vi.fn().mockResolvedValue({}),
   tasks: {
     list: vi.fn().mockResolvedValue({ tasks: [] }),
     get: vi.fn().mockResolvedValue(null),
