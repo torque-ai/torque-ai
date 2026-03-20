@@ -211,9 +211,9 @@ describe('adapter-registry.js', () => {
     await expect(codexAdapter.stream('lint', 'gpt-5-codex')).rejects.toThrow(
       'codex streaming is not implemented for v2'
     );
-    await expect(codexAdapter.submitAsync('lint', 'gpt-5-codex')).rejects.toThrow(
-      'codex async execution is not implemented for v2'
-    );
+    // codex supportsAsync: true — submitAsync delegates to submit() and resolves
+    const asyncResult = await codexAdapter.submitAsync('lint', 'gpt-5-codex');
+    expect(asyncResult).toMatchObject({ provider: 'codex', method: 'submit' });
     await expect(codexAdapter.cancel()).resolves.toEqual({
       cancelled: false,
       provider: 'codex',
