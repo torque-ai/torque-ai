@@ -429,14 +429,17 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
   );
 }
 
-function WorkstationCard({ workstation, onProbe, onRemove, probing }) {
+function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus, onConnectPeek, probing }) {
   const capabilities = getCapabilities(workstation);
   const models = Array.isArray(workstation.models) ? workstation.models : [];
-  const status = STATUS_STYLES[workstation.status] || STATUS_STYLES.unknown;
+  const isEnabled = workstation.enabled !== 0 && workstation.enabled !== false;
+  const effectiveStatus = !isEnabled ? 'disabled' : workstation.status;
+  const status = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.unknown;
   const hostLabel = `${workstation.host}:${workstation.agent_port || 3460}`;
+  const peekUrl = `http://${workstation.host}:9876`;
 
   return (
-    <div className="glass-card p-5 card-hover">
+    <div className={`glass-card p-5 card-hover${!isEnabled ? ' opacity-60' : ''}`}>
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -449,10 +452,20 @@ function WorkstationCard({ workstation, onProbe, onRemove, probing }) {
           </div>
           <p className="text-xs text-slate-400 mt-0.5 font-mono break-all">{hostLabel}</p>
         </div>
-        <span className={`shrink-0 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium text-white ${status.badge}`}>
-          <span className={`inline-block w-2 h-2 rounded-full ${status.dot} ${workstation.status === 'healthy' ? 'pulse-dot' : ''}`} />
-          {status.label}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium text-white ${status.badge}`}>
+            <span className={`inline-block w-2 h-2 rounded-full ${status.dot} ${effectiveStatus === 'healthy' ? 'pulse-dot' : ''}`} />
+            {status.label}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggle?.(workstation.name, !isEnabled); }}
+            className={`relative w-9 h-5 rounded-full transition-colors ${isEnabled ? 'bg-green-600' : 'bg-slate-600'}`}
+            title={isEnabled ? 'Disable workstation' : 'Enable workstation'}
+            aria-label={isEnabled ? `Disable ${workstation.name}` : `Enable ${workstation.name}`}
+          >
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${isEnabled ? 'left-[18px]' : 'left-0.5'}`} />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-4">
@@ -529,6 +542,36 @@ function WorkstationCard({ workstation, onProbe, onRemove, probing }) {
           </div>
         </div>
       ) : null}
+
+      {/* Peek Server sub-section */}
+      <div className="mt-4 p-3 rounded-lg bg-slate-800/30 border border-slate-700/50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-400">Peek Server</span>
+            {peekStatus ? (
+              <span className="flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${peekStatus === 'online' ? 'bg-green-500 pulse-dot' : 'bg-red-500'}`} />
+                <span className={`text-[11px] ${peekStatus === 'online' ? 'text-green-400' : 'text-red-400'}`}>
+                  {peekStatus === 'online' ? 'Online' : 'Offline'}
+                </span>
+              </span>
+            ) : (
+              <span className="text-[11px] text-slate-500">Not connected</span>
+            )}
+          </div>
+          {!peekStatus ? (
+            <button
+              onClick={() => onConnectPeek?.(workstation.name, peekUrl)}
+              className="px-2 py-1 text-[11px] bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 rounded hover:bg-indigo-600/40 transition-colors"
+            >
+              Connect Peek
+            </button>
+          ) : null}
+        </div>
+        {peekStatus && (
+          <p className="text-[11px] text-slate-500 mt-1 font-mono">{peekUrl}</p>
+        )}
+      </div>
 
       <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-800">
         <div className="text-xs text-slate-500">
@@ -1155,6 +1198,26 @@ export default function Hosts({ hostActivity }) {
     }
   }
 
+  async function handleToggleWorkstation(name, enabled) {
+    try {
+      await workstationsApi.update(name, { enabled: enabled ? 1 : 0 });
+      toast.success(`Workstation "${name}" ${enabled ? 'enabled' : 'disabled'}`);
+      await loadWorkstations();
+    } catch (err) {
+      toast.error(`Toggle failed: ${err.message}`);
+    }
+  }
+
+  async function handleConnectPeek(workstationName, peekUrl) {
+    try {
+      await peekHostsApi.create({ name: workstationName, url: peekUrl });
+      toast.success(`Peek server connected for "${workstationName}"`);
+      await loadPeekHosts();
+    } catch (err) {
+      toast.error(`Peek connect failed: ${err.message}`);
+    }
+  }
+
   async function handleProbeWorkstation(name) {
     setProbingWorkstations((current) => ({ ...current, [name]: true }));
     try {
@@ -1378,6 +1441,9 @@ export default function Hosts({ hostActivity }) {
                 probing={Boolean(probingWorkstations[workstation.name])}
                 onProbe={handleProbeWorkstation}
                 onRemove={setConfirmRemoveWorkstation}
+                onToggle={handleToggleWorkstation}
+                peekStatus={peekHostList.find(p => p.name === workstation.name)?.status === 'online' ? 'online' : peekHostList.find(p => p.name === workstation.name) ? 'offline' : null}
+                onConnectPeek={handleConnectPeek}
               />
             ))}
           </div>
@@ -1416,55 +1482,8 @@ export default function Hosts({ hostActivity }) {
         )}
       </div>
 
-      {/* --- Remote Testing Hosts --- */}
-      <div className="mt-10">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="heading-lg text-white">Remote Testing Hosts</h2>
-            <p className="text-sm text-slate-400 mt-1">
-              Peek/SnapScope stations for visual verification
-              {peekHostList.length > 0 && ` — ${peekHostList.filter(h => h.enabled !== 0).length} enabled, ${peekHostList.length} total`}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowAddPeek(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-300 text-sm rounded-lg transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Add Host
-          </button>
-        </div>
-
-        {showAddPeek && (
-          <div className="mb-5">
-            <AddPeekHostForm onAdd={handleAddPeekHost} onCancel={() => setShowAddPeek(false)} />
-          </div>
-        )}
-
-        {peekHostList.length === 0 ? (
-          <div className="glass-card p-8 text-center">
-            <p className="text-slate-400 mb-1">No remote testing hosts configured</p>
-            <p className="text-slate-500 text-sm">Add a peek_server host to enable visual verification from the dashboard</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {peekHostList.map((host) => (
-              <PeekHostCard
-                key={host.name}
-                host={host}
-                onToggle={handlePeekToggle}
-                onRemove={(name) => setConfirmRemovePeek({ name })}
-                onTest={handleTestPeekHost}
-                onSaveCred={handleSaveCredential}
-                onDeleteCred={handleDeleteCredential}
-                onRefresh={loadPeekHosts}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Remote Testing Hosts section removed — peek server is now
+          an optional sub-section within each Workstation card */}
 
       {confirmRemoveWorkstation ? (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setConfirmRemoveWorkstation(null)}>
