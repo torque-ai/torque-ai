@@ -14,6 +14,10 @@ import { useTick } from './hooks/useTick';
 // Code-split secondary routes — only loaded when visited
 const History = lazy(() => import('./views/History'));
 const Providers = lazy(() => import('./views/Providers'));
+const WorkflowsHub = lazy(() => import('./views/WorkflowsHub'));
+const InfrastructureHub = lazy(() => import('./views/InfrastructureHub'));
+const OperationsHub = lazy(() => import('./views/OperationsHub'));
+// Legacy — still lazy-loaded for old URL redirects and hub tab content
 const PlanProjects = lazy(() => import('./views/PlanProjects'));
 const Hosts = lazy(() => import('./views/Hosts'));
 const BatchHistory = lazy(() => import('./views/BatchHistory'));
@@ -257,20 +261,23 @@ function AppInner() {
                   </>
                 }
               />
-              <Route path="projects" element={<PlanProjects />} />
               <Route path="history" element={<History onOpenDrawer={openDrawer} relativeTimeTick={relativeTimeTick} />} />
-              <Route path="batches" element={<BatchHistory onOpenDrawer={openDrawer} workflowTick={workflowTick} tasksTick={tasksTick} relativeTimeTick={relativeTimeTick} />} />
-              <Route path="workflows" element={<Workflows onOpenDrawer={openDrawer} relativeTimeTick={relativeTimeTick} />} />
+              <Route path="workflows" element={<WorkflowsHub />} />
               <Route path="providers" element={<Providers statsVersion={statsVersion} tasksTick={tasksTick} />} />
-              <Route path="models" element={<Models />} />
-              <Route path="hosts" element={<Hosts hostActivity={hostActivity} />} />
-              <Route path="workstations" element={<Navigate to="/hosts" replace />} />
-              <Route path="budget" element={<Budget />} />
-              <Route path="schedules" element={<Schedules />} />
-              <Route path="approvals" element={<Approvals />} />
-              <Route path="coordination" element={<Coordination />} />
-              <Route path="strategy" element={<Strategy />} />
-              <Route path="strategic" element={<Navigate to="/strategy" replace />} />
+              <Route path="infrastructure" element={<InfrastructureHub />} />
+              <Route path="operations" element={<OperationsHub />} />
+              {/* Redirects for old bookmarks */}
+              <Route path="projects" element={<Navigate to="/workflows#projects" replace />} />
+              <Route path="batches" element={<Navigate to="/workflows#batches" replace />} />
+              <Route path="models" element={<Navigate to="/infrastructure#models" replace />} />
+              <Route path="hosts" element={<Navigate to="/infrastructure" replace />} />
+              <Route path="workstations" element={<Navigate to="/infrastructure" replace />} />
+              <Route path="budget" element={<Navigate to="/operations#budget" replace />} />
+              <Route path="schedules" element={<Navigate to="/operations#schedules" replace />} />
+              <Route path="approvals" element={<Navigate to="/operations#approvals" replace />} />
+              <Route path="coordination" element={<Navigate to="/operations#coordination" replace />} />
+              <Route path="strategy" element={<Navigate to="/operations#routing" replace />} />
+              <Route path="strategic" element={<Navigate to="/operations#routing" replace />} />
             </Route>
           </Routes>
         </Suspense>
