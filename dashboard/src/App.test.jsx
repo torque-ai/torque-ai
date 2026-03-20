@@ -87,6 +87,7 @@ vi.mock('date-fns', () => ({
 // Create a mock WebSocket class
 let mockWsInstance = null;
 class MockWebSocket {
+  static CONNECTING = 0;
   static OPEN = 1;
   static CLOSED = 3;
 
@@ -109,13 +110,12 @@ class MockWebSocket {
   }
 }
 
-// Apply WebSocket mock
-const originalWebSocket = globalThis.WebSocket;
+// Apply WebSocket mock using vi.stubGlobal for reliable override
 beforeAll(() => {
-  globalThis.WebSocket = MockWebSocket;
+  vi.stubGlobal('WebSocket', MockWebSocket);
 });
 afterAll(() => {
-  globalThis.WebSocket = originalWebSocket;
+  vi.unstubAllGlobals();
 });
 
 // Mock canvas for favicon tests
