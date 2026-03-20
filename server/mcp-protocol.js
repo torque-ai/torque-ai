@@ -45,8 +45,12 @@ async function handleRequest(request, session) {
 
   // Allow initialize without auth (client needs to connect before authenticating)
   // Allow notifications without auth (they're fire-and-forget)
+  // When no API key is configured, all sessions are considered authenticated (open mode)
   if (method !== 'initialize' && !method.startsWith('notifications/') && !session.authenticated) {
-    throw { code: -32600, message: 'Authentication required. Provide API key via X-Torque-Key header.' };
+    // Only enforce if auth is actually configured
+    if (_isAuthConfigured && _isAuthConfigured()) {
+      throw { code: -32600, message: 'Authentication required. Provide API key via X-Torque-Key header.' };
+    }
   }
 
   switch (method) {
