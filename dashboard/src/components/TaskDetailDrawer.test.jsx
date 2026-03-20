@@ -143,7 +143,7 @@ describe('TaskDetailDrawer', () => {
   it('renders task description after loading', async () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
     await waitFor(() => {
-      expect(screen.getByText('Test task description')).toBeTruthy();
+      expect(screen.getByText('Test task description')).toBeInTheDocument();
     });
   });
 
@@ -157,7 +157,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('Legacy task description')).toBeTruthy();
+      expect(screen.getByText('Legacy task description')).toBeInTheDocument();
     });
   });
 
@@ -166,14 +166,14 @@ describe('TaskDetailDrawer', () => {
     tasksApi.get.mockReturnValue(new Promise(() => {}));
     taskLogs.get.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
-    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('renders task ID in header', async () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
     // Shows truncated task ID: #task-1 (first 8 chars)
     await waitFor(() => {
-      expect(screen.getByText('#task-1')).toBeTruthy();
+      expect(screen.getByText('#task-1')).toBeInTheDocument();
     });
   });
 
@@ -182,16 +182,16 @@ describe('TaskDetailDrawer', () => {
       renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
     });
     const overlay = document.querySelector('.drawer-overlay');
-    expect(overlay).toBeTruthy();
+    expect(overlay).toBeInTheDocument();
   });
 
   it('renders tab buttons after loading', async () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
     await waitFor(() => {
-      expect(screen.getByText('overview')).toBeTruthy();
-      expect(screen.getByText('output')).toBeTruthy();
-      expect(screen.getByText('diff')).toBeTruthy();
-      expect(screen.getByText('timeline')).toBeTruthy();
+      expect(screen.getByText('overview')).toBeInTheDocument();
+      expect(screen.getByText('output')).toBeInTheDocument();
+      expect(screen.getByText('diff')).toBeInTheDocument();
+      expect(screen.getByText('timeline')).toBeInTheDocument();
     });
   });
 
@@ -206,7 +206,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('output')).toBeTruthy();
+      expect(screen.getByText('output')).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -214,7 +214,7 @@ describe('TaskDetailDrawer', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Fallback task output')).toBeTruthy();
+      expect(screen.getByText('Fallback task output')).toBeInTheDocument();
     });
   });
 
@@ -222,7 +222,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('output')).toBeTruthy();
+      expect(screen.getByText('output')).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -230,7 +230,7 @@ describe('TaskDetailDrawer', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Hello output')).toBeTruthy();
+      expect(screen.getByText('Hello output')).toBeInTheDocument();
     });
   });
 
@@ -245,7 +245,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('output')).toBeTruthy();
+      expect(screen.getByText('output')).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -253,9 +253,9 @@ describe('TaskDetailDrawer', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('stdout line')).toBeTruthy();
-      expect(screen.getByText('stderr')).toBeTruthy();
-      expect(screen.getByText('stderr line')).toBeTruthy();
+      expect(screen.getByText('stdout line')).toBeInTheDocument();
+      expect(screen.getByText('stderr')).toBeInTheDocument();
+      expect(screen.getByText('stderr line')).toBeInTheDocument();
     });
   });
 
@@ -275,7 +275,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('output')).toBeTruthy();
+      expect(screen.getByText('output')).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -283,7 +283,7 @@ describe('TaskDetailDrawer', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('No output available')).toBeTruthy();
+      expect(screen.getByText('No output available')).toBeInTheDocument();
     });
   });
 
@@ -299,7 +299,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('host-1')).toBeTruthy();
+      expect(screen.getByText('host-1')).toBeInTheDocument();
     });
 
     expect(screen.queryByText('GPU')).toBeNull();
@@ -309,7 +309,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('diff')).toBeTruthy();
+      expect(screen.getByText('diff')).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -318,11 +318,11 @@ describe('TaskDetailDrawer', () => {
 
     await waitFor(() => {
       expect(tasksApi.diff).toHaveBeenCalledWith('task-1');
-      expect(screen.getByText('2 files')).toBeTruthy();
-      expect(screen.getByText('dashboard/src/components/TaskDetailDrawer.jsx')).toBeTruthy();
-      expect(screen.getByText('server/api/v2-task-handlers.js')).toBeTruthy();
-      expect(screen.getByText('modified')).toBeTruthy();
-      expect(screen.getByText('added')).toBeTruthy();
+      expect(screen.getByText('2 files')).toBeInTheDocument();
+      expect(screen.getByText('dashboard/src/components/TaskDetailDrawer.jsx')).toBeInTheDocument();
+      expect(screen.getByText('server/api/v2-task-handlers.js')).toBeInTheDocument();
+      expect(screen.getByText('modified')).toBeInTheDocument();
+      expect(screen.getByText('added')).toBeInTheDocument();
       expect(screen.getAllByText('No inline patch available from v2 diff endpoint')).toHaveLength(2);
     });
   });
@@ -338,7 +338,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText('diff')).toBeTruthy();
+      expect(screen.getByText('diff')).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -346,9 +346,9 @@ describe('TaskDetailDrawer', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('1 file')).toBeTruthy();
-      expect(screen.getByText('--- a/src/legacy.js')).toBeTruthy();
-      expect(screen.getByText('+new value')).toBeTruthy();
+      expect(screen.getByText('1 file')).toBeInTheDocument();
+      expect(screen.getByText('--- a/src/legacy.js')).toBeInTheDocument();
+      expect(screen.getByText('+new value')).toBeInTheDocument();
     });
   });
 
@@ -364,14 +364,14 @@ describe('TaskDetailDrawer', () => {
 
     await waitFor(() => {
       expect(tasksApi.get).toHaveBeenCalledTimes(initialCallCount + 1);
-      expect(screen.getByText('completed')).toBeTruthy();
+      expect(screen.getByText('completed')).toBeInTheDocument();
     });
 
     rerender(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} refreshTick={1} />);
 
     await waitFor(() => {
       expect(tasksApi.get).toHaveBeenCalledTimes(initialCallCount + 2);
-      expect(screen.getByText('failed')).toBeTruthy();
+      expect(screen.getByText('failed')).toBeInTheDocument();
     });
   });
 
@@ -411,7 +411,7 @@ describe('TaskDetailDrawer', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Second task description')).toBeTruthy();
+      expect(screen.getByText('Second task description')).toBeInTheDocument();
     });
 
     taskOne.resolve({
@@ -430,7 +430,7 @@ describe('TaskDetailDrawer', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText('Second task description')).toBeTruthy();
+    expect(screen.getByText('Second task description')).toBeInTheDocument();
     expect(screen.queryByText('First task description')).toBeNull();
   });
 
@@ -443,7 +443,7 @@ describe('TaskDetailDrawer', () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 
     const rejectButton = await screen.findByRole('button', { name: 'Reject Switch' });
-    expect(screen.getByRole('button', { name: 'Approve Switch' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Approve Switch' })).toBeInTheDocument();
 
     fireEvent.click(rejectButton);
 
@@ -496,7 +496,7 @@ describe('TaskDetailDrawer', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('diff')).toBeTruthy();
+      expect(screen.getByText('diff')).toBeInTheDocument();
     }, { timeout: 3000 });
 
     await act(async () => {
@@ -507,7 +507,7 @@ describe('TaskDetailDrawer', () => {
 
     // Wait for task-2 tabs to render (header appears before loading completes)
     await waitFor(() => {
-      expect(screen.getByText('#task-2')).toBeTruthy();
+      expect(screen.getByText('#task-2')).toBeInTheDocument();
       // Tabs only render after loading completes — verify they're present
       expect(screen.getAllByText('diff').length).toBeGreaterThan(0);
     }, { timeout: 3000 });
@@ -530,7 +530,7 @@ describe('TaskDetailDrawer', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('task-two.js')).toBeTruthy();
+      expect(screen.getByText('task-two.js')).toBeInTheDocument();
     });
 
     diffOne.resolve({
@@ -550,7 +550,7 @@ describe('TaskDetailDrawer', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText('task-two.js')).toBeTruthy();
+    expect(screen.getByText('task-two.js')).toBeInTheDocument();
     expect(screen.queryByText('task-one.js')).toBeNull();
   });
 });

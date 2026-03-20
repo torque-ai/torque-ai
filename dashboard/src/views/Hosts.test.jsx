@@ -147,22 +147,22 @@ describe('Hosts', () => {
   it('renders loading state initially', () => {
     hostsApi.list.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Hosts />, { route: '/hosts' });
-    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('renders hosts heading after loading', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText('Hosts')).toBeTruthy();
+      expect(screen.getByText('Hosts')).toBeInTheDocument();
     });
   });
 
   it('displays host names', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText('builder-01')).toBeTruthy();
-      expect(screen.getByText('local-gpu')).toBeTruthy();
-      expect(screen.getByText('remote-gpu-host')).toBeTruthy();
+      expect(screen.getByText('builder-01')).toBeInTheDocument();
+      expect(screen.getByText('local-gpu')).toBeInTheDocument();
+      expect(screen.getByText('remote-gpu-host')).toBeInTheDocument();
     });
   });
 
@@ -177,15 +177,15 @@ describe('Hosts', () => {
   it('shows healthy count in subtitle', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText('1 healthy ollama hosts, 1 healthy workstations')).toBeTruthy();
+      expect(screen.getByText('1 healthy ollama hosts, 1 healthy workstations')).toBeInTheDocument();
     });
   });
 
   it('displays host URLs', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText('http://localhost:11434')).toBeTruthy();
-      expect(screen.getByText('http://192.168.1.100:11434')).toBeTruthy();
+      expect(screen.getByText('http://localhost:11434')).toBeInTheDocument();
+      expect(screen.getByText('http://192.168.1.100:11434')).toBeInTheDocument();
     });
   });
 
@@ -208,14 +208,14 @@ describe('Hosts', () => {
   it('renders Scan Network button', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText('Scan Network')).toBeTruthy();
+      expect(screen.getByText('Scan Network')).toBeInTheDocument();
     });
   });
 
   it('renders Refresh button', async () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText('Refresh')).toBeTruthy();
+      expect(screen.getByText('Refresh')).toBeInTheDocument();
     });
   });
 
@@ -223,7 +223,7 @@ describe('Hosts', () => {
     hostsApi.list.mockResolvedValue([]);
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
-      expect(screen.getByText('No hosts configured')).toBeTruthy();
+      expect(screen.getByText('No hosts configured')).toBeInTheDocument();
     });
   });
 
@@ -239,7 +239,7 @@ describe('Hosts', () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
 
     await waitFor(() => {
-      expect(screen.getByText('builder-01')).toBeTruthy();
+      expect(screen.getByText('builder-01')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('Probe'));
@@ -253,7 +253,7 @@ describe('Hosts', () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
 
     await waitFor(() => {
-      expect(screen.getByText('builder-01')).toBeTruthy();
+      expect(screen.getByText('builder-01')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByTitle('Disable workstation'));
@@ -267,10 +267,10 @@ describe('Hosts', () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
 
     await waitFor(() => {
-      expect(screen.getByText('Peek Server')).toBeTruthy();
+      expect(screen.getByText('Peek Server')).toBeInTheDocument();
     });
 
-    expect(screen.getByDisplayValue('http://10.0.0.12:9876')).toBeTruthy();
+    expect(screen.getByDisplayValue('http://10.0.0.12:9876')).toBeInTheDocument();
     expect(screen.queryByText('Remote Testing Hosts')).toBeNull();
 
     fireEvent.click(screen.getByText('Connect Peek'));
@@ -288,7 +288,7 @@ describe('Hosts', () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
 
     await waitFor(() => {
-      expect(screen.getByText('Add Workstation')).toBeTruthy();
+      expect(screen.getByText('Add Workstation')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('Add Workstation'));

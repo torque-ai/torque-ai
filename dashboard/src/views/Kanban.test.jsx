@@ -144,13 +144,13 @@ describe('Kanban', () => {
     statsApi.timeseries.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Kanban />, { route: '/' });
     const skeleton = document.querySelector('.animate-pulse');
-    expect(skeleton).toBeTruthy();
+    expect(skeleton).toBeInTheDocument();
   });
 
   it('renders stat cards after loading', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('Today')).toBeTruthy();
+      expect(screen.getByText('Today')).toBeInTheDocument();
       // Running/Queued/Completed appear in both stat cards and kanban columns
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
@@ -161,7 +161,7 @@ describe('Kanban', () => {
   it('shows today task count from overview', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('15')).toBeTruthy();
+      expect(screen.getByText('15')).toBeInTheDocument();
     });
   });
 
@@ -176,12 +176,12 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('Needs Attention')).toBeTruthy();
-      expect(screen.getByText('Running >30m')).toBeTruthy();
-      expect(screen.getByText('Pending approval')).toBeTruthy();
-      expect(screen.getByText('Pending switch')).toBeTruthy();
-      expect(screen.getByText(/Pending approval test task/)).toBeTruthy();
-      expect(screen.getByText(/Pending provider switch task/)).toBeTruthy();
+      expect(screen.getByText('Needs Attention')).toBeInTheDocument();
+      expect(screen.getByText('Running >30m')).toBeInTheDocument();
+      expect(screen.getByText('Pending approval')).toBeInTheDocument();
+      expect(screen.getByText('Pending switch')).toBeInTheDocument();
+      expect(screen.getByText(/Pending approval test task/)).toBeInTheDocument();
+      expect(screen.getByText(/Pending provider switch task/)).toBeInTheDocument();
     });
   });
 
@@ -191,42 +191,42 @@ describe('Kanban', () => {
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Completed').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('Failed')).toBeTruthy();
+      expect(screen.getByText('Failed')).toBeInTheDocument();
     });
   });
 
   it('renders empty state when no tasks', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('No tasks yet')).toBeTruthy();
+      expect(screen.getByText('No tasks yet')).toBeInTheDocument();
     });
   });
 
   it('renders search input', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Search tasks...')).toBeTruthy();
+      expect(screen.getByPlaceholderText('Search tasks...')).toBeInTheDocument();
     });
   });
 
   it('renders density toggle button', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('Comfortable')).toBeTruthy();
+      expect(screen.getByText('Comfortable')).toBeInTheDocument();
     });
   });
 
   it('renders columns visibility button', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('Columns')).toBeTruthy();
+      expect(screen.getByText('Columns')).toBeInTheDocument();
     });
   });
 
   it('renders refresh button', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByLabelText('Refresh dashboard data')).toBeTruthy();
+      expect(screen.getByLabelText('Refresh dashboard data')).toBeInTheDocument();
     });
   });
 
@@ -236,7 +236,7 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('just now')).toBeTruthy();
+      expect(screen.getByText('just now')).toBeInTheDocument();
     });
 
     const refreshButton = screen.getByLabelText('Refresh dashboard data');
@@ -276,7 +276,7 @@ describe('Kanban', () => {
     });
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText(/Running test task/)).toBeTruthy();
+      expect(screen.getByText(/Running test task/)).toBeInTheDocument();
     });
   });
 
@@ -338,7 +338,7 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('codex')).toBeTruthy();
+      expect(screen.getByText('codex')).toBeInTheDocument();
       expect(screen.queryByText(/codex ·/)).toBeFalsy();
     });
   });
@@ -360,7 +360,7 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('ollama · qwen2.5-coder:32b')).toBeTruthy();
+      expect(screen.getByText('ollama · qwen2.5-coder:32b')).toBeInTheDocument();
     });
   });
 
@@ -381,7 +381,7 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('ollama')).toBeTruthy();
+      expect(screen.getByText('ollama')).toBeInTheDocument();
       expect(screen.queryByText('ollama · gpt-5.3-codex-spark')).toBeFalsy();
     });
   });
@@ -403,7 +403,7 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('codex')).toBeTruthy();
+      expect(screen.getByText('codex')).toBeInTheDocument();
       expect(screen.queryByText('codex · codex')).toBeFalsy();
     });
   });
@@ -419,14 +419,14 @@ describe('Kanban', () => {
   it('renders total count text', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText(/0 total/)).toBeTruthy();
+      expect(screen.getByText(/0 total/)).toBeInTheDocument();
     });
   });
 
   it('marks task containers as lists', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByRole('list', { name: 'Queued' })).toBeTruthy();
+      expect(screen.getByRole('list', { name: 'Queued' })).toBeInTheDocument();
     });
   });
 
@@ -450,8 +450,8 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByRole('listitem')).toBeTruthy();
-      expect(screen.getByText(/Running test task/)).toBeTruthy();
+      expect(screen.getByRole('listitem')).toBeInTheDocument();
+      expect(screen.getByText(/Running test task/)).toBeInTheDocument();
     });
   });
 
@@ -491,7 +491,7 @@ describe('Kanban', () => {
     setStorageValue('torque-col-sorts', '{bad json');
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('No tasks yet')).toBeTruthy();
+      expect(screen.getByText('No tasks yet')).toBeInTheDocument();
     });
   });
 
@@ -511,8 +511,8 @@ describe('Kanban', () => {
     });
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText(/Running test task/)).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Pin to top' })).toBeTruthy();
+      expect(screen.getByText(/Running test task/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Pin to top' })).toBeInTheDocument();
     });
   });
 
@@ -527,10 +527,10 @@ describe('Kanban', () => {
   it('uses default UI settings when expected localStorage keys are missing', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('Comfortable')).toBeTruthy();
-      expect(screen.getByText('Columns')).toBeTruthy();
-      expect(screen.getByRole('list', { name: 'Queued' })).toBeTruthy();
-      expect(screen.getByRole('list', { name: 'Running' })).toBeTruthy();
+      expect(screen.getByText('Comfortable')).toBeInTheDocument();
+      expect(screen.getByText('Columns')).toBeInTheDocument();
+      expect(screen.getByRole('list', { name: 'Queued' })).toBeInTheDocument();
+      expect(screen.getByRole('list', { name: 'Running' })).toBeInTheDocument();
     });
   });
 
@@ -546,9 +546,9 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText(/Running test task/)).toBeTruthy();
+      expect(screen.getByText(/Running test task/)).toBeInTheDocument();
       expect(screen.queryByRole('list', { name: 'Queued' })).toBeFalsy();
-      expect(screen.getByRole('list', { name: 'Running' })).toBeTruthy();
+      expect(screen.getByRole('list', { name: 'Running' })).toBeInTheDocument();
     });
 
     const pinButton = screen.getByRole('button', { name: 'Pin to top' });

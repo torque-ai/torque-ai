@@ -23,32 +23,32 @@ describe('Toast', () => {
   it('renders error toast when triggered', async () => {
     render(<ToastProvider><TestComponent /></ToastProvider>);
     await act(async () => { screen.getByText('Show Error').click(); });
-    expect(screen.getByText('Error message')).toBeTruthy();
+    expect(screen.getByText('Error message')).toBeInTheDocument();
   });
 
   it('renders success toast when triggered', async () => {
     render(<ToastProvider><TestComponent /></ToastProvider>);
     await act(async () => { screen.getByText('Show Success').click(); });
-    expect(screen.getByText('Success message')).toBeTruthy();
+    expect(screen.getByText('Success message')).toBeInTheDocument();
   });
 
   it('renders info toast when triggered', async () => {
     render(<ToastProvider><TestComponent /></ToastProvider>);
     await act(async () => { screen.getByText('Show Info').click(); });
-    expect(screen.getByText('Info message')).toBeTruthy();
+    expect(screen.getByText('Info message')).toBeInTheDocument();
   });
 
   it('renders warning toast when triggered', async () => {
     render(<ToastProvider><TestComponent /></ToastProvider>);
     await act(async () => { screen.getByText('Show Warning').click(); });
-    expect(screen.getByText('Warning message')).toBeTruthy();
+    expect(screen.getByText('Warning message')).toBeInTheDocument();
   });
 
   it('auto-removes toast after timeout', async () => {
     vi.useFakeTimers();
     render(<ToastProvider><TestComponent /></ToastProvider>);
     await act(async () => { screen.getByText('Show Success').click(); });
-    expect(screen.getByText('Success message')).toBeTruthy();
+    expect(screen.getByText('Success message')).toBeInTheDocument();
     // success duration is 3000ms
     await act(async () => { vi.advanceTimersByTime(4000); });
     expect(screen.queryByText('Success message')).toBeNull();
@@ -59,10 +59,10 @@ describe('Toast', () => {
     vi.useFakeTimers();
     render(<ToastProvider><TestComponent /></ToastProvider>);
     await act(async () => { screen.getByText('Show Error').click(); });
-    expect(screen.getByText('Error message')).toBeTruthy();
+    expect(screen.getByText('Error message')).toBeInTheDocument();
     // error duration is 5000ms — still visible at 4s
     await act(async () => { vi.advanceTimersByTime(4000); });
-    expect(screen.getByText('Error message')).toBeTruthy();
+    expect(screen.getByText('Error message')).toBeInTheDocument();
     // gone after 5s
     await act(async () => { vi.advanceTimersByTime(2000); });
     expect(screen.queryByText('Error message')).toBeNull();
@@ -106,6 +106,6 @@ describe('Toast', () => {
   it('sets dismiss button aria-label', async () => {
     render(<ToastProvider><TestComponent /></ToastProvider>);
     await act(async () => { screen.getByText('Show Success').click(); });
-    expect(screen.getByLabelText('Dismiss notification')).toBeTruthy();
+    expect(screen.getByLabelText('Dismiss notification')).toBeInTheDocument();
   });
 });

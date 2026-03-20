@@ -4,13 +4,13 @@ import StatCard from './StatCard';
 describe('StatCard', () => {
   it('renders label and value', () => {
     render(<StatCard label="Total Tasks" value={42} />);
-    expect(screen.getByText('Total Tasks')).toBeTruthy();
-    expect(screen.getByText('42')).toBeTruthy();
+    expect(screen.getByText('Total Tasks')).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
   });
 
   it('renders subtext when provided', () => {
     render(<StatCard label="Tasks" value={10} subtext="Last 7 days" />);
-    expect(screen.getByText('Last 7 days')).toBeTruthy();
+    expect(screen.getByText('Last 7 days')).toBeInTheDocument();
   });
 
   it('does not render subtext when not provided', () => {
@@ -24,7 +24,7 @@ describe('StatCard', () => {
     const { container } = render(<StatCard label="Rate" value="95%" trend={5} />);
     // trend > 0 shows green text with percentage
     const trendEl = container.querySelector('.text-green-400');
-    expect(trendEl).toBeTruthy();
+    expect(trendEl).toBeInTheDocument();
     expect(trendEl.textContent).toContain('5');
   });
 
@@ -32,7 +32,7 @@ describe('StatCard', () => {
     const { container } = render(<StatCard label="Rate" value="80%" trend={-3} />);
     // trend < 0 shows red text
     const trendEl = container.querySelector('.text-red-400');
-    expect(trendEl).toBeTruthy();
+    expect(trendEl).toBeInTheDocument();
     expect(trendEl.textContent).toContain('3');
   });
 
@@ -40,7 +40,7 @@ describe('StatCard', () => {
     const { container } = render(<StatCard label="Rate" value="90%" trend={0} />);
     // trend === 0 shows green text (>= 0 is green)
     const trendEl = container.querySelector('.text-green-400');
-    expect(trendEl).toBeTruthy();
+    expect(trendEl).toBeInTheDocument();
     expect(trendEl.textContent).toContain('0');
   });
 
@@ -51,7 +51,7 @@ describe('StatCard', () => {
 
   it('renders icon when provided', () => {
     render(<StatCard label="Tasks" value={5} icon="F" />);
-    expect(screen.getByText('F')).toBeTruthy();
+    expect(screen.getByText('F')).toBeInTheDocument();
   });
 
   it('does not render trend element when trend is undefined', () => {

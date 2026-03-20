@@ -54,14 +54,14 @@ describe('TaskSubmitForm', () => {
     renderWithProviders(<TaskSubmitForm />);
 
     // Form exists
-    expect(screen.getByTestId('task-submit-form')).toBeTruthy();
+    expect(screen.getByTestId('task-submit-form')).toBeInTheDocument();
 
     // Main elements — heading says "Submit Task", button also says "Submit Task"
     expect(screen.getAllByText('Submit Task').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByLabelText(/Task Description/)).toBeTruthy();
-    expect(screen.getByLabelText('Provider')).toBeTruthy();
-    expect(screen.getByLabelText('Model')).toBeTruthy();
-    expect(screen.getByLabelText('Working Directory')).toBeTruthy();
+    expect(screen.getByLabelText(/Task Description/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Provider')).toBeInTheDocument();
+    expect(screen.getByLabelText('Model')).toBeInTheDocument();
+    expect(screen.getByLabelText('Working Directory')).toBeInTheDocument();
   });
 
   it('populates provider dropdown from API', async () => {
@@ -87,7 +87,7 @@ describe('TaskSubmitForm', () => {
       const deepinfraOption = [...providerSelect.querySelectorAll('option')].find(
         (o) => o.value === 'deepinfra'
       );
-      expect(deepinfraOption).toBeTruthy();
+      expect(deepinfraOption).toBeInTheDocument();
       expect(deepinfraOption.disabled).toBe(true);
       expect(deepinfraOption.textContent).toContain('(disabled)');
     });
@@ -272,7 +272,7 @@ describe('TaskSubmitForm', () => {
     });
 
     // Form should still be visible (not closed on error)
-    expect(screen.getByTestId('task-submit-form')).toBeTruthy();
+    expect(screen.getByTestId('task-submit-form')).toBeInTheDocument();
   });
 
   it('shows submitting state while request is in flight', async () => {
@@ -286,7 +286,7 @@ describe('TaskSubmitForm', () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('Submitting...')).toBeTruthy();
+      expect(screen.getByText('Submitting...')).toBeInTheDocument();
     });
   });
 
@@ -295,7 +295,7 @@ describe('TaskSubmitForm', () => {
     renderWithProviders(<TaskSubmitForm onClose={onClose} />);
 
     const closeBtn = screen.getByLabelText('Close submit form');
-    expect(closeBtn).toBeTruthy();
+    expect(closeBtn).toBeInTheDocument();
     fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalled();
   });
@@ -343,7 +343,7 @@ describe('TaskSubmitForm', () => {
 
     // Form should still render
     await waitFor(() => {
-      expect(screen.getByTestId('task-submit-form')).toBeTruthy();
+      expect(screen.getByTestId('task-submit-form')).toBeInTheDocument();
     });
   });
 });

@@ -103,15 +103,15 @@ describe('Providers', () => {
   it('renders provider statistics heading', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('Provider Statistics')).toBeTruthy();
+      expect(screen.getByText('Provider Statistics')).toBeInTheDocument();
     });
   });
 
   it('renders provider cards after loading', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('ollama')).toBeTruthy();
-      expect(screen.getByText('codex')).toBeTruthy();
+      expect(screen.getByText('ollama')).toBeInTheDocument();
+      expect(screen.getByText('codex')).toBeInTheDocument();
     });
   });
 
@@ -122,7 +122,7 @@ describe('Providers', () => {
       const totalTasksElements = screen.getAllByText('Total Tasks');
       expect(totalTasksElements.length).toBeGreaterThanOrEqual(1);
       // "Providers" as summary label — only in summary StatCard
-      expect(screen.getByText('Providers')).toBeTruthy();
+      expect(screen.getByText('Providers')).toBeInTheDocument();
     });
   });
 
@@ -145,8 +145,8 @@ describe('Providers', () => {
   it('renders charts section', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('Usage Over Time')).toBeTruthy();
-      expect(screen.getByText('Provider Breakdown')).toBeTruthy();
+      expect(screen.getByText('Usage Over Time')).toBeInTheDocument();
+      expect(screen.getByText('Provider Breakdown')).toBeInTheDocument();
     });
   });
 
@@ -163,30 +163,30 @@ describe('Providers', () => {
     providersApi.list.mockResolvedValue([]);
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('No providers configured')).toBeTruthy();
+      expect(screen.getByText('No providers configured')).toBeInTheDocument();
     });
   });
 
   it('renders duration comparison chart', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('Average Duration by Provider')).toBeTruthy();
+      expect(screen.getByText('Average Duration by Provider')).toBeInTheDocument();
     });
   });
 
   it('renders overall success rate trend', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('Overall Success Rate Trend')).toBeTruthy();
+      expect(screen.getByText('Overall Success Rate Trend')).toBeInTheDocument();
     });
   });
 
   it('renders 7-day provider usage chart when history is available', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('7-Day Provider Usage')).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Requests' })).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Tokens' })).toBeTruthy();
+      expect(screen.getByText('7-Day Provider Usage')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Requests' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Tokens' })).toBeInTheDocument();
     });
   });
 
@@ -194,22 +194,22 @@ describe('Providers', () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
       // 50 + 20 = 70 total tasks
-      expect(screen.getByText('70')).toBeTruthy();
+      expect(screen.getByText('70')).toBeInTheDocument();
     });
   });
 
   it('shows hosts label in summary', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('Hosts')).toBeTruthy();
+      expect(screen.getByText('Hosts')).toBeInTheDocument();
     });
   });
 
   it('shows view mode toggle between Overview and Compare', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      expect(screen.getByText('Overview')).toBeTruthy();
-      expect(screen.getByText('Compare')).toBeTruthy();
+      expect(screen.getByText('Overview')).toBeInTheDocument();
+      expect(screen.getByText('Compare')).toBeInTheDocument();
     });
   });
 });

@@ -97,48 +97,48 @@ describe('Coordination', () => {
     coordinationApi.listRules.mockReturnValue(new Promise(() => {}));
     coordinationApi.listClaims.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Coordination />, { route: '/coordination' });
-    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('renders heading after data loads', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
   });
 
   it('renders subtitle text', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Multi-agent coordination, routing rules, and active claims')).toBeTruthy();
+      expect(screen.getByText('Multi-agent coordination, routing rules, and active claims')).toBeInTheDocument();
     });
   });
 
   it('displays Active Agents stat card', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Active Agents')).toBeTruthy();
+      expect(screen.getByText('Active Agents')).toBeInTheDocument();
     });
   });
 
   it('displays Tasks Claimed (24h) stat card', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Tasks Claimed (24h)')).toBeTruthy();
+      expect(screen.getByText('Tasks Claimed (24h)')).toBeInTheDocument();
     });
   });
 
   it('displays Failovers (24h) stat card', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Failovers (24h)')).toBeTruthy();
+      expect(screen.getByText('Failovers (24h)')).toBeInTheDocument();
     });
   });
 
   it('displays Routing Rules stat card', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Routing Rules')).toBeTruthy();
+      expect(screen.getByText('Routing Rules')).toBeInTheDocument();
     });
   });
 
@@ -147,52 +147,52 @@ describe('Coordination', () => {
   it('renders agents tab as active by default', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('codex-worker-1')).toBeTruthy();
+      expect(screen.getByText('codex-worker-1')).toBeInTheDocument();
     });
   });
 
   it('renders agent table headers', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Name')).toBeTruthy();
-      expect(screen.getByText('Status')).toBeTruthy();
-      expect(screen.getByText('Last Heartbeat')).toBeTruthy();
-      expect(screen.getByText('Capabilities')).toBeTruthy();
+      expect(screen.getByText('Name')).toBeInTheDocument();
+      expect(screen.getByText('Status')).toBeInTheDocument();
+      expect(screen.getByText('Last Heartbeat')).toBeInTheDocument();
+      expect(screen.getByText('Capabilities')).toBeInTheDocument();
     });
   });
 
   it('displays all agent names', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('codex-worker-1')).toBeTruthy();
-      expect(screen.getByText('ollama-worker-1')).toBeTruthy();
-      expect(screen.getByText('offline-worker')).toBeTruthy();
+      expect(screen.getByText('codex-worker-1')).toBeInTheDocument();
+      expect(screen.getByText('ollama-worker-1')).toBeInTheDocument();
+      expect(screen.getByText('offline-worker')).toBeInTheDocument();
     });
   });
 
   it('displays agent status badges', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('active')).toBeTruthy();
-      expect(screen.getByText('idle')).toBeTruthy();
-      expect(screen.getByText('offline')).toBeTruthy();
+      expect(screen.getByText('active')).toBeInTheDocument();
+      expect(screen.getByText('idle')).toBeInTheDocument();
+      expect(screen.getByText('offline')).toBeInTheDocument();
     });
   });
 
   it('displays capabilities as tags for agents with array capabilities', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('code-gen')).toBeTruthy();
-      expect(screen.getByText('test-gen')).toBeTruthy();
-      expect(screen.getByText('refactor')).toBeTruthy();
+      expect(screen.getByText('code-gen')).toBeInTheDocument();
+      expect(screen.getByText('test-gen')).toBeInTheDocument();
+      expect(screen.getByText('refactor')).toBeInTheDocument();
     });
   });
 
   it('displays capabilities from comma-separated string', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('docs')).toBeTruthy();
-      expect(screen.getByText('config')).toBeTruthy();
+      expect(screen.getByText('docs')).toBeInTheDocument();
+      expect(screen.getByText('config')).toBeInTheDocument();
     });
   });
 
@@ -200,7 +200,7 @@ describe('Coordination', () => {
     coordinationApi.listAgents.mockResolvedValue({ agents: [] });
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('No agents registered')).toBeTruthy();
+      expect(screen.getByText('No agents registered')).toBeInTheDocument();
     });
   });
 
@@ -209,9 +209,9 @@ describe('Coordination', () => {
   it('renders all three tab buttons', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('agents')).toBeTruthy();
-      expect(screen.getByText('rules')).toBeTruthy();
-      expect(screen.getByText('claims')).toBeTruthy();
+      expect(screen.getByText('agents')).toBeInTheDocument();
+      expect(screen.getByText('rules')).toBeInTheDocument();
+      expect(screen.getByText('claims')).toBeInTheDocument();
     });
   });
 
@@ -220,13 +220,13 @@ describe('Coordination', () => {
   it('switches to rules tab on click', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('rules'));
     await waitFor(() => {
-      expect(screen.getByText('Pattern')).toBeTruthy();
-      expect(screen.getByText('Target Provider')).toBeTruthy();
-      expect(screen.getByText('Priority')).toBeTruthy();
+      expect(screen.getByText('Pattern')).toBeInTheDocument();
+      expect(screen.getByText('Target Provider')).toBeInTheDocument();
+      expect(screen.getByText('Priority')).toBeInTheDocument();
       // "Enabled" appears as both a table header and a badge; use getAllByText
       const enabledElements = screen.getAllByText('Enabled');
       expect(enabledElements.length).toBeGreaterThanOrEqual(1);
@@ -236,49 +236,49 @@ describe('Coordination', () => {
   it('displays rule patterns in rules tab', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('rules'));
     await waitFor(() => {
-      expect(screen.getByText('*.test.*')).toBeTruthy();
-      expect(screen.getByText('*.docs.*')).toBeTruthy();
+      expect(screen.getByText('*.test.*')).toBeInTheDocument();
+      expect(screen.getByText('*.docs.*')).toBeInTheDocument();
     });
   });
 
   it('displays rule target providers', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('rules'));
     await waitFor(() => {
-      expect(screen.getByText('codex')).toBeTruthy();
-      expect(screen.getByText('ollama')).toBeTruthy();
+      expect(screen.getByText('codex')).toBeInTheDocument();
+      expect(screen.getByText('ollama')).toBeInTheDocument();
     });
   });
 
   it('shows model name alongside provider when present', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('rules'));
     await waitFor(() => {
-      expect(screen.getByText('(gpt-5.3-codex-spark)')).toBeTruthy();
+      expect(screen.getByText('(gpt-5.3-codex-spark)')).toBeInTheDocument();
     });
   });
 
   it('shows Enabled/Disabled badges for rules', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('rules'));
     await waitFor(() => {
       // "Enabled" appears as both header and badge; check that both exist
       const enabledElements = screen.getAllByText('Enabled');
       expect(enabledElements.length).toBe(2); // header + badge
-      expect(screen.getByText('Disabled')).toBeTruthy();
+      expect(screen.getByText('Disabled')).toBeInTheDocument();
     });
   });
 
@@ -286,11 +286,11 @@ describe('Coordination', () => {
     coordinationApi.listRules.mockResolvedValue({ rules: [] });
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('rules'));
     await waitFor(() => {
-      expect(screen.getByText('No routing rules configured')).toBeTruthy();
+      expect(screen.getByText('No routing rules configured')).toBeInTheDocument();
     });
   });
 
@@ -299,53 +299,53 @@ describe('Coordination', () => {
   it('switches to claims tab on click', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('claims'));
     await waitFor(() => {
-      expect(screen.getByText('Task ID')).toBeTruthy();
-      expect(screen.getByText('Agent')).toBeTruthy();
-      expect(screen.getByText('Claimed At')).toBeTruthy();
-      expect(screen.getByText('Expires At')).toBeTruthy();
+      expect(screen.getByText('Task ID')).toBeInTheDocument();
+      expect(screen.getByText('Agent')).toBeInTheDocument();
+      expect(screen.getByText('Claimed At')).toBeInTheDocument();
+      expect(screen.getByText('Expires At')).toBeInTheDocument();
     });
   });
 
   it('displays claim data in claims tab', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('claims'));
     await waitFor(() => {
-      expect(screen.getByText('codex-worker-1')).toBeTruthy();
-      expect(screen.getByText('ollama-worker-1')).toBeTruthy();
+      expect(screen.getByText('codex-worker-1')).toBeInTheDocument();
+      expect(screen.getByText('ollama-worker-1')).toBeInTheDocument();
     });
   });
 
   it('shows claim status badges', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('claims'));
     await waitFor(() => {
       // 'active' appears for agent status AND claim status - look for both
       const activeElements = screen.getAllByText('active');
       expect(activeElements.length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('expired')).toBeTruthy();
+      expect(screen.getByText('expired')).toBeInTheDocument();
     });
   });
 
   it('shows truncated task IDs in claims', async () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('claims'));
     await waitFor(() => {
       // task_id is truncated to first 8 chars: "task-abc" from "task-abc-12345678"
-      expect(screen.getByText('task-abc')).toBeTruthy();
-      expect(screen.getByText('task-def')).toBeTruthy();
+      expect(screen.getByText('task-abc')).toBeInTheDocument();
+      expect(screen.getByText('task-def')).toBeInTheDocument();
     });
   });
 
@@ -353,11 +353,11 @@ describe('Coordination', () => {
     coordinationApi.listClaims.mockResolvedValue({ claims: [] });
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('Coordination')).toBeTruthy();
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('claims'));
     await waitFor(() => {
-      expect(screen.getByText('No active claims')).toBeTruthy();
+      expect(screen.getByText('No active claims')).toBeInTheDocument();
     });
   });
 
@@ -367,7 +367,7 @@ describe('Coordination', () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
       // 42 from mockDashboard.tasks_claimed_24h
-      expect(screen.getByText('42')).toBeTruthy();
+      expect(screen.getByText('42')).toBeInTheDocument();
     });
   });
 
@@ -375,7 +375,7 @@ describe('Coordination', () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
       // 3 from mockDashboard.failovers_24h
-      expect(screen.getByText('3')).toBeTruthy();
+      expect(screen.getByText('3')).toBeInTheDocument();
     });
   });
 
@@ -383,7 +383,7 @@ describe('Coordination', () => {
     coordinationApi.getDashboard.mockResolvedValue({});
     renderWithProviders(<Coordination />, { route: '/coordination' });
     await waitFor(() => {
-      expect(screen.getByText('N/A')).toBeTruthy();
+      expect(screen.getByText('N/A')).toBeInTheDocument();
     });
   });
 });

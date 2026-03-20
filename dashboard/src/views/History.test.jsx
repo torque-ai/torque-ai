@@ -89,76 +89,76 @@ describe('History', () => {
 
   it('renders task history heading', async () => {
     renderWithProviders(<History />, { route: '/history' });
-    expect(screen.getByText('Task History')).toBeTruthy();
+    expect(screen.getByText('Task History')).toBeInTheDocument();
   });
 
   it('shows loading skeleton initially', () => {
     tasksApi.list.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<History />, { route: '/history' });
     const container = document.querySelector('.animate-pulse');
-    expect(container).toBeTruthy();
+    expect(container).toBeInTheDocument();
   });
 
   it('renders task descriptions after loading', async () => {
     renderWithProviders(<History />, { route: '/history' });
     await waitFor(() => {
-      expect(screen.getByText(/Build feature A/)).toBeTruthy();
-      expect(screen.getByText(/Fix broken tests/)).toBeTruthy();
+      expect(screen.getByText(/Build feature A/)).toBeInTheDocument();
+      expect(screen.getByText(/Fix broken tests/)).toBeInTheDocument();
     });
   });
 
   it('renders Export CSV button', () => {
     renderWithProviders(<History />, { route: '/history' });
-    expect(screen.getByText('Export CSV')).toBeTruthy();
+    expect(screen.getByText('Export CSV')).toBeInTheDocument();
   });
 
   it('renders search input', () => {
     renderWithProviders(<History />, { route: '/history' });
-    expect(screen.getByPlaceholderText('Search tasks...')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Search tasks...')).toBeInTheDocument();
   });
 
   it('renders status filter dropdown', () => {
     renderWithProviders(<History />, { route: '/history' });
-    expect(screen.getByText('All Statuses')).toBeTruthy();
+    expect(screen.getByText('All Statuses')).toBeInTheDocument();
   });
 
   it('renders provider filter dropdown', () => {
     renderWithProviders(<History />, { route: '/history' });
-    expect(screen.getByText('All Providers')).toBeTruthy();
+    expect(screen.getByText('All Providers')).toBeInTheDocument();
   });
 
   it('renders date preset buttons', async () => {
     renderWithProviders(<History />, { route: '/history' });
     await waitFor(() => {
-      expect(screen.getByText('All')).toBeTruthy();
-      expect(screen.getByText('Today')).toBeTruthy();
-      expect(screen.getByText('Last 7 Days')).toBeTruthy();
-      expect(screen.getByText('Last 30 Days')).toBeTruthy();
+      expect(screen.getByText('All')).toBeInTheDocument();
+      expect(screen.getByText('Today')).toBeInTheDocument();
+      expect(screen.getByText('Last 7 Days')).toBeInTheDocument();
+      expect(screen.getByText('Last 30 Days')).toBeInTheDocument();
     });
   });
 
   it('renders sortable column headers', async () => {
     renderWithProviders(<History />, { route: '/history' });
-    expect(screen.getByText('Status')).toBeTruthy();
-    expect(screen.getByText('Description')).toBeTruthy();
-    expect(screen.getByText('Provider')).toBeTruthy();
-    expect(screen.getByText('Duration')).toBeTruthy();
-    expect(screen.getByText('Created')).toBeTruthy();
+    expect(screen.getByText('Status')).toBeInTheDocument();
+    expect(screen.getByText('Description')).toBeInTheDocument();
+    expect(screen.getByText('Provider')).toBeInTheDocument();
+    expect(screen.getByText('Duration')).toBeInTheDocument();
+    expect(screen.getByText('Created')).toBeInTheDocument();
   });
 
   it('shows no tasks found when list is empty', async () => {
     tasksApi.list.mockResolvedValue({ tasks: [], pagination: { page: 1, totalPages: 1, total: 0 } });
     renderWithProviders(<History />, { route: '/history' });
     await waitFor(() => {
-      expect(screen.getByText('No tasks found')).toBeTruthy();
+      expect(screen.getByText('No tasks found')).toBeInTheDocument();
     });
   });
 
   it('renders pagination controls', async () => {
     renderWithProviders(<History />, { route: '/history' });
     await waitFor(() => {
-      expect(screen.getByText('Previous')).toBeTruthy();
-      expect(screen.getByText('Next')).toBeTruthy();
+      expect(screen.getByText('Previous')).toBeInTheDocument();
+      expect(screen.getByText('Next')).toBeInTheDocument();
     });
   });
 
@@ -171,14 +171,14 @@ describe('History', () => {
     renderWithProviders(<History />, { route: '/history' });
 
     await waitFor(() => {
-      expect(screen.getByText('Page 1 of 3 (51 total)')).toBeTruthy();
+      expect(screen.getByText('Page 1 of 3 (51 total)')).toBeInTheDocument();
     });
   });
 
   it('shows Retry button for failed tasks', async () => {
     renderWithProviders(<History />, { route: '/history' });
     await waitFor(() => {
-      expect(screen.getByText('Retry')).toBeTruthy();
+      expect(screen.getByText('Retry')).toBeInTheDocument();
     });
   });
 
@@ -233,7 +233,7 @@ describe('History', () => {
 
     const select = await screen.findByLabelText('Reassign provider for task task-queue-1');
     const disabledOption = Array.from(select.options).find((option) => option.value === 'ollama');
-    expect(disabledOption).toBeTruthy();
+    expect(disabledOption).toBeInTheDocument();
     expect(disabledOption.disabled).toBe(true);
     expect(disabledOption.textContent).toContain('(disabled)');
   });
@@ -279,8 +279,8 @@ describe('History', () => {
     renderWithProviders(<History />, { route: '/history' });
 
     await waitFor(() => {
-      expect(screen.getByText('First failed task')).toBeTruthy();
-      expect(screen.getByText('Second failed task')).toBeTruthy();
+      expect(screen.getByText('First failed task')).toBeInTheDocument();
+      expect(screen.getByText('Second failed task')).toBeInTheDocument();
     });
 
     const checkboxes = screen.getAllByRole('checkbox');
@@ -289,7 +289,7 @@ describe('History', () => {
     fireEvent.click(screen.getByText('Retry Selected'));
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeTruthy();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
     fireEvent.click(within(screen.getByRole('dialog')).getByText('Retry'));

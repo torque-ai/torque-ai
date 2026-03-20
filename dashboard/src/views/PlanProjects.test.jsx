@@ -63,7 +63,7 @@ describe('PlanProjects', () => {
   it('renders loading state initially', () => {
     projectsApi.list.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<PlanProjects />, { route: '/projects' });
-    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('consumes the v2 unwrapped array response shape', async () => {
@@ -71,7 +71,7 @@ describe('PlanProjects', () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
       expect(projectsApi.list).toHaveBeenCalled();
-      expect(screen.getByText('Feature Alpha')).toBeTruthy();
+      expect(screen.getByText('Feature Alpha')).toBeInTheDocument();
       expect(screen.queryByText('No projects yet')).toBeNull();
     });
   });
@@ -79,74 +79,74 @@ describe('PlanProjects', () => {
   it('renders heading after loading', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('Plan Projects')).toBeTruthy();
+      expect(screen.getByText('Plan Projects')).toBeInTheDocument();
     });
   });
 
   it('displays project names', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('Feature Alpha')).toBeTruthy();
-      expect(screen.getByText('Feature Beta')).toBeTruthy();
+      expect(screen.getByText('Feature Alpha')).toBeInTheDocument();
+      expect(screen.getByText('Feature Beta')).toBeInTheDocument();
     });
   });
 
   it('shows project status badges', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('active')).toBeTruthy();
-      expect(screen.getByText('completed')).toBeTruthy();
+      expect(screen.getByText('active')).toBeInTheDocument();
+      expect(screen.getByText('completed')).toBeInTheDocument();
     });
   });
 
   it('shows progress percentages', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('60%')).toBeTruthy();
-      expect(screen.getByText('100%')).toBeTruthy();
+      expect(screen.getByText('60%')).toBeInTheDocument();
+      expect(screen.getByText('100%')).toBeInTheDocument();
     });
   });
 
   it('shows task counts', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('6/10 tasks')).toBeTruthy();
-      expect(screen.getByText('5/5 tasks')).toBeTruthy();
+      expect(screen.getByText('6/10 tasks')).toBeInTheDocument();
+      expect(screen.getByText('5/5 tasks')).toBeInTheDocument();
     });
   });
 
   it('renders Import Plan button', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('Import Plan')).toBeTruthy();
+      expect(screen.getByText('Import Plan')).toBeInTheDocument();
     });
   });
 
   it('renders Pause button for active projects', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('Pause')).toBeTruthy();
+      expect(screen.getByText('Pause')).toBeInTheDocument();
     });
   });
 
   it('renders Retry Failed button for projects with failures', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('Retry Failed')).toBeTruthy();
+      expect(screen.getByText('Retry Failed')).toBeInTheDocument();
     });
   });
 
   it('shows failed task count', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('1 failed task')).toBeTruthy();
+      expect(screen.getByText('1 failed task')).toBeInTheDocument();
     });
   });
 
   it('renders search input when projects exist', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByPlaceholderText('Search projects...')).toBeTruthy();
+      expect(screen.getByPlaceholderText('Search projects...')).toBeInTheDocument();
     });
   });
 
@@ -155,8 +155,8 @@ describe('PlanProjects', () => {
     await waitFor(() => {
       // All tab is first
       expect(screen.getAllByText('All').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('Active')).toBeTruthy();
-      expect(screen.getByText('Paused')).toBeTruthy();
+      expect(screen.getByText('Active')).toBeInTheDocument();
+      expect(screen.getByText('Paused')).toBeInTheDocument();
     });
   });
 
@@ -164,20 +164,20 @@ describe('PlanProjects', () => {
     projectsApi.list.mockResolvedValue([]);
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('No projects yet')).toBeTruthy();
+      expect(screen.getByText('No projects yet')).toBeInTheDocument();
     });
   });
 
   it('shows delete confirmation dialog on delete', async () => {
     renderWithProviders(<PlanProjects />, { route: '/projects' });
     await waitFor(() => {
-      expect(screen.getByText('Feature Alpha')).toBeTruthy();
+      expect(screen.getByText('Feature Alpha')).toBeInTheDocument();
     });
     const deleteButtons = screen.getAllByText('Delete');
     fireEvent.click(deleteButtons[0]);
     await waitFor(() => {
-      expect(screen.getByText('Delete Project')).toBeTruthy();
-      expect(screen.getByText(/Are you sure/)).toBeTruthy();
+      expect(screen.getByText('Delete Project')).toBeInTheDocument();
+      expect(screen.getByText(/Are you sure/)).toBeInTheDocument();
     });
   });
 });

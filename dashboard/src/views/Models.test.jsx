@@ -68,30 +68,30 @@ describe('Models', () => {
   it('renders loading state initially', () => {
     statsApi.models.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Models />, { route: '/models' });
-    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('renders heading after loading', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('Models')).toBeTruthy();
+      expect(screen.getByText('Models')).toBeInTheDocument();
     });
   });
 
   it('displays summary stat cards', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('Total Tasks')).toBeTruthy();
-      expect(screen.getByText('Success Rate')).toBeTruthy();
-      expect(screen.getByText('Models Used')).toBeTruthy();
-      expect(screen.getByText('Est. Cost')).toBeTruthy();
+      expect(screen.getByText('Total Tasks')).toBeInTheDocument();
+      expect(screen.getByText('Success Rate')).toBeInTheDocument();
+      expect(screen.getByText('Models Used')).toBeInTheDocument();
+      expect(screen.getByText('Est. Cost')).toBeInTheDocument();
     });
   });
 
   it('shows correct total tasks count', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('50')).toBeTruthy(); // 30 + 20
+      expect(screen.getByText('50')).toBeInTheDocument(); // 30 + 20
     });
   });
 
@@ -106,51 +106,51 @@ describe('Models', () => {
   it('renders per-model breakdown table', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('Per-Model Breakdown')).toBeTruthy();
+      expect(screen.getByText('Per-Model Breakdown')).toBeInTheDocument();
     });
   });
 
   it('displays model names in table', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('qwen3:8b')).toBeTruthy();
-      expect(screen.getByText('gpt-5.3-codex-spark')).toBeTruthy();
+      expect(screen.getByText('qwen3:8b')).toBeInTheDocument();
+      expect(screen.getByText('gpt-5.3-codex-spark')).toBeInTheDocument();
     });
   });
 
   it('shows success rate chart', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('Success Rate by Model')).toBeTruthy();
+      expect(screen.getByText('Success Rate by Model')).toBeInTheDocument();
     });
   });
 
   it('shows daily tasks chart', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('Tasks per Day by Model')).toBeTruthy();
+      expect(screen.getByText('Tasks per Day by Model')).toBeInTheDocument();
     });
   });
 
   it('renders day filter buttons (7d, 14d, 30d)', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('7d')).toBeTruthy();
-      expect(screen.getByText('14d')).toBeTruthy();
-      expect(screen.getByText('30d')).toBeTruthy();
+      expect(screen.getByText('7d')).toBeInTheDocument();
+      expect(screen.getByText('14d')).toBeInTheDocument();
+      expect(screen.getByText('30d')).toBeInTheDocument();
     });
   });
 
   it('shows table column headers', async () => {
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText('Model')).toBeTruthy();
-      expect(screen.getByText('Tasks')).toBeTruthy();
-      expect(screen.getByText('Success')).toBeTruthy();
-      expect(screen.getByText('Rate')).toBeTruthy();
-      expect(screen.getByText('Avg Duration')).toBeTruthy();
-      expect(screen.getByText('Cost')).toBeTruthy();
-      expect(screen.getByText('Providers')).toBeTruthy();
+      expect(screen.getByText('Model')).toBeInTheDocument();
+      expect(screen.getByText('Tasks')).toBeInTheDocument();
+      expect(screen.getByText('Success')).toBeInTheDocument();
+      expect(screen.getByText('Rate')).toBeInTheDocument();
+      expect(screen.getByText('Avg Duration')).toBeInTheDocument();
+      expect(screen.getByText('Cost')).toBeInTheDocument();
+      expect(screen.getByText('Providers')).toBeInTheDocument();
     });
   });
 
@@ -158,7 +158,7 @@ describe('Models', () => {
     statsApi.models.mockResolvedValue({ models: [], dailySeries: [] });
     renderWithProviders(<Models />, { route: '/models' });
     await waitFor(() => {
-      expect(screen.getByText(/No model data/)).toBeTruthy();
+      expect(screen.getByText(/No model data/)).toBeInTheDocument();
     });
   });
 });

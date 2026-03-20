@@ -114,23 +114,23 @@ describe('Workflows', () => {
     workflowsApi.list.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Workflows />, { route: '/workflows' });
     const skeleton = document.querySelector('.animate-pulse');
-    expect(skeleton).toBeTruthy();
+    expect(skeleton).toBeInTheDocument();
   });
 
   it('renders heading after loading', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('Workflows')).toBeTruthy();
+      expect(screen.getByText('Workflows')).toBeInTheDocument();
     });
   });
 
   it('displays summary stat cards', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('Total Workflows')).toBeTruthy();
-      expect(screen.getByText('Success Rate')).toBeTruthy();
-      expect(screen.getByText('Avg Duration')).toBeTruthy();
-      expect(screen.getByText('Active')).toBeTruthy();
+      expect(screen.getByText('Total Workflows')).toBeInTheDocument();
+      expect(screen.getByText('Success Rate')).toBeInTheDocument();
+      expect(screen.getByText('Avg Duration')).toBeInTheDocument();
+      expect(screen.getByText('Active')).toBeInTheDocument();
     });
   });
 
@@ -138,55 +138,55 @@ describe('Workflows', () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
       // Total workflows = 3
-      expect(screen.getByText('3')).toBeTruthy();
+      expect(screen.getByText('3')).toBeInTheDocument();
     });
   });
 
   it('renders workflow names in table', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('Feature Workflow A')).toBeTruthy();
-      expect(screen.getByText('Feature Workflow B')).toBeTruthy();
-      expect(screen.getByText('Feature Workflow C')).toBeTruthy();
+      expect(screen.getByText('Feature Workflow A')).toBeInTheDocument();
+      expect(screen.getByText('Feature Workflow B')).toBeInTheDocument();
+      expect(screen.getByText('Feature Workflow C')).toBeInTheDocument();
     });
   });
 
   it('shows status badges', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('completed')).toBeTruthy();
-      expect(screen.getByText('running')).toBeTruthy();
-      expect(screen.getByText('failed')).toBeTruthy();
+      expect(screen.getByText('completed')).toBeInTheDocument();
+      expect(screen.getByText('running')).toBeInTheDocument();
+      expect(screen.getByText('failed')).toBeInTheDocument();
     });
   });
 
   it('renders status filter buttons', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('All')).toBeTruthy();
-      expect(screen.getByText('Running')).toBeTruthy();
-      expect(screen.getByText('Completed')).toBeTruthy();
-      expect(screen.getByText('Failed')).toBeTruthy();
-      expect(screen.getByText('Pending')).toBeTruthy();
-      expect(screen.getByText('Cancelled')).toBeTruthy();
+      expect(screen.getByText('All')).toBeInTheDocument();
+      expect(screen.getByText('Running')).toBeInTheDocument();
+      expect(screen.getByText('Completed')).toBeInTheDocument();
+      expect(screen.getByText('Failed')).toBeInTheDocument();
+      expect(screen.getByText('Pending')).toBeInTheDocument();
+      expect(screen.getByText('Cancelled')).toBeInTheDocument();
     });
   });
 
   it('shows table column headers', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('Name')).toBeTruthy();
-      expect(screen.getByText('Status')).toBeTruthy();
-      expect(screen.getByText('Progress')).toBeTruthy();
-      expect(screen.getByText('Duration')).toBeTruthy();
-      expect(screen.getByText('Created')).toBeTruthy();
+      expect(screen.getByText('Name')).toBeInTheDocument();
+      expect(screen.getByText('Status')).toBeInTheDocument();
+      expect(screen.getByText('Progress')).toBeInTheDocument();
+      expect(screen.getByText('Duration')).toBeInTheDocument();
+      expect(screen.getByText('Created')).toBeInTheDocument();
     });
   });
 
   it('renders refresh button', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByTitle('Refresh')).toBeTruthy();
+      expect(screen.getByTitle('Refresh')).toBeInTheDocument();
     });
   });
 
@@ -194,14 +194,14 @@ describe('Workflows', () => {
     workflowsApi.list.mockResolvedValue([]);
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('No workflows found')).toBeTruthy();
+      expect(screen.getByText('No workflows found')).toBeInTheDocument();
     });
   });
 
   it('displays failed task count in progress column', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('(2 failed)')).toBeTruthy();
+      expect(screen.getByText('(2 failed)')).toBeInTheDocument();
     });
   });
 
@@ -209,7 +209,7 @@ describe('Workflows', () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
       // Workflow A: 6/6, Workflow B: 2/4, Workflow C: 1/3
-      expect(screen.getByText('6')).toBeTruthy();
+      expect(screen.getByText('6')).toBeInTheDocument();
     });
   });
 
@@ -219,27 +219,28 @@ describe('Workflows', () => {
     setStorageValue('torque-pinned', '{bad');
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('Workflows')).toBeTruthy();
-      expect(screen.getByText('Feature Workflow A')).toBeTruthy();
-      expect(screen.getByText('Feature Workflow B')).toBeTruthy();
-      expect(screen.getByText('Feature Workflow C')).toBeTruthy();
+      expect(screen.getByText('Workflows')).toBeInTheDocument();
+      expect(screen.getByText('Feature Workflow A')).toBeInTheDocument();
+      expect(screen.getByText('Feature Workflow B')).toBeInTheDocument();
+      expect(screen.getByText('Feature Workflow C')).toBeInTheDocument();
     });
   });
 
   it('uses default behavior when expected localStorage keys are absent', async () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('Workflows')).toBeTruthy();
-      expect(screen.getByText('Total Workflows')).toBeTruthy();
-      expect(screen.getByText('All')).toBeTruthy();
+      expect(screen.getByText('Workflows')).toBeInTheDocument();
+      expect(screen.getByText('Total Workflows')).toBeInTheDocument();
+      expect(screen.getByText('All')).toBeInTheDocument();
     });
   });
 
+  // Smoke test: verifies component doesn't corrupt persisted localStorage
   it('persists and reloads Array values in localStorage', async () => {
     localStorage.setItem('torque-workflow-columns', JSON.stringify(['status', 'progress']));
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('Feature Workflow A')).toBeTruthy();
+      expect(screen.getByText('Feature Workflow A')).toBeInTheDocument();
     });
 
     const persisted = JSON.parse(localStorage.getItem('torque-workflow-columns') || '[]');
@@ -247,12 +248,13 @@ describe('Workflows', () => {
     expect(persisted).toEqual(['status', 'progress']);
   });
 
+  // Smoke test: verifies component doesn't corrupt persisted localStorage
   it('supports Set-like values encoded as arrays in localStorage', async () => {
     localStorage.setItem('torque-hidden-cols', JSON.stringify(['status', 'duration']));
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('All')).toBeTruthy();
-      expect(screen.getByText('running')).toBeTruthy();
+      expect(screen.getByText('All')).toBeInTheDocument();
+      expect(screen.getByText('running')).toBeInTheDocument();
     });
 
     const asSet = new Set(JSON.parse(localStorage.getItem('torque-hidden-cols') || '[]'));
@@ -264,8 +266,8 @@ describe('Workflows', () => {
     setStorageValue('torque-workflow-columns', '{"bad');
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('Workflows')).toBeTruthy();
-      expect(screen.getByText('Feature Workflow A')).toBeTruthy();
+      expect(screen.getByText('Workflows')).toBeInTheDocument();
+      expect(screen.getByText('Feature Workflow A')).toBeInTheDocument();
     });
   });
 
@@ -274,27 +276,27 @@ describe('Workflows', () => {
     renderWithProviders(<Workflows />, { route: '/workflows' });
 
     await waitFor(() => {
-      expect(screen.getByText('Feature Workflow A')).toBeTruthy();
+      expect(screen.getByText('Feature Workflow A')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('Feature Workflow A'));
 
     await waitFor(() => {
       expect(workflowsApi.get).toHaveBeenCalledWith('wf-1');
-      expect(screen.getByText('Task DAG')).toBeTruthy();
-      expect(screen.getByText('Cost: $0.0075')).toBeTruthy();
+      expect(screen.getByText('Task DAG')).toBeInTheDocument();
+      expect(screen.getByText('Cost: $0.0075')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('Table'));
 
     await waitFor(() => {
-      expect(screen.getByText('Compile generated types')).toBeTruthy();
-      expect(screen.getByText('Run integration verification')).toBeTruthy();
-      expect(screen.getByText('depends on: task-compile')).toBeTruthy();
-      expect(screen.getByText('codex')).toBeTruthy();
-      expect(screen.getByText('claude-cli')).toBeTruthy();
-      expect(screen.getByText('gpt-5.1')).toBeTruthy();
-      expect(screen.getByText('claude-3.7-sonnet')).toBeTruthy();
+      expect(screen.getByText('Compile generated types')).toBeInTheDocument();
+      expect(screen.getByText('Run integration verification')).toBeInTheDocument();
+      expect(screen.getByText('depends on: task-compile')).toBeInTheDocument();
+      expect(screen.getByText('codex')).toBeInTheDocument();
+      expect(screen.getByText('claude-cli')).toBeInTheDocument();
+      expect(screen.getByText('gpt-5.1')).toBeInTheDocument();
+      expect(screen.getByText('claude-3.7-sonnet')).toBeInTheDocument();
     });
   });
 });

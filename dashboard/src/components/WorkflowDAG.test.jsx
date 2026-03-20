@@ -53,16 +53,16 @@ describe('WorkflowDAG', () => {
     const svg = screen.getByTestId('workflow-dag-svg');
     const nodeGroups = container.querySelectorAll('g[data-testid^="dag-node-"]');
 
-    expect(svg).toBeDefined();
+    expect(svg).toBeInTheDocument();
     expect(nodeGroups.length).toBe(baseWorkflow.length);
   });
 
   it('renders the full set of expected node IDs', () => {
     render(<WorkflowDAG tasks={baseWorkflow} />);
-    expect(screen.getByTestId('dag-node-types')).toBeDefined();
-    expect(screen.getByTestId('dag-node-transform')).toBeDefined();
-    expect(screen.getByTestId('dag-node-system')).toBeDefined();
-    expect(screen.getByTestId('dag-node-tests')).toBeDefined();
+    expect(screen.getByTestId('dag-node-types')).toBeInTheDocument();
+    expect(screen.getByTestId('dag-node-transform')).toBeInTheDocument();
+    expect(screen.getByTestId('dag-node-system')).toBeInTheDocument();
+    expect(screen.getByTestId('dag-node-tests')).toBeInTheDocument();
   });
 
   it('renders edges between dependent tasks using marker-end paths', () => {
@@ -86,8 +86,8 @@ describe('WorkflowDAG', () => {
     const edges = container.querySelectorAll('path[marker-end]');
 
     expect(edges.length).toBe(1);
-    expect(container.querySelector('[data-testid="dag-node-ingest"]')).toBeDefined();
-    expect(container.querySelector('[data-testid="dag-node-enrich"]')).toBeDefined();
+    expect(container.querySelector('[data-testid="dag-node-ingest"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="dag-node-enrich"]')).not.toBeNull();
   });
 
   it('calls onOpenDrawer with task id when node is clicked', () => {
@@ -205,13 +205,13 @@ describe('WorkflowDAG', () => {
     const { container } = render(<WorkflowDAG tasks={workflow} />);
     const node = container.querySelector('[data-testid="dag-node-task-id-fallback"]');
 
-    expect(node).toBeDefined();
+    expect(node).not.toBeNull();
     expect(getNodeLabel(node)).toBe('task-id-fallback');
   });
 
   it('handles empty workflow without crashes', () => {
     const { container } = render(<WorkflowDAG tasks={[]} />);
-    expect(screen.getByText('No tasks to visualize')).toBeDefined();
+    expect(screen.getByText('No tasks to visualize')).toBeInTheDocument();
     expect(container.querySelector('svg')).toBeNull();
   });
 
@@ -222,8 +222,8 @@ describe('WorkflowDAG', () => {
     ];
     const { container } = render(<WorkflowDAG tasks={tasks} />);
 
-    expect(screen.getByTestId('dag-node-solo')).toBeDefined();
-    expect(screen.getByTestId('dag-node-solo2')).toBeDefined();
+    expect(screen.getByTestId('dag-node-solo')).toBeInTheDocument();
+    expect(screen.getByTestId('dag-node-solo2')).toBeInTheDocument();
     expect(container.querySelectorAll('path[marker-end]').length).toBe(0);
   });
 

@@ -28,7 +28,7 @@ describe('Layout', () => {
     expect(torqueElements.length).toBeGreaterThanOrEqual(1);
     // The h1 branding element specifically
     const h1 = torqueElements.find(el => el.tagName === 'H1');
-    expect(h1).toBeTruthy();
+    expect(h1).toBeInTheDocument();
   });
 
   it('renders navigation items', () => {
@@ -44,32 +44,32 @@ describe('Layout', () => {
 
   it('renders child route content', () => {
     renderLayout({}, '/');
-    expect(screen.getByText('Kanban Content')).toBeTruthy();
+    expect(screen.getByText('Kanban Content')).toBeInTheDocument();
   });
 
   it('shows connected status', () => {
     renderLayout({ isConnected: true });
-    expect(screen.getByText('Connected')).toBeTruthy();
+    expect(screen.getByText('Connected')).toBeInTheDocument();
   });
 
   it('shows reconnecting status', () => {
     renderLayout({ isConnected: false, isReconnecting: true });
-    expect(screen.getByText('Reconnecting...')).toBeTruthy();
+    expect(screen.getByText('Reconnecting...')).toBeInTheDocument();
   });
 
   it('shows disconnected status', () => {
     renderLayout({ isConnected: false, isReconnecting: false });
-    expect(screen.getByText('Disconnected')).toBeTruthy();
+    expect(screen.getByText('Disconnected')).toBeInTheDocument();
   });
 
   it('shows notification badge when alerts exist', () => {
     renderLayout({ failedCount: 3, stuckCount: 2 });
-    expect(screen.getByText('5')).toBeTruthy();
+    expect(screen.getByText('5')).toBeInTheDocument();
   });
 
   it('shows 9+ for large alert counts', () => {
     renderLayout({ failedCount: 7, stuckCount: 5 });
-    expect(screen.getByText('9+')).toBeTruthy();
+    expect(screen.getByText('9+')).toBeInTheDocument();
   });
 
   it('shows breadcrumb for current route', () => {
@@ -78,19 +78,19 @@ describe('Layout', () => {
     const providersElements = screen.getAllByText('Providers');
     // At least one is the breadcrumb (font-medium class)
     const breadcrumb = providersElements.find(el => el.className.includes('font-medium'));
-    expect(breadcrumb).toBeTruthy();
+    expect(breadcrumb).toBeInTheDocument();
   });
 
   it('shows keyboard shortcut hint', () => {
     renderLayout();
-    expect(screen.getByText('?')).toBeTruthy();
+    expect(screen.getByText('?')).toBeInTheDocument();
   });
 
   it('renders all navigation items from route config', () => {
     renderLayout();
-    expect(screen.getByText('Workflows')).toBeTruthy();
-    expect(screen.getByText('Infrastructure')).toBeTruthy();
-    expect(screen.getByText('Operations')).toBeTruthy();
+    expect(screen.getByText('Workflows')).toBeInTheDocument();
+    expect(screen.getByText('Infrastructure')).toBeInTheDocument();
+    expect(screen.getByText('Operations')).toBeInTheDocument();
     expect(screen.queryByText('Batches')).toBeNull();
     expect(screen.queryByText('Projects')).toBeNull();
     expect(screen.queryByText('Hosts')).toBeNull();
@@ -102,7 +102,7 @@ describe('Layout', () => {
     renderLayout({ failedCount: 0, stuckCount: 0 });
     // The bell icon exists but no count badge
     const bellButton = screen.getByLabelText('Notifications: no alerts');
-    expect(bellButton).toBeTruthy();
+    expect(bellButton).toBeInTheDocument();
     // No badge number should appear in the bell area
     expect(bellButton.querySelector('.bg-red-500')).toBeNull();
   });

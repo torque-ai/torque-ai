@@ -73,13 +73,13 @@ describe('Approvals', () => {
     approvalsApi.listPending.mockReturnValue(new Promise(() => {}));
     approvalsApi.getHistory.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Approvals />, { route: '/approvals' });
-    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('renders heading after data loads', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Approvals')).toBeTruthy();
+      expect(screen.getByText('Approvals')).toBeInTheDocument();
     });
   });
 
@@ -93,7 +93,7 @@ describe('Approvals', () => {
   it('renders subtitle text', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Review and act on pending approval requests')).toBeTruthy();
+      expect(screen.getByText('Review and act on pending approval requests')).toBeInTheDocument();
     });
   });
 
@@ -109,14 +109,14 @@ describe('Approvals', () => {
   it('displays Approved Today stat card', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Approved Today')).toBeTruthy();
+      expect(screen.getByText('Approved Today')).toBeInTheDocument();
     });
   });
 
   it('displays Rejected Today stat card', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Rejected Today')).toBeTruthy();
+      expect(screen.getByText('Rejected Today')).toBeInTheDocument();
     });
   });
 
@@ -124,26 +124,26 @@ describe('Approvals', () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
       // Pending tab button exists; the pending table is shown
-      expect(screen.getByText('Deploy production build')).toBeTruthy();
+      expect(screen.getByText('Deploy production build')).toBeInTheDocument();
     });
   });
 
   it('renders pending approvals from the v2 array response shape', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Deploy production build')).toBeTruthy();
-      expect(screen.getByText('Delete staging database')).toBeTruthy();
+      expect(screen.getByText('Deploy production build')).toBeInTheDocument();
+      expect(screen.getByText('Delete staging database')).toBeInTheDocument();
     });
   });
 
   it('renders pending table headers', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('ID')).toBeTruthy();
-      expect(screen.getByText('Description')).toBeTruthy();
-      expect(screen.getByText('Rule')).toBeTruthy();
-      expect(screen.getByText('Created At')).toBeTruthy();
-      expect(screen.getByText('Actions')).toBeTruthy();
+      expect(screen.getByText('ID')).toBeInTheDocument();
+      expect(screen.getByText('Description')).toBeInTheDocument();
+      expect(screen.getByText('Rule')).toBeInTheDocument();
+      expect(screen.getByText('Created At')).toBeInTheDocument();
+      expect(screen.getByText('Actions')).toBeInTheDocument();
     });
   });
 
@@ -160,8 +160,8 @@ describe('Approvals', () => {
   it('renders rule names for pending items', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('production-deploy')).toBeTruthy();
-      expect(screen.getByText('destructive-action')).toBeTruthy();
+      expect(screen.getByText('production-deploy')).toBeInTheDocument();
+      expect(screen.getByText('destructive-action')).toBeInTheDocument();
     });
   });
 
@@ -169,39 +169,39 @@ describe('Approvals', () => {
     approvalsApi.listPending.mockResolvedValue([]);
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('No pending approvals')).toBeTruthy();
+      expect(screen.getByText('No pending approvals')).toBeInTheDocument();
     });
   });
 
   it('switches to history tab on click', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Approvals')).toBeTruthy();
+      expect(screen.getByText('Approvals')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('History'));
     await waitFor(() => {
-      expect(screen.getByText('Run migration script')).toBeTruthy();
-      expect(screen.getByText('Scale down workers')).toBeTruthy();
+      expect(screen.getByText('Run migration script')).toBeInTheDocument();
+      expect(screen.getByText('Scale down workers')).toBeInTheDocument();
     });
   });
 
   it('shows history table headers', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Approvals')).toBeTruthy();
+      expect(screen.getByText('Approvals')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('History'));
     await waitFor(() => {
-      expect(screen.getByText('Decision')).toBeTruthy();
-      expect(screen.getByText('Decided By')).toBeTruthy();
-      expect(screen.getByText('Decided At')).toBeTruthy();
+      expect(screen.getByText('Decision')).toBeInTheDocument();
+      expect(screen.getByText('Decided By')).toBeInTheDocument();
+      expect(screen.getByText('Decided At')).toBeInTheDocument();
     });
   });
 
   it('shows decision badges in history', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Approvals')).toBeTruthy();
+      expect(screen.getByText('Approvals')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('History'));
     await waitFor(() => {
@@ -215,14 +215,14 @@ describe('Approvals', () => {
   it('shows decided by names in history', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Approvals')).toBeTruthy();
+      expect(screen.getByText('Approvals')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('History'));
     await waitFor(() => {
       // "admin" appears twice (two approved history items decided by admin)
       const adminElements = screen.getAllByText('admin');
       expect(adminElements.length).toBe(2);
-      expect(screen.getByText('ops-lead')).toBeTruthy();
+      expect(screen.getByText('ops-lead')).toBeInTheDocument();
     });
   });
 
@@ -230,11 +230,11 @@ describe('Approvals', () => {
     approvalsApi.getHistory.mockResolvedValue([]);
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Approvals')).toBeTruthy();
+      expect(screen.getByText('Approvals')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('History'));
     await waitFor(() => {
-      expect(screen.getByText('No approval history')).toBeTruthy();
+      expect(screen.getByText('No approval history')).toBeInTheDocument();
     });
   });
 
@@ -289,8 +289,8 @@ describe('Approvals', () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
       // truncateId takes first 8 chars
-      expect(screen.getByText('appr-001')).toBeTruthy();
-      expect(screen.getByText('appr-002')).toBeTruthy();
+      expect(screen.getByText('appr-001')).toBeInTheDocument();
+      expect(screen.getByText('appr-002')).toBeInTheDocument();
     });
   });
 
@@ -298,7 +298,7 @@ describe('Approvals', () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
       // task_id is truncated and shown as "Task: xxxxxxxx"
-      expect(screen.getByText('Task: task-999')).toBeTruthy();
+      expect(screen.getByText('Task: task-999')).toBeInTheDocument();
     });
   });
 });

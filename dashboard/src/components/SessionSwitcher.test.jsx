@@ -50,7 +50,7 @@ describe('SessionSwitcher', () => {
 
   async function openDropdown(trigger) {
     fireEvent.click(trigger);
-    expect(screen.getByText('Active Sessions')).toBeTruthy();
+    expect(screen.getByText('Active Sessions')).toBeInTheDocument();
     await flushFakeTimerEffects(0);
   }
 
@@ -77,25 +77,25 @@ describe('SessionSwitcher', () => {
 
   it('renders session button with shortId', () => {
     render(<SessionSwitcher shortId="abc123" instanceId="inst-abc123" />);
-    expect(screen.getByText('abc123')).toBeTruthy();
+    expect(screen.getByText('abc123')).toBeInTheDocument();
   });
 
   it('renders green status dot', () => {
     const { container } = render(<SessionSwitcher shortId="abc123" instanceId="inst-abc123" />);
     const dot = container.querySelector('.bg-green-500');
-    expect(dot).toBeTruthy();
+    expect(dot).toBeInTheDocument();
   });
 
   it('shows ellipsis when shortId is not provided', () => {
     render(<SessionSwitcher instanceId="inst-abc123" />);
-    expect(screen.getByText('...')).toBeTruthy();
+    expect(screen.getByText('...')).toBeInTheDocument();
   });
 
   it('opens dropdown on click', async () => {
     render(<SessionSwitcher shortId="abc123" instanceId="inst-abc123" />);
     fireEvent.click(screen.getByText('abc123'));
     await waitFor(() => {
-      expect(screen.getByText('Active Sessions')).toBeTruthy();
+      expect(screen.getByText('Active Sessions')).toBeInTheDocument();
     });
   });
 
@@ -105,7 +105,7 @@ describe('SessionSwitcher', () => {
     await waitFor(() => {
       // abc123 appears in button + dropdown instance list
       expect(screen.getAllByText('abc123').length).toBeGreaterThanOrEqual(2);
-      expect(screen.getByText('def456')).toBeTruthy();
+      expect(screen.getByText('def456')).toBeInTheDocument();
     });
   });
 
@@ -113,7 +113,7 @@ describe('SessionSwitcher', () => {
     render(<SessionSwitcher shortId="abc123" instanceId="inst-abc123" />);
     fireEvent.click(screen.getByText('abc123'));
     await waitFor(() => {
-      expect(screen.getByText('current')).toBeTruthy();
+      expect(screen.getByText('current')).toBeInTheDocument();
     });
   });
 
@@ -121,8 +121,8 @@ describe('SessionSwitcher', () => {
     render(<SessionSwitcher shortId="abc123" instanceId="inst-abc123" />);
     fireEvent.click(screen.getByText('abc123'));
     await waitFor(() => {
-      expect(screen.getByText('PID 1234')).toBeTruthy();
-      expect(screen.getByText('PID 5678')).toBeTruthy();
+      expect(screen.getByText('PID 1234')).toBeInTheDocument();
+      expect(screen.getByText('PID 5678')).toBeInTheDocument();
     });
   });
 
@@ -130,8 +130,8 @@ describe('SessionSwitcher', () => {
     render(<SessionSwitcher shortId="abc123" instanceId="inst-abc123" />);
     fireEvent.click(screen.getByText('abc123'));
     await waitFor(() => {
-      expect(screen.getByText(':3456')).toBeTruthy();
-      expect(screen.getByText(':3457')).toBeTruthy();
+      expect(screen.getByText(':3456')).toBeInTheDocument();
+      expect(screen.getByText(':3457')).toBeInTheDocument();
     });
   });
 
@@ -140,7 +140,7 @@ describe('SessionSwitcher', () => {
     render(<SessionSwitcher shortId="abc123" instanceId="inst-abc123" />);
     fireEvent.click(screen.getByText('abc123'));
     await waitFor(() => {
-      expect(screen.getByText('No active sessions found')).toBeTruthy();
+      expect(screen.getByText('No active sessions found')).toBeInTheDocument();
     });
   });
 
@@ -148,7 +148,7 @@ describe('SessionSwitcher', () => {
     render(<SessionSwitcher shortId="abc123" instanceId="inst-abc123" />);
     fireEvent.click(screen.getByText('abc123'));
     await waitFor(() => {
-      expect(screen.getByText('Active Sessions')).toBeTruthy();
+      expect(screen.getByText('Active Sessions')).toBeInTheDocument();
     });
     fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => {
@@ -167,7 +167,7 @@ describe('SessionSwitcher', () => {
     fireEvent.click(screen.getByText('abc123'));
 
     await waitFor(() => {
-      expect(screen.getByText('def456')).toBeTruthy();
+      expect(screen.getByText('def456')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('def456'));
@@ -322,7 +322,7 @@ describe('SessionSwitcher', () => {
 
     fireEvent.click(trigger);
     await waitFor(() => {
-      expect(screen.getByText('Active Sessions')).toBeTruthy();
+      expect(screen.getByText('Active Sessions')).toBeInTheDocument();
     });
     expect(pendingRequests).toHaveLength(1);
 
@@ -334,7 +334,7 @@ describe('SessionSwitcher', () => {
 
     fireEvent.click(trigger);
     await waitFor(() => {
-      expect(screen.getByText('Active Sessions')).toBeTruthy();
+      expect(screen.getByText('Active Sessions')).toBeInTheDocument();
     });
     expect(pendingRequests).toHaveLength(2);
 
@@ -344,7 +344,7 @@ describe('SessionSwitcher', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('ghi789')).toBeTruthy();
+      expect(screen.getByText('ghi789')).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -353,7 +353,7 @@ describe('SessionSwitcher', () => {
     });
 
     expect(screen.queryByText('old000')).toBeFalsy();
-    expect(screen.getByText('ghi789')).toBeTruthy();
+    expect(screen.getByText('ghi789')).toBeInTheDocument();
   });
 
   it('stops refresh polling when the dropdown is closed', async () => {

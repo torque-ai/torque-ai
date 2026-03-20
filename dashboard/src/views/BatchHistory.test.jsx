@@ -114,7 +114,7 @@ describe('BatchHistory', () => {
 
   it('renders batch history heading', async () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
-    expect(screen.getByText('Batches')).toBeTruthy();
+    expect(screen.getByText('Batches')).toBeInTheDocument();
   });
 
   it('shows loading skeleton initially', () => {
@@ -122,43 +122,43 @@ describe('BatchHistory', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     // Should show skeleton rows (animate-pulse elements)
     const container = document.querySelector('.animate-pulse');
-    expect(container).toBeTruthy();
+    expect(container).toBeInTheDocument();
   });
 
   it('renders workflow names after loading', async () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('Feature build')).toBeTruthy();
-      expect(screen.getByText('Test run')).toBeTruthy();
+      expect(screen.getByText('Feature build')).toBeInTheDocument();
+      expect(screen.getByText('Test run')).toBeInTheDocument();
     });
   });
 
   it('shows status badges', async () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('completed')).toBeTruthy();
-      expect(screen.getByText('failed')).toBeTruthy();
+      expect(screen.getByText('completed')).toBeInTheDocument();
+      expect(screen.getByText('failed')).toBeInTheDocument();
     });
   });
 
   it('shows summary cards', async () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('Total Workflows')).toBeTruthy();
-      expect(screen.getByText('Success Rate')).toBeTruthy();
+      expect(screen.getByText('Total Workflows')).toBeInTheDocument();
+      expect(screen.getByText('Success Rate')).toBeInTheDocument();
     });
   });
 
   it('renders status filter dropdown', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
-    expect(screen.getByText('All Statuses')).toBeTruthy();
+    expect(screen.getByText('All Statuses')).toBeInTheDocument();
   });
 
   it('shows task counts', async () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
       // completed workflow: 5/5 tasks
-      expect(screen.getByText('5')).toBeTruthy();
+      expect(screen.getByText('5')).toBeInTheDocument();
     });
   });
 
@@ -166,38 +166,38 @@ describe('BatchHistory', () => {
     workflowsApi.list.mockResolvedValue([]);
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('No workflows found')).toBeTruthy();
+      expect(screen.getByText('No workflows found')).toBeInTheDocument();
     });
   });
 
   it('renders refresh button', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     // Refresh button has title="Refresh"
-    expect(screen.getByTitle('Refresh')).toBeTruthy();
+    expect(screen.getByTitle('Refresh')).toBeInTheDocument();
   });
 
   it('shows sort headers', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
-    expect(screen.getByText('Name')).toBeTruthy();
-    expect(screen.getByText('Status')).toBeTruthy();
-    expect(screen.getByText('Duration')).toBeTruthy();
+    expect(screen.getByText('Name')).toBeInTheDocument();
+    expect(screen.getByText('Status')).toBeInTheDocument();
+    expect(screen.getByText('Duration')).toBeInTheDocument();
   });
 
   it('shows Avg Duration summary card', async () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('Avg Duration')).toBeTruthy();
+      expect(screen.getByText('Avg Duration')).toBeInTheDocument();
     });
   });
 
   it('shows Created column header', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
-    expect(screen.getByText('Created')).toBeTruthy();
+    expect(screen.getByText('Created')).toBeInTheDocument();
   });
 
   it('shows Tasks column header', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
-    expect(screen.getByText('Tasks')).toBeTruthy();
+    expect(screen.getByText('Tasks')).toBeInTheDocument();
   });
 
   it('falls back when localStorage getItem returns malformed JSON values', async () => {
@@ -206,27 +206,28 @@ describe('BatchHistory', () => {
     setStorageValue('torque-pinned', '{bad');
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('Batches')).toBeTruthy();
-      expect(screen.getByText('Feature build')).toBeTruthy();
-      expect(screen.getByText('Test run')).toBeTruthy();
+      expect(screen.getByText('Batches')).toBeInTheDocument();
+      expect(screen.getByText('Feature build')).toBeInTheDocument();
+      expect(screen.getByText('Test run')).toBeInTheDocument();
     });
   });
 
   it('uses missing localStorage keys without affecting default rendering', async () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('Batches')).toBeTruthy();
-      expect(screen.getByText('Total Workflows')).toBeTruthy();
-      expect(screen.getByText('Success Rate')).toBeTruthy();
-      expect(screen.getByText('Feature build')).toBeTruthy();
+      expect(screen.getByText('Batches')).toBeInTheDocument();
+      expect(screen.getByText('Total Workflows')).toBeInTheDocument();
+      expect(screen.getByText('Success Rate')).toBeInTheDocument();
+      expect(screen.getByText('Feature build')).toBeInTheDocument();
     });
   });
 
+  // Smoke test: verifies component doesn't corrupt persisted localStorage
   it('supports Array localStorage round-trip serialization', async () => {
     localStorage.setItem('torque-hidden-cols', JSON.stringify(['completed', 'failed']));
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('Batches')).toBeTruthy();
+      expect(screen.getByText('Batches')).toBeInTheDocument();
     });
 
     const persisted = JSON.parse(localStorage.getItem('torque-hidden-cols') || '[]');
@@ -234,12 +235,13 @@ describe('BatchHistory', () => {
     expect(Array.isArray(persisted)).toBe(true);
   });
 
+  // Smoke test: verifies component doesn't corrupt persisted localStorage
   it('supports Set-style data persisted as JSON arrays', async () => {
     localStorage.setItem('torque-pinned', JSON.stringify(['wf-1', 'wf-2']));
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
-      expect(screen.getByText('Feature build')).toBeTruthy();
-      expect(screen.getByText('Test run')).toBeTruthy();
+      expect(screen.getByText('Feature build')).toBeInTheDocument();
+      expect(screen.getByText('Test run')).toBeInTheDocument();
     });
 
     const pinned = new Set(JSON.parse(localStorage.getItem('torque-pinned') || '[]'));
@@ -252,7 +254,7 @@ describe('BatchHistory', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
     await waitFor(() => {
       expect(screen.queryByText('No workflows found')).toBeFalsy();
-      expect(screen.getByText('Batches')).toBeTruthy();
+      expect(screen.getByText('Batches')).toBeInTheDocument();
     });
   });
 
@@ -261,21 +263,21 @@ describe('BatchHistory', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
 
     await waitFor(() => {
-      expect(screen.getByText('Feature build')).toBeTruthy();
+      expect(screen.getByText('Feature build')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('Feature build'));
 
     await waitFor(() => {
       expect(workflowsApi.get).toHaveBeenCalledWith('wf-1');
-      expect(screen.getByText('Task Breakdown')).toBeTruthy();
-      expect(screen.getByText('Total cost: $0.0075')).toBeTruthy();
-      expect(screen.getByText('Compile generated types')).toBeTruthy();
-      expect(screen.getByText('Run integration verification')).toBeTruthy();
-      expect(screen.getByText('codex')).toBeTruthy();
-      expect(screen.getByText('claude-cli')).toBeTruthy();
-      expect(screen.getByText('gpt-5.1')).toBeTruthy();
-      expect(screen.getByText('claude-3.7-sonnet')).toBeTruthy();
+      expect(screen.getByText('Task Breakdown')).toBeInTheDocument();
+      expect(screen.getByText('Total cost: $0.0075')).toBeInTheDocument();
+      expect(screen.getByText('Compile generated types')).toBeInTheDocument();
+      expect(screen.getByText('Run integration verification')).toBeInTheDocument();
+      expect(screen.getByText('codex')).toBeInTheDocument();
+      expect(screen.getByText('claude-cli')).toBeInTheDocument();
+      expect(screen.getByText('gpt-5.1')).toBeInTheDocument();
+      expect(screen.getByText('claude-3.7-sonnet')).toBeInTheDocument();
     });
   });
 });

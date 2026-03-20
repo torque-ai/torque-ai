@@ -56,27 +56,27 @@ describe('Schedules', () => {
   it('renders loading state initially', () => {
     schedulesApi.list.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Schedules />, { route: '/schedules' });
-    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('renders heading after loading', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('Schedules')).toBeTruthy();
+      expect(screen.getByText('Schedules')).toBeInTheDocument();
     });
   });
 
   it('displays New Schedule button', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('New Schedule')).toBeTruthy();
+      expect(screen.getByText('New Schedule')).toBeInTheDocument();
     });
   });
 
   it('shows summary stat cards', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('Total Schedules')).toBeTruthy();
+      expect(screen.getByText('Total Schedules')).toBeInTheDocument();
       // Active and Disabled appear in both StatCard labels and status badges — use getAllByText
       expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Disabled').length).toBeGreaterThanOrEqual(1);
@@ -87,49 +87,49 @@ describe('Schedules', () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
       // Total = 2
-      expect(screen.getByText('2')).toBeTruthy();
+      expect(screen.getByText('2')).toBeInTheDocument();
     });
   });
 
   it('renders table column headers', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('Name')).toBeTruthy();
-      expect(screen.getByText('Cron')).toBeTruthy();
-      expect(screen.getByText('Next Run')).toBeTruthy();
-      expect(screen.getByText('Last Run')).toBeTruthy();
-      expect(screen.getByText('Status')).toBeTruthy();
-      expect(screen.getByText('Actions')).toBeTruthy();
+      expect(screen.getByText('Name')).toBeInTheDocument();
+      expect(screen.getByText('Cron')).toBeInTheDocument();
+      expect(screen.getByText('Next Run')).toBeInTheDocument();
+      expect(screen.getByText('Last Run')).toBeInTheDocument();
+      expect(screen.getByText('Status')).toBeInTheDocument();
+      expect(screen.getByText('Actions')).toBeInTheDocument();
     });
   });
 
   it('renders schedule names from the v2 array response', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('Nightly Test Run')).toBeTruthy();
-      expect(screen.getByText('Weekly Cleanup')).toBeTruthy();
+      expect(screen.getByText('Nightly Test Run')).toBeInTheDocument();
+      expect(screen.getByText('Weekly Cleanup')).toBeInTheDocument();
     });
   });
 
   it('renders cron expressions', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('0 0 * * *')).toBeTruthy();
-      expect(screen.getByText('0 3 * * 0')).toBeTruthy();
+      expect(screen.getByText('0 0 * * *')).toBeInTheDocument();
+      expect(screen.getByText('0 3 * * 0')).toBeInTheDocument();
     });
   });
 
   it('shows task description truncated in table', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText(/Run the full test suite/)).toBeTruthy();
+      expect(screen.getByText(/Run the full test suite/)).toBeInTheDocument();
     });
   });
 
   it('shows Enabled badge for enabled schedule', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('Enabled')).toBeTruthy();
+      expect(screen.getByText('Enabled')).toBeInTheDocument();
     });
   });
 
@@ -146,8 +146,8 @@ describe('Schedules', () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
       // Enabled schedule shows "Disable", disabled schedule shows "Enable"
-      expect(screen.getByText('Disable')).toBeTruthy();
-      expect(screen.getByText('Enable')).toBeTruthy();
+      expect(screen.getByText('Disable')).toBeInTheDocument();
+      expect(screen.getByText('Enable')).toBeInTheDocument();
     });
   });
 
@@ -163,7 +163,7 @@ describe('Schedules', () => {
     schedulesApi.list.mockResolvedValue([]);
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText(/No scheduled tasks/)).toBeTruthy();
+      expect(screen.getByText(/No scheduled tasks/)).toBeInTheDocument();
     });
   });
 
@@ -178,7 +178,7 @@ describe('Schedules', () => {
   it('toggles form visibility when New Schedule is clicked', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('New Schedule')).toBeTruthy();
+      expect(screen.getByText('New Schedule')).toBeInTheDocument();
     });
 
     // Form should not be visible initially
@@ -186,42 +186,42 @@ describe('Schedules', () => {
 
     // Click New Schedule to open form
     fireEvent.click(screen.getByText('New Schedule'));
-    expect(screen.getByText('New Scheduled Task')).toBeTruthy();
+    expect(screen.getByText('New Scheduled Task')).toBeInTheDocument();
   });
 
   it('renders form fields when form is open', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('New Schedule')).toBeTruthy();
+      expect(screen.getByText('New Schedule')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('New Schedule'));
 
-    expect(screen.getByPlaceholderText('e.g. Nightly test run')).toBeTruthy();
-    expect(screen.getByPlaceholderText('0 0 * * * (every midnight)')).toBeTruthy();
-    expect(screen.getByPlaceholderText('What should the task do?')).toBeTruthy();
+    expect(screen.getByPlaceholderText('e.g. Nightly test run')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('0 0 * * * (every midnight)')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('What should the task do?')).toBeInTheDocument();
   });
 
   it('shows Create Schedule and Cancel buttons in form', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('New Schedule')).toBeTruthy();
+      expect(screen.getByText('New Schedule')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('New Schedule'));
 
-    expect(screen.getByText('Create Schedule')).toBeTruthy();
-    expect(screen.getByText('Cancel')).toBeTruthy();
+    expect(screen.getByText('Create Schedule')).toBeInTheDocument();
+    expect(screen.getByText('Cancel')).toBeInTheDocument();
   });
 
   it('hides form when Cancel is clicked', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('New Schedule')).toBeTruthy();
+      expect(screen.getByText('New Schedule')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('New Schedule'));
-    expect(screen.getByText('New Scheduled Task')).toBeTruthy();
+    expect(screen.getByText('New Scheduled Task')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Cancel'));
     expect(screen.queryByText('New Scheduled Task')).toBeNull();
@@ -230,7 +230,7 @@ describe('Schedules', () => {
   it('calls schedulesApi.toggle when Disable button is clicked', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('Disable')).toBeTruthy();
+      expect(screen.getByText('Disable')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('Disable'));
@@ -243,7 +243,7 @@ describe('Schedules', () => {
   it('calls schedulesApi.toggle with true when Enable is clicked', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('Enable')).toBeTruthy();
+      expect(screen.getByText('Enable')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('Enable'));
@@ -262,7 +262,7 @@ describe('Schedules', () => {
     fireEvent.click(screen.getAllByText('Delete')[0]);
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeTruthy();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
     fireEvent.click(within(screen.getByRole('dialog')).getByText('Delete'));
@@ -275,7 +275,7 @@ describe('Schedules', () => {
   it('reloads schedules after successful toggle', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('Disable')).toBeTruthy();
+      expect(screen.getByText('Disable')).toBeInTheDocument();
     });
 
     const callsBefore = schedulesApi.list.mock.calls.length;
@@ -297,7 +297,7 @@ describe('Schedules', () => {
     fireEvent.click(screen.getAllByText('Delete')[0]);
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeTruthy();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
     fireEvent.click(within(screen.getByRole('dialog')).getByText('Delete'));
@@ -310,7 +310,7 @@ describe('Schedules', () => {
   it('calls schedulesApi.create when form is submitted with valid data', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('New Schedule')).toBeTruthy();
+      expect(screen.getByText('New Schedule')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('New Schedule'));
@@ -341,7 +341,7 @@ describe('Schedules', () => {
   it('hides form after successful create', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('New Schedule')).toBeTruthy();
+      expect(screen.getByText('New Schedule')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('New Schedule'));
@@ -369,7 +369,7 @@ describe('Schedules', () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
       // After failed load, loading ends and table shows empty state
-      expect(screen.getByText(/No scheduled tasks/)).toBeTruthy();
+      expect(screen.getByText(/No scheduled tasks/)).toBeInTheDocument();
     });
   });
 
@@ -384,14 +384,14 @@ describe('Schedules', () => {
   it('renders provider select dropdown in form', async () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
-      expect(screen.getByText('New Schedule')).toBeTruthy();
+      expect(screen.getByText('New Schedule')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('New Schedule'));
 
     // Provider dropdown should include auto option
-    expect(screen.getByText('Auto')).toBeTruthy();
-    expect(screen.getByText('Codex')).toBeTruthy();
-    expect(screen.getByText('Ollama')).toBeTruthy();
+    expect(screen.getByText('Auto')).toBeInTheDocument();
+    expect(screen.getByText('Codex')).toBeInTheDocument();
+    expect(screen.getByText('Ollama')).toBeInTheDocument();
   });
 });

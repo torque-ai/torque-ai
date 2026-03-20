@@ -63,20 +63,20 @@ describe('Budget', () => {
     budgetApi.status.mockReturnValue(new Promise(() => {}));
     budgetApi.forecast.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<Budget />, { route: '/budget' });
-    expect(screen.getByTestId('loading-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('loading-skeleton')).toBeInTheDocument();
   });
 
   it('renders heading after data loads', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Budget & Costs')).toBeTruthy();
+      expect(screen.getByText('Budget & Costs')).toBeInTheDocument();
     });
   });
 
   it('displays total cost stat card', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Total Cost')).toBeTruthy();
+      expect(screen.getByText('Total Cost')).toBeInTheDocument();
       // $12.50 appears in both stat card and budget progress section
       expect(screen.getAllByText('$12.50').length).toBeGreaterThanOrEqual(1);
     });
@@ -85,51 +85,51 @@ describe('Budget', () => {
   it('displays budget used stat card', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Budget Used')).toBeTruthy();
+      expect(screen.getByText('Budget Used')).toBeInTheDocument();
     });
   });
 
   it('displays projected monthly stat card', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Projected Monthly')).toBeTruthy();
+      expect(screen.getByText('Projected Monthly')).toBeInTheDocument();
     });
   });
 
   it('displays cost per task stat card', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Cost per Task')).toBeTruthy();
+      expect(screen.getByText('Cost per Task')).toBeInTheDocument();
     });
   });
 
   it('shows cost over time chart section', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Cost Over Time')).toBeTruthy();
+      expect(screen.getByText('Cost Over Time')).toBeInTheDocument();
     });
   });
 
   it('shows provider breakdown chart section', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Provider Breakdown')).toBeTruthy();
+      expect(screen.getByText('Provider Breakdown')).toBeInTheDocument();
     });
   });
 
   it('renders bar/line chart toggle buttons', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Bar')).toBeTruthy();
-      expect(screen.getByText('Line')).toBeTruthy();
+      expect(screen.getByText('Bar')).toBeInTheDocument();
+      expect(screen.getByText('Line')).toBeInTheDocument();
     });
   });
 
   it('renders days dropdown with options', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Last 7 days')).toBeTruthy();
-      expect(screen.getByText('Last 14 days')).toBeTruthy();
+      expect(screen.getByText('Last 7 days')).toBeInTheDocument();
+      expect(screen.getByText('Last 14 days')).toBeInTheDocument();
       // Last 30 days appears in both dropdown and stat subtext
       expect(screen.getAllByText('Last 30 days').length).toBeGreaterThanOrEqual(1);
     });
@@ -139,7 +139,7 @@ describe('Budget', () => {
     budgetApi.summary.mockResolvedValue({ ...mockSummary, daily: [] });
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('No daily cost data available')).toBeTruthy();
+      expect(screen.getByText('No daily cost data available')).toBeInTheDocument();
     });
   });
 
@@ -147,17 +147,17 @@ describe('Budget', () => {
     budgetApi.summary.mockResolvedValue({ ...mockSummary, by_provider: {} });
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('No provider cost data')).toBeTruthy();
+      expect(screen.getByText('No provider cost data')).toBeInTheDocument();
     });
   });
 
   it('shows budget progress section when budget limit set', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Budget Progress')).toBeTruthy();
-      expect(screen.getByText('Spent')).toBeTruthy();
-      expect(screen.getByText('Budget')).toBeTruthy();
-      expect(screen.getByText('Remaining')).toBeTruthy();
+      expect(screen.getByText('Budget Progress')).toBeInTheDocument();
+      expect(screen.getByText('Spent')).toBeInTheDocument();
+      expect(screen.getByText('Budget')).toBeInTheDocument();
+      expect(screen.getByText('Remaining')).toBeInTheDocument();
     });
   });
 
@@ -165,7 +165,7 @@ describe('Budget', () => {
     budgetApi.status.mockResolvedValue({ limit: 0, used: 0 });
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Budget & Costs')).toBeTruthy();
+      expect(screen.getByText('Budget & Costs')).toBeInTheDocument();
     });
     expect(screen.queryByText('Budget Progress')).toBeFalsy();
   });
@@ -175,7 +175,7 @@ describe('Budget', () => {
     budgetApi.summary.mockResolvedValue({ ...mockSummary, total_cost: 85 });
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText(/Budget warning/)).toBeTruthy();
+      expect(screen.getByText(/Budget warning/)).toBeInTheDocument();
     });
   });
 
@@ -184,7 +184,7 @@ describe('Budget', () => {
     budgetApi.summary.mockResolvedValue({ ...mockSummary, total_cost: 110 });
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText(/Budget exceeded/)).toBeTruthy();
+      expect(screen.getByText(/Budget exceeded/)).toBeInTheDocument();
     });
   });
 });

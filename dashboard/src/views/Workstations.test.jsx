@@ -75,13 +75,13 @@ describe('Workstations', () => {
     renderWithProviders(<Workstations />, { route: '/workstations' });
 
     await waitFor(() => {
-      expect(screen.getByText('Workstations')).toBeTruthy();
-      expect(screen.getByText('builder-01')).toBeTruthy();
-      expect(screen.getByText('10.0.0.12:3460')).toBeTruthy();
-      expect(screen.getByText('Healthy')).toBeTruthy();
+      expect(screen.getByText('Workstations')).toBeInTheDocument();
+      expect(screen.getByText('builder-01')).toBeInTheDocument();
+      expect(screen.getByText('10.0.0.12:3460')).toBeInTheDocument();
+      expect(screen.getByText('Healthy')).toBeInTheDocument();
       expect(screen.getAllByText('RTX 4090').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('command exec')).toBeTruthy();
-      expect(screen.getByText('ui capture')).toBeTruthy();
+      expect(screen.getByText('command exec')).toBeInTheDocument();
+      expect(screen.getByText('ui capture')).toBeInTheDocument();
     });
   });
 
@@ -89,7 +89,7 @@ describe('Workstations', () => {
     renderWithProviders(<Workstations />, { route: '/workstations' });
 
     await waitFor(() => {
-      expect(screen.getByText('builder-01')).toBeTruthy();
+      expect(screen.getByText('builder-01')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText('Probe'));
@@ -103,13 +103,13 @@ describe('Workstations', () => {
     renderWithProviders(<Workstations />, { route: '/workstations' });
 
     await waitFor(() => {
-      expect(screen.getByText('builder-01')).toBeTruthy();
+      expect(screen.getByText('builder-01')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getAllByText('Remove')[0]);
 
     await waitFor(() => {
-      expect(screen.getByText('Remove Workstation')).toBeTruthy();
+      expect(screen.getByText('Remove Workstation')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getAllByText('Remove')[1]);

@@ -5,8 +5,8 @@ describe('Onboarding', () => {
   it('renders welcome message', () => {
     render(<Onboarding onDismiss={() => {}} />);
 
-    expect(screen.getByText('Welcome to TORQUE')).toBeTruthy();
-    expect(screen.getByText('Your distributed AI task orchestration platform is ready.')).toBeTruthy();
+    expect(screen.getByText('Welcome to TORQUE')).toBeInTheDocument();
+    expect(screen.getByText('Your distributed AI task orchestration platform is ready.')).toBeInTheDocument();
   });
 
   it('calls onDismiss when button is clicked', () => {
@@ -20,10 +20,10 @@ describe('Onboarding', () => {
   it('shows key features list', () => {
     render(<Onboarding onDismiss={() => {}} />);
 
-    expect(screen.getByText('Key Features')).toBeTruthy();
-    expect(screen.getByText(/10 providers/i)).toBeTruthy();
-    expect(screen.getByText(/DAG workflows/i)).toBeTruthy();
-    expect(screen.getByText(/Smart routing/i)).toBeTruthy();
-    expect(screen.getByText(/Quality gates/i)).toBeTruthy();
+    expect(screen.getByText('Key Features')).toBeInTheDocument();
+    expect(screen.getByText(/10 providers/i)).toBeInTheDocument();
+    expect(screen.getByText(/DAG workflows/i)).toBeInTheDocument();
+    expect(screen.getByText(/Smart routing/i)).toBeInTheDocument();
+    expect(screen.getByText(/Quality gates/i)).toBeInTheDocument();
   });
 });

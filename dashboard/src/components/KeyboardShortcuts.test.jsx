@@ -25,7 +25,7 @@ describe('ShortcutHelpOverlay', () => {
         <ShortcutHelpOverlay onClose={() => {}} />
       </MemoryRouter>
     );
-    expect(screen.getByText('Keyboard Shortcuts')).toBeTruthy();
+    expect(screen.getByText('Keyboard Shortcuts')).toBeInTheDocument();
   });
 
   it('displays shortcut descriptions', () => {
@@ -34,11 +34,11 @@ describe('ShortcutHelpOverlay', () => {
         <ShortcutHelpOverlay onClose={() => {}} />
       </MemoryRouter>
     );
-    expect(screen.getByText('Show keyboard shortcuts')).toBeTruthy();
-    expect(screen.getByText('Focus search field')).toBeTruthy();
-    expect(screen.getByText('Close drawer / modal')).toBeTruthy();
-    expect(screen.getByText('Go to Kanban')).toBeTruthy();
-    expect(screen.getByText('Go to History')).toBeTruthy();
+    expect(screen.getByText('Show keyboard shortcuts')).toBeInTheDocument();
+    expect(screen.getByText('Focus search field')).toBeInTheDocument();
+    expect(screen.getByText('Close drawer / modal')).toBeInTheDocument();
+    expect(screen.getByText('Go to Kanban')).toBeInTheDocument();
+    expect(screen.getByText('Go to History')).toBeInTheDocument();
   });
 
   it('renders close button', () => {
@@ -50,7 +50,7 @@ describe('ShortcutHelpOverlay', () => {
     );
     // Close button renders the x character
     const closeBtn = screen.getByText('\u00d7');
-    expect(closeBtn).toBeTruthy();
+    expect(closeBtn).toBeInTheDocument();
   });
 
   it('calls onClose when close button clicked', () => {

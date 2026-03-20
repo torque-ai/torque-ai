@@ -255,7 +255,7 @@ describe('api.js', () => {
       );
     });
 
-    it('forwards an external abort signal when AbortSignal.any is unavailable', async () => {
+    it('wraps external abort signal when AbortSignal.any is unavailable', async () => {
       let fetchSignal;
       globalThis.fetch = vi.fn().mockImplementation((_url, options) => {
         fetchSignal = options.signal;
