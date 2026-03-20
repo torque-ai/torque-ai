@@ -472,36 +472,83 @@ function cleanupHealthHistory(daysToKeep = 7) {
  * log retention settings. These tables grow continuously and must always be
  * trimmed regardless of whether cleanup_log_days is set.
  *
- * - coordination_events: retain 7 days
- * - health_status: retain 7 days
- * - task_file_writes: retain 30 days (no FK constraint — no cascade delete)
+ * - coordination_events:   retain 7 days
+ * - health_status:         retain 7 days
+ * - task_file_writes:      retain 30 days (no FK constraint — no cascade delete)
+ * - free_tier_daily_usage: retain 90 days (aggregated usage metrics)
+ * - task-file-write-snapshots/: disk files older than 30 days (content-addressed
+ *   JSON blobs written by file-tracking.js conflict detection)
  *
  * @param {object} dbInstance - better-sqlite3 Database instance
- * @returns {{ coordination_events: number, health_status: number, task_file_writes: number }}
+ * @param {object} [opts]
+ * @param {string} [opts.dataDir] - Override data directory for snapshot cleanup
+ *   (defaults to process.env.TORQUE_DATA_DIR or process.cwd())
+ * @returns {{ coordination_events: number, health_status: number, task_file_writes: number, free_tier_daily_usage: number, snapshot_files: number }}
  */
-function purgeGrowthTables(dbInstance) {
+function purgeGrowthTables(dbInstance, opts = {}) {
   const conn = dbInstance || db;
   const now = Date.now();
   const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
   const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const ninetyDaysAgo = new Date(now - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-  let deleted = { coordination_events: 0, health_status: 0, task_file_writes: 0 };
+  const deleted = {
+    coordination_events: 0,
+    health_status: 0,
+    task_file_writes: 0,
+    free_tier_daily_usage: 0,
+    snapshot_files: 0,
+  };
+
   try {
     deleted.coordination_events = conn.prepare(
       'DELETE FROM coordination_events WHERE created_at < ?'
     ).run(sevenDaysAgo).changes;
   } catch (_e) { void _e; }
+
   try {
     deleted.health_status = conn.prepare(
       'DELETE FROM health_status WHERE checked_at < ?'
     ).run(sevenDaysAgo).changes;
   } catch (_e) { void _e; }
+
   try {
     // task_file_writes has no FK constraint and no created_at column — use written_at
     deleted.task_file_writes = conn.prepare(
       'DELETE FROM task_file_writes WHERE written_at < ?'
     ).run(thirtyDaysAgo).changes;
   } catch (_e) { void _e; }
+
+  try {
+    // free_tier_daily_usage aggregates daily per-provider request counts.
+    // 90 days is sufficient for billing/trend analysis; older rows waste space.
+    deleted.free_tier_daily_usage = conn.prepare(
+      'DELETE FROM free_tier_daily_usage WHERE date < ?'
+    ).run(ninetyDaysAgo.slice(0, 10)).changes; // date column is 'YYYY-MM-DD'
+  } catch (_e) { void _e; }
+
+  // Purge content-addressed snapshot files older than 30 days from disk.
+  // These are written by file-tracking.js recordTaskFileWrite() for conflict detection.
+  try {
+    const dataDir = opts.dataDir || process.env.TORQUE_DATA_DIR || process.cwd();
+    const snapshotDir = path.join(dataDir, 'task-file-write-snapshots');
+    if (fs.existsSync(snapshotDir)) {
+      const cutoffMs = now - 30 * 24 * 60 * 60 * 1000;
+      const files = fs.readdirSync(snapshotDir);
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const filePath = path.join(snapshotDir, file);
+        try {
+          const stat = fs.statSync(filePath);
+          if (stat.mtimeMs < cutoffMs) {
+            fs.unlinkSync(filePath);
+            deleted.snapshot_files++;
+          }
+        } catch (_fe) { void _fe; }
+      }
+    }
+  } catch (_e) { void _e; }
+
   return deleted;
 }
 
