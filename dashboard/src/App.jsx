@@ -251,9 +251,9 @@ function AppInner() {
                 }
               />
               <Route path="history" element={<History onOpenDrawer={openDrawer} relativeTimeTick={relativeTimeTick} />} />
-              <Route path="workflows" element={<WorkflowsHub />} />
+              <Route path="workflows" element={<WorkflowsHub onOpenDrawer={openDrawer} workflowTick={workflowTick} tasksTick={tasksTick} relativeTimeTick={relativeTimeTick} />} />
               <Route path="providers" element={<Providers statsVersion={statsVersion} tasksTick={tasksTick} />} />
-              <Route path="infrastructure" element={<InfrastructureHub />} />
+              <Route path="infrastructure" element={<InfrastructureHub hostActivity={hostActivity} />} />
               <Route path="operations" element={<OperationsHub />} />
               {/* Redirects for old bookmarks */}
               <Route path="projects" element={<Navigate to="/workflows#projects" replace />} />
