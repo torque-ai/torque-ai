@@ -132,39 +132,43 @@ function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, tas
  * @returns {Array<{name: string, startLine: number, endLine: number, lineCount: number}>}
  */
 function extractJsFunctionBoundaries(filePath) {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-  const boundaries = [];
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n');
+    const boundaries = [];
 
-  const functionPatterns = [
-    /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/,
-    /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function\s*\(/,
-    /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(?[^)]*\)?\s*=>/,
-    /^module\.exports\.(\w+)\s*=\s*(?:async\s+)?function\s*\(/,
-    /^[ ]{0,2}(\w+)\s*\([^)]*\)\s*\{/
-  ];
+    const functionPatterns = [
+      /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/,
+      /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function\s*\(/,
+      /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(?[^)]*\)?\s*=>/,
+      /^module\.exports\.(\w+)\s*=\s*(?:async\s+)?function\s*\(/,
+      /^[ ]{0,2}(\w+)\s*\([^)]*\)\s*\{/
+    ];
 
-  const SKIP_NAMES = new Set(['if', 'else', 'for', 'while', 'switch', 'catch', 'return', 'new', 'typeof', 'delete', 'void', 'throw', 'class', 'import', 'export', 'require']);
+    const SKIP_NAMES = new Set(['if', 'else', 'for', 'while', 'switch', 'catch', 'return', 'new', 'typeof', 'delete', 'void', 'throw', 'class', 'import', 'export', 'require']);
 
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trimStart();
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trimStart();
+      if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
 
-    for (const pattern of functionPatterns) {
-      const match = trimmed.match(pattern);
-      if (match && match[1] && !SKIP_NAMES.has(match[1])) {
-        boundaries.push({ name: match[1], startLine: i + 1 });
-        break;
+      for (const pattern of functionPatterns) {
+        const match = trimmed.match(pattern);
+        if (match && match[1] && !SKIP_NAMES.has(match[1])) {
+          boundaries.push({ name: match[1], startLine: i + 1 });
+          break;
+        }
       }
     }
-  }
 
-  for (let i = 0; i < boundaries.length; i++) {
-    boundaries[i].endLine = (i + 1 < boundaries.length) ? boundaries[i + 1].startLine - 1 : lines.length;
-    boundaries[i].lineCount = boundaries[i].endLine - boundaries[i].startLine + 1;
-  }
+    for (let i = 0; i < boundaries.length; i++) {
+      boundaries[i].endLine = (i + 1 < boundaries.length) ? boundaries[i + 1].startLine - 1 : lines.length;
+      boundaries[i].lineCount = boundaries[i].endLine - boundaries[i].startLine + 1;
+    }
 
-  return boundaries;
+    return boundaries;
+  } catch (err) {
+    return [];
+  }
 }
 
 /**

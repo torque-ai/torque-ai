@@ -1353,7 +1353,9 @@ function runTestVerification(taskId, task, workingDir) {
       testCommand = 'pytest';
     } else {
       // Check for .NET projects
-      const csprojFiles = fs.readdirSync(workingDir).filter(f => f.endsWith('.csproj') || f.endsWith('.sln'));
+      let dirEntries = [];
+      try { dirEntries = fs.readdirSync(workingDir); } catch { /* skip */ }
+      const csprojFiles = dirEntries.filter(f => f.endsWith('.csproj') || f.endsWith('.sln'));
       if (csprojFiles.length > 0) {
         testCommand = 'dotnet test --no-build --verbosity quiet';
       }
@@ -1469,7 +1471,9 @@ function runStyleCheck(taskId, task, workingDir) {
   let styleCommand = projectConfig.style_check_command;
   if (!styleCommand) {
     // Auto-detect based on project files
-    const csprojFiles = fs.readdirSync(workingDir).filter(f => f.endsWith('.csproj') || f.endsWith('.sln'));
+    let styleDirEntries = [];
+    try { styleDirEntries = fs.readdirSync(workingDir); } catch { /* skip */ }
+    const csprojFiles = styleDirEntries.filter(f => f.endsWith('.csproj') || f.endsWith('.sln'));
     if (csprojFiles.length > 0) {
       styleCommand = 'dotnet format --verify-no-changes --verbosity quiet';
     } else if (fs.existsSync(path.join(workingDir, 'package.json'))) {

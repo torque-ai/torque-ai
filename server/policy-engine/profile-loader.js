@@ -37,8 +37,13 @@ function loadProfileSeed(seedPath) {
     return null;
   }
 
-  const raw = fs.readFileSync(seedPath, 'utf8');
-  return JSON.parse(raw);
+  try {
+    const raw = fs.readFileSync(seedPath, 'utf8');
+    return JSON.parse(raw);
+  } catch (err) {
+    logger.error('Failed to parse profile seed ' + seedPath + ': ' + err.message);
+    return null;
+  }
 }
 
 function applyProfileSeed(seed) {

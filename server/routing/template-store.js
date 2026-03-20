@@ -33,7 +33,8 @@ function ensureTable() {
 
 function seedPresets() {
   if (!db) return;
-  const files = fs.readdirSync(PRESETS_DIR).filter(f => f.endsWith('.json'));
+  let files = [];
+  try { files = fs.readdirSync(PRESETS_DIR).filter(f => f.endsWith('.json')); } catch (err) { logger.warn('[template-store] Cannot read presets directory: ' + err.message); return; }
   // INSERT OR REPLACE so updated JSON presets take effect on restart.
   // Only affects preset templates (preset=1) — user-created templates are untouched.
   const upsert = db.prepare(`
