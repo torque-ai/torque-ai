@@ -33,51 +33,47 @@ describe('Validation Handlers — Expanded Coverage', () => {
     let ruleId;
 
   beforeAll(async () => {
-      // Create a rule to update
+      // Create a rule to update — must use valid rule_type so we get a real ID
       const result = await safeTool('add_validation_rule', {
         name: 'toggle-test-rule',
         description: 'Rule for toggle testing',
-        rule_type: 'output_contains',
+        rule_type: 'pattern',
         pattern: 'DEBUG',
         severity: 'warning'
       });
+      expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(result.isError).toBeTruthy();
-      expect(text).toContain('Parameter "rule_type" must be one of [pattern, size, delta], got "output_contains"');
-      ruleId = null;
+      const match = text.match(/id['":\s]+([a-f0-9-]{36})/i) || text.match(/([a-f0-9-]{36})/);
+      ruleId = match ? match[1] : JSON.parse(text).id;
     });
 
     it('disables an existing rule', async () => {
-      expect(ruleId).toBeNull();
+      expect(ruleId).toBeTruthy();
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, enabled: false });
-      expect(result.isError).toBeTruthy();
+      expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('Validation failed for 1 parameter(s):');
-      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
+      expect(text).toContain('updated');
     });
 
     it('re-enables a disabled rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, enabled: true });
-      expect(result.isError).toBeTruthy();
+      expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('Validation failed for 1 parameter(s):');
-      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
+      expect(text).toContain('updated');
     });
 
     it('updates severity of existing rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, severity: 'critical' });
-      expect(result.isError).toBeTruthy();
+      expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('Validation failed for 1 parameter(s):');
-      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
+      expect(text).toContain('updated');
     });
 
     it('updates auto_fail of existing rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, auto_fail: true });
-      expect(result.isError).toBeTruthy();
+      expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('Validation failed for 1 parameter(s):');
-      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
+      expect(text).toContain('updated');
     });
 
     it('updates multiple fields at once', async () => {
@@ -87,10 +83,9 @@ describe('Validation Handlers — Expanded Coverage', () => {
         auto_fail: false,
         enabled: true
       });
-      expect(result.isError).toBeTruthy();
+      expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('Validation failed for 1 parameter(s):');
-      expect(text).toContain('Missing required parameter: "rule_id" (Rule ID to update)');
+      expect(text).toContain('updated');
     });
   });
 

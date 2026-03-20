@@ -36,7 +36,7 @@ describe('Validation Handlers', () => {
   });
 
   describe('add_validation_rule', () => {
-    it('adds a rule with required fields', async () => {
+    it('rejects invalid rule_type output_contains with required fields', async () => {
       const result = await safeTool('add_validation_rule', {
         name: 'test-rule-add',
         description: 'A test validation rule',
@@ -50,7 +50,7 @@ describe('Validation Handlers', () => {
       expect(text).toContain('Parameter "rule_type" must be one of [pattern, size, delta], got "output_contains"');
     });
 
-    it('adds a rule with auto_fail enabled', async () => {
+    it('rejects invalid rule_type output_contains with auto_fail enabled', async () => {
       const result = await safeTool('add_validation_rule', {
         name: 'auto-fail-rule',
         description: 'Auto-failing rule',

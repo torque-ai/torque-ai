@@ -81,9 +81,9 @@ describe('Workflow Handlers', () => {
     });
 
     it('rejects empty name string', async () => {
-      const result = await safeTool('create_workflow', { name: '' });
+      const result = await safeTool('create_workflow', { name: '', tasks: [{ description: 'test' }] });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Missing required parameter: "tasks"');
+      expect(getText(result)).toContain('name');
     });
 
     it('rejects missing name', async () => {
@@ -102,9 +102,9 @@ describe('Workflow Handlers', () => {
     });
 
     it('rejects name exceeding MAX_NAME_LENGTH', async () => {
-      const result = await safeTool('create_workflow', { name: 'x'.repeat(200) });
+      const result = await safeTool('create_workflow', { name: 'x'.repeat(200), tasks: [{ description: 'test' }] });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Missing required parameter: "tasks"');
+      expect(getText(result)).toContain('name');
     });
 
     it('rejects non-string description', async () => {
@@ -116,10 +116,11 @@ describe('Workflow Handlers', () => {
     it('rejects description exceeding MAX_DESCRIPTION_LENGTH', async () => {
       const result = await safeTool('create_workflow', {
         name: 'valid2',
-        description: 'd'.repeat(1100)
+        description: 'd'.repeat(1100),
+        tasks: [{ description: 'test' }]
       });
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Missing required parameter: "tasks"');
+      expect(getText(result)).toContain('description');
     });
 
     it('trims name whitespace', async () => {

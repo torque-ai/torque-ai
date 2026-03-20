@@ -253,10 +253,8 @@ module.exports = { greet, farewell };
 
     it('getInstructionTemplate returns a string', () => {
       const template = tm.getInstructionTemplate('default');
-      // May return null for unknown template names - that's fine
-      if (template !== null && template !== undefined) {
-        expect(typeof template).toBe('string');
-      }
+      expect(template).toBeTruthy();
+      expect(template).toContain('{{TASK}}');
     });
 
     it('wrapWithInstructions wraps task description', () => {
@@ -294,10 +292,9 @@ module.exports = { greet, farewell };
     it('returns different hashes for different content', () => {
       const h1 = tm.computeLineHash('line A');
       const h2 = tm.computeLineHash('line B');
-      // Not guaranteed to be different for all inputs, but very likely for these
-      // So we just check they're valid hashes
       expect(/^[0-9a-f]{2}$/.test(h1)).toBe(true);
       expect(/^[0-9a-f]{2}$/.test(h2)).toBe(true);
+      expect(h1).not.toBe(h2);
     });
   });
 

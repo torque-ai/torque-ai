@@ -106,7 +106,7 @@ describe('task-debugger module', () => {
       expect(bp.enabled).toBe(false);
     });
 
-    it('returns null for non-existent breakpoint', () => {
+    it('returns undefined for non-existent breakpoint', () => {
       expect(mod.getBreakpoint('missing-bp')).toBeUndefined();
     });
 
@@ -267,7 +267,7 @@ describe('task-debugger module', () => {
       expect(fetched.task_id).toBe('task-a');
     });
 
-    it('returns null for non-existent session', () => {
+    it('returns undefined for non-existent session', () => {
       expect(mod.getDebugSession('missing-sess')).toBeUndefined();
     });
 

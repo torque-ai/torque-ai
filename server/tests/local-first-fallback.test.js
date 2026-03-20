@@ -162,7 +162,9 @@ describe('Local-First Fallback', () => {
     });
 
     it('original_provider preserved in task metadata pattern', () => {
-      // Verify the metadata pattern used by tryLocalFirstFallback
+      // Integration smoke test: verifies metadata preservation pattern
+      // used by tryLocalFirstFallback (plain object, no production code)
+      expect.assertions(2);
       const metadata = {};
       if (!metadata.original_provider) {
         metadata.original_provider = 'aider-ollama';
@@ -177,6 +179,7 @@ describe('Local-First Fallback', () => {
     });
 
     it('[Local-First] marker counting pattern works correctly', () => {
+      // Pattern test: validates regex counting logic, not production output
       const errorOutput = [
         '[Local-First] Trying model qwen2.5-coder:14b on host L5i',
         '[Local-First] Trying model deepseek-coder:6.7b',

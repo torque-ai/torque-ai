@@ -45,9 +45,9 @@ describe('utils/git.js', () => {
       const parsed = parseGitStatusLine(readFirstStatusLine());
 
       expect(parsed).toMatchObject({
-        indexStatus: 'M',
-        workStatus: ' ',
-        filePath: 'aseline.txt',
+        indexStatus: ' ',
+        workStatus: 'M',
+        filePath: 'baseline.txt',
         isModified: true,
         isNew: false,
         isDeleted: false,
