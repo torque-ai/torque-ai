@@ -271,6 +271,7 @@ function getTaskActivity(taskId, opts = {}) {
  * @returns {Array} Array of activity info objects
  */
 function getAllTaskActivity() {
+  if (!_runningProcesses) return [];
   const activities = [];
   for (const taskId of _runningProcesses.keys()) {
     const activity = getTaskActivity(taskId);

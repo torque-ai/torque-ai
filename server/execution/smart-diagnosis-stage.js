@@ -90,7 +90,7 @@ function smartDiagnosisStage(ctx) {
   // Always normalize to object so downstream consumers don't need to re-parse.
   // If the original was a string, we already parsed it into `metadata` above,
   // so writing the object back is always safe regardless of the original form.
-  ctx.task.metadata = metadata;
+  if (ctx.task) ctx.task.metadata = metadata;
 }
 
 module.exports = { smartDiagnosisStage };

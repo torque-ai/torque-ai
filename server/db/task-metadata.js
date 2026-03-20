@@ -810,7 +810,7 @@ function getTaskTimeline(taskId, options = {}) {
     timeline.push({
       type: 'created',
       timestamp: task.created_at,
-      data: { description: task.task_description.substring(0, 100) }
+      data: { description: (task.task_description || '').substring(0, 100) }
     });
 
     if (task.started_at) {
@@ -860,7 +860,7 @@ function getTaskTimeline(taskId, options = {}) {
   }
 
   // Get retry history
-  const retries = getRetryHistoryFn(taskId);
+  const retries = typeof getRetryHistoryFn === 'function' ? getRetryHistoryFn(taskId) : [];
   for (const retry of retries) {
     timeline.push({
       type: 'retry',
@@ -874,7 +874,7 @@ function getTaskTimeline(taskId, options = {}) {
   }
 
   // Get approval history
-  const approvals = getApprovalHistoryFn(taskId);
+  const approvals = typeof getApprovalHistoryFn === 'function' ? getApprovalHistoryFn(taskId) : [];
   for (const approval of approvals) {
     timeline.push({
       type: 'approval',
@@ -1873,7 +1873,7 @@ function dryRunBulkOperation(operationType, filterCriteria) {
     preview: tasks.slice(0, 10).map(t => ({
       id: t.id,
       status: t.status,
-      description: t.task_description?.substring(0, 50) + '...'
+      description: t.task_description ? t.task_description.substring(0, 50) + '...' : '(no description)'
     }))
   };
 }

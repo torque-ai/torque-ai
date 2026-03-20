@@ -118,7 +118,7 @@ function handleAutoValidation(ctx) {
       if (!fs.existsSync(absPath)) continue;
       const content = fs.readFileSync(absPath, 'utf-8');
 
-      const qualityResult = _checkFileQuality(absPath);
+      const qualityResult = _checkFileQuality ? _checkFileQuality(absPath) : { issues: [] };
       const issues = qualityResult.issues || [];
 
       // Line-count regression check (>40% reduction = likely destruction)

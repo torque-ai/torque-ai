@@ -249,6 +249,7 @@ const DEFAULT_SYSTEM_PROMPT = `You are an expert software engineer. Provide clea
  * @returns {string}
  */
 function resolveSystemPrompt(model) {
+  if (!db) return '';
   let systemPrompt = db.getConfig('ollama_system_prompt') || DEFAULT_SYSTEM_PROMPT;
   if (model) {
     const modelPromptsJson = db.getConfig('ollama_model_prompts');

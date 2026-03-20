@@ -2,6 +2,7 @@
 // Probe Parser — extract capabilities from agent /probe responses
 
 function parseProbeResponse(probeResponse) {
+  if (!probeResponse || typeof probeResponse !== 'object') return { platform: null, arch: null, capabilities: {}, capabilitiesJson: '{}', gpuName: null, gpuVramMb: null, ollamaPort: null, models: [] };
   const caps = probeResponse.capabilities || {};
   const gpuInfo = caps.gpu || {};
   const ollamaInfo = caps.ollama || {};
