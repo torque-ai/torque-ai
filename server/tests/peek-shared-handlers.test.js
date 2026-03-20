@@ -377,7 +377,7 @@ describe('peek/shared exported helpers', () => {
     expect(peekShared.resolvePeekHost({})).toEqual({
       error: {
         code: 'RESOURCE_NOT_FOUND',
-        message: 'No peek host configured. Register one via the dashboard (Remote Testing Hosts) or the register_peek_host tool.',
+        message: 'No peek host configured. Connect Peek from a workstation card in the dashboard or use the register_peek_host tool.',
       },
     });
   });

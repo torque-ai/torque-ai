@@ -940,6 +940,15 @@ const routes = [
   },
   {
     method: 'POST',
+    path: /^\/api\/v2\/workstations\/([^/]+)\/toggle$/,
+    handlerName: 'handleV2CpToggleWorkstation',
+    mapParams: ['workstation_name'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('workstation_name', 'workstation name'),
+    }),
+  },
+  {
+    method: 'POST',
     path: /^\/api\/v2\/workstations\/([^/]+)\/probe$/,
     handlerName: 'handleV2CpProbeWorkstation',
     mapParams: ['workstation_name'],

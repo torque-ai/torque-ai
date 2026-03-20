@@ -235,6 +235,10 @@ export const workstations = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  toggle: (name, enabled) => requestV2(`/workstations/${encodeURIComponent(name)}/toggle`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  }),
   remove: (name) => requestV2(`/workstations/${encodeURIComponent(name)}`, {
     method: 'DELETE',
   }),

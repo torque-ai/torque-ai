@@ -122,6 +122,7 @@ const V2_ANALYTICS_HANDLER_NAMES = [
 const V2_INFRASTRUCTURE_HANDLER_NAMES = [
   'handleListWorkstations',
   'handleCreateWorkstation',
+  'handleToggleWorkstation',
   'handleProbeWorkstation',
   'handleDeleteWorkstation',
   'handleListHosts',

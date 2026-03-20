@@ -96,6 +96,31 @@ async function handleCreateWorkstation(req, res) {
   }
 }
 
+async function handleToggleWorkstation(req, res) {
+  const requestId = resolveRequestId(req);
+  const workstationName = req.params?.workstation_name;
+  const body = req.body || await parseBody(req);
+
+  if (!workstationName) {
+    return sendError(res, requestId, 'validation_error', 'workstation name is required', 400, {}, req);
+  }
+
+  try {
+    const workstationModel = require('../workstation/model');
+    const workstation = workstationModel.getWorkstationByName(workstationName);
+
+    if (!workstation) {
+      return sendError(res, requestId, 'workstation_not_found', `Workstation not found: ${workstationName}`, 404, {}, req);
+    }
+
+    const enabled = body.enabled !== undefined ? (body.enabled ? 1 : 0) : (workstation.enabled ? 0 : 1);
+    const updated = workstationModel.updateWorkstation(workstation.id, { enabled });
+    sendSuccess(res, requestId, updated, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
 async function handleProbeWorkstation(req, res) {
   const requestId = resolveRequestId(req);
   const workstationName = req.params?.workstation_name;
@@ -649,6 +674,7 @@ module.exports = {
   // Workstations
   handleListWorkstations,
   handleCreateWorkstation,
+  handleToggleWorkstation,
   handleProbeWorkstation,
   handleDeleteWorkstation,
   // Ollama Hosts

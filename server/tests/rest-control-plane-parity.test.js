@@ -79,7 +79,7 @@ installCjsModuleMock('../api/v2-analytics-handlers', handlerModule([
   'handlePrometheusMetrics', 'handleStrategicOperations',
 ]));
 installCjsModuleMock('../api/v2-infrastructure-handlers', handlerModule([
-  'handleListWorkstations', 'handleCreateWorkstation', 'handleProbeWorkstation', 'handleDeleteWorkstation',
+  'handleListWorkstations', 'handleCreateWorkstation', 'handleToggleWorkstation', 'handleProbeWorkstation', 'handleDeleteWorkstation',
   'handleListHosts', 'handleGetHost', 'handleToggleHost', 'handleDeleteHost',
   'handleHostScan', 'handleListPeekHosts', 'handleCreatePeekHost',
   'handleDeletePeekHost', 'handleTogglePeekHost', 'handleListCredentials',

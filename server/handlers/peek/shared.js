@@ -184,7 +184,7 @@ function resolvePeekHost(args) {
   return {
     error: makeError(
       ErrorCodes.RESOURCE_NOT_FOUND,
-      'No peek host configured. Register one via the dashboard (Remote Testing Hosts) or the register_peek_host tool.',
+      'No peek host configured. Connect Peek from a workstation card in the dashboard or use the register_peek_host tool.',
     ),
   };
 }

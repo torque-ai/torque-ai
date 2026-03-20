@@ -612,6 +612,18 @@ describe('api.js', () => {
       );
     });
 
+    it('toggle() sends POST to /api/v2/workstations/:name/toggle with enabled body', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { name: 'builder-01', enabled: 0 } } });
+      await workstations.toggle('builder-01', false);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/workstations/builder-01/toggle',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ enabled: false }),
+        })
+      );
+    });
+
     it('probe() sends POST to /api/v2/workstations/:name/probe', async () => {
       globalThis.fetch = mockFetch({ body: { data: { name: 'builder-01' } } });
       await workstations.probe('builder-01');

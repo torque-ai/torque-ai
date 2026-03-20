@@ -10,6 +10,8 @@ const MODULE_PATHS = [
   '../api/middleware',
   '../database',
   '../db/host-management',
+  '../workstation/model',
+  '../handlers/workstation-handlers',
   '../index',
   '../discovery',
   '../utils/host-monitoring',
@@ -18,6 +20,7 @@ const MODULE_PATHS = [
 const state = {
   ollamaHosts: new Map(),
   hostSettings: new Map(),
+  workstations: new Map(),
   peekHosts: new Map(),
   credentials: new Map(),
   agents: new Map(),
@@ -45,6 +48,18 @@ const mockHostManagement = {
   saveCredential: vi.fn(),
   deleteCredential: vi.fn(),
   deleteAllHostCredentials: vi.fn(),
+};
+
+const mockWorkstationModel = {
+  listWorkstations: vi.fn(),
+  createWorkstation: vi.fn(),
+  getWorkstationByName: vi.fn(),
+  updateWorkstation: vi.fn(),
+  removeWorkstation: vi.fn(),
+};
+
+const mockWorkstationHandlers = {
+  handleProbeWorkstation: vi.fn(),
 };
 
 const mockRegistry = {
@@ -135,6 +150,21 @@ function seedPeekHost(host) {
     ssh: null,
     is_default: 0,
     ...clone(host),
+  });
+}
+
+function seedWorkstation(workstation) {
+  const name = workstation.name;
+  state.workstations.set(name, {
+    id: workstation.id || `ws-${state.workstations.size + 1}`,
+    name,
+    host: workstation.host || '10.0.0.12',
+    agent_port: workstation.agent_port || 3460,
+    enabled: 1,
+    status: 'healthy',
+    running_tasks: 0,
+    max_concurrent: 3,
+    ...clone(workstation),
   });
 }
 
@@ -324,6 +354,7 @@ function mockProbe(moduleName, {
 function resetState() {
   state.ollamaHosts.clear();
   state.hostSettings.clear();
+  state.workstations.clear();
   state.peekHosts.clear();
   state.credentials.clear();
   state.agents.clear();
@@ -343,6 +374,41 @@ function resetMockDefaults() {
   mockDb.removeOllamaHost.mockReset().mockImplementation((hostId) => state.ollamaHosts.delete(hostId));
   mockDb.recordHostHealthCheck.mockReset().mockImplementation(() => undefined);
   mockDb.getHostSettings.mockReset().mockImplementation((hostId) => clone(state.hostSettings.get(hostId)) || {});
+
+  mockWorkstationModel.listWorkstations.mockReset().mockImplementation((filters = {}) => Array.from(state.workstations.values())
+    .filter((workstation) => {
+      if (filters.enabled !== undefined) {
+        return Boolean(workstation.enabled) === Boolean(filters.enabled);
+      }
+      return true;
+    })
+    .map(clone));
+  mockWorkstationModel.createWorkstation.mockReset().mockImplementation((data) => {
+    const created = {
+      id: data.id || `ws-${state.workstations.size + 1}`,
+      status: 'unknown',
+      enabled: data.enabled !== undefined ? data.enabled : 1,
+      running_tasks: 0,
+      ...clone(data),
+    };
+    state.workstations.set(created.name, created);
+    return clone(created);
+  });
+  mockWorkstationModel.getWorkstationByName.mockReset().mockImplementation((name) => clone(state.workstations.get(name)) || null);
+  mockWorkstationModel.updateWorkstation.mockReset().mockImplementation((id, updates) => {
+    const entry = Array.from(state.workstations.values()).find((workstation) => workstation.id === id);
+    if (!entry) return null;
+    const next = { ...entry, ...clone(updates) };
+    state.workstations.set(next.name, next);
+    return clone(next);
+  });
+  mockWorkstationModel.removeWorkstation.mockReset().mockImplementation((id) => {
+    const entry = Array.from(state.workstations.values()).find((workstation) => workstation.id === id);
+    if (!entry) return null;
+    state.workstations.delete(entry.name);
+    return clone(entry);
+  });
+  mockWorkstationHandlers.handleProbeWorkstation.mockReset().mockResolvedValue({ isError: false });
 
   mockDb.listPeekHosts.mockReset().mockImplementation(() => Array.from(state.peekHosts.values()).map(clone));
   mockDb.getPeekHost.mockReset().mockImplementation((hostName) => clone(state.peekHosts.get(hostName)) || null);
@@ -438,6 +504,8 @@ function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
   installCjsModuleMock('../db/host-management', mockHostManagement);
+  installCjsModuleMock('../workstation/model', mockWorkstationModel);
+  installCjsModuleMock('../handlers/workstation-handlers', mockWorkstationHandlers);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   installCjsModuleMock('../index', mockIndex);
   installCjsModuleMock('../discovery', mockDiscovery);
@@ -462,6 +530,59 @@ describe('api/v2-infrastructure-handlers', () => {
     clearLoadedModules();
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  describe('handleToggleWorkstation', () => {
+    it('returns 404 when the workstation does not exist', async () => {
+      const res = createMockRes();
+
+      await handlers.handleToggleWorkstation(
+        createReq({ params: { workstation_name: 'missing-workstation' }, body: {} }),
+        res,
+      );
+
+      expectError(res, {
+        status: 404,
+        code: 'workstation_not_found',
+        message: 'Workstation not found: missing-workstation',
+      });
+    });
+
+    it('toggles an enabled workstation off by default', async () => {
+      seedWorkstation({ id: 'ws-a', name: 'builder-01', enabled: 1, status: 'healthy' });
+      const res = createMockRes();
+
+      await handlers.handleToggleWorkstation(
+        createReq({ params: { workstation_name: 'builder-01' }, body: {} }),
+        res,
+      );
+
+      expect(mockWorkstationModel.updateWorkstation).toHaveBeenCalledWith('ws-a', { enabled: 0 });
+      expect(expectSuccess(res)).toEqual(expect.objectContaining({
+        id: 'ws-a',
+        name: 'builder-01',
+        enabled: 0,
+      }));
+    });
+
+    it('parses the body and respects explicit enabled=true', async () => {
+      seedWorkstation({ id: 'ws-b', name: 'builder-02', enabled: 0, status: 'down' });
+      mockParseBody.mockResolvedValue({ enabled: true });
+      const res = createMockRes();
+
+      await handlers.handleToggleWorkstation(
+        createReq({ params: { workstation_name: 'builder-02' } }),
+        res,
+      );
+
+      expect(mockParseBody).toHaveBeenCalledOnce();
+      expect(mockWorkstationModel.updateWorkstation).toHaveBeenCalledWith('ws-b', { enabled: 1 });
+      expect(expectSuccess(res)).toEqual(expect.objectContaining({
+        id: 'ws-b',
+        name: 'builder-02',
+        enabled: 1,
+      }));
+    });
   });
 
   describe('handleListHosts', () => {

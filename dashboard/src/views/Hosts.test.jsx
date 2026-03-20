@@ -16,6 +16,7 @@ vi.mock('../api', () => ({
   workstations: {
     list: vi.fn(),
     add: vi.fn().mockResolvedValue({}),
+    toggle: vi.fn().mockResolvedValue({}),
     probe: vi.fn(),
     remove: vi.fn(),
   },
@@ -29,6 +30,7 @@ vi.mock('../api', () => ({
   peekHosts: {
     list: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
+    update: vi.fn(),
     toggle: vi.fn(),
     remove: vi.fn(),
     test: vi.fn().mockResolvedValue({ reachable: true, latency_ms: 42 }),
@@ -49,7 +51,7 @@ vi.mock('../hooks/useAbortableRequest', () => ({
   }),
 }));
 
-import { concurrency, hosts as hostsApi, workstations as workstationsApi } from '../api';
+import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi } from '../api';
 
 const mockHosts = [
   {
@@ -93,10 +95,11 @@ const mockWorkstations = [
       command_exec: { detected: true },
       ollama: { detected: true },
       gpu: { detected: true, name: 'RTX 4090', vram_mb: 24576 },
-      ui_capture: { detected: true },
+      ui_capture: { detected: true, peek_server: 'running' },
     },
     models: ['qwen3:8b', 'codellama:13b'],
     last_health_check: '2026-03-17T10:00:00Z',
+    enabled: 1,
   },
 ];
 
@@ -122,8 +125,12 @@ describe('Hosts', () => {
     hostsApi.toggle.mockResolvedValue({});
     hostsApi.remove.mockResolvedValue({});
     workstationsApi.list.mockResolvedValue(mockWorkstations);
+    workstationsApi.toggle.mockResolvedValue({});
     workstationsApi.probe.mockResolvedValue({});
     workstationsApi.remove.mockResolvedValue({});
+    peekHostsApi.list.mockResolvedValue([]);
+    peekHostsApi.create.mockResolvedValue({});
+    peekHostsApi.update.mockResolvedValue({});
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       headers: {
@@ -239,6 +246,40 @@ describe('Hosts', () => {
 
     await waitFor(() => {
       expect(workstationsApi.probe).toHaveBeenCalledWith('builder-01');
+    });
+  });
+
+  it('toggles a workstation from the unified hosts page', async () => {
+    renderWithProviders(<Hosts />, { route: '/hosts' });
+
+    await waitFor(() => {
+      expect(screen.getByText('builder-01')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTitle('Disable workstation'));
+
+    await waitFor(() => {
+      expect(workstationsApi.toggle).toHaveBeenCalledWith('builder-01', false);
+    });
+  });
+
+  it('renders workstation peek controls and connects peek with the generated url', async () => {
+    renderWithProviders(<Hosts />, { route: '/hosts' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Peek Server')).toBeTruthy();
+    });
+
+    expect(screen.getByDisplayValue('http://10.0.0.12:9876')).toBeTruthy();
+    expect(screen.queryByText('Remote Testing Hosts')).toBeNull();
+
+    fireEvent.click(screen.getByText('Connect Peek'));
+
+    await waitFor(() => {
+      expect(peekHostsApi.create).toHaveBeenCalledWith(expect.objectContaining({
+        name: 'builder-01',
+        url: 'http://10.0.0.12:9876',
+      }));
     });
   });
 

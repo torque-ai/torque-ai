@@ -86,6 +86,7 @@ const mockHandlers = {
   infrastructure: {
     handleListWorkstations: vi.fn(),
     handleCreateWorkstation: vi.fn(),
+    handleToggleWorkstation: vi.fn(),
     handleProbeWorkstation: vi.fn(),
     handleDeleteWorkstation: vi.fn(),
     handleListHosts: vi.fn(),

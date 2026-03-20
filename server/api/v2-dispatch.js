@@ -434,6 +434,7 @@ const V2_CP_HANDLER_LOOKUP = {
   // Infrastructure
   handleV2CpListWorkstations: v2InfrastructureHandlers.handleListWorkstations,
   handleV2CpCreateWorkstation: v2InfrastructureHandlers.handleCreateWorkstation,
+  handleV2CpToggleWorkstation: v2InfrastructureHandlers.handleToggleWorkstation,
   handleV2CpProbeWorkstation: v2InfrastructureHandlers.handleProbeWorkstation,
   handleV2CpDeleteWorkstation: v2InfrastructureHandlers.handleDeleteWorkstation,
   handleV2CpListHosts: v2InfrastructureHandlers.handleListHosts,
