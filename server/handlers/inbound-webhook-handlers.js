@@ -172,9 +172,12 @@ function handleTestInboundWebhook(args) {
   }
 
   // Parse action_config
-  const actionConfig = typeof webhook.action_config === 'string'
-    ? JSON.parse(webhook.action_config)
-    : (webhook.action_config || {});
+  let actionConfig;
+  if (typeof webhook.action_config === 'string') {
+    try { actionConfig = JSON.parse(webhook.action_config); } catch { actionConfig = {}; }
+  } else {
+    actionConfig = webhook.action_config || {};
+  }
 
   // Build test payload with defaults
   const testPayload = payload || {

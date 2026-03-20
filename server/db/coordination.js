@@ -522,7 +522,8 @@ function getClaimableTasksForAgent(agentId, limit = 10) {
   if (agent.capabilities && agent.capabilities.length > 0) {
     return tasks.filter(task => {
       if (!task.required_capabilities) return true;
-      const required = JSON.parse(task.required_capabilities);
+      let required;
+      try { required = JSON.parse(task.required_capabilities); } catch { required = []; }
       return required.every(cap => agent.capabilities.includes(cap));
     });
   }

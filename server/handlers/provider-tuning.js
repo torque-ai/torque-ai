@@ -279,7 +279,8 @@ function handleApplyLlmPreset(args) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, 'No presets configured');
   }
 
-  const presets = JSON.parse(presetsJson);
+  let presets;
+  try { presets = JSON.parse(presetsJson); } catch { presets = {}; }
   const presetConfig = presets[preset];
   if (!presetConfig) {
     return makeError(ErrorCodes.INVALID_PARAM, `Unknown preset: ${preset}. Available: ${Object.keys(presets).join(', ')}`);
@@ -341,7 +342,8 @@ function handleListLlmPresets(_args) {
     };
   }
 
-  const presets = JSON.parse(presetsJson);
+  let presets;
+  try { presets = JSON.parse(presetsJson); } catch { presets = []; }
 
   let output = `## LLM Tuning Presets\n\n`;
   output += `**Current:** \`${currentPreset}\`\n\n`;
@@ -560,7 +562,8 @@ function handleGetModelPrompts(args) {
     };
   }
 
-  const prompts = JSON.parse(promptsJson);
+  let prompts;
+  try { prompts = JSON.parse(promptsJson); } catch { prompts = {}; }
 
   if (model) {
     const prompt = prompts[model];
@@ -599,7 +602,8 @@ function handleSetModelPrompt(args) {
   }
 
   const promptsJson = serverConfig.get('ollama_model_prompts') || '{}';
-  const prompts = JSON.parse(promptsJson);
+  let prompts;
+  try { prompts = JSON.parse(promptsJson); } catch { prompts = {}; }
 
   prompts[model] = prompt;
   db.setConfig('ollama_model_prompts', JSON.stringify(prompts));
@@ -830,7 +834,8 @@ function handleGetAutoTuning(_args) {
     return { content: [{ type: 'text', text: output }] };
   }
 
-  const rules = JSON.parse(rulesJson);
+  let rules;
+  try { rules = JSON.parse(rulesJson); } catch { rules = {}; }
 
   output += `### Rules\n`;
   output += `| Rule | Patterns | Temp | Top-K | Mirostat |\n`;
@@ -865,7 +870,8 @@ function handleSetAutoTuning(args) {
 
   if (rule && (patterns || tuning)) {
     const rulesJson = serverConfig.get('ollama_auto_tuning_rules') || '{}';
-    const rules = JSON.parse(rulesJson);
+    let rules;
+    try { rules = JSON.parse(rulesJson); } catch { rules = {}; }
 
     if (!rules[rule]) {
       rules[rule] = { patterns: [], tuning: {} };

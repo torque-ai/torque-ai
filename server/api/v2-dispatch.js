@@ -50,32 +50,39 @@ async function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let bodySize = 0;
+    let settled = false;
     req.on('data', chunk => {
       const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       bodySize += bufferChunk.length;
       if (bodySize > MAX_BODY_SIZE) {
-        reject(new Error('Request body too large'));
+        if (!settled) { settled = true; reject(new Error('Request body too large')); }
         req.destroy();
         return;
       }
       chunks.push(bufferChunk);
     });
     req.on('end', () => {
+      if (settled) return;
       const data = Buffer.concat(chunks).toString('utf8');
       if (!data.trim()) {
+        settled = true;
         resolve({});
         return;
       }
       try {
         const parsed = JSON.parse(data);
         validateJsonDepth(parsed); // Guard against deeply nested DoS payloads
+        settled = true;
         resolve(parsed);
       } catch (err) {
         logger.debug("task handler error", { err: err.message });
+        settled = true;
         reject(new Error(err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON'));
       }
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (!settled) { settled = true; reject(err); }
+    });
   });
 }
 
@@ -114,7 +121,8 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpGetConcurrencyLimits: (req, res, ctx) => {
     const result = concurrencyHandlers.handleGetConcurrencyLimits();
     const text = result?.content?.[0]?.text || '{}';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpSetConcurrencyLimit: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -214,7 +222,8 @@ const V2_CP_HANDLER_LOOKUP = {
 
     const result = routingHandlers.handleListRoutingTemplates();
     const text = result?.content?.[0]?.text || '[]';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpGetRoutingTemplate: (req, res, ctx) => {
 
@@ -224,7 +233,8 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 404 });
     }
     const text = result?.content?.[0]?.text || '{}';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpCreateRoutingTemplate: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -234,7 +244,8 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 400 });
     }
     const text = result?.content?.[0]?.text || '{}';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 201, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 201, req);
   },
   handleV2CpUpdateRoutingTemplate: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -245,7 +256,7 @@ const V2_CP_HANDLER_LOOKUP = {
     if (existing?.isError) {
       throwToolResultError({ ...existing, status: 404 });
     }
-    const existingData = JSON.parse(existing?.content?.[0]?.text || '{}');
+    let existingData; try { existingData = JSON.parse(existing?.content?.[0]?.text || '{}'); } catch { existingData = { error: 'Failed to parse tool response' }; }
     const result = routingHandlers.handleSetRoutingTemplate({
       name: body.name || existingData.name,
       description: body.description !== undefined ? body.description : existingData.description,
@@ -256,7 +267,8 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 400 });
     }
     const text = result?.content?.[0]?.text || '{}';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpDeleteRoutingTemplate: (req, res, ctx) => {
 
@@ -277,7 +289,8 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 404 });
     }
     const text = result?.content?.[0]?.text || '{}';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpSetActiveRouting: async (req, res, ctx) => {
     const body = await readJsonBody(req);
@@ -296,20 +309,23 @@ const V2_CP_HANDLER_LOOKUP = {
 
     const result = routingHandlers.handleListRoutingCategories();
     const text = result?.content?.[0]?.text || '[]';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   // Model registry
   handleV2CpListModels: (req, res, ctx) => {
 
     const result = modelHandlers.handleListModels(req.query || {});
     const text = result?.content?.[0]?.text || '{}';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpListPendingModels: (req, res, ctx) => {
 
     const result = modelHandlers.handleListPendingModels();
     const text = result?.content?.[0]?.text || '{}';
-    sendJson(res, { data: JSON.parse(text), meta: { request_id: ctx.requestId } }, 200, req);
+    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpApproveModel: async (req, res, ctx) => {
     const body = await readJsonBody(req);

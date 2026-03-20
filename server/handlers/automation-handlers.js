@@ -995,10 +995,13 @@ function handleGetTaskEvents(args) {
     content: [{
       type: 'text',
       text: JSON.stringify({
-        events: events.map(e => ({
-          ...e,
-          event_data: e.event_data ? JSON.parse(e.event_data) : null,
-        })),
+        events: events.map(e => {
+          let eventData = null;
+          if (e.event_data) {
+            try { eventData = JSON.parse(e.event_data); } catch { eventData = e.event_data; }
+          }
+          return { ...e, event_data: eventData };
+        }),
         count: events.length,
       }, null, 2),
     }],

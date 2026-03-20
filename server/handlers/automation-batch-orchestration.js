@@ -1661,7 +1661,10 @@ async function handleContinuousBatchSubmission(completedWorkflowId, workflowData
     }
 
     const rawStepProviders = database.getConfig('continuous_batch_step_providers');
-    const stepProviders = rawStepProviders ? JSON.parse(rawStepProviders) : undefined;
+    let stepProviders;
+    if (rawStepProviders) {
+      try { stepProviders = JSON.parse(rawStepProviders); } catch { stepProviders = undefined; }
+    }
 
     const runResult = await runBatch({
       working_directory: workingDir,
