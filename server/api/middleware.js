@@ -199,29 +199,35 @@ function parseBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalSize = 0;
+    let settled = false;
     const MAX_BODY = 10 * 1024 * 1024; // 10MB
     req.on('data', chunk => {
       const chunkBuffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       totalSize += chunkBuffer.length;
       if (totalSize > MAX_BODY) {
-        reject(new Error('Request body too large'));
+        if (!settled) { settled = true; reject(new Error('Request body too large')); }
         req.destroy();
         return;
       }
       chunks.push(chunkBuffer);
     });
     req.on('end', () => {
+      if (settled) return;
       const body = Buffer.concat(chunks).toString('utf8');
-      if (!body) return resolve({});
+      if (!body) { settled = true; return resolve({}); }
       try {
         const parsed = JSON.parse(body);
         validateJsonDepth(parsed);
+        settled = true;
         resolve(parsed);
       } catch (err) {
+        settled = true;
         reject(new Error(err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON'));
       }
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (!settled) { settled = true; reject(err); }
+    });
   });
 }
 

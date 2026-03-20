@@ -190,26 +190,33 @@ logger.warn('MCP Gateway transport is deprecated — use SSE transport (port 345
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
+    let settled = false;
     const MAX_BODY = 1024 * 1024;
 
     req.on('data', (chunk) => {
       body += chunk;
       if (body.length > MAX_BODY) {
-        reject(new Error('Payload too large'));
+        if (!settled) { settled = true; reject(new Error('Payload too large')); }
         req.destroy();
+        return;
       }
     });
 
     req.on('end', () => {
-      if (!body) return resolve({});
+      if (settled) return;
+      if (!body) { settled = true; return resolve({}); }
       try {
+        settled = true;
         resolve(JSON.parse(body));
       } catch {
+        settled = true;
         reject(new Error('Invalid JSON payload'));
       }
     });
 
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (!settled) { settled = true; reject(err); }
+    });
   });
 }
 
