@@ -17,17 +17,6 @@ const Providers = lazy(() => import('./views/Providers'));
 const WorkflowsHub = lazy(() => import('./views/WorkflowsHub'));
 const InfrastructureHub = lazy(() => import('./views/InfrastructureHub'));
 const OperationsHub = lazy(() => import('./views/OperationsHub'));
-// Legacy — still lazy-loaded for old URL redirects and hub tab content
-const PlanProjects = lazy(() => import('./views/PlanProjects'));
-const Hosts = lazy(() => import('./views/Hosts'));
-const BatchHistory = lazy(() => import('./views/BatchHistory'));
-const Budget = lazy(() => import('./views/Budget'));
-const Models = lazy(() => import('./views/Models'));
-const Workflows = lazy(() => import('./views/Workflows'));
-const Schedules = lazy(() => import('./views/Schedules'));
-const Approvals = lazy(() => import('./views/Approvals'));
-const Coordination = lazy(() => import('./views/Coordination'));
-const Strategy = lazy(() => import('./views/Strategy'));
 
 function mergeTaskUpdates(prevTasks, incomingTasks) {
   const updates = new Map(
