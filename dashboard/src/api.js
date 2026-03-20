@@ -114,6 +114,7 @@ async function _fetch(url, options = {}) {
     return data;
   } catch (err) {
     if (err.name === 'AbortError') {
+      if (externalSignal?.aborted) throw err; // re-throw as AbortError for external signals
       throw new Error('Request timed out');
     }
     throw err;

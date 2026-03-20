@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { workflows as workflowsApi } from '../api';
 import { useToast } from '../components/Toast';
@@ -288,7 +288,7 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
   }, [statusFilter, page, setSearchParams]);
 
   // Reset to page 1 when filter changes
-  const prevFilterRef = useMemo(() => ({ current: statusFilter }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const prevFilterRef = useRef(statusFilter);
   useEffect(() => {
     if (prevFilterRef.current !== statusFilter) {
       prevFilterRef.current = statusFilter;

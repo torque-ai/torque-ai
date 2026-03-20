@@ -94,6 +94,7 @@ export function useKeyboardShortcuts({ onRefresh } = {}) {
 
     if (pendingG && NAV_KEYS[e.key]) {
       e.preventDefault();
+      clearTimeout(pendingGTimerRef.current);
       navigate(NAV_KEYS[e.key]);
       setPendingG(false);
       return;

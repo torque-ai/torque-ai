@@ -643,6 +643,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
               sortedTasks.map((task, idx) => (
                 <tr
                   key={task.id}
+                  data-row-idx={idx}
                   onClick={() => onOpenDrawer?.(task.id)}
                   className={`border-b border-slate-700/30 hover:bg-slate-700/30 cursor-pointer transition-colors ${
                     focusedIdx === idx ? 'bg-blue-900/20 ring-1 ring-blue-500/30' : ''

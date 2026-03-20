@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 function hasTab(tabs, id) {
   return tabs.some((tab) => tab.id === id);
@@ -54,10 +54,10 @@ export default function TabBar({ tabs = [], defaultTab, onTabChange }) {
     }
   }, [active, tabs]);
 
+  const mountedRef = useRef(false);
   useEffect(() => {
-    if (active && onTabChange) {
-      onTabChange(active);
-    }
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    if (active && onTabChange) onTabChange(active);
   }, [active, onTabChange]);
 
   if (tabs.length === 0) {

@@ -1285,7 +1285,7 @@ export default function Hosts({ hostActivity }) {
 
   async function handleToggleWorkstation(name, enabled) {
     try {
-      await workstationsApi.update(name, { enabled: enabled ? 1 : 0 });
+      await workstationsApi.toggle(name, enabled);
       toast.success(`Workstation "${name}" ${enabled ? 'enabled' : 'disabled'}`);
       await loadWorkstations();
     } catch (err) {
