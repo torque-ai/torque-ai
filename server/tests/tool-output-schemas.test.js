@@ -42,15 +42,16 @@ describe('tool-output-schemas', () => {
       }
     });
 
-    it('Phase 1 declares exactly 8 schemas', () => {
+    it('declares schemas for all expected tools', () => {
       const expected = [
         'check_status', 'task_info', 'list_tasks', 'get_result',
         'get_progress', 'workflow_status', 'list_workflows', 'list_ollama_hosts',
+        'get_context',
       ];
       for (const name of expected) {
         expect(getOutputSchema(name)).toBeDefined();
       }
-      expect(Object.keys(OUTPUT_SCHEMAS).length).toBe(8);
+      expect(Object.keys(OUTPUT_SCHEMAS).length).toBe(expected.length);
     });
   });
 
