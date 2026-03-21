@@ -6,6 +6,7 @@ module.exports = {
     testTimeout: 15000,
     hookTimeout: 10000,
     include: ['server/tests/**/*.test.js', 'server/tests/test-*.js'],
+    setupFiles: ['server/tests/worker-setup.js'],
     pool: 'forks',
     maxWorkers: Math.max(1, Math.min(os.cpus().length - 1, 8)),
     fileParallelism: true,
