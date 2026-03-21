@@ -79,6 +79,12 @@ describe('HealthBar', () => {
     expect(screen.getByText('err')).toBeInTheDocument();
   });
 
+  it('handles { providers: [...] } envelope shape from V2 API', async () => {
+    providers.list.mockResolvedValue({ providers: MOCK_PROVIDERS });
+    await act(async () => { render(<HealthBar />); });
+    expect(screen.getByText('2/5')).toBeInTheDocument();
+  });
+
   it('polls every 30 seconds', async () => {
     await act(async () => { render(<HealthBar />); });
     const callsAfterMount = providers.list.mock.calls.length;
