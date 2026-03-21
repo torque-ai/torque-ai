@@ -1,7 +1,6 @@
 'use strict';
 const logger = require('../logger').child({ component: 'middleware' });
 
-const crypto = require('crypto');
 const db = require('../database');
 const serverConfig = require('../config');
 const { RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS, RATE_LIMIT_CLEANUP_MS } = require('../constants');
@@ -264,34 +263,6 @@ function sendJson(res, data, status = 200, req = null) {
 }
 
 /**
- * Check API key authentication
- * @param {boolean} options.requireApiKey If true, authentication is required even when no key is configured.
- */
-function checkAuth(req, options = {}) {
-  const expectedKey = serverConfig.get('api_key');
-  const requireApiKey = options.requireApiKey === true;
-
-  if (requireApiKey && !expectedKey) {
-    return false;
-  }
-
-  if (!expectedKey) return true; // No key configured = auth disabled
-
-  const apiKey = req.headers['x-torque-key']
-    || (req.headers.authorization?.startsWith('Bearer ')
-      ? req.headers.authorization.slice(7)
-      : null);
-  const a = crypto.createHash('sha256').update(apiKey || '').digest();
-  const b = crypto.createHash('sha256').update(expectedKey || '').digest();
-
-  if (!crypto.timingSafeEqual(a, b)) {
-    return false;
-  }
-
-  return true;
-}
-
-/**
  * Parse URL query parameters
  */
 function parseQuery(url) {
@@ -399,7 +370,6 @@ module.exports = {
   checkRateLimit,
   parseBody,
   sendJson,
-  checkAuth,
   parseQuery,
   applyMiddleware,
   authenticateRequest,

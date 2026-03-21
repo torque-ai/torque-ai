@@ -524,6 +524,15 @@ function init() {
     keyManager.init(db.getDbInstance());
     keyManager.migrateConfigApiKey(); // migrate existing config.api_key if present
 
+    // Defense-in-depth: remove stale config.api_key if new auth system has keys
+    try {
+      const dbInst = db.getDbInstance();
+      const legacyKey = dbInst.prepare("SELECT value FROM config WHERE key = 'api_key'").get();
+      if (legacyKey && keyManager.hasAnyKeys()) {
+        dbInst.prepare("DELETE FROM config WHERE key = 'api_key'").run();
+      }
+    } catch {}
+
     if (!keyManager.hasAnyKeys()) {
       const { key } = keyManager.createKey({ name: 'Bootstrap admin key', role: 'admin' });
       console.log('\u2550'.repeat(59));

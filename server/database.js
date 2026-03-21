@@ -556,11 +556,6 @@ function init() {
     _injectDbAll();
     _wireCrossModuleDI();
 
-    const generatedKey = configCore.ensureApiKey();
-    if (generatedKey) {
-      logger.info('API key configured (set TORQUE_API_KEY or X-Torque-Key header to authenticate)');
-    }
-
     const backupInterval = parseInt(getConfig('backup_interval_minutes') || '60', 10);
     if (backupInterval > 0) {
       backupCore.startBackupScheduler(backupInterval * 60000);
@@ -603,7 +598,6 @@ function setConfig(key, value) { return configCore.setConfig(key, value); }
 function setConfigDefault(key, value) { return configCore.setConfigDefault(key, value); }
 function getAllConfig() { return configCore.getAllConfig(); }
 function getProviderRateLimits() { return configCore.getProviderRateLimits(); }
-function ensureApiKey() { return configCore.ensureApiKey(); }
 
 // ============================================================
 // Task delegation (facade over task-core)
@@ -776,7 +770,6 @@ const coreExports = {
   setConfigDefault,
   getAllConfig,
   getProviderRateLimits,
-  ensureApiKey,
   close,
   onClose,
   addTaskStatusTransitionListener,

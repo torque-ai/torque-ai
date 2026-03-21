@@ -159,21 +159,6 @@ function getProviderRateLimits() {
   }
 }
 
-/**
- * Ensure an API key exists in the config.
- * Generates and stores a UUID key on first call if none is configured.
- * Subsequent calls return the existing key.
- * @returns {string|null} The API key if newly generated, null if it already existed.
- */
-function ensureApiKey() {
-  const existing = getConfig('api_key');
-  if (existing) return null;
-  const crypto = require('crypto');
-  const key = crypto.randomUUID();
-  setConfig('api_key', key);
-  return key;
-}
-
 module.exports = {
   setDb,
   clearConfigCache,
@@ -182,5 +167,4 @@ module.exports = {
   setConfigDefault,
   getAllConfig,
   getProviderRateLimits,
-  ensureApiKey,
 };
