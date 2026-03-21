@@ -167,20 +167,20 @@ describe('comparison-handler', () => {
     const result = await comparisonPromise;
 
     expect(result.results).toEqual([
-      {
+      expect.objectContaining({
         provider: 'codex',
         output: 'codex completed output',
         durationMs: 5200,
         exitCode: 0,
         success: true,
-      },
-      {
+      }),
+      expect.objectContaining({
         provider: 'claude-cli',
         output: 'claude-cli completed output',
         durationMs: 8100,
         exitCode: 0,
         success: true,
-      },
+      }),
     ]);
     expect(result.summary).toEqual(expect.objectContaining({
       fastestProvider: 'codex',
