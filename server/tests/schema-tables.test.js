@@ -95,6 +95,7 @@ const EXPECTED_TABLES = [
   "github_issues",
   "email_notifications",
   "provider_config",
+  "provider_scores",
   "provider_usage",
   "routing_rules",
   "ollama_hosts",
@@ -567,6 +568,19 @@ describe('db/schema-tables', () => {
     expect(columns).toContain('auto_check_pass_rate');
   });
 
+  it('provider_scores table exists with expected indexes', () => {
+    createTables(db, logger);
+
+    const columns = getColumns('provider_scores').map((column) => column.name);
+    const indexes = getIndexNames();
+
+    expect(columns).toContain('provider');
+    expect(columns).toContain('composite_score');
+    expect(columns).toContain('trusted');
+    expect(indexes).toContain('idx_provider_scores_composite');
+    expect(indexes).toContain('idx_provider_scores_trusted');
+  });
+
   it('ensureAuditLogChainColumns adds columns to audit_log table', () => {
     db.exec(`
       CREATE TABLE audit_log (
@@ -778,6 +792,15 @@ describe('db/schema-tables', () => {
     createTables(db, logger);
     const info = db.pragma('table_info(tasks)');
     const col = info.find(c => c.name === 'partial_output');
+    expect(col).toBeDefined();
+    expect(col.type).toBe('TEXT');
+    expect(col.dflt_value).toBeNull();
+  });
+
+  test('tasks table has resume_context column', () => {
+    createTables(db, logger);
+    const info = db.pragma('table_info(tasks)');
+    const col = info.find(c => c.name === 'resume_context');
     expect(col).toBeDefined();
     expect(col.type).toBe('TEXT');
     expect(col.dflt_value).toBeNull();

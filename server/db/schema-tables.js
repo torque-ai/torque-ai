@@ -104,6 +104,7 @@ const VALID_TABLE_NAMES = new Set([
   'provider_health_history',
   'provider_performance',
   'provider_rate_limits',
+  'provider_scores',
   'provider_task_stats',
   'provider_usage',
   'quality_scores',
@@ -310,12 +311,18 @@ function createTables(db, logger) {
         pause_reason TEXT,
         approval_status TEXT DEFAULT 'none',
         claimed_by_agent TEXT,
+        resume_context TEXT,
         required_capabilities TEXT,
         git_before_sha TEXT,
         git_after_sha TEXT,
         git_stash_ref TEXT
       )
     `);
+  try {
+    rawDb.exec('ALTER TABLE tasks ADD COLUMN resume_context TEXT');
+  } catch (e) {
+    // Column already exists — safe to ignore
+  }
   db.exec(`
       CREATE TABLE IF NOT EXISTS plan_projects (
         id TEXT PRIMARY KEY,
@@ -2120,6 +2127,25 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_cost_tracking_provider ON cost_tracking(provider);
       CREATE INDEX IF NOT EXISTS idx_cost_tracking_task ON cost_tracking(task_id);
       CREATE INDEX IF NOT EXISTS idx_cost_tracking_tracked ON cost_tracking(provider, tracked_at);
+
+      CREATE TABLE IF NOT EXISTS provider_scores (
+        provider TEXT PRIMARY KEY,
+        cost_efficiency REAL DEFAULT 0,
+        speed_score REAL DEFAULT 0,
+        reliability_score REAL DEFAULT 0,
+        quality_score REAL DEFAULT 0,
+        composite_score REAL DEFAULT 0,
+        sample_count INTEGER DEFAULT 0,
+        total_tasks INTEGER DEFAULT 0,
+        total_successes INTEGER DEFAULT 0,
+        total_failures INTEGER DEFAULT 0,
+        avg_duration_ms REAL DEFAULT 0,
+        avg_cost_usd REAL DEFAULT 0,
+        last_updated TEXT NOT NULL DEFAULT (datetime('now')),
+        trusted INTEGER DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_provider_scores_composite ON provider_scores(composite_score DESC);
+      CREATE INDEX IF NOT EXISTS idx_provider_scores_trusted ON provider_scores(trusted, composite_score DESC);
     
       -- Cost budgets and alerts
       CREATE TABLE IF NOT EXISTS cost_budgets (
