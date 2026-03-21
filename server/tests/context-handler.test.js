@@ -129,4 +129,46 @@ describe('context-handler', () => {
       expect(result.structuredData.counts.failed).toBe(0);
     });
   });
+
+  describe('integration', () => {
+    it('get_context appears in Tier 1 tool list', () => {
+      const { CORE_TOOL_NAMES } = require('../core-tools');
+      expect(CORE_TOOL_NAMES).toContain('get_context');
+    });
+
+    it('get_context has annotations (readOnly + idempotent)', () => {
+      const { TOOLS } = require('../tools');
+      const tool = TOOLS.find(t => t.name === 'get_context');
+      expect(tool).toBeDefined();
+      expect(tool.annotations).toBeDefined();
+      expect(tool.annotations.readOnlyHint).toBe(true);
+      expect(tool.annotations.idempotentHint).toBe(true);
+    });
+
+    it('get_context has outputSchema', () => {
+      const { TOOLS } = require('../tools');
+      const tool = TOOLS.find(t => t.name === 'get_context');
+      expect(tool).toBeDefined();
+      expect(tool.outputSchema).toBeDefined();
+      expect(tool.outputSchema.required).toContain('scope');
+    });
+
+    it('get_context structuredData flows through protocol as structuredContent', () => {
+      const { getOutputSchema } = require('../tool-output-schemas');
+      const { handleGetContext } = require('../handlers/context-handler');
+
+      const result = handleGetContext({});
+      expect(result.structuredData).toBeDefined();
+
+      // Simulate protocol layer
+      if (result.structuredData && !result.isError && getOutputSchema('get_context')) {
+        result.structuredContent = result.structuredData;
+        delete result.structuredData;
+      }
+
+      expect(result.structuredContent).toBeDefined();
+      expect(result.structuredContent.scope).toBe('queue');
+      expect(result.structuredData).toBeUndefined();
+    });
+  });
 });
