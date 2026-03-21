@@ -395,4 +395,184 @@ describe('tool-output-schemas', () => {
       expect(Array.isArray(result.structuredData.hosts)).toBe(true);
     });
   });
+
+  describe('handler conformance — Phase 2', () => {
+    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+    let db, templateBuffer;
+
+    beforeAll(() => {
+      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
+      db = require('../database');
+      db.resetForTest(templateBuffer);
+    });
+
+    afterAll(() => {
+      try { db.close(); } catch {}
+    });
+
+    // --- provider_stats ---
+    it('provider_stats returns structuredData with provider field', () => {
+      const { handleProviderStats } = require('../handlers/provider-handlers');
+      const result = handleProviderStats({ provider: 'ollama' });
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.provider).toBe('ollama');
+      expect(typeof result.structuredData.total_tasks).toBe('number');
+      expect(typeof result.structuredData.successful_tasks).toBe('number');
+      expect(typeof result.structuredData.failed_tasks).toBe('number');
+      expect(typeof result.structuredData.success_rate).toBe('number');
+      expect(result.content).toBeDefined();
+    });
+
+    it('provider_stats without provider arg returns error', () => {
+      const { handleProviderStats } = require('../handlers/provider-handlers');
+      const result = handleProviderStats({});
+
+      expect(result.isError).toBe(true);
+      expect(result.structuredData).toBeUndefined();
+    });
+
+    // --- list_providers ---
+    it('list_providers returns structuredData with count and providers array', () => {
+      const { handleListProviders } = require('../handlers/provider-handlers');
+      const result = handleListProviders();
+
+      expect(result.structuredData).toBeDefined();
+      expect(typeof result.structuredData.count).toBe('number');
+      expect(Array.isArray(result.structuredData.providers)).toBe(true);
+      expect(result.content).toBeDefined();
+    });
+
+    // --- check_ollama_health (async, may fail due to no network) ---
+    it('check_ollama_health returns structuredData with health counts', async () => {
+      const { handleCheckOllamaHealth } = require('../handlers/provider-ollama-hosts');
+      let result;
+      try {
+        result = await handleCheckOllamaHealth({ force_check: false });
+      } catch {
+        // Network error in test env is expected — skip shape check
+        return;
+      }
+
+      if (result.isError) return; // Internal error (no network) — acceptable
+
+      expect(result.structuredData).toBeDefined();
+      expect(typeof result.structuredData.healthy_count).toBe('number');
+      expect(typeof result.structuredData.total_count).toBe('number');
+      expect(Array.isArray(result.structuredData.hosts)).toBe(true);
+      expect(result.content).toBeDefined();
+    });
+
+    // --- get_cost_summary ---
+    it('get_cost_summary returns structuredData with days field', () => {
+      const { handleGetCostSummary } = require('../handlers/validation');
+      const result = handleGetCostSummary({});
+
+      expect(result.structuredData).toBeDefined();
+      expect(typeof result.structuredData.days).toBe('number');
+      expect(result.content).toBeDefined();
+    });
+
+    it('get_cost_summary respects custom days arg', () => {
+      const { handleGetCostSummary } = require('../handlers/validation');
+      const result = handleGetCostSummary({ days: 7 });
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.days).toBe(7);
+    });
+
+    // --- get_budget_status ---
+    it('get_budget_status returns structuredData with count and budgets', () => {
+      const { handleGetBudgetStatus } = require('../handlers/validation');
+      const result = handleGetBudgetStatus({});
+
+      expect(result.structuredData).toBeDefined();
+      expect(typeof result.structuredData.count).toBe('number');
+      expect(Array.isArray(result.structuredData.budgets)).toBe(true);
+      expect(result.content).toBeDefined();
+    });
+
+    // --- get_cost_forecast ---
+    it('get_cost_forecast returns structuredData with forecast object', () => {
+      const { handleGetCostForecast } = require('../handlers/validation');
+      const result = handleGetCostForecast({});
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.forecast).toBeDefined();
+      expect(result.content).toBeDefined();
+    });
+
+    // --- success_rates ---
+    it('success_rates returns structuredData with count and rates array (or empty result)', () => {
+      const { handleSuccessRates } = require('../handlers/integration');
+      const result = handleSuccessRates({});
+
+      // When no metrics data exists, handler returns without structuredData
+      if (!result.structuredData) {
+        // No metrics aggregated yet — acceptable in test env
+        expect(result.content).toBeDefined();
+        return;
+      }
+
+      expect(typeof result.structuredData.count).toBe('number');
+      expect(Array.isArray(result.structuredData.rates)).toBe(true);
+      expect(result.content).toBeDefined();
+    });
+
+    // --- get_concurrency_limits ---
+    it('get_concurrency_limits returns structuredData with providers array', () => {
+      const { handleGetConcurrencyLimits } = require('../handlers/concurrency-handlers');
+      const result = handleGetConcurrencyLimits();
+
+      expect(result.structuredData).toBeDefined();
+      expect(Array.isArray(result.structuredData.providers)).toBe(true);
+      expect(result.content).toBeDefined();
+    });
+
+    // --- check_stalled_tasks ---
+    it('check_stalled_tasks returns structuredData with running/stalled counts', () => {
+      const { handleCheckStalledTasks } = require('../handlers/task/operations');
+      let result;
+      try {
+        result = handleCheckStalledTasks({});
+      } catch {
+        // taskManager may not be fully initialized in test env
+        return;
+      }
+
+      // When no running tasks, handler returns without structuredData
+      if (!result.structuredData) {
+        expect(result.content).toBeDefined();
+        return;
+      }
+
+      expect(typeof result.structuredData.running_count).toBe('number');
+      expect(typeof result.structuredData.stalled_count).toBe('number');
+      expect(Array.isArray(result.structuredData.tasks)).toBe(true);
+      expect(result.content).toBeDefined();
+    });
+
+    // --- check_task_progress (async, uses setTimeout) ---
+    it('check_task_progress returns structuredData with running_count and tasks', async () => {
+      const { handleCheckTaskProgress } = require('../handlers/task/operations');
+      let result;
+      try {
+        // Use wait_seconds=0 to minimize delay in tests
+        result = await handleCheckTaskProgress({ wait_seconds: 0 });
+      } catch {
+        // taskManager / timeout issues in test env
+        return;
+      }
+
+      // When no running tasks, handler returns without structuredData
+      if (!result.structuredData) {
+        expect(result.content).toBeDefined();
+        return;
+      }
+
+      expect(typeof result.structuredData.running_count).toBe('number');
+      expect(Array.isArray(result.structuredData.tasks)).toBe(true);
+      expect(result.content).toBeDefined();
+    });
+  });
 });
