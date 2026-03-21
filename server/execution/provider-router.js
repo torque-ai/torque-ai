@@ -157,6 +157,14 @@ function resolveProviderRouting(task, taskId) {
 
   const paidProviders = new Set(['anthropic', 'groq', 'codex', 'claude-cli']);
   const isUserOverride = taskMeta.user_provider_override;
+
+  // TDA-01 sovereign intent: when the user (or workflow) explicitly specified a provider,
+  // skip all routing template evaluation and budget-based rerouting. The explicit provider
+  // choice takes absolute precedence. Only budget-exceeded + user-override logs a warning.
+  if (isUserOverride && task.provider) {
+    logger.info(`[Routing] User-override provider '${provider}' for task ${taskId} — skipping template routing (TDA-01)`);
+    return { provider, switchReason: null };
+  }
   let switchReason = null;
   if (paidProviders.has(provider)) {
     const budgetStatus = _db.isBudgetExceeded(provider);
