@@ -295,19 +295,18 @@ function AppInner() {
 function App() {
   // null = checking, true = authenticated, false = not authenticated
   const [authenticated, setAuthenticated] = useState(null);
+  const [needsSetup, setNeedsSetup] = useState(false);
 
-  useEffect(() => {
-    // Probe a lightweight endpoint to determine auth state.
-    // 401 → show login; anything else (200, open mode) → show dashboard.
+  const checkAuth = useCallback(() => {
     fetch('/api/auth/status')
-      .then(res => {
-        if (res.status === 401) {
-          setAuthenticated(false);
-        } else {
-          res.json().then(data => {
-            if (data.csrfToken) window.__torqueCsrf = data.csrfToken;
-          }).catch(() => {});
+      .then(res => res.json())
+      .then(data => {
+        if (data.authenticated) {
+          if (data.csrfToken) window.__torqueCsrf = data.csrfToken;
           setAuthenticated(true);
+        } else {
+          setNeedsSetup(data.needsSetup || false);
+          setAuthenticated(false);
         }
       })
       .catch(() => {
@@ -315,6 +314,10 @@ function App() {
         setAuthenticated(true);
       });
   }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   if (authenticated === null) {
     return (
@@ -327,7 +330,7 @@ function App() {
   if (authenticated === false) {
     return (
       <ToastProvider>
-        <Login onLogin={() => setAuthenticated(true)} />
+        <Login onLogin={() => checkAuth()} needsSetup={needsSetup} />
       </ToastProvider>
     );
   }
