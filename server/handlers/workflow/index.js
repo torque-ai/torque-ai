@@ -1106,8 +1106,39 @@ function handleWorkflowStatus(args) {
     output += '```\n';
   }
 
+  const taskList3 = Object.values(status.tasks);
   return {
-    content: [{ type: 'text', text: output }]
+    content: [{ type: 'text', text: output }],
+    structuredData: {
+      id: status.id,
+      name: status.name,
+      status: status.status,
+      visibility: visibility.label,
+      completed_count: counts.completed,
+      running_count: counts.running,
+      queued_count: counts.queued,
+      pending_count: counts.pending,
+      blocked_count: counts.blocked,
+      failed_count: counts.failed,
+      skipped_count: counts.skipped,
+      cancelled_count: counts.cancelled,
+      open_count: counts.open,
+      total_count: counts.total,
+      tasks: taskList3.map(task => {
+        const deps = task.depends_on
+          ? (typeof task.depends_on === 'string' ? safeJsonParse(task.depends_on, []) : task.depends_on)
+          : [];
+        return {
+          node_id: task.node_id || null,
+          task_id: task.id || null,
+          status: task.status,
+          provider: task.provider || null,
+          progress: task.progress || 0,
+          exit_code: task.exit_code != null ? task.exit_code : null,
+          depends_on: deps,
+        };
+      }),
+    },
   };
 }
 
@@ -1221,7 +1252,8 @@ function handleListWorkflows(args) {
 
   if (workflows.length === 0) {
     return {
-      content: [{ type: 'text', text: `No workflows found.` }]
+      content: [{ type: 'text', text: `No workflows found.` }],
+      structuredData: { count: 0, workflows: [] },
     };
   }
 
@@ -1255,7 +1287,20 @@ function handleListWorkflows(args) {
   output += renderSection('Quiet Workflows', quiet);
 
   return {
-    content: [{ type: 'text', text: output.trimEnd() }]
+    content: [{ type: 'text', text: output.trimEnd() }],
+    structuredData: {
+      count: annotated.length,
+      workflows: annotated.map(entry => ({
+        id: entry.workflow.id,
+        name: entry.workflow.name,
+        status: entry.workflow.status,
+        visibility: entry.visibility.label,
+        total_tasks: entry.counts.total,
+        completed_tasks: entry.counts.completed,
+        open_tasks: entry.counts.open,
+        created_at: entry.workflow.created_at || null,
+      })),
+    },
   };
 }
 

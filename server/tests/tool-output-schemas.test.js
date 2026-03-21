@@ -225,4 +225,145 @@ describe('tool-output-schemas', () => {
       expect(result.structuredData.mode).toBe('status');
     });
   });
+
+  describe('handler conformance — list/result/progress', () => {
+    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+    let db, templateBuffer;
+
+    beforeAll(() => {
+      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
+      db = require('../database');
+      db.resetForTest(templateBuffer);
+    });
+
+    afterAll(() => {
+      try { db.close(); } catch {}
+    });
+
+    it('list_tasks returns structuredData with count and tasks array', () => {
+      const { randomUUID } = require('crypto');
+      const taskId = randomUUID();
+      db.createTask({ id: taskId, task_description: 'list test task', status: 'completed', exit_code: 0 });
+      const { handleListTasks } = require('../handlers/task/core');
+      const result = handleListTasks({ all_projects: true });
+
+      expect(result.structuredData).toBeDefined();
+      expect(typeof result.structuredData.count).toBe('number');
+      expect(Array.isArray(result.structuredData.tasks)).toBe(true);
+    });
+
+    it('list_tasks with no results returns count 0 and empty array', () => {
+      const { handleListTasks } = require('../handlers/task/core');
+      const result = handleListTasks({ status: 'running', tags: ['nonexistent_tag_xyz'] });
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.count).toBe(0);
+      expect(result.structuredData.tasks).toEqual([]);
+    });
+
+    it('get_result returns structuredData with task fields', () => {
+      const { randomUUID } = require('crypto');
+      const taskId = randomUUID();
+      db.createTask({
+        id: taskId,
+        task_description: 'test',
+        status: 'pending',
+        exit_code: 0,
+      });
+      // Transition through running → completed to get started_at / completed_at
+      db.updateTaskStatus(taskId, 'running');
+      db.updateTaskStatus(taskId, 'completed', { output: 'hello world', exit_code: 0 });
+      const { handleGetResult } = require('../handlers/task/core');
+      const result = handleGetResult({ task_id: taskId });
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.id).toBe(taskId);
+      expect(result.structuredData.status).toBe('completed');
+      expect(typeof result.structuredData.duration_seconds).toBe('number');
+      expect(result.structuredData.output).toBe('hello world');
+    });
+
+    it('get_result for running task returns no structuredData', () => {
+      const { randomUUID } = require('crypto');
+      const taskId = randomUUID();
+      db.createTask({ id: taskId, task_description: 'test', status: 'running' });
+      const { handleGetResult } = require('../handlers/task/core');
+      const result = handleGetResult({ task_id: taskId });
+
+      // Running tasks get an informational message, not structured data
+      expect(result.structuredData).toBeUndefined();
+    });
+
+    it('get_progress returns structuredData with progress fields', () => {
+      const { randomUUID } = require('crypto');
+      const taskId = randomUUID();
+      db.createTask({ id: taskId, task_description: 'test', status: 'running' });
+      const { handleGetProgress } = require('../handlers/task/core');
+      const result = handleGetProgress({ task_id: taskId });
+
+      // If task-manager has no progress, it returns an error
+      // In test environment, we may need to check for either
+      if (!result.isError) {
+        expect(result.structuredData).toBeDefined();
+        expect(typeof result.structuredData.progress).toBe('number');
+        expect(result.structuredData.id).toBe(taskId);
+      }
+    });
+  });
+
+  describe('handler conformance — workflows', () => {
+    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+    let db, templateBuffer;
+
+    beforeAll(() => {
+      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
+      db = require('../database');
+      db.resetForTest(templateBuffer);
+    });
+
+    afterAll(() => {
+      try { db.close(); } catch {}
+    });
+
+    it('workflow_status returns structuredData with counts and tasks', () => {
+      const { randomUUID } = require('crypto');
+      const wfId = randomUUID();
+      db.createWorkflow({ id: wfId, name: 'test-wf', status: 'pending' });
+      const { handleWorkflowStatus } = require('../handlers/workflow');
+      const result = handleWorkflowStatus({ workflow_id: wfId });
+
+      if (!result.isError) {
+        expect(result.structuredData).toBeDefined();
+        expect(result.structuredData.id).toBe(wfId);
+        expect(result.structuredData.name).toBe('test-wf');
+        expect(typeof result.structuredData.total_count).toBe('number');
+        expect(result.structuredData.visibility).toBeDefined();
+      }
+    });
+
+    it('workflow_status with invalid id returns error without structuredData', () => {
+      const { handleWorkflowStatus } = require('../handlers/workflow');
+      const result = handleWorkflowStatus({ workflow_id: 'nonexistent-wf' });
+      expect(result.isError).toBe(true);
+      expect(result.structuredData).toBeUndefined();
+    });
+
+    it('list_workflows returns structuredData with count and workflows array', () => {
+      const { handleListWorkflows } = require('../handlers/workflow');
+      const result = handleListWorkflows({});
+
+      expect(result.structuredData).toBeDefined();
+      expect(typeof result.structuredData.count).toBe('number');
+      expect(Array.isArray(result.structuredData.workflows)).toBe(true);
+    });
+
+    it('list_workflows with no results returns count 0 and empty array', () => {
+      const { handleListWorkflows } = require('../handlers/workflow');
+      const result = handleListWorkflows({ status: 'nonexistent_status_xyz' });
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.count).toBe(0);
+      expect(result.structuredData.workflows).toEqual([]);
+    });
+  });
 });

@@ -704,8 +704,9 @@ function handleGetResult(args) {
   result += `**Duration:** ${calculateDuration(task.started_at, task.completed_at)}\n`;
 
   // Show which host executed the task
+  let hostName = null;
   if (task.ollama_host_id) {
-    let hostName = task.ollama_host_id;
+    hostName = task.ollama_host_id;
     try {
       const wsModel = require('../../workstation/model');
       const ws = wsModel.getWorkstation(task.ollama_host_id);
@@ -739,8 +740,33 @@ function handleGetResult(args) {
     result += `\n### Errors\n\`\`\`\n${task.error_output}\n\`\`\`\n`;
   }
 
+  // Compute raw duration in seconds (calculateDuration returns formatted string)
+  let durationSeconds = null;
+  if (task.started_at && task.completed_at) {
+    durationSeconds = Math.round((new Date(task.completed_at) - new Date(task.started_at)) / 1000);
+  }
+
+  // Parse files_modified if stored as JSON string
+  let filesModified = task.files_modified || [];
+  if (typeof filesModified === 'string') {
+    try { filesModified = JSON.parse(filesModified); } catch { filesModified = []; }
+  }
+  if (!Array.isArray(filesModified)) filesModified = [];
+
   return {
-    content: [{ type: 'text', text: result }]
+    content: [{ type: 'text', text: result }],
+    structuredData: {
+      id: task.id,
+      status: task.status,
+      provider: task.provider || null,
+      model: task.model || null,
+      host_name: hostName,
+      exit_code: task.exit_code != null ? task.exit_code : null,
+      duration_seconds: durationSeconds,
+      output: task.output || null,
+      error_output: task.error_output || null,
+      files_modified: filesModified,
+    },
   };
 }
 
@@ -848,7 +874,8 @@ function handleListTasks(args) {
     if (projectFilter) msg += ` in project: ${projectFilter}`;
     if (!args.all_projects) msg += '\n\n*Tip: Use `all_projects: true` to see tasks from all projects.*';
     return {
-      content: [{ type: 'text', text: msg }]
+      content: [{ type: 'text', text: msg }],
+      structuredData: { count: 0, tasks: [] },
     };
   }
 
@@ -877,7 +904,20 @@ function handleListTasks(args) {
   }
 
   return {
-    content: [{ type: 'text', text: result }]
+    content: [{ type: 'text', text: result }],
+    structuredData: {
+      count: tasks.length,
+      tasks: tasks.map(task => ({
+        id: task.id,
+        status: task.status,
+        provider: task.provider || null,
+        model: task.model || null,
+        priority: task.priority || 0,
+        description: (task.task_description || '').slice(0, 200),
+        created_at: task.created_at || null,
+        tags: Array.isArray(task.tags) ? task.tags : [],
+      })),
+    },
   };
 }
 
@@ -1047,7 +1087,14 @@ function handleGetProgress(args) {
   result += `\n### Latest Output (last ${tailLines} lines)\n\`\`\`\n${tailOutput || '(no output yet)'}\n\`\`\`\n`;
 
   return {
-    content: [{ type: 'text', text: result }]
+    content: [{ type: 'text', text: result }],
+    structuredData: {
+      id: args.task_id,
+      status: progress.running ? 'running' : 'finished',
+      progress: progress.progress || 0,
+      elapsed_seconds: progress.elapsedSeconds || null,
+      output_tail: tailOutput || null,
+    },
   };
 }
 
