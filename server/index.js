@@ -380,6 +380,24 @@ async function gracefulShutdown(signal) {
       try { fs.unlinkSync(PID_FILE); } catch { /* may already be gone */ }
     }
 
+    // If restart was requested, spawn a new server before exiting.
+    // This runs AFTER all ports are closed and DB is shut down.
+    if (process._torqueRestartPending) {
+      try {
+        const { spawn: spawnChild } = require('child_process');
+        const serverScript = path.resolve(__dirname, 'index.js');
+        const child = spawnChild(process.execPath, [serverScript], {
+          detached: true,
+          stdio: 'ignore',
+          env: process.env, // same env — TORQUE_DATA_DIR etc. preserved
+        });
+        child.unref();
+        debugLog(`[Restart] Spawned new server (PID ${child.pid})`);
+      } catch (spawnErr) {
+        debugLog(`[Restart] Failed to spawn: ${spawnErr.message}`);
+      }
+    }
+
     process.exit(signal === 'uncaughtException' ? 1 : 0);
   };
 

@@ -371,59 +371,11 @@ function handleRestartServer(args) {
   // Note: rapid consecutive restart calls will each schedule a shutdown timeout.
   // The torque:shutdown handler is idempotent (no-op on second call), so this is safe.
 
-  // Spawn a replacement process BEFORE shutting down.
-  // Write a restarter script to a temp file that waits for the old server
-  // to release ports, then starts the new one with the correct env vars.
-  const { spawn } = require('child_process');
-  const fs_ = require('fs');
-  const path_ = require('path');
-  const serverScript = path_.resolve(__dirname, 'index.js');
-  const dataDir = process.env.TORQUE_DATA_DIR || '';
-  const restarterScript = path_.join(require('os').tmpdir(), `torque-restart-${process.pid}.js`);
-
-  fs_.writeFileSync(restarterScript, `
-const http = require('http');
-const { spawn } = require('child_process');
-const fs = require('fs');
-const env = Object.assign({}, process.env, ${dataDir ? `{ TORQUE_DATA_DIR: ${JSON.stringify(dataDir)} }` : '{}'});
-function probe(cb) {
-  const req = http.get('http://127.0.0.1:3458/sse', { timeout: 500 }, () => cb(true));
-  req.on('error', () => cb(false));
-  req.on('timeout', () => { req.destroy(); cb(false); });
-}
-let attempts = 0;
-const check = setInterval(() => {
-  attempts++;
-  probe((alive) => {
-    if (!alive) {
-      clearInterval(check);
-      // Extra 1s buffer to ensure ports are fully released
-      setTimeout(() => {
-        const child = spawn(process.execPath, [${JSON.stringify(serverScript)}], {
-          detached: true,
-          stdio: 'ignore',
-          env,
-        });
-        child.unref();
-        try { fs.unlinkSync(${JSON.stringify(restarterScript)}); } catch {}
-        process.exit(0);
-      }, 1000);
-    } else if (attempts > 40) {
-      // 20 seconds — old server won't die, give up
-      clearInterval(check);
-      try { fs.unlinkSync(${JSON.stringify(restarterScript)}); } catch {}
-      process.exit(1);
-    }
-  });
-}, 500);
-`);
-
-  const restarter = spawn(process.execPath, [restarterScript], {
-    detached: true,
-    stdio: 'ignore',
-  });
-  restarter.unref();
-  logger.info(`[Restart] Spawned restarter process (PID ${restarter.pid})`);
+  // Signal the shutdown handler to respawn after cleanup.
+  // The gracefulShutdown function checks this flag and spawns a new server
+  // right before process.exit — same process, same env, no intermediary.
+  process._torqueRestartPending = true;
+  logger.info(`[Restart] Restart flag set — server will respawn after shutdown`);
 
   // Trigger full graceful shutdown via process event (avoids circular dependency with index.js)
   setTimeout(() => {
