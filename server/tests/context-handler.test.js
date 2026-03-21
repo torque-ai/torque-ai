@@ -1,14 +1,22 @@
 'use strict';
 
-const db = require('../database');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
 describe('context-handler', () => {
+  let db, templateBuffer;
+
   beforeAll(() => {
-    if (typeof db.resetForTest === 'function') db.resetForTest();
+    templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
+    db = require('../database');
+    db.resetForTest(templateBuffer);
   });
 
   afterAll(() => {
-    if (typeof db.resetForTest === 'function') db.resetForTest();
+    try { db.close(); } catch {}
   });
 
   describe('queue scope', () => {
