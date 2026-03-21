@@ -315,6 +315,18 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     }
   }
 
+  // ─── Lazy-loaded optional integrations ────────────────────────────────
+  let _circuitBreaker = null, _cbLoaded = false;
+  function getCircuitBreaker() {
+    if (!_cbLoaded) { _cbLoaded = true; try { _circuitBreaker = require('../execution/circuit-breaker'); } catch { _circuitBreaker = null; } }
+    return _circuitBreaker;
+  }
+  let _scoringModule = null, _smLoaded = false;
+  function getScoringModule() {
+    if (!_smLoaded) { _smLoaded = true; try { _scoringModule = require('./provider-scoring'); } catch { _scoringModule = null; } }
+    return _scoringModule;
+  }
+
   // Helper to check if provider needs Ollama and handle fallback
   const isOllamaProvider = (provider) => provider === 'ollama' || provider === 'aider-ollama' || provider === 'hashline-ollama';
 
@@ -359,6 +371,25 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
           contextOverflow: true,
         };
       }
+    }
+
+    // Circuit breaker guard: if selected provider has an open circuit, apply fallback
+    const cb = getCircuitBreaker();
+    if (cb && !cb.allowRequest(result.provider) && !isUserOverride) {
+      logger.info(`[SmartRouting] Circuit breaker OPEN for ${result.provider} — applying fallback`);
+      const fbChain = getFallbackChain(result.provider);
+      for (const fb of fbChain) {
+        if (cb.allowRequest(fb) && getProvider(fb)?.enabled) {
+          return {
+            ...result,
+            provider: fb,
+            originalProvider: result.provider,
+            reason: `${result.reason} [circuit breaker: ${result.provider} tripped, rerouted to ${fb}]`,
+            fallbackApplied: true,
+          };
+        }
+      }
+      // All fallbacks also tripped — let it through and fail honestly
     }
 
     return result;

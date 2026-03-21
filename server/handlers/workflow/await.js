@@ -14,6 +14,11 @@ const { safeExecChain } = require('../../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../../execution/command-policy');
 const { checkResourceGate } = require('../../utils/resource-gate');
 const hostMonitoring = require('../../utils/host-monitoring');
+let _commitMutex = null, _cmLoaded = false;
+function getCommitMutex() {
+  if (!_cmLoaded) { _cmLoaded = true; try { _commitMutex = require('../../utils/commit-mutex'); } catch { _commitMutex = null; } }
+  return _commitMutex;
+}
 const { handlePeekUi } = require('../peek-handlers');
 const logger = require('../../logger').child({ component: 'workflow-await' });
 const { safeJsonParse } = require('../../utils/json');
@@ -687,6 +692,17 @@ function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
     logger.debug('[workflow-await] non-critical error reading conflict info: ' + (conflictDisplayErr.message || conflictDisplayErr));
   }
 
+  // Post-workflow verify + commit (serialized via commit mutex)
+  const _wfMutex = getCommitMutex();
+  let _wfMutexRelease = null;
+  if (_wfMutex && (args.verify_command || args.auto_commit) && wfStatus === 'completed') {
+    try { _wfMutexRelease = await _wfMutex.acquire(60000); } catch (e) {
+      output += '\n**Commit mutex timeout** — another workflow is committing. Skipping verify/commit.\n';
+      return output;
+    }
+  }
+  try {
+
   // Post-workflow verify command (only if all succeeded)
   if (args.verify_command && wfStatus === 'completed') {
     const targetHostId = args.host_id || null;
@@ -841,6 +857,10 @@ function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
     }
   }
 
+  } finally { // end commit mutex guard
+    if (_wfMutexRelease) _wfMutexRelease();
+  }
+
   return output;
 }
 
@@ -956,6 +976,17 @@ async function handleAwaitTask(args) {
       if (terminalStates.includes(task.status)) {
         let output = formatStandaloneTaskResult(task, awaitStartTime);
 
+        // Verify + commit (serialized via commit mutex)
+        const _taskMutex = getCommitMutex();
+        let _taskMutexRelease = null;
+        if (_taskMutex && (args.verify_command || args.auto_commit) && task.status === 'completed') {
+          try { _taskMutexRelease = await _taskMutex.acquire(60000); } catch (e) {
+            output += '\n**Commit mutex timeout** — another task is committing. Skipping verify/commit.\n';
+            return { content: [{ type: 'text', text: output }] };
+          }
+        }
+        try {
+
         // Verify command (on success only)
         if (task.status === 'completed' && args.verify_command) {
           const targetHostId = args.host_id || null;
@@ -1065,6 +1096,10 @@ async function handleAwaitTask(args) {
               output += `\n### Auto-Commit\n❌ Failed: ${err.message}\n`;
             }
           }
+        }
+
+        } finally { // end commit mutex guard for await_task
+          if (_taskMutexRelease) _taskMutexRelease();
         }
 
         return { content: [{ type: 'text', text: output }] };
