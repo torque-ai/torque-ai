@@ -277,5 +277,18 @@ describe('tool-annotations', () => {
         }
       }
     });
+
+    it('validateCoverage reports zero uncovered tools', () => {
+      const { TOOLS } = require('../tools');
+      const { validateCoverage } = require('../tool-annotations');
+      const names = TOOLS.map(t => t.name);
+      const result = validateCoverage(names);
+      if (result.uncovered.length > 0) {
+        throw new Error(
+          `${result.uncovered.length} uncovered tools need annotations:\n` +
+          result.uncovered.map(n => `  - ${n}`).join('\n')
+        );
+      }
+    });
   });
 });
