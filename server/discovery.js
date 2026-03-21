@@ -723,7 +723,7 @@ function getLocalSubnets() {
  * @param {number} timeout - Request timeout in milliseconds (default: 2000)
  * @returns {Promise<{ip: string, port: number, url: string, models: string[]}>} Promise that resolves to host information if Ollama is running, or null if not
  */
-function checkOllamaHost(ip, port = 11434, timeout = 2000) {
+function checkOllamaHost(ip, port = 11434, timeout = 500) {
   return new Promise((resolve) => {
     const http = require('http');
     const url = `http://${ip}:${port}/api/tags`;
