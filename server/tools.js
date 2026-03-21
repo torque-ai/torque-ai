@@ -444,6 +444,16 @@ async function handleToolCall(name, args) {
       return handleRestartServer(args);
     case 'unlock_all_tools':
       return { __unlock_all_tools: true, content: [{ type: 'text', text: 'All TORQUE tools are now unlocked (Tier 3). The tools list has been refreshed.' }] };
+    case 'get_tool_schema': {
+      const toolName = args.tool_name;
+      if (!toolName) return { content: [{ type: 'text', text: 'tool_name is required' }], isError: true };
+      const match = TOOLS.find(t => t.name === toolName);
+      if (!match) return { content: [{ type: 'text', text: `Tool not found: ${toolName}` }], isError: true };
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ name: match.name, description: match.description, inputSchema: match.inputSchema }, null, 2) }],
+        structuredData: { name: match.name, description: match.description, inputSchema: match.inputSchema },
+      };
+    }
     case 'unlock_tier': {
       const tier = parseInt(args.tier, 10);
       if (![1, 2, 3].includes(tier)) {

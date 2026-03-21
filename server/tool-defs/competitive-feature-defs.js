@@ -1,5 +1,16 @@
 module.exports = [
   {
+    name: 'get_tool_schema',
+    description: 'Get the full inputSchema for a specific MCP tool by name. Use this for on-demand schema discovery instead of loading all schemas at once.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tool_name: { type: 'string', description: 'Exact name of the tool to look up' },
+      },
+      required: ['tool_name'],
+    },
+  },
+  {
     name: 'compare_providers',
     description: 'Run the same prompt on multiple providers and compare results side-by-side. Returns timing, output length, and success status for each.',
     inputSchema: {
