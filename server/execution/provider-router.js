@@ -52,6 +52,10 @@ function tryReserveHostSlotWithFallback(hostId, taskId) {
     if (task) requestedModel = task.model || null;
   } catch { /* ignore — task lookup is best-effort */ }
 
+  // tryReserveHostSlot handles workstation capacity gating internally:
+  // it looks up the workstation for this ollama host and checks unified
+  // capacity (VRAM budget when model is known, max_concurrent otherwise).
+  // This prevents multiple providers from exceeding per-machine limits.
   const result = _db.tryReserveHostSlot(hostId, requestedModel);
 
   if (result.acquired) {
