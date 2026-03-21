@@ -371,6 +371,50 @@ function handleRestartServer(args) {
   // Note: rapid consecutive restart calls will each schedule a shutdown timeout.
   // The torque:shutdown handler is idempotent (no-op on second call), so this is safe.
 
+  // Spawn a replacement process BEFORE shutting down.
+  // The new process will wait for the ports to be free, then start.
+  // This ensures SSE-based MCP clients can reconnect automatically.
+  const { spawn } = require('child_process');
+  const dataDir = process.env.TORQUE_DATA_DIR || '';
+  const serverScript = require('path').resolve(__dirname, 'index.js');
+  const env = { ...process.env };
+  if (dataDir) env.TORQUE_DATA_DIR = dataDir;
+
+  // Wrapper script: wait for old process to release ports, then start
+  const waitAndStart = `
+    const http = require('http');
+    const { spawn } = require('child_process');
+    function probe(cb) {
+      const req = http.get('http://127.0.0.1:3458/sse', { timeout: 500 }, () => cb(true));
+      req.on('error', () => cb(false));
+      req.on('timeout', () => { req.destroy(); cb(false); });
+    }
+    let attempts = 0;
+    const check = setInterval(() => {
+      attempts++;
+      probe((alive) => {
+        if (!alive || attempts > 20) {
+          clearInterval(check);
+          const child = spawn(process.execPath, [${JSON.stringify(serverScript)}], {
+            detached: true,
+            stdio: 'ignore',
+            env: ${JSON.stringify(env)},
+          });
+          child.unref();
+          process.exit(0);
+        }
+      });
+    }, 500);
+  `.replace(/\n/g, ' ');
+
+  const restarter = spawn(process.execPath, ['-e', waitAndStart], {
+    detached: true,
+    stdio: 'ignore',
+    env,
+  });
+  restarter.unref();
+  logger.info(`[Restart] Spawned restarter process (PID ${restarter.pid})`);
+
   // Trigger full graceful shutdown via process event (avoids circular dependency with index.js)
   setTimeout(() => {
     logger.info(`[Restart] Triggering graceful shutdown (reason: ${reason}). MCP client will auto-reconnect.`);
