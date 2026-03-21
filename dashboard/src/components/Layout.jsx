@@ -220,31 +220,15 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
           <HealthDots />
         </div>
 
-        {/* Collapse toggle + logout - desktop only */}
-        <div className="mx-3 mb-2 flex items-center gap-1">
-          <button
-            onClick={toggleCollapsed}
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors hidden md:flex items-center justify-center"
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <CollapseIcon collapsed={collapsed} />
-          </button>
-          <button
-            onClick={() => {
-              document.cookie = 'torque_session=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
-              window.__torqueCsrf = null;
-              window.location.reload();
-            }}
-            className={`p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-700/50 transition-colors hidden md:flex items-center justify-center ${collapsed ? '' : 'ml-auto'}`}
-            title="Sign out"
-            aria-label="Sign out"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
-        </div>
+        {/* Collapse toggle - desktop only */}
+        <button
+          onClick={toggleCollapsed}
+          className="mx-3 mb-2 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors hidden md:flex items-center justify-center"
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <CollapseIcon collapsed={collapsed} />
+        </button>
 
         {/* Status */}
         <div className={`p-4 ${collapsed ? 'md:px-2 md:py-3 md:flex md:justify-center' : ''} border-t border-slate-800 relative`}>
@@ -333,6 +317,21 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
                   {alertCount > 9 ? '9+' : alertCount}
                 </span>
               )}
+            </button>
+            {/* Sign out */}
+            <button
+              onClick={async () => {
+                try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
+                window.__torqueCsrf = null;
+                window.location.reload();
+              }}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
             </button>
           </div>
         </div>
