@@ -414,7 +414,7 @@ async function handleAwaitWorkflow(args) {
 
       if (allTerminal && allAcknowledged) {
         // This is the final yield — include task details + final summary
-        return { content: [{ type: 'text', text: formatFinalSummary(args, workflow, tasks, task, startTime) }] };
+        return { content: [{ type: 'text', text: await formatFinalSummary(args, workflow, tasks, task, startTime) }] };
       }
 
       // Intermediate yield — just the task details + progress
@@ -432,7 +432,7 @@ async function handleAwaitWorkflow(args) {
       return { content: [{ type: 'text', text: `## Workflow Complete: ${workflow.name}\n\n**ID:** ${args.workflow_id}\n**Status:** completed\n**Tasks:** 0 (empty workflow)\n` }] };
     }
     if (allTerminal && allAcknowledged) {
-      return { content: [{ type: 'text', text: formatFinalSummary(args, workflow, tasks, null, startTime) }] };
+      return { content: [{ type: 'text', text: await formatFinalSummary(args, workflow, tasks, null, startTime) }] };
     }
 
     // Shutdown check — return early so the response reaches the client before SSE closes
@@ -638,7 +638,7 @@ async function handleAwaitWorkflow(args) {
 /**
  * Build the final summary output (verify + commit), shown when all tasks are acknowledged.
  */
-function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
+async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
   // If there's a last task to yield, include it first
   let output = '';
   if (lastTask) {
