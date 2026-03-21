@@ -893,7 +893,33 @@ function getProviderFallbackChain(provider, options) {
   // Filter to cloud-only if requested (used by Ollama→cloud fallback paths)
   if (options && options.cloudOnly) {
     const localSet = new Set(LOCAL_PROVIDERS);
-    return chain.filter(p => !localSet.has(p));
+    chain = chain.filter(p => !localSet.has(p));
+  }
+
+  // Score-aware reordering: if trusted provider scores exist, sort the chain
+  // so higher-scored providers are tried first (preserves chain membership,
+  // only changes order). Unscored providers stay in their original position.
+  const sm = getScoringModule();
+  if (sm && chain.length > 1) {
+    try {
+      const dbMod = require('../database');
+      const inst = dbMod.getDbInstance ? dbMod.getDbInstance() : null;
+      if (inst) {
+        sm.init(inst);
+        const scores = sm.getAllProviderScores({ trustedOnly: true });
+        if (scores.length > 0) {
+          const scoreMap = new Map(scores.map(s => [s.provider, s.composite_score]));
+          // Stable sort: scored providers first by composite desc, unscored keep relative order
+          chain.sort((a, b) => {
+            const aScore = scoreMap.get(a) || 0;
+            const bScore = scoreMap.get(b) || 0;
+            if (aScore && !bScore) return -1;
+            if (!aScore && bScore) return 1;
+            return bScore - aScore;
+          });
+        }
+      }
+    } catch { /* scoring not available — use default order */ }
   }
 
   return chain;

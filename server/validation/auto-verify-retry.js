@@ -283,6 +283,17 @@ async function handleAutoVerifyRetry(ctx) {
     fixDescription = `${originalDesc}\n\nVerification failed. Fix these errors:\n${errors}`;
   }
 
+  // Inject resume context from failed task (if available)
+  try {
+    const resumeJson = task.resume_context;
+    if (resumeJson) {
+      const { formatResumeContextForPrompt } = require('../utils/resume-context');
+      const parsed = typeof resumeJson === 'string' ? JSON.parse(resumeJson) : resumeJson;
+      const preamble = formatResumeContextForPrompt(parsed);
+      if (preamble) fixDescription = preamble + '\n\n' + fixDescription;
+    }
+  } catch { /* resume context injection is best-effort */ }
+
   // Create fix task
   const fixTaskId = randomUUID();
   try {

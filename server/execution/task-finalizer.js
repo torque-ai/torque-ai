@@ -425,6 +425,11 @@ async function finalizeTask(taskId, options = {}) {
 
     ctx.task = deps.db.getTask(taskId) || task;
 
+    // Compute duration for scoring/resume hooks (ctx.durationMs is not populated by the pipeline)
+    const _hookDurationMs = task.started_at
+      ? Math.max(0, Date.now() - new Date(task.started_at).getTime())
+      : 0;
+
     try {
       const scoring = require('../db/provider-scoring');
       const db = require('../database');
@@ -434,7 +439,7 @@ async function finalizeTask(taskId, options = {}) {
         scoring.recordTaskCompletion({
           provider: task.provider || 'unknown',
           success: ctx.status === 'completed',
-          durationMs: ctx.durationMs || 0,
+          durationMs: _hookDurationMs,
           costUsd: parseFloat(task.cost_usd) || 0,
           qualityScore: ctx.status === 'completed' ? 0.7 : 0.0,
         });
@@ -451,7 +456,13 @@ async function finalizeTask(taskId, options = {}) {
         budgetWatcher.init(inst);
         const check = budgetWatcher.checkBudgetThresholds(task.provider);
         if (check && check.thresholdBreached === 'downgrade') {
-          try { require('../logger').info('[budget] ' + task.provider + ' at ' + check.spendPercent + '% — downgrade recommended'); } catch {}
+          try { require('../logger').info('[budget] ' + task.provider + ' at ' + check.spendPercent + '% — activating Cost Saver template'); } catch {}
+          try {
+            const routing = require('../db/provider-routing-core');
+            if (typeof routing.activateRoutingTemplate === 'function') {
+              routing.activateRoutingTemplate('Cost Saver');
+            }
+          } catch { /* routing template activation is best-effort */ }
         }
       }
     } catch (e) { /* non-critical */ }
@@ -462,7 +473,7 @@ async function finalizeTask(taskId, options = {}) {
         const resumeCtx = buildResumeContext(
           ctx.output || task.output || '',
           ctx.errorOutput || task.error_output || '',
-          { description: task.task_description, durationMs: ctx.durationMs || 0, provider: task.provider }
+          { description: task.task_description, durationMs: _hookDurationMs, provider: task.provider }
         );
         const db = require('../database');
         try { db.getDbInstance().prepare('UPDATE tasks SET resume_context = ? WHERE id = ?').run(JSON.stringify(resumeCtx), task.id); } catch {}
