@@ -1558,6 +1558,20 @@ async function handleHttpRequest(req, res) {
       return;
     }
 
+    // Reject tool calls from unauthenticated sessions when API keys are configured
+    if (request.method === 'tools/call' && !session.authenticated) {
+      const keyManager = require('./auth/key-manager');
+      if (keyManager.hasAnyKeys()) {
+        sendJsonRpcResponse(session, request.id, null, {
+          code: -32001,
+          message: 'Authentication required — provide a valid apiKey query parameter on /sse connection',
+        });
+        res.writeHead(202);
+        res.end();
+        return;
+      }
+    }
+
     // Acknowledge the POST immediately — actual response comes via SSE
     res.writeHead(202);
     res.end();
