@@ -112,6 +112,122 @@ describe('tool-annotations', () => {
     });
   });
 
-  // NOTE: Tasks 2, 3, and 4 add more describe blocks HERE, inside this outer describe.
-  // Do NOT close this describe block yet — leave it open for subsequent tasks.
+  describe('explicit overrides', () => {
+    it('peek_interact overrides peek_* readOnly convention', () => {
+      expect(getAnnotations('peek_interact')).toEqual(LIFECYCLE); // all false
+    });
+
+    it('restart_server is destructive', () => {
+      expect(getAnnotations('restart_server')).toEqual({
+        readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false,
+      });
+    });
+
+    it('smart_submit_task dispatches (not matched by submit_* prefix)', () => {
+      expect(getAnnotations('smart_submit_task')).toEqual(DISPATCH);
+    });
+
+    it('hashline_read is readOnly despite hashline_edit being mutable', () => {
+      expect(getAnnotations('hashline_read')).toEqual(RO);
+    });
+
+    it('hashline_edit is all-false (mutable, not destructive, not idempotent)', () => {
+      expect(getAnnotations('hashline_edit')).toEqual(LIFECYCLE); // all false
+    });
+
+    it('stash_changes is destructive despite *_changes suffix', () => {
+      expect(getAnnotations('stash_changes')).toEqual(DESTRUCT);
+    });
+
+    it('configure (bare name) is idempotent', () => {
+      expect(getAnnotations('configure')).toEqual(IDEMPOTENT);
+    });
+
+    it('strategic_decompose dispatches to external LLM', () => {
+      expect(getAnnotations('strategic_decompose')).toEqual(DISPATCH);
+    });
+  });
+
+  describe('exact matches', () => {
+    it.each([
+      ['ping', RO],
+      ['blocked_tasks', RO],
+      ['critical_path', RO],
+      ['what_if', RO],
+      ['dependency_graph', RO],
+      ['batch_cancel', DESTRUCT],
+    ])('%s → exact match', (name, expected) => {
+      expect(getAnnotations(name)).toEqual(expected);
+    });
+  });
+
+  describe('suffix rules', () => {
+    it('tool ending in _status with no prefix match uses suffix rule', () => {
+      expect(getAnnotations('ci_run_status')).toEqual(RO);
+    });
+
+    it('tool ending in _dashboard with no prefix match uses suffix rule', () => {
+      expect(getAnnotations('coordination_dashboard')).toEqual(RO);
+    });
+
+    it('tool ending in _health with no prefix match uses suffix rule', () => {
+      expect(getAnnotations('integration_health')).toEqual(RO);
+    });
+  });
+
+  describe('prefix-before-suffix ordering', () => {
+    it('set_task_review_status matches set_* prefix, NOT *_status suffix', () => {
+      expect(getAnnotations('set_task_review_status')).toEqual(IDEMPOTENT);
+    });
+
+    it('cancel_workflow matches cancel_* prefix (destructive)', () => {
+      expect(getAnnotations('cancel_workflow')).toEqual(DESTRUCT);
+    });
+
+    it('list_paused_tasks matches list_* prefix (readOnly)', () => {
+      expect(getAnnotations('list_paused_tasks')).toEqual(RO);
+    });
+
+    it('get_batch_summary matches get_* prefix, not *_summary suffix', () => {
+      expect(getAnnotations('get_batch_summary')).toEqual(RO);
+    });
+  });
+
+  describe('fallback', () => {
+    it('unknown tool returns all-false', () => {
+      expect(getAnnotations('some_unknown_tool_xyz')).toEqual(LIFECYCLE); // all false
+    });
+  });
+
+  describe('shape validation', () => {
+    it('every annotation has exactly 4 boolean fields', () => {
+      const names = ['list_tasks', 'delete_task', 'submit_task', 'set_project_defaults',
+        'retry_task', 'await_workflow', 'ping', 'peek_interact', 'some_unknown'];
+      const expectedKeys = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'];
+      for (const name of names) {
+        const ann = getAnnotations(name);
+        expect(Object.keys(ann).sort()).toEqual(expectedKeys.sort());
+        for (const key of expectedKeys) {
+          expect(typeof ann[key]).toBe('boolean');
+        }
+      }
+    });
+  });
+
+  describe('semantic validity', () => {
+    it('no annotation is both readOnly and destructive', () => {
+      const { OVERRIDES, EXACT_MATCHES, PREFIX_RULES, SUFFIX_RULES } = require('../tool-annotations');
+      const allAnnotations = [
+        ...Object.values(OVERRIDES),
+        ...Object.values(EXACT_MATCHES),
+        ...PREFIX_RULES.map(r => r.annotation),
+        ...SUFFIX_RULES.map(r => r.annotation),
+      ];
+      for (const ann of allAnnotations) {
+        expect(ann.readOnlyHint && ann.destructiveHint).toBe(false);
+      }
+    });
+  });
+
+  // NOTE: Tasks 3 and 4 add more describe blocks HERE, inside this outer describe.
 });
