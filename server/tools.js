@@ -46,6 +46,25 @@ const TOOLS = [
   ...require('./tool-defs/auth-defs'),
 ];
 
+// ── Merge MCP tool annotations (Phase: MCP ecosystem improvements) ──
+const { getAnnotations, validateCoverage } = require('./tool-annotations');
+
+for (const tool of TOOLS) {
+  if (tool && tool.name) {
+    tool.annotations = getAnnotations(tool.name);
+  }
+}
+
+// Startup validator: warn on uncovered tools and stale overrides
+const _allToolNames = TOOLS.filter(t => t && t.name).map(t => t.name);
+const _coverage = validateCoverage(_allToolNames);
+if (_coverage.uncovered.length > 0) {
+  logger.warn(`[tool-annotations] ${_coverage.uncovered.length} tool(s) have no annotation coverage (fallback used): ${_coverage.uncovered.join(', ')}`);
+}
+if (_coverage.stale.length > 0) {
+  logger.warn(`[tool-annotations] ${_coverage.stale.length} stale override(s) reference nonexistent tools: ${_coverage.stale.join(', ')}`);
+}
+
 // ── Handler modules ──
 const HANDLER_MODULES = [
   require('./handlers/task'),

@@ -256,5 +256,26 @@ describe('tool-annotations', () => {
     });
   });
 
-  // NOTE: Task 4 adds more describe blocks HERE
+  describe('integration — real TOOLS array', () => {
+    it('every tool in TOOLS has annotations after merge', () => {
+      const { TOOLS } = require('../tools');
+      const expectedKeys = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'];
+      for (const tool of TOOLS) {
+        expect(tool.annotations).toBeDefined();
+        expect(Object.keys(tool.annotations).sort()).toEqual(expectedKeys.sort());
+        for (const key of expectedKeys) {
+          expect(typeof tool.annotations[key]).toBe('boolean');
+        }
+      }
+    });
+
+    it('no tool has both readOnly and destructive annotations', () => {
+      const { TOOLS } = require('../tools');
+      for (const tool of TOOLS) {
+        if (tool.annotations.readOnlyHint && tool.annotations.destructiveHint) {
+          throw new Error(`Tool "${tool.name}" is both readOnly and destructive`);
+        }
+      }
+    });
+  });
 });
