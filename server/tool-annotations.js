@@ -1,0 +1,135 @@
+'use strict';
+
+// ── Annotation shape ──
+const READONLY    = Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false });
+const DESTRUCTIVE = Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: false });
+const DISPATCH    = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  });
+const IDEMPOTENT  = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false });
+const LIFECYCLE   = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
+const ASYNC_RO    = Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: false, openWorldHint: false });
+const FALLBACK    = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
+
+// ── Prefix rules (checked first, first match wins) ──
+const PREFIX_RULES = [
+  { prefixes: [
+    'list_', 'get_', 'check_', 'find_', 'search_', 'scan_', 'diff_', 'export_',
+    'analyze_', 'validate_', 'detect_', 'compare_', 'predict_', 'estimate_', 'forecast_',
+    'verify_', 'view_', 'explain_', 'inspect_', 'preview_', 'diagnose_', 'capture_',
+    'lookup_', 'query_', 'suggest_', 'compute_', 'calculate_', 'calibrate_', 'tsserver_',
+    'peek_',
+  ], annotation: READONLY },
+  { prefixes: [
+    'delete_', 'rollback_', 'archive_', 'remove_', 'clear_', 'revoke_', 'cleanup_',
+  ], annotation: DESTRUCTIVE },
+  { prefixes: [
+    'cancel_',
+  ], annotation: DESTRUCTIVE },
+  { prefixes: [
+    'submit_', 'queue_', 'create_', 'run_', 'schedule_', 'fork_', 'clone_',
+    'import_', 'bulk_import_', 'notify_', 'send_', 'test_', 'trigger_',
+    'generate_', 'backup_', 'sync_',
+  ], annotation: DISPATCH },
+  { prefixes: [
+    'set_', 'configure_', 'tag_', 'untag_', 'manage_', 'add_', 'inject_', 'wire_',
+    'normalize_', 'update_', 'replace_', 'register_', 'unregister_', 'enable_',
+    'disable_', 'activate_', 'toggle_', 'approve_', 'reject_', 'deny_', 'apply_',
+    'learn_', 'save_', 'setup_', 'record_', 'resolve_',
+  ], annotation: IDEMPOTENT },
+  { prefixes: [
+    'retry_', 'resume_', 'restore_', 'start_', 'pause_', 'skip_', 'stop_',
+    'release_', 'claim_', 'steal_', 'recover_', 'refresh_',
+  ], annotation: LIFECYCLE },
+  { prefixes: [
+    'await_', 'wait_', 'poll_', 'stream_',
+  ], annotation: ASYNC_RO },
+];
+
+// ── Suffix rules (checked second, only if no prefix matched) ──
+const SUFFIX_RULES = [
+  { suffixes: [
+    '_status', '_info', '_summary', '_history', '_timeline', '_graph', '_path',
+    '_stats', '_report', '_dashboard', '_health', '_insights', '_changes', '_quotas',
+  ], annotation: READONLY },
+];
+
+// ── Exact matches (checked after overrides, before prefix/suffix) ──
+const EXACT_MATCHES = Object.freeze({
+  ping:             READONLY,
+  blocked_tasks:    READONLY,
+  critical_path:    READONLY,
+  what_if:          READONLY,
+  dependency_graph: READONLY,
+  batch_cancel:     DESTRUCTIVE,
+});
+
+// ── Explicit overrides (checked first — full 4-field objects) ──
+const OVERRIDES = Object.freeze({
+  peek_interact:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  peek_launch:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  peek_build_and_open:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  restart_server:                  Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: false }),
+  unlock_all_tools:                Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  unlock_tier:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  commit_task:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  auto_commit_batch:               Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  smart_submit_task:               Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  configure:                       Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  stash_changes:                   Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: false }),
+  hashline_read:                   Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  hashline_edit:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  auto_verify_and_fix:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  optimize_database:               Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  strategic_config_get:            Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  strategic_config_set:            Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  strategic_config_apply_template: Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  strategic_config_templates:      Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  strategic_usage:                 Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  strategic_decompose:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  strategic_diagnose:              Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  strategic_review:                Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  strategic_benchmark:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  audit_codebase:                  Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  batch_retry:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  batch_tag:                       Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+});
+
+/**
+ * Get MCP annotations for a tool by name.
+ * Resolution order: explicit overrides → exact matches → prefix rules → suffix rules → fallback.
+ * @param {string} name - Tool name
+ * @returns {{ readOnlyHint: boolean, destructiveHint: boolean, idempotentHint: boolean, openWorldHint: boolean }}
+ */
+function getAnnotations(name) {
+  // 1. Explicit overrides
+  if (OVERRIDES[name]) return OVERRIDES[name];
+
+  // 2. Exact matches
+  if (EXACT_MATCHES[name]) return EXACT_MATCHES[name];
+
+  // 3. Prefix rules (first match wins)
+  for (const rule of PREFIX_RULES) {
+    for (const prefix of rule.prefixes) {
+      if (name.startsWith(prefix)) return rule.annotation;
+    }
+  }
+
+  // 4. Suffix rules (first match wins)
+  for (const rule of SUFFIX_RULES) {
+    for (const suffix of rule.suffixes) {
+      if (name.endsWith(suffix)) return rule.annotation;
+    }
+  }
+
+  // 5. Fallback
+  return FALLBACK;
+}
+
+module.exports = {
+  getAnnotations,
+  OVERRIDES,
+  EXACT_MATCHES,
+  PREFIX_RULES,
+  SUFFIX_RULES,
+  FALLBACK,
+  READONLY, DESTRUCTIVE, DISPATCH, IDEMPOTENT, LIFECYCLE, ASYNC_RO,
+};
