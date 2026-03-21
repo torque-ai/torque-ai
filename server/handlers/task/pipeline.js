@@ -289,7 +289,18 @@ function handleRetryTask(args) {
   }
 
   const taskId = uuidv4();
-  const taskDescription = args.modified_task || originalTask.task_description;
+  let taskDescription = args.modified_task || originalTask.task_description;
+
+  // Inject resume context from the failed original task
+  try {
+    const resumeJson = originalTask.resume_context;
+    if (resumeJson && !args.modified_task) { // Don't override user-provided modified_task
+      const { formatResumeContextForPrompt } = require('../../utils/resume-context');
+      const parsed = typeof resumeJson === 'string' ? JSON.parse(resumeJson) : resumeJson;
+      const preamble = formatResumeContextForPrompt(parsed);
+      if (preamble) taskDescription = preamble + '\n\n' + taskDescription;
+    }
+  } catch { /* resume context injection is best-effort */ }
 
   db.createTask({
     id: taskId,

@@ -62,6 +62,68 @@ function applyCompressOutput(output, effect) {
 }
 
 /**
+ * Apply trigger_tool effect — call an MCP tool as a policy side-effect.
+ *
+ * @param {Object} effect - { tool_name: string, tool_args?: Object, background?: boolean, block_on_failure?: boolean }
+ * @param {Object} taskData - Task data for template variable interpolation
+ * @returns {{ triggered: boolean, blocked?: boolean, result?: any, error?: string }}
+ */
+function applyTriggerTool(effect, taskData) {
+  if (!effect.tool_name) {
+    logger.info('[active-effects] trigger_tool: missing tool_name');
+    return { triggered: false };
+  }
+
+  // Interpolate template variables in tool_args (e.g., {{task.working_directory}})
+  let args = effect.tool_args || {};
+  if (typeof args === 'object') {
+    args = JSON.parse(JSON.stringify(args)); // deep clone
+    for (const [key, value] of Object.entries(args)) {
+      if (typeof value === 'string' && value.startsWith('{{') && value.endsWith('}}')) {
+        const path = value.slice(2, -2).trim();
+        const parts = path.split('.');
+        let resolved = taskData;
+        for (const part of parts) {
+          resolved = resolved?.[part];
+        }
+        if (resolved !== undefined) args[key] = resolved;
+      }
+    }
+  }
+
+  try {
+    // Lazy-load the tool dispatch — may not be available during policy evaluation
+    const { handleToolCall } = require('../tools');
+    if (effect.background) {
+      // Fire-and-forget — don't block policy evaluation
+      Promise.resolve(handleToolCall(effect.tool_name, args)).catch(err => {
+        logger.info(`[active-effects] trigger_tool background error (${effect.tool_name}): ${err.message}`);
+      });
+      logger.info(`[active-effects] Triggered ${effect.tool_name} in background for task ${taskData.id || 'unknown'}`);
+      return { triggered: true };
+    }
+
+    // Synchronous — but we can't actually await here since applyActiveEffects is sync.
+    // For non-background triggers, queue the call and mark as triggered.
+    // The caller (task-hooks) should await pending triggers after applyActiveEffects returns.
+    if (!taskData._pendingTriggers) taskData._pendingTriggers = [];
+    taskData._pendingTriggers.push({
+      tool_name: effect.tool_name,
+      tool_args: args,
+      block_on_failure: effect.block_on_failure || false,
+    });
+    logger.info(`[active-effects] Queued trigger_tool ${effect.tool_name} for task ${taskData.id || 'unknown'}`);
+    return { triggered: true };
+  } catch (err) {
+    logger.info(`[active-effects] trigger_tool error (${effect.tool_name}): ${err.message}`);
+    if (effect.block_on_failure) {
+      return { triggered: true, blocked: true, error: err.message };
+    }
+    return { triggered: true };
+  }
+}
+
+/**
  * Apply all active effects from a policy evaluation result to task data.
  *
  * Scans evaluation results for profiles with active_effects configured.
@@ -103,6 +165,18 @@ function applyActiveEffects(policyResult, taskData) {
             }
             break;
 
+          case 'trigger_tool': {
+            const result = applyTriggerTool(effect, taskData);
+            if (result.triggered) {
+              applied.push('trigger_tool');
+              if (result.blocked) {
+                taskData._blocked_by_trigger = true;
+                taskData._block_reason = result.error || 'trigger_tool blocked';
+              }
+            }
+            break;
+          }
+
           default:
             logger.info(`[active-effects] Unknown effect type: ${effect.type}`);
         }
@@ -118,5 +192,6 @@ function applyActiveEffects(policyResult, taskData) {
 module.exports = {
   applyRewriteDescription,
   applyCompressOutput,
+  applyTriggerTool,
   applyActiveEffects,
 };

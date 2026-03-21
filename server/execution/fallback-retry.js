@@ -464,6 +464,19 @@ function tryStallRecovery(taskId, activity) {
     updateFields.metadata = JSON.stringify(metadata);
   }
 
+  // Inject resume context from previous attempt into task description
+  try {
+    const resumeJson = task.resume_context;
+    if (resumeJson) {
+      const { formatResumeContextForPrompt } = require('../utils/resume-context');
+      const parsed = typeof resumeJson === 'string' ? JSON.parse(resumeJson) : resumeJson;
+      const preamble = formatResumeContextForPrompt(parsed);
+      if (preamble && task.task_description) {
+        updateFields.task_description = preamble + '\n\n' + task.task_description;
+      }
+    }
+  } catch { /* resume context injection is best-effort */ }
+
   try {
     db.updateTaskStatus(taskId, 'queued', updateFields);
     if (dashboard) dashboard.notifyTaskUpdated(taskId);
