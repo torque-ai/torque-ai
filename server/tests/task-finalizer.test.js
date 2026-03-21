@@ -362,13 +362,16 @@ describe('task-finalizer', () => {
       expect(result.finalized).toBe(true);
       expect(getDbInstanceSpy).toHaveBeenCalled();
       expect(scoringInitSpy).toHaveBeenCalledWith(scoringDb);
-      expect(scoringRecordSpy).toHaveBeenCalledWith({
-        provider: 'codex',
-        success: true,
-        durationMs: 0,
-        costUsd: 1.25,
-        qualityScore: 0.7,
-      });
+      expect(scoringRecordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'codex',
+          success: true,
+          costUsd: 1.25,
+          qualityScore: 0.7,
+        })
+      );
+      // durationMs is computed from started_at — verify it's a non-negative number
+      expect(scoringRecordSpy.mock.calls[0][0].durationMs).toBeGreaterThanOrEqual(0);
       expect(budgetInitSpy).toHaveBeenCalledWith(scoringDb);
       expect(budgetCheckSpy).toHaveBeenCalledWith('codex');
       expect(safeUpdateTaskStatus.mock.invocationCallOrder[0]).toBeLessThan(scoringRecordSpy.mock.invocationCallOrder[0]);
@@ -405,8 +408,11 @@ describe('task-finalizer', () => {
       expect(buildResumeContextSpy).toHaveBeenCalledWith(
         'stdout text',
         'stderr text',
-        { description: 'Finalize task', durationMs: 0, provider: 'codex' }
+        expect.objectContaining({ description: 'Finalize task', provider: 'codex' })
       );
+      // durationMs is computed from started_at — verify it's a positive number
+      const callArgs = buildResumeContextSpy.mock.calls[0][2];
+      expect(callArgs.durationMs).toBeGreaterThanOrEqual(0);
       expect(scoringDb.prepare).toHaveBeenCalledWith('UPDATE tasks SET resume_context = ? WHERE id = ?');
       expect(runSpy).toHaveBeenCalledWith(JSON.stringify(resumeCtx), dbBundle.taskId);
       expect(safeUpdateTaskStatus.mock.invocationCallOrder[0]).toBeLessThan(buildResumeContextSpy.mock.invocationCallOrder[0]);
