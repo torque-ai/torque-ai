@@ -60,6 +60,7 @@ async function handleRequest(request, session) {
       // Capture client capabilities for elicitation/sampling support
       session.clientCapabilities = params?.capabilities || {};
       session.supportsElicitation = Boolean(params?.capabilities?.elicitation);
+      session.supportsSampling = Boolean(params?.capabilities?.sampling);
 
       const response = {
         protocolVersion: '2024-11-05',
