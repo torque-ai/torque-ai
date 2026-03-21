@@ -23,7 +23,7 @@ describe('polishTaskDescription', () => {
     const input = 'fix the login bug';
     const result = polishTaskDescription(input);
     expect(result.acceptanceCriteria.length).toBeGreaterThan(0);
-    expect(result.acceptanceCriteria[0]).toContain('Fix The Login Bug Works Correctly');
+    expect(result.acceptanceCriteria[0]).toContain('Fix The Login Bug works correctly');
   });
 
   it('handles multi-line input', () => {

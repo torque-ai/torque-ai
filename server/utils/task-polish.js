@@ -11,46 +11,33 @@
  */
 function polishTaskDescription(rawText) {
   if (!rawText || typeof rawText !== 'string') {
-    return {
-      title: '',
-      description: '',
-      acceptanceCriteria: []
-    };
+    return { title: '', description: '', acceptanceCriteria: [] };
   }
 
-  rawText = rawText.trim();
+  const trimmed = rawText.trim();
+  const lines = trimmed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-  // Extract title: first sentence (up to sentence terminator) or first 80 chars
-  const sentenceEnd = rawText.search(/[.!?]/);
-  const titleEnd = sentenceEnd !== -1 ? sentenceEnd + 1 : Math.min(80, rawText.length);
-  let title = rawText.slice(0, titleEnd).trim();
-
-  // Capitalize first letter of each word
+  // Title: first non-empty line, capitalize first letter of each word, max 80 chars
+  let title = (lines[0] || '').slice(0, 80);
   title = title.replace(/\b\w/g, l => l.toUpperCase());
 
-  // Description: remaining text after title, up to 500 chars
-  let description = rawText.slice(titleEnd).trim();
-  description = description.length > 500 ? description.slice(0, 500).trim() + '...' : description;
+  // Acceptance criteria: lines starting with '- ', '* ', or numbered lists
+  const criteriaLines = lines
+    .filter(line => /^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line))
+    .map(line => line.replace(/^[-*\d.)\s]+/, '').trim());
 
-  // Acceptance criteria: lines starting with '- ', '* ', or numbered lists (e.g., '1. ', '2) ')
-  const criteriaLines = rawText.split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(line =>
-      /^[-*]\s+/.test(line) ||
-      /^\d+[.)]\s+/.test(line)
-    )
-    .map(line => line.replace(/^[-*\d.)\s]+/, '').trim())
-  ;
+  // Description: non-title, non-criteria lines joined, max 500 chars
+  const descLines = lines.slice(1).filter(line =>
+    !(/^[-*]\s+/.test(line) || /^\d+[.)]\s+/.test(line))
+  );
+  let description = descLines.join(' ').trim();
+  if (description.length > 500) description = description.slice(0, 500).trim() + '...';
 
-  let acceptanceCriteria = criteriaLines.length > 0
+  const acceptanceCriteria = criteriaLines.length > 0
     ? criteriaLines
     : generateDefaultCriteria(title);
 
-  return {
-    title,
-    description,
-    acceptanceCriteria
-  };
+  return { title, description, acceptanceCriteria };
 }
 
 /**
@@ -59,17 +46,10 @@ function polishTaskDescription(rawText) {
  * @returns {string[]} Array of generated criteria.
  */
 function generateDefaultCriteria(title) {
-  const actions = [
-    'Works correctly in all supported environments',
+  return [
+    `${title} works correctly`,
     'No regression in existing functionality',
-    'Meets performance requirements',
-    'Passes all tests'
   ];
-
-  // Use first two as generic
-  return actions.slice(0, 2).map(base =>
-    base.replace('correctly', `${title} works correctly`)
-  );
 }
 
 /**
@@ -84,5 +64,5 @@ function isRoughDescription(text) {
 
 module.exports = {
   polishTaskDescription,
-  isRoughDescription
+  isRoughDescription,
 };
