@@ -54,9 +54,10 @@ function hashKey(plaintext) {
  * @param {object} options
  * @param {string} options.name - Human-readable name for the key
  * @param {string} [options.role='admin'] - Role assigned to this key
- * @returns {{ id: string, key: string, name: string, role: string }}
+ * @param {string|null} [options.userId=null] - Optional owning user ID
+ * @returns {{ id: string, key: string, name: string, role: string, userId: string|null }}
  */
-function createKey({ name, role = 'admin' } = {}) {
+function createKey({ name, role = 'admin', userId = null } = {}) {
   if (!_db) throw new Error('key-manager not initialized — call init(db) first');
   if (!name) throw new Error('name is required');
 
@@ -66,18 +67,19 @@ function createKey({ name, role = 'admin' } = {}) {
   const now = new Date().toISOString();
 
   _db.prepare(
-    'INSERT INTO api_keys (id, key_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, keyHash, name, role, now);
+    'INSERT INTO api_keys (id, key_hash, name, role, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, keyHash, name, role, now, userId);
 
-  return { id, key: plaintext, name, role };
+  return { id, key: plaintext, name, role, userId };
 }
 
 /**
  * Validate a plaintext API key.
  * Returns the key identity if valid and not revoked, or null.
+ * For user-owned keys, the user's current role is used (key's own role is ignored).
  * Updates last_used_at at most once per minute.
  * @param {string} plaintext - The raw API key to validate
- * @returns {{ id: string, name: string, role: string } | null}
+ * @returns {{ id: string, name: string, role: string, type: 'api_key', userId: string|null } | null}
  */
 function validateKey(plaintext) {
   if (!_db) throw new Error('key-manager not initialized — call init(db) first');
@@ -85,7 +87,7 @@ function validateKey(plaintext) {
 
   const keyHash = hashKey(plaintext);
   const row = _db.prepare(
-    'SELECT id, name, role, last_used_at FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL'
+    'SELECT id, name, role, last_used_at, user_id FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL'
   ).get(keyHash);
 
   if (!row) return null;
@@ -97,7 +99,19 @@ function validateKey(plaintext) {
     _db.prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').run(now.toISOString(), row.id);
   }
 
-  return { id: row.id, name: row.name, role: row.role };
+  let effectiveRole = row.role;
+  let userId = row.user_id || null;
+
+  if (row.user_id) {
+    try {
+      const userManager = require('./user-manager');
+      const user = userManager.getUserById(row.user_id);
+      if (!user) return null; // User deleted but cascade missed
+      effectiveRole = user.role;
+    } catch {}
+  }
+
+  return { id: row.id, name: row.name, role: effectiveRole, type: 'api_key', userId };
 }
 
 /**
@@ -114,12 +128,19 @@ function revokeKey(id) {
   if (key.revoked_at) throw new Error('Key already revoked');
 
   if (key.role === 'admin') {
-    // Count remaining active admin keys (excluding this one)
-    const { count } = _db.prepare(
-      'SELECT COUNT(*) as count FROM api_keys WHERE role = ? AND revoked_at IS NULL AND id != ?'
-    ).get('admin', id);
-    if (count === 0) {
-      throw new Error('Cannot revoke the last admin key');
+    // Count remaining active orphan admin keys (no user_id) excluding this one
+    const { count: otherAdminKeys } = _db.prepare(
+      "SELECT COUNT(*) as count FROM api_keys WHERE role = 'admin' AND revoked_at IS NULL AND id != ? AND user_id IS NULL"
+    ).get(id);
+
+    let adminUsers = 0;
+    try {
+      const userManager = require('./user-manager');
+      adminUsers = _db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get().count;
+    } catch {}
+
+    if (otherAdminKeys + adminUsers === 0) {
+      throw new Error('Cannot revoke the last admin key — at least one admin user or orphan admin key must remain');
     }
   }
 
@@ -129,13 +150,26 @@ function revokeKey(id) {
 /**
  * List all API keys (active and revoked).
  * NEVER returns key_hash for security.
- * @returns {Array<{ id: string, name: string, role: string, created_at: string, last_used_at: string|null, revoked_at: string|null }>}
+ * @returns {Array<{ id: string, name: string, role: string, created_at: string, last_used_at: string|null, revoked_at: string|null, user_id: string|null }>}
  */
 function listKeys() {
   if (!_db) throw new Error('key-manager not initialized — call init(db) first');
   return _db.prepare(
-    'SELECT id, name, role, created_at, last_used_at, revoked_at FROM api_keys ORDER BY created_at DESC'
+    'SELECT id, name, role, created_at, last_used_at, revoked_at, user_id FROM api_keys ORDER BY created_at DESC'
   ).all();
+}
+
+/**
+ * List API keys belonging to a specific user.
+ * NEVER returns key_hash for security.
+ * @param {string} userId - The user ID to filter by
+ * @returns {Array<{ id: string, name: string, role: string, created_at: string, last_used_at: string|null, revoked_at: string|null, user_id: string }>}
+ */
+function listKeysByUser(userId) {
+  if (!_db) throw new Error('key-manager not initialized');
+  return _db.prepare(
+    'SELECT id, name, role, created_at, last_used_at, revoked_at, user_id FROM api_keys WHERE user_id = ? ORDER BY created_at DESC'
+  ).all(userId);
 }
 
 /**
@@ -196,6 +230,7 @@ module.exports = {
   validateKey,
   revokeKey,
   listKeys,
+  listKeysByUser,
   hasAnyKeys,
   migrateConfigApiKey,
   _resetForTest,

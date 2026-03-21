@@ -1983,7 +1983,7 @@ async function handleCreateApiKey(req, res, _context = {}) {
   const keyManager = require('./auth/key-manager');
 
   // Only admin may create keys
-  const identity = authMiddleware.authenticate(req);
+  const identity = req._identity || authMiddleware.authenticate(req);
   if (!identity || !requireRole(identity, 'admin')) {
     sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
     return;
@@ -1998,8 +1998,9 @@ async function handleCreateApiKey(req, res, _context = {}) {
       sendJson(res, { error: '`name` is required' }, 400, req);
       return;
     }
-    const result = keyManager.createKey({ name, role });
-    sendJson(res, { id: result.id, key: result.key, name: result.name, role: result.role }, 201, req);
+    const userId = identity.type === 'user' ? identity.id : null;
+    const result = keyManager.createKey({ name, role: role || identity.role, userId });
+    sendJson(res, { id: result.id, key: result.key, name: result.name, role: result.role, userId: result.userId }, 201, req);
   } catch (err) {
     sendJson(res, { error: err.message }, 400, req);
   }
@@ -2008,13 +2009,23 @@ async function handleCreateApiKey(req, res, _context = {}) {
 async function handleListApiKeys(req, res, _context = {}) {
   const keyManager = require('./auth/key-manager');
 
-  // Only admin may list keys
-  const identity = authMiddleware.authenticate(req);
-  if (!identity || !requireRole(identity, 'admin')) {
-    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+  const identity = req._identity || authMiddleware.authenticate(req);
+  if (!identity) {
+    sendJson(res, { error: 'Forbidden' }, 403, req);
     return;
   }
 
+  // Non-admin: show only their own keys
+  if (!requireRole(identity, 'admin')) {
+    if (identity.type === 'user') {
+      sendJson(res, { keys: keyManager.listKeysByUser(identity.id) }, 200, req);
+      return;
+    }
+    sendJson(res, { error: 'Forbidden' }, 403, req);
+    return;
+  }
+
+  // Admin: show all keys
   try {
     const keys = keyManager.listKeys();
     sendJson(res, { keys }, 200, req);
@@ -2026,21 +2037,29 @@ async function handleListApiKeys(req, res, _context = {}) {
 async function handleRevokeApiKey(req, res, _context = {}) {
   const keyManager = require('./auth/key-manager');
 
-  // Only admin may revoke keys
-  const identity = authMiddleware.authenticate(req);
-  if (!identity || !requireRole(identity, 'admin')) {
-    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+  const identity = req._identity || authMiddleware.authenticate(req);
+  if (!identity) {
+    sendJson(res, { error: 'Forbidden' }, 403, req);
     return;
   }
 
-  const key_id = req.params?.key_id;
-  if (!key_id) {
+  const keyId = req.params?.key_id;
+  if (!keyId) {
     sendJson(res, { error: '`key_id` is required' }, 400, req);
     return;
   }
 
+  // Non-admin: verify key ownership before revoking
+  if (!requireRole(identity, 'admin')) {
+    const keys = keyManager.listKeysByUser(identity.id);
+    if (!keys.some(k => k.id === keyId)) {
+      sendJson(res, { error: 'Forbidden — can only revoke your own keys' }, 403, req);
+      return;
+    }
+  }
+
   try {
-    keyManager.revokeKey(key_id);
+    keyManager.revokeKey(keyId);
     sendJson(res, { success: true }, 200, req);
   } catch (err) {
     const status = err.message === 'Key not found' ? 404 : 400;
