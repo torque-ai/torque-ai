@@ -1324,15 +1324,27 @@ function handleWorkflowHistory(args) {
   output += `| Time | Event | Task | Details |\n`;
   output += `|------|-------|------|--------|\n`;
 
+  const structuredEvents = [];
   for (const event of events) {
     const time = new Date(event.timestamp).toLocaleTimeString();
     const node = event.node_id || event.task_id?.substring(0, 8) || '-';
     const details = event.details?.substring(0, 30) || (event.exit_code !== undefined ? `exit: ${event.exit_code}` : '-');
     output += `| ${time} | ${event.type} | ${node} | ${details} |\n`;
+    structuredEvents.push({
+      time,
+      event: event.type,
+      task_id: node,
+      details,
+    });
   }
 
   return {
-    content: [{ type: 'text', text: output }]
+    content: [{ type: 'text', text: output }],
+    structuredData: {
+      workflow_id: args.workflow_id,
+      count: structuredEvents.length,
+      events: structuredEvents,
+    },
   };
 }
 

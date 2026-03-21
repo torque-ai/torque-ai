@@ -741,12 +741,17 @@ function handleGetBatchSummary(args) {
   output += `**Status:** ${status.status}\n`;
   output += `**Tasks:** ${status.summary.completed} completed, ${status.summary.failed} failed, ${status.summary.total} total\n`;
 
+  let durationSeconds = null;
   if (status.started_at) {
     const elapsed = (status.completed_at || Date.now()) - new Date(status.started_at).getTime();
-    output += `**Duration:** ${Math.round(elapsed / 1000)}s\n`;
+    durationSeconds = Math.round(elapsed / 1000);
+    output += `**Duration:** ${durationSeconds}s\n`;
   }
 
   // Get git diff stats if working directory available
+  let filesAdded = 0;
+  let filesModified = 0;
+  let testCount = null;
   if (workingDir) {
     try {
       // Get diff from before workflow started
@@ -777,10 +782,10 @@ function handleGetBatchSummary(args) {
 
       if (diffNameStatus) {
         const lines = diffNameStatus.split('\n');
-        const added = lines.filter(l => l.startsWith('A')).length;
-        const modified = lines.filter(l => l.startsWith('M')).length;
-        output += `\n**Files added:** ${added}\n`;
-        output += `**Files modified:** ${modified}\n`;
+        filesAdded = lines.filter(l => l.startsWith('A')).length;
+        filesModified = lines.filter(l => l.startsWith('M')).length;
+        output += `\n**Files added:** ${filesAdded}\n`;
+        output += `**Files modified:** ${filesModified}\n`;
 
         // Calculate total lines added/removed
         try {
@@ -817,6 +822,7 @@ function handleGetBatchSummary(args) {
         const testMatch = testOutput.match(/(\d+)\s+passed/);
         const fileMatch = testOutput.match(/(\d+)\s+passed.*\((\d+)\)/);
         if (testMatch) {
+          testCount = parseInt(testMatch[1], 10);
           output += `\n### Test Results\n\n`;
           output += `**Tests passing:** ${testMatch[1]}\n`;
           if (fileMatch && fileMatch[2]) {
@@ -844,7 +850,22 @@ function handleGetBatchSummary(args) {
     output += `| ${nodeId} | ${taskStatus} | ${duration} |\n`;
   }
 
-  return { content: [{ type: 'text', text: output }] };
+  const structuredData = {
+    workflow_id: workflowId,
+    workflow_status: status.status,
+    completed_tasks: status.summary.completed,
+    failed_tasks: status.summary.failed,
+    total_tasks: status.summary.total,
+    files_added: filesAdded,
+    files_modified: filesModified,
+  };
+  if (durationSeconds !== null) structuredData.duration_seconds = durationSeconds;
+  if (testCount !== null) structuredData.test_count = testCount;
+
+  return {
+    content: [{ type: 'text', text: output }],
+    structuredData,
+  };
 }
 
 // ─── Feature 14: Update Project Stats ────────────────────────────────────────

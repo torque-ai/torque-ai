@@ -19,7 +19,7 @@ function handleListPendingModels() {
   try {
     const registry = getRegistry();
     const pending = registry.listPendingModels();
-    return textResult({
+    const data = {
       pending_count: pending.length,
       models: pending.map(m => ({
         provider: m.provider,
@@ -28,7 +28,11 @@ function handleListPendingModels() {
         size_bytes: m.size_bytes || null,
         first_seen_at: m.first_seen_at,
       })),
-    });
+    };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+      structuredData: data,
+    };
   } catch (err) {
     return textResult(`Error listing pending models: ${err.message}`);
   }
@@ -84,7 +88,7 @@ function handleListModels(args = {}) {
     if (args.provider) filters.provider = args.provider;
 
     const models = registry.listModels(filters);
-    return textResult({
+    const data = {
       count: models.length,
       models: models.map(m => ({
         provider: m.provider,
@@ -96,7 +100,11 @@ function handleListModels(args = {}) {
         last_seen_at: m.last_seen_at,
         approved_at: m.approved_at || null,
       })),
-    });
+    };
+    return {
+      content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+      structuredData: data,
+    };
   } catch (err) {
     return textResult(`Error listing models: ${err.message}`);
   }

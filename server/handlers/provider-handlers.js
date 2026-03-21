@@ -482,7 +482,10 @@ function handleGetProviderHealthTrends(args = {}) {
     ? [db.getHealthTrend(providerName, days)].filter(Boolean)
     : db.listProviders().map((entry) => db.getHealthTrend(entry.provider, days)).filter(Boolean);
 
-  return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(result) }],
+    structuredData: { trends: result },
+  };
 }
 
 /**

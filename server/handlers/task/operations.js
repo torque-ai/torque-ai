@@ -96,8 +96,10 @@ function handleListTags(_args) {
   result += `| Tag | Usage Count |\n`;
   result += `|-----|-------------|\n`;
 
+  const structuredTags = [];
   for (const stat of tagStats) {
     result += `| ${stat.tag} | ${stat.count} |\n`;
+    structuredTags.push({ name: stat.tag, usage_count: stat.count });
   }
 
   result += `\n### Usage\n`;
@@ -105,7 +107,11 @@ function handleListTags(_args) {
   result += `- Filter tasks: \`list_tasks({tags: ["tag1"]})\``;
 
   return {
-    content: [{ type: 'text', text: result }]
+    content: [{ type: 'text', text: result }],
+    structuredData: {
+      total_unique: allTags.length,
+      tags: structuredTags,
+    },
   };
 }
 
@@ -314,8 +320,13 @@ function handleHealthCheck(args) {
     }
   }
 
+  const structuredData = { check_type: checkType, status, response_time_ms: responseTime };
+  if (errorMessage) structuredData.error_message = errorMessage;
+  if (Object.keys(details).length > 0) structuredData.details = details;
+
   return {
-    content: [{ type: 'text', text: result }]
+    content: [{ type: 'text', text: result }],
+    structuredData,
   };
 }
 
@@ -1251,17 +1262,29 @@ function handleListArchived(args) {
   result += `| ID | Status | Description | Archived At | Reason |\n`;
   result += `|----|--------|-------------|-------------|--------|\n`;
 
+  const structuredTasks = [];
   for (const a of archived) {
     const data = db.safeJsonParse(a.original_data, {});
     const status = data.status || 'unknown';
     const desc = (data.task_description || '').slice(0, 25);
     result += `| ${a.id.slice(0, 8)}... | ${status} | ${desc}... | ${formatTime(a.archived_at)} | ${(a.archive_reason || '-').slice(0, 15)} |\n`;
+    structuredTasks.push({
+      id: a.id,
+      status,
+      description: data.task_description || '',
+      archived_at: a.archived_at || '',
+      reason: a.archive_reason || '',
+    });
   }
 
   result += `\nRestore with: \`restore_task({task_id: "..."})\``;
 
   return {
-    content: [{ type: 'text', text: result }]
+    content: [{ type: 'text', text: result }],
+    structuredData: {
+      count: structuredTasks.length,
+      tasks: structuredTasks,
+    },
   };
 }
 
@@ -1326,7 +1349,12 @@ function handleGetArchiveStats(_args) {
   result += `- Restore task: \`restore_task({task_id: "..."})\``;
 
   return {
-    content: [{ type: 'text', text: result }]
+    content: [{ type: 'text', text: result }],
+    structuredData: {
+      total_archived: stats.total_archived,
+      by_status: stats.by_status || {},
+      by_reason: stats.by_reason || {},
+    },
   };
 }
 

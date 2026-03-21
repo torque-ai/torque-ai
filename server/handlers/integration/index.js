@@ -166,6 +166,7 @@ async function handleIntegrationHealth(args) {
   output += `| Integration | Status | Latency |\n`;
   output += `|-------------|--------|----------|\n`;
 
+  const structuredIntegrations = [];
   for (const integration of toCheck) {
     const startTime = Date.now();
     let status = 'unknown';
@@ -196,6 +197,11 @@ async function handleIntegrationHealth(args) {
 
     const statusIcon = status === 'reachable' || status === 'configured' ? '✓' : '✗';
     output += `| ${integration.integration_type} | ${statusIcon} ${status} | ${latency !== null ? latency + 'ms' : 'N/A'} |\n`;
+    structuredIntegrations.push({
+      name: integration.integration_type,
+      status,
+      latency_ms: latency !== null ? latency : null,
+    });
   }
 
   if (include_history) {
@@ -210,7 +216,13 @@ async function handleIntegrationHealth(args) {
     }
   }
 
-  return { content: [{ type: 'text', text: output }] };
+  return {
+    content: [{ type: 'text', text: output }],
+    structuredData: {
+      count: structuredIntegrations.length,
+      integrations: structuredIntegrations,
+    },
+  };
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
   }}
