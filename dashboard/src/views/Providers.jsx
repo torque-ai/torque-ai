@@ -184,9 +184,10 @@ function QuotaStatusBadge({ quota }) {
   );
 }
 
-function ProviderCard({ provider, quota, sparkData, onToggle, onUpdateConcurrency, onSetApiKey, onClearApiKey }) {
+function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency, onSetApiKey, onClearApiKey }) {
   const color = getProviderColor(provider.provider);
   const dailyCounts = sparkData?.map((d) => d[provider.provider] || 0) || [];
+  const [expanded, setExpanded] = useState(false);
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyValue, setKeyValue] = useState('');
   const [keyLoading, setKeyLoading] = useState(false);
@@ -197,153 +198,149 @@ function ProviderCard({ provider, quota, sparkData, onToggle, onUpdateConcurrenc
     quota && (quota.limits?.rpm?.limit || quota.limits?.tpm?.limit || quota.limits?.daily?.limit)
   );
 
+  const rate = provider.stats?.success_rate || 0;
+  const total = provider.stats?.total_tasks || 0;
+  const avgDur = provider.stats?.avg_duration_seconds;
+  const cost = provider.stats?.total_cost;
+  const rateColor = total === 0 ? 'bg-slate-600' : rate >= 80 ? 'bg-green-500' : rate >= 50 ? 'bg-yellow-500' : 'bg-red-500';
+
   return (
-    <div className="glass-card p-5 card-hover">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <span className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-          <h3 className="text-lg font-semibold text-white">{provider.provider}</h3>
-          <QuotaStatusBadge quota={quota} />
-          <Sparkline data={dailyCounts} color={color} />
+    <div className="border-b border-slate-700/50 last:border-b-0">
+      {/* Main row */}
+      <div
+        className="flex items-center gap-4 px-4 py-2.5 hover:bg-slate-800/30 cursor-pointer transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+        <span className="text-sm font-semibold text-white w-36 truncate">{provider.provider}</span>
+        <QuotaStatusBadge quota={quota} />
+        <div className="flex items-center gap-1 w-20">
+          <div className="h-1.5 flex-1 bg-slate-700 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${rateColor}`} style={{ width: `${total > 0 ? rate : 0}%` }} />
+          </div>
+          <span className="text-xs tabular-nums text-slate-400 w-8 text-right">{total > 0 ? `${rate}%` : '-'}</span>
         </div>
+        <span className="text-xs tabular-nums text-slate-400 w-16 text-right">{total} tasks</span>
+        <span className="text-xs tabular-nums text-slate-400 w-12 text-right">{avgDur ? `${Math.round(avgDur)}s` : '-'}</span>
+        <span className="text-xs tabular-nums text-slate-400 w-14 text-right">{cost != null && cost > 0 ? `$${Number(cost).toFixed(2)}` : '-'}</span>
+        <Sparkline data={dailyCounts} color={color} width={60} height={18} />
         <button
           onClick={(e) => { e.stopPropagation(); onToggle?.(provider.provider, !provider.enabled); }}
-          className={`relative w-9 h-5 rounded-full transition-colors ${provider.enabled ? 'bg-green-600' : 'bg-slate-600'}`}
+          className={`relative w-8 h-4 rounded-full transition-colors flex-shrink-0 ${provider.enabled ? 'bg-green-600' : 'bg-slate-600'}`}
           title={provider.enabled ? 'Disable provider' : 'Enable provider'}
           aria-label={provider.enabled ? `Disable ${provider.provider}` : `Enable ${provider.provider}`}
         >
-          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${provider.enabled ? 'left-[18px]' : 'left-0.5'}`} />
+          <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${provider.enabled ? 'left-[17px]' : 'left-0.5'}`} />
         </button>
+        <svg className={`w-3.5 h-3.5 text-slate-500 transition-transform flex-shrink-0 ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-slate-800/40 rounded-lg p-3">
-          <p className="text-slate-500 text-xs mb-1">Total Tasks</p>
-          <p className="text-xl font-bold text-white">{provider.stats?.total_tasks || 0}</p>
-          <div className="flex items-center gap-2 mt-1 text-[10px]">
-            <span className="text-green-400">{provider.stats?.completed_tasks || 0} passed</span>
-            <span className="text-red-400">{provider.stats?.failed_tasks || 0} failed</span>
-          </div>
-        </div>
-        <div className="bg-slate-800/40 rounded-lg p-3">
-          <p className="text-slate-500 text-xs mb-1">Success Rate</p>
-          <p className="text-xl font-bold text-white">{provider.stats?.success_rate || 0}%</p>
-          <div className="h-1 bg-slate-700 rounded-full mt-2 overflow-hidden">
-            <div
-              className="h-full bg-green-500 rounded-full transition-all"
-              style={{ width: `${provider.stats?.success_rate || 0}%` }}
-            />
-          </div>
-        </div>
-        <div className="bg-slate-800/40 rounded-lg p-3">
-          <p className="text-slate-500 text-xs mb-1">Avg Duration</p>
-          <p className="text-xl font-bold text-white">
-            {provider.stats?.avg_duration_seconds
-              ? `${Math.round(provider.stats.avg_duration_seconds)}s`
-              : 'N/A'}
-          </p>
-        </div>
-        <div className="bg-slate-800/40 rounded-lg p-3">
-          <p className="text-slate-500 text-xs mb-1">Est. Cost</p>
-          <p className="text-xl font-bold text-white">
-            {provider.stats?.total_cost != null
-              ? `$${Number(provider.stats.total_cost).toFixed(2)}`
-              : 'N/A'}
-          </p>
-        </div>
-      </div>
-      {hasQuotaData && (
-        <div className="mt-3 space-y-1.5">
-          <QuotaBar label="RPM" remaining={quota.limits?.rpm?.remaining} limit={quota.limits?.rpm?.limit} />
-          <QuotaBar label="TPM" remaining={quota.limits?.tpm?.remaining} limit={quota.limits?.tpm?.limit} />
-          <QuotaBar label="Day" remaining={quota.limits?.daily?.remaining} limit={quota.limits?.daily?.limit} />
-          <p className="text-[10px] text-slate-600">
-            Updated {formatUpdatedAgo(quota.lastUpdated)}{quota.lastUpdated ? ' ago' : ''} ({quota.source || 'unknown'})
-          </p>
-        </div>
-      )}
-      <div className="flex items-center gap-2 mt-3">
-        <span className="text-xs text-slate-400">Max Concurrent:</span>
-        <input
-          type="number"
-          min={1}
-          max={100}
-          defaultValue={provider.max_concurrent || 1}
-          onBlur={(e) => {
-            const val = parseInt(e.target.value);
-            if (val >= 1 && val <= 100 && val !== provider.max_concurrent) {
-              onUpdateConcurrency(provider.provider, val);
-            }
-          }}
-          className="w-16 px-2 py-1 text-sm bg-slate-800 border border-slate-600 rounded text-white"
-        />
-      </div>
-      {/* API Key Management */}
-      {isCloudProvider && (
-        <div className="mt-3 pt-3 border-t border-slate-700/50">
-          {provider.api_key_status === 'env' && (
-            <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-              <span className="text-xs text-green-400">Set via environment</span>
-              <code className="text-[10px] text-slate-500 ml-1">{envVarName}</code>
+
+      {/* Expanded details */}
+      {expanded && (
+        <div className="px-4 pb-3 pt-1 ml-7 space-y-2">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-green-400">{provider.stats?.successful_tasks || 0} passed</span>
+              <span className="text-red-400">{provider.stats?.failed_tasks || 0} failed</span>
             </div>
-          )}
-          {provider.api_key_status === 'stored' && !showKeyInput && (
             <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-              <span className="text-xs text-slate-400 font-mono">{provider.api_key_masked || '\u2022\u2022\u2022\u2022\u2022\u2022'}</span>
-              <button onClick={() => setShowKeyInput(true)} className="text-xs text-blue-400 hover:text-blue-300 ml-auto">Change</button>
-              <button onClick={async () => { await onClearApiKey?.(provider.provider); }} className="text-xs text-red-400 hover:text-red-300">Remove</button>
-            </div>
-          )}
-          {provider.api_key_status === 'validating' && (
-            <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-amber-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span className="text-xs text-amber-400">Validating key...</span>
-            </div>
-          )}
-          {(provider.api_key_status === 'not_set' && !showKeyInput) && (
-            <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-              <span className="text-xs text-slate-500">No API key</span>
-              <button onClick={() => setShowKeyInput(true)} className="text-xs text-blue-400 hover:text-blue-300 ml-auto">Add Key</button>
-            </div>
-          )}
-          {showKeyInput && (
-            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Max Concurrent:</span>
               <input
-                type="password"
-                value={keyValue}
-                onChange={(e) => setKeyValue(e.target.value)}
-                placeholder="Paste API key"
-                maxLength={256}
-                className="flex-1 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-xs text-white focus:outline-none focus:border-blue-500"
-                autoFocus
-              />
-              <button
-                disabled={!keyValue.trim() || keyLoading}
-                onClick={async () => {
-                  setKeyLoading(true);
-                  try { await onSetApiKey?.(provider.provider, keyValue.trim()); }
-                  finally { setKeyLoading(false); setKeyValue(''); setShowKeyInput(false); }
+                type="number"
+                min={1}
+                max={100}
+                defaultValue={provider.max_concurrent || 1}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (val >= 1 && val <= 100 && val !== provider.max_concurrent) {
+                    onUpdateConcurrency(provider.provider, val);
+                  }
                 }}
-                className="text-xs text-green-400 hover:text-green-300 disabled:opacity-40"
-              >
-                {keyLoading ? '...' : 'Save'}
-              </button>
-              <button
-                onClick={() => { setKeyValue(''); setShowKeyInput(false); }}
-                className="text-xs text-slate-400 hover:text-slate-300"
-              >
-                Cancel
-              </button>
+                className="w-14 px-1.5 py-0.5 text-xs bg-slate-800 border border-slate-600 rounded text-white"
+              />
+            </div>
+          </div>
+          {hasQuotaData && (
+            <div className="space-y-1">
+              <QuotaBar label="RPM" remaining={quota.limits?.rpm?.remaining} limit={quota.limits?.rpm?.limit} />
+              <QuotaBar label="TPM" remaining={quota.limits?.tpm?.remaining} limit={quota.limits?.tpm?.limit} />
+              <QuotaBar label="Day" remaining={quota.limits?.daily?.remaining} limit={quota.limits?.daily?.limit} />
+              <p className="text-[10px] text-slate-600">
+                Updated {formatUpdatedAgo(quota.lastUpdated)}{quota.lastUpdated ? ' ago' : ''} ({quota.source || 'unknown'})
+              </p>
+            </div>
+          )}
+          {isCloudProvider && (
+            <div className="pt-1">
+              {provider.api_key_status === 'env' && (
+                <div className="flex items-center gap-2">
+                  <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                  </svg>
+                  <span className="text-xs text-green-400">Set via env</span>
+                  <code className="text-[10px] text-slate-500">{envVarName}</code>
+                </div>
+              )}
+              {provider.api_key_status === 'stored' && !showKeyInput && (
+                <div className="flex items-center gap-2">
+                  <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                  </svg>
+                  <span className="text-xs text-slate-400 font-mono">{provider.api_key_masked || '\u2022\u2022\u2022\u2022\u2022\u2022'}</span>
+                  <button onClick={(e) => { e.stopPropagation(); setShowKeyInput(true); }} className="text-xs text-blue-400 hover:text-blue-300 ml-auto">Change</button>
+                  <button onClick={async (e) => { e.stopPropagation(); await onClearApiKey?.(provider.provider); }} className="text-xs text-red-400 hover:text-red-300">Remove</button>
+                </div>
+              )}
+              {provider.api_key_status === 'validating' && (
+                <div className="flex items-center gap-2">
+                  <svg className="w-3 h-3 text-amber-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span className="text-xs text-amber-400">Validating...</span>
+                </div>
+              )}
+              {(provider.api_key_status === 'not_set' && !showKeyInput) && (
+                <div className="flex items-center gap-2">
+                  <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                  </svg>
+                  <span className="text-xs text-slate-500">No API key</span>
+                  <button onClick={(e) => { e.stopPropagation(); setShowKeyInput(true); }} className="text-xs text-blue-400 hover:text-blue-300 ml-auto">Add Key</button>
+                </div>
+              )}
+              {showKeyInput && (
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="password"
+                    value={keyValue}
+                    onChange={(e) => setKeyValue(e.target.value)}
+                    placeholder="Paste API key"
+                    maxLength={256}
+                    className="flex-1 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-xs text-white focus:outline-none focus:border-blue-500"
+                    autoFocus
+                  />
+                  <button
+                    disabled={!keyValue.trim() || keyLoading}
+                    onClick={async () => {
+                      setKeyLoading(true);
+                      try { await onSetApiKey?.(provider.provider, keyValue.trim()); }
+                      finally { setKeyLoading(false); setKeyValue(''); setShowKeyInput(false); }
+                    }}
+                    className="text-xs text-green-400 hover:text-green-300 disabled:opacity-40"
+                  >
+                    {keyLoading ? '...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => { setKeyValue(''); setShowKeyInput(false); }}
+                    className="text-xs text-slate-400 hover:text-slate-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -731,36 +728,44 @@ export default function Providers({ statsVersion, tasksTick }) {
         </div>
       )}
 
-      {/* Provider cards — grouped */}
+      {/* Provider list — grouped */}
       {providersList.length === 0 ? (
         <div className="glass-card p-12 text-center mb-8">
-          <svg className="w-12 h-12 text-slate-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
           <p className="text-slate-400 text-lg mb-1">No providers configured</p>
           <p className="text-slate-500 text-sm">Submit a task to activate a provider</p>
         </div>
       ) : (
-        <div className="mb-8 space-y-6">
+        <div className="glass-card mb-8 overflow-hidden">
+          {/* Column headers */}
+          <div className="flex items-center gap-4 px-4 py-2 border-b border-slate-700 text-[11px] text-slate-500 uppercase tracking-wider">
+            <span className="w-2.5" />
+            <span className="w-36">Provider</span>
+            <span className="w-2.5" />
+            <span className="w-20">Rate</span>
+            <span className="w-16 text-right">Tasks</span>
+            <span className="w-12 text-right">Avg</span>
+            <span className="w-14 text-right">Cost</span>
+            <span className="w-[60px]">Trend</span>
+            <span className="w-8" />
+            <span className="w-3.5" />
+          </div>
           {groupProviders(providersList).map((group) => (
             <div key={group.label}>
-              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 pb-2 border-b border-slate-700/50">
+              <div className="px-4 py-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider bg-slate-800/30">
                 {group.label}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {group.items.map((provider) => (
-                  <ProviderCard
-                    key={provider.provider}
-                    provider={provider}
-                    quota={quotas[provider.provider]}
-                    sparkData={timeSeries}
-                    onToggle={handleToggle}
-                    onUpdateConcurrency={handleUpdateConcurrency}
-                    onSetApiKey={handleSetApiKey}
-                    onClearApiKey={handleClearApiKey}
-                  />
-                ))}
               </div>
+              {group.items.map((provider) => (
+                <ProviderRow
+                  key={provider.provider}
+                  provider={provider}
+                  quota={quotas[provider.provider]}
+                  sparkData={timeSeries}
+                  onToggle={handleToggle}
+                  onUpdateConcurrency={handleUpdateConcurrency}
+                  onSetApiKey={handleSetApiKey}
+                  onClearApiKey={handleClearApiKey}
+                />
+              ))}
             </div>
           ))}
         </div>
