@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+
+# torque-remote-guard — Claude Code PreToolUse hook for Bash tool.
+# Intercepts heavy commands and redirects to torque-remote.
+#
+# Exit 0: allow
+# Exit 2: block with redirect message
+
+# ---- Find project root ----
+
+find_project_root() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" && "$dir" != "" ]]; do
+    if [[ -d "$dir/.git" ]]; then
+      echo "$dir"
+      return
+    fi
+    dir="$(dirname "$dir")"
+  done
+  echo "$PWD"
+}
+
+PROJECT_ROOT="$(find_project_root)"
+
+# ---- Load config ----
+
+CONFIG=""
+if [[ -f "$PROJECT_ROOT/.torque-remote.json" ]]; then
+  CONFIG="$PROJECT_ROOT/.torque-remote.json"
+elif [[ -f "$HOME/.torque-remote.json" ]]; then
+  CONFIG="$HOME/.torque-remote.json"
+fi
+
+# No config → allow everything
+if [[ -z "$CONFIG" ]]; then
+  exit 0
+fi
+
+# Check jq
+if ! command -v jq &>/dev/null; then
+  echo "[torque-remote-guard] WARNING: jq not found, guard disabled" >&2
+  exit 0
+fi
+
+# Local transport → allow everything
+transport=$(jq -r '.transport // "local"' "$CONFIG" 2>/dev/null | tr -d '\r' || echo "local")
+if [[ "$transport" == "local" ]]; then
+  exit 0
+fi
+
+# ---- Read command from stdin ----
+
+input=$(cat)
+command=$(echo "$input" | jq -r '.tool_input.command // empty' 2>/dev/null || echo "")
+
+if [[ -z "$command" ]]; then
+  exit 0
+fi
+
+# ---- Check first token for recursion ----
+
+first_token=$(echo "$command" | awk '{print $1}')
+if [[ "$first_token" == "torque-remote" || "$first_token" == */torque-remote ]]; then
+  exit 0
+fi
+
+# ---- Load intercept patterns ----
+
+# Read intercept_commands as newline-separated list (strip \r from Windows line endings)
+patterns=$(jq -r '.intercept_commands[]? // empty' "$CONFIG" 2>/dev/null | tr -d '\r' || true)
+
+if [[ -z "$patterns" ]]; then
+  # Default patterns if not configured
+  patterns="vitest
+jest
+pytest
+mocha
+dotnet test
+dotnet build
+dotnet publish
+npm test
+npm run build
+npm run test
+go test
+go build
+cargo build
+cargo test
+make
+msbuild
+tsc"
+fi
+
+# ---- Match patterns against command ----
+
+# Tokenize the command (flatten newlines so multi-line commands are fully scanned)
+IFS=' ' read -ra tokens <<< "$(echo "$command" | tr '\n\r' '  ')"
+
+match_pattern() {
+  local pattern="$1"
+  local -a pat_tokens
+  IFS=' ' read -ra pat_tokens <<< "$pattern"
+  local pat_len=${#pat_tokens[@]}
+
+  # Scan for consecutive token match
+  for (( i=0; i <= ${#tokens[@]} - pat_len; i++ )); do
+    local matched=true
+    for (( j=0; j < pat_len; j++ )); do
+      if [[ "${tokens[$((i+j))]}" != "${pat_tokens[$j]}" ]]; then
+        matched=false
+        break
+      fi
+    done
+    if [[ "$matched" == "true" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+while IFS= read -r pattern; do
+  [[ -z "$pattern" ]] && continue
+  if match_pattern "$pattern"; then
+    cat >&2 << EOF
+BLOCKED: "$pattern" should run on the remote workstation.
+
+Use:  torque-remote $command
+
+The remote workstation handles heavy builds/tests. If it's unreachable,
+torque-remote will automatically fall back to local execution.
+EOF
+    exit 2
+  fi
+done <<< "$patterns"
+
+exit 0
