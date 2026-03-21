@@ -1,0 +1,182 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * torque-top — Terminal UI dashboard for TORQUE.
+ *
+ * Shows running tasks, queue depth, provider health, and recent completions.
+ * Polls the REST API every 2 seconds. Press q to quit.
+ *
+ * Usage: torque-top [--port 3457] [--interval 2000]
+ */
+
+const http = require('http');
+
+const args = process.argv.slice(2);
+const PORT = parseInt(getArg('--port', '3457'), 10);
+const INTERVAL = parseInt(getArg('--interval', '2000'), 10);
+const API_KEY = process.env.TORQUE_API_KEY || '';
+
+function getArg(name, defaultVal) {
+  const idx = args.indexOf(name);
+  return idx >= 0 && args[idx + 1] ? args[idx + 1] : defaultVal;
+}
+
+function apiGet(path) {
+  return new Promise((resolve, reject) => {
+    const headers = { 'Accept': 'application/json' };
+    if (API_KEY) headers['Authorization'] = 'Bearer ' + API_KEY;
+    const req = http.get({ hostname: '127.0.0.1', port: PORT, path: path, headers: headers, timeout: 5000 }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+function clearScreen() {
+  process.stdout.write('\x1b[2J\x1b[H');
+}
+
+function bold(s) { return '\x1b[1m' + s + '\x1b[0m'; }
+function green(s) { return '\x1b[32m' + s + '\x1b[0m'; }
+function red(s) { return '\x1b[31m' + s + '\x1b[0m'; }
+function yellow(s) { return '\x1b[33m' + s + '\x1b[0m'; }
+function cyan(s) { return '\x1b[36m' + s + '\x1b[0m'; }
+function dim(s) { return '\x1b[2m' + s + '\x1b[0m'; }
+
+function pad(s, len) {
+  s = String(s);
+  return s.length >= len ? s.slice(0, len) : s + ' '.repeat(len - s.length);
+}
+
+function formatDuration(ms) {
+  if (!ms || ms <= 0) return '-';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  return m + 'm ' + (s % 60) + 's';
+}
+
+function statusColor(status) {
+  if (status === 'running') return green(status);
+  if (status === 'completed') return cyan(status);
+  if (status === 'failed') return red(status);
+  if (status === 'queued') return yellow(status);
+  return status;
+}
+
+async function render() {
+  const [tasks, health] = await Promise.all([
+    apiGet('/api/tasks?limit=30'),
+    apiGet('/api/health'),
+  ]);
+
+  clearScreen();
+
+  // Header
+  const now = new Date().toLocaleTimeString();
+  console.log(bold('  TORQUE TOP') + '  ' + dim(now) + '  ' + dim('Port ' + PORT) + '  ' + dim('Press q to quit'));
+  console.log('');
+
+  if (!tasks) {
+    console.log(red('  Cannot connect to TORQUE API at 127.0.0.1:' + PORT));
+    console.log(dim('  Is the server running?'));
+    return;
+  }
+
+  const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || tasks.data || []);
+
+  // Categorize
+  const running = taskList.filter(t => t.status === 'running');
+  const queued = taskList.filter(t => t.status === 'queued' || t.status === 'pending');
+  const recent = taskList.filter(t => t.status === 'completed' || t.status === 'failed').slice(0, 8);
+
+  // Summary bar
+  const summary = [
+    green(running.length + ' running'),
+    yellow(queued.length + ' queued'),
+    taskList.filter(t => t.status === 'completed').length + ' completed',
+    red(taskList.filter(t => t.status === 'failed').length + ' failed'),
+  ].join('  |  ');
+  console.log('  ' + summary);
+  console.log('');
+
+  // Running tasks
+  if (running.length > 0) {
+    console.log(bold('  RUNNING'));
+    console.log('  ' + dim(pad('ID', 10) + pad('Provider', 14) + pad('Elapsed', 10) + 'Description'));
+    for (const t of running) {
+      const elapsed = t.started_at ? formatDuration(Date.now() - new Date(t.started_at).getTime()) : '-';
+      const desc = (t.task_description || '').slice(0, 50);
+      console.log('  ' + pad(t.id.slice(0, 8), 10) + pad(t.provider || '-', 14) + pad(elapsed, 10) + desc);
+    }
+    console.log('');
+  }
+
+  // Queued
+  if (queued.length > 0) {
+    console.log(bold('  QUEUED') + dim(' (' + queued.length + ')'));
+    for (const t of queued.slice(0, 5)) {
+      const desc = (t.task_description || '').slice(0, 60);
+      console.log('  ' + dim(t.id.slice(0, 8)) + '  ' + desc);
+    }
+    if (queued.length > 5) console.log(dim('  ... and ' + (queued.length - 5) + ' more'));
+    console.log('');
+  }
+
+  // Recent completions
+  if (recent.length > 0) {
+    console.log(bold('  RECENT'));
+    console.log('  ' + dim(pad('ID', 10) + pad('Status', 12) + pad('Provider', 14) + pad('Duration', 10) + 'Description'));
+    for (const t of recent) {
+      const duration = t.started_at && t.completed_at
+        ? formatDuration(new Date(t.completed_at).getTime() - new Date(t.started_at).getTime())
+        : '-';
+      const desc = (t.task_description || '').slice(0, 45);
+      console.log('  ' + pad(t.id.slice(0, 8), 10) + pad(statusColor(t.status), 23) + pad(t.provider || '-', 14) + pad(duration, 10) + desc);
+    }
+  }
+
+  // Health
+  if (health && health.status) {
+    console.log('');
+    console.log(dim('  Server: ' + health.status + '  Uptime: ' + formatDuration((health.uptime_seconds || 0) * 1000)));
+  }
+}
+
+// Input handling
+if (process.stdin.isTTY) {
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (key) => {
+    if (key === 'q' || key === '\u0003') { // q or Ctrl+C
+      clearScreen();
+      process.exit(0);
+    }
+    if (key === 'r') { // force refresh
+      render().catch(() => {});
+    }
+  });
+}
+
+// Main loop
+let running = true;
+async function loop() {
+  while (running) {
+    try {
+      await render();
+    } catch (err) {
+      clearScreen();
+      console.log(red('  Error: ' + err.message));
+    }
+    await new Promise(r => setTimeout(r, INTERVAL));
+  }
+}
+
+loop().catch(() => process.exit(1));
