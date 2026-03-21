@@ -133,6 +133,16 @@ namespace MyNamespace;
 - Include error handling, input validation, and edge case coverage.
 - For test files, generate exhaustive test suites covering happy paths, error paths, and boundary conditions.
 - You have access to large context windows — use provided file context fully.
+`,
+
+  'test-verification-lite': `
+
+### TEST VERIFICATION — IMPORTANT:
+- Do NOT run the full project test suite (e.g., "npx vitest run" with no arguments).
+- Only run the SPECIFIC test file(s) you created or modified — e.g., "npx vitest run tests/my-new-test.test.js".
+- Running the full suite wastes resources and may time out. Targeted tests are sufficient to verify your work.
+- If you need to type-check, use "npx tsc --noEmit" (fast, no execution).
+- The orchestrator will run full verification separately after your task completes.
 `
 };
 
@@ -321,6 +331,13 @@ function wrapWithInstructions(taskDescription, provider, model, context = {}) {
   if (isCloudProvider) {
     taskTypeInstructions += TASK_TYPE_INSTRUCTIONS['cloud-model'] || '';
     logger.info(`[Prompt] Adding cloud-model guidance for provider ${provider}`);
+  }
+
+  // Codex/Codex-Spark: inject test-verification-lite when a remote workstation is configured
+  // or always (Codex shouldn't run full test suites — the orchestrator handles that post-task)
+  if (provider === 'codex' || provider === 'codex-spark') {
+    taskTypeInstructions += TASK_TYPE_INSTRUCTIONS['test-verification-lite'] || '';
+    logger.info(`[Prompt] Adding test-verification-lite for ${provider}`);
   }
 
   // Tier-aware file context capping

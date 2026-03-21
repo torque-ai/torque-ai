@@ -294,6 +294,14 @@ function buildCodexEnrichedPrompt(task, resolvedFiles, workingDir, enrichment) {
         taskTypeInstructions += _promptsModule.TASK_TYPE_INSTRUCTIONS[type];
       }
     }
+    // Always inject test-verification-lite for Codex — the orchestrator handles
+    // full suite verification post-task via torque-remote. Codex should only run
+    // targeted tests on specific files it created/modified to avoid hammering
+    // the local machine with 6+ parallel full suite runs.
+    if (_promptsModule.TASK_TYPE_INSTRUCTIONS['test-verification-lite']) {
+      taskTypeInstructions += _promptsModule.TASK_TYPE_INSTRUCTIONS['test-verification-lite'];
+    }
+
     if (taskTypeInstructions) {
       parts.push(taskTypeInstructions);
     }
@@ -307,11 +315,12 @@ function buildCodexEnrichedPrompt(task, resolvedFiles, workingDir, enrichment) {
   // 7. Quality rules
   parts.push(`\n## Quality Rules\n${BASE_LLM_RULES}`);
 
-  // 8. Verify command hint
+  // 8. Verify command hint — tell Codex to run targeted tests only, not the full verify command.
+  // The orchestrator runs the full verify_command post-task via torque-remote.
   if (db) {
     const verifyCommand = serverConfig.get('verify_command');
     if (verifyCommand) {
-      parts.push(`\n## Verification\nAfter making changes, run: \`${verifyCommand}\` to verify correctness.`);
+      parts.push(`\n## Verification\nThe orchestrator will run the full verify command (\`${verifyCommand}\`) after your task completes. You only need to run targeted tests on the specific file(s) you created or modified.`);
     }
   }
 
