@@ -18,6 +18,53 @@ const { TASK_TIMEOUTS } = require('../constants');
 
 /** Base directory for worktrees (inside server/.tmp/worktrees/) */
 const WORKTREE_BASE_DIR = path.join(__dirname, '..', '.tmp', 'worktrees');
+const BRANCH_NAME_PREFIX = 'task-';
+const MAX_BRANCH_NAME_LENGTH = 50;
+const BRANCH_NAME_STOP_WORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall',
+  'should', 'may', 'might', 'must', 'can', 'could', 'for', 'and', 'nor',
+  'but', 'or', 'yet', 'so', 'at', 'by', 'in', 'of', 'on', 'to', 'with',
+  'from', 'into', 'this', 'that', 'these', 'those', 'it',
+]);
+
+/**
+ * Convert a task description into a kebab-case branch name.
+ *
+ * @param {string} description - Human-readable task description
+ * @returns {string}
+ */
+function generateBranchName(description) {
+  const normalizedDescription = typeof description === 'string'
+    ? description.toLowerCase()
+    : '';
+
+  const tokens = normalizedDescription
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .filter((token) => !BRANCH_NAME_STOP_WORDS.has(token));
+
+  let slug = tokens
+    .join('-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  const maxSlugLength = MAX_BRANCH_NAME_LENGTH - BRANCH_NAME_PREFIX.length;
+  if (slug.length > maxSlugLength) {
+    const truncated = slug.slice(0, maxSlugLength);
+    const lastHyphenIndex = truncated.lastIndexOf('-');
+    slug = lastHyphenIndex > 0
+      ? truncated.slice(0, lastHyphenIndex)
+      : truncated;
+    slug = slug.replace(/^-+|-+$/g, '');
+  }
+
+  if (!slug) {
+    return `${BRANCH_NAME_PREFIX}unnamed`;
+  }
+
+  return `${BRANCH_NAME_PREFIX}${slug}`;
+}
 
 /**
  * Check whether a directory is inside a git repository.
@@ -370,4 +417,5 @@ module.exports = {
   mergeWorktreeChanges,
   removeWorktree,
   cleanupOrphanedWorktrees,
+  generateBranchName,
 };
