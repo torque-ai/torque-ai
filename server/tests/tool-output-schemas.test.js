@@ -51,6 +51,10 @@ describe('tool-output-schemas', () => {
         'provider_stats', 'success_rates', 'list_providers', 'check_ollama_health',
         'get_cost_summary', 'get_budget_status', 'get_cost_forecast',
         'get_concurrency_limits', 'check_stalled_tasks', 'check_task_progress',
+        // Phase 3
+        'workflow_history', 'list_models', 'list_pending_models', 'list_archived',
+        'get_archive_stats', 'get_provider_health_trends', 'health_check',
+        'get_integration_health', 'list_tags', 'get_batch_summary',
       ];
       for (const name of expected) {
         expect(getOutputSchema(name)).toBeDefined();

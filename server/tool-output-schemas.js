@@ -428,6 +428,175 @@ const OUTPUT_SCHEMAS = {
     },
     required: ['running_count', 'tasks'],
   },
+
+  // ── Phase 3: Workflow History, Models, Archives, Health, Tags, Batch ──
+
+  workflow_history: {
+    type: 'object',
+    properties: {
+      workflow_id: { type: 'string' },
+      count: { type: 'number' },
+      events: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            time: { type: 'string' },
+            event: { type: 'string' },
+            task_id: { type: 'string' },
+            details: { type: 'string' },
+          },
+        },
+      },
+    },
+    required: ['workflow_id', 'events'],
+  },
+
+  list_models: {
+    type: 'object',
+    properties: {
+      count: { type: 'number' },
+      models: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            provider: { type: 'string' },
+            model_name: { type: 'string' },
+            host_id: { type: 'string' },
+            status: { type: 'string' },
+            size_bytes: { type: 'number' },
+          },
+        },
+      },
+    },
+    required: ['count', 'models'],
+  },
+
+  list_pending_models: {
+    type: 'object',
+    properties: {
+      pending_count: { type: 'number' },
+      models: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            provider: { type: 'string' },
+            model_name: { type: 'string' },
+            host_id: { type: 'string' },
+            size_bytes: { type: 'number' },
+            first_seen_at: { type: 'string' },
+          },
+        },
+      },
+    },
+    required: ['pending_count', 'models'],
+  },
+
+  list_archived: {
+    type: 'object',
+    properties: {
+      count: { type: 'number' },
+      tasks: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            status: { type: 'string' },
+            description: { type: 'string' },
+            archived_at: { type: 'string' },
+            reason: { type: 'string' },
+          },
+        },
+      },
+    },
+    required: ['count', 'tasks'],
+  },
+
+  get_archive_stats: {
+    type: 'object',
+    properties: {
+      total_archived: { type: 'number' },
+      by_status: { type: 'object' },
+      by_reason: { type: 'object' },
+    },
+    required: ['total_archived'],
+  },
+
+  get_provider_health_trends: {
+    type: 'object',
+    properties: {
+      trends: { type: 'array' },
+    },
+    required: ['trends'],
+  },
+
+  health_check: {
+    type: 'object',
+    properties: {
+      check_type: { type: 'string' },
+      status: { type: 'string', enum: ['healthy', 'degraded', 'unhealthy'] },
+      response_time_ms: { type: 'number' },
+      error_message: { type: 'string' },
+      details: { type: 'object' },
+    },
+    required: ['status'],
+  },
+
+  get_integration_health: {
+    type: 'object',
+    properties: {
+      count: { type: 'number' },
+      integrations: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            status: { type: 'string' },
+            latency_ms: { type: 'number' },
+          },
+        },
+      },
+    },
+    required: ['count', 'integrations'],
+  },
+
+  list_tags: {
+    type: 'object',
+    properties: {
+      total_unique: { type: 'number' },
+      tags: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            usage_count: { type: 'number' },
+          },
+        },
+      },
+    },
+    required: ['total_unique', 'tags'],
+  },
+
+  get_batch_summary: {
+    type: 'object',
+    properties: {
+      workflow_id: { type: 'string' },
+      workflow_status: { type: 'string' },
+      completed_tasks: { type: 'number' },
+      failed_tasks: { type: 'number' },
+      total_tasks: { type: 'number' },
+      duration_seconds: { type: 'number' },
+      files_added: { type: 'number' },
+      files_modified: { type: 'number' },
+      test_count: { type: 'number' },
+    },
+    required: ['workflow_id', 'workflow_status'],
+  },
 };
 
 /**
