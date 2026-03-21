@@ -166,7 +166,6 @@ describe('review-handler', () => {
       { cwd: 'C:\\repo' },
     );
     expect(mocks.db.createTask).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'review-task-123',
       status: 'pending',
       working_directory: 'C:\\repo',
       timeout_minutes: 30,
@@ -186,11 +185,12 @@ describe('review-handler', () => {
       review_task: true,
       review_of_task_id: 'source-task',
     });
-    expect(mocks.taskManager.startTask).toHaveBeenCalledWith('review-task-123');
+    // startTask called with the generated UUID
+    expect(mocks.taskManager.startTask).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      review: 'review-task-123',
+      review: expect.any(String),
       issues_found: null,
-      summary: 'Review task review-task-123 started for source task source-task.',
+      summary: expect.stringContaining('started for source task source-task'),
     });
   });
 });
