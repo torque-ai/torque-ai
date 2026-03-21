@@ -216,7 +216,7 @@ export const hosts = {
     method: 'POST',
     body: JSON.stringify({ enabled }),
   }),
-  scan: () => requestV2('/hosts/scan', { method: 'POST', timeout: 30000 }),
+  scan: () => requestV2('/hosts/scan', { method: 'POST', timeout: 120000 }),
   remove: (id) => requestV2(`/hosts/${id}`, { method: 'DELETE' }),
 };
 
