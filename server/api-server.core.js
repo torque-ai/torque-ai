@@ -45,7 +45,6 @@ const {
   stopRateLimitCleanup,
   parseBody,
   sendJson,
-  checkAuth,
   parseQuery,
   applyMiddleware,
   DEFAULT_RATE_WINDOW_MS,
@@ -2510,7 +2509,7 @@ async function handleShutdown(req, res, _context = {}) {
   const remoteIp = req.socket?.remoteAddress || req.connection?.remoteAddress || '';
   const isLocalhost = LOCALHOST_IPS.has(remoteIp);
 
-  if (!isLocalhost && !checkAuth(req)) {
+  if (!isLocalhost && !authMiddleware.authenticate(req)) {
     sendJson(res, { error: 'Forbidden' }, 403, req);
     return;
   }
@@ -2791,9 +2790,12 @@ async function handleRequest(req, res, context = {}) {
         sendJson(res, { error: `Tool '${toolName}' is not available via the REST API` }, 403, req);
         return;
       }
-      if (!checkAuth(req, { requireApiKey: true })) {
-        sendAuthError(res, requestId, req);
-        return;
+      {
+        const identity = authMiddleware.authenticate(req);
+        if (!identity || identity.id === 'open-mode') {
+          sendAuthError(res, requestId, req);
+          return;
+        }
       }
 
       // F3: Enforce tool tier on REST passthrough (mirrors MCP stdio/SSE tier enforcement)
@@ -2907,7 +2909,6 @@ module.exports = {
   resolveRequestId,
   parseBody,
   sendJson,
-  checkAuth,
   parseQuery,
   sendV2Success,
   sendV2Error,
