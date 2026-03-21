@@ -97,7 +97,7 @@ export default function HealthBar() {
             <>
               <span className="font-medium tabular-nums text-slate-200">{providerSummary}</span>
               {providerList.length > 0 && <span className="text-[10px]">healthy</span>}
-              <span className="text-slate-500">{expanded ? '▴' : '▾'}</span>
+              <span className="text-base leading-none text-slate-500">{expanded ? '▴' : '▾'}</span>
             </>
           )}
         </button>
