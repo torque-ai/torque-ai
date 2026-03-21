@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const { polishTaskDescription, isRoughDescription } = require('../utils/task-polish');
 
 describe('polishTaskDescription', () => {
