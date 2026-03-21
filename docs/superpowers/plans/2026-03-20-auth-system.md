@@ -10,6 +10,19 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-20-auth-system-design.md`
 
+**Prerequisites / Conflicts with Remediation Plans:**
+
+This plan modifies 6 files that are also targets of `2026-03-20-round2-remediation.md`. **Execute Round 2 remediation BEFORE this plan.**
+
+| File | Remediation Impact | Auth Plan Must... |
+|------|-------------------|-------------------|
+| `server/api/middleware.js` | Round 1 added `settled` flag to body parsers (commit `3df4694`) | Preserve the `settled` flag pattern when replacing `checkAuth` with `authenticateRequest` in Task 5 |
+| `server/api/routes.js` | Round 1 added `skipAuth: true` to bootstrap (commit `d184a33`) | Add `/api/bootstrap/workstation` to `OPEN_PATHS` list in Task 5 |
+| `server/mcp-sse.js` | Round 2 fixes HSTS removal, subscription limits, IP bucket, timer tracking, listener cleanup | Run AFTER Round 2 Phase 1.3 + 3.1. Auth changes (~line 1349) are separate from those fix areas. |
+| `server/index.js` | Round 2 fixes orphan mode dead code, overload guard, configCore cleanup | Place keyManager init AFTER db init, BEFORE MCP transport start. Don't conflict with orphan-mode deletion. |
+| `server/db/schema-tables.js` | Round 2 adds 23 columns to `tasks`, adds indexes, FKs | No conflict — `api_keys` table is in a separate section |
+| `server/db/schema-migrations.js` | Round 2 fixes `policy_overrides.reason_code` | No conflict — different migration entries |
+
 ---
 
 ## File Map
