@@ -4,7 +4,7 @@ import ErrorBoundary from './ErrorBoundary';
 import ChangePasswordModal from './ChangePasswordModal';
 // SessionSwitcher removed — multi-session switching no longer needed
 // EconomyIndicator removed — economy mode replaced by routing templates
-import HealthDots from './HealthDots';
+// HealthDots removed — connection status moved to sidebar header
 
 const ROUTE_NAMES = {
   '/': 'Kanban',
@@ -210,57 +210,48 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
 
       {/* Sidebar: on mobile fixed overlay w-60; on desktop static with collapse */}
       <aside className={`w-60 ${collapsed ? 'md:w-16' : 'md:w-60'} bg-slate-900/80 border-r border-slate-800 flex flex-col backdrop-blur-sm transition-all duration-200 fixed inset-y-0 left-0 z-40 md:static ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
-        {/* Logo */}
-        <div className={`p-5 ${collapsed ? 'md:p-3 md:flex md:justify-center' : ''} border-b border-slate-800`}>
-          <div className={collapsed ? 'md:hidden' : ''}>
-            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent tracking-tight">
-              TORQUE
-            </h1>
-            <p className="text-[11px] text-slate-500 mt-0.5 tracking-wide">Task Orchestration</p>
+        {/* Header: Logo + Connection + Collapse */}
+        <div data-testid="sidebar-header" className={`p-4 ${collapsed ? 'md:p-3' : ''} border-b border-slate-800 relative`}>
+          <div className={`flex items-center ${collapsed ? 'md:flex-col md:gap-2' : 'justify-between'}`}>
+            <div className={collapsed ? 'md:hidden' : ''}>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent tracking-tight">
+                TORQUE
+              </h1>
+              <p className="text-[11px] text-slate-500 mt-0.5 tracking-wide">Task Orchestration</p>
+            </div>
+            {collapsed && (
+              <span className="hidden md:block text-lg font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">T</span>
+            )}
+            <div className={`flex items-center gap-2 ${collapsed ? 'md:gap-1.5' : ''}`}>
+              <button
+                onClick={() => setShowStatus((s) => !s)}
+                title={isConnected ? 'Connected' : isReconnecting ? 'Reconnecting' : 'Disconnected'}
+                aria-label={isConnected ? 'Connection status: connected' : isReconnecting ? 'Connection status: reconnecting' : 'Connection status: disconnected'}
+                className="p-1 rounded hover:bg-slate-700/50 transition-colors"
+              >
+                <span
+                  className={`block w-2 h-2 rounded-full shrink-0 ${
+                    isConnected ? 'bg-green-500 pulse-dot' : isReconnecting ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
+                  }`}
+                />
+              </button>
+              <button
+                onClick={toggleCollapsed}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors hidden md:flex items-center justify-center"
+                title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              >
+                <CollapseIcon collapsed={collapsed} />
+              </button>
+            </div>
           </div>
-          {collapsed && (
-            <span className="hidden md:block text-lg font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">T</span>
-          )}
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 p-3 space-y-1">
-          {navItems.map((item) => (
-            <NavItem key={item.to} {...item} collapsed={collapsed} />
-          ))}
-        </nav>
-
-        <div className={`px-3 ${collapsed ? 'md:px-1.5' : ''}`}>
-          <HealthDots />
-        </div>
-
-        {/* Collapse toggle - desktop only */}
-        <button
-          onClick={toggleCollapsed}
-          className="mx-3 mb-2 p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors hidden md:flex items-center justify-center"
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          <CollapseIcon collapsed={collapsed} />
-        </button>
-
-        {/* Status */}
-        <div className={`p-4 ${collapsed ? 'md:px-2 md:py-3 md:flex md:justify-center' : ''} border-t border-slate-800 relative`}>
-          <button
-            onClick={() => setShowStatus((s) => !s)}
-            className={`flex items-center gap-2 ${collapsed ? 'md:justify-center md:gap-0' : ''} text-sm w-full hover:bg-slate-800/50 rounded-lg p-1 -m-1 transition-colors`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                isConnected ? 'bg-green-500 pulse-dot' : isReconnecting ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
-              }`}
-            />
-            <span className={`text-slate-400 text-xs ${collapsed ? 'md:hidden' : ''}`}>
-              {isConnected ? 'Connected' : isReconnecting ? 'Reconnecting...' : 'Disconnected'}
-            </span>
-          </button>
+          {/* Connection status text - expanded sidebar only */}
+          <span className={`text-slate-400 text-xs mt-1 block ${collapsed ? 'md:hidden' : ''}`}>
+            {isConnected ? 'Connected' : isReconnecting ? 'Reconnecting...' : 'Disconnected'}
+          </span>
+          {/* Status panel popover - now drops down from header */}
           {showStatus && (
-            <div className="absolute bottom-full left-2 right-2 mb-2 bg-slate-800 border border-slate-700 rounded-lg p-3 shadow-lg z-50">
+            <div className="absolute top-full left-2 right-2 mt-2 bg-slate-800 border border-slate-700 rounded-lg p-3 shadow-lg z-50">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-xs font-semibold text-white">System Status</h4>
                 <button onClick={() => setShowStatus(false)} className="text-slate-500 hover:text-white" aria-label="Close status panel">
@@ -288,6 +279,14 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
             </div>
           )}
         </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-3 space-y-1">
+          {navItems.map((item) => (
+            <NavItem key={item.to} {...item} collapsed={collapsed} />
+          ))}
+        </nav>
+
       </aside>
 
       {/* Main content */}

@@ -49,17 +49,17 @@ describe('Layout', () => {
 
   it('shows connected status', () => {
     renderLayout({ isConnected: true });
-    expect(screen.getByText('Connected')).toBeInTheDocument();
+    expect(screen.getByLabelText('Connection status: connected')).toBeInTheDocument();
   });
 
   it('shows reconnecting status', () => {
     renderLayout({ isConnected: false, isReconnecting: true });
-    expect(screen.getByText('Reconnecting...')).toBeInTheDocument();
+    expect(screen.getByLabelText('Connection status: reconnecting')).toBeInTheDocument();
   });
 
   it('shows disconnected status', () => {
     renderLayout({ isConnected: false, isReconnecting: false });
-    expect(screen.getByText('Disconnected')).toBeInTheDocument();
+    expect(screen.getByLabelText('Connection status: disconnected')).toBeInTheDocument();
   });
 
   it('shows notification badge when alerts exist', () => {
@@ -105,5 +105,18 @@ describe('Layout', () => {
     expect(bellButton).toBeInTheDocument();
     // No badge number should appear in the bell area
     expect(bellButton.querySelector('.bg-red-500')).toBeNull();
+  });
+
+  it('renders collapse button with aria-label in sidebar header', () => {
+    renderLayout();
+    const collapseBtn = screen.getByLabelText('Collapse sidebar');
+    const header = collapseBtn.closest('[data-testid="sidebar-header"]');
+    expect(header).toBeInTheDocument();
+  });
+
+  it('renders connection indicator in sidebar header', () => {
+    renderLayout({ isConnected: true });
+    const header = screen.getByTestId('sidebar-header');
+    expect(header).toContainElement(screen.getByLabelText('Connection status: connected'));
   });
 });
