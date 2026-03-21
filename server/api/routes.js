@@ -1239,6 +1239,8 @@ const routes = [
   // Auth: dashboard login/logout (skipAuth — handlers validate credentials themselves)
   { method: 'POST', path: '/api/auth/login', handlerName: 'handleDashboardLogin', skipAuth: true },
   { method: 'POST', path: '/api/auth/logout', handlerName: 'handleDashboardLogout' },
+  { method: 'POST', path: '/api/auth/setup', handlerName: 'handleSetup', skipAuth: true },
+  { method: 'GET', path: '/api/auth/status', handlerName: 'handleAuthStatus', skipAuth: true },
 
   // Auth: ticket exchange (key → short-lived SSE ticket)
   { method: 'POST', path: '/api/auth/ticket', handlerName: 'handleCreateTicket' },

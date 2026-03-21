@@ -2065,11 +2065,12 @@ async function handleDashboardLogin(req, res, _context = {}) {
     const body = Object.prototype.hasOwnProperty.call(req, 'body')
       ? req.body
       : await parseBody(req);
-    const { key } = body || {};
+    const { key, username, password } = body || {};
 
-    // Open mode: no keys configured — auto-login as admin
-    if (!keyManager.hasAnyKeys()) {
-      const identity = { id: 'open-mode', name: 'Open Mode', role: 'admin' };
+    // Open mode: no keys AND no users configured — auto-login as admin
+    const { isOpenMode } = require('./auth/middleware');
+    if (isOpenMode()) {
+      const identity = { id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' };
       const { sessionId, csrfToken } = sessionManager.createSession(identity);
       res.setHeader('Set-Cookie', [
         `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
@@ -2079,6 +2080,30 @@ async function handleDashboardLogin(req, res, _context = {}) {
       return;
     }
 
+    // Username/password login
+    if (username && password) {
+      const userManager = require('./auth/user-manager');
+      const identity = await userManager.validatePassword(username, password);
+      if (!identity) {
+        loginLimiter.recordFailure(ip);
+        sendJson(res, { error: 'Invalid username or password' }, 401, req);
+        return;
+      }
+      const { sessionId, csrfToken } = sessionManager.createSession(identity);
+      res.setHeader('Set-Cookie', [
+        `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
+        `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
+      ]);
+      sendJson(res, {
+        success: true,
+        role: identity.role,
+        csrfToken,
+        user: { id: identity.id, username: identity.username, displayName: identity.name },
+      }, 200, req);
+      return;
+    }
+
+    // API key login (existing flow — backward compat)
     if (!key) {
       loginLimiter.recordFailure(ip);
       sendJson(res, { error: 'API key is required' }, 401, req);
@@ -2120,6 +2145,86 @@ async function handleDashboardLogout(req, res, _context = {}) {
   sendJson(res, { success: true }, 200, req);
 }
 
+/**
+ * POST /api/auth/setup — create the first admin user (setup wizard).
+ * Only works when no users exist yet. Rate-limited.
+ */
+async function handleSetup(req, res) {
+  const userManager = require('./auth/user-manager');
+  const sessionManager = require('./auth/session-manager');
+  const { loginLimiter } = require('./auth/rate-limiter');
+
+  const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+  if (loginLimiter.isLimited(ip)) {
+    sendJson(res, { error: 'Too many attempts. Try again later.' }, 429, req);
+    return;
+  }
+
+  if (userManager.hasAnyUsers()) {
+    sendJson(res, { error: 'Setup already completed — users exist' }, 403, req);
+    return;
+  }
+
+  try {
+    const body = Object.prototype.hasOwnProperty.call(req, 'body')
+      ? req.body
+      : await parseBody(req);
+    const { username, password, displayName } = body || {};
+    const user = await userManager.createUser({ username, password, role: 'admin', displayName });
+
+    const identity = { id: user.id, name: user.displayName || user.username, username: user.username, role: 'admin', type: 'user' };
+    const { sessionId, csrfToken } = sessionManager.createSession(identity);
+    res.setHeader('Set-Cookie', [
+      `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
+      `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
+    ]);
+    sendJson(res, {
+      success: true,
+      role: 'admin',
+      csrfToken,
+      user: { id: user.id, username: user.username, displayName: user.displayName },
+    }, 201, req);
+  } catch (err) {
+    loginLimiter.recordFailure(ip);
+    sendJson(res, { error: err.message }, 400, req);
+  }
+}
+
+/**
+ * GET /api/auth/status — returns auth state for the current request.
+ * Works for unauthenticated clients (skipAuth: true).
+ */
+function handleAuthStatus(req, res) {
+  const { isOpenMode } = require('./auth/middleware');
+  const userManager = require('./auth/user-manager');
+
+  if (isOpenMode()) {
+    sendJson(res, { authenticated: true, mode: 'open', needsSetup: false }, 200, req);
+    return;
+  }
+
+  const needsSetup = !userManager.hasAnyUsers();
+  const identity = authMiddleware.authenticate(req);
+
+  if (!identity) {
+    sendJson(res, { authenticated: false, needsSetup }, 200, req);
+    return;
+  }
+
+  const response = {
+    authenticated: true,
+    mode: 'authenticated',
+    needsSetup: false,
+    role: identity.role,
+  };
+
+  if (identity.type === 'user') {
+    response.user = { id: identity.id, username: identity.username, displayName: identity.name, role: identity.role };
+  }
+
+  sendJson(res, response, 200, req);
+}
+
 // ============================================
 // Route definitions
 // ============================================
@@ -2146,6 +2251,8 @@ const ROUTE_HANDLER_LOOKUP = {
   handleRevokeApiKey,
   handleDashboardLogin,
   handleDashboardLogout,
+  handleSetup,
+  handleAuthStatus,
   handleClaudeEvent,
   handleClaudeFiles,
   handleGetFreeTierStatus,

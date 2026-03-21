@@ -58,7 +58,7 @@ async function handleAuthLogin(req, res) {
 
   try {
     const body = await parseBody(req);
-    const { key } = body || {};
+    const { key, username, password } = body || {};
 
     // Open mode: no keys AND no users configured — auto-login as admin
     const { isOpenMode } = require('./auth/middleware');
@@ -74,6 +74,32 @@ async function handleAuthLogin(req, res) {
       return;
     }
 
+    // Username/password login
+    if (username && password) {
+      const userManager = require('./auth/user-manager');
+      const identity = await userManager.validatePassword(username, password);
+      if (!identity) {
+        loginLimiter.recordFailure(ip);
+        res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+        res.end(JSON.stringify({ error: 'Invalid username or password' }));
+        return;
+      }
+      const { sessionId, csrfToken } = sessionManager.createSession(identity);
+      res.setHeader('Set-Cookie', [
+        `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
+        `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
+      ]);
+      res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+      res.end(JSON.stringify({
+        success: true,
+        role: identity.role,
+        csrfToken,
+        user: { id: identity.id, username: identity.username, displayName: identity.name },
+      }));
+      return;
+    }
+
+    // API key login (existing flow — backward compat)
     if (!key) {
       loginLimiter.recordFailure(ip);
       res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
@@ -128,25 +154,86 @@ function handleAuthLogout(req, res) {
  */
 function handleAuthStatus(req, res) {
   const { isOpenMode } = require('./auth/middleware');
+  const userManager = require('./auth/user-manager');
 
   // Open mode: no keys AND no users configured — everyone is authenticated
   if (isOpenMode()) {
     res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
-    res.end(JSON.stringify({ authenticated: true, mode: 'open' }));
+    res.end(JSON.stringify({ authenticated: true, mode: 'open', needsSetup: false }));
     return;
   }
 
+  const needsSetup = !userManager.hasAnyUsers();
   const { parseCookie } = require('./auth/middleware');
   const sessionManager = require('./auth/session-manager');
   const sessionId = parseCookie(req.headers?.cookie, 'torque_session');
   const session = sessionId ? sessionManager.getSession(sessionId) : null;
 
   if (session) {
+    const identity = session.identity;
+    const response = {
+      authenticated: true,
+      mode: 'authenticated',
+      needsSetup: false,
+      role: identity?.role,
+      csrfToken: session.csrfToken,
+    };
+    if (identity?.type === 'user') {
+      response.user = { id: identity.id, username: identity.username, displayName: identity.name, role: identity.role };
+    }
     res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
-    res.end(JSON.stringify({ authenticated: true, role: session.identity?.role, csrfToken: session.csrfToken }));
+    res.end(JSON.stringify(response));
   } else {
-    res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
-    res.end(JSON.stringify({ authenticated: false }));
+    res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ authenticated: false, needsSetup }));
+  }
+}
+
+/**
+ * POST /api/auth/setup — create the first admin user (setup wizard).
+ * Only works when no users exist yet. Rate-limited.
+ */
+async function handleAuthSetup(req, res) {
+  const userManager = require('./auth/user-manager');
+  const sessionManager = require('./auth/session-manager');
+  const { loginLimiter } = require('./auth/rate-limiter');
+  const { parseBody } = require('./dashboard/utils');
+
+  const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
+  if (loginLimiter.isLimited(ip)) {
+    res.writeHead(429, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ error: 'Too many attempts. Try again later.' }));
+    return;
+  }
+
+  if (userManager.hasAnyUsers()) {
+    res.writeHead(403, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ error: 'Setup already completed — users exist' }));
+    return;
+  }
+
+  try {
+    const body = await parseBody(req);
+    const { username, password, displayName } = body || {};
+    const user = await userManager.createUser({ username, password, role: 'admin', displayName });
+
+    const identity = { id: user.id, name: user.displayName || user.username, username: user.username, role: 'admin', type: 'user' };
+    const { sessionId, csrfToken } = sessionManager.createSession(identity);
+    res.setHeader('Set-Cookie', [
+      `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
+      `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
+    ]);
+    res.writeHead(201, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({
+      success: true,
+      role: 'admin',
+      csrfToken,
+      user: { id: user.id, username: user.username, displayName: user.displayName },
+    }));
+  } catch (err) {
+    loginLimiter.recordFailure(ip);
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ error: err.message }));
   }
 }
 
@@ -838,6 +925,10 @@ async function start(options = {}) {
     }
     if (urlPath === '/api/auth/status' && req.method === 'GET') {
       handleAuthStatus(req, res);
+      return;
+    }
+    if (urlPath === '/api/auth/setup' && req.method === 'POST') {
+      handleAuthSetup(req, res);
       return;
     }
 
