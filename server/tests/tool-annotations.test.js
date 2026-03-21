@@ -290,5 +290,18 @@ describe('tool-annotations', () => {
         );
       }
     });
+
+    it('validateCoverage reports zero stale overrides', () => {
+      const { TOOLS } = require('../tools');
+      const { validateCoverage } = require('../tool-annotations');
+      const names = TOOLS.map(t => t.name);
+      const result = validateCoverage(names);
+      if (result.stale.length > 0) {
+        throw new Error(
+          `${result.stale.length} stale override(s) reference nonexistent tools:\n` +
+          result.stale.map(n => `  - ${n}`).join('\n')
+        );
+      }
+    });
   });
 });
