@@ -555,7 +555,20 @@ function handleCheckStatus(args) {
       content: [{
         type: 'text',
         text: formatTaskStatus(task, progress)
-      }]
+      }],
+      structuredData: {
+        pressure_level: pressureLevel,
+        task: {
+          id: task.id,
+          status: task.status,
+          provider: task.provider || null,
+          model: task.model || null,
+          progress: progress?.progress || 0,
+          exit_code: task.exit_code != null ? task.exit_code : null,
+          elapsed_seconds: progress?.elapsedSeconds || null,
+          description: (task.task_description || '').slice(0, 200),
+        },
+      },
     };
   }
 
@@ -574,6 +587,7 @@ function handleCheckStatus(args) {
   summary += `**Running:** ${running.length}\n`;
   summary += `**Queued:** ${queued.length}\n\n`;
 
+  const structuredRunning = [];
   if (running.length > 0) {
     summary += `### Running Tasks\n`;
     for (const task of running) {
@@ -594,6 +608,16 @@ function handleCheckStatus(args) {
       }
 
       summary += `- ${task.id.slice(0, 8)}...${modelInfo} (${progress?.progress || 0}%)${activityInfo} - ${(task.task_description || '').slice(0, 50)}...\n`;
+      structuredRunning.push({
+        id: task.id,
+        status: task.status,
+        provider: task.provider || null,
+        model: task.model || null,
+        progress: progress?.progress || 0,
+        is_stalled: activity?.isStalled || false,
+        last_activity_seconds: activity?.lastActivitySeconds || null,
+        description: (task.task_description || '').slice(0, 200),
+      });
     }
     summary += '\n';
   }
@@ -607,15 +631,38 @@ function handleCheckStatus(args) {
     summary += '\n';
   }
 
+  const structuredQueued = queued.map(task => ({
+    id: task.id,
+    provider: task.provider || null,
+    model: task.model || null,
+    priority: task.priority || 0,
+    description: (task.task_description || '').slice(0, 200),
+  }));
+
   summary += `### Recent Tasks\n`;
   for (const task of recent) {
     const modelInfo = task.model ? ` [${task.model}]` : '';
     summary += `- ${task.id.slice(0, 8)}...${modelInfo} [${task.status}] - ${(task.task_description || '').slice(0, 50)}...\n`;
   }
 
+  const structuredRecent = recent.map(task => ({
+    id: task.id,
+    status: task.status,
+    model: task.model || null,
+    description: (task.task_description || '').slice(0, 200),
+  }));
+
   return {
     pressureLevel,
-    content: [{ type: 'text', text: summary }]
+    content: [{ type: 'text', text: summary }],
+    structuredData: {
+      pressure_level: pressureLevel,
+      running_count: running.length,
+      queued_count: queued.length,
+      running_tasks: structuredRunning,
+      queued_tasks: structuredQueued,
+      recent_tasks: structuredRecent,
+    },
   };
 }
 
@@ -1189,6 +1236,11 @@ function handleTaskInfo(args) {
 
   if (result && !result.isError && result.pressureLevel === undefined) {
     result.pressureLevel = getTaskInfoPressureLevel();
+  }
+
+  // Tag structuredData with mode for task_info superset schema
+  if (result && result.structuredData && !result.isError) {
+    result.structuredData.mode = mode;
   }
 
   return result;

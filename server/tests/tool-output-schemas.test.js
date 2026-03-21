@@ -1,5 +1,9 @@
 'use strict';
 
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
+
 const { getOutputSchema, OUTPUT_SCHEMAS } = require('../tool-output-schemas');
 
 describe('tool-output-schemas', () => {
@@ -158,6 +162,67 @@ describe('tool-output-schemas', () => {
       // Pass a superset that includes all schema names
       const result = validateSchemaCoverage([...allSchemaNames, 'submit_task', 'cancel_task']);
       expect(result.stale).toEqual([]);
+    });
+  });
+
+  describe('handler conformance — check_status', () => {
+    // These tests call the real handlers and verify structuredData shape.
+    // They require a running database, so we use the test DB from global setup.
+    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+    let db, templateBuffer;
+
+    beforeAll(() => {
+      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
+      db = require('../database');
+      db.resetForTest(templateBuffer);
+    });
+
+    afterAll(() => {
+      try { db.close(); } catch {}
+    });
+
+    it('check_status with task_id returns structuredData with task object', () => {
+      const { randomUUID } = require('crypto');
+      const taskId = randomUUID();
+      db.createTask({ id: taskId, task_description: 'test task', status: 'completed', exit_code: 0 });
+      const { handleCheckStatus } = require('../handlers/task/core');
+      const result = handleCheckStatus({ task_id: taskId });
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.pressure_level).toBeDefined();
+      expect(result.structuredData.task).toBeDefined();
+      expect(result.structuredData.task.id).toBe(taskId);
+      expect(result.structuredData.task.status).toBe('completed');
+      expect(result.content).toBeDefined(); // backward compat
+    });
+
+    it('check_status without task_id returns structuredData with counts and arrays', () => {
+      const { handleCheckStatus } = require('../handlers/task/core');
+      const result = handleCheckStatus({});
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.pressure_level).toBeDefined();
+      expect(typeof result.structuredData.running_count).toBe('number');
+      expect(typeof result.structuredData.queued_count).toBe('number');
+      expect(Array.isArray(result.structuredData.running_tasks)).toBe(true);
+      expect(Array.isArray(result.structuredData.queued_tasks)).toBe(true);
+      expect(Array.isArray(result.structuredData.recent_tasks)).toBe(true);
+    });
+
+    it('check_status with invalid task_id returns error without structuredData', () => {
+      const { handleCheckStatus } = require('../handlers/task/core');
+      const result = handleCheckStatus({ task_id: 'nonexistent-id' });
+
+      expect(result.isError).toBe(true);
+      expect(result.structuredData).toBeUndefined();
+    });
+
+    it('task_info delegates and adds mode field', () => {
+      const { handleTaskInfo } = require('../handlers/task/core');
+      const result = handleTaskInfo({ mode: 'status' });
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.mode).toBe('status');
     });
   });
 });
