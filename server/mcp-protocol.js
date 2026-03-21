@@ -64,7 +64,7 @@ async function handleRequest(request, session) {
 
       const response = {
         protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
+        capabilities: { tools: {}, resources: {} },
         serverInfo: SERVER_INFO,
       };
       try {
@@ -99,6 +99,16 @@ async function handleRequest(request, session) {
     case 'notifications/initialized':
     case 'notifications/cancelled':
       return null;
+
+    case 'resources/list': {
+      const { listResources } = require('./mcp-apps/resource-handler');
+      return listResources();
+    }
+
+    case 'resources/read': {
+      const { readResource } = require('./mcp-apps/resource-handler');
+      return readResource(params);
+    }
 
     default:
       throw { code: -32601, message: `Method not found: ${method}` };

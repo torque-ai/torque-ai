@@ -45,6 +45,7 @@ const TOOLS = [
   ...require('./tool-defs/strategic-config-defs'),
   ...require('./tool-defs/auth-defs'),
   ...require('./tool-defs/context-defs'),
+  ...require('./tool-defs/dashboard-app-defs'),
 ];
 
 // ── Merge MCP tool annotations (Phase: MCP ecosystem improvements) ──
@@ -113,6 +114,7 @@ const HANDLER_MODULES = [
   require('./handlers/strategic-config-handlers'),
   require('./handlers/auth-handlers'),
   require('./handlers/context-handler'),
+  require('./handlers/dashboard-app-handler'),
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──
