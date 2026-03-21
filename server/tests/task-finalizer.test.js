@@ -6,8 +6,12 @@ const fs = require('fs');
 const { randomUUID } = require('crypto');
 
 const finalizer = require('../execution/task-finalizer');
+const database = require('../database');
+const providerScoring = require('../db/provider-scoring');
+const budgetWatcher = require('../db/budget-watcher');
 const modelCapabilities = require('../db/model-capabilities');
 const providerPerformance = require('../db/provider-performance');
+const resumeContext = require('../utils/resume-context');
 const { createMockChild } = require('./mocks/process-mock');
 
 function createTaskDb(overrides = {}) {
@@ -331,6 +335,83 @@ describe('task-finalizer', () => {
       perfSpy.mockRestore();
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('records provider scoring and budget checks after the terminal DB write', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      cost_usd: '1.25',
+    });
+    const scoringDb = { prepare: vi.fn() };
+    const getDbInstanceSpy = vi.spyOn(database, 'getDbInstance').mockReturnValue(scoringDb);
+    const scoringInitSpy = vi.spyOn(providerScoring, 'init').mockImplementation(() => {});
+    const scoringRecordSpy = vi.spyOn(providerScoring, 'recordTaskCompletion').mockImplementation(() => {});
+    const budgetInitSpy = vi.spyOn(budgetWatcher, 'init').mockImplementation(() => {});
+    const budgetCheckSpy = vi.spyOn(budgetWatcher, 'checkBudgetThresholds').mockReturnValue(null);
+
+    try {
+      const { safeUpdateTaskStatus } = initFinalizer({ dbBundle });
+
+      const result = await finalizer.finalizeTask(dbBundle.taskId, {
+        exitCode: 0,
+        output: 'all good',
+        errorOutput: '',
+      });
+
+      expect(result.finalized).toBe(true);
+      expect(getDbInstanceSpy).toHaveBeenCalled();
+      expect(scoringInitSpy).toHaveBeenCalledWith(scoringDb);
+      expect(scoringRecordSpy).toHaveBeenCalledWith({
+        provider: 'codex',
+        success: true,
+        durationMs: 0,
+        costUsd: 1.25,
+        qualityScore: 0.7,
+      });
+      expect(budgetInitSpy).toHaveBeenCalledWith(scoringDb);
+      expect(budgetCheckSpy).toHaveBeenCalledWith('codex');
+      expect(safeUpdateTaskStatus.mock.invocationCallOrder[0]).toBeLessThan(scoringRecordSpy.mock.invocationCallOrder[0]);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('stores resume context for failed tasks after the terminal DB write', async () => {
+    const dbBundle = createTaskDb();
+    const resumeCtx = { summary: 'resume me' };
+    const runSpy = vi.fn();
+    const scoringDb = {
+      prepare: vi.fn(() => ({ run: runSpy })),
+    };
+    const getDbInstanceSpy = vi.spyOn(database, 'getDbInstance').mockReturnValue(scoringDb);
+    vi.spyOn(providerScoring, 'init').mockImplementation(() => {});
+    vi.spyOn(providerScoring, 'recordTaskCompletion').mockImplementation(() => {});
+    vi.spyOn(budgetWatcher, 'init').mockImplementation(() => {});
+    vi.spyOn(budgetWatcher, 'checkBudgetThresholds').mockReturnValue(null);
+    const buildResumeContextSpy = vi.spyOn(resumeContext, 'buildResumeContext').mockReturnValue(resumeCtx);
+
+    try {
+      const { safeUpdateTaskStatus } = initFinalizer({ dbBundle });
+
+      const result = await finalizer.finalizeTask(dbBundle.taskId, {
+        exitCode: 1,
+        output: 'stdout text',
+        errorOutput: 'stderr text',
+      });
+
+      expect(result.finalized).toBe(true);
+      expect(getDbInstanceSpy).toHaveBeenCalled();
+      expect(buildResumeContextSpy).toHaveBeenCalledWith(
+        'stdout text',
+        'stderr text',
+        { description: 'Finalize task', durationMs: 0, provider: 'codex' }
+      );
+      expect(scoringDb.prepare).toHaveBeenCalledWith('UPDATE tasks SET resume_context = ? WHERE id = ?');
+      expect(runSpy).toHaveBeenCalledWith(JSON.stringify(resumeCtx), dbBundle.taskId);
+      expect(safeUpdateTaskStatus.mock.invocationCallOrder[0]).toBeLessThan(buildResumeContextSpy.mock.invocationCallOrder[0]);
+    } finally {
+      vi.restoreAllMocks();
     }
   });
 

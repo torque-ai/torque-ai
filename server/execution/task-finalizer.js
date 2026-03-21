@@ -425,6 +425,50 @@ async function finalizeTask(taskId, options = {}) {
 
     ctx.task = deps.db.getTask(taskId) || task;
 
+    try {
+      const scoring = require('../db/provider-scoring');
+      const db = require('../database');
+      const inst = db.getDbInstance ? db.getDbInstance() : null;
+      if (inst) {
+        scoring.init(inst);
+        scoring.recordTaskCompletion({
+          provider: task.provider || 'unknown',
+          success: ctx.status === 'completed',
+          durationMs: ctx.durationMs || 0,
+          costUsd: parseFloat(task.cost_usd) || 0,
+          qualityScore: ctx.status === 'completed' ? 0.7 : 0.0,
+        });
+      }
+    } catch (e) {
+      try { require('../logger').info('[scoring] ' + e.message); } catch {}
+    }
+
+    try {
+      const budgetWatcher = require('../db/budget-watcher');
+      const db = require('../database');
+      const inst = db.getDbInstance ? db.getDbInstance() : null;
+      if (inst && task.provider) {
+        budgetWatcher.init(inst);
+        const check = budgetWatcher.checkBudgetThresholds(task.provider);
+        if (check && check.thresholdBreached === 'downgrade') {
+          try { require('../logger').info('[budget] ' + task.provider + ' at ' + check.spendPercent + '% — downgrade recommended'); } catch {}
+        }
+      }
+    } catch (e) { /* non-critical */ }
+
+    try {
+      if (ctx.status === 'failed') {
+        const { buildResumeContext } = require('../utils/resume-context');
+        const resumeCtx = buildResumeContext(
+          ctx.output || task.output || '',
+          ctx.errorOutput || task.error_output || '',
+          { description: task.task_description, durationMs: ctx.durationMs || 0, provider: task.provider }
+        );
+        const db = require('../database');
+        try { db.getDbInstance().prepare('UPDATE tasks SET resume_context = ? WHERE id = ?').run(JSON.stringify(resumeCtx), task.id); } catch {}
+      }
+    } catch (e) { /* non-critical */ }
+
     if (typeof deps.handlePostCompletion === 'function') {
       try {
         await Promise.resolve(deps.handlePostCompletion(ctx));
