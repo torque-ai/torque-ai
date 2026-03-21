@@ -43,4 +43,16 @@ describe('mcp sampling', () => {
       expect(result).toEqual({ action: 'decline' });
     });
   });
+
+  describe('strategic brain integration', () => {
+    it('sample returns decline without session — brain falls through to LLM', async () => {
+      const { sample } = require('../mcp/sampling');
+      // Simulate what strategic brain does: try sampling, fall through on decline
+      const result = await sample(null, {
+        messages: [{ role: 'user', content: { type: 'text', text: 'Decompose feature X' } }],
+      });
+      expect(result.action).toBe('decline');
+      // Brain would fall through to _callLlm here
+    });
+  });
 });

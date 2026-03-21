@@ -22,7 +22,7 @@ function getOrCreateUsage(workingDir) {
   return usageByProject.get(key);
 }
 
-function getBrain(workingDirectory, providerOverride, modelOverride, configOverride) {
+function getBrain(workingDirectory, providerOverride, modelOverride, configOverride, sessionId) {
   // Load config from three-layer merge if config-loader is available
   let resolvedConfig = {};
   if (configLoader && typeof configLoader.resolveConfig === 'function') {
@@ -43,6 +43,9 @@ function getBrain(workingDirectory, providerOverride, modelOverride, configOverr
   // Explicit provider/model args override config
   if (providerOverride) resolvedConfig.provider = providerOverride;
   if (modelOverride) resolvedConfig.model = modelOverride;
+
+  // Pass MCP session ID for sampling support
+  if (sessionId) resolvedConfig.sessionId = sessionId;
 
   return new StrategicBrain(resolvedConfig);
 }
@@ -85,7 +88,7 @@ async function handleStrategicDecompose(args) {
     }
 
     const configOverride = args.config_override || null;
-    const brain = getBrain(working_directory, provider, model, configOverride);
+    const brain = getBrain(working_directory, provider, model, configOverride, args.__sessionId);
     const result = await brain.decompose({
       feature_name,
       feature_description,
@@ -152,7 +155,7 @@ async function handleStrategicDiagnose(args) {
 
     const workingDir = args.working_directory || null;
     const configOverride = args.config_override || null;
-    const brain = getBrain(workingDir, strategic_provider, null, configOverride);
+    const brain = getBrain(workingDir, strategic_provider, null, configOverride, args.__sessionId);
     const result = await brain.diagnose(diagInput);
 
     let actionText = `**Action:** ${result.action}\n**Reason:** ${result.reason}`;
@@ -207,7 +210,7 @@ async function handleStrategicReview(args) {
 
     const workingDir = args.working_directory || null;
     const configOverride = args.config_override || null;
-    const brain = getBrain(workingDir, strategic_provider, null, configOverride);
+    const brain = getBrain(workingDir, strategic_provider, null, configOverride, args.__sessionId);
     const result = await brain.review(reviewInput);
     const issueList = (result.issues || [])
       .map((issue) => `- [${issue.severity}] ${issue.file || 'general'}: ${issue.description}`)

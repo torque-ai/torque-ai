@@ -78,6 +78,7 @@ function autoDetectProvider(preferred, hasConfigApiKey) {
 class StrategicBrain {
   constructor(config = {}) {
     this.config = config; // Full config for passing to fallbacks/prompts
+    this._sessionId = config.sessionId || null;
     const requestedProvider = config.provider ?? null;
     this.provider = autoDetectProvider(requestedProvider, !!config.apiKey);
     this.model = config.model ?? DEFAULT_MODELS[this.provider] ?? 'meta-llama/Llama-3.1-405B-Instruct';
@@ -98,6 +99,7 @@ class StrategicBrain {
       total_cost: 0,
       total_duration_ms: 0,
       fallback_calls: 0,
+      sampling_calls: 0,
     };
 
     if (requestedProvider && requestedProvider !== this.provider) {
@@ -142,6 +144,41 @@ class StrategicBrain {
   async _strategicCall(templateName, variables, fallbackArgs) {
     // Inject config into fallback args so deterministic fallbacks can use custom steps/patterns/criteria
     const argsWithConfig = { ...fallbackArgs, config: this.config };
+
+    // Try MCP sampling first (free, uses host LLM)
+    if (this._sessionId) {
+      try {
+        const { sample } = require('../mcp/sampling');
+        const { system, user } = buildPrompt(templateName, variables);
+        const prompt = `${system}\n\n---\n\n${user}`;
+        const samplingResult = await sample(this._sessionId, {
+          messages: [{ role: 'user', content: { type: 'text', text: prompt } }],
+          maxTokens: this.maxTokens,
+        });
+
+        if (samplingResult && samplingResult.content) {
+          const text = typeof samplingResult.content === 'string'
+            ? samplingResult.content
+            : samplingResult.content?.text || '';
+          const parsed = extractJson(text);
+
+          if (parsed) {
+            if (typeof parsed.confidence === 'number' && parsed.confidence < this.confidenceThreshold) {
+              logger.info(`[StrategicBrain] ${templateName}: sampling confidence ${parsed.confidence} below threshold, trying LLM`);
+            } else {
+              logger.info(`[StrategicBrain] ${templateName}: resolved via MCP sampling`);
+              this._usage.sampling_calls = (this._usage.sampling_calls || 0) + 1;
+              return { ...parsed, source: 'sampling', model: samplingResult.model };
+            }
+          } else {
+            logger.info(`[StrategicBrain] ${templateName}: sampling returned unparseable output, trying LLM`);
+          }
+        }
+      } catch (err) {
+        logger.debug(`[StrategicBrain] ${templateName}: sampling failed (${err.message}), trying LLM`);
+      }
+    }
+
     try {
       const result = await this._callLlm(templateName, variables);
       const parsed = extractJson(result?.output || '');
@@ -211,6 +248,7 @@ class StrategicBrain {
       total_cost: 0,
       total_duration_ms: 0,
       fallback_calls: 0,
+      sampling_calls: 0,
     };
   }
 }
