@@ -962,7 +962,7 @@ function addRoutingRule(rule) {
  * @returns {any}
  */
 function updateRoutingRule(id, updates) {
-  const allowedFields = ['name', 'complexity', 'target_provider', 'target_host', 'model', 'priority', 'enabled'];
+  const allowedFields = ['name', 'description', 'rule_type', 'pattern', 'target_provider', 'priority', 'enabled'];
   const fields = [];
   const values = [];
 

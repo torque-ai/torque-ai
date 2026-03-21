@@ -276,9 +276,14 @@ function applySubscriptionTargetToSession(session, subscriptionTarget) {
   }
 
   const previousTaskFilter = new Set(session.taskFilter);
-  subscriptionTarget.task_ids.forEach(taskId => {
+  const newIds = subscriptionTarget.task_ids.filter(id => !session.taskFilter.has(id));
+  if (session.taskFilter.size + newIds.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
+    // Silently cap — auto-subscribe is best-effort, don't fail the task submission
+    return;
+  }
+  for (const taskId of newIds) {
     session.taskFilter.add(taskId);
-  });
+  }
   updateTaskFilterSubscriptions(session._sessionId, previousTaskFilter, session.taskFilter);
 }
 
@@ -955,7 +960,7 @@ function handleSubscribeTaskEvents(session, args) {
     // SECURITY (M3): Check incoming array size against subscription limit
     if (args.task_ids.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
       return {
-        content: [{ type: 'text', text: `Subscription limit: max ${MAX_SUBSCRIPTIONS_PER_SESSION} task IDs per session` }],
+        content: [{ type: 'text', text: `Subscription limit: max ${MAX_SUBSCRIPTIONS_PER_SESSION} task IDs per session. Requested: ${args.task_ids.length}` }],
         isError: true,
       };
     }
