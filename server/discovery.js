@@ -796,15 +796,34 @@ function getHostnameForIP(ip) {
  * @param {number} [concurrency=10] - Number of hosts to probe in parallel per batch
  * @returns {Promise<Array<{ip: string, port: number, url: string, models: string[]}>>} Array of discovered Ollama hosts
  */
-async function scanSubnet(subnet, port = 11434) {
-  // Fire all 254 probes simultaneously — each is a tiny HTTP request with
-  // a 500ms timeout. The OS can handle 254 concurrent sockets on a LAN.
-  const probes = [];
+async function scanSubnet(subnet, port = 11434, concurrency = 50) {
+  const results = [];
+  const ips = [];
+
+  // Generate all IPs in subnet (1-254)
   for (let i = 1; i <= 254; i++) {
-    probes.push(checkOllamaHost(`${subnet}.${i}`, port));
+    ips.push(`${subnet}.${i}`);
   }
-  const results = await Promise.all(probes);
-  return results.filter(Boolean);
+
+  // Scan in batches — high concurrency is fine on a LAN
+  for (let i = 0; i < ips.length; i += concurrency) {
+    if (i > 0) {
+      await new Promise(r => setTimeout(r, Math.random() * 200));
+    }
+
+    const batch = ips.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map(ip => checkOllamaHost(ip, port))
+    );
+
+    for (const result of batchResults) {
+      if (result) {
+        results.push(result);
+      }
+    }
+  }
+
+  return results;
 }
 
 /**
