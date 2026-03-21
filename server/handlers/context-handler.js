@@ -182,9 +182,236 @@ function handleGetContext(args) {
   };
 }
 
-// Placeholder for Task 4 — workflow scope
+/**
+ * Parse depends_on which may be a JSON string or array.
+ */
+function parseDeps(depsRaw) {
+  if (!depsRaw) return [];
+  if (Array.isArray(depsRaw)) return depsRaw;
+  if (typeof depsRaw === 'string') {
+    try { return JSON.parse(depsRaw); } catch { return []; }
+  }
+  return [];
+}
+
+/**
+ * Build compact workflow-scope context digest.
+ */
 function buildWorkflowContext(args) {
-  return makeError(ErrorCodes.OPERATION_FAILED, 'Workflow scope not yet implemented');
+  const includeOutput = Boolean(args.include_output);
+
+  const status = db.getWorkflowStatus(args.workflow_id);
+  if (!status) {
+    return makeError(ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow not found: ${args.workflow_id}`);
+  }
+
+  const visibility = evaluateWorkflowVisibility(status);
+  const counts = getWorkflowTaskCounts(status);
+  const taskList = Object.values(status.tasks || {});
+
+  // Build dependency map: task_id -> array of dependency node_ids
+  // status.dependencies has { from: depends_on_task_id, to: task_id }
+  // We need: for each task, what node_ids does it depend on?
+  // "from" is the dependency (upstream), "to" is the dependent (downstream)
+  const taskIdToNodeId = {};
+  for (const task of taskList) {
+    taskIdToNodeId[task.id] = task.node_id || task.id;
+  }
+  const depsByTaskId = {};
+  for (const dep of (status.dependencies || [])) {
+    if (!depsByTaskId[dep.to]) depsByTaskId[dep.to] = [];
+    // Store the node_id of the upstream task
+    const upstreamNodeId = taskIdToNodeId[dep.from] || dep.from;
+    depsByTaskId[dep.to].push(upstreamNodeId);
+  }
+
+  // Elapsed time from workflow start
+  let elapsedSeconds = null;
+  if (status.started_at) {
+    const endTime = status.completed_at ? new Date(status.completed_at) : new Date();
+    elapsedSeconds = Math.round((endTime - new Date(status.started_at)) / 1000);
+  }
+
+  // Categorize tasks
+  const completedTasks = [];
+  const runningTasks = [];
+  const failedTasks = [];
+  const blockedTasks = [];
+  const nextActionable = [];
+  const alerts = [];
+
+  // Track completed node_ids for blocked_by and next_actionable computation
+  const completedNodeIds = new Set();
+  for (const task of taskList) {
+    if (task.status === 'completed') completedNodeIds.add(task.node_id || task.id);
+  }
+
+  // Track failed node_ids for blocked vs next_actionable distinction
+  const failedNodeIds = new Set();
+  for (const task of taskList) {
+    if (task.status === 'failed') failedNodeIds.add(task.node_id || task.id);
+  }
+
+  for (const task of taskList) {
+    const nodeId = task.node_id || task.id?.substring(0, 8) || '?';
+    const deps = depsByTaskId[task.id] || parseDeps(task.depends_on);
+
+    switch (task.status) {
+      case 'completed': {
+        const entry = {
+          node_id: nodeId,
+          exit_code: task.exit_code != null ? task.exit_code : null,
+          duration_seconds: (task.started_at && task.completed_at)
+            ? Math.round((new Date(task.completed_at) - new Date(task.started_at)) / 1000)
+            : null,
+        };
+        if (includeOutput && task.output) {
+          entry.output_tail = task.output.slice(-OUTPUT_TAIL_LENGTH);
+        }
+        completedTasks.push(entry);
+        break;
+      }
+      case 'running': {
+        const progress = taskManager.getTaskProgress(task.id);
+        const activity = taskManager.getTaskActivity(task.id, { skipGitCheck: true });
+        runningTasks.push({
+          node_id: nodeId,
+          provider: task.provider || null,
+          elapsed_seconds: progress?.elapsedSeconds || null,
+          progress: progress?.progress || 0,
+        });
+        // Stall alerts
+        if (activity?.isStalled) {
+          alerts.push(`Task ${nodeId} stalled (no output ${activity.lastActivitySeconds}s)`);
+        }
+        break;
+      }
+      case 'failed': {
+        const errorSource = task.error_output || task.output || '';
+        const entry = {
+          node_id: nodeId,
+          exit_code: task.exit_code != null ? task.exit_code : null,
+          error_snippet: errorSource.slice(0, ERROR_SNIPPET_LENGTH) || null,
+        };
+        if (includeOutput && task.output) {
+          entry.output_tail = task.output.slice(-OUTPUT_TAIL_LENGTH);
+        }
+        failedTasks.push(entry);
+        break;
+      }
+      default: {
+        // pending, queued, blocked, skipped, cancelled
+        if (deps.length > 0) {
+          const incompleteDeps = deps.filter(d => !completedNodeIds.has(d));
+          if (incompleteDeps.length > 0) {
+            // Check if any incomplete dep has failed — if so, this is truly blocked
+            const hasFailedDep = incompleteDeps.some(d => failedNodeIds.has(d));
+            if (hasFailedDep) {
+              blockedTasks.push({ node_id: nodeId, blocked_by: incompleteDeps });
+            } else {
+              // Deps still running/pending but not failed — actionable soon (ready: false)
+              nextActionable.push({ node_id: nodeId, depends_on: deps, ready: false });
+            }
+          } else {
+            // All deps completed — this task is actionable now
+            nextActionable.push({ node_id: nodeId, depends_on: deps, ready: true });
+          }
+        } else if (task.status === 'pending' || task.status === 'queued') {
+          // No deps and not started — actionable
+          nextActionable.push({ node_id: nodeId, depends_on: [], ready: true });
+        }
+        break;
+      }
+    }
+
+    // Provider fallback alerts from metadata
+    try {
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+      if (meta._provider_switch_reason) {
+        alerts.push(`Task ${nodeId} fell back: ${meta._provider_switch_reason}`);
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  const ctx = {
+    scope: 'workflow',
+    workflow: {
+      id: status.id,
+      name: status.name,
+      status: status.status,
+      visibility: visibility.label,
+      elapsed_seconds: elapsedSeconds,
+    },
+    counts: {
+      completed: counts.completed,
+      running: counts.running,
+      queued: counts.queued,
+      pending: counts.pending,
+      blocked: counts.blocked,
+      failed: counts.failed,
+      skipped: counts.skipped,
+      cancelled: counts.cancelled,
+      total: counts.total,
+    },
+    completed_tasks: completedTasks,
+    running_tasks: runningTasks,
+    failed_tasks: failedTasks,
+    blocked_tasks: blockedTasks,
+    next_actionable: nextActionable,
+    alerts: alerts,
+  };
+
+  return {
+    content: [{ type: 'text', text: formatWorkflowMarkdown(ctx) }],
+    structuredData: ctx,
+  };
+}
+
+/**
+ * Format workflow context as compact markdown.
+ */
+function formatWorkflowMarkdown(ctx) {
+  const lines = [];
+  lines.push(`## Context — ${ctx.workflow.name}`);
+  lines.push(`**Status:** ${ctx.workflow.status} | **Visibility:** ${ctx.workflow.visibility}`);
+  lines.push(`**Progress:** ${ctx.counts.completed}/${ctx.counts.total} completed, ${ctx.counts.running} running, ${ctx.counts.failed} failed`);
+
+  if (ctx.running_tasks.length > 0) {
+    lines.push(`\n### Running`);
+    for (const t of ctx.running_tasks) {
+      lines.push(`- ${t.node_id} — ${t.provider || '?'} ${t.progress}%`);
+    }
+  }
+
+  if (ctx.failed_tasks.length > 0) {
+    lines.push(`\n### Failed`);
+    for (const t of ctx.failed_tasks) {
+      lines.push(`- ${t.node_id} — exit=${t.exit_code}`);
+    }
+  }
+
+  if (ctx.blocked_tasks.length > 0) {
+    lines.push(`\n### Blocked`);
+    for (const t of ctx.blocked_tasks) {
+      lines.push(`- ${t.node_id} ← waiting on [${t.blocked_by.join(', ')}]`);
+    }
+  }
+
+  if (ctx.next_actionable.length > 0) {
+    lines.push(`\n### Next`);
+    for (const t of ctx.next_actionable) {
+      lines.push(`- ${t.node_id}${t.ready ? ' (ready)' : ''}`);
+    }
+  }
+
+  if (ctx.alerts.length > 0) {
+    lines.push(`\n### Alerts`);
+    for (const a of ctx.alerts) {
+      lines.push(`- ${a}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 module.exports = {

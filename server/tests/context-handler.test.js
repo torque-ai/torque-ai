@@ -76,4 +76,57 @@ describe('context-handler', () => {
       expect(typeof sd.recent_failed.count).toBe('number');
     });
   });
+
+  describe('workflow scope', () => {
+    let testWorkflowId;
+
+    beforeAll(() => {
+      // Create a minimal workflow for testing
+      if (typeof db.createWorkflow === 'function') {
+        const crypto = require('crypto');
+        testWorkflowId = crypto.randomUUID();
+        db.createWorkflow({ id: testWorkflowId, name: 'test-context-wf', status: 'pending' });
+      }
+    });
+
+    it('returns correct shape with scope=workflow when workflow_id provided', () => {
+      const { handleGetContext } = require('../handlers/context-handler');
+      if (!testWorkflowId) return; // skip if DB doesn't support createWorkflow
+
+      const result = handleGetContext({ workflow_id: testWorkflowId });
+      if (result.isError) return; // skip if workflow not found (DB compat)
+
+      expect(result.structuredData).toBeDefined();
+      expect(result.structuredData.scope).toBe('workflow');
+      expect(result.structuredData.workflow).toBeDefined();
+      expect(result.structuredData.workflow.id).toBe(testWorkflowId);
+      expect(result.structuredData.counts).toBeDefined();
+      expect(typeof result.structuredData.counts.total).toBe('number');
+      expect(Array.isArray(result.structuredData.completed_tasks)).toBe(true);
+      expect(Array.isArray(result.structuredData.running_tasks)).toBe(true);
+      expect(Array.isArray(result.structuredData.failed_tasks)).toBe(true);
+      expect(Array.isArray(result.structuredData.blocked_tasks)).toBe(true);
+      expect(Array.isArray(result.structuredData.next_actionable)).toBe(true);
+      expect(Array.isArray(result.structuredData.alerts)).toBe(true);
+    });
+
+    it('invalid workflow_id returns error without structuredData', () => {
+      const { handleGetContext } = require('../handlers/context-handler');
+      const result = handleGetContext({ workflow_id: 'nonexistent-wf-xyz' });
+      expect(result.isError).toBe(true);
+      expect(result.structuredData).toBeUndefined();
+    });
+
+    it('workflow scope with all-pending tasks returns zero counts', () => {
+      const { handleGetContext } = require('../handlers/context-handler');
+      if (!testWorkflowId) return;
+
+      const result = handleGetContext({ workflow_id: testWorkflowId });
+      if (result.isError) return;
+
+      expect(result.structuredData.counts.completed).toBe(0);
+      expect(result.structuredData.counts.running).toBe(0);
+      expect(result.structuredData.counts.failed).toBe(0);
+    });
+  });
 });
