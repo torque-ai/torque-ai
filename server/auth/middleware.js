@@ -1,5 +1,6 @@
 'use strict';
 const keyManager = require('./key-manager');
+const userManager = require('./user-manager');
 const { resolve } = require('./resolvers');
 
 // Parse a specific cookie from the Cookie header
@@ -29,15 +30,24 @@ function extractCredential(req) {
   return null;
 }
 
+// Check if the server is in open mode (no keys AND no users)
+function isOpenMode() {
+  try {
+    return !keyManager.hasAnyKeys() && !userManager.hasAnyUsers();
+  } catch {
+    return false; // If either module isn't initialized, auth is required
+  }
+}
+
 // Main auth function: returns identity or null
 function authenticate(req) {
-  // Open mode: no keys = everyone is admin
-  if (!keyManager.hasAnyKeys()) {
-    return { id: 'open-mode', name: 'Open Mode', role: 'admin' };
+  // Open mode: no keys AND no users = everyone is admin
+  if (isOpenMode()) {
+    return { id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' };
   }
   const credential = extractCredential(req);
   if (!credential) return null;
   return resolve(credential);
 }
 
-module.exports = { authenticate, extractCredential, parseCookie };
+module.exports = { authenticate, extractCredential, parseCookie, isOpenMode };

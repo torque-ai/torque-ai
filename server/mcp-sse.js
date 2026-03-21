@@ -1350,6 +1350,7 @@ async function handleHttpRequest(req, res) {
     // Auth: ticket > apiKey > open mode
     const keyManager = require('./auth/key-manager');
     const ticketManager = require('./auth/ticket-manager');
+    const { isOpenMode } = require('./auth/middleware');
 
     let identity = null;
     const ticket = url.searchParams.get('ticket');
@@ -1361,9 +1362,9 @@ async function handleHttpRequest(req, res) {
       identity = keyManager.validateKey(apiKey);
     }
 
-    // Open mode: no keys = admin
-    if (!identity && !keyManager.hasAnyKeys()) {
-      identity = { id: 'open-mode', name: 'Open Mode', role: 'admin' };
+    // Open mode: no keys AND no users = admin
+    if (!identity && isOpenMode()) {
+      identity = { id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' };
     }
 
     const isAuthenticated = !!identity;
@@ -1563,10 +1564,10 @@ async function handleHttpRequest(req, res) {
       return;
     }
 
-    // Reject tool calls from unauthenticated sessions when API keys are configured
+    // Reject tool calls from unauthenticated sessions when auth is configured
     if (request.method === 'tools/call' && !session.authenticated) {
-      const keyManager = require('./auth/key-manager');
-      if (keyManager.hasAnyKeys()) {
+      const { isOpenMode: isOpen } = require('./auth/middleware');
+      if (!isOpen()) {
         sendJsonRpcResponse(session, request.id, null, {
           code: -32001,
           message: 'Authentication required — provide a valid apiKey query parameter on /sse connection',

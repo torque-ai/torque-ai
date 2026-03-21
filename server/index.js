@@ -542,6 +542,9 @@ function init() {
     keyManager.init(db.getDbInstance());
     keyManager.migrateConfigApiKey(); // migrate existing config.api_key if present
 
+    const userManager = require('./auth/user-manager');
+    userManager.init(db.getDbInstance());
+
     // Defense-in-depth: remove stale config.api_key if new auth system has keys
     try {
       const dbInst = db.getDbInstance();
@@ -551,7 +554,7 @@ function init() {
       }
     } catch {}
 
-    if (!keyManager.hasAnyKeys()) {
+    if (!keyManager.hasAnyKeys() && !userManager.hasAnyUsers()) {
       const { key } = keyManager.createKey({ name: 'Bootstrap admin key', role: 'admin' });
       // Write key to a file so Claude Code (and the user) can find it.
       // The server often starts via nohup > /dev/null, so console output is lost.
@@ -1620,5 +1623,41 @@ module.exports = {
 
 // Run the server
 if (require.main === module) {
-  main();
+  // Early CLI handling — --create-admin creates the first admin user, then exits
+  if (process.argv.includes('--create-admin')) {
+    (async () => {
+      const rlMod = require('readline');
+      // Need to init DB first
+      db.init();
+      const userMgr = require('./auth/user-manager');
+      userMgr.init(db.getDbInstance());
+
+      // Ensure users table exists
+      require('./db/schema-tables').ensureAllTables(db.getDbInstance());
+
+      if (userMgr.hasAnyUsers()) {
+        console.error('Users already exist. Use the dashboard to manage users.');
+        process.exit(1);
+      }
+
+      const rl = rlMod.createInterface({ input: process.stdin, output: process.stdout });
+      const ask = (q) => new Promise(r => rl.question(q, r));
+
+      try {
+        const username = await ask('Username: ');
+        const password = await ask('Password: ');
+        const user = userMgr.createUser({ username, password, role: 'admin' });
+        console.log(`Admin user "${user.username}" created successfully.`);
+      } catch (err) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      } finally {
+        rl.close();
+        db.close();
+        process.exit(0);
+      }
+    })();
+  } else {
+    main();
+  }
 }

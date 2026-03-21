@@ -60,9 +60,10 @@ async function handleAuthLogin(req, res) {
     const body = await parseBody(req);
     const { key } = body || {};
 
-    // Open mode: no keys configured — auto-login as admin
-    if (!keyManager.hasAnyKeys()) {
-      const identity = { id: 'open-mode', name: 'Open Mode', role: 'admin' };
+    // Open mode: no keys AND no users configured — auto-login as admin
+    const { isOpenMode } = require('./auth/middleware');
+    if (isOpenMode()) {
+      const identity = { id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' };
       const { sessionId, csrfToken } = sessionManager.createSession(identity);
       res.setHeader('Set-Cookie', [
         `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
@@ -126,10 +127,10 @@ function handleAuthLogout(req, res) {
  * Used by the React app to determine whether to show the login screen on load.
  */
 function handleAuthStatus(req, res) {
-  const keyManager = require('./auth/key-manager');
+  const { isOpenMode } = require('./auth/middleware');
 
-  // Open mode: no keys configured — everyone is authenticated
-  if (!keyManager.hasAnyKeys()) {
+  // Open mode: no keys AND no users configured — everyone is authenticated
+  if (isOpenMode()) {
     res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
     res.end(JSON.stringify({ authenticated: true, mode: 'open' }));
     return;
@@ -842,9 +843,9 @@ async function start(options = {}) {
 
     // Cookie auth check for all other API requests
     if (urlPath.startsWith('/api/')) {
-      const keyManager = require('./auth/key-manager');
-      // In open mode (no keys configured), allow everything through
-      if (keyManager.hasAnyKeys()) {
+      const { isOpenMode: isOpen } = require('./auth/middleware');
+      // In open mode (no keys AND no users configured), allow everything through
+      if (!isOpen()) {
         const { parseCookie } = require('./auth/middleware');
         const sessionManager = require('./auth/session-manager');
         const sessionId = parseCookie(req.headers?.cookie, 'torque_session');
