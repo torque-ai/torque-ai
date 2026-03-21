@@ -655,10 +655,10 @@ describe('policy-engine/adapters/approval extended', () => {
   });
 
   describe('requireHighRiskApproval', () => {
-    it('treats blank actions as not requiring approval', () => {
+    it('treats blank actions as not requiring approval', async () => {
       const { subject, schedulingAutomation } = loadSubject();
 
-      expect(subject.requireHighRiskApproval('   ', {
+      expect(await subject.requireHighRiskApproval('   ', {
         task_id: 'task-blank-action',
       })).toEqual({
         approved: true,
@@ -668,7 +668,7 @@ describe('policy-engine/adapters/approval extended', () => {
       expect(schedulingAutomation.getApprovalHistory).not.toHaveBeenCalled();
     });
 
-    it('grants approval when a persisted approved request matches by rule condition', () => {
+    it('grants approval when a persisted approved request matches by rule condition', async () => {
       const { subject, approvalState } = loadSubject();
 
       const rule = addHighRiskRule(approvalState, 'modify_registry_key', {
@@ -680,7 +680,7 @@ describe('policy-engine/adapters/approval extended', () => {
         status: 'approved',
       });
 
-      expect(subject.requireHighRiskApproval('modify_registry_key', {
+      expect(await subject.requireHighRiskApproval('modify_registry_key', {
         task_id: 'task-rule-condition',
         project: 'Project-Rule-Condition',
       })).toEqual({
@@ -690,7 +690,7 @@ describe('policy-engine/adapters/approval extended', () => {
       });
     });
 
-    it('blocks when a persisted high-risk request is rejected', () => {
+    it('blocks when a persisted high-risk request is rejected', async () => {
       const { subject, approvalState } = loadSubject();
 
       const rule = addHighRiskRule(approvalState, 'force_kill_process');
@@ -698,7 +698,7 @@ describe('policy-engine/adapters/approval extended', () => {
         status: 'rejected',
       });
 
-      expect(subject.requireHighRiskApproval('force_kill_process', {
+      expect(await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-high-risk-rejected',
       })).toEqual({
         approved: false,
@@ -707,7 +707,7 @@ describe('policy-engine/adapters/approval extended', () => {
       });
     });
 
-    it('blocks when a persisted high-risk request is expired', () => {
+    it('blocks when a persisted high-risk request is expired', async () => {
       const { subject, approvalState } = loadSubject();
 
       const rule = addHighRiskRule(approvalState, 'force_kill_process');
@@ -716,7 +716,7 @@ describe('policy-engine/adapters/approval extended', () => {
         expires_at: '2026-03-12T09:00:00.000Z',
       });
 
-      expect(subject.requireHighRiskApproval('force_kill_process', {
+      expect(await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-high-risk-expired',
       })).toEqual({
         approved: false,
@@ -725,10 +725,10 @@ describe('policy-engine/adapters/approval extended', () => {
       });
     });
 
-    it('creates and persists a request using project resolved from target.project', () => {
+    it('creates and persists a request using project resolved from target.project', async () => {
       const { subject, schedulingAutomation, approvalState } = loadSubject();
 
-      const result = subject.requireHighRiskApproval('force_kill_process', {
+      const result = await subject.requireHighRiskApproval('force_kill_process', {
         target: {
           id: 'task-target-project-create',
           project: 'Project-Target-Create',
@@ -757,14 +757,14 @@ describe('policy-engine/adapters/approval extended', () => {
       expect(approvalState.getRequests('task-target-project-create')).toHaveLength(1);
     });
 
-    it('does not create duplicate requests when a pending approval already exists', () => {
+    it('does not create duplicate requests when a pending approval already exists', async () => {
       const { subject, schedulingAutomation } = loadSubject();
 
-      const first = subject.requireHighRiskApproval('force_kill_process', {
+      const first = await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-no-duplicate',
         project: 'Project-No-Duplicate',
       });
-      const second = subject.requireHighRiskApproval('force_kill_process', {
+      const second = await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-no-duplicate',
         project: 'Project-No-Duplicate',
       });
@@ -782,17 +782,17 @@ describe('policy-engine/adapters/approval extended', () => {
       expect(schedulingAutomation.createApprovalRequest).toHaveBeenCalledTimes(1);
     });
 
-    it('returns granted after a persisted high-risk request is manually approved', () => {
+    it('returns granted after a persisted high-risk request is manually approved', async () => {
       const { subject, approvalState } = loadSubject();
 
-      subject.requireHighRiskApproval('force_kill_process', {
+      await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-approved-later',
       });
       approvalState.updateRequest('task-approved-later', 'request-1', {
         status: 'approved',
       });
 
-      expect(subject.requireHighRiskApproval('force_kill_process', {
+      expect(await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-approved-later',
       })).toEqual({
         approved: true,
@@ -801,17 +801,17 @@ describe('policy-engine/adapters/approval extended', () => {
       });
     });
 
-    it('remains blocked after a persisted high-risk request is manually rejected', () => {
+    it('remains blocked after a persisted high-risk request is manually rejected', async () => {
       const { subject, approvalState } = loadSubject();
 
-      subject.requireHighRiskApproval('force_kill_process', {
+      await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-rejected-later',
       });
       approvalState.updateRequest('task-rejected-later', 'request-1', {
         status: 'rejected',
       });
 
-      expect(subject.requireHighRiskApproval('force_kill_process', {
+      expect(await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-rejected-later',
       })).toEqual({
         approved: false,
@@ -820,19 +820,19 @@ describe('policy-engine/adapters/approval extended', () => {
       });
     });
 
-    it('propagates attachment failures when approval rules cannot be created', () => {
+    it('propagates attachment failures when approval rules cannot be created', async () => {
       const { subject } = loadSubject({
         schedulingAutomation: {
           createApprovalRule: undefined,
         },
       });
 
-      expect(() => subject.requireHighRiskApproval('force_kill_process', {
+      await expect(subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-attach-failure',
-      })).toThrow('approval rule creation is unavailable');
+      })).rejects.toThrow('approval rule creation is unavailable');
     });
 
-    it('fails closed when a newly created request cannot be resolved to a usable id', () => {
+    it('fails closed when a newly created request cannot be resolved to a usable id', async () => {
       const { subject, schedulingAutomation } = loadSubject({
         schedulingAutomation: {
           createApprovalRequest: vi.fn(() => '   '),
@@ -840,7 +840,7 @@ describe('policy-engine/adapters/approval extended', () => {
         },
       });
 
-      expect(subject.requireHighRiskApproval('force_kill_process', {
+      expect(await subject.requireHighRiskApproval('force_kill_process', {
         task_id: 'task-blank-request-id',
       })).toEqual({
         approved: false,

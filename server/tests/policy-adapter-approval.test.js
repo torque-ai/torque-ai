@@ -469,10 +469,10 @@ describe('policy-engine/adapters/approval', () => {
   });
 
   describe('requireHighRiskApproval', () => {
-    it('returns approved when the action is not classified as high risk', () => {
+    it('returns approved when the action is not classified as high risk', async () => {
       const { requireHighRiskApproval, schedulingAutomation } = loadSubject();
 
-      expect(requireHighRiskApproval('scroll', {
+      expect(await requireHighRiskApproval('scroll', {
         task_id: 'task-low-risk',
       })).toEqual({
         approved: true,
@@ -484,10 +484,10 @@ describe('policy-engine/adapters/approval', () => {
       expect(schedulingAutomation.createApprovalRequest).not.toHaveBeenCalled();
     });
 
-    it('returns unapproved when a high-risk action lacks a task id', () => {
+    it('returns unapproved when a high-risk action lacks a task id', async () => {
       const { requireHighRiskApproval, schedulingAutomation } = loadSubject();
 
-      expect(requireHighRiskApproval('force_kill_process', {
+      expect(await requireHighRiskApproval('force_kill_process', {
         project: 'Project-Peek',
       })).toEqual({
         approved: false,
@@ -498,7 +498,7 @@ describe('policy-engine/adapters/approval', () => {
       expect(schedulingAutomation.createApprovalRule).not.toHaveBeenCalled();
     });
 
-    it('returns approved when a matching high-risk request is already approved', () => {
+    it('returns approved when a matching high-risk request is already approved', async () => {
       const { requireHighRiskApproval, schedulingAutomation } = loadSubject({
         schedulingAutomation: {
           listApprovalRules: vi.fn(() => {
@@ -514,7 +514,7 @@ describe('policy-engine/adapters/approval', () => {
         },
       });
 
-      expect(requireHighRiskApproval(' force_kill_process ', {
+      expect(await requireHighRiskApproval(' force_kill_process ', {
         task: {
           id: 'task-approved',
           project: 'Project-Peek',
@@ -528,7 +528,7 @@ describe('policy-engine/adapters/approval', () => {
       expect(schedulingAutomation.createApprovalRequest).not.toHaveBeenCalled();
     });
 
-    it('returns unapproved when a matching high-risk request is pending', () => {
+    it('returns unapproved when a matching high-risk request is pending', async () => {
       const { requireHighRiskApproval, schedulingAutomation } = loadSubject({
         schedulingAutomation: {
           listApprovalRules: vi.fn(() => []),
@@ -542,7 +542,7 @@ describe('policy-engine/adapters/approval', () => {
         },
       });
 
-      expect(requireHighRiskApproval('force_kill_process', {
+      expect(await requireHighRiskApproval('force_kill_process', {
         task_id: 'task-pending',
         project: 'Project-Peek',
       })).toEqual({
@@ -553,7 +553,7 @@ describe('policy-engine/adapters/approval', () => {
       expect(schedulingAutomation.createApprovalRequest).not.toHaveBeenCalled();
     });
 
-    it('attaches a new high-risk request and returns the synthetic pending approval id when follow-up lookup is empty', () => {
+    it('attaches a new high-risk request and returns the synthetic pending approval id when follow-up lookup is empty', async () => {
       const { requireHighRiskApproval, schedulingAutomation } = loadSubject({
         schedulingAutomation: {
           listApprovalRules: vi.fn(() => []),
@@ -564,7 +564,7 @@ describe('policy-engine/adapters/approval', () => {
         },
       });
 
-      expect(requireHighRiskApproval('force_kill_process', {
+      expect(await requireHighRiskApproval('force_kill_process', {
         task: {
           id: 'task-create-high-risk',
           project: 'Project-Peek',
@@ -595,7 +595,7 @@ describe('policy-engine/adapters/approval', () => {
       );
     });
 
-    it('returns approved when a newly attached high-risk request is approved on follow-up lookup', () => {
+    it('returns approved when a newly attached high-risk request is approved on follow-up lookup', async () => {
       const { requireHighRiskApproval, schedulingAutomation } = loadSubject({
         schedulingAutomation: {
           listApprovalRules: vi.fn(() => []),
@@ -612,7 +612,7 @@ describe('policy-engine/adapters/approval', () => {
         },
       });
 
-      expect(requireHighRiskApproval('force_kill_process', {
+      expect(await requireHighRiskApproval('force_kill_process', {
         task_id: 'task-approved-after-attach',
         project: 'Project-Peek',
       })).toEqual({
@@ -626,7 +626,7 @@ describe('policy-engine/adapters/approval', () => {
       );
     });
 
-    it('returns unapproved when the matching high-risk request has no usable id', () => {
+    it('returns unapproved when the matching high-risk request has no usable id', async () => {
       const { requireHighRiskApproval } = loadSubject({
         schedulingAutomation: {
           listApprovalRules: vi.fn(() => []),
@@ -640,7 +640,7 @@ describe('policy-engine/adapters/approval', () => {
         },
       });
 
-      expect(requireHighRiskApproval('force_kill_process', {
+      expect(await requireHighRiskApproval('force_kill_process', {
         task_id: 'task-blank-id',
       })).toEqual({
         approved: false,

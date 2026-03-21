@@ -414,7 +414,7 @@ function requireApprovalForOutcome(policyOutcome = {}, context = {}) {
   return true;
 }
 
-function requireHighRiskApproval(action, context = {}) {
+async function requireHighRiskApproval(action, context = {}) {
   const normalizedAction = normalizeNonEmptyString(action);
   const classification = normalizedAction ? RISK_CLASSIFICATION[normalizedAction] : null;
 
@@ -433,6 +433,29 @@ function requireHighRiskApproval(action, context = {}) {
       approval_id: null,
       reason: 'High-risk action requires approval',
     };
+  }
+
+  // Try direct human approval via elicitation before DB-based approval
+  const { elicit } = require('../../mcp/elicitation');
+  const sessionOrId = context.__session || context.__mcpSession || context.mcp_session_id;
+  if (sessionOrId) {
+    const response = await elicit(sessionOrId, {
+      message: `High-risk Peek recovery action: "${normalizedAction}". Approve?`,
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          decision: { type: 'string', enum: ['approve', 'reject'] },
+        },
+        required: ['decision'],
+      },
+    });
+
+    if (response.action === 'accept' && response.content?.decision === 'approve') {
+      return { approved: true, approval_id: null, reason: 'Approved via elicitation' };
+    } else if (response.action === 'accept' && response.content?.decision === 'reject') {
+      return { approved: false, approval_id: null, reason: 'Rejected via elicitation' };
+    }
+    // decline/cancel → fall through to existing DB-based approval
   }
 
   const project = resolveProject(context);

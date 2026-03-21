@@ -243,3 +243,20 @@ describe('elicitation — approval gate integration', () => {
     expect(result.action).toBe('decline'); // no session = decline
   });
 });
+
+describe('elicitation — Peek recovery gate', () => {
+  it('elicit handles Peek recovery schema without crashing', async () => {
+    const { elicit } = require('../mcp/elicitation');
+    const result = await elicit(null, {
+      message: 'High-risk Peek recovery: rollback_files. Approve?',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          decision: { type: 'string', enum: ['approve', 'reject'] },
+        },
+        required: ['decision'],
+      },
+    });
+    expect(result.action).toBe('decline');
+  });
+});

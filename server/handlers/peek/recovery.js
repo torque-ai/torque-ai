@@ -379,10 +379,48 @@ function createApprovalAuditRecord(action, approvalRow = null) {
   return record;
 }
 
-function resolveHighRiskApproval(action, args = {}, taskContext = null) {
+async function resolveHighRiskApproval(action, args = {}, taskContext = null) {
   const normalizedAction = normalizeActionName(action);
   if (!normalizedAction) {
     return createApprovalAuditRecord(action);
+  }
+
+  // Try direct human approval via elicitation before DB-based approval
+  try {
+    const { elicit } = require('../../mcp/elicitation');
+    const sessionOrId = args?.__session || args?.__mcpSession || args?.mcp_session_id
+      || taskContext?.__session || taskContext?.mcp_session_id;
+    if (sessionOrId) {
+      const response = await elicit(sessionOrId, {
+        message: `High-risk Peek recovery action: "${normalizedAction}". Approve?`,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            decision: { type: 'string', enum: ['approve', 'reject'] },
+          },
+          required: ['decision'],
+        },
+      });
+
+      if (response.action === 'accept' && response.content?.decision === 'approve') {
+        return {
+          ...createApprovalAuditRecord(normalizedAction),
+          approved: true,
+          blocked: false,
+          reason: 'Approved via elicitation',
+        };
+      } else if (response.action === 'accept' && response.content?.decision === 'reject') {
+        return {
+          ...createApprovalAuditRecord(normalizedAction),
+          approved: false,
+          blocked: true,
+          reason: 'Rejected via elicitation',
+        };
+      }
+      // decline/cancel → fall through to existing DB-based approval
+    }
+  } catch (elicitError) {
+    logger.warn(`Elicitation failed for ${normalizedAction}: ${elicitError.message}`);
   }
 
   try {
@@ -768,7 +806,7 @@ async function handlePeekRecovery(args = {}) {
     }
 
     if (approvalRequired) {
-      approvalRecord = resolveHighRiskApproval(action, args, taskContext);
+      approvalRecord = await resolveHighRiskApproval(action, args, taskContext);
       if (!approvalRecord.approved) {
         return finalizeRecoveryResult(buildRecoveryResult({
           action,
