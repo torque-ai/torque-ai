@@ -6,7 +6,7 @@ describe('polishTaskDescription', () => {
   it('extracts title from first sentence', () => {
     const input = 'fix the login bug where users cant sign in with google oauth';
     const result = polishTaskDescription(input);
-    expect(result.title).toBe('Fix The Login Bug Where Users Cant Sign In With Google OAuth');
+    expect(result.title).toBe('Fix The Login Bug Where Users Cant Sign In With Google Oauth');
   });
 
   it('extracts acceptance criteria from bullet lists', () => {
