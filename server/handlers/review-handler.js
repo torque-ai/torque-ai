@@ -1,7 +1,7 @@
 'use strict';
 
 const childProcess = require('child_process');
-const uuid = require('uuid');
+const { randomUUID } = require('crypto');
 const db = require('../database');
 const taskManager = require('../task-manager');
 
@@ -49,7 +49,7 @@ function formatReviewPrompt(taskDescription, diffOutput) {
 
 function collectDiffOutput(workingDirectory) {
   try {
-    const output = childProcess.execFileSync('git', ['diff', 'HEAD~1', '--stat'], {
+    const output = childProcess.execFileSync('git', ['diff', 'HEAD~1'], {
       cwd: workingDirectory,
     });
     return Buffer.isBuffer(output) ? output.toString('utf8') : String(output ?? '');
@@ -64,7 +64,7 @@ function collectDiffOutput(workingDirectory) {
 
 function buildReviewTaskPayload(prompt, provider, workingDirectory, sourceTaskId) {
   return {
-    id: uuid.v4(),
+    id: randomUUID(),
     status: 'pending',
     task_description: prompt,
     working_directory: workingDirectory,

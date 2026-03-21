@@ -105,6 +105,7 @@ function toComparisonResult(provider, task, submittedAtMs, fallbackEndMs) {
     output,
     durationMs: getDurationMs(task, submittedAtMs, fallbackEndMs),
     exitCode,
+    costUsd: parseFloat(task?.cost_usd) || 0,
     success,
   };
 }
