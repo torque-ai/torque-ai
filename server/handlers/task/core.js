@@ -1306,4 +1306,5 @@ module.exports = {
   handleShareContext,
   handleSyncFiles,
   handleTaskInfo,
+  getTaskInfoPressureLevel,  // exported for context-handler.js
 };

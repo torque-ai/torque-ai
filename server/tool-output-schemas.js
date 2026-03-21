@@ -244,6 +244,29 @@ const OUTPUT_SCHEMAS = {
     },
     required: ['count', 'hosts'],
   },
+
+  get_context: {
+    type: 'object',
+    properties: {
+      scope: { type: 'string', enum: ['queue', 'workflow'] },
+      pressure_level: { type: 'string' },
+      running: { type: 'object' },
+      queued: { type: 'object' },
+      recent_completed: { type: 'object' },
+      recent_failed: { type: 'object' },
+      active_workflows: { type: 'object' },
+      provider_health: { type: 'object' },
+      workflow: { type: 'object' },
+      counts: { type: 'object' },
+      completed_tasks: { type: 'array' },
+      running_tasks: { type: 'array' },
+      failed_tasks: { type: 'array' },
+      blocked_tasks: { type: 'array' },
+      next_actionable: { type: 'array' },
+      alerts: { type: 'array' },
+    },
+    required: ['scope'],
+  },
 };
 
 /**

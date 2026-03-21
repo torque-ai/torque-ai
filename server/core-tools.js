@@ -30,6 +30,8 @@ const TIER_1 = [
   'await_ci_run', 'list_ci_runs', 'ci_run_status',
   'diagnose_ci_failure', 'watch_ci_repo', 'stop_ci_watch',
   'configure_ci_provider',
+  // Context (compact session resume)
+  'get_context',
 ];
 
 const TIER_2 = [
