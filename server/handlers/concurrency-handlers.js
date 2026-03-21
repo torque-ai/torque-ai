@@ -108,18 +108,24 @@ function getConcurrencyLimits() {
       ollamaHosts = [];
     }
 
+    const data = {
+      vram_overhead_factor: vramOverheadFactor,
+      providers,
+      workstations: mappedWorkstations,
+      ollama_hosts: ollamaHosts,
+    };
+
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify({
-            vram_overhead_factor: vramOverheadFactor,
-            providers,
-            workstations: mappedWorkstations,
-            ollama_hosts: ollamaHosts,
-          }, null, 2),
+          text: JSON.stringify(data, null, 2),
         },
       ],
+      structuredData: {
+        providers,
+        hosts: ollamaHosts,
+      },
     };
   } catch (error) {
     return response(`Failed to get concurrency limits: ${error.message}`);

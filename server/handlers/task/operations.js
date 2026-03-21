@@ -186,8 +186,37 @@ async function handleCheckTaskProgress(args) {
     issues.forEach(i => result += `- ${i}\n`);
   }
 
+  const structuredData = {
+    running_count: running2.length,
+    tasks: running2.map(t => {
+      const runtime = Math.round((Date.now() - new Date(t.started_at).getTime()) / 1000);
+      const currLen = (t.output || '').length;
+      const prevLen = snap1.get(t.id) || 0;
+      const growth = currLen - prevLen;
+      let taskStatus = 'active';
+      const taskOutput = t.output || '';
+      if (taskOutput.includes('exceeds the') && taskOutput.includes('token limit')) {
+        taskStatus = 'context_exceeded';
+      } else if (taskOutput.includes('model') && taskOutput.includes('not found')) {
+        taskStatus = 'model_not_found';
+      } else if (taskOutput.includes('Connection timed out') || taskOutput.includes('APIConnectionError')) {
+        taskStatus = 'connection_error';
+      } else if (growth === 0 && runtime > 30) {
+        taskStatus = 'no_output';
+      }
+      return {
+        id: t.id,
+        host: t.ollama_host_id || '',
+        runtime_seconds: runtime,
+        output_length: currLen,
+        status: taskStatus,
+      };
+    }),
+  };
+
   return {
-    content: [{ type: 'text', text: result }]
+    content: [{ type: 'text', text: result }],
+    structuredData,
   };
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
@@ -396,7 +425,18 @@ function handleCheckStalledTasks(args) {
     result += `\n✅ No stalled tasks detected.\n`;
   }
 
-  return { content: [{ type: 'text', text: result }] };
+  const structuredData = {
+    running_count: activities.length,
+    stalled_count: stalledTasks.length,
+    tasks: activities.map(a => ({
+      id: a.taskId,
+      elapsed_seconds: a.elapsedSeconds,
+      last_activity_seconds: a.lastActivitySeconds,
+      is_stalled: !!a.isStalled,
+    })),
+  };
+
+  return { content: [{ type: 'text', text: result }], structuredData };
 }
 
 

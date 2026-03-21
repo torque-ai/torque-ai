@@ -222,7 +222,19 @@ async function handleCheckOllamaHealth(args) {
       output += `- Least-loaded host with the requested model is selected\n`;
     }
 
-    return { content: [{ type: 'text', text: output }] };
+    const structuredData = {
+      healthy_count: healthyCount,
+      total_count: totalEnabled,
+      hosts: updatedHosts.map(h => ({
+        name: h.name,
+        url: h.url,
+        status: h.status,
+        running_tasks: h.running_tasks || 0,
+        models_count: h.models?.length || 0,
+      })),
+    };
+
+    return { content: [{ type: 'text', text: output }], structuredData };
   }
 
   // Single-host mode (backwards compatible)
@@ -261,7 +273,19 @@ async function handleCheckOllamaHealth(args) {
   output += `add_ollama_host id="remote" name="Remote 3090" url="http://192.168.1.100:11434"\n`;
   output += `\`\`\``;
 
-  return { content: [{ type: 'text', text: output }] };
+  const structuredData = {
+    healthy_count: healthy ? 1 : 0,
+    total_count: 1,
+    hosts: [{
+      name: 'default',
+      url: ollamaHost,
+      status: healthy ? 'healthy' : 'down',
+      running_tasks: 0,
+      models_count: 0,
+    }],
+  };
+
+  return { content: [{ type: 'text', text: output }], structuredData };
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
   }}

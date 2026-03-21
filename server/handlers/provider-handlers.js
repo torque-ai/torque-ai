@@ -105,7 +105,18 @@ function handleListProviders() {
     }
   }
 
-  return { content: [{ type: 'text', text: output }] };
+  const structuredData = {
+    default_provider: defaultProvider,
+    count: providers.length,
+    providers: providers.map(p => ({
+      name: p.provider,
+      enabled: !!p.enabled,
+      priority: p.priority,
+      max_concurrent: p.max_concurrent,
+    })),
+  };
+
+  return { content: [{ type: 'text', text: output }], structuredData };
 }
 
 
@@ -209,7 +220,21 @@ function handleProviderStats(args) {
     output += `| Avg Duration | ${stats.avg_duration_seconds ? Math.round(stats.avg_duration_seconds) + 's' : 'N/A'} |\n`;
   }
 
-  return { content: [{ type: 'text', text: output }] };
+  const structuredData = {
+    provider,
+    total_tasks: stats.total_tasks || 0,
+    successful_tasks: stats.successful_tasks || 0,
+    failed_tasks: stats.failed_tasks || 0,
+    success_rate: stats.success_rate || 0,
+    total_tokens: stats.total_tokens || 0,
+    total_cost: stats.total_cost || 0,
+    avg_duration_seconds: stats.avg_duration_seconds || 0,
+    enabled: providerConfig ? !!providerConfig.enabled : false,
+    priority: providerConfig ? providerConfig.priority : 0,
+    max_concurrent: providerConfig ? providerConfig.max_concurrent : 0,
+  };
+
+  return { content: [{ type: 'text', text: output }], structuredData };
 }
 
 

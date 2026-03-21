@@ -603,7 +603,18 @@ function handleSuccessRates(args) {
     result += `| ${r.group_key || 'Unknown'} | ${r.total} | ${r.successful} | ${r.failed} | ${r.success_rate}% |\n`;
   }
 
-  return { content: [{ type: 'text', text: result }] };
+  const structuredData = {
+    count: rates.length,
+    rates: rates.map(r => ({
+      group_key: r.group_key || 'Unknown',
+      total: r.total,
+      successful: r.successful,
+      failed: r.failed,
+      success_rate: r.success_rate,
+    })),
+  };
+
+  return { content: [{ type: 'text', text: result }], structuredData };
 }
 
 

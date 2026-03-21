@@ -838,27 +838,25 @@ function handleGetCostSummary(args) {
   const parsed = parseInt(args.days, 10);
   const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
   const summary = db.getCostSummary(args.provider, days);
+  const data = { days, costs: summary };
   return {
     content: [{
       type: 'text',
-      text: JSON.stringify({
-        days: days,
-        costs: summary
-      }, null, 2)
-    }]
+      text: JSON.stringify(data, null, 2)
+    }],
+    structuredData: data,
   };
 }
 
 function handleGetBudgetStatus(args) {
   const status = db.getBudgetStatus(args.budget_id);
+  const data = { count: status.length, budgets: status };
   return {
     content: [{
       type: 'text',
-      text: JSON.stringify({
-        budgets: status,
-        count: status.length
-      }, null, 2)
-    }]
+      text: JSON.stringify(data, null, 2)
+    }],
+    structuredData: data,
   };
 }
 
@@ -888,7 +886,10 @@ function handleSetBudget(args) {
 
 function handleGetCostForecast(args) {
   const forecast = db.getCostForecast(args.days || 30);
-  return { content: [{ type: 'text', text: JSON.stringify(forecast, null, 2) }] };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(forecast, null, 2) }],
+    structuredData: { forecast },
+  };
 }
 
 
