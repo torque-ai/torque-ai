@@ -337,7 +337,7 @@ function applyMiddleware(_server, deps = {}) {
 }
 
 // Auth paths that bypass key-based auth (handled by their own logic)
-const AUTH_OPEN_PATHS = ['/api/auth/login', '/api/auth/ticket', '/api/auth/logout', '/api/auth/setup', '/api/auth/status'];
+const AUTH_OPEN_PATHS = ['/api/auth/login', '/api/auth/ticket', '/api/auth/sse-ticket', '/api/auth/logout', '/api/auth/setup', '/api/auth/status'];
 
 /**
  * Check auth for a REST API request using the new key-manager-based system.

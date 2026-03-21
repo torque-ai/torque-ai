@@ -65,6 +65,11 @@ vi.mock('./api', () => ({
   workflows: {
     list: vi.fn().mockResolvedValue({ workflows: [], pagination: { page: 1, totalPages: 1, total: 0 } }),
   },
+  routingTemplates: {
+    list: vi.fn().mockResolvedValue([]),
+    getActive: vi.fn().mockResolvedValue(null),
+    setActive: vi.fn().mockResolvedValue({}),
+  },
   default: {},
 }));
 
@@ -206,11 +211,20 @@ describe('App', () => {
       expect(screen.getAllByText('Workflows').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Infrastructure').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Operations').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Project Settings').length).toBeGreaterThanOrEqual(1);
       expect(screen.queryByText('Hosts')).toBeNull();
       expect(screen.queryByText('Budget')).toBeNull();
       expect(screen.queryByText('Projects')).toBeNull();
       expect(screen.queryByText('Batches')).toBeNull();
       expect(screen.queryByText('Models')).toBeNull();
+    });
+  });
+
+  it('renders the project settings route', async () => {
+    window.history.replaceState({}, '', '/settings');
+    renderApp();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Project Settings' })).toBeInTheDocument();
     });
   });
 

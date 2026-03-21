@@ -13,6 +13,7 @@ function renderLayout(props = {}, route = '/') {
             <Route index element={<div>Kanban Content</div>} />
             <Route path="history" element={<div>History Content</div>} />
             <Route path="providers" element={<div>Providers Content</div>} />
+            <Route path="settings" element={<div>Project Settings Content</div>} />
           </Route>
         </Routes>
       </ToastProvider>
@@ -40,6 +41,8 @@ describe('Layout', () => {
     expect(historyLinks.length).toBeGreaterThanOrEqual(1);
     const providersLinks = screen.getAllByText('Providers');
     expect(providersLinks.length).toBeGreaterThanOrEqual(1);
+    const settingsLinks = screen.getAllByText('Project Settings');
+    expect(settingsLinks.length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders child route content', () => {
@@ -91,11 +94,19 @@ describe('Layout', () => {
     expect(screen.getByText('Workflows')).toBeInTheDocument();
     expect(screen.getByText('Infrastructure')).toBeInTheDocument();
     expect(screen.getByText('Operations')).toBeInTheDocument();
+    expect(screen.getByText('Project Settings')).toBeInTheDocument();
     expect(screen.queryByText('Batches')).toBeNull();
     expect(screen.queryByText('Projects')).toBeNull();
     expect(screen.queryByText('Hosts')).toBeNull();
     expect(screen.queryByText('Budget')).toBeNull();
     expect(screen.queryByText('Models')).toBeNull();
+  });
+
+  it('shows breadcrumb for project settings route', () => {
+    renderLayout({}, '/settings');
+    const settingsElements = screen.getAllByText('Project Settings');
+    const breadcrumb = settingsElements.find(el => el.className.includes('font-medium'));
+    expect(breadcrumb).toBeInTheDocument();
   });
 
   it('does not show notification badge when no alerts', () => {

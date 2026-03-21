@@ -770,6 +770,10 @@ describe('api/routes route table', () => {
     expect(findStringRoute('POST', '/api/shutdown').handlerName).toBe('handleShutdown');
   });
 
+  it('registers the SSE ticket exchange route', () => {
+    expect(findStringRoute('POST', '/api/auth/sse-ticket').handlerName).toBe('handleCreateSseTicket');
+  });
+
   it('has more than one hundred v2 control-plane routes', () => {
     const v2CpRoutes = routes.filter((route) => (
       typeof route.handlerName === 'string'

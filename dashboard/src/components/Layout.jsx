@@ -13,6 +13,7 @@ const ROUTE_NAMES = {
   '/providers': 'Providers',
   '/infrastructure': 'Infrastructure',
   '/operations': 'Operations',
+  '/settings': 'Project Settings',
 };
 
 // Simple SVG icons as components
@@ -107,6 +108,14 @@ const StrategicIcon = () => (
   </svg>
 );
 
+const SettingsIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M11.983 5.333c.464-1.209 2.171-1.209 2.635 0a1.724 1.724 0 002.591.924c1.104-.664 2.312.544 1.648 1.648a1.724 1.724 0 00.924 2.591c1.209.464 1.209 2.171 0 2.635a1.724 1.724 0 00-.924 2.591c.664 1.104-.544 2.312-1.648 1.648a1.724 1.724 0 00-2.591.924c-.464 1.209-2.171 1.209-2.635 0a1.724 1.724 0 00-2.591-.924c-1.104.664-2.312-.544-1.648-1.648a1.724 1.724 0 00-.924-2.591c-1.209-.464-1.209-2.171 0-2.635a1.724 1.724 0 00.924-2.591c-.664-1.104.544-2.312 1.648-1.648a1.724 1.724 0 002.591-.924z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
+
 const CollapseIcon = ({ collapsed }) => (
   <svg className={`w-4 h-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
@@ -126,6 +135,7 @@ const navItems = [
   { to: '/providers', icon: ChartIcon, label: 'Providers' },
   { to: '/infrastructure', icon: HostIcon, label: 'Infrastructure' },
   { to: '/operations', icon: StrategicIcon, label: 'Operations' },
+  { to: '/settings', icon: SettingsIcon, label: 'Project Settings' },
 ];
 
 function NavItem({ to, icon, label, collapsed }) {
@@ -355,7 +365,9 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
                   <button
                     onClick={async () => {
                       setShowUserMenu(false);
-                      try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
+                      try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch {
+                        // Best-effort logout; force a reload even if the request fails.
+                      }
                       window.__torqueCsrf = null;
                       window.location.reload();
                     }}

@@ -1251,6 +1251,7 @@ const routes = [
 
   // Auth: ticket exchange (key → short-lived SSE ticket)
   { method: 'POST', path: '/api/auth/ticket', handlerName: 'handleCreateTicket' },
+  { method: 'POST', path: '/api/auth/sse-ticket', handlerName: 'handleCreateSseTicket' },
 
   // Shutdown — auth is handled inside handleShutdown (localhost bypass + key check)
   { method: 'POST', path: '/api/shutdown', handlerName: 'handleShutdown', skipAuth: true },

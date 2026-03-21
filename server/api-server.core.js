@@ -1975,6 +1975,29 @@ async function handleCreateTicket(req, res, _context = {}) {
   }
 }
 
+async function handleCreateSseTicket(req, res, _context = {}) {
+  const keyManager = require('./auth/key-manager');
+  const sseTicketManager = require('./auth/sse-tickets');
+
+  const authHeader = req.headers['authorization'] || req.headers['Authorization'] || '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const apiKey = bearerMatch ? bearerMatch[1] : null;
+
+  if (!apiKey) {
+    sendJson(res, { error: 'Authorization header with Bearer token required' }, 401, req);
+    return;
+  }
+
+  const identity = keyManager.validateKey(apiKey);
+  if (!identity) {
+    sendJson(res, { error: 'Invalid API key' }, 401, req);
+    return;
+  }
+
+  const { ticket, expiresAt } = sseTicketManager.generateTicket(identity.id);
+  sendJson(res, { ticket, expires_at: expiresAt }, 200, req);
+}
+
 // ============================================
 // Auth: key management REST handlers
 // ============================================
@@ -2389,6 +2412,7 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
   handleShutdown,
   handleCreateTicket,
+  handleCreateSseTicket,
   handleCreateApiKey,
   handleListApiKeys,
   handleRevokeApiKey,
@@ -3183,6 +3207,7 @@ module.exports = {
     setV2TaskManager: (tm) => { _v2TaskManager = tm; },
     handleClaudeEvent,
     handleClaudeFiles,
+    handleCreateSseTicket,
     _claudeEventLog,
   },
 };

@@ -2,6 +2,8 @@ const { EventEmitter } = require('events');
 const http = require('http');
 const db = require('../database');
 const tools = require('../tools');
+const authMiddleware = require('../auth/middleware');
+const sseTickets = require('../auth/sse-tickets');
 
 let nextTestIp = 1;
 
@@ -37,6 +39,12 @@ function createMockResponse() {
     getBody: () => chunks.join(''),
   };
   return { response, done };
+}
+
+function getLastJsonRpcMessage(response) {
+  const matches = [...response.getBody().matchAll(/event: message\ndata: (.*)\n/g)];
+  expect(matches.length).toBeGreaterThan(0);
+  return JSON.parse(matches[matches.length - 1][1]);
 }
 
 // Dispatch an HTTP request to the handler
@@ -86,6 +94,8 @@ describe('MCP SSE Transport', () => {
   };
 
   beforeAll(() => {
+    vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
+
     // Spy on database and tools before loading mcp-sse
     vi.spyOn(db, 'getConfig').mockReturnValue(null);
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
@@ -104,6 +114,14 @@ describe('MCP SSE Transport', () => {
 
   afterAll(() => {
     vi.restoreAllMocks();
+  });
+
+  beforeEach(() => {
+    sseTickets._resetForTests();
+  });
+
+  afterEach(() => {
+    sseTickets._resetForTests();
   });
 
   // ============================================
@@ -159,6 +177,36 @@ describe('MCP SSE Transport', () => {
       expect(match1).toBeTruthy();
       expect(match2).toBeTruthy();
       expect(match1[1]).not.toBe(match2[1]);
+    });
+
+    it('accepts a valid short-lived SSE ticket', async () => {
+      const { ticket } = sseTickets.generateTicket('key-123');
+
+      const { response } = await dispatchRequest(handleHttpRequest, {
+        method: 'GET',
+        url: `/sse?ticket=${encodeURIComponent(ticket)}`,
+        headers: { host: 'localhost:3458' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.getBody()).toContain('event: endpoint');
+      expect(sseTickets.validateTicket(ticket)).toEqual({
+        valid: false,
+        reason: 'unknown',
+      });
+    });
+
+    it('returns 401 for an invalid short-lived SSE ticket', async () => {
+      const { response } = await dispatchRequest(handleHttpRequest, {
+        method: 'GET',
+        url: '/sse?ticket=sse_tk_invalid',
+        headers: { host: 'localhost:3458' },
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.getBody())).toEqual({
+        error: 'SSE ticket invalid',
+      });
     });
   });
 
@@ -938,8 +986,7 @@ describe('MCP SSE Transport', () => {
 
       await new Promise(r => setTimeout(r, 50));
 
-      const matches = [...sseResponse.getBody().matchAll(/data: (.*)\n/g)];
-      const jsonRpcResponse = JSON.parse(matches[matches.length - 1][1]);
+      const jsonRpcResponse = getLastJsonRpcMessage(sseResponse);
 
       expect(jsonRpcResponse.error).toBeDefined();
       expect(jsonRpcResponse.error.code).toBe(-32600);
@@ -963,8 +1010,7 @@ describe('MCP SSE Transport', () => {
 
       await new Promise(r => setTimeout(r, 50));
 
-      const matches = [...sseResponse.getBody().matchAll(/data: (.*)\n/g)];
-      const jsonRpcResponse = JSON.parse(matches[matches.length - 1][1]);
+      const jsonRpcResponse = getLastJsonRpcMessage(sseResponse);
 
       expect(jsonRpcResponse.error).toBeDefined();
       expect(jsonRpcResponse.error.code).toBe(-32600);
@@ -989,8 +1035,7 @@ describe('MCP SSE Transport', () => {
 
       await new Promise(r => setTimeout(r, 50));
 
-      const matches = [...sseResponse.getBody().matchAll(/data: (.*)\n/g)];
-      const jsonRpcResponse = JSON.parse(matches[matches.length - 1][1]);
+      const jsonRpcResponse = getLastJsonRpcMessage(sseResponse);
 
       expect(jsonRpcResponse.error).toBeUndefined();
       expect(jsonRpcResponse.result).toBeDefined();
