@@ -174,28 +174,45 @@
     return 'Cloud (API — Bring Your Own Key)';
   }
 
-  function renderProviderCard(p) {
-    var successRate = p.total > 0 ? Math.round((p.completed / p.total) * 100) : 0;
-    var label = el('div', { className: 'card-label' });
-    label.textContent = p.name || p.provider || 'unknown';
+  function renderProviderRow(p) {
+    var s = p.stats || {};
+    var total = s.total_tasks || 0;
+    var rate = s.success_rate || 0;
+    var avg = s.avg_duration_seconds ? s.avg_duration_seconds.toFixed(1) + 's' : '-';
+
+    var nameEl = el('div', { className: 'provider-row-name' });
+    nameEl.textContent = p.name || p.provider || 'unknown';
     if (p.enabled === false || p.enabled === 0) {
-      label.appendChild(document.createTextNode(' '));
-      label.appendChild(el('span', { className: 'host-disabled-badge' }, 'disabled'));
+      nameEl.appendChild(document.createTextNode(' '));
+      nameEl.appendChild(el('span', { className: 'host-disabled-badge' }, 'disabled'));
     }
-    var stats = el('div', { className: 'provider-stats' }, [
-      el('span', null, 'Total: ' + (p.total || 0)),
-      el('span', null, 'Success: ' + successRate + '%'),
-      el('span', null, 'Avg: ' + (p.avg_duration_seconds ? p.avg_duration_seconds.toFixed(1) + 's' : '-'))
+
+    var barFillClass = 'provider-row-bar-fill';
+    if (rate < 50) barFillClass += ' rate-error';
+    else if (rate < 80) barFillClass += ' rate-warning';
+
+    var barFill = el('div', { className: barFillClass });
+    barFill.style.width = (total > 0 ? rate : 0) + '%';
+
+    var stats = el('div', { className: 'provider-row-stats' }, [
+      el('span', null, total + ' tasks'),
+      el('span', null, rate + '%'),
+      el('span', null, avg)
     ]);
-    return el('div', { className: 'card provider-card' }, [label, stats]);
+
+    return el('div', { className: 'provider-row' }, [
+      nameEl,
+      el('div', { className: 'provider-row-bar' }, [barFill]),
+      stats
+    ]);
   }
 
   function loadProviders() {
     fetchJson('/api/providers').then(function (providers) {
       clearNode(providersGrid);
       if (!Array.isArray(providers) || !providers.length) {
-        providersGrid.appendChild(el('div', { className: 'card provider-card' }, [
-          el('div', { className: 'card-label' }, 'No providers')
+        providersGrid.appendChild(el('div', { className: 'provider-row' }, [
+          el('div', { className: 'provider-row-name' }, 'No providers')
         ]));
         return;
       }
@@ -215,7 +232,7 @@
         providersGrid.appendChild(header);
 
         groupProviders.forEach(function (p) {
-          providersGrid.appendChild(renderProviderCard(p));
+          providersGrid.appendChild(renderProviderRow(p));
         });
       });
     }).catch(function () { /* silent */ });
