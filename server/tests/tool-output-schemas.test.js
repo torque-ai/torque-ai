@@ -366,4 +366,28 @@ describe('tool-output-schemas', () => {
       expect(result.structuredData.workflows).toEqual([]);
     });
   });
+
+  describe('handler conformance — list_ollama_hosts', () => {
+    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+    let db, templateBuffer;
+
+    beforeAll(() => {
+      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
+      db = require('../database');
+      db.resetForTest(templateBuffer);
+    });
+
+    afterAll(() => {
+      try { db.close(); } catch {}
+    });
+
+    it('list_ollama_hosts returns structuredData with count and hosts array', () => {
+      const { handleListOllamaHosts } = require('../handlers/provider-ollama-hosts');
+      const result = handleListOllamaHosts({});
+
+      expect(result.structuredData).toBeDefined();
+      expect(typeof result.structuredData.count).toBe('number');
+      expect(Array.isArray(result.structuredData.hosts)).toBe(true);
+    });
+  });
 });

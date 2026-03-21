@@ -420,7 +420,10 @@ function handleListOllamaHosts(args) {
     output += `add_ollama_host id="local" name="Local GPU" url="http://localhost:11434"\n`;
     output += `add_ollama_host id="remote" name="Remote 3090" url="http://192.168.1.100:11434"\n`;
     output += `\`\`\``;
-    return { content: [{ type: 'text', text: output }] };
+    return {
+      content: [{ type: 'text', text: output }],
+      structuredData: { count: 0, hosts: [] },
+    };
   }
 
   // Get live activity data (VRAM, loaded models, GPU metrics)
@@ -468,7 +471,25 @@ function handleListOllamaHosts(args) {
   output += `- ❓ unknown - Not yet checked\n`;
   output += `- **Mem Limit**: Max model size (with 15% overhead) to prevent OOM\n`;
 
-  return { content: [{ type: 'text', text: output }] };
+  const structuredHosts = hosts.map(host => ({
+    id: host.id,
+    name: host.name,
+    url: host.url,
+    status: host.status || 'unknown',
+    enabled: Boolean(host.enabled),
+    running_tasks: host.running_tasks || 0,
+    max_concurrent: host.max_concurrent || 0,
+    memory_limit_mb: host.memory_limit_mb || null,
+    models: Array.isArray(host.models) ? host.models.map(m => typeof m === 'string' ? m : m.name || String(m)) : [],
+  }));
+
+  return {
+    content: [{ type: 'text', text: output }],
+    structuredData: {
+      count: hosts.length,
+      hosts: structuredHosts,
+    },
+  };
 }
 
 
