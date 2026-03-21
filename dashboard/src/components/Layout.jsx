@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import ErrorBoundary from './ErrorBoundary';
+import ChangePasswordModal from './ChangePasswordModal';
 // SessionSwitcher removed — multi-session switching no longer needed
 // EconomyIndicator removed — economy mode replaced by routing templates
 import HealthDots from './HealthDots';
@@ -161,6 +162,9 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const userMenuRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
   const currentRoute = ROUTE_NAMES[location.pathname] || '';
@@ -171,6 +175,16 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMobileOpen(false);
   }, [location.pathname]);
+
+  // Close user menu on click outside
+  useEffect(() => {
+    if (!showUserMenu) return;
+    function handleClick(e) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setShowUserMenu(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showUserMenu]);
 
   function toggleCollapsed() {
     setCollapsed((prev) => {
@@ -318,21 +332,41 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
                 </span>
               )}
             </button>
-            {/* Sign out */}
-            <button
-              onClick={async () => {
-                try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
-                window.__torqueCsrf = null;
-                window.location.reload();
-              }}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors"
-              title="Sign out"
-              aria-label="Sign out"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
+            {/* User menu */}
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setShowUserMenu(prev => !prev)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                title="Account"
+                aria-label="Account menu"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </button>
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 z-50">
+                  <button
+                    onClick={() => { setShowUserMenu(false); setShowChangePassword(true); }}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
+                  >
+                    Change Password
+                  </button>
+                  <hr className="border-slate-700 my-1" />
+                  <button
+                    onClick={async () => {
+                      setShowUserMenu(false);
+                      try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch {}
+                      window.__torqueCsrf = null;
+                      window.location.reload();
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 hover:text-red-300 transition-colors"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -342,6 +376,10 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
           </ErrorBoundary>
         </div>
       </main>
+
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
     </div>
   );
 }

@@ -193,6 +193,66 @@ function handleAuthStatus(req, res) {
  * POST /api/auth/setup — create the first admin user (setup wizard).
  * Only works when no users exist yet. Rate-limited.
  */
+/**
+ * PATCH /api/auth/me — update own password or display name.
+ * Requires session cookie + CSRF token.
+ */
+async function handleAuthUpdateMe(req, res) {
+  const userManager = require('./auth/user-manager');
+  const sessionManager = require('./auth/session-manager');
+  const { parseCookie } = require('./auth/middleware');
+  const { parseBody } = require('./dashboard/utils');
+
+  const sessionId = parseCookie(req.headers?.cookie, 'torque_session');
+  const session = sessionId ? sessionManager.getSession(sessionId) : null;
+  if (!session || !session.identity || session.identity.type !== 'user') {
+    res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ error: 'Not authenticated as a user' }));
+    return;
+  }
+
+  // CSRF check
+  const csrfToken = req.headers?.['x-csrf-token'];
+  if (!csrfToken || session.csrfToken !== csrfToken) {
+    res.writeHead(403, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ error: 'Invalid CSRF token' }));
+    return;
+  }
+
+  try {
+    const body = await parseBody(req);
+    const { currentPassword, newPassword, displayName } = body || {};
+    const identity = session.identity;
+    const updates = {};
+
+    if (displayName !== undefined) updates.displayName = displayName;
+    if (newPassword) {
+      if (!currentPassword) {
+        res.writeHead(400, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+        res.end(JSON.stringify({ error: 'Current password required to change password' }));
+        return;
+      }
+      const valid = await userManager.validatePassword(identity.username, currentPassword);
+      if (!valid) {
+        res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+        res.end(JSON.stringify({ error: 'Current password is incorrect' }));
+        return;
+      }
+      updates.password = newPassword;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await userManager.updateUser(identity.id, updates);
+    }
+    const updated = userManager.getUserById(identity.id);
+    res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ user: updated }));
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
 async function handleAuthSetup(req, res) {
   const userManager = require('./auth/user-manager');
   const sessionManager = require('./auth/session-manager');
@@ -931,6 +991,10 @@ async function start(options = {}) {
       handleAuthSetup(req, res);
       return;
     }
+    if (urlPath === '/api/auth/me' && req.method === 'PATCH') {
+      handleAuthUpdateMe(req, res);
+      return;
+    }
 
     // Cookie auth check for all other API requests
     if (urlPath.startsWith('/api/')) {
@@ -947,7 +1011,7 @@ async function start(options = {}) {
           return;
         }
         // For mutating requests, validate CSRF token
-        if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
+        if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH' || req.method === 'DELETE') {
           const csrfToken = req.headers?.['x-csrf-token'];
           if (!csrfToken || session.csrfToken !== csrfToken) {
             res.writeHead(403, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
