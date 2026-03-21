@@ -129,8 +129,37 @@ function getAnnotations(name) {
   return FALLBACK;
 }
 
+/**
+ * Validate annotation coverage for a list of tool names.
+ * @param {string[]} toolNames - All registered tool names
+ * @returns {{ uncovered: string[], stale: string[] }}
+ *   uncovered: tools that hit the fallback (no convention, no override, no exact match)
+ *   stale: override keys that don't appear in toolNames
+ */
+function validateCoverage(toolNames) {
+  const nameSet = new Set(toolNames);
+
+  const uncovered = [];
+  for (const name of toolNames) {
+    const ann = getAnnotations(name);
+    if (ann === FALLBACK) {
+      uncovered.push(name);
+    }
+  }
+
+  const stale = [];
+  for (const name of Object.keys(OVERRIDES)) {
+    if (!nameSet.has(name)) {
+      stale.push(name);
+    }
+  }
+
+  return { uncovered, stale };
+}
+
 module.exports = {
   getAnnotations,
+  validateCoverage,
   OVERRIDES,
   EXACT_MATCHES,
   PREFIX_RULES,

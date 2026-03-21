@@ -229,5 +229,32 @@ describe('tool-annotations', () => {
     });
   });
 
-  // NOTE: Tasks 3 and 4 add more describe blocks HERE, inside this outer describe.
+  describe('validateCoverage', () => {
+    const { validateCoverage } = require('../tool-annotations');
+
+    it('returns empty uncovered list when all tools are covered', () => {
+      const names = ['list_tasks', 'delete_task', 'ping', 'peek_interact'];
+      const result = validateCoverage(names);
+      expect(result.uncovered).toEqual([]);
+    });
+
+    it('detects uncovered tools (hit fallback)', () => {
+      const names = ['list_tasks', 'zzz_mystery_tool'];
+      const result = validateCoverage(names);
+      expect(result.uncovered).toContain('zzz_mystery_tool');
+    });
+
+    it('detects stale overrides (override references nonexistent tool)', () => {
+      const result = validateCoverage(['list_tasks']);
+      expect(result.stale.length).toBeGreaterThan(0);
+    });
+
+    it('returns stale list containing override names not in provided tool list', () => {
+      const result = validateCoverage([]);
+      expect(result.stale).toContain('peek_interact');
+      expect(result.stale).toContain('restart_server');
+    });
+  });
+
+  // NOTE: Task 4 adds more describe blocks HERE
 });
