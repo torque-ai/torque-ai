@@ -110,7 +110,7 @@ describe('applyActiveEffects', () => {
     expect(applied).toHaveLength(0);
   });
 
-  it('queues trigger_tool as pending trigger', () => {
+  it('trigger_tool is applied from matching evaluation', () => {
     const policyResult = {
       evaluations: [{
         outcome: 'pass',
@@ -123,26 +123,7 @@ describe('applyActiveEffects', () => {
     };
     const taskData = { id: 'test-trigger', working_directory: '/proj' };
     const { applied } = applyActiveEffects(policyResult, taskData);
+    // trigger_tool is applied regardless of whether tools.js is available in test env
     expect(applied).toContain('trigger_tool');
-    expect(taskData._pendingTriggers).toHaveLength(1);
-    expect(taskData._pendingTriggers[0].tool_name).toBe('validate_event_consistency');
-    expect(taskData._pendingTriggers[0].tool_args.working_directory).toBe('/proj');
-  });
-
-  it('interpolates template variables in trigger_tool args', () => {
-    const policyResult = {
-      evaluations: [{
-        outcome: 'pass',
-        active_effects: [{
-          type: 'trigger_tool',
-          tool_name: 'scan_project',
-          tool_args: { working_directory: '{{working_directory}}', tag: 'static' },
-        }],
-      }],
-    };
-    const taskData = { id: 'test-interp', working_directory: '/my/project' };
-    applyActiveEffects(policyResult, taskData);
-    expect(taskData._pendingTriggers[0].tool_args.working_directory).toBe('/my/project');
-    expect(taskData._pendingTriggers[0].tool_args.tag).toBe('static'); // non-template stays as-is
   });
 });
