@@ -119,6 +119,80 @@ async function handlePolishTaskDescription(args) {
   return { content: [{ type: 'text', text }], structuredData: result };
 }
 
+// ─── Symbol Indexing ─────────────────────────────────────────────────────
+
+async function handleIndexProject(args) {
+  const indexer = require('../utils/symbol-indexer');
+  const db = require('../database');
+  const inst = db.getDbInstance ? db.getDbInstance() : null;
+  if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
+  const workingDir = args.working_directory;
+  if (!workingDir) return { content: [{ type: 'text', text: 'working_directory is required' }], isError: true };
+  indexer.init(inst);
+  const result = await indexer.indexProject(workingDir, { force: args.force || false });
+  let text = `## Symbol Index Results\n\n`;
+  text += `**Files scanned:** ${result.filesScanned}\n`;
+  text += `**Files indexed:** ${result.filesIndexed}\n`;
+  text += `**Symbols found:** ${result.totalSymbols}\n`;
+  text += `**Orphans removed:** ${result.orphansRemoved}\n`;
+  return { content: [{ type: 'text', text }], structuredData: result };
+}
+
+async function handleSearchSymbols(args) {
+  const indexer = require('../utils/symbol-indexer');
+  const db = require('../database');
+  const inst = db.getDbInstance ? db.getDbInstance() : null;
+  if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
+  indexer.init(inst);
+  const results = indexer.searchSymbols(args.query || '', args.working_directory || '', {
+    mode: args.mode || 'contains',
+    kind: args.kind || null,
+    limit: args.limit || 20,
+  });
+  if (results.length === 0) {
+    return { content: [{ type: 'text', text: `No symbols matching "${args.query}"` }] };
+  }
+  let text = `## Symbol Search: "${args.query}"\n\n`;
+  text += '| Name | Kind | File | Lines |\n|------|------|------|-------|\n';
+  for (const s of results) {
+    const shortPath = s.file_path.split(/[/\\]/).slice(-3).join('/');
+    text += `| ${s.name} | ${s.kind} | ${shortPath} | ${s.start_line}-${s.end_line} |\n`;
+  }
+  return { content: [{ type: 'text', text }], structuredData: results };
+}
+
+async function handleGetSymbolSource(args) {
+  const indexer = require('../utils/symbol-indexer');
+  const db = require('../database');
+  const inst = db.getDbInstance ? db.getDbInstance() : null;
+  if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
+  indexer.init(inst);
+  const result = indexer.getSymbolSource(args.symbol_id);
+  if (!result) return { content: [{ type: 'text', text: 'Symbol not found' }], isError: true };
+  let text = `## ${result.name} (${result.kind})\n`;
+  text += `**File:** ${result.file_path}:${result.start_line}-${result.end_line}\n\n`;
+  text += '```\n' + (result.source || '(source unavailable)') + '\n```\n';
+  return { content: [{ type: 'text', text }], structuredData: result };
+}
+
+async function handleGetFileOutline(args) {
+  const indexer = require('../utils/symbol-indexer');
+  const db = require('../database');
+  const inst = db.getDbInstance ? db.getDbInstance() : null;
+  if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
+  indexer.init(inst);
+  const results = indexer.getFileOutline(args.file_path || '', args.working_directory || '');
+  if (results.length === 0) {
+    return { content: [{ type: 'text', text: 'No symbols found in file (may need indexing first)' }] };
+  }
+  let text = `## File Outline: ${args.file_path}\n\n`;
+  for (const s of results) {
+    const indent = s.kind === 'method' ? '  ' : '';
+    text += `${indent}- **${s.kind}** ${s.name} (L${s.start_line}-${s.end_line})\n`;
+  }
+  return { content: [{ type: 'text', text }], structuredData: results };
+}
+
 module.exports = {
   handleCompareProviders,
   handleReviewTaskOutput,
@@ -128,4 +202,8 @@ module.exports = {
   handleGetProviderScores,
   handleGetCircuitBreakerStatus,
   handlePolishTaskDescription,
+  handleIndexProject,
+  handleSearchSymbols,
+  handleGetSymbolSource,
+  handleGetFileOutline,
 };

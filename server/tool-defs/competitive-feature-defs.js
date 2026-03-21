@@ -97,4 +97,54 @@ module.exports = [
       required: ['text'],
     },
   },
+  {
+    name: 'index_project',
+    description: 'Parse project source files with tree-sitter and build a symbol index (functions, classes, interfaces, types). Enables symbol-level context stuffing instead of whole-file reads. Incremental — only re-parses changed files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        working_directory: { type: 'string', description: 'Project directory to index' },
+        force: { type: 'boolean', description: 'Force full re-index (ignore content hashes)' },
+      },
+      required: ['working_directory'],
+    },
+  },
+  {
+    name: 'search_symbols',
+    description: 'Search the symbol index for functions, classes, interfaces, types by name. Returns file location and line numbers. Requires index_project to have been run first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Symbol name to search for' },
+        working_directory: { type: 'string', description: 'Project directory scope' },
+        mode: { type: 'string', enum: ['contains', 'prefix', 'exact'], description: 'Match mode (default: contains)' },
+        kind: { type: 'string', enum: ['function', 'class', 'method', 'interface', 'type', 'enum'], description: 'Filter by symbol kind' },
+        limit: { type: 'number', description: 'Max results (default: 20)' },
+      },
+      required: ['query', 'working_directory'],
+    },
+  },
+  {
+    name: 'get_symbol_source',
+    description: 'Get the source code for a specific symbol by its index ID. Returns the exact lines from the file.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol_id: { type: 'number', description: 'Symbol ID from search_symbols results' },
+      },
+      required: ['symbol_id'],
+    },
+  },
+  {
+    name: 'get_file_outline',
+    description: 'Get a hierarchical outline of all symbols in a file (functions, classes, methods). Requires index_project first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the file' },
+        working_directory: { type: 'string', description: 'Project directory scope' },
+      },
+      required: ['file_path', 'working_directory'],
+    },
+  },
 ];

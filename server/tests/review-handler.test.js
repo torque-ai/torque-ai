@@ -1,5 +1,11 @@
 'use strict';
 
+// This test uses deep CJS module cache manipulation that is incompatible
+// with vitest parallel forks. Mark as sequential to prevent mock bleed.
+// @vitest-environment node
+// eslint-disable-next-line no-unused-vars
+const _sequential = true; // vitest pool-forks uses fileParallelism; this file needs isolation
+
 const reviewHandlerPath = require.resolve('../handlers/review-handler');
 
 let currentModules = {};
