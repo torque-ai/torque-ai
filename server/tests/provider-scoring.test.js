@@ -1,9 +1,6 @@
 'use strict';
 
-import Database from 'better-sqlite3';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
+const Database = require('better-sqlite3');
 const providerScoring = require('../db/provider-scoring');
 
 const DEFAULT_WEIGHTS = {

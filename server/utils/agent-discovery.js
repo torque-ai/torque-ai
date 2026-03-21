@@ -22,7 +22,7 @@ const KNOWN_AGENTS = Object.freeze([
     name: 'Gemini CLI',
     binary: 'gemini',
     provider: 'gemini',
-    installHint: 'npm install -g @anthropic-ai/gemini-cli',
+    installHint: 'npm install -g @google/gemini-cli',
   },
   {
     name: 'Ollama',
