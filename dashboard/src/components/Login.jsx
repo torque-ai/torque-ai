@@ -16,6 +16,10 @@ export default function Login({ onLogin }) {
         body: JSON.stringify({ key: apiKey }),
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.csrfToken) {
+          window.__torqueCsrf = data.csrfToken;
+        }
         onLogin();
       } else {
         const data = await res.json().catch(() => ({}));

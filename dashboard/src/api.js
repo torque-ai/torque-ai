@@ -75,7 +75,7 @@ async function _fetch(url, options = {}) {
     const response = await fetch(url, {
       headers: {
         ...(hasFormDataBody ? {} : { 'Content-Type': 'application/json' }),
-        ...(isMutatingMethod ? { 'X-Requested-With': 'XMLHttpRequest' } : {}),
+        ...(isMutatingMethod ? { 'X-Requested-With': 'XMLHttpRequest', ...(window.__torqueCsrf ? { 'X-CSRF-Token': window.__torqueCsrf } : {}) } : {}),
         ...fetchOptions.headers,
       },
       signal: composedSignal,
