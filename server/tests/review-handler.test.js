@@ -162,7 +162,7 @@ describe('review-handler', () => {
 
     expect(mocks.childProcessModule.execFileSync).toHaveBeenCalledWith(
       'git',
-      ['diff', 'HEAD~1', '--stat'],
+      ['diff', 'HEAD~1'],
       { cwd: 'C:\\repo' },
     );
     expect(mocks.db.createTask).toHaveBeenCalledWith(expect.objectContaining({
