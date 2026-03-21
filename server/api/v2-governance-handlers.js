@@ -678,8 +678,22 @@ async function handleListProviders(req, res) {
         }
       } catch (err) { logger.debug("task handler error", { err: err.message }); /* key enrichment is best-effort */ }
 
+      // Compute provider health status (mirrors getV2ProviderStatus in v2-router.js)
+      let status = 'healthy';
+      if (!p.enabled) {
+        status = 'disabled';
+      } else {
+        const isHealthy = db.isProviderHealthy ? db.isProviderHealthy(p.provider) : true;
+        if (total_tasks >= 3 && !isHealthy) {
+          status = 'unavailable';
+        } else if (failed_tasks > 0) {
+          status = 'degraded';
+        }
+      }
+
       return {
         ...p,
+        status,
         stats: { total_tasks, completed_tasks, failed_tasks, success_rate, avg_duration_seconds, total_cost },
         api_key_status,
         api_key_masked,
