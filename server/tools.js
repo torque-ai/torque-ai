@@ -65,6 +65,22 @@ if (_coverage.stale.length > 0) {
   logger.warn(`[tool-annotations] ${_coverage.stale.length} stale override(s) reference nonexistent tools: ${_coverage.stale.join(', ')}`);
 }
 
+// ── Merge MCP output schemas (Phase: structured tool outputs) ──
+const { getOutputSchema, validateSchemaCoverage } = require('./tool-output-schemas');
+
+for (const tool of TOOLS) {
+  if (tool && tool.name) {
+    const schema = getOutputSchema(tool.name);
+    if (schema) tool.outputSchema = schema;
+  }
+}
+
+// Startup validator: warn on stale schemas
+const _schemaCoverage = validateSchemaCoverage(_allToolNames);
+if (_schemaCoverage.stale.length > 0) {
+  logger.warn(`[tool-output-schemas] ${_schemaCoverage.stale.length} stale schema(s) reference nonexistent tools: ${_schemaCoverage.stale.join(', ')}`);
+}
+
 // ── Handler modules ──
 const HANDLER_MODULES = [
   require('./handlers/task'),

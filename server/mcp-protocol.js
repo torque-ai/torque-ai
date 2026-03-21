@@ -145,6 +145,15 @@ async function _handleToolCallInternal(params, session) {
       return { content: result.content };
     }
 
+    // Promote structuredData → structuredContent for tools with outputSchema
+    if (result && result.structuredData && !result.isError) {
+      const { getOutputSchema } = require('./tool-output-schemas');
+      if (getOutputSchema(name)) {
+        result.structuredContent = result.structuredData;
+      }
+      delete result.structuredData; // always clean up internal field
+    }
+
     return result;
   } catch (err) {
     return {
