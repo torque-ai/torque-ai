@@ -674,6 +674,17 @@ function enrichResolvedContext(resolvedFiles, workingDir, taskDescription, db, o
     logger.info(`[Enrichment] Few-shot error: ${e.message}`);
   }
 
+  // Project template agent context injection
+  try {
+    const { detectProjectType } = require('../templates/registry');
+    const detected = detectProjectType(workingDir);
+    if (detected && detected.agent_context) {
+      enrichment = `## Project Context\n${detected.agent_context}\n\n` + enrichment;
+    }
+  } catch (e) {
+    logger.info(`[Enrichment] Template detection error: ${e.message}`);
+  }
+
   if (enrichment) {
     logger.info(`[Enrichment] Added ${enrichment.length} bytes of enriched context (imports: ${enableImports}, tests: ${enableTests}, git: ${enableGit}, fewshot: ${enableFewShot})`);
   }

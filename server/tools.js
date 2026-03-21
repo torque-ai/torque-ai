@@ -104,6 +104,7 @@ const HANDLER_MODULES = [
   require('./handlers/conflict-resolution-handlers'),
   require('./handlers/orchestrator-handlers'),
   require('./handlers/experiment-handlers'),
+  require('./handlers/competitive-feature-handlers'),
   require('./handlers/audit-handlers'),
   require('./handlers/workstation-handlers'),
   require('./handlers/concurrency-handlers'),

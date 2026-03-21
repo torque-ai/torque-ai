@@ -247,6 +247,21 @@ function getTaskActivity(taskId, opts = {}) {
     }
   }
 
+  // CPU activity rescue: if still stalled and process has a PID, check CPU usage.
+  // A process using CPU is not stalled even without output or filesystem changes.
+  if (isStalled && proc.process && proc.process.pid) {
+    try {
+      const { getProcessTreeCpu } = require('./process-activity');
+      const activity = getProcessTreeCpu(proc.process.pid);
+      if (activity && activity.isActive) {
+        proc.lastOutputAt = Date.now(); // Reset stall timer
+        proc.stallWarned = false;
+        isStalled = false;
+        logger.info(`[Heartbeat] Task ${taskId} rescued by CPU activity (${activity.totalCpuPercent.toFixed(1)}% CPU, ${activity.processCount} processes)`);
+      }
+    } catch { /* process-activity module not available or errored — ignore */ }
+  }
+
   // Warn once when a task becomes stalled (after filesystem check)
   if (isStalled && !proc.stallWarned) {
     proc.stallWarned = true;
