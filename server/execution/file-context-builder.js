@@ -36,8 +36,76 @@ function init(deps = {}) {
  * @param {number} maxBytes - Total context budget (default 30KB)
  * @returns {string} Formatted context block or empty string
  */
+/**
+ * Try to build context from the symbol index instead of whole files.
+ * Returns null if index is unavailable or empty (caller falls through to whole-file).
+ */
+function trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDescription) {
+  try {
+    const symbolIndexer = require('../utils/symbol-indexer');
+    if (!_db) return null;
+    const dbInst = typeof _db.getDbInstance === 'function' ? _db.getDbInstance() : _db;
+    if (!dbInst) return null;
+
+    symbolIndexer.init(dbInst);
+
+    // Check if we have any indexed symbols for this project
+    const testQuery = symbolIndexer.searchSymbols('', workingDirectory, { limit: 1 });
+    if (!testQuery || testQuery.length === 0) return null;
+
+    // Extract symbol names from the task description (camelCase, PascalCase, snake_case identifiers)
+    const identifiers = (taskDescription || '').match(/\b[A-Za-z_][A-Za-z0-9_]{2,}\b/g) || [];
+    const uniqueIds = [...new Set(identifiers)];
+
+    // Also get file outlines for all resolved files
+    const symbolSections = [];
+    let totalBytes = 0;
+
+    // 1. Symbols mentioned in task description
+    for (const id of uniqueIds) {
+      if (totalBytes >= maxBytes) break;
+      const matches = symbolIndexer.searchSymbols(id, workingDirectory, { mode: 'exact', limit: 3 });
+      for (const sym of matches) {
+        if (totalBytes >= maxBytes) break;
+        const source = symbolIndexer.getSymbolSource(sym.id);
+        if (!source || !source.source) continue;
+        const shortPath = sym.file_path.split(/[/\\]/).slice(-3).join('/');
+        const section = `\n### SYMBOL: ${sym.name} (${sym.kind}) — ${shortPath}:${sym.start_line}-${sym.end_line}\n\`\`\`\n${source.source}\n\`\`\``;
+        if (totalBytes + section.length > maxBytes) break;
+        symbolSections.push(section);
+        totalBytes += section.length;
+      }
+    }
+
+    // 2. File outlines for resolved files (compact — just signatures, no source)
+    for (const { actual } of resolvedFiles) {
+      if (totalBytes >= maxBytes) break;
+      const fullPath = path.resolve(workingDirectory, actual);
+      const outline = symbolIndexer.getFileOutline(fullPath, workingDirectory);
+      if (outline.length === 0) continue;
+      const outlineText = outline.map(s => `  ${s.kind} ${s.name} (L${s.start_line}-${s.end_line})`).join('\n');
+      const section = `\n### OUTLINE: ${actual}\n${outlineText}`;
+      if (totalBytes + section.length > maxBytes) break;
+      symbolSections.push(section);
+      totalBytes += section.length;
+    }
+
+    if (symbolSections.length === 0) return null;
+
+    logger.info('[FileContext] Symbol-level context: ' + symbolSections.length + ' sections, ' + totalBytes + ' bytes (vs ' + maxBytes + ' budget)');
+    return '## Referenced Symbols\n' + symbolSections.join('\n');
+  } catch (e) {
+    logger.info('[FileContext] Symbol index unavailable, falling back to whole-file: ' + e.message);
+    return null;
+  }
+}
+
 function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, taskDescription = '') {
   if (!resolvedFiles || resolvedFiles.length === 0) return '';
+
+  // Try symbol-level context first (90%+ token savings when index exists)
+  const symbolContext = trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDescription);
+  if (symbolContext) return symbolContext;
 
   const MAX_FILE_BYTES = 15000;
   const MAX_FILE_LINES = 350;
