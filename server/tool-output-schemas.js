@@ -267,6 +267,167 @@ const OUTPUT_SCHEMAS = {
     },
     required: ['scope'],
   },
+
+  // ── Phase 2: Provider/Cost/Monitoring ──
+
+  provider_stats: {
+    type: 'object',
+    properties: {
+      provider: { type: 'string' },
+      total_tasks: { type: 'number' },
+      successful_tasks: { type: 'number' },
+      failed_tasks: { type: 'number' },
+      success_rate: { type: 'number' },
+      total_tokens: { type: 'number' },
+      total_cost: { type: 'number' },
+      avg_duration_seconds: { type: 'number' },
+      enabled: { type: 'boolean' },
+      priority: { type: 'number' },
+      max_concurrent: { type: 'number' },
+    },
+    required: ['provider'],
+  },
+
+  success_rates: {
+    type: 'object',
+    properties: {
+      count: { type: 'number' },
+      rates: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            group_key: { type: 'string' },
+            total: { type: 'number' },
+            successful: { type: 'number' },
+            failed: { type: 'number' },
+            success_rate: { type: 'number' },
+          },
+        },
+      },
+    },
+    required: ['count', 'rates'],
+  },
+
+  list_providers: {
+    type: 'object',
+    properties: {
+      default_provider: { type: 'string' },
+      count: { type: 'number' },
+      providers: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            enabled: { type: 'boolean' },
+            priority: { type: 'number' },
+            max_concurrent: { type: 'number' },
+          },
+        },
+      },
+    },
+    required: ['count', 'providers'],
+  },
+
+  check_ollama_health: {
+    type: 'object',
+    properties: {
+      healthy_count: { type: 'number' },
+      total_count: { type: 'number' },
+      hosts: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            url: { type: 'string' },
+            status: { type: 'string' },
+            running_tasks: { type: 'number' },
+            models_count: { type: 'number' },
+          },
+        },
+      },
+    },
+    required: ['healthy_count', 'total_count', 'hosts'],
+  },
+
+  get_cost_summary: {
+    type: 'object',
+    properties: {
+      days: { type: 'number' },
+      costs: { type: 'object' },
+    },
+    required: ['days'],
+  },
+
+  get_budget_status: {
+    type: 'object',
+    properties: {
+      count: { type: 'number' },
+      budgets: { type: 'array' },
+    },
+    required: ['count', 'budgets'],
+  },
+
+  get_cost_forecast: {
+    type: 'object',
+    properties: {
+      forecast: { type: 'object' },
+    },
+    required: ['forecast'],
+  },
+
+  get_concurrency_limits: {
+    type: 'object',
+    properties: {
+      providers: { type: 'array' },
+      hosts: { type: 'array' },
+    },
+    required: ['providers'],
+  },
+
+  check_stalled_tasks: {
+    type: 'object',
+    properties: {
+      running_count: { type: 'number' },
+      stalled_count: { type: 'number' },
+      tasks: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            elapsed_seconds: { type: 'number' },
+            last_activity_seconds: { type: 'number' },
+            is_stalled: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    required: ['running_count', 'stalled_count', 'tasks'],
+  },
+
+  check_task_progress: {
+    type: 'object',
+    properties: {
+      running_count: { type: 'number' },
+      tasks: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            host: { type: 'string' },
+            runtime_seconds: { type: 'number' },
+            output_length: { type: 'number' },
+            status: { type: 'string' },
+          },
+        },
+      },
+    },
+    required: ['running_count', 'tasks'],
+  },
 };
 
 /**

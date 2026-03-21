@@ -47,6 +47,10 @@ describe('tool-output-schemas', () => {
         'check_status', 'task_info', 'list_tasks', 'get_result',
         'get_progress', 'workflow_status', 'list_workflows', 'list_ollama_hosts',
         'get_context',
+        // Phase 2
+        'provider_stats', 'success_rates', 'list_providers', 'check_ollama_health',
+        'get_cost_summary', 'get_budget_status', 'get_cost_forecast',
+        'get_concurrency_limits', 'check_stalled_tasks', 'check_task_progress',
       ];
       for (const name of expected) {
         expect(getOutputSchema(name)).toBeDefined();
