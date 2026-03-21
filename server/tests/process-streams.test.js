@@ -113,7 +113,7 @@ describe('process-streams', () => {
       expect(proc.output.length).toBeLessThanOrEqual(1024 + 50); // truncated prefix + half buffer
     });
 
-    it('updates progress via estimateProgress', () => {
+    it('batches stdout progress updates via OutputBuffer', () => {
       const child = makeChild();
       const proc = makeProc();
       deps.runningProcesses.set('t1', proc);
@@ -121,6 +121,12 @@ describe('process-streams', () => {
 
       processStreams.setupStdoutHandler(child, 't1', 's1', 'ollama');
       child.stdout.emit('data', Buffer.from('working...'));
+
+      expect(proc._outputBuffer).toBeTruthy();
+      expect(deps.estimateProgress).not.toHaveBeenCalled();
+      expect(deps.db.updateTaskProgress).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(600);
 
       expect(deps.estimateProgress).toHaveBeenCalledWith('working...', 'ollama');
       expect(deps.db.updateTaskProgress).toHaveBeenCalledWith('t1', 42, 'working...');

@@ -75,6 +75,5 @@ class OutputBuffer {
   }
 }
 
-module.exports = {
-  OutputBuffer,
-};
+module.exports = OutputBuffer;
+module.exports.OutputBuffer = OutputBuffer;

@@ -8,6 +8,7 @@
 
 const logger = require('../logger').child({ component: 'process-streams' });
 const { COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = require('../constants');
+const OutputBuffer = require('./output-buffer');
 
 // Dependencies injected via init()
 let deps = null;
@@ -45,6 +46,31 @@ function init(d) {
  * @param {string} provider - Execution provider name
  */
 function setupStdoutHandler(child, taskId, streamId) {
+  const proc = deps.runningProcesses.get(taskId);
+  const outputBuffer = new OutputBuffer({
+    flushCallback: (lines) => {
+      try {
+        const currentProc = deps.runningProcesses.get(taskId) || proc;
+        if (!currentProc) {
+          return;
+        }
+        const batchText = lines.join('\n');
+        deps.db.updateTaskProgress(
+          taskId,
+          deps.estimateProgress(currentProc.output, currentProc.provider),
+          batchText
+        );
+      } catch (err) {
+        logger.info('[Streams] Batched progress update error for task ' + taskId + ': ' + err.message);
+      }
+    },
+    maxLines: 20,
+    flushIntervalMs: 500,
+  });
+  if (proc) {
+    proc._outputBuffer = outputBuffer;
+  }
+
   child.stdout.on('error', (err) => {
     logger.info(`[TaskManager] stdout error for task ${taskId}: ${err.message}`);
   });
@@ -63,10 +89,9 @@ function setupStdoutHandler(child, taskId, streamId) {
       proc.output = '[...truncated...]\n' + proc.output.slice(-deps.MAX_OUTPUT_BUFFER / 2);
     }
     try {
-      const progress = deps.estimateProgress(proc.output, proc.provider);
-      deps.db.updateTaskProgress(taskId, progress, text);
+      proc._outputBuffer = proc._outputBuffer || outputBuffer;
+      proc._outputBuffer.append(text);
     } catch (err) {
-      // Don't let progress estimation crash the stream handler
       logger.info(`[Streams] Progress update error for task ${taskId}: ${err.message}`);
     }
 

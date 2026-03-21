@@ -767,6 +767,18 @@ describe('process-lifecycle', () => {
       expect(map.size).toBe(0);
       expect(stall.size).toBe(0);
     });
+
+    it('destroys an attached output buffer during cleanup', () => {
+      const destroy = vi.fn();
+      const proc = { ollamaHostId: null, _outputBuffer: { destroy } };
+      const runningProcesses = new Map([['task-4', proc]]);
+      const stallRecoveryAttempts = new Map([['task-4', {}]]);
+
+      lifecycle.cleanupProcessTracking(proc, 'task-4', runningProcesses, stallRecoveryAttempts);
+
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect(proc._outputBuffer).toBeNull();
+    });
   });
 
   describe('mocked lifecycle helpers', () => {

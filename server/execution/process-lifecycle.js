@@ -226,6 +226,10 @@ function safeTriggerWebhook(taskId, eventName) {
 function cleanupProcessTracking(proc, taskId, runningProcesses, stallRecoveryAttempts) {
   if (!proc) return;
   clearProcTimeouts(proc);
+  if (proc._outputBuffer) {
+    proc._outputBuffer.destroy();
+    proc._outputBuffer = null;
+  }
   safeDecrementHostSlot(proc);
   runningProcesses.delete(taskId);
   stallRecoveryAttempts.delete(taskId);
@@ -277,6 +281,10 @@ function handleCloseCleanup(taskId, code) {
 
   if (proc) {
     clearProcTimeouts(proc);
+    if (proc._outputBuffer) {
+      proc._outputBuffer.destroy();
+      proc._outputBuffer = null;
+    }
 
     // Check combined stdout+stderr — Codex CLI writes summaries to stderr
     if (!proc.completionDetected) {

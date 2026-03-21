@@ -44,6 +44,17 @@ function evaluateAtStage(stage, taskData, options = {}) {
       }
       return { ...result, shadow: true, blocked: false };
     }
+
+    try {
+      const { applyActiveEffects } = require('./active-effects');
+      const effectResult = applyActiveEffects(result, taskData);
+      if (effectResult.applied.length > 0) {
+        result.activeEffectsApplied = effectResult.applied;
+      }
+    } catch (e) {
+      // Active effects are non-critical
+    }
+
     const blocked = result.summary.blocked > 0;
     return { ...result, shadow: false, blocked };
   } catch (err) {
