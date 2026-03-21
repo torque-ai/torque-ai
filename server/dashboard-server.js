@@ -142,7 +142,7 @@ function handleAuthStatus(req, res) {
 
   if (session) {
     res.writeHead(200, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
-    res.end(JSON.stringify({ authenticated: true, role: session.identity?.role }));
+    res.end(JSON.stringify({ authenticated: true, role: session.identity?.role, csrfToken: session.csrfToken }));
   } else {
     res.writeHead(401, { 'Content-Type': 'application/json', ...SECURITY_HEADERS });
     res.end(JSON.stringify({ authenticated: false }));

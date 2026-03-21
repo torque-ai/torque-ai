@@ -301,7 +301,14 @@ function App() {
     // 401 → show login; anything else (200, open mode) → show dashboard.
     fetch('/api/auth/status')
       .then(res => {
-        setAuthenticated(res.status !== 401);
+        if (res.status === 401) {
+          setAuthenticated(false);
+        } else {
+          res.json().then(data => {
+            if (data.csrfToken) window.__torqueCsrf = data.csrfToken;
+          }).catch(() => {});
+          setAuthenticated(true);
+        }
       })
       .catch(() => {
         // Network error — assume open mode / no auth configured
