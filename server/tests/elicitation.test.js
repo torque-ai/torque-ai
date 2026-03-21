@@ -133,3 +133,30 @@ describe('elicitation — protocol layer', () => {
     });
   });
 });
+
+describe('elicitation — elicit() helper', () => {
+  it('returns decline when session has no elicitation capability', async () => {
+    const { elicit } = require('../mcp/elicitation');
+    const session = { supportsElicitation: false, __sessionId: 'test-1' };
+    const result = await elicit(session, { message: 'test', requestedSchema: { type: 'object', properties: {}, required: [] } });
+    expect(result).toEqual({ action: 'decline' });
+  });
+
+  it('returns decline when session is null', async () => {
+    const { elicit } = require('../mcp/elicitation');
+    const result = await elicit(null, { message: 'test', requestedSchema: { type: 'object', properties: {}, required: [] } });
+    expect(result).toEqual({ action: 'decline' });
+  });
+
+  it('returns decline when session is undefined', async () => {
+    const { elicit } = require('../mcp/elicitation');
+    const result = await elicit(undefined, { message: 'test', requestedSchema: { type: 'object', properties: {}, required: [] } });
+    expect(result).toEqual({ action: 'decline' });
+  });
+
+  it('returns decline when session_id string resolves to no live session', async () => {
+    const { elicit } = require('../mcp/elicitation');
+    const result = await elicit('nonexistent-session-id', { message: 'test', requestedSchema: { type: 'object', properties: {}, required: [] } });
+    expect(result).toEqual({ action: 'decline' });
+  });
+});

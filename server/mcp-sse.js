@@ -1842,6 +1842,15 @@ _modelRemovedHandler = (data) => {
 };
 eventBus.onModelRemoved(_modelRemovedHandler);
 
+/**
+ * Look up a live session by session ID.
+ * @param {string} sessionId
+ * @returns {object|null}
+ */
+function getSession(sessionId) {
+  return sessions.get(sessionId) || null;
+}
+
 module.exports = {
   start,
   stop,
@@ -1854,4 +1863,5 @@ module.exports = {
   taskSubscriptions,
   addSessionToTaskSubscriptions,
   sendClientRequest,
+  getSession,
 };
