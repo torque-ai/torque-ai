@@ -53,26 +53,16 @@ const {
 } = middleware;
 const { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setFreeTierTrackerGetter: setWebhookFreeTierTrackerGetter } = webhooks;
 const { handleHealthz, handleReadyz, handleLivez } = require('./api/health-probes');
+const authMiddleware = require('./auth/middleware');
 
 let apiServer = null;
 let apiPort = 3457;
 
 
-const V2_AUTH_MODES = new Set(['permissive', 'strict']);
 const V2_RATE_POLICIES = new Set(['enforced', 'disabled']);
 const DEFAULT_V2_RATE_LIMIT = 120;
 let v2RateLimiter = null;
 let v2RateLimit = null;
-
-function getV2AuthMode() {
-  try {
-    // SECURITY: default to 'strict' — require API key for all v2 endpoints
-    const configuredMode = (serverConfig.get('v2_auth_mode', 'strict')).toLowerCase().trim();
-    return V2_AUTH_MODES.has(configuredMode) ? configuredMode : 'strict';
-  } catch {
-    return 'strict';
-  }
-}
 
 function getV2RatePolicy() {
   try {
@@ -2702,11 +2692,13 @@ async function handleRequest(req, res, context = {}) {
     // or explicit allow-listed unauthenticated health routes.
     const shouldSkipAuth = route.skipAuth === true
       || (Array.isArray(route.skipAuth) && route.skipAuth.includes(url));
-    const isV2Route = url.startsWith('/api/v2/');
-    const requiresV2Auth = isV2Route && getV2AuthMode() === 'strict';
-    if (!shouldSkipAuth && !checkAuth(req, { requireApiKey: requiresV2Auth })) {
-      sendAuthError(res, requestId, req);
-      return;
+    if (!shouldSkipAuth) {
+      const identity = authMiddleware.authenticate(req);
+      if (!identity) {
+        sendAuthError(res, requestId, req);
+        return;
+      }
+      req._identity = identity;
     }
 
     const routeParams = [];
