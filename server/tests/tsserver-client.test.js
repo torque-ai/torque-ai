@@ -195,7 +195,7 @@ describe('TsserverSession', () => {
     const session = new TsserverSession('/tmp/test-project');
     let resolved = null;
 
-    const timer = setTimeout(() => {}, 5000);
+    const timer = vi.fn();
     session.pending.set(1, {
       resolve: (val) => { resolved = val; },
       reject: () => {},
@@ -217,7 +217,7 @@ describe('TsserverSession', () => {
     const session = new TsserverSession('/tmp/test-project');
     let rejected = null;
 
-    const timer = setTimeout(() => {}, 5000);
+    const timer = vi.fn();
     session.pending.set(1, {
       resolve: () => {},
       reject: (err) => { rejected = err; },

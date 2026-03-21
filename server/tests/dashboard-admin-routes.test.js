@@ -171,6 +171,10 @@ function resetUtilsDefaults() {
   });
 }
 
+afterAll(() => {
+  delete require.cache[require.resolve('fs')];
+});
+
 beforeEach(() => {
   vi.restoreAllMocks();
   resetDbDefaults();

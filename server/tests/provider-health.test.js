@@ -8,6 +8,10 @@ describe('Provider Health Scoring', () => {
     mod = require('../db/provider-routing-core');
   });
 
+  beforeEach(() => {
+    mod.resetProviderHealth();
+  });
+
   afterEach(() => {
     mod.resetProviderHealth();
   });

@@ -9,6 +9,7 @@ describe('Instance Manager', () => {
   let mockDb;
 
   beforeEach(() => {
+    delete require.cache[require.resolve('../coordination/instance-manager')];
     instanceManager = require('../coordination/instance-manager');
 
     mockDb = {

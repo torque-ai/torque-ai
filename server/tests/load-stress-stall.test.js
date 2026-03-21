@@ -16,6 +16,7 @@ const { setupE2eDb, resetE2eDb, teardownE2eDb, registerMockHost, createTestTask 
 let ctx;
 let spawnMock;
 let originalSpawn;
+let origApiKey;
 const mockChildren = [];
 
 // Track all mock children so tests can drive them
@@ -39,6 +40,7 @@ function restoreSpawn() {
 }
 
 beforeAll(() => {
+  origApiKey = process.env.OPENAI_API_KEY;
   ctx = setupE2eDb('load-stress-stall');
   if (!process.env.OPENAI_API_KEY) {
     process.env.OPENAI_API_KEY = 'test-key-for-load';
@@ -56,6 +58,8 @@ afterEach(() => {
 });
 
 afterAll(async () => {
+  if (origApiKey !== undefined) process.env.OPENAI_API_KEY = origApiKey;
+  else delete process.env.OPENAI_API_KEY;
   if (ctx) await teardownE2eDb(ctx);
 });
 

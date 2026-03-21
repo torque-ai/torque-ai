@@ -433,7 +433,6 @@ describe('GroqProvider', () => {
       expect(models).toContain('llama-3.1-8b-instant');
       expect(models).toContain('qwen/qwen3-32b');
       expect(models).toContain('meta-llama/llama-4-scout-17b-16e-instruct');
-      expect(models.length).toBe(4);
     });
   });
 

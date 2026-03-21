@@ -362,13 +362,8 @@ Advanced scoring with drops and ripples and community integration.
   });
 
   describe('validate_event_consistency', () => {
-    it('rejects missing working_directory', async () => {
-      const result = await safeTool('validate_event_consistency', {});
-      expect(result.isError).toBe(true);
-    });
-
-    it('runs analysis on valid directory', async () => {
-      // Create a minimal event system structure
+    beforeAll(() => {
+      // Create shared event system structure for all tests in this describe block
       const eventDir = path.join(tempDir, 'event-project', 'src', 'systems');
       fs.mkdirSync(eventDir, { recursive: true });
 
@@ -399,6 +394,15 @@ export class ItemSystem {
   }
 }
 `);
+    });
+
+    it('rejects missing working_directory', async () => {
+      const result = await safeTool('validate_event_consistency', {});
+      expect(result.isError).toBe(true);
+    });
+
+    it('runs analysis on valid directory', async () => {
+      const eventDir = path.join(tempDir, 'event-project', 'src', 'systems');
 
       const result = await safeTool('validate_event_consistency', {
         working_directory: path.join(tempDir, 'event-project'),

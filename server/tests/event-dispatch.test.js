@@ -524,6 +524,7 @@ describe('task event DB persistence', () => {
 // Rate limiting (check_notifications in mcp-sse.js)
 // ──────────────────────────────────────────────────────────────
 
+// Pattern test: verifies rate-limit arithmetic, not handler integration
 describe('check_notifications rate limiting', () => {
   beforeEach(() => {
     sessions.clear();

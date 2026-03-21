@@ -151,6 +151,7 @@ describe('validation-rules module', () => {
 
       const rules = mod.getValidationRules(false);
       expect(rules.length).toBe(3);
+      expect(rules.map(r => r.severity)).toEqual(['error', 'warning', 'info']);
     });
 
     it('defaults enabled to 1, auto_fail to 0, severity to warning', () => {
@@ -201,9 +202,8 @@ describe('validation-rules module', () => {
 
       // info severity (0) < warning (1) so should not trigger for minSeverity=warning
       expect(mod.hasValidationFailures(task.id, 'warning')).toBe(false);
-      // Note: implementation uses `severityOrder[minSeverity] || 1` which maps info (0) to 1 (warning),
-      // so minSeverity='info' behaves like minSeverity='warning' due to JS falsy-zero.
-      expect(mod.hasValidationFailures(task.id, 'info')).toBe(false);
+      // With ?? instead of ||, info severity (0) is now correctly handled
+      expect(mod.hasValidationFailures(task.id, 'info')).toBe(true);
     });
 
     it('hasValidationFailures detects warning-level failures with minSeverity=warning', () => {

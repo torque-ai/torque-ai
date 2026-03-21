@@ -203,7 +203,7 @@ describe('file-tracking module (db-integrated)', () => {
       expect(baseline.size_bytes).toBe(second.size);
     });
 
-    it('getFileBaseline returns null for unknown file/task combo', () => {
+    it('getFileBaseline returns undefined for unknown file/task combo', () => {
       const baseline = db.getFileBaseline('src/not-found.js', workDir);
       expect(baseline).toBeUndefined();
     });

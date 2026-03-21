@@ -16,7 +16,7 @@ describe('audit handlers', () => {
   beforeEach(() => {
     mockStore = {
       listAuditRuns: vi.fn(() => []),
-      getFindings: vi.fn(() => []),
+      getFindings: vi.fn(() => ({ findings: [], total: 0 })),
       updateFinding: vi.fn(() => 1),
       getAuditSummary: vi.fn(() => ({
         run_id: 'run-1',
@@ -104,9 +104,12 @@ describe('audit handlers', () => {
   });
 
   it('handleGetAuditFindings passes filters to store', async () => {
-    mockStore.getFindings.mockReturnValue([
-      { title: 'SQL Injection', category: 'security', subcategory: 'injection.sql', severity: 'high', confidence: 'high', file_path: 'src/db.js', line_start: 10, line_end: 15, description: 'Unsafe query', suggestion: 'Use parameterized queries' },
-    ]);
+    mockStore.getFindings.mockReturnValue({
+      findings: [
+        { title: 'SQL Injection', category: 'security', subcategory: 'injection.sql', severity: 'high', confidence: 'high', file_path: 'src/db.js', line_start: 10, line_end: 15, description: 'Unsafe query', suggestion: 'Use parameterized queries' },
+      ],
+      total: 1,
+    });
 
     const result = await handleGetAuditFindings({ audit_run_id: 'run-1', category: 'security' });
     expect(result.content[0].text).toContain('SQL Injection');

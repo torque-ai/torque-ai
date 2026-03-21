@@ -220,7 +220,7 @@ function getValidationResults(taskId) {
  */
 function hasValidationFailures(taskId, minSeverity = 'warning') {
   const severityOrder = { 'info': 0, 'warning': 1, 'error': 2 };
-  const minLevel = severityOrder[minSeverity] || 1;
+  const minLevel = severityOrder[minSeverity] ?? 1;
 
   const results = getValidationResults(taskId);
   return results.some(r => r.status === 'fail' && (severityOrder[r.severity] || 0) >= minLevel);

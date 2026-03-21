@@ -39,8 +39,6 @@ function loadHandlers() {
   const handlersPath = require.resolve('../handlers/orchestrator-handlers');
 
   vi.resetModules();
-  vi.doMock('../orchestrator/strategic-brain', () => MockBrain);
-  vi.doMock('../database', () => mockDb);
   require.cache[brainPath] = { id: brainPath, filename: brainPath, loaded: true, exports: MockBrain };
   require.cache[databasePath] = { id: databasePath, filename: databasePath, loaded: true, exports: mockDb };
   delete require.cache[handlersPath];

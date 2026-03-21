@@ -527,13 +527,13 @@ describe('dashboard analytics route handlers', () => {
       mockMcpSse.getActiveSessionCount.mockReturnValue(2);
       mockMcpSse.notificationMetrics = { sent: 9 };
       mockMcpSse.sessions = new Map([
-        ['session-12345678', {
+        ['sess-1--12345678', {
           pendingEvents: [{}, {}, {}],
           eventFilter: new Set(['task.updated']),
           taskFilter: new Set(['task-1', 'task-2']),
           res: { writableEnded: false },
         }],
-        ['session-abcdef12', {
+        ['sess-a--abcdef12', {
           pendingEvents: [],
           eventFilter: null,
           taskFilter: new Set(),
@@ -549,14 +549,14 @@ describe('dashboard analytics route handlers', () => {
         totalPendingEvents: 3,
         sessions: [
           {
-            id: 'session-',
+            id: 'sess-1--',
             pending: 3,
             eventFilter: ['task.updated'],
             taskFilter: 2,
             connected: true,
           },
           {
-            id: 'session-',
+            id: 'sess-a--',
             pending: 0,
             eventFilter: [],
             taskFilter: 0,
