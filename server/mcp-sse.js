@@ -109,6 +109,46 @@ const sessions = new Map();
 // taskSubscriptions: taskId → Set<sessionId>, with ALL_TASKS_SUBSCRIPTION_KEY for sessions with empty taskFilter
 const taskSubscriptions = new Map();
 
+// ── Pending server→client requests (elicitation, sampling) ──
+// Per-session Map: requestId → { resolve, timeout }
+// Each session gets its own pendingRequests Map on first use.
+
+const ELICITATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Send a JSON-RPC request TO the client and wait for response.
+ * @param {string} sessionId
+ * @param {string} method - e.g., 'elicitation/create'
+ * @param {object} params
+ * @param {number} [timeoutMs=ELICITATION_TIMEOUT_MS]
+ * @returns {Promise<object>} The client's response result
+ */
+function sendClientRequest(sessionId, method, params, timeoutMs = ELICITATION_TIMEOUT_MS) {
+  const session = sessions.get(sessionId);
+  if (!session || session.res.writableEnded) {
+    return Promise.resolve({ action: 'decline' });
+  }
+
+  if (!session.pendingRequests) {
+    session.pendingRequests = new Map();
+  }
+
+  const requestId = `elicit-${randomUUID()}`;
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      session.pendingRequests.delete(requestId);
+      resolve({ action: 'cancel' });
+    }, timeoutMs);
+
+    session.pendingRequests.set(requestId, { resolve, timeout });
+
+    // Send JSON-RPC request via SSE
+    const request = { jsonrpc: JSONRPC_VERSION, id: requestId, method, params: params || {} };
+    sendSseEvent(session, 'message', JSON.stringify(request));
+  });
+}
+
 function trackInterval(timer) {
   TRACKED_INTERVALS.add(timer);
   return timer;
@@ -1501,6 +1541,15 @@ async function handleHttpRequest(req, res) {
           // Non-fatal
         }
 
+        // Clean up pending elicitation requests — resolve with 'cancel'
+        if (current.pendingRequests) {
+          for (const [id, pending] of current.pendingRequests) {
+            clearTimeout(pending.timeout);
+            pending.resolve({ action: 'cancel' });
+          }
+          current.pendingRequests.clear();
+        }
+
         debugLog(`Session disconnected: ${sessionId} (${sessions.size} active)`, {
           requestId,
           sessionId,
@@ -1548,6 +1597,21 @@ async function handleHttpRequest(req, res) {
         code: -32700,
         message: 'Parse error: Invalid JSON',
       });
+      res.writeHead(202);
+      res.end();
+      return;
+    }
+
+    // Check if this is a response to a server-initiated request (elicitation/sampling)
+    // Responses have no 'method' field, just 'id' + 'result'/'error'
+    if (request && !request.method && request.id !== undefined) {
+      if (session.pendingRequests && session.pendingRequests.has(request.id)) {
+        const pending = session.pendingRequests.get(request.id);
+        clearTimeout(pending.timeout);
+        session.pendingRequests.delete(request.id);
+        pending.resolve(request.result || { action: 'cancel' });
+      }
+      // Acknowledge and return — don't process as a request
       res.writeHead(202);
       res.end();
       return;
@@ -1789,4 +1853,5 @@ module.exports = {
   notificationMetrics,
   taskSubscriptions,
   addSessionToTaskSubscriptions,
+  sendClientRequest,
 };

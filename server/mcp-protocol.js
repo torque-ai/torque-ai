@@ -16,7 +16,7 @@ let _onInitialize = null;
  * @param {string[]} opts.coreToolNames    - Names visible in 'core' mode.
  * @param {string[]} opts.extendedToolNames- Names visible in 'extended' mode.
  * @param {Function} opts.handleToolCall   - async (name, args, session) => result
- * @param {Function} [opts.onInitialize]   - Optional callback invoked on 'initialize' with (session).
+ * @param {Function} [opts.onInitialize]   - Optional callback invoked on 'initialize' with (session, params).
  */
 function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onInitialize }) {
   _tools = tools || [];
@@ -57,6 +57,10 @@ async function handleRequest(request, session) {
 
   switch (method) {
     case 'initialize': {
+      // Capture client capabilities for elicitation/sampling support
+      session.clientCapabilities = params?.capabilities || {};
+      session.supportsElicitation = Boolean(params?.capabilities?.elicitation);
+
       const response = {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
@@ -71,7 +75,7 @@ async function handleRequest(request, session) {
         // If auth middleware fails to load, include warning as a safe default
         response._meta = { security_warning: 'TORQUE running without authentication' };
       }
-      if (_onInitialize) _onInitialize(session);
+      if (_onInitialize) _onInitialize(session, params);
       return response;
     }
 
