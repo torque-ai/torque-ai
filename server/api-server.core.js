@@ -2226,6 +2226,130 @@ function handleAuthStatus(req, res) {
 }
 
 // ============================================
+// User management handlers
+// ============================================
+
+async function handleListUsers(req, res) {
+  const userManager = require('./auth/user-manager');
+  const identity = req._identity;
+  if (!identity || !requireRole(identity, 'admin')) {
+    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+    return;
+  }
+  sendJson(res, { users: userManager.listUsers() }, 200, req);
+}
+
+async function handleCreateUser(req, res) {
+  const userManager = require('./auth/user-manager');
+  const identity = req._identity;
+  if (!identity || !requireRole(identity, 'admin')) {
+    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+    return;
+  }
+  try {
+    const body = await parseBody(req);
+    const { username, password, role, displayName } = body || {};
+    const user = await userManager.createUser({ username, password, role, displayName });
+    sendJson(res, { user }, 201, req);
+  } catch (err) {
+    sendJson(res, { error: err.message }, 400, req);
+  }
+}
+
+async function handleUpdateUser(req, res, context) {
+  const userManager = require('./auth/user-manager');
+  const identity = req._identity;
+  if (!identity || !requireRole(identity, 'admin')) {
+    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+    return;
+  }
+  try {
+    const body = await parseBody(req);
+    const userId = context.params?.user_id;
+    if (!userId) { sendJson(res, { error: 'Missing user ID' }, 400, req); return; }
+    await userManager.updateUser(userId, body);
+    const updated = userManager.getUserById(userId);
+    sendJson(res, { user: updated }, 200, req);
+  } catch (err) {
+    sendJson(res, { error: err.message }, 400, req);
+  }
+}
+
+async function handleDeleteUser(req, res, context) {
+  const userManager = require('./auth/user-manager');
+  const sessionManager = require('./auth/session-manager');
+  const identity = req._identity;
+  if (!identity || !requireRole(identity, 'admin')) {
+    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
+    return;
+  }
+  try {
+    const userId = context.params?.user_id;
+    if (!userId) { sendJson(res, { error: 'Missing user ID' }, 400, req); return; }
+    userManager.deleteUser(userId);
+    sessionManager.destroySessionsByIdentityId(userId);
+    sendJson(res, { success: true }, 200, req);
+  } catch (err) {
+    sendJson(res, { error: err.message }, 400, req);
+  }
+}
+
+function handleGetMe(req, res) {
+  const identity = req._identity;
+  if (!identity) {
+    sendJson(res, { error: 'Not authenticated' }, 401, req);
+    return;
+  }
+  if (identity.type === 'user') {
+    const userManager = require('./auth/user-manager');
+    const user = userManager.getUserById(identity.id);
+    if (user) {
+      sendJson(res, { user }, 200, req);
+    } else {
+      sendJson(res, { error: 'User not found' }, 404, req);
+    }
+  } else {
+    sendJson(res, { user: { id: identity.id, name: identity.name, role: identity.role, type: identity.type || 'api_key' } }, 200, req);
+  }
+}
+
+async function handleUpdateMe(req, res) {
+  const identity = req._identity;
+  if (!identity || identity.type !== 'user') {
+    sendJson(res, { error: 'Only user accounts can update profile' }, 400, req);
+    return;
+  }
+  try {
+    const userManager = require('./auth/user-manager');
+    const body = await parseBody(req);
+    const { currentPassword, newPassword, displayName } = body || {};
+
+    const updates = {};
+    if (displayName !== undefined) updates.displayName = displayName;
+    if (newPassword) {
+      if (!currentPassword) {
+        sendJson(res, { error: 'Current password required to change password' }, 400, req);
+        return;
+      }
+      const valid = await userManager.validatePassword(identity.username, currentPassword);
+      if (!valid) {
+        sendJson(res, { error: 'Current password is incorrect' }, 401, req);
+        return;
+      }
+      updates.password = newPassword;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await userManager.updateUser(identity.id, updates);
+    }
+    const updated = userManager.getUserById(identity.id);
+    sendJson(res, { user: updated }, 200, req);
+  } catch (err) {
+    sendJson(res, { error: err.message }, 400, req);
+  }
+}
+
+// ============================================
 // Route definitions
 // ============================================
 
@@ -2253,6 +2377,12 @@ const ROUTE_HANDLER_LOOKUP = {
   handleDashboardLogout,
   handleSetup,
   handleAuthStatus,
+  handleListUsers,
+  handleCreateUser,
+  handleUpdateUser,
+  handleDeleteUser,
+  handleGetMe,
+  handleUpdateMe,
   handleClaudeEvent,
   handleClaudeFiles,
   handleGetFreeTierStatus,

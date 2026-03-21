@@ -1241,6 +1241,13 @@ const routes = [
   { method: 'POST', path: '/api/auth/logout', handlerName: 'handleDashboardLogout' },
   { method: 'POST', path: '/api/auth/setup', handlerName: 'handleSetup', skipAuth: true },
   { method: 'GET', path: '/api/auth/status', handlerName: 'handleAuthStatus', skipAuth: true },
+  // Auth: user management (admin CRUD + self-service)
+  { method: 'GET', path: '/api/auth/users', handlerName: 'handleListUsers' },
+  { method: 'POST', path: '/api/auth/users', handlerName: 'handleCreateUser' },
+  { method: 'PATCH', path: /^\/api\/auth\/users\/([^/]+)$/, handlerName: 'handleUpdateUser', mapParams: ['user_id'] },
+  { method: 'DELETE', path: /^\/api\/auth\/users\/([^/]+)$/, handlerName: 'handleDeleteUser', mapParams: ['user_id'] },
+  { method: 'GET', path: '/api/auth/me', handlerName: 'handleGetMe' },
+  { method: 'PATCH', path: '/api/auth/me', handlerName: 'handleUpdateMe' },
 
   // Auth: ticket exchange (key → short-lived SSE ticket)
   { method: 'POST', path: '/api/auth/ticket', handlerName: 'handleCreateTicket' },

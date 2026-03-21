@@ -35,6 +35,14 @@ function destroySession(sessionId) {
   _sessions.delete(sessionId);
 }
 
+function destroySessionsByIdentityId(identityId) {
+  for (const [sessionId, entry] of _sessions) {
+    if (entry.identity && entry.identity.id === identityId) {
+      _sessions.delete(sessionId);
+    }
+  }
+}
+
 function validateCsrf(sessionId, csrfToken) {
   const entry = _sessions.get(sessionId);
   return !!(entry && entry.csrfToken === csrfToken);
@@ -45,4 +53,4 @@ function getSessionCount() { return _sessions.size; }
 // For testing
 function _reset() { _sessions.clear(); }
 
-module.exports = { createSession, getSession, destroySession, validateCsrf, getSessionCount, _reset };
+module.exports = { createSession, getSession, destroySession, destroySessionsByIdentityId, validateCsrf, getSessionCount, _reset };
