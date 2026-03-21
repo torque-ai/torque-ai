@@ -372,45 +372,45 @@ function handleRestartServer(args) {
   // The torque:shutdown handler is idempotent (no-op on second call), so this is safe.
 
   // Spawn a replacement process BEFORE shutting down.
-  // The new process will wait for the ports to be free, then start.
-  // This ensures SSE-based MCP clients can reconnect automatically.
+  // Write a restarter script to a temp file (avoids env serialization issues
+  // with inline -e on Windows where process.env contains backslashes/quotes).
+  // The restarter inherits the current environment via spawn.
   const { spawn } = require('child_process');
-  const dataDir = process.env.TORQUE_DATA_DIR || '';
-  const serverScript = require('path').resolve(__dirname, 'index.js');
-  const env = { ...process.env };
-  if (dataDir) env.TORQUE_DATA_DIR = dataDir;
+  const fs_ = require('fs');
+  const path_ = require('path');
+  const serverScript = path_.resolve(__dirname, 'index.js');
+  const restarterScript = path_.join(require('os').tmpdir(), `torque-restart-${process.pid}.js`);
 
-  // Wrapper script: wait for old process to release ports, then start
-  const waitAndStart = `
-    const http = require('http');
-    const { spawn } = require('child_process');
-    function probe(cb) {
-      const req = http.get('http://127.0.0.1:3458/sse', { timeout: 500 }, () => cb(true));
-      req.on('error', () => cb(false));
-      req.on('timeout', () => { req.destroy(); cb(false); });
-    }
-    let attempts = 0;
-    const check = setInterval(() => {
-      attempts++;
-      probe((alive) => {
-        if (!alive || attempts > 20) {
-          clearInterval(check);
-          const child = spawn(process.execPath, [${JSON.stringify(serverScript)}], {
-            detached: true,
-            stdio: 'ignore',
-            env: ${JSON.stringify(env)},
-          });
-          child.unref();
-          process.exit(0);
-        }
+  fs_.writeFileSync(restarterScript, `
+const http = require('http');
+const { spawn } = require('child_process');
+const fs = require('fs');
+function probe(cb) {
+  const req = http.get('http://127.0.0.1:3458/sse', { timeout: 500 }, () => cb(true));
+  req.on('error', () => cb(false));
+  req.on('timeout', () => { req.destroy(); cb(false); });
+}
+let attempts = 0;
+const check = setInterval(() => {
+  attempts++;
+  probe((alive) => {
+    if (!alive || attempts > 20) {
+      clearInterval(check);
+      const child = spawn(process.execPath, [${JSON.stringify(serverScript)}], {
+        detached: true,
+        stdio: 'ignore',
       });
-    }, 500);
-  `.replace(/\n/g, ' ');
+      child.unref();
+      try { fs.unlinkSync(${JSON.stringify(restarterScript)}); } catch {}
+      process.exit(0);
+    }
+  });
+}, 500);
+`);
 
-  const restarter = spawn(process.execPath, ['-e', waitAndStart], {
+  const restarter = spawn(process.execPath, [restarterScript], {
     detached: true,
     stdio: 'ignore',
-    env,
   });
   restarter.unref();
   logger.info(`[Restart] Spawned restarter process (PID ${restarter.pid})`);
