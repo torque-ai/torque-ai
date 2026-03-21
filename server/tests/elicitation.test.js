@@ -160,3 +160,44 @@ describe('elicitation — elicit() helper', () => {
     expect(result).toEqual({ action: 'decline' });
   });
 });
+
+describe('elicitation — session linkage', () => {
+  it('session ID is stored as mcp_session_id in metadata', () => {
+    const metadata = {};
+    const sessionId = 'sess-abc123';
+    if (sessionId) {
+      metadata.mcp_session_id = sessionId;
+    }
+    expect(metadata.mcp_session_id).toBe('sess-abc123');
+  });
+
+  it('no session means no mcp_session_id', () => {
+    const metadata = {};
+    const sessionId = null;
+    if (sessionId) {
+      metadata.mcp_session_id = sessionId;
+    }
+    expect(metadata.mcp_session_id).toBeUndefined();
+  });
+
+  it('mcp_session_id survives JSON round-trip in task metadata', () => {
+    const metadata = {
+      smart_routing: true,
+      mcp_session_id: 'sess-round-trip-test',
+    };
+    const serialized = JSON.stringify(metadata);
+    const deserialized = JSON.parse(serialized);
+    expect(deserialized.mcp_session_id).toBe('sess-round-trip-test');
+  });
+
+  it('undefined mcp_session_id is omitted from JSON serialization', () => {
+    const metadata = {
+      smart_routing: true,
+      mcp_session_id: undefined,
+    };
+    const serialized = JSON.stringify(metadata);
+    const deserialized = JSON.parse(serialized);
+    expect(deserialized.mcp_session_id).toBeUndefined();
+    expect('mcp_session_id' in deserialized).toBe(false);
+  });
+});

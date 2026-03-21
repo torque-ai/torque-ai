@@ -190,6 +190,7 @@ function handleSubmitTask(args) {
       context_depth: args.context_depth,
       tuning: args.tuning,
       routing_template: args.routing_template,
+      __sessionId: args.__sessionId,
     });
   }
 
@@ -317,6 +318,7 @@ function handleSubmitTask(args) {
   // Store submitting agent session ID in metadata for coordination tracking
   if (args.__sessionId) {
     metadata.submitted_by_agent = args.__sessionId;
+    metadata.mcp_session_id = args.__sessionId;
   }
 
   checkDepth(metadata);

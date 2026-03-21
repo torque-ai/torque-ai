@@ -267,7 +267,7 @@ async function handleSmartSubmitTask(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Arguments object is required');
   }
   
-  const { task, working_directory, files: rawFiles, model, timeout_minutes, priority, provider, override_provider: legacyOverrideProvider, tuning, context_stuff, context_depth, prefer_free, routing_template } = args;
+  const { task, working_directory, files: rawFiles, model, timeout_minutes, priority, provider, override_provider: legacyOverrideProvider, tuning, context_stuff, context_depth, prefer_free, routing_template, __sessionId } = args;
   // Support both 'provider' (standard) and legacy 'override_provider' alias
   const override_provider = provider || legacyOverrideProvider;
   const files = Array.isArray(rawFiles) ? rawFiles : (rawFiles ? [String(rawFiles)] : undefined);
@@ -482,7 +482,8 @@ async function handleSmartSubmitTask(args) {
             decomposed_from: task,
             subtask_index: i + 1,
             total_subtasks: subtasks.length,
-            tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null
+            tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
+            mcp_session_id: __sessionId || undefined,
           })
         });
 
@@ -648,7 +649,8 @@ async function handleSmartSubmitTask(args) {
                 target_file: largestFile,
                 function_names: batch.map(fn => fn.name),
                 line_range: { start: startLine, end: endLine },
-                tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null
+                tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
+                mcp_session_id: __sessionId || undefined,
               })
             });
 
@@ -1019,6 +1021,7 @@ async function handleSmartSubmitTask(args) {
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
     _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
     _routing_template: routing_template || undefined,
+    mcp_session_id: __sessionId || undefined,
   };
 
   if (useTierList) {
@@ -1065,6 +1068,7 @@ async function handleSmartSubmitTask(args) {
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
         _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
         _routing_template: routing_template || undefined,
+        mcp_session_id: __sessionId || undefined,
       })
     });
   }
