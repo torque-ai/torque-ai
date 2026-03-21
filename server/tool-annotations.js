@@ -7,6 +7,9 @@ const DISPATCH    = Object.freeze({ readOnlyHint: false, destructiveHint: false,
 const IDEMPOTENT  = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false });
 const LIFECYCLE   = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
 const ASYNC_RO    = Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: false, openWorldHint: false });
+// FALLBACK is structurally identical to LIFECYCLE but a distinct object.
+// validateCoverage() uses identity comparison (=== FALLBACK) to detect uncovered tools.
+// Do NOT merge these into a shared constant.
 const FALLBACK    = Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false });
 
 // ── Prefix rules (checked first, first match wins) ──
@@ -100,6 +103,8 @@ const OVERRIDES = Object.freeze({
  * @returns {{ readOnlyHint: boolean, destructiveHint: boolean, idempotentHint: boolean, openWorldHint: boolean }}
  */
 function getAnnotations(name) {
+  if (typeof name !== 'string') return FALLBACK;
+
   // 1. Explicit overrides
   if (OVERRIDES[name]) return OVERRIDES[name];
 
