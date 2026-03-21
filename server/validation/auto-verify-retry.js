@@ -22,6 +22,7 @@ const { createRemoteTestRouter } = require('../remote/remote-test-routing');
 const { extractBuildErrorFiles } = require('./post-task');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { checkResourceGate } = require('../utils/resource-gate');
+const { elicit } = require('../mcp/elicitation');
 
 // Providers that get auto-verify by default
 const AUTO_VERIFY_PROVIDERS = new Set([
@@ -238,6 +239,46 @@ async function handleAutoVerifyRetry(ctx) {
     }
   } catch (scopedErr) {
     logger.info(`[auto-verify] Task ${taskId}: scoped check error (${scopedErr.message}), falling through to retry logic`);
+  }
+
+  // Try elicitation before auto-fix or failure — let the human decide
+  const taskMetadata = typeof task.metadata === 'object' ? task.metadata : tryParseJson(task.metadata) || {};
+  const mcpSessionId = taskMetadata.mcp_session_id;
+  if (mcpSessionId) {
+    try {
+      const truncatedErrors = (verifyOutput || '').slice(0, 1500);
+      const response = await elicit(mcpSessionId, {
+        message: `Task ${taskId}: verification failed.\n\n${truncatedErrors}\n\nApprove anyway, reject (mark failed), or let auto-fix proceed?`,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            decision: { type: 'string', enum: ['approve', 'reject', 'auto-fix'] },
+          },
+          required: ['decision'],
+        },
+      });
+      if (response.action === 'accept') {
+        const humanDecision = response.content?.decision;
+        if (humanDecision === 'approve') {
+          logger.info(`[auto-verify] Task ${taskId}: human approved despite verify failure`);
+          ctx.output = (ctx.output || '') +
+            '\n\n[auto-verify] Human approved despite verification failure.';
+          return; // Task stays completed
+        } else if (humanDecision === 'reject') {
+          logger.info(`[auto-verify] Task ${taskId}: human rejected — marking failed`);
+          ctx.status = 'failed';
+          ctx.errorOutput = (ctx.errorOutput || '') +
+            `\n\n[auto-verify] Human rejected. Verification failed:\n${(verifyOutput || '').slice(0, 4000)}`;
+          return; // Skip auto-fix
+        }
+        // 'auto-fix' — fall through to existing retry logic
+        logger.info(`[auto-verify] Task ${taskId}: human chose auto-fix — proceeding with retry logic`);
+      }
+      // decline/cancel — fall through to existing behavior
+    } catch (elicitErr) {
+      logger.warn(`[auto-verify] Elicitation failed for task ${taskId}: ${elicitErr.message}`);
+      // Fall through to existing behavior
+    }
   }
 
   // Check retry budget

@@ -201,3 +201,45 @@ describe('elicitation — session linkage', () => {
     expect('mcp_session_id' in deserialized).toBe(false);
   });
 });
+
+describe('elicitation — approval gate integration', () => {
+  it('elicit returns decline for tasks without session_id', async () => {
+    const { elicit } = require('../mcp/elicitation');
+    const result = await elicit(null, {
+      message: 'Test approval',
+      requestedSchema: { type: 'object', properties: { decision: { type: 'string' } }, required: ['decision'] },
+    });
+    expect(result.action).toBe('decline');
+  });
+
+  it('elicit accepts correct schema shape for approval decisions', async () => {
+    const { elicit } = require('../mcp/elicitation');
+    // Verify the helper doesn't crash with the approval schema
+    const result = await elicit(undefined, {
+      message: 'File shrank by 62%. Approve?',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          decision: { type: 'string', enum: ['approve', 'reject', 'rollback'] },
+        },
+        required: ['decision'],
+      },
+    });
+    expect(result.action).toBe('decline'); // no session = decline
+  });
+
+  it('elicit accepts verification failure schema with auto-fix option', async () => {
+    const { elicit } = require('../mcp/elicitation');
+    const result = await elicit(undefined, {
+      message: 'Task abc123: verification failed.\n\nTS2345: Type error...\n\nApprove anyway, reject, or let auto-fix proceed?',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          decision: { type: 'string', enum: ['approve', 'reject', 'auto-fix'] },
+        },
+        required: ['decision'],
+      },
+    });
+    expect(result.action).toBe('decline'); // no session = decline
+  });
+});
