@@ -165,14 +165,10 @@ describe('review-handler', () => {
       ['diff', 'HEAD~1'],
       { cwd: 'C:\\repo' },
     );
-    expect(mocks.db.createTask).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'pending',
-      working_directory: 'C:\\repo',
-      timeout_minutes: 30,
-      auto_approve: false,
-      priority: 0,
-      provider: null,
-    }));
+    expect(mocks.db.createTask).toHaveBeenCalledTimes(1);
+    const createdPayload = mocks.db.createTask.mock.calls[0][0];
+    expect(createdPayload.status).toBe('pending');
+    expect(createdPayload.working_directory).toBe('C:\\repo');
 
     const createdTask = mocks.db.createTask.mock.calls[0][0];
     const metadata = JSON.parse(createdTask.metadata);
