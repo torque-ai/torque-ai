@@ -5,7 +5,8 @@ const keyManager = require('../auth/key-manager');
 const ticketManager = require('../auth/ticket-manager');
 const sessionManager = require('../auth/session-manager');
 const { resolve } = require('../auth/resolvers');
-const { authenticate, extractCredential, requireRole, isAdminEndpoint, parseCookie } = require('../auth/middleware');
+const { authenticate, extractCredential, parseCookie } = require('../auth/middleware');
+const { requireRole } = require('../auth/role-guard');
 const { AuthRateLimiter } = require('../auth/rate-limiter');
 
 let db;
@@ -666,15 +667,6 @@ describe('middleware', () => {
   it('extractCredential returns null when no credentials present', () => {
     const req = { headers: {} };
     expect(extractCredential(req)).toBeNull();
-  });
-
-  it('isAdminEndpoint matches admin patterns', () => {
-    expect(isAdminEndpoint('/api/auth/keys')).toBe(true);
-    expect(isAdminEndpoint('/api/auth/keys/abc123')).toBe(true);
-    expect(isAdminEndpoint('/api/v2/providers')).toBe(true);
-    expect(isAdminEndpoint('/api/v2/hosts')).toBe(true);
-    expect(isAdminEndpoint('/api/tasks')).toBe(false);
-    expect(isAdminEndpoint('/api/status')).toBe(false);
   });
 
   it('parseCookie extracts named cookie from header', () => {

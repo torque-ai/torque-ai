@@ -53,6 +53,7 @@ const {
 const { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setFreeTierTrackerGetter: setWebhookFreeTierTrackerGetter } = webhooks;
 const { handleHealthz, handleReadyz, handleLivez } = require('./api/health-probes');
 const authMiddleware = require('./auth/middleware');
+const { requireRole } = require('./auth/role-guard');
 
 let apiServer = null;
 let apiPort = 3457;
@@ -1980,11 +1981,10 @@ async function handleCreateTicket(req, res, _context = {}) {
 
 async function handleCreateApiKey(req, res, _context = {}) {
   const keyManager = require('./auth/key-manager');
-  const authMiddleware = require('./auth/middleware');
 
   // Only admin may create keys
   const identity = authMiddleware.authenticate(req);
-  if (!identity || identity.role !== 'admin') {
+  if (!identity || !requireRole(identity, 'admin')) {
     sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
     return;
   }
@@ -2007,11 +2007,10 @@ async function handleCreateApiKey(req, res, _context = {}) {
 
 async function handleListApiKeys(req, res, _context = {}) {
   const keyManager = require('./auth/key-manager');
-  const authMiddleware = require('./auth/middleware');
 
   // Only admin may list keys
   const identity = authMiddleware.authenticate(req);
-  if (!identity || identity.role !== 'admin') {
+  if (!identity || !requireRole(identity, 'admin')) {
     sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
     return;
   }
@@ -2026,11 +2025,10 @@ async function handleListApiKeys(req, res, _context = {}) {
 
 async function handleRevokeApiKey(req, res, _context = {}) {
   const keyManager = require('./auth/key-manager');
-  const authMiddleware = require('./auth/middleware');
 
   // Only admin may revoke keys
   const identity = authMiddleware.authenticate(req);
-  if (!identity || identity.role !== 'admin') {
+  if (!identity || !requireRole(identity, 'admin')) {
     sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
     return;
   }

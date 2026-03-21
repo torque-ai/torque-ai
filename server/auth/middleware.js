@@ -40,24 +40,4 @@ function authenticate(req) {
   return resolve(credential);
 }
 
-// Role check: does identity have the required role?
-function requireRole(identity, requiredRole) {
-  if (!identity) return false;
-  if (identity.role === 'admin') return true; // admin can do everything
-  return identity.role === requiredRole;
-}
-
-// Check if a specific endpoint requires admin role
-const ADMIN_PATTERNS = [
-  '/api/auth/keys',
-  '/api/providers/configure',
-  '/api/v2/providers',
-  '/api/v2/hosts',
-  // Add more as needed
-];
-
-function isAdminEndpoint(url) {
-  return ADMIN_PATTERNS.some(p => url.startsWith(p));
-}
-
-module.exports = { authenticate, extractCredential, requireRole, isAdminEndpoint, parseCookie };
+module.exports = { authenticate, extractCredential, parseCookie };
