@@ -395,16 +395,24 @@ let attempts = 0;
 const check = setInterval(() => {
   attempts++;
   probe((alive) => {
-    if (!alive || attempts > 20) {
+    if (!alive) {
       clearInterval(check);
-      const child = spawn(process.execPath, [${JSON.stringify(serverScript)}], {
-        detached: true,
-        stdio: 'ignore',
-        env,
-      });
-      child.unref();
+      // Extra 1s buffer to ensure ports are fully released
+      setTimeout(() => {
+        const child = spawn(process.execPath, [${JSON.stringify(serverScript)}], {
+          detached: true,
+          stdio: 'ignore',
+          env,
+        });
+        child.unref();
+        try { fs.unlinkSync(${JSON.stringify(restarterScript)}); } catch {}
+        process.exit(0);
+      }, 1000);
+    } else if (attempts > 40) {
+      // 20 seconds — old server won't die, give up
+      clearInterval(check);
       try { fs.unlinkSync(${JSON.stringify(restarterScript)}); } catch {}
-      process.exit(0);
+      process.exit(1);
     }
   });
 }, 500);
