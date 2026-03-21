@@ -3135,6 +3135,38 @@ function createTables(db, logger) {
     logger.debug(`Schema migration (api_keys table): ${e.message}`);
   }
 
+  // Users table (username/password auth)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      display_name TEXT,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_at TEXT NOT NULL,
+      updated_at TEXT,
+      last_login_at TEXT
+    )
+  `);
+
+  // Add user ownership to API keys (nullable FK)
+  try {
+    db.exec('ALTER TABLE api_keys ADD COLUMN user_id TEXT REFERENCES users(id)');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Cascade-delete user's API keys when user is deleted
+  // (SQLite doesn't enforce ON DELETE CASCADE for ALTER TABLE columns)
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_user_delete_keys
+    AFTER DELETE ON users
+    FOR EACH ROW
+    BEGIN
+      DELETE FROM api_keys WHERE user_id = OLD.id;
+    END
+  `);
+
   const peekFixtureCatalog = require('./peek-fixture-catalog');
   peekFixtureCatalog.setDb(db);
   peekFixtureCatalog.seedDefaultFixtures();
