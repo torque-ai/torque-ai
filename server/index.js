@@ -535,6 +535,15 @@ function init() {
 
     if (!keyManager.hasAnyKeys()) {
       const { key } = keyManager.createKey({ name: 'Bootstrap admin key', role: 'admin' });
+      // Write key to a file so Claude Code (and the user) can find it.
+      // The server often starts via nohup > /dev/null, so console output is lost.
+      const keyFilePath = path.join(dataDir, '.torque-api-key');
+      try {
+        fs.writeFileSync(keyFilePath, key, { mode: 0o600 });
+        debugLog(`Bootstrap API key written to ${keyFilePath}`);
+      } catch (writeErr) {
+        debugLog(`Could not write key file: ${writeErr.message}`);
+      }
       console.log('\u2550'.repeat(59));
       console.log('  TORQUE Admin API Key (save this \u2014 it won\'t be shown again):');
       console.log('');
@@ -542,6 +551,8 @@ function init() {
       console.log('');
       console.log('  Set as environment variable:');
       console.log(`  export TORQUE_API_KEY="${key}"`);
+      console.log('');
+      console.log(`  Key also saved to: ${keyFilePath}`);
       console.log('\u2550'.repeat(59));
     }
   } catch (err) {

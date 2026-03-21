@@ -9,6 +9,24 @@ TORQUE requires two things to work in Claude Code:
 
 Both are included in this repository. The slash commands are auto-discovered from `.claude/commands/`. For the MCP server, copy `.mcp.json.example` to `.mcp.json` and replace `PATH_TO_TORQUE` with your local checkout path.
 
+### Authentication
+
+TORQUE uses API keys with HMAC-SHA-256 hashing. On first startup, a bootstrap admin key is auto-generated and:
+- Printed to console
+- Saved to `<data_dir>/.torque-api-key` (readable by the server user only)
+
+**First-time setup:**
+1. Start TORQUE
+2. Read the key from the console output or from `<data_dir>/.torque-api-key`
+3. Set it as an environment variable: `export TORQUE_API_KEY="torque_sk_..."`
+4. The `.mcp.json` SSE transport uses `${TORQUE_API_KEY}` automatically
+
+**For REST API calls** (curl, scripts, dashboard): use `Authorization: Bearer $TORQUE_API_KEY` header or `x-torque-key: $TORQUE_API_KEY` header.
+
+**Open mode:** If no API keys exist (fresh install before first startup), all endpoints are accessible without authentication. Auth enforcement activates once the first key is created.
+
+**Key management:** Use `create_api_key`, `list_api_keys`, `revoke_api_key` MCP tools, or the dashboard Settings page.
+
 ## Quick Start
 
 Use the `/torque-*` commands to interact with TORQUE. Commands compose multiple tools automatically — you rarely need to call raw MCP tools directly.
