@@ -372,19 +372,20 @@ function handleRestartServer(args) {
   // The torque:shutdown handler is idempotent (no-op on second call), so this is safe.
 
   // Spawn a replacement process BEFORE shutting down.
-  // Write a restarter script to a temp file (avoids env serialization issues
-  // with inline -e on Windows where process.env contains backslashes/quotes).
-  // The restarter inherits the current environment via spawn.
+  // Write a restarter script to a temp file that waits for the old server
+  // to release ports, then starts the new one with the correct env vars.
   const { spawn } = require('child_process');
   const fs_ = require('fs');
   const path_ = require('path');
   const serverScript = path_.resolve(__dirname, 'index.js');
+  const dataDir = process.env.TORQUE_DATA_DIR || '';
   const restarterScript = path_.join(require('os').tmpdir(), `torque-restart-${process.pid}.js`);
 
   fs_.writeFileSync(restarterScript, `
 const http = require('http');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const env = Object.assign({}, process.env, ${dataDir ? `{ TORQUE_DATA_DIR: ${JSON.stringify(dataDir)} }` : '{}'});
 function probe(cb) {
   const req = http.get('http://127.0.0.1:3458/sse', { timeout: 500 }, () => cb(true));
   req.on('error', () => cb(false));
@@ -399,6 +400,7 @@ const check = setInterval(() => {
       const child = spawn(process.execPath, [${JSON.stringify(serverScript)}], {
         detached: true,
         stdio: 'ignore',
+        env,
       });
       child.unref();
       try { fs.unlinkSync(${JSON.stringify(restarterScript)}); } catch {}
