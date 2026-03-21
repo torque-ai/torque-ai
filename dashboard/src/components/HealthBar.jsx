@@ -97,7 +97,7 @@ export default function HealthBar() {
             <>
               <span className="font-medium tabular-nums text-slate-200">{providerSummary}</span>
               {providerList.length > 0 && <span className="text-[10px]">healthy</span>}
-              <span className="text-[10px] text-slate-500">{expanded ? '▴' : '▾'}</span>
+              <span className="text-slate-500">{expanded ? '▴' : '▾'}</span>
             </>
           )}
         </button>
@@ -116,9 +116,9 @@ export default function HealthBar() {
         <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800/95 border border-slate-700 rounded-lg p-3 shadow-lg z-50 max-h-64 overflow-y-auto">
           <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
             {providerList.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 py-0.5">
+              <div key={p.id || p.provider} className="flex items-center gap-2 py-0.5">
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[p.status] || STATUS_DOT.disabled}`} />
-                <span className={STATUS_TEXT[p.status] || STATUS_TEXT.disabled}>{p.id}</span>
+                <span className={STATUS_TEXT[p.status] || STATUS_TEXT.disabled}>{p.id || p.provider}</span>
                 {p.status !== 'healthy' && (
                   <span className={`text-[10px] ${
                     p.status === 'degraded' ? 'text-yellow-500' :

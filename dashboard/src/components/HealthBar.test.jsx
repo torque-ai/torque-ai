@@ -85,6 +85,18 @@ describe('HealthBar', () => {
     expect(screen.getByText('2/5')).toBeInTheDocument();
   });
 
+  it('handles provider field name instead of id (governance handler shape)', async () => {
+    providers.list.mockResolvedValue([
+      { provider: 'codex', enabled: true, status: 'healthy' },
+      { provider: 'ollama', enabled: true, status: 'degraded' },
+    ]);
+    await act(async () => { render(<HealthBar />); });
+    const btn = screen.getByText('Providers:').closest('button');
+    fireEvent.click(btn);
+    expect(screen.getByText('codex')).toBeInTheDocument();
+    expect(screen.getByText('ollama')).toBeInTheDocument();
+  });
+
   it('polls every 30 seconds', async () => {
     await act(async () => { render(<HealthBar />); });
     const callsAfterMount = providers.list.mock.calls.length;
