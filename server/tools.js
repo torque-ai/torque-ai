@@ -46,6 +46,7 @@ const TOOLS = [
   ...require('./tool-defs/auth-defs'),
   ...require('./tool-defs/context-defs'),
   ...require('./tool-defs/dashboard-app-defs'),
+  ...require('./tool-defs/competitive-feature-defs'),
 ];
 
 // ── Merge MCP tool annotations (Phase: MCP ecosystem improvements) ──
