@@ -310,9 +310,9 @@ function createApprovalRule(name, ruleType, condition, options = {}) {
 
   const stmt = db.prepare(`
     INSERT INTO approval_rules (id, name, project, rule_type, condition, required_approvers, auto_approve_after_minutes, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run(id, name, project, ruleType, JSON.stringify(condition), requiredApprovers, autoApproveAfterMinutes);
+  stmt.run(id, name, project, ruleType, JSON.stringify(condition), requiredApprovers, autoApproveAfterMinutes, new Date().toISOString());
   return id;
 }
 
@@ -446,8 +446,8 @@ function checkApprovalRequired(taskOrId) {
         const approvalId = `apr-${taskId}-${rule.id}`;
         const createRequestTxn = db.transaction(() => {
           db.prepare(
-            `INSERT OR IGNORE INTO approval_requests (id, task_id, rule_id, status, requested_at) VALUES (?, ?, ?, 'pending', datetime('now'))`
-          ).run(approvalId, task.id, rule.id);
+            `INSERT OR IGNORE INTO approval_requests (id, task_id, rule_id, status, requested_at) VALUES (?, ?, ?, 'pending', ?)`
+          ).run(approvalId, task.id, rule.id, new Date().toISOString());
           db.prepare(`UPDATE tasks SET approval_status = 'pending' WHERE id = ?`).run(task.id);
         });
 
@@ -544,8 +544,8 @@ function createApprovalRequest(taskId, ruleId) {
     // New request — insert and set task to pending
     db.prepare(`
       INSERT INTO approval_requests (id, task_id, rule_id, status, requested_at)
-      VALUES (?, ?, ?, 'pending', datetime('now'))
-    `).run(id, taskId, ruleId);
+      VALUES (?, ?, ?, 'pending', ?)
+    `).run(id, taskId, ruleId, new Date().toISOString());
 
     db.prepare(`UPDATE tasks SET approval_status = 'pending' WHERE id = ?`).run(taskId);
 
@@ -734,14 +734,15 @@ function processAutoApprovals() {
   `).all();
 
   let autoApproved = 0;
+  const approveRequestStmt = db.prepare(`
+    UPDATE approval_requests
+    SET status = 'approved', approved_at = ?, approved_by = 'auto', auto_approved = 1
+    WHERE id = ?
+  `);
+  const approveTaskStmt = db.prepare(`UPDATE tasks SET approval_status = 'approved' WHERE id = ?`);
   for (const request of pending) {
-    db.prepare(`
-      UPDATE approval_requests
-      SET status = 'approved', approved_at = datetime('now'), approved_by = 'auto', auto_approved = 1
-      WHERE id = ?
-    `).run(request.id);
-
-    db.prepare(`UPDATE tasks SET approval_status = 'approved' WHERE id = ?`).run(request.task_id);
+    approveRequestStmt.run(new Date().toISOString(), request.id);
+    approveTaskStmt.run(request.task_id);
     if (recordTaskEventFn) {
       recordTaskEventFn(request.task_id, 'approval', 'pending', 'auto_approved', null);
     }

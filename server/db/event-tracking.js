@@ -550,13 +550,13 @@ function exportData(options = {}) {
 
   // Export templates
   if (options.templates !== false) {
-    const templatesStmt = db.prepare('SELECT * FROM templates');
+    const templatesStmt = db.prepare('SELECT * FROM templates LIMIT 10000');
     exportObj.data.templates = templatesStmt.all();
   }
 
   // Export pipelines with steps
   if (options.pipelines !== false) {
-    const pipelinesStmt = db.prepare('SELECT * FROM pipelines');
+    const pipelinesStmt = db.prepare('SELECT * FROM pipelines LIMIT 10000');
     const pipelines = pipelinesStmt.all();
     exportObj.data.pipelines = pipelines.map(p => {
       const steps = getPipelineSteps(p.id);
@@ -566,7 +566,7 @@ function exportData(options = {}) {
 
   // Export scheduled tasks
   if (options.scheduled !== false) {
-    const scheduledStmt = db.prepare('SELECT * FROM scheduled_tasks');
+    const scheduledStmt = db.prepare('SELECT * FROM scheduled_tasks LIMIT 10000');
     exportObj.data.scheduled_tasks = scheduledStmt.all().map(s => ({
       ...s,
       tags: safeJsonParse(s.tags, null)

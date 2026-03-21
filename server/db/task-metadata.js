@@ -344,7 +344,7 @@ function removeTaskTags(taskId, tagsToRemove) {
  * Get all unique tags used across all tasks
  */
 function getAllTags() {
-  const rows = db.prepare('SELECT DISTINCT tags FROM tasks WHERE tags IS NOT NULL').all();
+  const rows = db.prepare("SELECT DISTINCT tags FROM tasks WHERE tags IS NOT NULL AND status NOT IN ('deleted')").all();
   const allTags = new Set();
 
   for (const row of rows) {
@@ -442,9 +442,13 @@ function getRetryableTasks(options = {}) {
     options.tags.forEach(tag => values.push(`%"${escapeLikePattern(tag)}"%`));
   }
 
+  query += ' ORDER BY created_at DESC';
+
   if (options.limit) {
     query += ' LIMIT ?';
     values.push(options.limit);
+  } else {
+    query += ' LIMIT 1000';
   }
 
   const stmt = db.prepare(query);
