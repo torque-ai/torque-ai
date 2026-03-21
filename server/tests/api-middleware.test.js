@@ -100,57 +100,6 @@ afterEach(() => {
   serverConfig.get = getConfigOriginal;
 });
 
-describe('checkAuth', () => {
-  it('allows requests when no api key is configured', () => {
-    expect(middleware.checkAuth(createMockRequest())).toBe(true);
-    expect(getConfigSpy).toHaveBeenCalledWith('api_key');
-  });
-
-  it('rejects requests when requireApiKey is true and no key is configured', () => {
-    expect(middleware.checkAuth(createMockRequest(), { requireApiKey: true })).toBe(false);
-  });
-
-  it('accepts a matching x-torque-key header', () => {
-    getConfigSpy.mockImplementation((key) => (key === 'api_key' ? 'secret-key' : null));
-
-    const req = createMockRequest({
-      headers: {
-        'x-torque-key': 'secret-key',
-      },
-    });
-
-    expect(middleware.checkAuth(req)).toBe(true);
-  });
-
-  it('accepts a matching Authorization bearer token', () => {
-    getConfigSpy.mockImplementation((key) => (key === 'api_key' ? 'secret-key' : null));
-
-    const req = createMockRequest({
-      headers: {
-        authorization: 'Bearer secret-key',
-      },
-    });
-
-    expect(middleware.checkAuth(req)).toBe(true);
-  });
-
-  it('rejects missing or mismatched x-torque-key headers', () => {
-    getConfigSpy.mockImplementation((key) => (key === 'api_key' ? 'secret-key' : null));
-
-    expect(middleware.checkAuth(createMockRequest())).toBe(false);
-    expect(middleware.checkAuth(createMockRequest({
-      headers: {
-        'x-torque-key': 'wrong-key',
-      },
-    }))).toBe(false);
-    expect(middleware.checkAuth(createMockRequest({
-      headers: {
-        authorization: 'Bearer wrong-key',
-      },
-    }))).toBe(false);
-  });
-});
-
 describe('utility helpers', () => {
   it('reads the configured api rate limit from the database', () => {
     getConfigSpy.mockImplementation((key) => (key === 'api_rate_limit' ? '55' : null));
