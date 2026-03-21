@@ -545,7 +545,7 @@ const OUTPUT_SCHEMAS = {
     required: ['status'],
   },
 
-  get_integration_health: {
+  integration_health: {
     type: 'object',
     properties: {
       count: { type: 'number' },

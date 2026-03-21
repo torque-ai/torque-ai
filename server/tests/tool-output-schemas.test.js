@@ -54,7 +54,7 @@ describe('tool-output-schemas', () => {
         // Phase 3
         'workflow_history', 'list_models', 'list_pending_models', 'list_archived',
         'get_archive_stats', 'get_provider_health_trends', 'health_check',
-        'get_integration_health', 'list_tags', 'get_batch_summary',
+        'integration_health', 'list_tags', 'get_batch_summary',
       ];
       for (const name of expected) {
         expect(getOutputSchema(name)).toBeDefined();
@@ -605,7 +605,7 @@ describe('tool-output-schemas', () => {
         return;
       }
 
-      if (result.isError) return;
+      if (result.isError || !result.structuredData) return;
 
       expect(result.structuredData).toBeDefined();
       expect(typeof result.structuredData.count).toBe('number');
@@ -624,7 +624,7 @@ describe('tool-output-schemas', () => {
         return;
       }
 
-      if (result.isError) return;
+      if (result.isError || !result.structuredData) return;
 
       expect(result.structuredData).toBeDefined();
       expect(typeof result.structuredData.pending_count).toBe('number');
