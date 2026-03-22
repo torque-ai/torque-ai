@@ -280,40 +280,170 @@ function notifyTaskStatusTransition(taskId, status, previousStatus, updatedTask)
 // ============================================================
 
 /**
- * Inject the current `db` instance into all sub-modules via `setDb(db)`.
- * Also wires `fileTracking.setDataDir` for conflict-tracking path resolution.
+ * Wire all sub-modules via their createXxx factory functions.
+ * Each factory internally calls setDb() plus all cross-module setters,
+ * replacing both _injectDbAll() and _wireCrossModuleDI() in a single pass.
  *
- * Wired sub-modules (26 total, in order):
- *   1.  hostManagement
- *   2.  codeAnalysis
- *   3.  costTracking
- *   4.  workflowEngine
- *   5.  fileTracking          (also receives setDataDir)
- *   6.  schedulingAutomation
- *   7.  taskMetadata
- *   8.  coordination
- *   9.  providerRoutingCore
- *   10. eventTracking
- *   11. analytics
- *   12. webhooksStreaming
- *   13. inboundWebhooks
- *   14. projectConfigCore
- *   15. backupCore
- *   16. emailPeek
- *   17. peekFixtureCatalog
- *   18. packRegistry
- *   19. peekPolicyAudit
- *   20. peekRecoveryApprovals
- *   21. recoveryMetrics
- *   22. policyProfileStore
- *   23. policyEvaluationStore
- *   24. auditStore
- *   25. ciCache               (wired at end of _wireCrossModuleDI)
+ * Modules are wired in topological order (dependency-first):
+ *   Phase 1 — No cross-module deps (just db)
+ *   Phase 2 — Single cross-module dep
+ *   Phase 3 — Multiple cross-module deps
+ *   Phase 4 — Bidirectional deps (use lambdas for forward refs)
+ *   Phase 5 — Special cases (backup-core self-reference, task-core re-wire)
  *
  * Called by: init(), resetForTest(), and backupCore.restoreDatabase() (via setInternals).
  * The DI container (container.js) now provides an alternative access path.
- * This function is still called by init() and resetForTest() for backward compat.
  */
+function _wireAllModules() {
+  // === Phase 1 — No cross-module deps (just db) ===
+  configCore.createConfigCore({ db });
+  taskCore.createTaskCore({ db });  // externalFns wired in Phase 5
+  webhooksStreaming.createWebhooksStreaming({ db });
+  codeAnalysis.createCodeAnalysis({ db });
+  auditStore.createAuditStore({ db });
+  emailPeek.createEmailPeek({ db });
+  peekFixtureCatalog.createPeekFixtureCatalog({ db });
+  packRegistry.createPackRegistry({ db });
+  peekPolicyAudit.createPeekPolicyAudit({ db });
+  peekRecoveryApprovals.createPeekRecoveryApprovals({ db });
+  recoveryMetrics.createRecoveryMetrics({ db });
+  inboundWebhooks.createInboundWebhooks({ db });
+  ciCache.createCiCache({ db });
+  workflowEngine.createWorkflowEngine({ db });
+  validationRules.createValidationRules({ db, taskCore: { getTask } });
+
+  // === Phase 2 — Single cross-module dep ===
+  costTracking.createCostTracking({ db, taskCore: { getTask } });
+  coordination.createCoordination({ db, taskCore: { getTask } });
+  fileTracking.createFileTracking({
+    db,
+    taskCore: { getTask },
+    dataDir: process.env.TORQUE_DATA_DIR || DATA_DIR,
+  });
+  hostManagement.createHostManagement({
+    db,
+    taskCore: { getTask },
+    projectConfigCore: { getProjectRoot: (...a) => projectConfigCore.getProjectRoot(...a) },
+  });
+
+  // === Phase 3 — Multiple cross-module deps ===
+  schedulingAutomation.createSchedulingAutomation({
+    db,
+    taskCore: { getTask },
+    recordTaskEvent: (...a) => webhooksStreaming.recordTaskEvent(...a),
+    getPipeline: (...a) => projectConfigCore.getPipeline(...a),
+    createPipeline: (...a) => projectConfigCore.createPipeline(...a),
+  });
+
+  taskMetadata.createTaskMetadata({
+    db,
+    taskCore: { getTask },
+    getTaskEvents: (...a) => webhooksStreaming.getTaskEvents(...a),
+    getRetryHistory: (...a) => projectConfigCore.getRetryHistory(...a),
+    recordAuditLog: (...a) => schedulingAutomation.recordAuditLog(...a),
+    getApprovalHistory: (...a) => schedulingAutomation.getApprovalHistory(...a),
+    createTaskFn: createTask,
+  });
+
+  // providerRoutingCore expects taskCore as the getTask function directly
+  providerRoutingCore.createProviderRoutingCore({
+    db,
+    taskCore: getTask,
+    hostManagement,
+  });
+
+  // === Phase 4 — Bidirectional deps (use lambdas for forward refs) ===
+  eventTracking.createEventTracking({
+    db,
+    taskCore: { getTask },
+    dbFunctions: {
+      getConfig, getAllConfig,
+      getPipelineSteps: (...a) => projectConfigCore.getPipelineSteps(...a),
+      createTask,
+      getTemplate: (...a) => schedulingAutomation.getTemplate(...a),
+      saveTemplate: (...a) => schedulingAutomation.saveTemplate(...a),
+      deleteTemplate: (...a) => schedulingAutomation.deleteTemplate(...a),
+      getPipeline: (...a) => projectConfigCore.getPipeline(...a),
+      createPipeline: (...a) => projectConfigCore.createPipeline(...a),
+      addPipelineStep: (...a) => projectConfigCore.addPipelineStep(...a),
+      getScheduledTask: (...a) => schedulingAutomation.getScheduledTask(...a),
+      deleteScheduledTask: (...a) => schedulingAutomation.deleteScheduledTask(...a),
+      createScheduledTask: (...a) => schedulingAutomation.createScheduledTask(...a),
+      setCacheConfig: (...a) => projectConfigCore.setCacheConfig(...a),
+      getCacheStats: (...a) => projectConfigCore.getCacheStats(...a),
+    },
+  });
+
+  analytics.createAnalytics({
+    db,
+    taskCore: { getTask },
+    dbFunctions: {
+      getConfig, getAllConfig,
+      getTemplate: (...a) => schedulingAutomation.getTemplate(...a),
+      setCacheConfig: (...a) => projectConfigCore.setCacheConfig(...a),
+      getCacheStats: (...a) => projectConfigCore.getCacheStats(...a),
+    },
+    findSimilarTasks: taskMetadata.findSimilarTasks,
+    setPriorityWeights: analytics.setPriorityWeights,
+  });
+
+  // projectConfigCore expects taskCore as the getTask function directly
+  projectConfigCore.createProjectConfigCore({
+    db,
+    taskCore: getTask,
+    recordEvent: (...a) => eventTracking.recordEvent(...a),
+    dbFunctions: {
+      getConfig, getAllConfig,
+      recordTaskEvent: (...a) => webhooksStreaming.recordTaskEvent(...a),
+      cleanupWebhookLogs: (...a) => webhooksStreaming.cleanupWebhookLogs(...a),
+      cleanupStreamData: (...a) => webhooksStreaming.cleanupStreamData(...a),
+      cleanupCoordinationEvents: (...a) => webhooksStreaming.cleanupCoordinationEvents(...a),
+      getRunningCount,
+      getTokenUsageSummary: (...a) => costTracking.getTokenUsageSummary(...a),
+      getScheduledTask: (...a) => schedulingAutomation.getScheduledTask(...a),
+    },
+  });
+
+  // === Phase 5 — Special cases ===
+
+  // Backup-core needs access to internal helpers for restore
+  backupCore.createBackupCore({
+    db,
+    internals: {
+      getConfig,
+      setConfig,
+      setConfigDefault,
+      safeAddColumn,
+      injectDbAll: _wireAllModules,  // self-reference for restore
+      getDbPath: () => DB_PATH,
+      getDataDir: () => DATA_DIR,
+      setDbRef: (newDb) => { db = newDb; taskCore.setDb(newDb); configCore.setDb(newDb); },
+      isDbClosed: () => dbClosed,
+    },
+  });
+
+  policyProfileStore.createPolicyProfileStore({
+    db,
+    getProjectMetadata: projectConfigCore.getProjectMetadata,
+  });
+
+  policyEvaluationStore.createPolicyEvaluationStore({ db });
+
+  // Re-wire task-core with cross-module dependencies (externalFns)
+  taskCore.createTaskCore({
+    db,
+    externalFns: {
+      getProjectFromPath: (...a) => projectConfigCore.getProjectFromPath(...a),
+      recordEvent: (...a) => eventTracking.recordEvent(...a),
+      escapeLikePattern: (...a) => eventTracking.escapeLikePattern(...a),
+      recordTaskFileWrite: (...a) => fileTracking.recordTaskFileWrite(...a),
+      notifyTaskStatusTransition,
+      getConfig,
+    },
+  });
+}
+
+// DEPRECATED: use _wireAllModules() instead — retained for external references only
 function _injectDbAll() {
   hostManagement.setDb(db);
   codeAnalysis.setDb(db);
@@ -340,83 +470,11 @@ function _injectDbAll() {
   policyProfileStore.setDb(db);
   policyEvaluationStore.setDb(db);
   auditStore.setDb(db);
-  // New sub-modules
   taskCore.setDb(db);
   configCore.setDb(db);
 }
 
-/**
- * Wire all cross-module DI dependencies (setGetTask, setDbFunctions, etc.).
- * Must be called after _injectDbAll() so that sub-modules already hold a DB handle.
- *
- * Cross-references wired (~30 total):
- *
- *   fileTracking
- *     - setGetTask(getTask)
- *
- *   costTracking
- *     - setGetTask(getTask)
- *
- *   hostManagement
- *     - setGetTask(getTask)
- *     - setGetProjectRoot(projectConfigCore.getProjectRoot)
- *
- *   schedulingAutomation
- *     - setGetTask(getTask)
- *     - setRecordTaskEvent → webhooksStreaming.recordTaskEvent (lambda)
- *     - setGetPipeline     → projectConfigCore.getPipeline (lambda)
- *     - setCreatePipeline  → projectConfigCore.createPipeline (lambda)
- *
- *   taskMetadata
- *     - setGetTask(getTask)
- *     - setGetTaskEvents      → webhooksStreaming.getTaskEvents (lambda)
- *     - setGetRetryHistory    → projectConfigCore.getRetryHistory (lambda)
- *     - setRecordAuditLog     → schedulingAutomation.recordAuditLog (lambda)
- *     - setGetApprovalHistory → schedulingAutomation.getApprovalHistory (lambda)
- *     - setCreateTask(createTask)
- *
- *   coordination
- *     - setGetTask(getTask)
- *
- *   providerRoutingCore
- *     - setGetTask(getTask)
- *     - setHostManagement(hostManagement)
- *
- *   eventTracking
- *     - setGetTask(getTask)
- *     - setDbFunctions({ getConfig, getAllConfig, getPipelineSteps, createTask,
- *                        getTemplate, saveTemplate, deleteTemplate, getPipeline,
- *                        createPipeline, addPipelineStep, getScheduledTask,
- *                        deleteScheduledTask, createScheduledTask,
- *                        setCacheConfig, getCacheStats })
- *
- *   analytics
- *     - setGetTask(getTask)
- *     - setDbFunctions({ getConfig, getAllConfig, getTemplate, setCacheConfig, getCacheStats })
- *     - setFindSimilarTasks(taskMetadata.findSimilarTasks)
- *     - setSetPriorityWeights(analytics.setPriorityWeights)
- *
- *   projectConfigCore
- *     - setGetTask(getTask)
- *     - setRecordEvent → eventTracking.recordEvent (lambda)
- *     - setDbFunctions({ getConfig, getAllConfig, recordTaskEvent, cleanupWebhookLogs,
- *                        cleanupStreamData, cleanupCoordinationEvents, getRunningCount,
- *                        getTokenUsageSummary, getScheduledTask })
- *
- *   backupCore
- *     - setInternals({ getConfig, setConfig, setConfigDefault, safeAddColumn,
- *                      injectDbAll, getDbPath, getDataDir, setDbRef, isDbClosed })
- *
- *   policyProfileStore
- *     - setGetProjectMetadata(projectConfigCore.getProjectMetadata)
- *
- *   ciCache
- *     - setDb(db)  ← deferred until here because ciCache is not in _injectDbAll
- *
- * Called by: init(), resetForTest(), and backupCore.restoreDatabase() (via setInternals injectDbAll).
- * The DI container (container.js) now provides an alternative access path.
- * This function is still called by init() and resetForTest() for backward compat.
- */
+// DEPRECATED: use _wireAllModules() instead — retained for external references only
 function _wireCrossModuleDI() {
   fileTracking.setGetTask(getTask);
   costTracking.setGetTask(getTask);
@@ -573,9 +631,8 @@ function init() {
       logger.info('Applied ' + migrationCount + ' database migration(s)');
     }
 
-    // Wire all sub-modules (hostManagement.setDb already called above for migrateToMultiHost)
-    _injectDbAll();
-    _wireCrossModuleDI();
+    // Wire all sub-modules via factory functions (hostManagement.setDb already called above for migrateToMultiHost)
+    _wireAllModules();
 
     const backupInterval = parseInt(getConfig('backup_interval_minutes') || '60', 10);
     if (backupInterval > 0) {
@@ -718,9 +775,8 @@ function resetForTest(buffer) {
   db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
 
-  // Wire all sub-modules
-  _injectDbAll();
-  _wireCrossModuleDI();
+  // Wire all sub-modules via factory functions
+  _wireAllModules();
 
   return db;
 }
@@ -739,6 +795,18 @@ const _DI_INTERNALS = new Set([
   'setGetTaskEvents', 'setGetRetryHistory', 'setRecordAuditLog',
   'setGetApprovalHistory', 'setCreateTask', 'setHostManagement',
   'setGetProjectRoot', 'setDataDir', 'setInternals', 'setGetProjectMetadata',
+  'setExternalFns', 'setDbClosed',
+  // Factory functions (DI setup, not public API)
+  'createConfigCore', 'createTaskCore', 'createWebhooksStreaming',
+  'createCodeAnalysis', 'createAuditStore', 'createEmailPeek',
+  'createPeekFixtureCatalog', 'createPackRegistry', 'createPeekPolicyAudit',
+  'createPeekRecoveryApprovals', 'createRecoveryMetrics', 'createInboundWebhooks',
+  'createCiCache', 'createWorkflowEngine', 'createCostTracking',
+  'createCoordination', 'createFileTracking', 'createHostManagement',
+  'createSchedulingAutomation', 'createTaskMetadata', 'createProviderRoutingCore',
+  'createEventTracking', 'createAnalytics', 'createProjectConfigCore',
+  'createBackupCore', 'createValidationRules', 'createPolicyProfileStore',
+  'createPolicyEvaluationStore',
 ]);
 
 const coreExports = {
@@ -752,8 +820,9 @@ const coreExports = {
   isDbClosed: () => dbClosed,
   isReady: () => !!db && !dbClosed,
   // DI wiring helpers — retained for backward compat (container.js is the preferred path)
-  _injectDbAll,
-  _wireCrossModuleDI,
+  _wireAllModules,
+  _injectDbAll,     // DEPRECATED: use _wireAllModules()
+  _wireCrossModuleDI, // DEPRECATED: use _wireAllModules()
   // Core task operations
   init,
   createTask,
