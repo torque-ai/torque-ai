@@ -7,7 +7,14 @@ const { v4: uuidv4 } = require('uuid');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
-const db = require('../database');
+const database = require('../database');
+const costTracking = require('../db/cost-tracking');
+const eventTracking = require('../db/event-tracking');
+const projectConfigCore = require('../db/project-config-core');
+const providerRoutingCore = require('../db/provider-routing-core');
+const schedulingAutomation = require('../db/scheduling-automation');
+const taskMetadata = require('../db/task-metadata');
+const webhooksStreaming = require('../db/webhooks-streaming');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'webhook-handlers' });
 const { TASK_TIMEOUTS } = require('../constants');
@@ -30,7 +37,7 @@ const { isInternalHost, isValidWebhookUrl, VALID_WEBHOOK_EVENTS, VALID_ALERT_TYP
 async function triggerWebhooks(event, task) {
   try {
     const project = task?.project || null;
-    const webhooks = db.getWebhooksForEvent(event, project);
+    const webhooks = webhooksStreaming.getWebhooksForEvent(event, project);
 
     for (const webhook of webhooks) {
       const maxRetries = webhook.retry_count || 3;
@@ -41,7 +48,7 @@ async function triggerWebhooks(event, task) {
       }
     }
   } catch (outerErr) {
-    // Catch any unexpected errors (e.g., db.getWebhooksForEvent failing)
+    // Catch any unexpected errors (e.g., webhooksStreaming.getWebhooksForEvent failing)
     logger.error(`Webhook trigger error for event ${event}: ${outerErr.message}`);
   }
 }
@@ -104,7 +111,7 @@ async function sendWebhook(webhook, event, task, attempt = 0, maxRetries = 3) {
   // Validate payload size before sending
   if (payloadStr.length > MAX_PAYLOAD_SIZE) {
     const error = new Error(`Webhook payload exceeds maximum size (${payloadStr.length} > ${MAX_PAYLOAD_SIZE})`);
-    db.logWebhookDelivery({
+    webhooksStreaming.logWebhookDelivery({
       webhookId: webhook.id,
       event,
       taskId: task?.id,
@@ -168,7 +175,7 @@ async function sendWebhook(webhook, event, task, attempt = 0, maxRetries = 3) {
     // Security: SSRF protection - use centralized isInternalHost() check
     if (isInternalHost(webhook.url)) {
       const errorMsg = 'SSRF protection: internal/private hosts not allowed';
-      db.logWebhookDelivery({
+      webhooksStreaming.logWebhookDelivery({
         webhookId: webhook.id,
         event,
         taskId: task?.id,
@@ -230,7 +237,7 @@ async function sendWebhook(webhook, event, task, attempt = 0, maxRetries = 3) {
       if (req) {
         req.destroy();
       }
-      db.logWebhookDelivery({
+      webhooksStreaming.logWebhookDelivery({
         webhookId: webhook.id,
         event,
         taskId: task?.id,
@@ -276,7 +283,7 @@ async function sendWebhook(webhook, event, task, attempt = 0, maxRetries = 3) {
       res.on('end', () => {
         const success = res.statusCode >= 200 && res.statusCode < 300 && !responseTooLarge;
 
-        db.logWebhookDelivery({
+        webhooksStreaming.logWebhookDelivery({
           webhookId: webhook.id,
           event,
           taskId: task?.id,
@@ -308,7 +315,7 @@ async function sendWebhook(webhook, event, task, attempt = 0, maxRetries = 3) {
       // Use .once() for timeout since it should only fire once
       socket.once('timeout', () => {
         req.destroy();
-        db.logWebhookDelivery({
+        webhooksStreaming.logWebhookDelivery({
           webhookId: webhook.id,
           event,
           taskId: task?.id,
@@ -326,7 +333,7 @@ async function sendWebhook(webhook, event, task, attempt = 0, maxRetries = 3) {
     });
 
     req.once('error', (error) => {
-      db.logWebhookDelivery({
+      webhooksStreaming.logWebhookDelivery({
         webhookId: webhook.id,
         event,
         taskId: task?.id,
@@ -344,7 +351,7 @@ async function sendWebhook(webhook, event, task, attempt = 0, maxRetries = 3) {
 
     req.once('timeout', () => {
       req.destroy();
-      db.logWebhookDelivery({
+      webhooksStreaming.logWebhookDelivery({
         webhookId: webhook.id,
         event,
         taskId: task?.id,
@@ -366,7 +373,7 @@ async function sendWebhook(webhook, event, task, attempt = 0, maxRetries = 3) {
 }
 
 function executeWebhookDelivery({ webhookId, event, taskId, attempt = 0, maxRetries }) {
-  const webhook = db.getWebhook(webhookId);
+  const webhook = webhooksStreaming.getWebhook(webhookId);
   if (!webhook) {
     return;
   }
@@ -379,7 +386,7 @@ function executeWebhookDelivery({ webhookId, event, taskId, attempt = 0, maxRetr
   }
 
   if (!resolvedEvent || !resolvedTaskId) {
-    const latestLog = db.getWebhookLogs(webhookId, 1).find(log => !log.success);
+    const latestLog = webhooksStreaming.getWebhookLogs(webhookId, 1).find(log => !log.success);
     if (latestLog) {
       resolvedEvent = resolvedEvent || latestLog.event;
       resolvedTaskId = resolvedTaskId || latestLog.task_id;
@@ -390,14 +397,14 @@ function executeWebhookDelivery({ webhookId, event, taskId, attempt = 0, maxRetr
     return;
   }
 
-  const task = resolvedTaskId ? db.getTask(resolvedTaskId) : null;
+  const task = resolvedTaskId ? database.getTask(resolvedTaskId) : null;
 
   sendWebhook(webhook, resolvedEvent, task, attempt, resolvedMaxRetries).catch((err) => {
     logger.debug('[webhook-handlers] async sendWebhook rejected during kickoff:', err.message || err);
   });
 }
 
-db.setWebhookDeliveryExecutor(executeWebhookDelivery);
+webhooksStreaming.setWebhookDeliveryExecutor(executeWebhookDelivery);
 
 
 /**
@@ -517,7 +524,7 @@ function handleAddWebhook(args) {
 
   const webhookId = uuidv4();
 
-  const webhook = db.createWebhook({
+  const webhook = webhooksStreaming.createWebhook({
     id: webhookId,
     name: args.name.trim(),
     url: args.url,
@@ -549,7 +556,7 @@ function handleAddWebhook(args) {
  * List webhooks
  */
 function handleListWebhooks(args) {
-  const webhooks = db.listWebhooks(args.project);
+  const webhooks = webhooksStreaming.listWebhooks(args.project);
 
   if (webhooks.length === 0) {
     return {
@@ -583,13 +590,13 @@ function handleListWebhooks(args) {
  * Remove a webhook
  */
 function handleRemoveWebhook(args) {
-  const webhook = db.getWebhook(args.webhook_id);
+  const webhook = webhooksStreaming.getWebhook(args.webhook_id);
 
   if (!webhook) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Webhook not found: ${args.webhook_id}`);
   }
 
-  db.deleteWebhook(args.webhook_id);
+  webhooksStreaming.deleteWebhook(args.webhook_id);
 
   return {
     content: [{
@@ -606,7 +613,7 @@ function handleRemoveWebhook(args) {
 async function handleTestWebhook(args) {
   try {
   
-  const webhook = db.getWebhook(args.webhook_id);
+  const webhook = webhooksStreaming.getWebhook(args.webhook_id);
 
   if (!webhook) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Webhook not found: ${args.webhook_id}`);
@@ -645,13 +652,13 @@ async function handleTestWebhook(args) {
  * Get webhook delivery logs
  */
 function handleWebhookLogs(args) {
-  const webhook = db.getWebhook(args.webhook_id);
+  const webhook = webhooksStreaming.getWebhook(args.webhook_id);
 
   if (!webhook) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Webhook not found: ${args.webhook_id}`);
   }
 
-  const logs = db.getWebhookLogs(args.webhook_id, safeLimit(args.limit, 20));
+  const logs = webhooksStreaming.getWebhookLogs(args.webhook_id, safeLimit(args.limit, 20));
 
   if (logs.length === 0) {
     return {
@@ -681,7 +688,7 @@ function handleWebhookLogs(args) {
  * Get webhook statistics
  */
 function handleWebhookStats(_args) {
-  const stats = db.getWebhookStats();
+  const stats = webhooksStreaming.getWebhookStats();
 
   let result = `## Webhook Statistics\n\n`;
   result += `### Webhooks\n`;
@@ -714,7 +721,7 @@ function handleConfigureRetries(args) {
     const { error: taskErr } = requireTask(db, args.task_id);
     if (taskErr) return taskErr;
 
-    const task = db.configureTaskRetry(args.task_id, {
+    const task = projectConfigCore.configureTaskRetry(args.task_id, {
       max_retries: args.max_retries,
       retry_strategy: args.strategy,
       retry_delay_seconds: args.base_delay_seconds
@@ -732,13 +739,13 @@ function handleConfigureRetries(args) {
   } else {
     // Set defaults
     if (args.max_retries !== undefined) {
-      db.setConfig('default_max_retries', String(args.max_retries));
+      database.setConfig('default_max_retries', String(args.max_retries));
     }
     if (args.strategy) {
-      db.setConfig('default_retry_strategy', args.strategy);
+      database.setConfig('default_retry_strategy', args.strategy);
     }
     if (args.base_delay_seconds !== undefined) {
-      db.setConfig('default_retry_delay', String(args.base_delay_seconds));
+      database.setConfig('default_retry_delay', String(args.base_delay_seconds));
     }
 
     return {
@@ -762,7 +769,7 @@ function handleGetRetryHistory(args) {
 
   let history;
   if (task_id) {
-    history = db.getRetryAttempts(task_id);
+    history = projectConfigCore.getRetryAttempts(task_id);
   } else {
     // Get all recent retry attempts by querying the retry_attempts table directly
     // For now, return empty if no task_id specified
@@ -822,7 +829,7 @@ function handleAddBudgetAlert(args) {
 
   const alertId = uuidv4();
 
-  const alert = db.createBudgetAlert({
+  const alert = projectConfigCore.createBudgetAlert({
     id: alertId,
     alert_type: args.alert_type,
     threshold_value: args.threshold_value,
@@ -850,7 +857,7 @@ function handleAddBudgetAlert(args) {
  * List budget alerts
  */
 function handleListBudgetAlerts(args) {
-  const alerts = db.listBudgetAlerts({
+  const alerts = projectConfigCore.listBudgetAlerts({
     project: args.project,
     alert_type: args.alert_type
   });
@@ -875,7 +882,7 @@ function handleListBudgetAlerts(args) {
  * Remove a budget alert
  */
 function handleRemoveBudgetAlert(args) {
-  const deleted = db.deleteBudgetAlert(args.alert_id);
+  const deleted = projectConfigCore.deleteBudgetAlert(args.alert_id);
 
   if (!deleted) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Budget alert not found: ${args.alert_id}`);
@@ -892,7 +899,7 @@ function getAutoArchiveStatuses() {
   const raw = serverConfig.get('auto_archive_status');
   if (!raw) return ['completed', 'failed', 'cancelled'];
 
-  const parsed = db.safeJsonParse(raw, null);
+  const parsed = eventTracking.safeJsonParse(raw, null);
   if (Array.isArray(parsed)) return parsed;
 
   const fromCsv = String(raw)
@@ -904,13 +911,13 @@ function getAutoArchiveStatuses() {
 
 function handleConfigureAutoCleanup(args) {
   if (args.auto_archive_days !== undefined) {
-    db.setConfig('auto_archive_days', String(args.auto_archive_days));
+    database.setConfig('auto_archive_days', String(args.auto_archive_days));
   }
   if (args.auto_archive_status) {
-    db.setConfig('auto_archive_status', JSON.stringify(args.auto_archive_status));
+    database.setConfig('auto_archive_status', JSON.stringify(args.auto_archive_status));
   }
   if (args.cleanup_log_days !== undefined) {
-    db.setConfig('cleanup_log_days', String(args.cleanup_log_days));
+    database.setConfig('cleanup_log_days', String(args.cleanup_log_days));
   }
 
   const config = {
@@ -941,7 +948,7 @@ function handleRunMaintenance(args) {
   // Handle schedule configuration
   if (args.schedule) {
     const scheduleId = 'maintenance-' + (taskType === 'all' ? 'full' : taskType);
-    db.setMaintenanceSchedule({
+    schedulingAutomation.setMaintenanceSchedule({
       id: scheduleId,
       task_type: taskType,
       schedule_type: 'interval',
@@ -965,7 +972,7 @@ function handleRunMaintenance(args) {
     const days = serverConfig.getInt('auto_archive_days', 0);
     if (days > 0) {
       const statuses = getAutoArchiveStatuses();
-      const archived = db.archiveTasks({ days_old: days, statuses });
+      const archived = taskMetadata.archiveTasks({ days_old: days, statuses });
       results.push(`Archived ${archived} old tasks`);
     } else {
       results.push('Archive: skipped (disabled)');
@@ -975,8 +982,8 @@ function handleRunMaintenance(args) {
   if (taskType === 'all' || taskType === 'cleanup_logs') {
     const days = serverConfig.getInt('cleanup_log_days', 0);
     if (days > 0) {
-      db.cleanupHealthHistory(days * 24);
-      db.cleanupWebhookLogs(days);
+      projectConfigCore.cleanupHealthHistory(days * 24);
+      webhooksStreaming.cleanupWebhookLogs(days);
       results.push(`Cleaned up logs older than ${days} days`);
     } else {
       results.push('Log cleanup: skipped (disabled)');
@@ -984,7 +991,7 @@ function handleRunMaintenance(args) {
   }
 
   if (taskType === 'all' || taskType === 'aggregate_metrics') {
-    const metrics = db.aggregateSuccessMetrics('day');
+    const metrics = eventTracking.aggregateSuccessMetrics('day');
     results.push(`Aggregated metrics for ${metrics.length} projects`);
   }
 
@@ -1011,7 +1018,7 @@ async function handleNotifySlack(args) {
   if (err) return err;
 
   // Get Slack integration config
-  const integration = db.getEnabledIntegration('slack');
+  const integration = providerRoutingCore.getEnabledIntegration('slack');
   if (!integration) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, 'Slack integration not configured. Use configure_integration first.');
   }
@@ -1024,7 +1031,7 @@ async function handleNotifySlack(args) {
   // Build message
   let text = message;
   if (task_id) {
-    const task = db.getTask(task_id);
+    const task = database.getTask(task_id);
     if (task) {
       text += `\n\n*Task:* \`${task_id}\`\n*Status:* ${task.status}`;
     }
@@ -1076,7 +1083,7 @@ async function handleNotifyDiscord(args) {
   if (err) return err;
 
   // Get Discord integration config
-  const integration = db.getEnabledIntegration('discord');
+  const integration = providerRoutingCore.getEnabledIntegration('discord');
   if (!integration) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, 'Discord integration not configured. Use configure_integration first.');
   }
@@ -1089,7 +1096,7 @@ async function handleNotifyDiscord(args) {
   // Build message
   let content = message;
   if (task_id) {
-    const task = db.getTask(task_id);
+    const task = database.getTask(task_id);
     if (task) {
       content += `\n\n**Task:** \`${task_id}\`\n**Status:** ${task.status}`;
     }
@@ -1174,7 +1181,7 @@ function handleQuickSetupNotifications(args) {
   // Also configure as integration if Slack/Discord
   if (webhookType === 'slack' || webhookType === 'discord') {
     try {
-      db.upsertIntegration(webhookType, { webhook_url: url }, true);
+      database.upsertIntegration(webhookType, { webhook_url: url }, true);
     } catch (err) {
       // Integration config is best-effort — webhook still works via triggerWebhooks
       logger.debug('[webhook-handlers] non-critical error updating webhook integration:', err.message || err);

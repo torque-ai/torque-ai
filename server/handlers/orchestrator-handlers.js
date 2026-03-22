@@ -4,7 +4,7 @@ const { ErrorCodes, makeError } = require('./error-codes');
 const { requireTask } = require('./shared');
 const StrategicBrain = require('../orchestrator/strategic-brain');
 const { BenchmarkHarness } = require('../orchestrator/benchmark');
-const db = require('../database');
+const database = require('../database');
 
 let configLoader = null;
 try {
@@ -137,7 +137,7 @@ async function handleStrategicDiagnose(args) {
     let diagInput = { error_output, provider, exit_code };
 
     if (task_id) {
-      const { task, error: taskErr } = requireTask(db, task_id);
+      const { task, error: taskErr } = requireTask(database, task_id);
       if (taskErr) return taskErr;
 
       diagInput = {
@@ -197,7 +197,7 @@ async function handleStrategicReview(args) {
     let reviewInput = { task_output, validation_failures, file_size_delta_pct };
 
     if (task_id) {
-      const { task, error: taskErr } = requireTask(db, task_id);
+      const { task, error: taskErr } = requireTask(database, task_id);
       if (taskErr) return taskErr;
 
       reviewInput = {

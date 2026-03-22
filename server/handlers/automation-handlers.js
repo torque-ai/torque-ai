@@ -43,9 +43,12 @@ function sanitizeTemplateVariable(value) {
 }
 
 // Lazy-load to avoid circular deps
-let _db, _taskManager;
-function db() { return _db || (_db = require('../database')); }
+let _database, _taskManager, _projectConfigCore, _schedulingAutomation, _workflowEngine;
+function database() { return _database || (_database = require('../database')); }
 function taskManager() { return _taskManager || (_taskManager = require('../task-manager')); }
+function projectConfigCore() { return _projectConfigCore || (_projectConfigCore = require('../db/project-config-core')); }
+function schedulingAutomation() { return _schedulingAutomation || (_schedulingAutomation = require('../db/scheduling-automation')); }
+function workflowEngine() { return _workflowEngine || (_workflowEngine = require('../db/workflow-engine')); }
 
 // Lazy-initialized remote test router (created on first verify call)
 let _verifyRouter = null;
@@ -84,43 +87,43 @@ function handleConfigureStallDetection(args) {
 
   if (typeof thresholdSec === 'number') {
     if (provider === 'all') {
-      db().setConfig('stall_threshold_codex', String(thresholdSec));
-      db().setConfig('stall_threshold_ollama', String(thresholdSec));
-      db().setConfig('stall_threshold_aider', String(thresholdSec));
-      db().setConfig('stall_threshold_claude', String(thresholdSec));
+      database().setConfig('stall_threshold_codex', String(thresholdSec));
+      database().setConfig('stall_threshold_ollama', String(thresholdSec));
+      database().setConfig('stall_threshold_aider', String(thresholdSec));
+      database().setConfig('stall_threshold_claude', String(thresholdSec));
       changes.push(`Set stall threshold to ${thresholdSec}s for all providers`);
     } else {
-      db().setConfig(`stall_threshold_${provider}`, String(thresholdSec));
+      database().setConfig(`stall_threshold_${provider}`, String(thresholdSec));
       changes.push(`Set stall threshold to ${thresholdSec}s for ${provider}`);
     }
   }
 
   if (typeof autoResubmit === 'boolean') {
-    db().setConfig('stall_auto_resubmit', autoResubmit ? '1' : '0');
+    database().setConfig('stall_auto_resubmit', autoResubmit ? '1' : '0');
     changes.push(`Auto-resubmit on stall: ${autoResubmit ? 'enabled' : 'disabled'}`);
   }
 
   if (typeof maxAttempts === 'number') {
-    db().setConfig('stall_recovery_max_attempts', String(maxAttempts));
+    database().setConfig('stall_recovery_max_attempts', String(maxAttempts));
     changes.push(`Max resubmit attempts: ${maxAttempts}`);
   }
 
   // Enable stall detection if setting thresholds
   if (typeof thresholdSec === 'number') {
-    db().setConfig('auto_cancel_stalled', '1');
-    db().setConfig('stall_recovery_enabled', '1');
+    database().setConfig('auto_cancel_stalled', '1');
+    database().setConfig('stall_recovery_enabled', '1');
     changes.push('Stall detection and recovery: enabled');
   }
 
   // Read back current config
   const config = {
-    codex: db().getConfig('stall_threshold_codex') || 'null (excluded)',
-    ollama: db().getConfig('stall_threshold_ollama') || '120',
-    aider: db().getConfig('stall_threshold_aider') || '120',
-    claude: db().getConfig('stall_threshold_claude') || 'null (excluded)',
-    auto_resubmit: db().getConfig('stall_auto_resubmit') === '1',
-    max_attempts: db().getConfig('stall_recovery_max_attempts') || '3',
-    recovery_enabled: db().getConfig('stall_recovery_enabled') !== '0',
+    codex: database().getConfig('stall_threshold_codex') || 'null (excluded)',
+    ollama: database().getConfig('stall_threshold_ollama') || '120',
+    aider: database().getConfig('stall_threshold_aider') || '120',
+    claude: database().getConfig('stall_threshold_claude') || 'null (excluded)',
+    auto_resubmit: database().getConfig('stall_auto_resubmit') === '1',
+    max_attempts: database().getConfig('stall_recovery_max_attempts') || '3',
+    recovery_enabled: database().getConfig('stall_recovery_enabled') !== '0',
   };
 
   let output = '## Stall Detection Configuration\n\n';
@@ -150,27 +153,27 @@ function handleConfigureFreeTierAutoScale(args) {
   const changes = [];
 
   if (typeof args.enabled === 'boolean') {
-    db().setConfig('free_tier_auto_scale_enabled', args.enabled ? 'true' : 'false');
+    database().setConfig('free_tier_auto_scale_enabled', args.enabled ? 'true' : 'false');
     changes.push(`Free-tier auto-scale: ${args.enabled ? 'enabled' : 'disabled'}`);
   }
 
   if (typeof args.queue_depth_threshold === 'number') {
     const threshold = Math.max(1, Math.floor(args.queue_depth_threshold));
-    db().setConfig('free_tier_queue_depth_threshold', String(threshold));
+    database().setConfig('free_tier_queue_depth_threshold', String(threshold));
     changes.push(`Queue depth threshold: ${threshold}`);
   }
 
   if (typeof args.cooldown_seconds === 'number') {
     const cooldown = Math.max(0, Math.floor(args.cooldown_seconds));
-    db().setConfig('free_tier_cooldown_seconds', String(cooldown));
+    database().setConfig('free_tier_cooldown_seconds', String(cooldown));
     changes.push(`Cooldown: ${cooldown}s`);
   }
 
   // Read back current config
   const config = {
-    enabled: db().getConfig('free_tier_auto_scale_enabled') === 'true',
-    queue_depth_threshold: parseInt(db().getConfig('free_tier_queue_depth_threshold') || '3', 10),
-    cooldown_seconds: parseInt(db().getConfig('free_tier_cooldown_seconds') || '60', 10),
+    enabled: database().getConfig('free_tier_auto_scale_enabled') === 'true',
+    queue_depth_threshold: parseInt(database().getConfig('free_tier_queue_depth_threshold') || '3', 10),
+    cooldown_seconds: parseInt(database().getConfig('free_tier_cooldown_seconds') || '60', 10),
   };
 
   let output = '## Free-Tier Auto-Scale Configuration\n\n';
@@ -265,7 +268,7 @@ async function handleAutoVerifyAndFix(args) {
     // If source_task_id provided, retrieve original task context for error-feedback retry
     let sourceTask = null;
     if (sourceTaskId) {
-      try { sourceTask = db().getTask(sourceTaskId); } catch (err) {
+      try { sourceTask = database().getTask(sourceTaskId); } catch (err) {
         logger.debug('[automation-handlers] non-critical error loading source task:', err.message || err);
       }
     }
@@ -286,7 +289,7 @@ async function handleAutoVerifyAndFix(args) {
 
       try {
         const fixId = require('uuid').v4();
-        const fixTask = db().createTask({
+        const fixTask = database().createTask({
           id: fixId,
           task_description: fixTaskDesc,
           working_directory: workingDir,
@@ -426,7 +429,7 @@ function handleGenerateTestTasks(args) {
     if (autoSubmit) {
       try {
         const testId = require('uuid').v4();
-        const testTask = db().createTask({
+        const testTask = database().createTask({
           id: testId,
           task_description: taskDesc,
           working_directory: workingDir,
@@ -543,18 +546,18 @@ function handleSetProjectDefaults(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
   }
 
-  const project = db().getProjectFromPath(workingDir);
+  const project = projectConfigCore().getProjectFromPath(workingDir);
   if (!project) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not determine project from path: ${workingDir}`);
   }
 
   // Ensure custom columns exist
-  db().safeAddColumn('project_config', 'default_provider TEXT');
-  db().safeAddColumn('project_config', 'default_model TEXT');
-  db().safeAddColumn('project_config', 'verify_command TEXT');
-  db().safeAddColumn('project_config', 'auto_fix_enabled INTEGER DEFAULT 0');
-  db().safeAddColumn('project_config', 'test_pattern TEXT');
-  db().safeAddColumn('project_config', 'auto_verify_on_completion INTEGER');
+  database().safeAddColumn('project_config', 'default_provider TEXT');
+  database().safeAddColumn('project_config', 'default_model TEXT');
+  database().safeAddColumn('project_config', 'verify_command TEXT');
+  database().safeAddColumn('project_config', 'auto_fix_enabled INTEGER DEFAULT 0');
+  database().safeAddColumn('project_config', 'test_pattern TEXT');
+  database().safeAddColumn('project_config', 'auto_verify_on_completion INTEGER');
 
   const changes = [];
   const configUpdate = {};
@@ -595,56 +598,56 @@ function handleSetProjectDefaults(args) {
 
   // Remote agent configuration
   if (args.remote_agent_id !== undefined) {
-    db().safeAddColumn('project_config', 'remote_agent_id TEXT');
+    database().safeAddColumn('project_config', 'remote_agent_id TEXT');
     configUpdate.remote_agent_id = args.remote_agent_id || null;
     changes.push(`Remote agent ID: ${args.remote_agent_id || '(cleared)'}`);
   }
   if (args.remote_project_path !== undefined) {
-    db().safeAddColumn('project_config', 'remote_project_path TEXT');
+    database().safeAddColumn('project_config', 'remote_project_path TEXT');
     configUpdate.remote_project_path = args.remote_project_path || null;
     changes.push(`Remote project path: ${args.remote_project_path || '(cleared)'}`);
   }
   if (typeof args.prefer_remote_tests === 'boolean') {
-    db().safeAddColumn('project_config', 'prefer_remote_tests INTEGER DEFAULT 0');
+    database().safeAddColumn('project_config', 'prefer_remote_tests INTEGER DEFAULT 0');
     configUpdate.prefer_remote_tests = args.prefer_remote_tests ? 1 : 0;
     changes.push(`Prefer remote tests: ${args.prefer_remote_tests ? 'enabled' : 'disabled'}`);
   }
 
   // Test station fields
   if (args.test_station_host !== undefined) {
-    db().safeAddColumn('project_config', 'test_station_host TEXT');
+    database().safeAddColumn('project_config', 'test_station_host TEXT');
     configUpdate.test_station_host = args.test_station_host || null;
     changes.push(`Test station host: ${args.test_station_host || '(cleared)'}`);
   }
   if (args.test_station_user !== undefined) {
-    db().safeAddColumn('project_config', 'test_station_user TEXT');
+    database().safeAddColumn('project_config', 'test_station_user TEXT');
     configUpdate.test_station_user = args.test_station_user || null;
     changes.push(`Test station user: ${args.test_station_user || '(cleared)'}`);
   }
   if (args.test_station_project_path !== undefined) {
-    db().safeAddColumn('project_config', 'test_station_project_path TEXT');
+    database().safeAddColumn('project_config', 'test_station_project_path TEXT');
     configUpdate.test_station_project_path = args.test_station_project_path || null;
     changes.push(`Test station project path: ${args.test_station_project_path || '(cleared)'}`);
   }
   if (args.test_station_key_path !== undefined) {
-    db().safeAddColumn('project_config', 'test_station_key_path TEXT');
+    database().safeAddColumn('project_config', 'test_station_key_path TEXT');
     configUpdate.test_station_key_path = args.test_station_key_path || null;
     changes.push(`Test station key path: ${args.test_station_key_path || '(cleared)'}`);
   }
 
   // Use existing setProjectConfig API
   if (Object.keys(configUpdate).length > 0) {
-    db().setProjectConfig(project, configUpdate);
+    projectConfigCore().setProjectConfig(project, configUpdate);
   }
 
   // Persist step_providers via project_metadata (no schema migration needed)
   if (args.step_providers && typeof args.step_providers === 'object') {
-    db().setProjectMetadata(project, 'step_providers', JSON.stringify(args.step_providers));
+    projectConfigCore().setProjectMetadata(project, 'step_providers', JSON.stringify(args.step_providers));
     changes.push(`Step providers: ${JSON.stringify(args.step_providers)}`);
   }
 
   // Read back
-  const config = db().getProjectConfig(project) || {};
+  const config = projectConfigCore().getProjectConfig(project) || {};
 
   let output = `## Project Defaults: ${project}\n\n`;
   if (changes.length > 0) {
@@ -665,18 +668,18 @@ function handleGetProjectDefaults(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
   }
 
-  const project = db().getProjectFromPath(workingDir);
+  const project = projectConfigCore().getProjectFromPath(workingDir);
   if (!project) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not determine project from path: ${workingDir}`);
   }
 
-  const config = db().getProjectConfig(project);
+  const config = projectConfigCore().getProjectConfig(project);
   if (!config) {
     return { content: [{ type: 'text', text: `## Project Defaults: ${project}\n\nNo project configuration found. Use \`set_project_defaults\` to configure.` }] };
   }
 
   // Include step_providers from project_metadata
-  const stepProvidersJson = db().getProjectMetadata(project, 'step_providers');
+  const stepProvidersJson = projectConfigCore().getProjectMetadata(project, 'step_providers');
   let stepProviders = null;
   if (stepProvidersJson) {
     try {
@@ -723,12 +726,12 @@ function handleGetBatchSummary(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required');
   }
 
-  const workflow = db().getWorkflow(workflowId);
+  const workflow = workflowEngine().getWorkflow(workflowId);
   if (!workflow) {
     return makeError(ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow not found: ${workflowId}`);
   }
 
-  const status = db().getWorkflowStatus(workflowId);
+  const status = workflowEngine().getWorkflowStatus(workflowId);
   if (!status) {
     return makeError(ErrorCodes.OPERATION_FAILED, 'Could not get workflow status');
   }
@@ -894,7 +897,7 @@ function handleUpdateProjectStats(args) {
   let testCommand = args.test_command;
   if (!testCommand) {
     try {
-      const defaults = db().getConfig(`project_defaults_${workingDir}`);
+      const defaults = database().getConfig(`project_defaults_${workingDir}`);
       if (defaults) {
         const parsed = JSON.parse(defaults);
         testCommand = parsed.verify_command;
@@ -1044,7 +1047,7 @@ function handleCreateTaskTemplate(args) {
   if (!args.name) return makeError(ErrorCodes.INVALID_PARAM, 'Template name is required');
   if (!args.task_template) return makeError(ErrorCodes.INVALID_PARAM, `task_template is required to create template '${args.name || '(unnamed)'}'`);
 
-  const template = db().saveTemplate({
+  const template = schedulingAutomation().saveTemplate({
     name: args.name,
     description: args.description || null,
     task_template: args.task_template,
@@ -1061,7 +1064,7 @@ function handleCreateTaskTemplate(args) {
 }
 
 function handleListTaskTemplates() {
-  const templates = db().listTemplates();
+  const templates = schedulingAutomation().listTemplates();
   if (templates.length === 0) {
     return { content: [{ type: 'text', text: 'No templates found. Create one with create_task_template.' }] };
   }
@@ -1077,7 +1080,7 @@ async function handleSubmitFromTemplate(args) {
   
   if (!args.template_name) return makeError(ErrorCodes.INVALID_PARAM, 'template_name is required to submit from a task template');
 
-  const template = db().getTemplate(args.template_name);
+  const template = schedulingAutomation().getTemplate(args.template_name);
   if (!template) return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Template "${args.template_name}" not found`);
 
   const variables = args.variables || {};
@@ -1086,7 +1089,7 @@ async function handleSubmitFromTemplate(args) {
     return variables[key] !== undefined ? sanitizeTemplateVariable(variables[key]) : `{{${key}}}`;
   });
 
-  db().incrementTemplateUsage(args.template_name);
+  schedulingAutomation().incrementTemplateUsage(args.template_name);
 
   // Delegate to smart_submit_task handler for automatic provider routing
   return getSmartSubmitHandler()({
@@ -1104,7 +1107,7 @@ async function handleSubmitFromTemplate(args) {
 
 function handleDeleteTaskTemplate(args) {
   if (!args.name) return makeError(ErrorCodes.INVALID_PARAM, 'Template name is required for delete_task_template');
-  const deleted = db().deleteTemplate(args.name);
+  const deleted = schedulingAutomation().deleteTemplate(args.name);
   if (!deleted) return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Template "${args.name}" not found`);
   return { content: [{ type: 'text', text: `Template "${args.name}" deleted successfully.` }] };
 }

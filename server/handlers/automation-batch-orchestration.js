@@ -22,8 +22,14 @@ const { ErrorCodes, makeError, isPathTraversalSafe } = require('./shared');
 const logger = require('../logger').child({ component: 'automation-batch' });
 
 // Lazy-load to avoid circular deps
-let _db;
-function db() { return _db || (_db = require('../database')); }
+let _database;
+function database() { return _database || (_database = require('../database')); }
+let _fileTracking;
+function fileTracking() { return _fileTracking || (_fileTracking = require('../db/file-tracking')); }
+let _projectConfigCore;
+function projectConfigCore() { return _projectConfigCore || (_projectConfigCore = require('../db/project-config-core')); }
+let _workflowEngine;
+function workflowEngine() { return _workflowEngine || (_workflowEngine = require('../db/workflow-engine')); }
 
 function hasShellMetacharacters(value) {
   return /[;&$`|><\n\r]/.test(value);
@@ -68,7 +74,7 @@ function collectTrackedTaskFiles(taskId, workingDir) {
   if (!taskId || !workingDir) return files;
 
   try {
-    const taskChanges = db().getTaskFileChanges(taskId) || [];
+    const taskChanges = fileTracking().getTaskFileChanges(taskId) || [];
     for (const change of taskChanges) {
       if (!change || change.is_outside_workdir) continue;
       addTrackedCommitPath(files, change.relative_path || change.file_path, workingDir);
@@ -82,7 +88,7 @@ function collectTrackedTaskFiles(taskId, workingDir) {
   }
 
   try {
-    const task = db().getTask(taskId);
+    const task = database().getTask(taskId);
     const modifiedFiles = Array.isArray(task?.files_modified) ? task.files_modified : [];
     for (const file of modifiedFiles) {
       const candidate = typeof file === 'string'
@@ -114,7 +120,7 @@ function resolveTaskIdsForCommit(args) {
 
   if (typeof args.workflow_id === 'string' && args.workflow_id.trim()) {
     try {
-      const workflowTasks = db().getWorkflowTasks(args.workflow_id) || [];
+      const workflowTasks = workflowEngine().getWorkflowTasks(args.workflow_id) || [];
       for (const task of workflowTasks) {
         if (task?.id) {
           taskIds.add(task.id);
@@ -658,9 +664,9 @@ async function handleRunBatch(args) {
   const batchName = args.batch_name || `Batch — ${featureName}System`;
 
   // Merge saved step_providers with per-call overrides (per-call wins)
-  const project = db().getProjectFromPath(workingDir);
+  const project = projectConfigCore().getProjectFromPath(workingDir);
   const savedStepProviders = (() => {
-    try { return JSON.parse(db().getProjectMetadata(project, 'step_providers') || '{}'); }
+    try { return JSON.parse(projectConfigCore().getProjectMetadata(project, 'step_providers') || '{}'); }
     catch { return {}; }
   })();
   const stepProviders = { ...savedStepProviders, ...(args.step_providers || {}) };
@@ -774,12 +780,12 @@ function handleDetectFileConflicts(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required');
   }
 
-  const workflow = db().getWorkflow(workflowId);
+  const workflow = workflowEngine().getWorkflow(workflowId);
   if (!workflow) {
     return makeError(ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow not found: ${workflowId}`);
   }
 
-  const status = db().getWorkflowStatus(workflowId);
+  const status = workflowEngine().getWorkflowStatus(workflowId);
   if (!status) {
     return makeError(ErrorCodes.OPERATION_FAILED, 'Could not get workflow status');
   }
@@ -800,7 +806,7 @@ function handleDetectFileConflicts(args) {
     const nodeId = task.node_id || taskId.substring(0, 8);
 
     // Check task result for files_modified
-    const fullTask = db().getTask(taskId);
+    const fullTask = database().getTask(taskId);
     if (!fullTask) continue;
 
     const modifiedFiles = new Set();
@@ -943,7 +949,7 @@ async function handleAutoCommitBatch(args) {
   let verifyCmd = args.verify_command;
   if (!verifyCmd) {
     try {
-      const defaults = db().getConfig(`project_defaults_${workingDir}`);
+      const defaults = database().getConfig(`project_defaults_${workingDir}`);
       if (defaults) {
         const parsed = JSON.parse(defaults);
         verifyCmd = parsed.verify_command;
@@ -1505,9 +1511,9 @@ async function handleRunFullBatch(args) {
   const provider = args.provider || 'codex';
 
   // Merge saved step_providers with per-call overrides (per-call wins)
-  const project = db().getProjectFromPath(workDir);
+  const project = projectConfigCore().getProjectFromPath(workDir);
   const savedStepProviders = (() => {
-    try { return JSON.parse(db().getProjectMetadata(project, 'step_providers') || '{}'); }
+    try { return JSON.parse(projectConfigCore().getProjectMetadata(project, 'step_providers') || '{}'); }
     catch { return {}; }
   })();
   const stepProviders = { ...savedStepProviders, ...(args.step_providers || {}) };

@@ -3,7 +3,11 @@
  * Extracted from tools.js
  */
 
-const db = require('../database');
+const database = require('../database');
+const eventTracking = require('../db/event-tracking');
+const fileTracking = require('../db/file-tracking');
+const hostManagement = require('../db/host-management');
+const providerRoutingCore = require('../db/provider-routing-core');
 const taskManager = require('../task-manager');
 const dashboard = require('../dashboard-server');
 const { ErrorCodes, makeError } = require('./error-codes');
@@ -25,7 +29,7 @@ function handleApproveProviderSwitch(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const task = db.approveProviderSwitch(task_id, new_provider);
+  const task = providerRoutingCore.approveProviderSwitch(task_id, new_provider);
   if (!task) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, 'Task not found or cannot be approved');
   }
@@ -58,7 +62,7 @@ function handleRejectProviderSwitch(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const task = db.rejectProviderSwitch(task_id, reason);
+  const task = providerRoutingCore.rejectProviderSwitch(task_id, reason);
   if (!task) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, 'Task not found or cannot be approved');
   }
@@ -83,8 +87,8 @@ function handleRejectProviderSwitch(args) {
  * @returns {Object} Response payload.
  */
 function handleListProviders() {
-  const providers = db.listProviders();
-  const defaultProvider = db.getDefaultProvider();
+  const providers = providerRoutingCore.listProviders();
+  const defaultProvider = providerRoutingCore.getDefaultProvider();
 
   let output = `## Configured Providers\n\n`;
   output += `**Default Provider:** ${defaultProvider}\n\n`;
@@ -158,7 +162,7 @@ function handleConfigureProvider(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider is required');
   }
 
-  const existingProvider = db.getProvider(provider);
+  const existingProvider = providerRoutingCore.getProvider(provider);
   if (!existingProvider) {
     return makeError(ErrorCodes.INVALID_PARAM, `Unknown provider: ${provider}`);
   }
@@ -191,7 +195,7 @@ function handleConfigureProvider(args) {
   if (quota_error_patterns !== undefined) updates.quota_error_patterns = quota_error_patterns;
   if (max_concurrent !== undefined) updates.max_concurrent = max_concurrent;
 
-  const updated = db.updateProvider(provider, updates);
+  const updated = providerRoutingCore.updateProvider(provider, updates);
 
   let output = `## Provider Updated: ${provider}\n\n`;
   output += `| Setting | Value |\n`;
@@ -218,8 +222,8 @@ function handleProviderStats(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider is required');
   }
 
-  const stats = db.getProviderStats(provider, days);
-  const providerConfig = db.getProvider(provider);
+  const stats = providerRoutingCore.getProviderStats(provider, days);
+  const providerConfig = providerRoutingCore.getProvider(provider);
 
   let output = `## Provider Statistics: ${provider}\n\n`;
   output += `**Period:** Last ${days} days\n\n`;
@@ -277,7 +281,7 @@ function handleSetDefaultProvider(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider is required');
   }
 
-  const availableProviders = db.listProviders().map((entry) => entry.provider);
+  const availableProviders = providerRoutingCore.listProviders().map((entry) => entry.provider);
   if (!availableProviders.includes(providerName)) {
     return makeError(
       ErrorCodes.INVALID_PARAM,
@@ -285,7 +289,7 @@ function handleSetDefaultProvider(args) {
     );
   }
 
-  db.setDefaultProvider(providerName);
+  providerRoutingCore.setDefaultProvider(providerName);
 
   let output = `## Default Provider Updated\n\n`;
   output += `New tasks will now use **${provider}** by default.\n\n`;
@@ -406,7 +410,7 @@ function handleConfigureFallbackChain(args) {
 
   if (parsedChain.length === 0) return makeError(ErrorCodes.INVALID_PARAM, `Fallback chain for provider '${provider}' must not be empty`);
 
-  db.setProviderFallbackChain(provider, parsedChain);
+  providerRoutingCore.setProviderFallbackChain(provider, parsedChain);
 
   return {
     content: [{
@@ -422,7 +426,7 @@ function handleConfigureFallbackChain(args) {
  * @returns {Object} Response payload.
  */
 function handleDetectProviderDegradation(_args) {
-  const degraded = db.detectProviderDegradation();
+  const degraded = fileTracking.detectProviderDegradation();
 
   if (degraded.length === 0) {
     return {
@@ -446,9 +450,9 @@ function handleDetectProviderDegradation(_args) {
 
 function handleGetFormatSuccessRates(args) {
   if (args.model) {
-    const hashline = db.getFormatSuccessRate(args.model, 'hashline');
-    const lite = db.getFormatSuccessRate(args.model, 'hashline-lite');
-    const best = db.getBestFormatForModel(args.model);
+    const hashline = eventTracking.getFormatSuccessRate(args.model, 'hashline');
+    const lite = eventTracking.getFormatSuccessRate(args.model, 'hashline-lite');
+    const best = eventTracking.getBestFormatForModel(args.model);
     let result = `## Format Success Rates: ${args.model}\n\n`;
     result += `| Format | Total | Success | Rate | Avg Duration |\n`;
     result += `|--------|-------|---------|------|-------------|\n`;
@@ -457,7 +461,7 @@ function handleGetFormatSuccessRates(args) {
     result += `**Recommended:** ${best.format || 'insufficient data'} (${best.reason})`;
     return { content: [{ type: 'text', text: result }] };
   }
-  const summary = db.getFormatSuccessRatesSummary();
+  const summary = eventTracking.getFormatSuccessRatesSummary();
   if (summary.length === 0) {
     return { content: [{ type: 'text', text: 'No format success rate data recorded yet.' }] };
   }
@@ -505,8 +509,8 @@ function handleGetProviderHealthTrends(args = {}) {
   }
 
   const result = providerName
-    ? [db.getHealthTrend(providerName, days)].filter(Boolean)
-    : db.listProviders().map((entry) => db.getHealthTrend(entry.provider, days)).filter(Boolean);
+    ? [providerRoutingCore.getHealthTrend(providerName, days)].filter(Boolean)
+    : providerRoutingCore.listProviders().map((entry) => providerRoutingCore.getHealthTrend(entry.provider, days)).filter(Boolean);
 
   return {
     content: [{ type: 'text', text: JSON.stringify(result) }],
@@ -520,7 +524,7 @@ function handleGetProviderHealthTrends(args = {}) {
  * @returns {Object} Response payload.
  */
 function handleGetModelLeaderboard(args) {
-  const leaderboard = db.getModelLeaderboard({
+  const leaderboard = hostManagement.getModelLeaderboard({
     task_type: args.task_type,
     language: args.language,
     days: args.days,
@@ -551,7 +555,7 @@ function handleGetProviderPercentiles(args) {
   }
 
   const fromDate = new Date(Date.now() - days * 86400000).toISOString();
-  const tasks = db.listTasks({ provider, from_date: fromDate, limit: 1000 });
+  const tasks = database.listTasks({ provider, from_date: fromDate, limit: 1000 });
   const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
 
   const durations = taskList

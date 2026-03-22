@@ -1,6 +1,6 @@
 'use strict';
 
-const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
 const { resolveWorkflowConflicts } = require('../execution/conflict-resolver');
 const { requireWorkflow, ErrorCodes, makeError } = require('./shared');
 
@@ -40,7 +40,7 @@ function handleResolveWorkflowConflicts(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required');
   }
 
-  const { workflow, error: wfErr } = requireWorkflow(db, workflowId);
+  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, workflowId);
   if (wfErr) return wfErr;
 
   try {

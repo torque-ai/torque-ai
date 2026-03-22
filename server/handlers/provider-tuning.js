@@ -3,9 +3,10 @@
  * Extracted from provider-handlers.js
  */
 
-const db = require('../database');
+const database = require('../database');
+const hostManagement = require('../db/host-management');
 const serverConfig = require('../config');
-serverConfig.init({ db });
+serverConfig.init({ db: database });
 const { ErrorCodes, makeError } = require('./error-codes');
 
 /**
@@ -106,13 +107,13 @@ function handleSetLlmTuning(args) {
       return makeError(ErrorCodes.INVALID_PARAM, `Unknown preset: ${args.preset}. Available: ${Object.keys(presets).join(', ')}`);
     }
     // Apply preset values
-    if (preset.temperature !== undefined) db.setConfig('ollama_temperature', preset.temperature.toString());
-    if (preset.top_p !== undefined) db.setConfig('ollama_top_p', preset.top_p.toString());
-    if (preset.top_k !== undefined) db.setConfig('ollama_top_k', preset.top_k.toString());
-    if (preset.repeat_penalty !== undefined) db.setConfig('ollama_repeat_penalty', preset.repeat_penalty.toString());
-    if (preset.num_ctx !== undefined) db.setConfig('ollama_num_ctx', preset.num_ctx.toString());
-    if (preset.mirostat !== undefined) db.setConfig('ollama_mirostat', preset.mirostat.toString());
-    db.setConfig('ollama_preset', args.preset);
+    if (preset.temperature !== undefined) database.setConfig('ollama_temperature', preset.temperature.toString());
+    if (preset.top_p !== undefined) database.setConfig('ollama_top_p', preset.top_p.toString());
+    if (preset.top_k !== undefined) database.setConfig('ollama_top_k', preset.top_k.toString());
+    if (preset.repeat_penalty !== undefined) database.setConfig('ollama_repeat_penalty', preset.repeat_penalty.toString());
+    if (preset.num_ctx !== undefined) database.setConfig('ollama_num_ctx', preset.num_ctx.toString());
+    if (preset.mirostat !== undefined) database.setConfig('ollama_mirostat', preset.mirostat.toString());
+    database.setConfig('ollama_preset', args.preset);
     updates.push(`preset → ${args.preset}`);
   }
 
@@ -120,7 +121,7 @@ function handleSetLlmTuning(args) {
     if (args.temperature < 0.1 || args.temperature > 1.0) {
       return makeError(ErrorCodes.INVALID_PARAM, 'temperature must be between 0.1 and 1.0');
     }
-    db.setConfig('ollama_temperature', args.temperature.toString());
+    database.setConfig('ollama_temperature', args.temperature.toString());
     updates.push(`temperature → ${args.temperature}`);
   }
 
@@ -128,7 +129,7 @@ function handleSetLlmTuning(args) {
     if (args.num_ctx < 1024 || args.num_ctx > 32768) {
       return makeError(ErrorCodes.INVALID_PARAM, 'num_ctx must be between 1024 and 32768');
     }
-    db.setConfig('ollama_num_ctx', args.num_ctx.toString());
+    database.setConfig('ollama_num_ctx', args.num_ctx.toString());
     updates.push(`num_ctx → ${args.num_ctx}`);
   }
 
@@ -136,7 +137,7 @@ function handleSetLlmTuning(args) {
     if (args.top_p < 0.1 || args.top_p > 1.0) {
       return makeError(ErrorCodes.INVALID_PARAM, 'top_p must be between 0.1 and 1.0');
     }
-    db.setConfig('ollama_top_p', args.top_p.toString());
+    database.setConfig('ollama_top_p', args.top_p.toString());
     updates.push(`top_p → ${args.top_p}`);
   }
 
@@ -144,7 +145,7 @@ function handleSetLlmTuning(args) {
     if (args.top_k < 1 || args.top_k > 100) {
       return makeError(ErrorCodes.INVALID_PARAM, 'top_k must be between 1 and 100');
     }
-    db.setConfig('ollama_top_k', args.top_k.toString());
+    database.setConfig('ollama_top_k', args.top_k.toString());
     updates.push(`top_k → ${args.top_k}`);
   }
 
@@ -152,7 +153,7 @@ function handleSetLlmTuning(args) {
     if (args.repeat_penalty < 1.0 || args.repeat_penalty > 2.0) {
       return makeError(ErrorCodes.INVALID_PARAM, 'repeat_penalty must be between 1.0 and 2.0');
     }
-    db.setConfig('ollama_repeat_penalty', args.repeat_penalty.toString());
+    database.setConfig('ollama_repeat_penalty', args.repeat_penalty.toString());
     updates.push(`repeat_penalty → ${args.repeat_penalty}`);
   }
 
@@ -160,7 +161,7 @@ function handleSetLlmTuning(args) {
     if (args.num_predict < -1 || args.num_predict > 16384) {
       return makeError(ErrorCodes.INVALID_PARAM, 'num_predict must be -1 (unlimited) or between 1 and 16384');
     }
-    db.setConfig('ollama_num_predict', args.num_predict.toString());
+    database.setConfig('ollama_num_predict', args.num_predict.toString());
     updates.push(`num_predict → ${args.num_predict === -1 ? 'unlimited' : args.num_predict}`);
   }
 
@@ -168,7 +169,7 @@ function handleSetLlmTuning(args) {
     if (![0, 1, 2].includes(args.mirostat)) {
       return makeError(ErrorCodes.INVALID_PARAM, 'mirostat must be 0 (off), 1 (v1), or 2 (v2)');
     }
-    db.setConfig('ollama_mirostat', args.mirostat.toString());
+    database.setConfig('ollama_mirostat', args.mirostat.toString());
     updates.push(`mirostat → ${args.mirostat === 0 ? 'off' : `v${args.mirostat}`}`);
   }
 
@@ -176,7 +177,7 @@ function handleSetLlmTuning(args) {
     if (args.mirostat_tau < 1.0 || args.mirostat_tau > 10.0) {
       return makeError(ErrorCodes.INVALID_PARAM, 'mirostat_tau must be between 1.0 and 10.0');
     }
-    db.setConfig('ollama_mirostat_tau', args.mirostat_tau.toString());
+    database.setConfig('ollama_mirostat_tau', args.mirostat_tau.toString());
     updates.push(`mirostat_tau → ${args.mirostat_tau}`);
   }
 
@@ -184,17 +185,17 @@ function handleSetLlmTuning(args) {
     if (args.mirostat_eta < 0.01 || args.mirostat_eta > 1.0) {
       return makeError(ErrorCodes.INVALID_PARAM, 'mirostat_eta must be between 0.01 and 1.0');
     }
-    db.setConfig('ollama_mirostat_eta', args.mirostat_eta.toString());
+    database.setConfig('ollama_mirostat_eta', args.mirostat_eta.toString());
     updates.push(`mirostat_eta → ${args.mirostat_eta}`);
   }
 
   if (args.seed !== undefined) {
-    db.setConfig('ollama_seed', args.seed.toString());
+    database.setConfig('ollama_seed', args.seed.toString());
     updates.push(`seed → ${args.seed === -1 ? 'random' : args.seed}`);
   }
 
   if (args.aider_edit_format !== undefined) {
-    db.setConfig('aider_edit_format', args.aider_edit_format);
+    database.setConfig('aider_edit_format', args.aider_edit_format);
     updates.push(`aider_edit_format → ${args.aider_edit_format}`);
   }
 
@@ -202,28 +203,28 @@ function handleSetLlmTuning(args) {
     if (args.aider_map_tokens < 512 || args.aider_map_tokens > 4096) {
       return makeError(ErrorCodes.INVALID_PARAM, 'aider_map_tokens must be between 512 and 4096');
     }
-    db.setConfig('aider_map_tokens', args.aider_map_tokens.toString());
+    database.setConfig('aider_map_tokens', args.aider_map_tokens.toString());
     updates.push(`aider_map_tokens → ${args.aider_map_tokens}`);
   }
 
   if (args.aider_auto_commits !== undefined) {
-    db.setConfig('aider_auto_commits', args.aider_auto_commits ? '1' : '0');
+    database.setConfig('aider_auto_commits', args.aider_auto_commits ? '1' : '0');
     updates.push(`aider_auto_commits → ${args.aider_auto_commits ? 'Yes' : 'No'}`);
   }
 
   if (args.aider_subtree_only !== undefined) {
-    db.setConfig('aider_subtree_only', args.aider_subtree_only ? '1' : '0');
+    database.setConfig('aider_subtree_only', args.aider_subtree_only ? '1' : '0');
     updates.push(`aider_subtree_only → ${args.aider_subtree_only ? 'Yes' : 'No'}`);
   }
 
   // Ollama host and auto-start settings
   if (args.host !== undefined) {
-    db.setConfig('ollama_host', args.host);
+    database.setConfig('ollama_host', args.host);
     updates.push(`host → ${args.host}`);
   }
 
   if (args.auto_start_enabled !== undefined) {
-    db.setConfig('ollama_auto_start_enabled', args.auto_start_enabled ? '1' : '0');
+    database.setConfig('ollama_auto_start_enabled', args.auto_start_enabled ? '1' : '0');
     updates.push(`auto_start_enabled → ${args.auto_start_enabled ? 'Yes' : 'No'}`);
   }
 
@@ -231,17 +232,17 @@ function handleSetLlmTuning(args) {
     if (args.auto_start_timeout_ms < 5000 || args.auto_start_timeout_ms > 60000) {
       return makeError(ErrorCodes.INVALID_PARAM, 'auto_start_timeout_ms must be between 5000 and 60000');
     }
-    db.setConfig('ollama_auto_start_timeout_ms', args.auto_start_timeout_ms.toString());
+    database.setConfig('ollama_auto_start_timeout_ms', args.auto_start_timeout_ms.toString());
     updates.push(`auto_start_timeout_ms → ${args.auto_start_timeout_ms}ms`);
   }
 
   if (args.binary_path !== undefined) {
-    db.setConfig('ollama_binary_path', args.binary_path);
+    database.setConfig('ollama_binary_path', args.binary_path);
     updates.push(`binary_path → ${args.binary_path}`);
   }
 
   if (args.auto_detect_wsl_host !== undefined) {
-    db.setConfig('ollama_auto_detect_wsl_host', args.auto_detect_wsl_host ? '1' : '0');
+    database.setConfig('ollama_auto_detect_wsl_host', args.auto_detect_wsl_host ? '1' : '0');
     updates.push(`auto_detect_wsl_host → ${args.auto_detect_wsl_host ? 'Yes' : 'No'}`);
   }
 
@@ -289,31 +290,31 @@ function handleApplyLlmPreset(args) {
   // Apply all preset values
   const applied = [];
   if (presetConfig.temperature !== undefined) {
-    db.setConfig('ollama_temperature', presetConfig.temperature.toString());
+    database.setConfig('ollama_temperature', presetConfig.temperature.toString());
     applied.push(`temperature: ${presetConfig.temperature}`);
   }
   if (presetConfig.top_p !== undefined) {
-    db.setConfig('ollama_top_p', presetConfig.top_p.toString());
+    database.setConfig('ollama_top_p', presetConfig.top_p.toString());
     applied.push(`top_p: ${presetConfig.top_p}`);
   }
   if (presetConfig.top_k !== undefined) {
-    db.setConfig('ollama_top_k', presetConfig.top_k.toString());
+    database.setConfig('ollama_top_k', presetConfig.top_k.toString());
     applied.push(`top_k: ${presetConfig.top_k}`);
   }
   if (presetConfig.repeat_penalty !== undefined) {
-    db.setConfig('ollama_repeat_penalty', presetConfig.repeat_penalty.toString());
+    database.setConfig('ollama_repeat_penalty', presetConfig.repeat_penalty.toString());
     applied.push(`repeat_penalty: ${presetConfig.repeat_penalty}`);
   }
   if (presetConfig.num_ctx !== undefined) {
-    db.setConfig('ollama_num_ctx', presetConfig.num_ctx.toString());
+    database.setConfig('ollama_num_ctx', presetConfig.num_ctx.toString());
     applied.push(`num_ctx: ${presetConfig.num_ctx}`);
   }
   if (presetConfig.mirostat !== undefined) {
-    db.setConfig('ollama_mirostat', presetConfig.mirostat.toString());
+    database.setConfig('ollama_mirostat', presetConfig.mirostat.toString());
     applied.push(`mirostat: ${presetConfig.mirostat === 0 ? 'off' : `v${presetConfig.mirostat}`}`);
   }
 
-  db.setConfig('ollama_preset', preset);
+  database.setConfig('ollama_preset', preset);
 
   let output = `## Preset Applied: ${preset}\n\n`;
   output += `**Settings:**\n`;
@@ -533,7 +534,7 @@ function handleSetModelSettings(args) {
     };
   }
 
-  db.setConfig('ollama_model_settings', JSON.stringify(settings));
+  database.setConfig('ollama_model_settings', JSON.stringify(settings));
 
   let output = `## Model Settings Updated: ${model}\n\n`;
   output += `**Changes applied:**\n`;
@@ -606,7 +607,7 @@ function handleSetModelPrompt(args) {
   try { prompts = JSON.parse(promptsJson); } catch { prompts = {}; }
 
   prompts[model] = prompt;
-  db.setConfig('ollama_model_prompts', JSON.stringify(prompts));
+  database.setConfig('ollama_model_prompts', JSON.stringify(prompts));
 
   let output = `## System Prompt Updated: ${model}\n\n`;
   output += `\`\`\`\n${prompt}\n\`\`\`\n\n`;
@@ -695,7 +696,7 @@ function handleSetInstructionTemplate(args) {
     ? `instruction_template_${provider}_${model}`
     : `instruction_template_${provider}`;
 
-  db.setConfig(configKey, template);
+  database.setConfig(configKey, template);
 
   const targetDesc = model ? `${provider} (model: ${model})` : provider;
   let output = `## Instruction Template Updated: ${targetDesc}\n\n`;
@@ -717,7 +718,7 @@ function handleSetInstructionTemplate(args) {
 function handleToggleInstructionWrapping(args) {
   const { enabled } = args;
 
-  db.setConfig('instruction_wrapping_enabled', enabled ? '1' : '0');
+  database.setConfig('instruction_wrapping_enabled', enabled ? '1' : '0');
 
   let output = `## Instruction Wrapping ${enabled ? 'Enabled' : 'Disabled'}\n\n`;
   if (enabled) {
@@ -783,7 +784,7 @@ function handleSetHardwareTuning(args) {
     if (num_gpu < -1 || num_gpu > 100) {
       return makeError(ErrorCodes.INVALID_PARAM, 'num_gpu must be -1 (auto), 0 (CPU), or 1-100 (layers)');
     }
-    db.setConfig('ollama_num_gpu', num_gpu.toString());
+    database.setConfig('ollama_num_gpu', num_gpu.toString());
     updates.push(`num_gpu → ${num_gpu === -1 ? 'auto' : num_gpu === 0 ? 'CPU only' : num_gpu + ' layers'}`);
   }
 
@@ -791,12 +792,12 @@ function handleSetHardwareTuning(args) {
     if (num_thread < 0 || num_thread > 128) {
       return makeError(ErrorCodes.INVALID_PARAM, 'num_thread must be 0 (auto) or 1-128');
     }
-    db.setConfig('ollama_num_thread', num_thread.toString());
+    database.setConfig('ollama_num_thread', num_thread.toString());
     updates.push(`num_thread → ${num_thread === 0 ? 'auto' : num_thread}`);
   }
 
   if (keep_alive !== undefined) {
-    db.setConfig('ollama_keep_alive', keep_alive);
+    database.setConfig('ollama_keep_alive', keep_alive);
     updates.push(`keep_alive → ${keep_alive}`);
   }
 
@@ -865,7 +866,7 @@ function handleSetAutoTuning(args) {
   const updates = [];
 
   if (enabled !== undefined) {
-    db.setConfig('ollama_auto_tuning_enabled', enabled ? '1' : '0');
+    database.setConfig('ollama_auto_tuning_enabled', enabled ? '1' : '0');
     updates.push(`auto-tuning → ${enabled ? 'enabled' : 'disabled'}`);
   }
 
@@ -888,7 +889,7 @@ function handleSetAutoTuning(args) {
       updates.push(`${rule}.tuning → temp:${tuning.temperature || '-'}, top_k:${tuning.top_k || '-'}, mirostat:${tuning.mirostat || '-'}`);
     }
 
-    db.setConfig('ollama_auto_tuning_rules', JSON.stringify(rules));
+    database.setConfig('ollama_auto_tuning_rules', JSON.stringify(rules));
   }
 
   if (updates.length === 0) {
@@ -939,7 +940,7 @@ async function handleRunBenchmark(args) {
     targetHost = host_url;
     hostName = host_url;
   } else if (host_id) {
-    const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];
+    const hosts = hostManagement.listOllamaHosts ? hostManagement.listOllamaHosts() : [];
     const found = hosts.find(h => h.id === host_id || h.name.toLowerCase() === host_id.toLowerCase());
     if (!found) {
       return {
@@ -953,7 +954,7 @@ async function handleRunBenchmark(args) {
     hostName = found.name;
   } else {
     // Use first healthy host
-    const hosts = db.listOllamaHosts ? db.listOllamaHosts().filter(h => h.enabled && h.status === 'healthy') : [];
+    const hosts = hostManagement.listOllamaHosts ? hostManagement.listOllamaHosts().filter(h => h.enabled && h.status === 'healthy') : [];
     if (hosts.length === 0) {
       return {
         content: [{

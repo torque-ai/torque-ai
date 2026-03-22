@@ -8,7 +8,7 @@
  */
 
 const { randomUUID } = require('crypto');
-const db = require('../database');
+const database = require('../database');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'experiment-handlers' });
 
@@ -56,9 +56,9 @@ function handleSubmitAbTest(args) {
   };
 
   try {
-    const rawDb = db.getDbInstance ? db.getDbInstance() : db;
+    const rawDb = database.getDbInstance ? database.getDbInstance() : database;
     const createBothTasks = rawDb.transaction(() => {
-      db.createTask({
+      database.createTask({
         id: taskIdA,
         task_description: description,
         working_directory: workDir,
@@ -73,7 +73,7 @@ function handleSubmitAbTest(args) {
         }),
       });
 
-      db.createTask({
+      database.createTask({
         id: taskIdB,
         task_description: description,
         working_directory: workDir,
@@ -132,8 +132,8 @@ function handleCompareAbTest(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id_b is required');
   }
 
-  const taskA = db.getTask(args.task_id_a);
-  const taskB = db.getTask(args.task_id_b);
+  const taskA = database.getTask(args.task_id_a);
+  const taskB = database.getTask(args.task_id_b);
 
   if (!taskA) return makeError(ErrorCodes.TASK_NOT_FOUND, `Task A not found: ${args.task_id_a}`);
   if (!taskB) return makeError(ErrorCodes.TASK_NOT_FOUND, `Task B not found: ${args.task_id_b}`);

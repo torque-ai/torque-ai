@@ -8,8 +8,8 @@
 const crypto = require('crypto');
 const { makeError, ErrorCodes } = require('./error-codes');
 
-let _db;
-function db() { return _db || (_db = require('../database')); }
+let _inboundWebhooks;
+function inboundWebhooks() { return _inboundWebhooks || (_inboundWebhooks = require('../db/inbound-webhooks')); }
 
 // ============================================
 // INBOUND WEBHOOK HANDLERS
@@ -40,7 +40,7 @@ function handleCreateInboundWebhook(args) {
   }
 
   // Check for duplicate name
-  const existing = db().getInboundWebhook(name.trim());
+  const existing = inboundWebhooks().getInboundWebhook(name.trim());
   if (existing) {
     return makeError(ErrorCodes.CONFLICT, `Inbound webhook with name '${name.trim()}' already exists`);
   }
@@ -58,7 +58,7 @@ function handleCreateInboundWebhook(args) {
   if (tags) action_config.tags = tags;
   if (working_directory) action_config.working_directory = working_directory;
 
-  const webhook = db().createInboundWebhook({
+  const webhook = inboundWebhooks().createInboundWebhook({
     name: name.trim(),
     source_type: source_type || 'generic',
     secret,
@@ -97,7 +97,7 @@ function handleCreateInboundWebhook(args) {
  * List all inbound webhooks
  */
 function handleListInboundWebhooks() {
-  const webhooks = db().listInboundWebhooks();
+  const webhooks = inboundWebhooks().listInboundWebhooks();
 
   if (webhooks.length === 0) {
     return {
@@ -136,12 +136,12 @@ function handleDeleteInboundWebhook(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'name is required and must be a non-empty string');
   }
 
-  const existing = db().getInboundWebhook(name.trim());
+  const existing = inboundWebhooks().getInboundWebhook(name.trim());
   if (!existing) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Inbound webhook '${name.trim()}' not found`);
   }
 
-  db().deleteInboundWebhook(name.trim());
+  inboundWebhooks().deleteInboundWebhook(name.trim());
 
   return {
     content: [{
@@ -162,7 +162,7 @@ function handleTestInboundWebhook(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'webhook_name is required and must be a non-empty string');
   }
 
-  const webhook = db().getInboundWebhook(webhook_name.trim());
+  const webhook = inboundWebhooks().getInboundWebhook(webhook_name.trim());
   if (!webhook) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Inbound webhook '${webhook_name.trim()}' not found`);
   }

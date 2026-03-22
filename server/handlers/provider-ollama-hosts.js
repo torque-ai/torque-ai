@@ -4,7 +4,9 @@
  */
 
 const os = require('os');
-const db = require('../database');
+const database = require('../database');
+const hostManagement = require('../db/host-management');
+const providerRoutingCore = require('../db/provider-routing-core');
 const taskManager = require('../task-manager');
 const logger = require('../logger').child({ component: 'provider-ollama-hosts' });
 const { TASK_TIMEOUTS } = require('../constants');
@@ -23,11 +25,11 @@ async function handleListOllamaModels(args) {
   const https = require('https');
 
   // Check if multi-host is configured
-  const hosts = db.listOllamaHosts();
+  const hosts = hostManagement.listOllamaHosts();
 
   if (hosts.length > 0 && !args.host) {
     // Multi-host mode: show aggregated models
-    const aggregatedModels = db.getAggregatedModels();
+    const aggregatedModels = hostManagement.getAggregatedModels();
 
     if (aggregatedModels.length === 0) {
       let output = `## No Models Found (Multi-Host)\n\n`;
@@ -147,7 +149,7 @@ async function handleCheckOllamaHealth(args) {
   const fallbackProvider = serverConfig.get('ollama_fallback_provider') || 'codex';
 
   // Check if multi-host is configured
-  const hosts = db.listOllamaHosts();
+  const hosts = hostManagement.listOllamaHosts();
 
   if (hosts.length > 0) {
     // Multi-host mode: check all hosts
@@ -162,19 +164,19 @@ async function handleCheckOllamaHealth(args) {
     }
 
     // Auto-disable hosts that have been down for 24+ hours
-    const staleDisabled = db.disableStaleHosts(24);
+    const staleDisabled = hostManagement.disableStaleHosts(24);
     if (staleDisabled > 0) {
       logger.info(`Auto-disabled ${staleDisabled} stale host(s)`);
     }
 
     // Refresh host list after health checks
-    const updatedHosts = db.listOllamaHosts();
+    const updatedHosts = hostManagement.listOllamaHosts();
     const healthyCount = updatedHosts.filter(h => h.enabled && h.status === 'healthy').length;
     const totalEnabled = updatedHosts.filter(h => h.enabled).length;
 
     // Update the Ollama health cache used by routing
     // This ensures routing knows Ollama is available after health checks
-    db.setOllamaHealthy(healthyCount > 0);
+    providerRoutingCore.setOllamaHealthy(healthyCount > 0);
 
     output += `| Setting | Value |\n`;
     output += `|---------|-------|\n`;
@@ -241,7 +243,7 @@ async function handleCheckOllamaHealth(args) {
   const ollamaHost = serverConfig.get('ollama_host') || 'http://localhost:11434';
 
   // Run health check
-  const healthy = await db.checkOllamaHealth(force_check);
+  const healthy = await providerRoutingCore.checkOllamaHealth(force_check);
 
   let output = `## Ollama Health Status\n\n`;
   output += `| Setting | Value |\n`;
@@ -338,7 +340,7 @@ function handleAddOllamaHost(args) {
   const memoryLimitMb = args.memory_limit_gb ? Math.round(args.memory_limit_gb * 1024) : undefined;
 
   // Check if host already exists
-  const existing = db.getOllamaHost(id);
+  const existing = hostManagement.getOllamaHost(id);
   if (existing) {
     return {
       ...makeError(ErrorCodes.CONFLICT, `Host with ID '${id}' already exists. Use a different ID or remove the existing host first.`)
@@ -346,11 +348,11 @@ function handleAddOllamaHost(args) {
   }
 
   try {
-    const host = db.addOllamaHost({ id, name, url, memory_limit_mb: memoryLimitMb });
+    const host = hostManagement.addOllamaHost({ id, name, url, memory_limit_mb: memoryLimitMb });
 
     // Persist gpu_metrics_port if provided
     if (args.gpu_metrics_port) {
-      db.updateOllamaHost(id, { gpu_metrics_port: args.gpu_metrics_port });
+      hostManagement.updateOllamaHost(id, { gpu_metrics_port: args.gpu_metrics_port });
     }
     const memoryLimitGb = host.memory_limit_mb ? (host.memory_limit_mb / 1024).toFixed(1) : 'Not set';
 
@@ -386,7 +388,7 @@ function handleAddOllamaHost(args) {
 function handleRemoveOllamaHost(args) {
   const { host_id } = args;
 
-  const host = db.getOllamaHost(host_id);
+  const host = hostManagement.getOllamaHost(host_id);
   if (!host) {
     return makeError(ErrorCodes.HOST_NOT_FOUND, `Host not found: ${host_id}`);
   }
@@ -397,7 +399,7 @@ function handleRemoveOllamaHost(args) {
     };
   }
 
-  db.removeOllamaHost(host_id);
+  hostManagement.removeOllamaHost(host_id);
 
   let output = `## Ollama Host Removed\n\n`;
   output += `Host **${host.name}** (\`${host_id}\`) has been removed from the pool.`;
@@ -412,7 +414,7 @@ function handleRemoveOllamaHost(args) {
  * @returns {Object} Response payload.
  */
 function handleCleanupNullIdHosts(_args) {
-  const deletedCount = db.cleanupNullIdHosts();
+  const deletedCount = hostManagement.cleanupNullIdHosts();
 
   let output = `## Null ID Host Cleanup\n\n`;
   if (deletedCount === 0) {
@@ -434,7 +436,7 @@ function handleCleanupNullIdHosts(_args) {
 function handleListOllamaHosts(args) {
   const { enabled_only = false } = args;
 
-  const hosts = db.listOllamaHosts(enabled_only ? { enabled: true } : {});
+  const hosts = hostManagement.listOllamaHosts(enabled_only ? { enabled: true } : {});
 
   if (hosts.length === 0) {
     let output = `## No Ollama Hosts Configured\n\n`;
@@ -525,12 +527,12 @@ function handleListOllamaHosts(args) {
 function handleEnableOllamaHost(args) {
   const { host_id } = args;
 
-  const host = db.getOllamaHost(host_id);
+  const host = hostManagement.getOllamaHost(host_id);
   if (!host) {
     return makeError(ErrorCodes.HOST_NOT_FOUND, `Host not found: ${host_id}`);
   }
 
-  db.enableOllamaHost(host_id);
+  hostManagement.enableOllamaHost(host_id);
 
   return {
     content: [{ type: 'text', text: `Host **${host.name}** (\`${host_id}\`) has been enabled.` }]
@@ -546,12 +548,12 @@ function handleEnableOllamaHost(args) {
 function handleDisableOllamaHost(args) {
   const { host_id } = args;
 
-  const host = db.getOllamaHost(host_id);
+  const host = hostManagement.getOllamaHost(host_id);
   if (!host) {
     return makeError(ErrorCodes.HOST_NOT_FOUND, `Host not found: ${host_id}`);
   }
 
-  db.disableOllamaHost(host_id);
+  hostManagement.disableOllamaHost(host_id);
 
   return {
     content: [{ type: 'text', text: `Host **${host.name}** (\`${host_id}\`) has been disabled. It will not receive new tasks.` }]
@@ -570,13 +572,13 @@ async function handleRecoverOllamaHost(args) {
   const { host_id } = args;
   
 
-  const host = db.getOllamaHost(host_id);
+  const host = hostManagement.getOllamaHost(host_id);
   if (!host) {
     return makeError(ErrorCodes.HOST_NOT_FOUND, `Host not found: ${host_id}`);
   }
 
   // Reset the host status
-  db.recoverOllamaHost(host_id);
+  hostManagement.recoverOllamaHost(host_id);
 
   // Trigger immediate health check
   const healthy = await checkHostHealth(host_id);
@@ -589,7 +591,7 @@ async function handleRecoverOllamaHost(args) {
   output += `| Failures Reset | ${host.consecutive_failures} → 0 |\n`;
   output += `| Health Check | ${healthy ? '✅ Passed' : '❌ Failed'} |\n`;
 
-  const updatedHost = db.getOllamaHost(host_id);
+  const updatedHost = hostManagement.getOllamaHost(host_id);
   output += `| Current Status | ${updatedHost.status} |\n`;
 
   return { content: [{ type: 'text', text: output }] };
@@ -610,13 +612,13 @@ async function handleRefreshHostModels(args) {
   
 
   if (host_id) {
-    const host = db.getOllamaHost(host_id);
+    const host = hostManagement.getOllamaHost(host_id);
     if (!host) {
       return makeError(ErrorCodes.HOST_NOT_FOUND, `Host not found: ${host_id}`);
     }
 
     const healthy = await checkHostHealth(host_id);
-    const updatedHost = db.getOllamaHost(host_id);
+    const updatedHost = hostManagement.getOllamaHost(host_id);
     const hostModels = Array.isArray(updatedHost?.models) ? updatedHost.models : [];
 
     let output = `## Model Refresh: ${host.name}\n\n`;
@@ -648,12 +650,12 @@ async function handleRefreshHostModels(args) {
   }
 
   // Refresh all hosts
-  const hosts = db.listOllamaHosts({ enabled: true });
+  const hosts = hostManagement.listOllamaHosts({ enabled: true });
   const results = [];
 
   for (const host of hosts) {
     const healthy = await checkHostHealth(host.id);
-    const updatedHost = db.getOllamaHost(host.id);
+    const updatedHost = hostManagement.getOllamaHost(host.id);
     const hostModels = Array.isArray(updatedHost?.models) ? updatedHost.models : [];
     results.push({
       id: host.id,
@@ -684,7 +686,7 @@ async function handleRefreshHostModels(args) {
 function handleSetHostMemoryLimit(args) {
   const { host_id, memory_limit_mb } = args;
 
-  const host = db.getOllamaHost(host_id);
+  const host = hostManagement.getOllamaHost(host_id);
   if (!host) {
     return makeError(ErrorCodes.HOST_NOT_FOUND, `Host not found: ${host_id}`);
   }
@@ -692,7 +694,7 @@ function handleSetHostMemoryLimit(args) {
   // Allow 0 or null to disable limit
   const limit = memory_limit_mb > 0 ? Math.round(memory_limit_mb) : null;
 
-  db.updateOllamaHost(host_id, { memory_limit_mb: limit });
+  hostManagement.updateOllamaHost(host_id, { memory_limit_mb: limit });
 
   let output = `## Memory Limit Updated: ${host.name}\n\n`;
   if (limit) {
@@ -729,7 +731,7 @@ function handleSetHostMemoryLimit(args) {
 function handleSetHostMaxConcurrent(args) {
   const { host_id, max_concurrent } = args;
 
-  const host = db.getOllamaHost(host_id);
+  const host = hostManagement.getOllamaHost(host_id);
   if (!host) {
     return makeError(ErrorCodes.HOST_NOT_FOUND, `Host not found: ${host_id}`);
   }
@@ -737,7 +739,7 @@ function handleSetHostMaxConcurrent(args) {
   // Allow 0 to disable limit (unlimited)
   const limit = max_concurrent > 0 ? Math.round(max_concurrent) : 0;
 
-  db.updateOllamaHost(host_id, { max_concurrent: limit });
+  hostManagement.updateOllamaHost(host_id, { max_concurrent: limit });
 
   let output = `## Max Concurrent Updated: ${host.name}\n\n`;
   if (limit > 0) {
@@ -759,7 +761,7 @@ function handleSetHostMaxConcurrent(args) {
  * @returns {Object} Response payload.
  */
 function handleGetHostCapacity(_args) {
-  const hosts = db.listOllamaHosts({ enabled: true });
+  const hosts = hostManagement.listOllamaHosts({ enabled: true });
 
   let output = `## Ollama Host Capacity\n\n`;
   output += `| Host | Status | Running | Max | Available | Memory |\n`;
@@ -802,17 +804,17 @@ function handleConfigureMemoryProtection(args) {
 
   if (args.default_memory_limit_mb !== undefined) {
     const limit = args.default_memory_limit_mb > 0 ? Math.round(args.default_memory_limit_mb) : 0;
-    db.setConfig('default_host_memory_limit_mb', String(limit));
+    database.setConfig('default_host_memory_limit_mb', String(limit));
     changes.push(`Default memory limit: ${limit > 0 ? `${limit} MB (${(limit/1024).toFixed(1)} GB)` : 'Disabled'}`);
   }
 
   if (args.strict_mode !== undefined) {
-    db.setConfig('strict_memory_mode', args.strict_mode ? '1' : '0');
+    database.setConfig('strict_memory_mode', args.strict_mode ? '1' : '0');
     changes.push(`Strict mode: ${args.strict_mode ? 'Enabled' : 'Disabled'}`);
   }
 
   if (args.reject_unknown_sizes !== undefined) {
-    db.setConfig('reject_unknown_model_sizes', args.reject_unknown_sizes ? '1' : '0');
+    database.setConfig('reject_unknown_model_sizes', args.reject_unknown_sizes ? '1' : '0');
     changes.push(`Reject unknown model sizes: ${args.reject_unknown_sizes ? 'Enabled' : 'Disabled'}`);
   }
 
@@ -873,7 +875,7 @@ function handleGetMemoryProtectionStatus(_args) {
   output += `| Reject Unknown Sizes | ${rejectUnknown ? '✅ Enabled' : '❌ Disabled'} | Rejects models without size info |\n\n`;
 
   // Get host memory configs
-  const hosts = db.listOllamaHosts({});
+  const hosts = hostManagement.listOllamaHosts({});
   output += `### Host Memory Limits\n\n`;
   output += `| Host | Memory Limit | Effective Limit | Status |\n`;
   output += `|------|--------------|-----------------|--------|\n`;
@@ -933,7 +935,7 @@ function handleGetDiscoveryStatus(_args) {
   output += `| WSL2 | ${status.isWSL2 ? 'Yes' : 'No'} |\n`;
 
   // List discovered hosts
-  const hosts = db.listOllamaHosts();
+  const hosts = hostManagement.listOllamaHosts();
   const discovered = hosts.filter(h => h.id.startsWith('discovered-'));
 
   if (discovered.length > 0) {
@@ -968,17 +970,17 @@ function handleSetDiscoveryConfig(args) {
   const changes = [];
 
   if (discovery_enabled !== undefined) {
-    db.setConfig('discovery_enabled', discovery_enabled ? '1' : '0');
+    database.setConfig('discovery_enabled', discovery_enabled ? '1' : '0');
     changes.push(`discovery_enabled = ${discovery_enabled}`);
   }
 
   if (discovery_advertise !== undefined) {
-    db.setConfig('discovery_advertise', discovery_advertise ? '1' : '0');
+    database.setConfig('discovery_advertise', discovery_advertise ? '1' : '0');
     changes.push(`discovery_advertise = ${discovery_advertise}`);
   }
 
   if (discovery_browse !== undefined) {
-    db.setConfig('discovery_browse', discovery_browse ? '1' : '0');
+    database.setConfig('discovery_browse', discovery_browse ? '1' : '0');
     changes.push(`discovery_browse = ${discovery_browse}`);
   }
 
@@ -1152,7 +1154,7 @@ function handleGetHostSettings(args) {
     };
   }
 
-  const settings = db.getHostSettings(host_id);
+  const settings = hostManagement.getHostSettings(host_id);
 
   if (!settings) {
     return {
@@ -1199,7 +1201,7 @@ function handleSetHostSettings(args) {
     };
   }
 
-  const host = db.getOllamaHost(host_id);
+  const host = hostManagement.getOllamaHost(host_id);
   if (!host) {
     return {
       content: [{
@@ -1266,13 +1268,13 @@ function handleSetHostSettings(args) {
 
   // max_concurrent is a host-level column, not a JSON setting
   if (max_concurrent !== undefined) {
-    db.updateOllamaHost(host_id, { max_concurrent: max_concurrent });
+    hostManagement.updateOllamaHost(host_id, { max_concurrent: max_concurrent });
     updates.push(`max_concurrent → ${max_concurrent === 0 ? 'unlimited' : max_concurrent}`);
   }
 
   // gpu_metrics_port is a host-level column (port of gpu-metrics-server.js companion)
   if (gpu_metrics_port !== undefined) {
-    db.updateOllamaHost(host_id, { gpu_metrics_port: gpu_metrics_port || null });
+    hostManagement.updateOllamaHost(host_id, { gpu_metrics_port: gpu_metrics_port || null });
     updates.push(`gpu_metrics_port → ${gpu_metrics_port || 'disabled'}`);
   }
 
@@ -1287,7 +1289,7 @@ function handleSetHostSettings(args) {
 
   // Apply settings (skip if only max_concurrent was changed)
   if (Object.keys(settings).length > 0) {
-    db.setHostSettings(host_id, settings);
+    hostManagement.setHostSettings(host_id, settings);
   }
 
   let output = `## Host Settings Updated: ${host.name}\n\n`;
@@ -1302,11 +1304,11 @@ function handleSetHostSettings(args) {
  * Check the health of a specific Ollama host
  */
 async function checkHostHealth(hostId) {
-  const host = db.getOllamaHost(hostId);
+  const host = hostManagement.getOllamaHost(hostId);
   if (!host) return false;
 
   const result = await probeOllamaEndpoint(host.url);
-  db.recordHostHealthCheck(hostId, result.ok, result.ok ? result.models : null);
+  hostManagement.recordHostHealthCheck(hostId, result.ok, result.ok ? result.models : null);
   return result.ok;
 }
 

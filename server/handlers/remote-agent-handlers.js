@@ -71,12 +71,12 @@ function _formatAgentSummary(agent) {
 
 function _getRemoteRouter() {
   const { createRemoteTestRouter } = require('../remote/remote-test-routing');
-  const db = require('../database');
+  const database = require('../database');
   const logger = require('../logger').child({ component: 'remote-agent-handlers' });
 
   return createRemoteTestRouter({
     agentRegistry: module.exports._getRegistry(),
-    db,
+    db: database,
     logger,
   });
 }
@@ -750,12 +750,12 @@ async function runTestsCore(args = {}) {
       return _createCoreError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Required: working_directory');
     }
 
-    const db = require('../database');
-    const project = typeof db.getProjectFromPath === 'function'
-      ? db.getProjectFromPath(workingDirectory)
+    const projectConfigCore = require('../db/project-config-core');
+    const project = typeof projectConfigCore.getProjectFromPath === 'function'
+      ? projectConfigCore.getProjectFromPath(workingDirectory)
       : null;
-    const config = project && typeof db.getProjectConfig === 'function'
-      ? db.getProjectConfig(project)
+    const config = project && typeof projectConfigCore.getProjectConfig === 'function'
+      ? projectConfigCore.getProjectConfig(project)
       : null;
     const verifyCommand = typeof config?.verify_command === 'string'
       ? config.verify_command.trim()
@@ -801,12 +801,12 @@ async function handleRunTests(args = {}) {
       return _createToolError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
     }
 
-    const db = require('../database');
-    const project = typeof db.getProjectFromPath === 'function'
-      ? db.getProjectFromPath(workingDirectory)
+    const projectConfigCore = require('../db/project-config-core');
+    const project = typeof projectConfigCore.getProjectFromPath === 'function'
+      ? projectConfigCore.getProjectFromPath(workingDirectory)
       : null;
-    const config = project && typeof db.getProjectConfig === 'function'
-      ? db.getProjectConfig(project.id || project)
+    const config = project && typeof projectConfigCore.getProjectConfig === 'function'
+      ? projectConfigCore.getProjectConfig(project.id || project)
       : {};
     const verifyCommand = typeof config?.verify_command === 'string'
       ? config.verify_command.trim()

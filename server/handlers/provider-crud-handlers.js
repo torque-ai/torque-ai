@@ -1,9 +1,10 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const db = require('../database');
+const database = require('../database');
+const providerRoutingCore = require('../db/provider-routing-core');
 const taskManager = require('../task-manager');
-const { normalizeProviderTransport } = require('../db/provider-routing-core');
+const { normalizeProviderTransport } = providerRoutingCore;
 const { ErrorCodes, makeError } = require('./error-codes');
 const credentialCrypto = require('../utils/credential-crypto');
 const { safeJsonParse } = require('../utils/json');
@@ -19,11 +20,11 @@ const DEFAULT_TRANSPORT_BY_TYPE = {
 };
 
 function getDatabaseHandle() {
-  if (typeof db.getDb === 'function') {
-    return db.getDb();
+  if (typeof database.getDb === 'function') {
+    return database.getDb();
   }
-  if (typeof db.getDbInstance === 'function') {
-    return db.getDbInstance();
+  if (typeof database.getDbInstance === 'function') {
+    return database.getDbInstance();
   }
   return null;
 }
@@ -179,13 +180,13 @@ function getModelSummary(database, provider) {
 }
 
 function getBestAvailableProvider(removedProvider, task = null) {
-  const providers = typeof db.listProviders === 'function' ? db.listProviders() : [];
+  const providers = typeof providerRoutingCore.listProviders === 'function' ? providerRoutingCore.listProviders() : [];
   const availableProviders = providers.filter((provider) => provider && provider.provider !== removedProvider);
   const enabledProviders = availableProviders.filter((provider) => provider.enabled);
 
-  if (task && typeof db.analyzeTaskForRouting === 'function') {
+  if (task && typeof providerRoutingCore.analyzeTaskForRouting === 'function') {
     try {
-      const routing = db.analyzeTaskForRouting(
+      const routing = providerRoutingCore.analyzeTaskForRouting(
         task.task_description || '',
         task.working_directory || null,
         [],
