@@ -109,6 +109,19 @@ const MIGRATIONS = [
     ].join('; '),
     down: 'DROP TABLE IF EXISTS api_keys',
   },
+  {
+    version: 8,
+    name: 'remove_aider_provider_config',
+    up: [
+      // Delete aider-specific config keys
+      "DELETE FROM config WHERE key IN ('aider_auto_commits', 'aider_auto_switch_format', 'aider_edit_format', 'aider_map_tokens', 'aider_model_edit_formats', 'aider_subtree_only')",
+      // Rename stall_threshold_aider → stall_threshold_hashline (hashline-ollama uses this key)
+      "UPDATE config SET key = 'stall_threshold_hashline' WHERE key = 'stall_threshold_aider'",
+      // Reroute complexity_routing from aider-ollama to hashline-ollama
+      "UPDATE complexity_routing SET target_provider = 'hashline-ollama' WHERE target_provider = 'aider-ollama'",
+    ].join('; '),
+    down: '',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

@@ -500,4 +500,27 @@ describe('db/migrations.js', () => {
     // benchmark_results from migration v6
     expect(tables).toContain('benchmark_results');
   });
+
+  it('migration v8 removes aider config keys and renames stall threshold', () => {
+    const conn = migrationsDb.getDbInstance();
+
+    // Verify aider config keys were removed (they were seeded, then migration deleted them)
+    const aiderKeys = conn.prepare(
+      "SELECT key FROM config WHERE key IN ('aider_auto_commits', 'aider_auto_switch_format', 'aider_edit_format', 'aider_map_tokens', 'aider_model_edit_formats', 'aider_subtree_only')"
+    ).all();
+    expect(aiderKeys).toHaveLength(0);
+
+    // Verify no complexity_routing rows target aider-ollama
+    const aiderRouting = conn.prepare(
+      "SELECT * FROM complexity_routing WHERE target_provider = 'aider-ollama'"
+    ).all();
+    expect(aiderRouting).toHaveLength(0);
+
+    // Verify migration v8 is recorded
+    const applied = conn.prepare(
+      "SELECT * FROM schema_migrations WHERE version = 8"
+    ).get();
+    expect(applied).toBeDefined();
+    expect(applied.name).toBe('remove_aider_provider_config');
+  });
 });

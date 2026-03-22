@@ -33,7 +33,7 @@ const EXPECTED_CONFIG_DEFAULTS = {
   default_provider: 'ollama',
   strategic_provider: 'ollama',
   smart_routing_enabled: '1',
-  smart_routing_default_provider: 'aider-ollama',
+  smart_routing_default_provider: 'hashline-ollama',
   ollama_auto_tuning_enabled: '1',
   codex_enabled: '1',
   max_per_host: '4',

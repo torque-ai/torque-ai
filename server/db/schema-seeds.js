@@ -207,7 +207,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertConfig.run('ollama_host', 'http://localhost:11434');
   insertConfig.run('ollama_model', 'qwen2.5-coder:32b');
   insertConfig.run('smart_routing_enabled', '1');
-  insertConfig.run('smart_routing_default_provider', 'aider-ollama');
+  insertConfig.run('smart_routing_default_provider', 'hashline-ollama');
   insertConfig.run('ollama_fallback_provider', 'codex');
   insertConfig.run('ollama_health_check_enabled', '1');
   insertConfig.run('hashline_capable_models', 'qwen3,qwen2.5-coder:32b,codellama:34b,codestral,gemma2,deepseek-coder-v2,deepseek-r1,qwen2.5:14b');
@@ -373,26 +373,6 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
         tuning: { temperature: 0.3, top_k: 40, mirostat: 2 }
       }
     }));
-  insertConfig.run('aider_edit_format', 'diff');
-  insertConfig.run('aider_map_tokens', '1024');
-  insertConfig.run('aider_auto_commits', '0');
-  insertConfig.run('aider_subtree_only', '1');
-  insertConfig.run('aider_auto_switch_format', '1');
-  insertConfig.run('aider_model_edit_formats', JSON.stringify({
-      'qwen3:32b': 'whole',
-      'qwen3:8b': 'diff',
-      'gemma3:4b': 'whole',
-      'qwen2.5-coder:32b': 'diff',
-      'codellama:34b': 'diff',
-      'codestral:22b': 'diff',
-      'gemma2:27b': 'diff',
-      'deepseek-r1:14b': 'diff',
-      'deepseek-coder-v2:16b': 'whole',
-      'qwen2.5:14b': 'diff',
-      'phi3:14b': 'diff',
-      'llama3:latest': 'whole',    // R98: diff fails — model refuses to generate code
-      'llama3:8b': 'whole'         // R98: diff fails — model refuses to generate code
-    }));
   insertConfig.run('stall_recovery_enabled', '1');
   insertConfig.run('stall_recovery_max_attempts', '3');
   insertConfig.run('max_local_retries', '3');
@@ -416,20 +396,20 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertRule.run('simple-test', 'Test writing (legacy — see integration-handlers test guard)', 'keyword', 'write test|add test|unit test|test case|test file|tests for|comprehensive test|test suite|spec file|write spec|add spec', 'codex', 15, 0, now);
   insertRule.run('commit-msg', 'Commit message generation', 'keyword', 'commit message|git commit', 'ollama', 10, 1, now);
   insertRule.run('explain-code', 'Code explanation tasks', 'keyword', 'explain|what does|how does|describe', 'ollama', 10, 1, now);
-  insertRule.run('simple-refactor', 'Simple refactoring', 'keyword', 'rename|move|extract|inline', 'aider-ollama', 20, 1, now);
-  insertRule.run('config-edit', 'Config file edits', 'extension', '.json|.yaml|.yml|.toml|.ini|.env', 'aider-ollama', 15, 1, now);
-  insertRule.run('boilerplate', 'Boilerplate generation', 'keyword', 'boilerplate|scaffold|template|skeleton', 'aider-ollama', 20, 1, now);
+  insertRule.run('simple-refactor', 'Simple refactoring', 'keyword', 'rename|move|extract|inline', 'hashline-ollama', 20, 1, now);
+  insertRule.run('config-edit', 'Config file edits', 'extension', '.json|.yaml|.yml|.toml|.ini|.env', 'hashline-ollama', 15, 1, now);
+  insertRule.run('boilerplate', 'Boilerplate generation', 'keyword', 'boilerplate|scaffold|template|skeleton', 'hashline-ollama', 20, 1, now);
   insertRule.run('multi-file', 'Multi-file refactoring', 'keyword', 'refactor multiple|across files|all files|entire codebase', 'claude-cli', 80, 1, now);
   insertRule.run('architecture', 'Architectural decisions', 'keyword', 'architecture|design pattern|restructure|redesign', 'claude-cli', 85, 1, now);
   insertRule.run('security', 'Security-sensitive code', 'keyword', 'security|auth|password|encrypt|credential|vulnerability|xss|injection', 'claude-cli', 90, 1, now);
   insertRule.run('complex-debug', 'Complex debugging', 'keyword', 'debug complex|investigate|root cause|deep dive', 'codex', 85, 1, now);
   insertRule.run('api-integration', 'API integrations', 'keyword', 'integrate api|api integration|external api|third-party', 'claude-cli', 75, 1, now);
   insertRule.run('production', 'Production deployments', 'keyword', 'production|deploy|release|publish', 'claude-cli', 90, 1, now);
-  insertRule.run('lang-python', 'Python files (local-friendly)', 'extension', '.py', 'aider-ollama', 30, 1, now);
-  insertRule.run('lang-javascript', 'JavaScript/TypeScript files', 'extension', '.js|.ts|.jsx|.tsx', 'aider-ollama', 30, 1, now);
+  insertRule.run('lang-python', 'Python files (local-friendly)', 'extension', '.py', 'hashline-ollama', 30, 1, now);
+  insertRule.run('lang-javascript', 'JavaScript/TypeScript files', 'extension', '.js|.ts|.jsx|.tsx', 'hashline-ollama', 30, 1, now);
   insertRule.run('lang-csharp', 'C# files (prefer cloud)', 'extension', '.cs', 'claude-cli', 50, 1, now);
-  insertRule.run('lang-powershell', 'PowerShell files', 'extension', '.ps1|.psm1', 'aider-ollama', 35, 1, now);
-  insertRule.run('lang-gdscript', 'GDScript files', 'extension', '.gd', 'aider-ollama', 40, 1, now);
+  insertRule.run('lang-powershell', 'PowerShell files', 'extension', '.ps1|.psm1', 'hashline-ollama', 35, 1, now);
+  insertRule.run('lang-gdscript', 'GDScript files', 'extension', '.gd', 'hashline-ollama', 40, 1, now);
   insertRule.run('xaml-generation', 'XAML file generation (complex markup)', 'extension', '.xaml|.axaml', 'claude-cli', 70, 1, now);
   insertRule.run('implement-service', 'Service/interface implementation', 'keyword', 'implement.*service|implement.*interface|create.*service', 'claude-cli', 75, 1, now);
   insertRule.run('create-view', 'View/component creation', 'keyword', 'create.*view|create.*component|build.*view|build.*component', 'claude-cli', 75, 1, now);
@@ -470,10 +450,10 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       INSERT OR IGNORE INTO failure_patterns (id, name, description, pattern_type, pattern_definition, signature, task_types, provider, occurrence_count, recommended_action, auto_learned, enabled, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-  insertFailurePattern.run('fp-stub-methods', 'Stub Methods', 'Methods with // implementation goes here', 'output', '// implementation|implementation goes here', '// implementation|implementation goes here', 'code_generation', 'aider-ollama', 5, 'retry_with_cloud', 0, 1, now);
-  insertFailurePattern.run('fp-filepath-content', 'File Path as Content', 'File contains only its own path', 'output', '^[a-zA-Z/\\\\:._-]+\\.(cs|xaml|ts|js)$', '^[a-zA-Z/\\\\:._-]+\\.(cs|xaml|ts|js)$', 'code_generation', 'aider-ollama', 3, 'retry_with_cloud', 0, 1, now);
-  insertFailurePattern.run('fp-empty-output', 'Empty Output', 'Task completed but file is empty', 'output', '^$', '^$', 'code_generation', 'aider-ollama', 2, 'retry_with_cloud', 0, 1, now);
-  insertFailurePattern.run('fp-duplicate-class', 'Duplicate Class Definition', 'Same class defined multiple times', 'output', 'class\\s+(\\w+).*class\\s+\\1', 'class\\s+(\\w+).*class\\s+\\1', 'code_generation', 'aider-ollama', 1, 'retry_with_cloud', 0, 1, now);
+  insertFailurePattern.run('fp-stub-methods', 'Stub Methods', 'Methods with // implementation goes here', 'output', '// implementation|implementation goes here', '// implementation|implementation goes here', 'code_generation', 'hashline-ollama', 5, 'retry_with_cloud', 0, 1, now);
+  insertFailurePattern.run('fp-filepath-content', 'File Path as Content', 'File contains only its own path', 'output', '^[a-zA-Z/\\\\:._-]+\\.(cs|xaml|ts|js)$', '^[a-zA-Z/\\\\:._-]+\\.(cs|xaml|ts|js)$', 'code_generation', 'hashline-ollama', 3, 'retry_with_cloud', 0, 1, now);
+  insertFailurePattern.run('fp-empty-output', 'Empty Output', 'Task completed but file is empty', 'output', '^$', '^$', 'code_generation', 'hashline-ollama', 2, 'retry_with_cloud', 0, 1, now);
+  insertFailurePattern.run('fp-duplicate-class', 'Duplicate Class Definition', 'Same class defined multiple times', 'output', 'class\\s+(\\w+).*class\\s+\\1', 'class\\s+(\\w+).*class\\s+\\1', 'code_generation', 'hashline-ollama', 1, 'retry_with_cloud', 0, 1, now);
   insertFailurePattern.run('fp-truncated', 'Truncated Output', 'Output truncated mid-sentence or mid-code', 'output', '[^.;\\}\\)]\\s*$', '[^.;\\}\\)]\\s*$', 'code_generation', 'ollama', 2, 'retry_with_cloud', 0, 1, now);
   const insertRetryRule = db.prepare(`
       INSERT OR IGNORE INTO retry_rules (id, name, description, trigger_type, trigger_condition, action, fallback_provider, max_retries, retry_delay_seconds, enabled, created_at)
@@ -551,8 +531,8 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       INSERT OR IGNORE INTO rate_limits (id, provider, limit_type, max_value, window_seconds, enabled, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-  insertWindowRateLimit.run('rl-ollama-rpm', 'aider-ollama', 'requests', 10, 60, 1, now);
-  insertWindowRateLimit.run('rl-ollama-concurrent', 'aider-ollama', 'concurrent', 4, 0, 1, now);
+  insertWindowRateLimit.run('rl-ollama-rpm', 'hashline-ollama', 'requests', 10, 60, 1, now);
+  insertWindowRateLimit.run('rl-ollama-concurrent', 'hashline-ollama', 'concurrent', 4, 0, 1, now);
   insertWindowRateLimit.run('rl-claude-rpm', 'claude-cli', 'requests', 50, 60, 1, now);
   insertWindowRateLimit.run('rl-claude-concurrent', 'claude-cli', 'concurrent', 5, 0, 1, now);
   const insertBudget = db.prepare(`
@@ -588,7 +568,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
   insertOutputLimit.run('limit-default', null, null, 1048576, 524288, 1, now);
-  insertOutputLimit.run('limit-ollama', 'aider-ollama', null, 524288, 262144, 1, now);
+  insertOutputLimit.run('limit-ollama', 'hashline-ollama', null, 524288, 262144, 1, now);
   const existingComplexityRules = db.prepare('SELECT COUNT(*) as count FROM complexity_routing').get();
   if (existingComplexityRules.count === 0) {
       const now = new Date().toISOString();
