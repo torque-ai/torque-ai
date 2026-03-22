@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const workflowEngine = require('../db/workflow-engine');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer, db;
@@ -23,7 +24,7 @@ afterAll(() => {
 });
 
 function createWorkflow(overrides = {}) {
-  return db.createWorkflow({
+  return workflowEngine.createWorkflow({
     id: overrides.id || randomUUID(),
     name: overrides.name || `workflow-${randomUUID()}`,
     working_directory: os.tmpdir(),
@@ -47,7 +48,7 @@ function addWorkflowTask(workflowId, overrides = {}) {
 }
 
 function updateWorkflowStatus(workflowId, status, fromStatus = 'pending', additionalUpdates = {}) {
-  return db.transitionWorkflowStatus(workflowId, fromStatus, status, additionalUpdates);
+  return workflowEngine.transitionWorkflowStatus(workflowId, fromStatus, status, additionalUpdates);
 }
 
 function updateWorkflowTaskStatus(taskId, status, additionalFields = {}) {
@@ -55,11 +56,11 @@ function updateWorkflowTaskStatus(taskId, status, additionalFields = {}) {
 }
 
 function evaluateDependencies(taskId) {
-  return db.areTaskDependenciesSatisfied(taskId);
+  return workflowEngine.areTaskDependenciesSatisfied(taskId);
 }
 
 function getBlockedTasks(workflowId = null) {
-  return db.getBlockedTasks(workflowId);
+  return workflowEngine.getBlockedTasks(workflowId);
 }
 
 describe('db/workflow-engine module', () => {
@@ -82,7 +83,7 @@ describe('db/workflow-engine module', () => {
   });
 
   it('returns undefined for missing workflows', () => {
-    expect(db.getWorkflow('missing-workflow-id')).toBeUndefined();
+    expect(workflowEngine.getWorkflow('missing-workflow-id')).toBeUndefined();
   });
 
   it('counts workflow tasks and only treats zero-task rows as empty placeholders', () => {
@@ -90,10 +91,10 @@ describe('db/workflow-engine module', () => {
     const seededWorkflow = createWorkflow({ name: 'workflow-seeded' });
     addWorkflowTask(seededWorkflow.id, { workflow_node_id: 'seed-node' });
 
-    expect(db.getWorkflowTaskCount(emptyWorkflow.id)).toBe(0);
-    expect(db.getWorkflowTaskCount(seededWorkflow.id)).toBe(1);
-    expect(db.findEmptyWorkflowPlaceholder('workflow-empty-placeholder', 'pending')?.id).toBe(emptyWorkflow.id);
-    expect(db.findEmptyWorkflowPlaceholder('workflow-seeded', 'pending')).toBeUndefined();
+    expect(workflowEngine.getWorkflowTaskCount(emptyWorkflow.id)).toBe(0);
+    expect(workflowEngine.getWorkflowTaskCount(seededWorkflow.id)).toBe(1);
+    expect(workflowEngine.findEmptyWorkflowPlaceholder('workflow-empty-placeholder', 'pending')?.id).toBe(emptyWorkflow.id);
+    expect(workflowEngine.findEmptyWorkflowPlaceholder('workflow-seeded', 'pending')).toBeUndefined();
   });
 
   it('updates workflow status atomically', () => {
@@ -103,17 +104,17 @@ describe('db/workflow-engine module', () => {
       started_at: new Date().toISOString(),
     });
     expect(started).toBe(true);
-    expect(db.getWorkflow(workflow.id).status).toBe('running');
+    expect(workflowEngine.getWorkflow(workflow.id).status).toBe('running');
 
     const invalid = updateWorkflowStatus(workflow.id, 'completed', 'pending');
     expect(invalid).toBe(false);
-    expect(db.getWorkflow(workflow.id).status).toBe('running');
+    expect(workflowEngine.getWorkflow(workflow.id).status).toBe('running');
 
     const completed = updateWorkflowStatus(workflow.id, 'completed', ['running', 'paused'], {
       completed_at: new Date().toISOString(),
     });
     expect(completed).toBe(true);
-    expect(db.getWorkflow(workflow.id).status).toBe('completed');
+    expect(workflowEngine.getWorkflow(workflow.id).status).toBe('completed');
   });
 
   it('adds tasks to workflows and reads them in deterministic order', () => {
@@ -130,7 +131,7 @@ describe('db/workflow-engine module', () => {
       context: { stage: 'test' },
     });
 
-    const tasks = db.getWorkflowTasks(workflow.id);
+    const tasks = workflowEngine.getWorkflowTasks(workflow.id);
     expect(tasks).toHaveLength(2);
     expect(tasks[0].id).toBe(buildTask.id);
     expect(tasks[1].id).toBe(testTask.id);
@@ -158,7 +159,7 @@ describe('db/workflow-engine module', () => {
     expect(completed.exit_code).toBe(0);
     expect(completed.output).toBe('step complete');
 
-    const taskRows = db.getWorkflowTasks(workflow.id);
+    const taskRows = workflowEngine.getWorkflowTasks(workflow.id);
     expect(taskRows).toHaveLength(1);
     expect(taskRows[0].status).toBe('completed');
   });
@@ -169,13 +170,13 @@ describe('db/workflow-engine module', () => {
     const middle = addWorkflowTask(workflow.id, { workflow_node_id: 'middle' });
     const downstream = addWorkflowTask(workflow.id, { workflow_node_id: 'downstream' });
 
-    db.addTaskDependency({
+    workflowEngine.addTaskDependency({
       workflow_id: workflow.id,
       task_id: middle.id,
       depends_on_task_id: upstream.id,
       on_fail: 'skip',
     });
-    db.addTaskDependency({
+    workflowEngine.addTaskDependency({
       workflow_id: workflow.id,
       task_id: downstream.id,
       depends_on_task_id: middle.id,
@@ -232,25 +233,25 @@ describe('db/workflow-engine module', () => {
     const taskB = addWorkflowTask(workflow.id, { workflow_node_id: 'B' });
     const taskC = addWorkflowTask(workflow.id, { workflow_node_id: 'C' });
 
-    db.addTaskDependency({
+    workflowEngine.addTaskDependency({
       workflow_id: workflow.id,
       task_id: taskB.id,
       depends_on_task_id: taskA.id,
       on_fail: 'skip',
     });
-    db.addTaskDependency({
+    workflowEngine.addTaskDependency({
       workflow_id: workflow.id,
       task_id: taskC.id,
       depends_on_task_id: taskB.id,
       on_fail: 'skip',
     });
 
-    expect(db.wouldCreateCycle(taskA.id, taskC.id, workflow.id)).toBe(true);
-    expect(db.wouldCreateCycle(taskA.id, taskA.id, workflow.id)).toBe(true);
-    expect(db.wouldCreateCycle(taskA.id, 'missing-task', workflow.id)).toBe(false);
+    expect(workflowEngine.wouldCreateCycle(taskA.id, taskC.id, workflow.id)).toBe(true);
+    expect(workflowEngine.wouldCreateCycle(taskA.id, taskA.id, workflow.id)).toBe(true);
+    expect(workflowEngine.wouldCreateCycle(taskA.id, 'missing-task', workflow.id)).toBe(false);
 
     expect(() => {
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflow.id,
         task_id: taskA.id,
         depends_on_task_id: taskC.id,
@@ -258,20 +259,20 @@ describe('db/workflow-engine module', () => {
       });
     }).toThrow(/circular/i);
 
-    const workflowDeps = db.getWorkflowDependencies(workflow.id);
+    const workflowDeps = workflowEngine.getWorkflowDependencies(workflow.id);
     expect(workflowDeps).toHaveLength(2);
     expect(workflowDeps.every((dep) => dep.workflow_id === workflow.id)).toBe(true);
 
-    const middleDependencies = db.getTaskDependencies(taskB.id);
+    const middleDependencies = workflowEngine.getTaskDependencies(taskB.id);
     expect(middleDependencies).toHaveLength(1);
     expect(middleDependencies[0].depends_on_task_id).toBe(taskA.id);
 
-    const dependentsOfA = db.getTaskDependents(taskA.id);
+    const dependentsOfA = workflowEngine.getTaskDependents(taskA.id);
     expect(dependentsOfA).toHaveLength(1);
     expect(dependentsOfA[0].task_id).toBe(taskB.id);
   });
 });
 
 function getWorkflow(id) {
-  return db.getWorkflow(id);
+  return workflowEngine.getWorkflow(id);
 }

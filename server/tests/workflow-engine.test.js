@@ -9,6 +9,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const workflowEngine = require('../db/workflow-engine');
 
 let testDir;
 let origDataDir;
@@ -44,7 +45,7 @@ function teardownDb() {
 
 function createWorkflow(overrides = {}) {
   const id = overrides.id || `wf-${uuidv4()}`;
-  return db.createWorkflow({
+  return workflowEngine.createWorkflow({
     id,
     name: 'Test Workflow',
     description: 'test',
@@ -87,7 +88,7 @@ describe('Workflow Engine Module', () => {
       });
 
       expect(wf.priority).toBe(7);
-      expect(db.getWorkflow(wf.id).priority).toBe(7);
+      expect(workflowEngine.getWorkflow(wf.id).priority).toBe(7);
     });
 
     it('stores context as JSON', () => {
@@ -102,13 +103,13 @@ describe('Workflow Engine Module', () => {
 
   describe('getWorkflow', () => {
     it('returns null for nonexistent workflow', () => {
-      const result = db.getWorkflow('nonexistent-wf');
+      const result = workflowEngine.getWorkflow('nonexistent-wf');
       expect(result).toBeUndefined();
     });
 
     it('parses context JSON', () => {
       const wf = createWorkflow({ context: { key: 'value' } });
-      const fetched = db.getWorkflow(wf.id);
+      const fetched = workflowEngine.getWorkflow(wf.id);
 
       expect(fetched.context).toEqual({ key: 'value' });
     });
@@ -117,7 +118,7 @@ describe('Workflow Engine Module', () => {
   describe('updateWorkflow', () => {
     it('updates name and description', () => {
       const wf = createWorkflow();
-      const updated = db.updateWorkflow(wf.id, {
+      const updated = workflowEngine.updateWorkflow(wf.id, {
         name: 'Updated Name',
         description: 'Updated desc',
       });
@@ -128,22 +129,22 @@ describe('Workflow Engine Module', () => {
 
     it('updates status', () => {
       const wf = createWorkflow();
-      const updated = db.updateWorkflow(wf.id, { status: 'running' });
+      const updated = workflowEngine.updateWorkflow(wf.id, { status: 'running' });
 
       expect(updated.status).toBe('running');
     });
 
     it('updates priority', () => {
       const wf = createWorkflow();
-      const updated = db.updateWorkflow(wf.id, { priority: 11 });
+      const updated = workflowEngine.updateWorkflow(wf.id, { priority: 11 });
 
       expect(updated.priority).toBe(11);
-      expect(db.getWorkflow(wf.id).priority).toBe(11);
+      expect(workflowEngine.getWorkflow(wf.id).priority).toBe(11);
     });
 
     it('updates task counts', () => {
       const wf = createWorkflow();
-      const updated = db.updateWorkflow(wf.id, {
+      const updated = workflowEngine.updateWorkflow(wf.id, {
         total_tasks: 6,
         completed_tasks: 3,
         failed_tasks: 1,
@@ -156,7 +157,7 @@ describe('Workflow Engine Module', () => {
 
     it('returns unchanged workflow when no updates provided', () => {
       const wf = createWorkflow({ name: 'No Change' });
-      const result = db.updateWorkflow(wf.id, {});
+      const result = workflowEngine.updateWorkflow(wf.id, {});
 
       expect(result.name).toBe('No Change');
     });
@@ -165,23 +166,23 @@ describe('Workflow Engine Module', () => {
   describe('transitionWorkflowStatus', () => {
     it('transitions from expected status', () => {
       const wf = createWorkflow();
-      const result = db.transitionWorkflowStatus(wf.id, 'pending', 'running');
+      const result = workflowEngine.transitionWorkflowStatus(wf.id, 'pending', 'running');
 
       expect(result).toBe(true);
-      expect(db.getWorkflow(wf.id).status).toBe('running');
+      expect(workflowEngine.getWorkflow(wf.id).status).toBe('running');
     });
 
     it('fails when current status does not match', () => {
       const wf = createWorkflow();
-      const result = db.transitionWorkflowStatus(wf.id, 'running', 'completed');
+      const result = workflowEngine.transitionWorkflowStatus(wf.id, 'running', 'completed');
 
       expect(result).toBe(false);
-      expect(db.getWorkflow(wf.id).status).toBe('pending');
+      expect(workflowEngine.getWorkflow(wf.id).status).toBe('pending');
     });
 
     it('accepts array of valid from-statuses', () => {
       const wf = createWorkflow();
-      const result = db.transitionWorkflowStatus(wf.id, ['pending', 'paused'], 'running');
+      const result = workflowEngine.transitionWorkflowStatus(wf.id, ['pending', 'paused'], 'running');
 
       expect(result).toBe(true);
     });
@@ -189,11 +190,11 @@ describe('Workflow Engine Module', () => {
     it('applies additional updates on transition', () => {
       const wf = createWorkflow();
       const now = new Date().toISOString();
-      db.transitionWorkflowStatus(wf.id, 'pending', 'completed', {
+      workflowEngine.transitionWorkflowStatus(wf.id, 'pending', 'completed', {
         completed_at: now,
       });
 
-      const updated = db.getWorkflow(wf.id);
+      const updated = workflowEngine.getWorkflow(wf.id);
       expect(updated.status).toBe('completed');
       expect(updated.completed_at).toBe(now);
     });
@@ -201,32 +202,32 @@ describe('Workflow Engine Module', () => {
 
   describe('listWorkflows', () => {
     it('returns all workflows', () => {
-      const list = db.listWorkflows();
+      const list = workflowEngine.listWorkflows();
       expect(Array.isArray(list)).toBe(true);
       expect(list.length).toBeGreaterThanOrEqual(1);
     });
 
     it('filters by status', () => {
       createWorkflow({ id: `wf-list-pending-${Date.now()}` });
-      const list = db.listWorkflows({ status: 'pending' });
+      const list = workflowEngine.listWorkflows({ status: 'pending' });
 
       expect(list.every(w => w.status === 'pending')).toBe(true);
     });
 
     it('respects limit', () => {
-      const list = db.listWorkflows({ limit: 2 });
+      const list = workflowEngine.listWorkflows({ limit: 2 });
       expect(list.length).toBeLessThanOrEqual(2);
     });
 
     it('filters by since date', () => {
       const future = new Date(Date.now() + 86400000).toISOString();
-      const list = db.listWorkflows({ since: future });
+      const list = workflowEngine.listWorkflows({ since: future });
 
       expect(list).toHaveLength(0);
     });
 
     it('orders by created_at desc', () => {
-      const list = db.listWorkflows();
+      const list = workflowEngine.listWorkflows();
       for (let i = 1; i < list.length; i++) {
         expect(new Date(list[i - 1].created_at).getTime())
           .toBeGreaterThanOrEqual(new Date(list[i].created_at).getTime());
@@ -237,14 +238,14 @@ describe('Workflow Engine Module', () => {
   describe('deleteWorkflow', () => {
     it('deletes a workflow and its dependencies', () => {
       const wf = createWorkflow({ id: `wf-del-${Date.now()}` });
-      const result = db.deleteWorkflow(wf.id);
+      const result = workflowEngine.deleteWorkflow(wf.id);
 
       expect(result).toBe(true);
-      expect(db.getWorkflow(wf.id)).toBeUndefined();
+      expect(workflowEngine.getWorkflow(wf.id)).toBeUndefined();
     });
 
     it('returns false for nonexistent workflow', () => {
-      const result = db.deleteWorkflow('nonexistent');
+      const result = workflowEngine.deleteWorkflow('nonexistent');
       expect(result).toBe(false);
     });
   });
@@ -257,7 +258,7 @@ describe('Workflow Engine Module', () => {
       const task1 = createTask({ workflow_id: wf.id });
       const task2 = createTask({ workflow_id: wf.id });
 
-      const depId = db.addTaskDependency({
+      const depId = workflowEngine.addTaskDependency({
         workflow_id: wf.id,
         task_id: task2,
         depends_on_task_id: task1,
@@ -271,7 +272,7 @@ describe('Workflow Engine Module', () => {
       const task1 = createTask({ workflow_id: wf.id });
 
       expect(() => {
-        db.addTaskDependency({
+        workflowEngine.addTaskDependency({
           workflow_id: wf.id,
           task_id: task1,
           depends_on_task_id: task1,
@@ -286,12 +287,12 @@ describe('Workflow Engine Module', () => {
       const task3 = createTask({ workflow_id: wf.id });
 
       // A -> B -> C
-      db.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
-      db.addTaskDependency({ workflow_id: wf.id, task_id: task3, depends_on_task_id: task2 });
+      workflowEngine.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
+      workflowEngine.addTaskDependency({ workflow_id: wf.id, task_id: task3, depends_on_task_id: task2 });
 
       // C -> A would create a cycle
       expect(() => {
-        db.addTaskDependency({ workflow_id: wf.id, task_id: task1, depends_on_task_id: task3 });
+        workflowEngine.addTaskDependency({ workflow_id: wf.id, task_id: task1, depends_on_task_id: task3 });
       }).toThrow(/circular/i);
     });
   });
@@ -302,9 +303,9 @@ describe('Workflow Engine Module', () => {
       const task1 = createTask({ workflow_id: wf.id, status: 'completed' });
       const task2 = createTask({ workflow_id: wf.id });
 
-      db.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
+      workflowEngine.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
 
-      const deps = db.getTaskDependencies(task2);
+      const deps = workflowEngine.getTaskDependencies(task2);
       expect(deps).toHaveLength(1);
       expect(deps[0].depends_on_task_id).toBe(task1);
       expect(deps[0].depends_on_status).toBe('completed');
@@ -318,10 +319,10 @@ describe('Workflow Engine Module', () => {
       const task2 = createTask({ workflow_id: wf.id });
       const task3 = createTask({ workflow_id: wf.id });
 
-      db.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
-      db.addTaskDependency({ workflow_id: wf.id, task_id: task3, depends_on_task_id: task1 });
+      workflowEngine.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
+      workflowEngine.addTaskDependency({ workflow_id: wf.id, task_id: task3, depends_on_task_id: task1 });
 
-      const dependents = db.getTaskDependents(task1);
+      const dependents = workflowEngine.getTaskDependents(task1);
       expect(dependents).toHaveLength(2);
     });
   });
@@ -332,9 +333,9 @@ describe('Workflow Engine Module', () => {
       const task1 = createTask({ workflow_id: wf.id });
       const task2 = createTask({ workflow_id: wf.id });
 
-      db.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
+      workflowEngine.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
 
-      const allDeps = db.getWorkflowDependencies(wf.id);
+      const allDeps = workflowEngine.getWorkflowDependencies(wf.id);
       expect(allDeps.length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -347,13 +348,13 @@ describe('Workflow Engine Module', () => {
       createTask({ workflow_id: wf.id, task_description: 'task A' });
       createTask({ workflow_id: wf.id, task_description: 'task B' });
 
-      const tasks = db.getWorkflowTasks(wf.id);
+      const tasks = workflowEngine.getWorkflowTasks(wf.id);
       expect(tasks).toHaveLength(2);
     });
 
     it('returns empty array for workflow with no tasks', () => {
       const wf = createWorkflow({ id: `wf-empty-${Date.now()}` });
-      const tasks = db.getWorkflowTasks(wf.id);
+      const tasks = workflowEngine.getWorkflowTasks(wf.id);
       expect(tasks).toEqual([]);
     });
   });
@@ -362,7 +363,7 @@ describe('Workflow Engine Module', () => {
 
   describe('getWorkflowStatus', () => {
     it('returns null for nonexistent workflow', () => {
-      const result = db.getWorkflowStatus('nonexistent');
+      const result = workflowEngine.getWorkflowStatus('nonexistent');
       expect(result).toBeNull();
     });
 
@@ -372,9 +373,9 @@ describe('Workflow Engine Module', () => {
       const task2 = createTask({ workflow_id: wf.id, status: 'failed' });
       const _task3 = createTask({ workflow_id: wf.id, status: 'pending' });
 
-      db.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
+      workflowEngine.addTaskDependency({ workflow_id: wf.id, task_id: task2, depends_on_task_id: task1 });
 
-      const status = db.getWorkflowStatus(wf.id);
+      const status = workflowEngine.getWorkflowStatus(wf.id);
 
       expect(status.name).toBe('Test Workflow');
       expect(status.tasks).toBeDefined();
@@ -392,7 +393,7 @@ describe('Workflow Engine Module', () => {
   describe('getWorkflowHistory', () => {
     it('returns empty array for workflow with no tasks', () => {
       const wf = createWorkflow({ id: `wf-hist-empty-${Date.now()}` });
-      const history = db.getWorkflowHistory(wf.id);
+      const history = workflowEngine.getWorkflowHistory(wf.id);
       expect(history).toEqual([]);
     });
 
@@ -404,7 +405,7 @@ describe('Workflow Engine Module', () => {
       db.updateTaskStatus(taskId, 'running');
       db.updateTaskStatus(taskId, 'completed');
 
-      const history = db.getWorkflowHistory(wf.id);
+      const history = workflowEngine.getWorkflowHistory(wf.id);
 
       // Should have created, started, and completed events
       expect(history.length).toBeGreaterThanOrEqual(3);
@@ -428,7 +429,7 @@ describe('Workflow Engine Module', () => {
         started_at: new Date().toISOString(),
       });
 
-      const history = db.getWorkflowHistory(wf.id);
+      const history = workflowEngine.getWorkflowHistory(wf.id);
       const failEvent = history.find(e => e.type === 'task_failed');
       expect(failEvent).toBeDefined();
     });
@@ -439,7 +440,7 @@ describe('Workflow Engine Module', () => {
   describe('Workflow Templates', () => {
     it('creates and retrieves a template', () => {
       const id = `tmpl-${Date.now()}`;
-      db.createWorkflowTemplate({
+      workflowEngine.createWorkflowTemplate({
         id,
         name: 'Feature Template',
         description: 'Standard feature workflow',
@@ -447,14 +448,14 @@ describe('Workflow Engine Module', () => {
         dependency_graph: { events: ['types'] },
       });
 
-      const tmpl = db.getWorkflowTemplate(id);
+      const tmpl = workflowEngine.getWorkflowTemplate(id);
       expect(tmpl.name).toBe('Feature Template');
       expect(tmpl.task_definitions).toHaveLength(1);
       expect(tmpl.dependency_graph).toEqual({ events: ['types'] });
     });
 
     it('lists templates', () => {
-      const templates = db.listWorkflowTemplates();
+      const templates = workflowEngine.listWorkflowTemplates();
       expect(Array.isArray(templates)).toBe(true);
     });
 
@@ -463,50 +464,50 @@ describe('Workflow Engine Module', () => {
       const literalId = `tmpl-like-literal-${id}`;
       const wildcardId = `tmpl-like-wildcard-${id}`;
 
-      db.createWorkflowTemplate({
+      workflowEngine.createWorkflowTemplate({
         id: literalId,
         name: `Template ${id} %_ literal`,
         task_definitions: [],
         dependency_graph: {},
       });
-      db.createWorkflowTemplate({
+      workflowEngine.createWorkflowTemplate({
         id: wildcardId,
         name: `Template ${id} ab literal`,
         task_definitions: [],
         dependency_graph: {},
       });
 
-      const templates = db.listWorkflowTemplates({ filter: `${id} %_` });
+      const templates = workflowEngine.listWorkflowTemplates({ filter: `${id} %_` });
 
       expect(templates.map(t => t.id)).toEqual([literalId]);
     });
 
     it('finds template by name', () => {
       const id = `tmpl-name-${Date.now()}`;
-      db.createWorkflowTemplate({
+      workflowEngine.createWorkflowTemplate({
         id,
         name: `Unique Name ${id}`,
         task_definitions: [],
         dependency_graph: {},
       });
 
-      const tmpl = db.getWorkflowTemplateByName(`Unique Name ${id}`);
+      const tmpl = workflowEngine.getWorkflowTemplateByName(`Unique Name ${id}`);
       expect(tmpl).toBeDefined();
       expect(tmpl.id).toBe(id);
     });
 
     it('deletes a template', () => {
       const id = `tmpl-del-${Date.now()}`;
-      db.createWorkflowTemplate({
+      workflowEngine.createWorkflowTemplate({
         id,
         name: 'Delete Me',
         task_definitions: [],
         dependency_graph: {},
       });
 
-      const result = db.deleteWorkflowTemplate(id);
+      const result = workflowEngine.deleteWorkflowTemplate(id);
       expect(result).toBe(true);
-      expect(db.getWorkflowTemplate(id)).toBeUndefined();
+      expect(workflowEngine.getWorkflowTemplate(id)).toBeUndefined();
     });
   });
 });

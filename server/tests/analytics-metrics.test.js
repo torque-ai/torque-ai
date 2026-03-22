@@ -7,6 +7,9 @@ let testDir;
 let origDataDir;
 let db;
 let mod;
+const schedulingAutomation = require('../db/scheduling-automation');
+const projectConfigCore = require('../db/project-config-core');
+
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -24,18 +27,18 @@ function setup() {
   mod.setDb(db.getDb());
   mod.setGetTask(db.getTask);
   mod.setDbFunctions({
-    getCacheStats: db.getCacheStats,
-    setCacheConfig: db.setCacheConfig,
-    getTemplate: db.getTemplate,
-    saveTemplate: db.saveTemplate,
-    deleteTemplate: db.deleteTemplate,
-    getPipeline: db.getPipeline,
-    createPipeline: db.createPipeline,
-    addPipelineStep: db.addPipelineStep,
-    getPipelineSteps: db.getPipelineSteps,
-    getScheduledTask: db.getScheduledTask,
-    deleteScheduledTask: db.deleteScheduledTask,
-    createScheduledTask: db.createScheduledTask,
+    getCacheStats: projectConfigCore.getCacheStats,
+    setCacheConfig: projectConfigCore.setCacheConfig,
+    getTemplate: schedulingAutomation.getTemplate,
+    saveTemplate: schedulingAutomation.saveTemplate,
+    deleteTemplate: schedulingAutomation.deleteTemplate,
+    getPipeline: projectConfigCore.getPipeline,
+    createPipeline: projectConfigCore.createPipeline,
+    addPipelineStep: projectConfigCore.addPipelineStep,
+    getPipelineSteps: projectConfigCore.getPipelineSteps,
+    getScheduledTask: schedulingAutomation.getScheduledTask,
+    deleteScheduledTask: schedulingAutomation.deleteScheduledTask,
+    createScheduledTask: projectConfigCore.createScheduledTask,
     getAllConfig: db.getAllConfig,
     createTask: db.createTask,
     getConfig: db.getConfig
@@ -442,26 +445,26 @@ describe('analytics-metrics module', () => {
     });
 
     it('exportData includes templates, pipelines, scheduled tasks, and config', () => {
-      db.saveTemplate({
+      schedulingAutomation.saveTemplate({
         name: 'tpl-export',
         description: 'template export',
         task_template: 'echo hi',
         default_timeout: 15
       });
-      db.createPipeline({
+      projectConfigCore.createPipeline({
         id: 'pipe-export',
         name: 'pipeline export',
         description: 'desc',
         working_directory: testDir
       });
-      db.addPipelineStep({
+      projectConfigCore.addPipelineStep({
         pipeline_id: 'pipe-export',
         step_order: 1,
         name: 'step1',
         task_template: 'run step',
         timeout_minutes: 5
       });
-      db.createScheduledTask({
+      projectConfigCore.createScheduledTask({
         id: 'sched-export',
         name: 'nightly',
         task_description: 'scheduled task',
@@ -728,7 +731,7 @@ describe('analytics-metrics module', () => {
     });
 
     it('calibratePredictionModels derives global, pattern, and template models', () => {
-      db.saveTemplate({
+      schedulingAutomation.saveTemplate({
         name: 'tpl-cal',
         task_template: 'echo calibrate',
         description: 'template for calibration'

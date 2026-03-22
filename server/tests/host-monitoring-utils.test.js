@@ -6,6 +6,8 @@ const https = require('https');
 const { EventEmitter } = require('events');
 const childProcess = require('child_process');
 
+const hostManagement = require('../db/host-management');
+
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 let db;
@@ -64,7 +66,7 @@ function mockRequestResponse({ statusCode = 200, body = '', error = null, timeou
 function addHost(overrides = {}) {
   const id = overrides.id || `hm-host-${Math.random().toString(36).slice(2, 10)}`;
 
-  db.addOllamaHost({
+  hostManagement.addOllamaHost({
     id,
     name: overrides.name || id,
     url: overrides.url || `http://203.0.113.${Math.floor(Math.random() * 200) + 1}:11434`,
@@ -84,7 +86,7 @@ function addHost(overrides = {}) {
     if (overrides.gpu_metrics_port != null) updates.gpu_metrics_port = overrides.gpu_metrics_port;
 
     if (Object.keys(updates).length > 0) {
-      db.updateOllamaHost(id, updates);
+      hostManagement.updateOllamaHost(id, updates);
     }
   }
 
@@ -247,7 +249,7 @@ describe('host-monitoring utility module', () => {
 
       await monitoring.runHostHealthChecks();
 
-      const host = db.getOllamaHost(hostId);
+      const host = hostManagement.getOllamaHost(hostId);
       expect(host.status).toBe('healthy');
       expect(host.consecutive_failures).toBe(0);
       expect(host.models).toEqual(['qwen3:8b', 'codellama:latest']);
@@ -268,16 +270,16 @@ describe('host-monitoring utility module', () => {
       });
 
       await monitoring.runHostHealthChecks();
-      expect(db.getOllamaHost(hostId).status).toBe('degraded');
-      expect(db.getOllamaHost(hostId).consecutive_failures).toBe(1);
+      expect(hostManagement.getOllamaHost(hostId).status).toBe('degraded');
+      expect(hostManagement.getOllamaHost(hostId).consecutive_failures).toBe(1);
 
       await monitoring.runHostHealthChecks();
-      expect(db.getOllamaHost(hostId).status).toBe('degraded');
-      expect(db.getOllamaHost(hostId).consecutive_failures).toBe(2);
+      expect(hostManagement.getOllamaHost(hostId).status).toBe('degraded');
+      expect(hostManagement.getOllamaHost(hostId).consecutive_failures).toBe(2);
 
       await monitoring.runHostHealthChecks();
-      expect(db.getOllamaHost(hostId).status).toBe('down');
-      expect(db.getOllamaHost(hostId).consecutive_failures).toBe(3);
+      expect(hostManagement.getOllamaHost(hostId).status).toBe('down');
+      expect(hostManagement.getOllamaHost(hostId).consecutive_failures).toBe(3);
       expect(getSpy).toHaveBeenCalledTimes(3);
     });
 
@@ -336,7 +338,7 @@ describe('host-monitoring utility module', () => {
 
       await monitoring.runHostHealthChecks();
 
-      const host = db.getOllamaHost(hostId);
+      const host = hostManagement.getOllamaHost(hostId);
       expect(recoverSpy).toHaveBeenCalledWith(hostId);
       expect(cleanupSpy).not.toHaveBeenCalled();
       expect(host.status).toBe('healthy');
@@ -631,7 +633,7 @@ describe('host-monitoring utility module', () => {
         queueLockHolderId: 'monitoring-utils',
       });
 
-      const host = db.getOllamaHost(hostId);
+      const host = hostManagement.getOllamaHost(hostId);
 
       await monitoring.probeLocalGpuMetrics([host]);
 
@@ -656,7 +658,7 @@ describe('host-monitoring utility module', () => {
         memoryLimitMb: 8192,
       });
 
-      const host = db.getOllamaHost(hostId);
+      const host = hostManagement.getOllamaHost(hostId);
       monitoring.hostActivityCache.set(hostId, {
         models: host.models,
         polledAt: Date.now(),
@@ -694,7 +696,7 @@ describe('host-monitoring utility module', () => {
         gpu_metrics_port: 9010,
         memoryLimitMb: 8192,
       });
-      const host = db.getOllamaHost(hostId);
+      const host = hostManagement.getOllamaHost(hostId);
       monitoring.hostActivityCache.set(hostId, {
         models: host.models,
         polledAt: Date.now(),

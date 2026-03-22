@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const fileTracking = require('../db/file-tracking');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer, db;
@@ -73,19 +74,19 @@ describe('db/file-tracking module', () => {
     const workDir = nextTaskDir(task.id);
     const file = createFile(workDir, 'src/main.js', 'line 1\nline 2\n');
 
-    const baseline = db.captureFileBaseline('src/main.js', workDir, task.id);
+    const baseline = fileTracking.captureFileBaseline('src/main.js', workDir, task.id);
     expect(baseline).toMatchObject({
       size: 14,
       lines: 3,
       checksum: expect.any(String),
     });
 
-    const stored = db.getFileBaseline('src/main.js', workDir);
+    const stored = fileTracking.getFileBaseline('src/main.js', workDir);
     expect(stored.task_id).toBe(task.id);
 
     fs.writeFileSync(file, 'line 1\nline 2\nline 3\n', 'utf8');
 
-    const comparison = db.compareFileToBaseline('src/main.js', workDir);
+    const comparison = fileTracking.compareFileToBaseline('src/main.js', workDir);
     expect(comparison.hasBaseline).toBe(true);
     expect(comparison.isHashChanged).toBe(true);
     expect(comparison.sizeDelta).toBeGreaterThan(0);
@@ -99,7 +100,7 @@ describe('db/file-tracking module', () => {
     createFile(workDir, 'src/ignore.md', '# readme');
     createFile(workDir, 'node_modules/skip.js', 'module.exports = 1;');
 
-    const captured = db.captureDirectoryBaselines(workDir, ['.ts', '.js']);
+    const captured = fileTracking.captureDirectoryBaselines(workDir, ['.ts', '.js']);
     const capturedForward = captured.map(toForwardSlashes);
 
     expect(capturedForward).toContain('src/keep.ts');
@@ -109,7 +110,7 @@ describe('db/file-tracking module', () => {
     const capturedPath = captured.find((entry) => toForwardSlashes(entry) === 'src/keep.ts');
     expect(capturedPath).toBeDefined();
     expect(toForwardSlashes(capturedPath)).toBe('src/keep.ts');
-    const capturedAgain = db.compareFileToBaseline(capturedPath, workDir);
+    const capturedAgain = fileTracking.compareFileToBaseline(capturedPath, workDir);
     expect(capturedAgain.hasBaseline).toBe(true);
   });
 
@@ -118,10 +119,10 @@ describe('db/file-tracking module', () => {
     const workDir = nextTaskDir(task.id);
     const file = createFile(workDir, 'src/app.ts', 'const v = 1;');
 
-    db.recordFileChange(task.id, file, 'created', { workingDirectory: workDir, fileSizeBytes: 12 });
-    db.recordFileChange(task.id, file, 'modified', { workingDirectory: workDir, fileSizeBytes: 14 });
+    fileTracking.recordFileChange(task.id, file, 'created', { workingDirectory: workDir, fileSizeBytes: 12 });
+    fileTracking.recordFileChange(task.id, file, 'modified', { workingDirectory: workDir, fileSizeBytes: 14 });
 
-    const history = db.getTaskFileChanges(task.id);
+    const history = fileTracking.getTaskFileChanges(task.id);
     expect(history).toHaveLength(2);
     expect(history.every((row) => row.task_id === task.id)).toBe(true);
 
@@ -140,10 +141,10 @@ describe('db/file-tracking module', () => {
     const workDir = nextTaskDir(task.id);
     const outside = path.join(path.dirname(workDir), 'outside.js');
 
-    const result = db.recordFileChange(task.id, outside, 'created', { workingDirectory: workDir });
+    const result = fileTracking.recordFileChange(task.id, outside, 'created', { workingDirectory: workDir });
     expect(result.is_outside_workdir).toBe(true);
 
-    const history = db.getTaskFileChanges(task.id);
+    const history = fileTracking.getTaskFileChanges(task.id);
     expect(history).toHaveLength(1);
     expect(history[0].is_outside_workdir).toBe(1);
   });
@@ -151,27 +152,27 @@ describe('db/file-tracking module', () => {
   it('tracks file location anomalies and resolves them', () => {
     const task = createTask();
 
-    db.recordFileLocationAnomaly(task.id, 'outside_workdir', '/tmp/stray.js', {
+    fileTracking.recordFileLocationAnomaly(task.id, 'outside_workdir', '/tmp/stray.js', {
       expectedDirectory: '/project',
       actualDirectory: '/tmp',
       severity: 'warning',
       details: 'Unexpected output path',
     });
 
-    const issues = db.getFileLocationAnomalies(task.id);
+    const issues = fileTracking.getFileLocationAnomalies(task.id);
     expect(issues).toHaveLength(1);
     expect(issues[0].resolved).toBe(0);
     expect(issues[0].anomaly_type).toBe('outside_workdir');
 
-    const resolved = db.resolveFileLocationAnomaly(issues[0].id);
+    const resolved = fileTracking.resolveFileLocationAnomaly(issues[0].id);
     expect(resolved.resolved).toBe(1);
     expect(typeof resolved.resolved_at).toBe('string');
     expect(resolved.resolved_at).toMatch(/\d{4}-\d{2}-\d{2}T/);
 
-    const open = db.getFileLocationAnomalies(task.id);
+    const open = fileTracking.getFileLocationAnomalies(task.id);
     expect(open).toHaveLength(0);
 
-    const all = db.getFileLocationAnomalies(task.id, true);
+    const all = fileTracking.getFileLocationAnomalies(task.id, true);
     expect(all).toHaveLength(1);
   });
 
@@ -184,42 +185,42 @@ describe('db/file-tracking module', () => {
     fs.mkdirSync(path.dirname(unexpected), { recursive: true });
     fs.writeFileSync(unexpected, 'x', 'utf8');
 
-    db.setExpectedOutputPath(task.id, expected, { allowSubdirs: false });
-    db.recordFileChange(task.id, unexpected, 'created', { workingDirectory: workDir });
+    fileTracking.setExpectedOutputPath(task.id, expected, { allowSubdirs: false });
+    fileTracking.recordFileChange(task.id, unexpected, 'created', { workingDirectory: workDir });
 
-    const issues = db.checkFileLocationAnomalies(task.id, workDir);
+    const issues = fileTracking.checkFileLocationAnomalies(task.id, workDir);
     expect(Array.isArray(issues)).toBe(true);
     expect(issues).toHaveLength(1);
     expect(issues[0].anomaly_type).toBe('unexpected_location');
 
-    const aggregate = db.getAllFileLocationIssues(task.id);
+    const aggregate = fileTracking.getAllFileLocationIssues(task.id);
     expect(aggregate.total_issues).toBeGreaterThanOrEqual(1);
     expect(aggregate.anomalies).toHaveLength(1);
   });
 
   it('records and resolves duplicate detections', () => {
     const task = createTask();
-    const result = db.recordDuplicateFile(task.id, 'widget.ts', ['/a/widget.ts', '/b/widget.ts'], {
+    const result = fileTracking.recordDuplicateFile(task.id, 'widget.ts', ['/a/widget.ts', '/b/widget.ts'], {
       severity: 'warning',
       likelyCorrectPath: '/a/widget.ts',
     });
 
     expect(result.location_count).toBe(2);
 
-    const duplicates = db.getDuplicateFileDetections(task.id);
+    const duplicates = fileTracking.getDuplicateFileDetections(task.id);
     expect(duplicates).toHaveLength(1);
 
-    const resolved = db.resolveDuplicateFile(duplicates[0].id);
+    const resolved = fileTracking.resolveDuplicateFile(duplicates[0].id);
     expect(resolved.resolved).toBe(1);
 
-    const remaining = db.getDuplicateFileDetections(task.id);
+    const remaining = fileTracking.getDuplicateFileDetections(task.id);
     expect(remaining).toHaveLength(0);
   });
 
   it('supports rollback record lifecycle (create/read/complete)', () => {
     const task = createTask();
 
-    const rollbackId = db.createRollback(
+    const rollbackId = fileTracking.createRollback(
       task.id,
       'git',
       ['src/main.ts', 'src/old.ts'],
@@ -228,20 +229,20 @@ describe('db/file-tracking module', () => {
       'tester'
     );
 
-    const latest = db.getRollback(task.id);
+    const latest = fileTracking.getRollback(task.id);
     expect(latest).toMatchObject({
       id: rollbackId,
       task_id: task.id,
       status: expect.any(String),
     });
 
-    db.completeRollback(rollbackId, 'def456', 'completed');
+    fileTracking.completeRollback(rollbackId, 'def456', 'completed');
 
-    const completed = db.getRollback(task.id);
+    const completed = fileTracking.getRollback(task.id);
     expect(completed.status).toBe('completed');
     expect(completed.commit_after).toBe('def456');
 
-    const completedRollbacks = db.listRollbacks('completed', 10);
+    const completedRollbacks = fileTracking.listRollbacks('completed', 10);
     expect(completedRollbacks.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -250,18 +251,18 @@ describe('db/file-tracking module', () => {
     const workDir = nextTaskDir(task.id);
     const file = createFile(workDir, 'backup.js', 'original\n');
 
-    const backup = db.createFileBackup(task.id, 'backup.js', workDir);
+    const backup = fileTracking.createFileBackup(task.id, 'backup.js', workDir);
     expect(backup.created).toBe(true);
 
-    const backups = db.getTaskBackups(task.id);
+    const backups = fileTracking.getTaskBackups(task.id);
     expect(backups).toHaveLength(1);
 
     fs.writeFileSync(file, 'changed\n', 'utf8');
-    const restored = db.restoreFileBackup(backups[0].id);
+    const restored = fileTracking.restoreFileBackup(backups[0].id);
     expect(restored.restored).toBe(true);
     expect(fs.readFileSync(file, 'utf8')).toBe('original\n');
 
-    const backupRow = db.getTaskBackups(task.id).find((row) => row.id === backup.backupId);
+    const backupRow = fileTracking.getTaskBackups(task.id).find((row) => row.id === backup.backupId);
     expect(typeof backupRow.restored_at).toBe('string');
     expect(backupRow.restored_at).toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
@@ -269,10 +270,10 @@ describe('db/file-tracking module', () => {
   it('creates and updates diff preview records', () => {
     const task = createTask();
 
-    const previewId = db.createDiffPreview(task.id, 'diff --git a/x b/x\n+ok\n', 1, 0, 1);
+    const previewId = fileTracking.createDiffPreview(task.id, 'diff --git a/x b/x\n+ok\n', 1, 0, 1);
     expect(previewId).toMatch(/^[a-f0-9-]{36}$/);
 
-    const preview = db.getDiffPreview(task.id);
+    const preview = fileTracking.getDiffPreview(task.id);
     expect(preview).toMatchObject({
       id: previewId,
       task_id: task.id,
@@ -282,8 +283,8 @@ describe('db/file-tracking module', () => {
     expect(preview.task_id).toBe(task.id);
     expect(preview.files_changed).toBe(1);
 
-    db.markDiffReviewed(task.id, 'qa-tester');
-    const reviewed = db.getDiffPreview(task.id);
+    fileTracking.markDiffReviewed(task.id, 'qa-tester');
+    const reviewed = fileTracking.getDiffPreview(task.id);
     expect(reviewed.status).toBe('reviewed');
     expect(reviewed.reviewed_by).toBe('qa-tester');
     expect(typeof reviewed.reviewed_at).toBe('string');

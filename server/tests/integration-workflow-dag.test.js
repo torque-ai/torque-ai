@@ -14,6 +14,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const workflowEngine = require('../db/workflow-engine');
 
 let testDir;
 let origDataDir;
@@ -84,9 +85,9 @@ describe('Integration: Workflow DAG', () => {
   describe('DAG edge cases', () => {
     it('returns empty status for workflow with no tasks', () => {
       const workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Empty DAG Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Empty DAG Test', status: 'running' });
 
-      const status = db.getWorkflowStatus(workflowId);
+      const status = workflowEngine.getWorkflowStatus(workflowId);
       expect(status).toMatchObject({
         summary: {
           total: 0,
@@ -99,25 +100,25 @@ describe('Integration: Workflow DAG', () => {
 
     it('handles broken dependency chains with missing prerequisite', () => {
       const workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Broken Dependency Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Broken Dependency Test', status: 'running' });
 
       const dependentTask = createWorkflowTask(workflowId, 'B', 'blocked');
       const missingDependencyId = uuidv4();
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: dependentTask,
         depends_on_task_id: missingDependencyId,
         on_fail: 'skip',
       });
 
-      const deps = db.getTaskDependencies(dependentTask);
+      const deps = workflowEngine.getTaskDependencies(dependentTask);
       expect(deps).toHaveLength(1);
       expect(deps[0].depends_on_task_id).toBe(missingDependencyId);
       expect(db.getTask(missingDependencyId)).toBeFalsy();
       expect(db.getTask(dependentTask).status).toBe('blocked');
 
-      const status = db.getWorkflowStatus(workflowId);
+      const status = workflowEngine.getWorkflowStatus(workflowId);
       expect(status.summary.total).toBe(1);
       expect(status.summary.blocked).toBe(1);
       expect(status.dependencies.length).toBe(1);
@@ -131,15 +132,15 @@ describe('Integration: Workflow DAG', () => {
 
     beforeAll(() => {
       workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Linear DAG Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Linear DAG Test', status: 'running' });
 
       taskA = createWorkflowTask(workflowId, 'A', 'pending');
       taskB = createWorkflowTask(workflowId, 'B', 'blocked');
       taskC = createWorkflowTask(workflowId, 'C', 'blocked');
 
       // B depends on A, C depends on B
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskC, depends_on_task_id: taskB, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskC, depends_on_task_id: taskB, on_fail: 'skip' });
     });
 
     it('B starts blocked, A is pending', () => {
@@ -150,19 +151,19 @@ describe('Integration: Workflow DAG', () => {
     });
 
     it('B dependencies list A as prerequisite', () => {
-      const deps = db.getTaskDependencies(taskB);
+      const deps = workflowEngine.getTaskDependencies(taskB);
       expect(deps.length).toBe(1);
       expect(deps[0].depends_on_task_id).toBe(taskA);
     });
 
     it('C dependencies list B as prerequisite', () => {
-      const deps = db.getTaskDependencies(taskC);
+      const deps = workflowEngine.getTaskDependencies(taskC);
       expect(deps.length).toBe(1);
       expect(deps[0].depends_on_task_id).toBe(taskB);
     });
 
     it('getWorkflowStatus returns correct task breakdown', () => {
-      const status = db.getWorkflowStatus(workflowId);
+      const status = workflowEngine.getWorkflowStatus(workflowId);
       expect(status).toMatchObject({
         summary: {
           total: 3,
@@ -177,7 +178,7 @@ describe('Integration: Workflow DAG', () => {
 
     it('completing A allows evaluating B dependencies', () => {
       db.updateTaskStatus(taskA, 'completed', { exit_code: 0 });
-      const deps = db.getTaskDependencies(taskB);
+      const deps = workflowEngine.getTaskDependencies(taskB);
       // A is now completed — condition should pass (default: prerequisite must succeed)
       const prereq = db.getTask(deps[0].depends_on_task_id);
       expect(prereq.status).toBe('completed');
@@ -191,7 +192,7 @@ describe('Integration: Workflow DAG', () => {
 
     beforeAll(() => {
       workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Parallel DAG Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Parallel DAG Test', status: 'running' });
 
       taskA = createWorkflowTask(workflowId, 'A', 'completed');
       taskB = createWorkflowTask(workflowId, 'B', 'blocked');
@@ -199,17 +200,17 @@ describe('Integration: Workflow DAG', () => {
       taskD = createWorkflowTask(workflowId, 'D', 'blocked');
 
       // B and C depend on A; D depends on both B and C
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskC, depends_on_task_id: taskA, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskD, depends_on_task_id: taskB, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskD, depends_on_task_id: taskC, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskC, depends_on_task_id: taskA, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskD, depends_on_task_id: taskB, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskD, depends_on_task_id: taskC, on_fail: 'skip' });
 
       // A is already created as 'completed' — no need to transition again
     });
 
     it('B and C both depend on A', () => {
-      const depsB = db.getTaskDependencies(taskB);
-      const depsC = db.getTaskDependencies(taskC);
+      const depsB = workflowEngine.getTaskDependencies(taskB);
+      const depsC = workflowEngine.getTaskDependencies(taskC);
       expect(depsB.length).toBe(1);
       expect(depsB[0].depends_on_task_id).toBe(taskA);
       expect(depsC.length).toBe(1);
@@ -217,7 +218,7 @@ describe('Integration: Workflow DAG', () => {
     });
 
     it('D has two dependencies (B and C)', () => {
-      const depsD = db.getTaskDependencies(taskD);
+      const depsD = workflowEngine.getTaskDependencies(taskD);
       expect(depsD.length).toBe(2);
       const depIds = depsD.map(d => d.depends_on_task_id).sort();
       expect(depIds).toEqual([taskB, taskC].sort());
@@ -226,7 +227,7 @@ describe('Integration: Workflow DAG', () => {
     it('D stays blocked when only B completes', () => {
       db.updateTaskStatus(taskB, 'completed', { exit_code: 0 });
       // D should still have one unsatisfied dependency (C)
-      const depsD = db.getTaskDependencies(taskD);
+      const depsD = workflowEngine.getTaskDependencies(taskD);
       const unsatisfied = depsD.filter(d => {
         const prereq = db.getTask(d.depends_on_task_id);
         return !prereq || !['completed', 'skipped'].includes(prereq.status);
@@ -236,7 +237,7 @@ describe('Integration: Workflow DAG', () => {
 
     it('D dependencies fully satisfied when both B and C complete', () => {
       db.updateTaskStatus(taskC, 'completed', { exit_code: 0 });
-      const depsD = db.getTaskDependencies(taskD);
+      const depsD = workflowEngine.getTaskDependencies(taskD);
       const unsatisfied = depsD.filter(d => {
         const prereq = db.getTask(d.depends_on_task_id);
         return !prereq || !['completed', 'skipped'].includes(prereq.status);
@@ -252,18 +253,18 @@ describe('Integration: Workflow DAG', () => {
 
     beforeAll(() => {
       workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Skip Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Skip Test', status: 'running' });
 
       taskA = createWorkflowTask(workflowId, 'A', 'pending');
       taskB = createWorkflowTask(workflowId, 'B', 'blocked');
       taskC = createWorkflowTask(workflowId, 'C', 'pending'); // independent
 
       // B depends on A with on_fail: skip
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
     });
 
     it('dependency records on_fail as skip', () => {
-      const deps = db.getTaskDependencies(taskB);
+      const deps = workflowEngine.getTaskDependencies(taskB);
       expect(deps[0].on_fail).toBe('skip');
     });
 
@@ -288,16 +289,16 @@ describe('Integration: Workflow DAG', () => {
 
     beforeAll(() => {
       workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Cancel Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Cancel Test', status: 'running' });
 
       taskA = createWorkflowTask(workflowId, 'A', 'pending');
       taskB = createWorkflowTask(workflowId, 'B', 'blocked');
 
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'cancel' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'cancel' });
     });
 
     it('dependency records on_fail as cancel', () => {
-      const deps = db.getTaskDependencies(taskB);
+      const deps = workflowEngine.getTaskDependencies(taskB);
       expect(deps[0].on_fail).toBe('cancel');
     });
   });
@@ -309,16 +310,16 @@ describe('Integration: Workflow DAG', () => {
 
     beforeAll(() => {
       workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Continue Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Continue Test', status: 'running' });
 
       taskA = createWorkflowTask(workflowId, 'A', 'pending');
       taskB = createWorkflowTask(workflowId, 'B', 'blocked');
 
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'continue' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'continue' });
     });
 
     it('dependency records on_fail as continue', () => {
-      const deps = db.getTaskDependencies(taskB);
+      const deps = workflowEngine.getTaskDependencies(taskB);
       expect(deps[0].on_fail).toBe('continue');
     });
 
@@ -338,26 +339,26 @@ describe('Integration: Workflow DAG', () => {
 
     beforeAll(() => {
       workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Diamond DAG Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Diamond DAG Test', status: 'running' });
 
       taskA = createWorkflowTask(workflowId, 'A', 'completed');
       taskB = createWorkflowTask(workflowId, 'B', 'blocked');
       taskC = createWorkflowTask(workflowId, 'C', 'blocked');
       taskD = createWorkflowTask(workflowId, 'D', 'blocked');
 
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskC, depends_on_task_id: taskA, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskD, depends_on_task_id: taskB, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskD, depends_on_task_id: taskC, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskC, depends_on_task_id: taskA, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskD, depends_on_task_id: taskB, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskD, depends_on_task_id: taskC, on_fail: 'skip' });
     });
 
     it('D requires both B and C', () => {
-      const deps = db.getTaskDependencies(taskD);
+      const deps = workflowEngine.getTaskDependencies(taskD);
       expect(deps.length).toBe(2);
     });
 
     it('getWorkflowStatus reports correct dependency edges', () => {
-      const status = db.getWorkflowStatus(workflowId);
+      const status = workflowEngine.getWorkflowStatus(workflowId);
       expect(status.dependencies.length).toBe(4);
     });
   });
@@ -369,27 +370,27 @@ describe('Integration: Workflow DAG', () => {
 
     beforeAll(() => {
       workflowId = uuidv4();
-      db.createWorkflow({ id: workflowId, name: 'Cycle Test', status: 'pending' });
+      workflowEngine.createWorkflow({ id: workflowId, name: 'Cycle Test', status: 'pending' });
 
       taskA = createWorkflowTask(workflowId, 'A', 'blocked');
       taskB = createWorkflowTask(workflowId, 'B', 'blocked');
 
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA, on_fail: 'skip' });
     });
 
     it('adding A → B → A throws circular dependency error', () => {
       expect(() => {
-        db.addTaskDependency({ workflow_id: workflowId, task_id: taskA, depends_on_task_id: taskB, on_fail: 'skip' });
+        workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskA, depends_on_task_id: taskB, on_fail: 'skip' });
       }).toThrow(/circular dependency/i);
     });
 
     it('self-dependency throws circular dependency error', () => {
       const wfId = uuidv4();
-      db.createWorkflow({ id: wfId, name: 'Self Cycle Test', status: 'pending' });
+      workflowEngine.createWorkflow({ id: wfId, name: 'Self Cycle Test', status: 'pending' });
       const selfTask = createWorkflowTask(wfId, 'self', 'blocked');
 
       expect(() => {
-        db.addTaskDependency({ workflow_id: wfId, task_id: selfTask, depends_on_task_id: selfTask, on_fail: 'skip' });
+        workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: selfTask, depends_on_task_id: selfTask, on_fail: 'skip' });
       }).toThrow(/circular dependency/i);
     });
   });
@@ -399,7 +400,7 @@ describe('Integration: Workflow DAG', () => {
   describe('Workflow status propagation', () => {
     it('workflow summary counts task statuses correctly', () => {
       const wfId = uuidv4();
-      db.createWorkflow({ id: wfId, name: 'Status Propagation Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: wfId, name: 'Status Propagation Test', status: 'running' });
 
       // createWorkflowTask handles terminal status transitions internally
       const _t1 = createWorkflowTask(wfId, 'T1', 'completed');
@@ -407,7 +408,7 @@ describe('Integration: Workflow DAG', () => {
       const _t3 = createWorkflowTask(wfId, 'T3', 'blocked');
       const _t4 = createWorkflowTask(wfId, 'T4', 'pending');
 
-      const status = db.getWorkflowStatus(wfId);
+      const status = workflowEngine.getWorkflowStatus(wfId);
       expect(status.summary.completed).toBe(1);
       expect(status.summary.failed).toBe(1);
       expect(status.summary.blocked).toBe(1);
@@ -416,31 +417,31 @@ describe('Integration: Workflow DAG', () => {
     });
 
     it('getWorkflowStatus returns null for non-existent workflow', () => {
-      const status = db.getWorkflowStatus('non-existent-workflow-id');
+      const status = workflowEngine.getWorkflowStatus('non-existent-workflow-id');
       expect(status).toBeNull();
     });
 
     it('workflow can be transitioned atomically', () => {
       const wfId = uuidv4();
-      db.createWorkflow({ id: wfId, name: 'Transition Test', status: 'running' });
+      workflowEngine.createWorkflow({ id: wfId, name: 'Transition Test', status: 'running' });
 
-      const success = db.transitionWorkflowStatus(wfId, 'running', 'completed', {
+      const success = workflowEngine.transitionWorkflowStatus(wfId, 'running', 'completed', {
         completed_at: new Date().toISOString()
       });
       expect(success).toBe(true);
 
-      const wf = db.getWorkflow(wfId);
+      const wf = workflowEngine.getWorkflow(wfId);
       expect(wf.status).toBe('completed');
     });
 
     it('atomic transition fails if current status does not match', () => {
       const wfId = uuidv4();
-      db.createWorkflow({ id: wfId, name: 'Bad Transition Test', status: 'pending' });
+      workflowEngine.createWorkflow({ id: wfId, name: 'Bad Transition Test', status: 'pending' });
 
-      const success = db.transitionWorkflowStatus(wfId, 'running', 'completed');
+      const success = workflowEngine.transitionWorkflowStatus(wfId, 'running', 'completed');
       expect(success).toBe(false);
 
-      const wf = db.getWorkflow(wfId);
+      const wf = workflowEngine.getWorkflow(wfId);
       expect(wf.status).toBe('pending');
     });
   });
@@ -449,22 +450,22 @@ describe('Integration: Workflow DAG', () => {
 
   describe('Condition expression evaluation', () => {
     it('evaluateCondition with exit_code == 0 passes', () => {
-      const result = db.evaluateCondition('exit_code == 0', { exit_code: 0 });
+      const result = workflowEngine.evaluateCondition('exit_code == 0', { exit_code: 0 });
       expect(result).toBe(true);
     });
 
     it('evaluateCondition with exit_code != 0 fails when exit_code is 0', () => {
-      const result = db.evaluateCondition('exit_code != 0', { exit_code: 0 });
+      const result = workflowEngine.evaluateCondition('exit_code != 0', { exit_code: 0 });
       expect(result).toBe(false);
     });
 
     it('evaluateCondition with no expression returns true', () => {
-      const result = db.evaluateCondition(null, {});
+      const result = workflowEngine.evaluateCondition(null, {});
       expect(result).toBe(true);
     });
 
     it('evaluateCondition with output.contains checks output', () => {
-      const result = db.evaluateCondition("output.contains('success')", {
+      const result = workflowEngine.evaluateCondition("output.contains('success')", {
         output: 'Task completed with success'
       });
       expect(result).toBe(true);
@@ -472,7 +473,7 @@ describe('Integration: Workflow DAG', () => {
 
     it('evaluateCondition rejects overly long expressions', () => {
       const longExpr = 'exit_code == 0 AND '.repeat(200);
-      const result = db.evaluateCondition(longExpr, { exit_code: 0 });
+      const result = workflowEngine.evaluateCondition(longExpr, { exit_code: 0 });
       expect(result).toBe(false);
     });
   });

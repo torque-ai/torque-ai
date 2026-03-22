@@ -18,6 +18,8 @@ const { randomUUID } = require('crypto');
 const http = require('http');
 const { EventEmitter } = require('events');
 const { computeLineHash } = require('../utils/hashline-parser');
+const hostManagement = require('../db/host-management');
+const webhooksStreaming = require('../db/webhooks-streaming');
 
 let testDir;
 let origDataDir;
@@ -74,8 +76,8 @@ function teardown() {
 }
 
 function addHost({ id = randomUUID(), name = 'test-host', url = 'http://127.0.0.1:11434', model = 'qwen2.5-coder:7b' } = {}) {
-  db.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
-  db.updateOllamaHost(id, {
+  hostManagement.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
+  hostManagement.updateOllamaHost(id, {
     enabled: 1,
     status: 'healthy',
     running_tasks: 0,
@@ -85,8 +87,8 @@ function addHost({ id = randomUUID(), name = 'test-host', url = 'http://127.0.0.
 }
 
 function clearHosts() {
-  for (const host of db.listOllamaHosts()) {
-    db.removeOllamaHost(host.id);
+  for (const host of hostManagement.listOllamaHosts()) {
+    hostManagement.removeOllamaHost(host.id);
   }
 }
 
@@ -819,7 +821,7 @@ describe('execute-hashline.js', () => {
         provider: 'hashline-ollama',
         working_directory: testDir,
       });
-      const streamId = db.getOrCreateTaskStream(taskId, 'output');
+      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
       const result = await mod.runOllamaGenerate({
         ollamaHost: mockUrl2,
         ollamaModel: 'codellama:latest',
@@ -874,7 +876,7 @@ describe('execute-hashline.js', () => {
         provider: 'hashline-ollama',
         working_directory: testDir,
       });
-      const streamId = db.getOrCreateTaskStream(taskId, 'output');
+      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
 
       vi.useFakeTimers();
       // Suppress AbortError unhandled rejections from fake timer + AbortController interaction
@@ -919,7 +921,7 @@ describe('execute-hashline.js', () => {
         provider: 'hashline-ollama',
         working_directory: testDir,
       });
-      const streamId = db.getOrCreateTaskStream(taskId, 'output');
+      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
 
       try {
         await mod.runOllamaGenerate({
@@ -955,7 +957,7 @@ describe('execute-hashline.js', () => {
         provider: 'hashline-ollama',
         working_directory: testDir,
       });
-      const streamId = db.getOrCreateTaskStream(taskId, 'output');
+      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
       await expect(mod.runOllamaGenerate({
         ollamaHost: mockUrl2,
         ollamaModel: 'codellama:latest',
@@ -980,7 +982,7 @@ describe('execute-hashline.js', () => {
         provider: 'hashline-ollama',
         working_directory: testDir,
       });
-      const streamId = db.getOrCreateTaskStream(taskId, 'output');
+      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
       await mod.runOllamaGenerate({
         ollamaHost: mockUrl2,
         ollamaModel: 'mistral:latest',

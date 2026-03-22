@@ -15,6 +15,8 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 
+const hostManagement = require('../db/host-management');
+
 let testDir;
 let origDataDir;
 let db;
@@ -64,8 +66,8 @@ function teardown() {
 }
 
 function addHost({ id = randomUUID(), name = 'test-host', url = 'http://127.0.0.1:11434', model = 'qwen2.5-coder:7b' } = {}) {
-  db.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
-  db.updateOllamaHost(id, {
+  hostManagement.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
+  hostManagement.updateOllamaHost(id, {
     enabled: 1,
     status: 'healthy',
     running_tasks: 0,
@@ -75,8 +77,8 @@ function addHost({ id = randomUUID(), name = 'test-host', url = 'http://127.0.0.
 }
 
 function clearHosts() {
-  for (const host of db.listOllamaHosts()) {
-    db.removeOllamaHost(host.id);
+  for (const host of hostManagement.listOllamaHosts()) {
+    hostManagement.removeOllamaHost(host.id);
   }
 }
 
