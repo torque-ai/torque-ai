@@ -443,128 +443,8 @@ function _wireAllModules() {
   });
 }
 
-// DEPRECATED: use _wireAllModules() instead — retained for external references only
-function _injectDbAll() {
-  hostManagement.setDb(db);
-  codeAnalysis.setDb(db);
-  costTracking.setDb(db);
-  workflowEngine.setDb(db);
-  fileTracking.setDb(db);
-  fileTracking.setDataDir(process.env.TORQUE_DATA_DIR || DATA_DIR);
-  schedulingAutomation.setDb(db);
-  taskMetadata.setDb(db);
-  coordination.setDb(db);
-  providerRoutingCore.setDb(db);
-  eventTracking.setDb(db);
-  analytics.setDb(db);
-  webhooksStreaming.setDb(db);
-  inboundWebhooks.setDb(db);
-  projectConfigCore.setDb(db);
-  backupCore.setDb(db);
-  emailPeek.setDb(db);
-  peekFixtureCatalog.setDb(db);
-  packRegistry.setDb(db);
-  peekPolicyAudit.setDb(db);
-  peekRecoveryApprovals.setDb(db);
-  recoveryMetrics.setDb(db);
-  policyProfileStore.setDb(db);
-  policyEvaluationStore.setDb(db);
-  auditStore.setDb(db);
-  taskCore.setDb(db);
-  configCore.setDb(db);
-}
+// _injectDbAll and _wireCrossModuleDI removed — replaced by _wireAllModules() above
 
-// DEPRECATED: use _wireAllModules() instead — retained for external references only
-function _wireCrossModuleDI() {
-  fileTracking.setGetTask(getTask);
-  costTracking.setGetTask(getTask);
-  hostManagement.setGetTask(getTask);
-  hostManagement.setGetProjectRoot(projectConfigCore.getProjectRoot);
-
-  schedulingAutomation.setGetTask(getTask);
-  schedulingAutomation.setRecordTaskEvent((...a) => webhooksStreaming.recordTaskEvent(...a));
-  schedulingAutomation.setGetPipeline((...a) => projectConfigCore.getPipeline(...a));
-  schedulingAutomation.setCreatePipeline((...a) => projectConfigCore.createPipeline(...a));
-
-  taskMetadata.setGetTask(getTask);
-  taskMetadata.setGetTaskEvents((...a) => webhooksStreaming.getTaskEvents(...a));
-  taskMetadata.setGetRetryHistory((...a) => projectConfigCore.getRetryHistory(...a));
-  taskMetadata.setRecordAuditLog((...a) => schedulingAutomation.recordAuditLog(...a));
-  taskMetadata.setGetApprovalHistory((...a) => schedulingAutomation.getApprovalHistory(...a));
-  taskMetadata.setCreateTask(createTask);
-
-  coordination.setGetTask(getTask);
-
-  providerRoutingCore.setGetTask(getTask);
-  providerRoutingCore.setHostManagement(hostManagement);
-
-  // Analytics + event-tracking DI
-  eventTracking.setGetTask(getTask);
-  analytics.setGetTask(getTask);
-  analytics.setDbFunctions({
-    getConfig, getAllConfig,
-    getTemplate: (...a) => schedulingAutomation.getTemplate(...a),
-    setCacheConfig: (...a) => projectConfigCore.setCacheConfig(...a),
-    getCacheStats: (...a) => projectConfigCore.getCacheStats(...a),
-  });
-  analytics.setFindSimilarTasks(taskMetadata.findSimilarTasks);
-  analytics.setSetPriorityWeights(analytics.setPriorityWeights);
-  eventTracking.setDbFunctions({
-    getConfig, getAllConfig,
-    getPipelineSteps: (...a) => projectConfigCore.getPipelineSteps(...a),
-    createTask,
-    getTemplate: (...a) => schedulingAutomation.getTemplate(...a),
-    saveTemplate: (...a) => schedulingAutomation.saveTemplate(...a),
-    deleteTemplate: (...a) => schedulingAutomation.deleteTemplate(...a),
-    getPipeline: (...a) => projectConfigCore.getPipeline(...a),
-    createPipeline: (...a) => projectConfigCore.createPipeline(...a),
-    addPipelineStep: (...a) => projectConfigCore.addPipelineStep(...a),
-    getScheduledTask: (...a) => schedulingAutomation.getScheduledTask(...a),
-    deleteScheduledTask: (...a) => schedulingAutomation.deleteScheduledTask(...a),
-    createScheduledTask: (...a) => schedulingAutomation.createScheduledTask(...a),
-    setCacheConfig: (...a) => projectConfigCore.setCacheConfig(...a),
-    getCacheStats: (...a) => projectConfigCore.getCacheStats(...a),
-  });
-
-  projectConfigCore.setGetTask(getTask);
-  projectConfigCore.setRecordEvent((...a) => eventTracking.recordEvent(...a));
-  projectConfigCore.setDbFunctions({
-    getConfig, getAllConfig,
-    recordTaskEvent: (...a) => webhooksStreaming.recordTaskEvent(...a),
-    cleanupWebhookLogs: (...a) => webhooksStreaming.cleanupWebhookLogs(...a),
-    cleanupStreamData: (...a) => webhooksStreaming.cleanupStreamData(...a),
-    cleanupCoordinationEvents: (...a) => webhooksStreaming.cleanupCoordinationEvents(...a),
-    getRunningCount,
-    getTokenUsageSummary: (...a) => costTracking.getTokenUsageSummary(...a),
-    getScheduledTask: (...a) => schedulingAutomation.getScheduledTask(...a),
-  });
-
-  // Backup-core needs access to internal helpers for restore
-  backupCore.setInternals({
-    getConfig,
-    setConfig,
-    setConfigDefault,
-    safeAddColumn,
-    wireAllModules: _wireAllModules,
-    getDbPath: () => DB_PATH,
-    getDataDir: () => DATA_DIR,
-    setDbRef: (newDb) => { db = newDb; taskCore.setDb(newDb); configCore.setDb(newDb); },
-    isDbClosed: () => dbClosed,
-  });
-
-  policyProfileStore.setGetProjectMetadata(projectConfigCore.getProjectMetadata);
-  ciCache.setDb(db);
-
-  // Wire task-core cross-module dependencies
-  taskCore.setExternalFns({
-    getProjectFromPath: (...a) => projectConfigCore.getProjectFromPath(...a),
-    recordEvent: (...a) => eventTracking.recordEvent(...a),
-    escapeLikePattern: (...a) => eventTracking.escapeLikePattern(...a),
-    recordTaskFileWrite: (...a) => fileTracking.recordTaskFileWrite(...a),
-    notifyTaskStatusTransition,
-    getConfig,
-  });
-}
 
 /**
  * Initialize database and create tables
@@ -821,8 +701,7 @@ const coreExports = {
   isReady: () => !!db && !dbClosed,
   // DI wiring helpers — retained for backward compat (container.js is the preferred path)
   _wireAllModules,
-  _injectDbAll,     // DEPRECATED: use _wireAllModules()
-  _wireCrossModuleDI, // DEPRECATED: use _wireAllModules()
+  // Legacy DI wiring functions removed — use _wireAllModules() instead
   // Core task operations
   init,
   createTask,
