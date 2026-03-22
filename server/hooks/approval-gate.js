@@ -175,6 +175,11 @@ function checkApprovalGate(taskId) {
   };
 }
 
+function createApprovalGate() {
+  return { checkApprovalGate };
+}
+
 module.exports = {
   checkApprovalGate,
+  createApprovalGate,
 };

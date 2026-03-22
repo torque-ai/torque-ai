@@ -321,6 +321,17 @@ function handleDeletePlanProject(req, res, query, projectId) {
   sendJson(res, { success: true, message: 'Project deleted' });
 }
 
+function createDashboardAdminRoutes() {
+  return {
+    handleGetDashboard, handleListAgents, handleListRoutingRules, handleListClaims,
+    handleListPendingApprovals, handleGetApprovalHistory, handleApproveTask, handleRejectApproval,
+    handleListSchedules, handleCreateSchedule, handleToggleSchedule, handleDeleteSchedule,
+    handleListBenchmarks, handleApplyBenchmark,
+    handleListProjectTuning, handleCreateProjectTuning, handleGetProjectTuning, handleDeleteProjectTuning,
+    handleListPlanProjects, handleGetPlanProject, handleImportPlanApi, handlePlanProjectAction, handleDeletePlanProject,
+  };
+}
+
 module.exports = {
   // Coordination
   handleGetDashboard, handleListAgents, handleListRoutingRules, handleListClaims,
@@ -333,4 +344,5 @@ module.exports = {
   handleListProjectTuning, handleCreateProjectTuning, handleGetProjectTuning, handleDeleteProjectTuning,
   // Plan Projects
   handleListPlanProjects, handleGetPlanProject, handleImportPlanApi, handlePlanProjectAction, handleDeletePlanProject,
+  createDashboardAdminRoutes,
 };

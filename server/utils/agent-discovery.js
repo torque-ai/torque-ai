@@ -221,7 +221,12 @@ function formatDiscoveryReport(result) {
   return lines.join('\n');
 }
 
+function createAgentDiscovery() {
+  return { discoverAgents, formatDiscoveryReport };
+}
+
 module.exports = {
   discoverAgents,
   formatDiscoveryReport,
+  createAgentDiscovery,
 };

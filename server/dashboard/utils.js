@@ -188,6 +188,21 @@ function formatUptime(seconds) {
   return `${mins}m`;
 }
 
+function createDashboardUtils() {
+  return {
+    parseQuery,
+    parseBody,
+    isLocalhostOrigin,
+    safeDecodeParam,
+    sendJson,
+    sendError,
+    successResponse,
+    errorResponse,
+    enrichTaskWithHostName,
+    formatUptime,
+  };
+}
+
 module.exports = {
   parseQuery,
   parseBody,
@@ -199,4 +214,5 @@ module.exports = {
   errorResponse,
   enrichTaskWithHostName,
   formatUptime,
+  createDashboardUtils,
 };

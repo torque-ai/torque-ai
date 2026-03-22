@@ -955,6 +955,41 @@ function handleInstances(req, res, query, context) {
   });
 }
 
+function createDashboardInfraRoutes() {
+  return {
+    handleListHosts,
+    handleListPeekHosts,
+    handleCreatePeekHost,
+    handleUpdatePeekHost,
+    handleDeletePeekHost,
+    handleTestPeekHost,
+    handlePeekHostToggle,
+    handleListCredentials,
+    handleSaveCredential,
+    handleDeleteCredential,
+    handleTestCredential,
+    handleHostActivity,
+    handleHostScan,
+    handleHostToggle,
+    handleGetHost,
+    handleDeleteHost,
+    handleListProviders,
+    handleProviderQuotas,
+    handleProviderStats,
+    handleProviderPercentiles,
+    handleProviderTrends,
+    handleProviderToggle,
+    getProviderTimeSeries,
+    handleListAgents,
+    handleCreateAgent,
+    handleGetAgent,
+    handleAgentHealth,
+    handleDeleteAgent,
+    handleSystemStatus,
+    handleInstances,
+  };
+}
+
 module.exports = {
   // Hosts
   handleListHosts,
@@ -990,4 +1025,5 @@ module.exports = {
   // System
   handleSystemStatus,
   handleInstances,
+  createDashboardInfraRoutes,
 };

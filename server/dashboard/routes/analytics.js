@@ -782,6 +782,36 @@ function handleGetWorkflowHistory(req, res, query, workflowId) {
   return sendJson(res, history);
 }
 
+function createDashboardAnalyticsRoutes() {
+  return {
+    handleStatsOverview,
+    handleTimeSeries,
+    handleQualityStats,
+    handleStuckTasks,
+    handleModelStats,
+    handleFormatSuccess,
+    handleNotificationStats,
+    handleEventHistory,
+    handleWebhookStats,
+    getProviderTimeSeries,
+    handleGetStrategicStatus,
+    handleGetRecentOperations,
+    handleGetRoutingDecisions,
+    handleGetProviderHealth,
+    handleBudgetSummary,
+    handleBudgetStatus,
+    handleSetBudget,
+    handleFreeTierStatus,
+    handleFreeTierHistory,
+    handleFreeTierAutoScale,
+    setFreeTierTrackerGetter,
+    handleListWorkflows,
+    handleGetWorkflow,
+    handleGetWorkflowTasks,
+    handleGetWorkflowHistory,
+  };
+}
+
 module.exports = {
   // Stats
   handleStatsOverview,
@@ -812,4 +842,5 @@ module.exports = {
   handleGetWorkflow,
   handleGetWorkflowTasks,
   handleGetWorkflowHistory,
+  createDashboardAnalyticsRoutes,
 };

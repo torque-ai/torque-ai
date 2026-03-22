@@ -233,6 +233,17 @@ function handleTaskLogs(req, res, query, taskId) {
   return sendJson(res, logs);
 }
 
+function createDashboardTaskRoutes() {
+  return {
+    handleListTasks,
+    handleGetTask,
+    handleTaskAction,
+    handleSubmitTask,
+    handleTaskDiff,
+    handleTaskLogs,
+  };
+}
+
 module.exports = {
   handleListTasks,
   handleGetTask,
@@ -240,4 +251,5 @@ module.exports = {
   handleSubmitTask,
   handleTaskDiff,
   handleTaskLogs,
+  createDashboardTaskRoutes,
 };

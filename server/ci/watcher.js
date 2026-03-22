@@ -438,6 +438,19 @@ function getActiveWatches() {
   }));
 }
 
+function createCiWatcher() {
+  return {
+    _activeTimers,
+    MAX_WATCHES,
+    watchRepo,
+    stopWatch,
+    shutdownAll,
+    getActiveWatches,
+    deactivateCiWatch,
+    _deactivateWatchRow,
+  };
+}
+
 module.exports = {
   _activeTimers,
   MAX_WATCHES,
@@ -447,4 +460,5 @@ module.exports = {
   getActiveWatches,
   deactivateCiWatch,
   _deactivateWatchRow: _deactivateWatchRow,
+  createCiWatcher,
 };

@@ -382,6 +382,20 @@ function stopRetentionPolicy() {
 // Auto-start retention policy on module load
 startRetentionPolicy();
 
+function createEventDispatch() {
+  return {
+    TERMINAL_EVENTS,
+    NOTABLE_EVENTS,
+    persistTaskEvent,
+    dispatchTaskEvent,
+    taskEvents,
+    getTaskEvents,
+    pruneOldTaskEvents,
+    startRetentionPolicy,
+    stopRetentionPolicy,
+  };
+}
+
 module.exports = {
   TERMINAL_EVENTS,
   NOTABLE_EVENTS,
@@ -392,4 +406,5 @@ module.exports = {
   pruneOldTaskEvents,
   startRetentionPolicy,
   stopRetentionPolicy,
+  createEventDispatch,
 };

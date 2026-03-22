@@ -1999,9 +1999,14 @@ function stopCleanupTimers() {
   }
 }
 
+function createMcpGateway() {
+  return { start, stop, stopCleanupTimers, telemetry };
+}
+
 module.exports = {
   start,
   stop,
   stopCleanupTimers,
   telemetry,
+  createMcpGateway,
 };
