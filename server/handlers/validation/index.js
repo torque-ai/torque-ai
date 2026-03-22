@@ -897,6 +897,47 @@ function handleGetCostForecast(args) {
 // Exports — aggregate all sub-modules
 // ============================================
 
+function createValidationHandlers() {
+  return {
+    ...fileHandlers,
+    ...xamlHandlers,
+    ...securityHandlers,
+    ...analysisHandlers,
+    ...safeguardHandlers,
+    ...failureHandlers,
+    handleListValidationRules,
+    handleAddValidationRule,
+    handleUpdateValidationRule,
+    handleValidateTaskOutput,
+    handleGetValidationResults,
+    handleRejectTask,
+    handleCaptureFileBaselines,
+    handleCompareFileBaseline,
+    handleRunSyntaxCheck,
+    handleListSyntaxValidators,
+    handleRegisterHook,
+    handleListHooks,
+    handleRemoveHook,
+    handleCheckApprovalGate,
+    handlePreviewTaskDiff,
+    handleApproveDiff,
+    handleConfigureDiffPreview,
+    handleGetQualityScore,
+    handleGetProviderQuality,
+    handleGetProviderStats,
+    handleGetBestProvider,
+    handleListRollbacks,
+    handleRunBuildCheck,
+    handleGetBuildResult,
+    handleConfigureBuildCheck,
+    handleSetupPrecommitHook,
+    handleGetCostSummary,
+    handleGetBudgetStatus,
+    handleSetBudget,
+    handleGetCostForecast,
+  };
+}
+
 module.exports = {
   ...fileHandlers,
   ...xamlHandlers,
@@ -934,4 +975,5 @@ module.exports = {
   handleGetBudgetStatus,
   handleSetBudget,
   handleGetCostForecast,
+  createValidationHandlers,
 };

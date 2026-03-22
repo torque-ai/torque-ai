@@ -415,6 +415,27 @@ function handleGetDocCoverageResults(args) {
   };
 }
 
+function createValidationAnalysisHandlers() {
+  return {
+    handleCheckTestCoverage,
+    handleRunStyleCheck,
+    handleAnalyzeChangeImpact,
+    handleGetTimeoutAlerts,
+    handleConfigureOutputLimits,
+    handleGetAuditTrail,
+    handleGetAuditSummary,
+    handleScanVulnerabilities,
+    handleGetVulnerabilityResults,
+    handleAnalyzeComplexity,
+    handleGetComplexityMetrics,
+    handleDetectDeadCode,
+    handleGetDeadCodeResults,
+    handleValidateApiContract,
+    handleCheckDocCoverage,
+    handleGetDocCoverageResults,
+  };
+}
+
 module.exports = {
   handleCheckTestCoverage,
   handleRunStyleCheck,
@@ -432,4 +453,5 @@ module.exports = {
   handleValidateApiContract,
   handleCheckDocCoverage,
   handleGetDocCoverageResults,
+  createValidationAnalysisHandlers,
 };

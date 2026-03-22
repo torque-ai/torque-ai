@@ -391,6 +391,17 @@ function getStrategicStatus() {
   };
 }
 
+function createOrchestratorHandlers() {
+  return {
+    handleStrategicDecompose,
+    handleStrategicDiagnose,
+    handleStrategicReview,
+    handleStrategicUsage,
+    handleStrategicBenchmark,
+    getStrategicStatus,
+  };
+}
+
 module.exports = {
   handleStrategicDecompose,
   handleStrategicDiagnose,
@@ -398,4 +409,5 @@ module.exports = {
   handleStrategicUsage,
   handleStrategicBenchmark,
   getStrategicStatus,
+  createOrchestratorHandlers,
 };

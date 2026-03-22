@@ -54,6 +54,13 @@ function handleResolveWorkflowConflicts(args) {
   }
 }
 
+function createConflictResolutionHandlers() {
+  return {
+    handleResolveWorkflowConflicts,
+  };
+}
+
 module.exports = {
-  handleResolveWorkflowConflicts
+  handleResolveWorkflowConflicts,
+  createConflictResolutionHandlers,
 };

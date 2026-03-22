@@ -1114,6 +1114,26 @@ function handleDeleteTaskTemplate(args) {
 const tsTools = require('./automation-ts-tools');
 const batchOrchestration = require('./automation-batch-orchestration');
 
+function createAutomationHandlers() {
+  return {
+    handleConfigureStallDetection,
+    handleConfigureFreeTierAutoScale,
+    handleAutoVerifyAndFix,
+    handleGenerateTestTasks,
+    handleSetProjectDefaults,
+    handleGetProjectDefaults,
+    handleGetBatchSummary,
+    handleUpdateProjectStats,
+    handleGetTaskEvents,
+    handleCreateTaskTemplate,
+    handleListTaskTemplates,
+    handleSubmitFromTemplate,
+    handleDeleteTaskTemplate,
+    ...batchOrchestration,
+    ...tsTools,
+  };
+}
+
 module.exports = {
   // Project/config automation (local to this file)
   handleConfigureStallDetection,
@@ -1134,4 +1154,5 @@ module.exports = {
   ...batchOrchestration,
   // Re-exported from automation-ts-tools.js
   ...tsTools,
+  createAutomationHandlers,
 };

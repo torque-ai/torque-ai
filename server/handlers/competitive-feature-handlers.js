@@ -193,6 +193,23 @@ async function handleGetFileOutline(args) {
   return { content: [{ type: 'text', text }], structuredData: results };
 }
 
+function createCompetitiveFeatureHandlers() {
+  return {
+    handleCompareProviders,
+    handleReviewTaskOutput,
+    handleDiscoverAgents,
+    handleDetectProjectType,
+    handleListProjectTemplates,
+    handleGetProviderScores,
+    handleGetCircuitBreakerStatus,
+    handlePolishTaskDescription,
+    handleIndexProject,
+    handleSearchSymbols,
+    handleGetSymbolSource,
+    handleGetFileOutline,
+  };
+}
+
 module.exports = {
   handleCompareProviders,
   handleReviewTaskOutput,
@@ -206,4 +223,5 @@ module.exports = {
   handleSearchSymbols,
   handleGetSymbolSource,
   handleGetFileOutline,
+  createCompetitiveFeatureHandlers,
 };

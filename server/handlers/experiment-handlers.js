@@ -193,7 +193,15 @@ function handleCompareAbTest(args) {
   };
 }
 
+function createExperimentHandlers() {
+  return {
+    handleSubmitAbTest,
+    handleCompareAbTest,
+  };
+}
+
 module.exports = {
   handleSubmitAbTest,
   handleCompareAbTest,
+  createExperimentHandlers,
 };

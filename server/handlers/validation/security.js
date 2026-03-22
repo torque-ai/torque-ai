@@ -195,6 +195,20 @@ function handleRestoreBackup(args) {
   }
 }
 
+function createValidationSecurityHandlers() {
+  return {
+    handleGetRateLimits,
+    handleSetRateLimit,
+    handleRunSecurityScan,
+    handleGetSecurityResults,
+    handleListSecurityRules,
+    handleGetFileLocks,
+    handleReleaseFileLocks,
+    handleListBackups,
+    handleRestoreBackup,
+  };
+}
+
 module.exports = {
   handleGetRateLimits,
   handleSetRateLimit,
@@ -205,4 +219,5 @@ module.exports = {
   handleReleaseFileLocks,
   handleListBackups,
   handleRestoreBackup,
+  createValidationSecurityHandlers,
 };

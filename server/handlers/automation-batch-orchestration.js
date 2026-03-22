@@ -1691,6 +1691,20 @@ async function handleContinuousBatchSubmission(completedWorkflowId, workflowData
   }
 }
 
+function createAutomationBatchOrchestration() {
+  return {
+    handleGenerateFeatureTasks,
+    handleCacheFeatureGaps,
+    handleRunBatch,
+    handleDetectFileConflicts,
+    handleAutoCommitBatch,
+    handleExtractFeatureSpec,
+    handlePlanNextBatch,
+    handleRunFullBatch,
+    handleContinuousBatchSubmission,
+  };
+}
+
 module.exports = {
   handleGenerateFeatureTasks,
   handleCacheFeatureGaps,
@@ -1701,4 +1715,5 @@ module.exports = {
   handlePlanNextBatch,
   handleRunFullBatch,
   handleContinuousBatchSubmission,
+  createAutomationBatchOrchestration,
 };

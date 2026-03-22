@@ -239,7 +239,15 @@ function setConcurrencyLimit(args = {}) {
   return response('Invalid scope. Valid scopes are: vram_factor, provider, workstation, host.');
 }
 
+function createConcurrencyHandlers() {
+  return {
+    handleGetConcurrencyLimits: getConcurrencyLimits,
+    handleSetConcurrencyLimit: setConcurrencyLimit,
+  };
+}
+
 module.exports = {
   handleGetConcurrencyLimits: getConcurrencyLimits,
   handleSetConcurrencyLimit: setConcurrencyLimit,
+  createConcurrencyHandlers,
 };

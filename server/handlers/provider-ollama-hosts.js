@@ -1343,6 +1343,33 @@ async function handleManageHost(args) {
   }
 }
 
+function createProviderOllamaHostsHandlers() {
+  return {
+    handleListOllamaModels,
+    handleCheckOllamaHealth,
+    handleAddOllamaHost,
+    handleRemoveOllamaHost,
+    handleCleanupNullIdHosts,
+    handleListOllamaHosts,
+    handleEnableOllamaHost,
+    handleDisableOllamaHost,
+    handleRecoverOllamaHost,
+    handleRefreshHostModels,
+    handleSetHostMemoryLimit,
+    handleSetHostMaxConcurrent,
+    handleGetHostCapacity,
+    handleConfigureMemoryProtection,
+    handleGetMemoryProtectionStatus,
+    handleGetDiscoveryStatus,
+    handleSetDiscoveryConfig,
+    handleScanNetworkForOllama,
+    handleConfigureAutoScan,
+    handleGetHostSettings,
+    handleSetHostSettings,
+    handleManageHost,
+  };
+}
+
 module.exports = {
   handleListOllamaModels,
   handleCheckOllamaHealth,
@@ -1366,4 +1393,5 @@ module.exports = {
   handleGetHostSettings,
   handleSetHostSettings,
   handleManageHost,
+  createProviderOllamaHostsHandlers,
 };

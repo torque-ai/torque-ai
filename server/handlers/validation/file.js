@@ -232,6 +232,19 @@ function handleGetSimilarFileResults(args) {
   };
 }
 
+function createValidationFileHandlers() {
+  return {
+    handleSetExpectedOutputPath,
+    handleCheckFileLocations,
+    handleCheckDuplicateFiles,
+    handleGetFileLocationIssues,
+    handleRecordFileChange,
+    handleResolveFileLocationIssue,
+    handleSearchSimilarFiles,
+    handleGetSimilarFileResults,
+  };
+}
+
 module.exports = {
   handleSetExpectedOutputPath,
   handleCheckFileLocations,
@@ -241,4 +254,5 @@ module.exports = {
   handleResolveFileLocationIssue,
   handleSearchSimilarFiles,
   handleGetSimilarFileResults,
+  createValidationFileHandlers,
 };

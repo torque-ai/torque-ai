@@ -243,7 +243,15 @@ async function handleCompareProviders(args) {
   };
 }
 
+function createComparisonHandler() {
+  return {
+    handleCompareProviders,
+    formatComparisonTable,
+  };
+}
+
 module.exports = {
   handleCompareProviders,
   formatComparisonTable,
+  createComparisonHandler,
 };

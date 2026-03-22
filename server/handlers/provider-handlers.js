@@ -598,6 +598,27 @@ function handleGetProviderPercentiles(args) {
 const ollamaHostHandlers = require('./provider-ollama-hosts');
 const tuningHandlers = require('./provider-tuning');
 
+function createProviderHandlers() {
+  return {
+    handleApproveProviderSwitch,
+    handleRejectProviderSwitch,
+    handleListProviders,
+    handleConfigureProvider,
+    handleProviderStats,
+    handleSetDefaultProvider,
+    handleStartDashboard,
+    handleStopDashboard,
+    handleConfigureFallbackChain,
+    handleDetectProviderDegradation,
+    handleGetFormatSuccessRates,
+    handleGetProviderHealthTrends,
+    handleGetModelLeaderboard,
+    handleGetProviderPercentiles,
+    ...ollamaHostHandlers,
+    ...tuningHandlers,
+  };
+}
+
 module.exports = {
   handleApproveProviderSwitch,
   handleRejectProviderSwitch,
@@ -615,4 +636,5 @@ module.exports = {
   handleGetProviderPercentiles,
   ...ollamaHostHandlers,
   ...tuningHandlers,
+  createProviderHandlers,
 };

@@ -414,6 +414,13 @@ function formatWorkflowMarkdown(ctx) {
   return lines.join('\n');
 }
 
+function createContextHandler() {
+  return {
+    handleGetContext,
+  };
+}
+
 module.exports = {
   handleGetContext,
+  createContextHandler,
 };

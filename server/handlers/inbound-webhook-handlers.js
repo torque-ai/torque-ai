@@ -240,9 +240,19 @@ function handleTestInboundWebhook(args) {
   };
 }
 
+function createInboundWebhookHandlers() {
+  return {
+    handleCreateInboundWebhook,
+    handleListInboundWebhooks,
+    handleDeleteInboundWebhook,
+    handleTestInboundWebhook,
+  };
+}
+
 module.exports = {
   handleCreateInboundWebhook,
   handleListInboundWebhooks,
   handleDeleteInboundWebhook,
   handleTestInboundWebhook,
+  createInboundWebhookHandlers,
 };

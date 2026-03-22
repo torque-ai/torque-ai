@@ -389,6 +389,19 @@ function handleConfigureCiProvider(args) {
   };
 }
 
+function createCiHandlers() {
+  return {
+    resolveRepo,
+    handleAwaitCiRun,
+    handleWatchCiRepo,
+    handleStopCiWatch,
+    handleCiRunStatus,
+    handleDiagnoseCiFailure,
+    handleListCiRuns,
+    handleConfigureCiProvider,
+  };
+}
+
 module.exports = {
   resolveRepo,
   handleAwaitCiRun,
@@ -398,4 +411,5 @@ module.exports = {
   handleDiagnoseCiFailure,
   handleListCiRuns,
   handleConfigureCiProvider,
+  createCiHandlers,
 };

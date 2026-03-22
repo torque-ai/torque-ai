@@ -385,6 +385,27 @@ function handleGetAutoRollbackHistory(args) {
   };
 }
 
+function createValidationSafeguardHandlers() {
+  return {
+    handleCaptureTestBaseline,
+    handleDetectRegressions,
+    handleCaptureConfigBaselines,
+    handleDetectConfigDrift,
+    handleEstimateResources,
+    handleCheckI18n,
+    handleCheckAccessibility,
+    handleGetSafeguardTools,
+    handleVerifyTypeReferences,
+    handleGetTypeVerificationResults,
+    handleAnalyzeBuildOutput,
+    handleGetBuildErrorAnalysis,
+    handleCalculateTaskComplexity,
+    handleGetTaskComplexityScore,
+    handlePerformAutoRollback,
+    handleGetAutoRollbackHistory,
+  };
+}
+
 module.exports = {
   handleCaptureTestBaseline,
   handleDetectRegressions,
@@ -402,4 +423,5 @@ module.exports = {
   handleGetTaskComplexityScore,
   handlePerformAutoRollback,
   handleGetAutoRollbackHistory,
+  createValidationSafeguardHandlers,
 };

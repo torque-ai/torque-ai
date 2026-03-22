@@ -718,6 +718,19 @@ function handleClearApiKey(args) {
   };
 }
 
+function createProviderCrudHandlers() {
+  return {
+    handleAddProvider,
+    handleRemoveProvider,
+    handleSetApiKey,
+    handleClearApiKey,
+    encryptApiKey,
+    decryptApiKey,
+    getApiKeyStatus,
+    validatingProviders,
+  };
+}
+
 module.exports = {
   handleAddProvider,
   handleRemoveProvider,
@@ -727,4 +740,5 @@ module.exports = {
   decryptApiKey,
   getApiKeyStatus,
   validatingProviders,
+  createProviderCrudHandlers,
 };

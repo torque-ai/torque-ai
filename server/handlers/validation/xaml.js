@@ -173,6 +173,17 @@ function handleGetSmokeTestResults(args) {
   };
 }
 
+function createValidationXamlHandlers() {
+  return {
+    handleValidateXamlSemantics,
+    handleGetXamlValidationResults,
+    handleCheckXamlConsistency,
+    handleGetXamlConsistencyResults,
+    handleRunAppSmokeTest,
+    handleGetSmokeTestResults,
+  };
+}
+
 module.exports = {
   handleValidateXamlSemantics,
   handleGetXamlValidationResults,
@@ -180,4 +191,5 @@ module.exports = {
   handleGetXamlConsistencyResults,
   handleRunAppSmokeTest,
   handleGetSmokeTestResults,
+  createValidationXamlHandlers,
 };

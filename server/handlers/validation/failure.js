@@ -133,9 +133,19 @@ function handleAddRetryRule(args) {
   };
 }
 
+function createValidationFailureHandlers() {
+  return {
+    handleAddFailurePattern,
+    handleGetFailureMatches,
+    handleListRetryRules,
+    handleAddRetryRule,
+  };
+}
+
 module.exports = {
   handleAddFailurePattern,
   handleGetFailureMatches,
   handleListRetryRules,
   handleAddRetryRule,
+  createValidationFailureHandlers,
 };
