@@ -29,7 +29,7 @@ const getDatabaseConfig = (...args) => {
   if (typeof db?.getConfig === 'function') {
     return db.getConfig(...args);
   }
-  return require('../database').getConfig(...args);
+  return require('./config-core').getConfig(...args);
 };
 
 // Throttled log helpers — canonical implementation in host-benchmarking.js
@@ -1014,7 +1014,7 @@ function routeTask(complexity) {
   let targetModel = rule.model;
   let fallbackApplied = false;
 
-  if (targetHost && (rule.target_provider === 'ollama' || rule.target_provider === 'aider-ollama')) {
+  if (targetHost && (rule.target_provider === 'ollama' || rule.target_provider === 'hashline-ollama')) {
     const host = getOllamaHost(targetHost);
 
     // If target host is not healthy OR not enabled, find a fallback

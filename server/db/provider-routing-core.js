@@ -49,7 +49,7 @@ const getDatabaseConfig = (...args) => {
   if (typeof db?.getConfig === 'function') {
     return db.getConfig(...args);
   }
-  return require('../database').getConfig(...args);
+  return require('./config-core').getConfig(...args);
 };
 
 const DEFAULT_GLOBAL_MAX_CONCURRENT = 20;
@@ -906,8 +906,8 @@ function getProviderFallbackChain(provider, options) {
   const sm = getScoringModule();
   if (sm && chain.length > 1) {
     try {
-      const dbMod = require('../database');
-      const inst = dbMod.getDbInstance ? dbMod.getDbInstance() : null;
+      const backupCore = require('./backup-core');
+      const inst = backupCore.getDbInstance ? backupCore.getDbInstance() : null;
       if (inst) {
         sm.init(inst);
         const scores = sm.getAllProviderScores({ trustedOnly: true });

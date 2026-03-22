@@ -10,7 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const { storeArtifact, listArtifacts, getArtifact, deleteArtifact, getArtifactConfig, setArtifactConfig } = require('../../db/task-metadata');
 const { validateArtifactMimeType, isPathTraversalSafe, validateObjectDepth, requireTask, ErrorCodes, makeError } = require('../shared');
 const logger = require('../../logger').child({ component: 'advanced-artifacts' });
@@ -58,7 +58,7 @@ function handleStoreArtifact(args) {
   }
 
   // Verify task exists
-  const { task: _task, error: taskErr } = requireTask(database, task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const config = getArtifactConfig();

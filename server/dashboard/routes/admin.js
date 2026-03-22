@@ -3,7 +3,7 @@
  *
  * Merged from: coordination.js, approvals.js, schedules.js, benchmarks.js, project-tuning.js, plan-projects.js
  */
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const coordination = require('../../db/coordination');
 const hostManagement = require('../../db/host-management');
 const projectConfigCore = require('../../db/project-config-core');
@@ -313,7 +313,7 @@ function handleDeletePlanProject(req, res, query, projectId) {
       try {
         taskManager.cancelTask(task.task_id, 'Plan project deleted');
       } catch {
-        database.updateTaskStatus(task.task_id, 'cancelled', {
+        taskCore.updateTaskStatus(task.task_id, 'cancelled', {
           error_output: 'Plan project deleted',
         });
       }

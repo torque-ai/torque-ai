@@ -71,12 +71,12 @@ function _formatAgentSummary(agent) {
 
 function _getRemoteRouter() {
   const { createRemoteTestRouter } = require('../remote/remote-test-routing');
-  const database = require('../database');
+  const projectConfigCore = require('../db/project-config-core');
   const logger = require('../logger').child({ component: 'remote-agent-handlers' });
 
   return createRemoteTestRouter({
     agentRegistry: module.exports._getRegistry(),
-    db: database,
+    db: projectConfigCore,
     logger,
   });
 }

@@ -3,7 +3,7 @@
  * Extracted from validation-handlers.js
  */
 
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const fileTracking = require('../../db/file-tracking');
 const { requireTask, ErrorCodes, makeError } = require('../shared');
 
@@ -58,7 +58,7 @@ function handleRunSecurityScan(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);

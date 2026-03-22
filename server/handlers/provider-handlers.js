@@ -3,7 +3,7 @@
  * Extracted from tools.js
  */
 
-const database = require('../database');
+const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
 const fileTracking = require('../db/file-tracking');
 const hostManagement = require('../db/host-management');
@@ -555,7 +555,7 @@ function handleGetProviderPercentiles(args) {
   }
 
   const fromDate = new Date(Date.now() - days * 86400000).toISOString();
-  const tasks = database.listTasks({ provider, from_date: fromDate, limit: 1000 });
+  const tasks = taskCore.listTasks({ provider, from_date: fromDate, limit: 1000 });
   const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
 
   const durations = taskList

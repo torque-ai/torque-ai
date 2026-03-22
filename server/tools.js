@@ -379,12 +379,12 @@ function handleRestartServer(args) {
   const reason = args.reason || 'Manual restart requested';
   // Use module-level logger (not a re-require) to avoid shadowing the top-level binding.
   const taskManager = require('./task-manager');
-  const db = require('./database');
+  const taskCore = require('./db/task-core');
 
   logger.info(`[Restart] Server restart requested: ${reason}`);
 
   const localRunning = taskManager.getRunningTaskCount();
-  const allRunningTasks = db.listTasks({ status: 'running', limit: 1000 });
+  const allRunningTasks = taskCore.listTasks({ status: 'running', limit: 1000 });
   const totalRunning = allRunningTasks.length;
 
   if (totalRunning > 0) {
