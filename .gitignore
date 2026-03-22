@@ -70,3 +70,6 @@ server/eng.traineddata
 dashboard/test-results/
 .superpowers/
 .tmp/
+
+# Stale temp directories
+server/tmp-*/
