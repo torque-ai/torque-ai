@@ -229,16 +229,16 @@ describe('p1 database fixes', () => {
 
     try {
       const result = db.tryClaimTaskSlot(targetId, 1, null, 'ollama', 1, ['ollama']);
-      expect(result.success).toBe(true);
+      // The interleaved claim fills the global slot (cap=1), so the atomic
+      // check correctly rejects the second claim — no over-capacity.
+      expect(result.success).toBe(false);
       expect(sideEffectExecuted).toBe(true);
     } finally {
       rawDb.prepare = originalPrepare;
     }
 
+    // Only the blocker is running; the target was not claimed
     const running = rawDb.prepare("SELECT COUNT(*) AS count FROM tasks WHERE status = 'running'").get();
-    const targetTask = db.getTask(targetId);
-
     expect(running.count).toBe(1);
-    expect(targetTask.status).toBe('running');
   });
 });

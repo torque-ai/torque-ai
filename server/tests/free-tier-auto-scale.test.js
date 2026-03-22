@@ -591,6 +591,7 @@ describe('Free-tier auto-scale', () => {
     it('clears model when rerouting to free-tier', () => {
       setupConfigForAutoScale({ threshold: 1, cooldown: 0 });
       setupCodexQueueWithDepth(3);
+      setRunningCodexCount(3); // Fill Codex slots to trigger overflow rerouting
 
       scheduler.processQueueInternal();
 

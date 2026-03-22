@@ -160,8 +160,15 @@ describe('dashboard-server v2 convergence', () => {
     const handlerSection = source.slice(handlerStart);
 
     // V2 check should come before legacy /api/ check within the handler
-    const v2CheckPos = handlerSection.indexOf("req.url.startsWith('/api/v2/')");
-    const legacyCheckPos = handlerSection.indexOf("} else if (req.url.startsWith('/api/'))");
+    // Source may use req.url or urlPath depending on refactoring
+    const v2CheckPos = Math.max(
+      handlerSection.indexOf("req.url.startsWith('/api/v2/')"),
+      handlerSection.indexOf("urlPath.startsWith('/api/v2/')")
+    );
+    const legacyCheckPos = Math.max(
+      handlerSection.indexOf("} else if (req.url.startsWith('/api/'))"),
+      handlerSection.indexOf("} else if (urlPath.startsWith('/api/'))")
+    );
     expect(v2CheckPos).toBeGreaterThan(-1);
     expect(legacyCheckPos).toBeGreaterThan(-1);
     expect(v2CheckPos).toBeLessThan(legacyCheckPos);

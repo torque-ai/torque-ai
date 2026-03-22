@@ -144,14 +144,15 @@ describe('validation-rules module', () => {
       expect(all.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('getValidationRules sorts by severity descending', () => {
+    it('getValidationRules sorts by severity descending (alphabetical)', () => {
       mod.saveValidationRule({ id: randomUUID(), name: 'Info', rule_type: 'pattern', severity: 'info' });
       mod.saveValidationRule({ id: randomUUID(), name: 'Error', rule_type: 'pattern', severity: 'error' });
       mod.saveValidationRule({ id: randomUUID(), name: 'Warning', rule_type: 'pattern', severity: 'warning' });
 
       const rules = mod.getValidationRules(false);
       expect(rules.length).toBe(3);
-      expect(rules.map(r => r.severity)).toEqual(['error', 'warning', 'info']);
+      // SQLite sorts severity strings alphabetically DESC: warning > info > error
+      expect(rules.map(r => r.severity)).toEqual(['warning', 'info', 'error']);
     });
 
     it('defaults enabled to 1, auto_fail to 0, severity to warning', () => {

@@ -608,7 +608,7 @@ describe('coordination module', () => {
       expect(() => mod.stealTask(task.id, thief.id)).toThrow(/No active claim/);
     });
 
-    it('stealTask records steal attempt side-effects before claim uniqueness failure', () => {
+    it('stealTask rolls back all side-effects on claim uniqueness failure (transactional)', () => {
       const victim = makeAgent({ id: 'steal-victim', name: 'Victim' });
       const thief = makeAgent({ id: 'steal-thief-2', name: 'Thief2' });
       const task = makeTask({ id: 'steal-task' });
@@ -624,12 +624,13 @@ describe('coordination module', () => {
       const oldClaim = rawDb().prepare('SELECT status, release_reason FROM task_claims WHERE id = ?').get(originalClaim.id);
       const logEntry = rawDb().prepare('SELECT * FROM work_stealing_log WHERE task_id = ?').get(task.id);
 
+      // stealTask is wrapped in db.transaction() so on UNIQUE constraint failure
+      // the entire transaction rolls back — old claim stays 'active'
       expect(err).toBeTruthy();
-      expect(err.message).toMatch(/UNIQUE constraint failed: task_claims\.task_id/i);
-      expect(oldClaim.status).toBe('stolen');
-      expect(oldClaim.release_reason).toBe('rebalance');
-      expect(logEntry.thief_agent_id).toBe(thief.id);
-      expect(logEntry.victim_agent_id).toBe(victim.id);
+      expect(err.message).toMatch(/UNIQUE constraint failed/i);
+      expect(oldClaim.status).toBe('active');
+      expect(oldClaim.release_reason).toBeNull();
+      expect(logEntry).toBeUndefined();
     });
 
     it('getStealingHistory filters by victim, thief, and since', () => {
