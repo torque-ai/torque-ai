@@ -47,7 +47,7 @@ For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit
 
 ## Providers
 
-TORQUE routes between **13 execution providers**. Smart routing picks the best one automatically — you rarely need to choose manually.
+TORQUE routes between **12 execution providers**. Smart routing picks the best one automatically — you rarely need to choose manually.
 
 ### Local (Ollama)
 
@@ -57,9 +57,8 @@ Run on your local Ollama instance or registered LAN hosts. Free, private, no API
 |----------|------------|----------|
 | **ollama** | Raw prompt → text response | General prompts, documentation, brainstorming |
 | **hashline-ollama** | Line-hash annotated file content | Targeted single-file edits (highest precision) |
-| **aider-ollama** | Aider SEARCH/REPLACE blocks | Multi-file code modifications |
 
-All three share the same Ollama host and GPU. Configure hosts with `add_ollama_host` or let TORQUE auto-discover.
+Both share the same Ollama host and GPU. Configure hosts with `add_ollama_host` or let TORQUE auto-discover.
 
 ### Cloud (Subscription CLI Tools)
 
@@ -94,7 +93,7 @@ To enable a cloud API provider:
 
 `smart_submit_task` analyzes task complexity and routes automatically:
 - **Simple** (docs, comments, config) → hashline-ollama on local host
-- **Normal** (tests, single-file code) → hashline-ollama or aider-ollama
+- **Normal** (tests, single-file code) → hashline-ollama
 - **Normal greenfield** (new file creation) → codex
 - **Complex reasoning/large code** → deepinfra or hyperbolic (large models)
 - **Complex multi-file** → codex or claude-cli
@@ -208,7 +207,6 @@ Chains are user-configurable via `configure_fallback_chain`. Anthropic is not in
 
 Stall detection is enabled with provider-specific thresholds:
 - **Ollama**: 180 seconds
-- **Aider**: 240 seconds
 - **Codex**: 600 seconds
 - **DeepInfra / Hyperbolic**: 180 seconds (default, configurable via `configure_stall_detection`)
 

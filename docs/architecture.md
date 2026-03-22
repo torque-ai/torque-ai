@@ -32,7 +32,7 @@ How TORQUE works, from request entry to task completion.
 │                     ▼             ▼                              │
 │              ┌──────────────────────┐                           │
 │              │   Provider Registry  │                           │
-│              │   13 providers       │                           │
+│              │   12 providers       │                           │
 │              └──────┬───────────────┘                           │
 │                     │                                           │
 │       ┌─────────────┼──────────────┐                           │
@@ -45,7 +45,7 @@ How TORQUE works, from request entry to task completion.
 │       └─────────────┼─────────────┘                            │
 │                     ▼                                           │
 │              ┌──────────────┐                                  │
-│              │Quality Gates │  8-phase completion pipeline      │
+│              │Quality Gates │  7-phase completion pipeline      │
 │              │30+ safeguards│                                  │
 │              └──────┬───────┘                                  │
 │                     │                                           │
@@ -157,8 +157,7 @@ startTask(taskId)
       │
       ├─ Ollama family:
       │   ├─ ollama → executeOllamaTask() → HTTP to Ollama API
-      │   ├─ hashline-ollama → executeHashlineOllamaTask() → hashline format
-      │   └─ aider-ollama → buildAiderCommand() → spawn aider process
+      │   └─ hashline-ollama → executeHashlineOllamaTask() → hashline format
       │
       ├─ CLI tools:
       │   ├─ codex → spawn codex CLI with stdin prompt
@@ -174,7 +173,7 @@ startTask(taskId)
 
 ### 4. Completion (Quality Pipeline)
 
-When a task's process exits, an 8-phase quality pipeline runs:
+When a task's process exits, a 7-phase quality pipeline runs:
 
 ```
 Process exits
@@ -188,24 +187,21 @@ Process exits
   Phase 2: Safeguard Checks
   │  └─ Output validation (empty output, truncation, error markers)
   │
-  Phase 3: Fuzzy Repair
-  │  └─ SEARCH/REPLACE block repair for aider failures
-  │
-  Phase 4: Auto Validation
+  Phase 3: Auto Validation
   │  └─ Stub detection, TODO scanning, file size delta checks
   │
-  Phase 5: Build/Test/Style
+  Phase 4: Build/Test/Style
   │  └─ Compile check → test run → style check → auto-commit
   │
-  Phase 6.5: Auto-Verify-Retry
+  Phase 5: Auto-Verify-Retry
   │  └─ Run project verify_command (e.g., "npm test")
   │  └─ Scoped error check (only fails if errors in THIS task's files)
   │  └─ On failure: auto-submit error-feedback fix task
   │
-  Phase 7: Provider Failover
+  Phase 6: Provider Failover
   │  └─ On failure: try next provider in fallback chain
   │
-  Phase 8: Post-Completion
+  Phase 7: Post-Completion
      ├─ Record provider usage + model outcome
      ├─ Fire terminal hooks + webhooks
      ├─ Evaluate workflow dependencies (unblock next tasks)
@@ -217,9 +213,9 @@ Process exits
 - `server/execution/process-lifecycle.js` — Phase 0
 - `server/execution/retry-framework.js` — Phase 1
 - `server/validation/safeguard-gates.js` — Phase 2
-- `server/validation/close-phases.js` — Phases 4, 5, 7
-- `server/validation/auto-verify-retry.js` — Phase 6.5
-- `server/execution/completion-pipeline.js` — Phase 8
+- `server/validation/close-phases.js` — Phases 3, 4, 6
+- `server/validation/auto-verify-retry.js` — Phase 5
+- `server/execution/completion-pipeline.js` — Phase 7
 
 ---
 
@@ -229,7 +225,7 @@ Process exits
 
 | Category | Providers | Execution Method |
 |----------|-----------|-----------------|
-| **Ollama** | ollama, hashline-ollama, aider-ollama | HTTP to local/LAN Ollama API |
+| **Ollama** | ollama, hashline-ollama | HTTP to local/LAN Ollama API |
 | **CLI** | codex, claude-cli | Spawn CLI process with stdin prompt |
 | **Cloud API** | anthropic, deepinfra, hyperbolic, groq, cerebras, google-ai, openrouter, ollama-cloud | HTTP to cloud API (BYOK keys) |
 
@@ -240,7 +236,7 @@ Process exits
 | Complexity | Characteristics | Routed To |
 |-----------|----------------|-----------|
 | **Simple** | docs, comments, config changes | hashline-ollama |
-| **Normal** | single-file code, tests | hashline-ollama or aider-ollama |
+| **Normal** | single-file code, tests | hashline-ollama |
 | **Normal greenfield** | new file creation | codex |
 | **Complex reasoning** | large code, architecture | deepinfra or hyperbolic |
 | **Complex multi-file** | cross-file refactoring | codex or claude-cli |
@@ -251,7 +247,7 @@ Process exits
 When a provider fails, the system tries the next provider:
 
 ```
-hashline-ollama → aider-ollama → codex → claude-cli → anthropic
+hashline-ollama → codex → claude-cli → anthropic
 deepinfra ↔ hyperbolic → anthropic → codex
 ```
 

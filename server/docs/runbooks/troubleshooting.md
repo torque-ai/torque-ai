@@ -177,7 +177,6 @@ Common issues and solutions for TORQUE.
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| "spawn aider ENOENT" | Aider not installed | `pip install aider-chat` |
 | "spawn claude ENOENT" | Claude CLI not installed | Install Claude CLI |
 | "Connection refused" | Ollama not running | Start Ollama |
 | "model not found" | Model not pulled | `ollama pull <model>` |
@@ -282,7 +281,7 @@ Common issues and solutions for TORQUE.
 **Solutions:**
 
 1. Check fallback chain: `configure_fallback_chain {}` (no args shows current chain)
-2. Set fallback: `configure_fallback_chain { chain: ["aider-ollama", "claude-cli"] }`
+2. Set fallback: `configure_fallback_chain { chain: ["hashline-ollama", "codex", "claude-cli"] }`
 3. Check fallback provider health: `check_ollama_health {}` or `health_check {}`
 
 ---

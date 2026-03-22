@@ -15,7 +15,6 @@
 |-------------|---------|
 | **NVIDIA GPU** | Accelerated Ollama inference |
 | **nvidia-smi** | GPU metrics monitoring |
-| **Aider** | Code editing via Ollama (`pip install aider-chat`) |
 
 ## Installation
 
@@ -94,7 +93,7 @@ TORQUE stores configuration in a SQLite key-value table. All settings have sensi
 | Config Key | Default | Description |
 |------------|---------|-------------|
 | `max_concurrent` | 3 | Maximum parallel tasks |
-| `default_provider` | `aider-ollama` | Default execution provider |
+| `default_provider` | `hashline-ollama` | Default execution provider |
 | `ollama_host` | `http://localhost:11434` | Local Ollama URL |
 | `ollama_model` | `deepseek-r1:14b` | Default Ollama model |
 | `ollama_fallback_provider` | `claude-cli` | Fallback when Ollama unavailable |
@@ -104,7 +103,7 @@ TORQUE stores configuration in a SQLite key-value table. All settings have sensi
 | Config Key | Default | Description |
 |------------|---------|-------------|
 | `smart_routing_enabled` | `1` | Enable automatic provider selection |
-| `smart_routing_default_provider` | `aider-ollama` | Default for routed tasks |
+| `smart_routing_default_provider` | `hashline-ollama` | Default for routed tasks |
 | `ollama_health_check_enabled` | `1` | Auto-check Ollama availability |
 
 ### LLM Tuning
@@ -126,16 +125,6 @@ TORQUE stores configuration in a SQLite key-value table. All settings have sensi
 | `ollama_num_gpu` | `-1` | GPU layers (-1=auto, 0=CPU, N=layers) |
 | `ollama_num_thread` | `0` | CPU threads (0=auto) |
 | `ollama_keep_alive` | `5m` | Model memory retention |
-
-### Aider Settings
-
-| Config Key | Default | Description |
-|------------|---------|-------------|
-| `aider_edit_format` | `diff` | Edit format (`diff` or `whole`) |
-| `aider_map_tokens` | `1024` | Repo context tokens |
-| `aider_auto_commits` | `0` | Auto-commit (0=no, TORQUE handles commits) |
-| `aider_subtree_only` | `1` | Only scan subtree (prevents large repo slowdown) |
-| `aider_auto_switch_format` | `1` | Auto-switch diff to whole on retry |
 
 ### Maintenance
 

@@ -92,7 +92,7 @@ Maps to `smart_submit_task`. Automatically selects the best provider.
 {
   "task": "Write unit tests for src/utils/parser.js",
   "working_directory": "/path/to/project",
-  "provider": "aider-ollama",
+  "provider": "hashline-ollama",
   "model": "codellama",
   "priority": 5
 }

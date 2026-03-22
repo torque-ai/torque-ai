@@ -6,8 +6,8 @@ TORQUE routes tasks across multiple execution providers, balancing cost, speed, 
 
 | Provider | ID | Execution | Cost | Best For |
 |----------|----|-----------|------|----------|
-| **Ollama (via Aider)** | `aider-ollama` | Local process | Free | Code generation, editing |
 | **Ollama (direct)** | `ollama` | Local HTTP | Free | Text generation, docs |
+| **Ollama (hashline)** | `hashline-ollama` | Local HTTP | Free | Targeted file edits |
 | **Claude CLI** | `claude-cli` | Cloud API | Paid | Complex tasks, architecture |
 | **Codex** | `codex` | Cloud API | Paid | Multi-file refactoring |
 | **Anthropic API** | `anthropic` | Cloud HTTP | Paid | Direct API access |
@@ -36,12 +36,12 @@ When `smart_routing_enabled` is `1` (default), TORQUE automatically selects the 
 |------|-------------------|----------|
 | Documentation | readme, documentation, docs, changelog | `ollama` |
 | Code comments | comment, docstring, jsdoc, tsdoc | `ollama` |
-| Simple tests | write test, add test, unit test | `aider-ollama` |
+| Simple tests | write test, add test, unit test | `hashline-ollama` |
 | Commit messages | commit message, git commit | `ollama` |
 | Code explanation | explain, what does, how does | `ollama` |
-| Simple refactoring | rename, move, extract, inline | `aider-ollama` |
-| Config edits | .json, .yaml, .yml, .toml, .ini, .env | `aider-ollama` |
-| Boilerplate | boilerplate, scaffold, template | `aider-ollama` |
+| Simple refactoring | rename, move, extract, inline | `hashline-ollama` |
+| Config edits | .json, .yaml, .yml, .toml, .ini, .env | `hashline-ollama` |
+| Boilerplate | boilerplate, scaffold, template | `hashline-ollama` |
 
 **Tier 2: Cloud Provider** (fallback for complex tasks)
 
@@ -185,14 +185,14 @@ Hyperbolic provides OpenAI-compatible API access and is provisioned but starts d
 When a provider fails, TORQUE falls back through a configured chain:
 
 ```
-Default: aider-ollama -> claude-cli
+Default: hashline-ollama -> codex -> claude-cli
 ```
 
 Configure the chain:
 
 ```
 configure_fallback_chain {
-  chain: ["aider-ollama", "ollama", "claude-cli", "anthropic"]
+  chain: ["hashline-ollama", "ollama", "codex", "claude-cli", "anthropic"]
 }
 ```
 
@@ -257,18 +257,6 @@ get_model_prompts {}
 set_model_prompt { model: "codellama", prompt: "You are an expert..." }
 ```
 
-### Aider Edit Format Per Model
-
-Different models work better with different edit formats:
-
-| Model | Format | Reason |
-|-------|--------|--------|
-| `qwen3:8b` | `diff` | Good at structured diffs |
-| `deepseek-r1:14b` | `whole` | Thinking tokens interfere with diff |
-| `deepseek-coder-v2:16b` | `whole` | Diff breaks new file creation |
-| `llama3` | `whole` | Refuses to generate code in diff format |
-| `codestral:22b` | `whole` | Better with full file output |
-
 ## Instruction Templates
 
 Wrap task descriptions with provider-specific instructions:
@@ -276,7 +264,7 @@ Wrap task descriptions with provider-specific instructions:
 ```
 get_instruction_templates {}
 set_instruction_template {
-  provider: "aider-ollama",
+  provider: "hashline-ollama",
   template: "You are a code assistant. {TASK_DESCRIPTION}\nFiles: {FILES}"
 }
 ```
@@ -297,7 +285,7 @@ toggle_instruction_wrapping { enabled: true }
 Track provider performance over time:
 
 ```
-provider_stats { provider: "aider-ollama" }
+provider_stats { provider: "hashline-ollama" }
 ```
 
 Returns:

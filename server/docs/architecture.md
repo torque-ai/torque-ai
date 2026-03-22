@@ -108,7 +108,7 @@ Claude Code (IDE)
 | Module | Purpose |
 |--------|---------|
 | `execute-api.js` | API provider execution (Anthropic, Groq, OpenAI-compatible providers) |
-| `execute-cli.js` | CLI-backed provider execution (aider-ollama, Claude CLI, Codex) |
+| `execute-cli.js` | CLI-backed provider execution (Claude CLI, Codex) |
 | `execute-hashline.js` | Hashline/Hashline-OpenAI execution adapters |
 | `execute-ollama.js` | Ollama execution path and host selection |
 
