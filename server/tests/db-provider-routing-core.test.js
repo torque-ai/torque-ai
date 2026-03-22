@@ -1,6 +1,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
@@ -82,12 +83,11 @@ async function startMockOllama(statusCode = 200) {
 
 beforeAll(() => {
   templateBuffer = fs.readFileSync(TEMPLATE_BUF);
-  db = require('../database');
+  ({ db } = setupTestDb('db-provider-routing-core'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   core = require('../db/provider-routing-core');
   const serverConfig = require('../config');
-  db.resetForTest(templateBuffer);
   serverConfig.init({ db });
   bindCore();
 });
@@ -99,9 +99,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  try {
-    db.close();
-  } catch {}
+  teardownTestDb();
 });
 
 describe('db/provider-routing-core', () => {

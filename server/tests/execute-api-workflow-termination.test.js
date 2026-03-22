@@ -1,36 +1,26 @@
 'use strict';
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
 let testDir;
-let origDataDir;
 let db;
 let templateBuffer;
 let executeApi;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-api-wt-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-
+  ({ db, testDir } = setupTestDb('api-wt'));
+  // Cache template buffer for beforeEach resets
+  const path = require('path');
+  const os = require('os');
+  const fs = require('fs');
+  templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
   executeApi = require('../providers/execute-api');
 }
 
 function teardown() {
-  try { if (db) db.close(); } catch { /* ok */ }
-  if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-  else delete process.env.TORQUE_DATA_DIR;
-  try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ok */ }
+  teardownTestDb();
 }
 
 function makeApiDeps(overrides = {}) {

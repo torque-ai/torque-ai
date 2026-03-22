@@ -10,21 +10,15 @@
 
 'use strict';
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
-
 const hostManagement = require('../db/host-management');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
-let origDataDir;
 let db;
 let taskCore;
 let configCore;
 let mod;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -46,29 +40,14 @@ function makeDeps(overrides = {}) {
 }
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-exec-ollama-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-
+  ({ db, testDir } = setupTestDb('exec-ollama'));
   taskCore = require('../db/task-core');
-
   configCore = require('../db/config-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
   mod = require('../providers/execute-ollama');
 }
 
 function teardown() {
-  try { if (db) db.close(); } catch { /* ok */ }
-  if (origDataDir !== undefined) {
-    process.env.TORQUE_DATA_DIR = origDataDir;
-  } else {
-    delete process.env.TORQUE_DATA_DIR;
-  }
-  try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ok */ }
+  teardownTestDb();
 }
 
 function addHost({ id = randomUUID(), name = 'test-host', url = 'http://127.0.0.1:11434', model = 'qwen2.5-coder:7b' } = {}) {

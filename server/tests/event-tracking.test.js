@@ -5,35 +5,18 @@
  * format tracking, output search, export/import.
  */
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDbModule, teardownTestDb } = require('./vitest-setup');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
 
-let testDir;
-let origDataDir;
-let db;
-let mod;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+let db, mod;
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-evttrack-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
+  ({ db, mod } = setupTestDbModule('../db/event-tracking', 'evttrack'));
 
   const schedulingAutomation = require('../db/scheduling-automation');
 
-  mod = require('../db/event-tracking');
-  mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
   mod.setGetTask((id) => taskCore.getTask(id));
   mod.setDbFunctions({
     getConfig: configCore.getConfig,
@@ -53,15 +36,7 @@ function setup() {
 }
 
 function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
+  teardownTestDb();
 }
 
 function rawDb() {

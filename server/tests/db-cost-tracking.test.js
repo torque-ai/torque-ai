@@ -1,19 +1,17 @@
-const path = require('path');
 const os = require('os');
+const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const costTracking = require('../db/cost-tracking');
 const workflowEngine = require('../db/workflow-engine');
-
+const { setupTestDbModule, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer, db;
+
+let db, templateBuffer;
 
 beforeAll(() => {
-  templateBuffer = fs.readFileSync(TEMPLATE_BUF);
-  db = require('../database');
-  db.resetForTest(templateBuffer);
-  costTracking.setDb(db.getDbInstance());
+  templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
+  ({ db } = setupTestDbModule('../db/cost-tracking', 'db-cost-tracking'));
   costTracking.setGetTask((taskId) => taskCore.getTask(taskId));
 });
 
@@ -22,7 +20,7 @@ beforeEach(() => {
   costTracking.setDb(db.getDbInstance());
   costTracking.setGetTask((taskId) => taskCore.getTask(taskId));
 });
-afterAll(() => { try { db.close(); } catch {} });
+afterAll(() => { teardownTestDb(); });
 
 function createTask(overrides = {}) {
   const taskId = overrides.id || randomUUID();

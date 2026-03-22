@@ -3,15 +3,14 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const workflowEngine = require('../db/workflow-engine');
-
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer, db;
+
+let db, templateBuffer;
 
 beforeAll(() => {
-  templateBuffer = fs.readFileSync(TEMPLATE_BUF);
-  db = require('../database');
-  db.resetForTest(templateBuffer);
+  templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
+  ({ db } = setupTestDb('db-workflow-engine'));
 });
 
 beforeEach(() => {
@@ -19,9 +18,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  try {
-    db.close();
-  } catch {}
+  teardownTestDb();
 });
 
 function createWorkflow(overrides = {}) {

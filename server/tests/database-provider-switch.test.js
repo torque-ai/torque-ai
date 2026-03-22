@@ -6,44 +6,19 @@
  * should be cleared to null unless the caller explicitly provides a new model.
  */
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const taskCore = require('../db/task-core');
 
-let testDir;
-let origDataDir;
 let db;
-let taskCore;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
 function setupDb() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-prov-switch-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-
-  taskCore = require('../db/task-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
+  ({ db } = setupTestDb('prov-switch'));
   return db;
 }
 
 function teardownDb() {
-  if (db) {
-    try { db.close(); } catch { /* ignore */ }
-  }
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
+  teardownTestDb();
 }
 
 describe('Provider Switch — Model Clearing', () => {

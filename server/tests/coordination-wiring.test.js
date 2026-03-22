@@ -1,48 +1,19 @@
 'use strict';
 
 const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
-let testDir;
-let origDataDir;
-let db;
-let coord;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+let db, coord;
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-coord-wiring-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
-  coord = require('../db/coordination');
-  coord.setDb(db.getDb());
+  ({ db, mod: coord } = setupTestDbModule('../db/coordination', 'coord-wiring'));
   coord.setGetTask(taskCore.getTask);
 }
 
 function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
-}
-
-function rawDb() {
-  if (db.getDb) return db.getDb();
-  return db.getDbInstance();
+  teardownTestDb();
 }
 
 function resetState() {

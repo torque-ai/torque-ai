@@ -1,7 +1,6 @@
 const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
@@ -9,12 +8,9 @@ vi.mock('child_process', () => ({
 }));
 
 let testDir;
-let origDataDir;
 let db;
 let mod;
 let hostMgmt;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
 function initExecution(overrides = {}) {
   const helpers = {
@@ -62,35 +58,16 @@ function initExecution(overrides = {}) {
 }
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-execution-builders-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
+  ({ db, testDir } = setupTestDb('execution-builders'));
   hostMgmt = require('../db/host-management');
-  hostMgmt.setDb(db.getDb());
+  const dbHandle = db.getDb ? db.getDb() : db.getDbInstance();
+  hostMgmt.setDb(dbHandle);
   mod = require('../providers/execution');
   initExecution();
 }
 
 function teardown() {
-  try {
-    if (db) db.close();
-  } catch {}
-
-  if (origDataDir !== undefined) {
-    process.env.TORQUE_DATA_DIR = origDataDir;
-  } else {
-    delete process.env.TORQUE_DATA_DIR;
-  }
-
-  try {
-    fs.rmSync(testDir, { recursive: true, force: true });
-  } catch {}
+  teardownTestDb();
 }
 
 // resetAiderConfigs removed — aider provider no longer exists

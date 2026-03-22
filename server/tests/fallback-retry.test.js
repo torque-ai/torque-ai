@@ -1,13 +1,10 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { installMock } = require('./cjs-mock');
 const { STALL_REQUEUE_DEBOUNCE_MS } = require('../constants');
 const { classifyError, findLargerAvailableModel, BASE_RETRY_DELAY_MS } = require('../execution/fallback-retry');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
-let origDataDir;
 let origOpenAiKey;
 let db;
 let taskCore;
@@ -23,8 +20,6 @@ let cancelCalls;
 let restartCalls;
 let stallRecoveryAttempts;
 let runningProcesses;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
 const FALLBACK_RETRY_MODULE_PATH = require.resolve('../execution/fallback-retry');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
@@ -34,20 +29,11 @@ const ORIGINAL_LOGGER_CACHE = require.cache[LOGGER_MODULE_PATH];
 const ORIGINAL_ROUTING_CORE_CACHE = require.cache[ROUTING_CORE_MODULE_PATH];
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-fallback-retry-${Date.now()}-${randomUUID()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
   origOpenAiKey = process.env.OPENAI_API_KEY;
-  process.env.TORQUE_DATA_DIR = testDir;
 
-  db = require('../database');
-
+  ({ db, testDir } = setupTestDb('fallback-retry'));
   taskCore = require('../db/task-core');
-
   configCore = require('../db/config-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   hostManagement = require('../db/host-management');
   providerRoutingCore = require('../db/provider-routing-core');
   eventTracking = require('../db/event-tracking');
@@ -96,18 +82,7 @@ function teardown() {
   if (mod && typeof mod.setFreeQuotaTracker === 'function') {
     mod.setFreeQuotaTracker(null);
   }
-  if (db) {
-    try { db.close(); } catch {}
-  }
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-  }
-
-  if (origDataDir !== undefined) {
-    process.env.TORQUE_DATA_DIR = origDataDir;
-  } else {
-    delete process.env.TORQUE_DATA_DIR;
-  }
+  teardownTestDb();
 
   if (origOpenAiKey !== undefined) {
     process.env.OPENAI_API_KEY = origOpenAiKey;

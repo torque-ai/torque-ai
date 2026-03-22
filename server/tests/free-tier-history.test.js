@@ -1,39 +1,15 @@
 'use strict';
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
+const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 
-let testDir, origDataDir, db, mod;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+let db, mod;
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-free-tier-history-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
-  mod = require('../db/cost-tracking');
-  mod.setDb(db.getDb());
+  ({ db, mod } = setupTestDbModule('../db/cost-tracking', 'free-tier-history'));
 }
 
 function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-    else delete process.env.TORQUE_DATA_DIR;
-  }
-}
-
-function rawDb() {
-  if (db.getDb) return db.getDb();
-  return db.getDbInstance();
+  teardownTestDb();
 }
 
 function resetState() {

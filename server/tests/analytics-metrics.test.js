@@ -1,36 +1,14 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
-
-let testDir;
-let origDataDir;
-let db;
-let taskCore;
-let configCore;
-let mod;
+const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 const schedulingAutomation = require('../db/scheduling-automation');
 const projectConfigCore = require('../db/project-config-core');
+const taskCore = require('../db/task-core');
+const configCore = require('../db/config-core');
 
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+let db, mod;
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-analytics-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-
-  taskCore = require('../db/task-core');
-
-  configCore = require('../db/config-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
-  mod = require('../db/analytics-metrics');
-  mod.setDb(db.getDb());
+  ({ db, mod } = setupTestDbModule('../db/analytics-metrics', 'analytics'));
   mod.setGetTask(taskCore.getTask);
   mod.setDbFunctions({
     getCacheStats: projectConfigCore.getCacheStats,
@@ -52,20 +30,7 @@ function setup() {
 }
 
 function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
-}
-
-function rawDb() {
-  if (db.getDb) return db.getDb();
-  return db.getDbInstance();
+  teardownTestDb();
 }
 
 function patchTask(taskId, fields) {
