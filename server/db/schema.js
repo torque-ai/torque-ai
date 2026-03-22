@@ -3,7 +3,8 @@
 const path = require('path');
 const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../constants');
 const logger = require('../logger').child({ component: 'schema' });
-const { safeAddColumn } = require('../database');
+// Lazy require to avoid circular dependency (database.js imports this module)
+function _getSafeAddColumn() { return require('../database').safeAddColumn; }
 const { createTables } = require('./schema-tables');
 const { seedDefaults } = require('./schema-seeds');
 const { runMigrations } = require('./schema-migrations');
@@ -31,7 +32,7 @@ function resolveSafeAddColumn(db, injectedSafeAddColumn) {
     return injectedSafeAddColumn;
   }
 
-  return (tableName, columnDef) => safeAddColumn(tableName, columnDef);
+  return (tableName, columnDef) => _getSafeAddColumn()(tableName, columnDef);
 }
 
 function applySchema(db, helpers = {}) {

@@ -1,16 +1,23 @@
 'use strict';
 
-const db = require('../database');
+// DI: receives db instance via setDb() — avoids circular require('../database')
+let _dbInstance = null;
+
+function setDb(dbInst) { _dbInstance = dbInst; }
 
 const PROVIDER_TABLES = ['provider_config', 'providers'];
 const PROVIDER_SQL = `COALESCE(NULLIF(LOWER(TRIM(provider)), ''), 'unknown')`;
 
 function getDbInstanceOrThrow() {
-  if (!db || typeof db.getDbInstance !== 'function') {
-    throw new Error('Database module does not expose getDbInstance()');
+  // Try DI-injected instance first, fall back to lazy require
+  let instance = _dbInstance;
+  if (!instance) {
+    try {
+      const db = require('../database');
+      instance = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
+    } catch { /* ok */ }
   }
 
-  const instance = db.getDbInstance();
   if (!instance || typeof instance.prepare !== 'function') {
     throw new Error('Database instance is not available');
   }
@@ -193,6 +200,7 @@ function getThroughputSummary(windowHours = 24) {
 }
 
 module.exports = {
+  setDb,
   getTasksPerHour,
   getProviderUtilization,
   getAverageDuration,
