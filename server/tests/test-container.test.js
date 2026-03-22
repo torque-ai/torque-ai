@@ -1,5 +1,6 @@
 'use strict';
 
+const os = require('os');
 const { createTestContainer } = require('./test-container');
 
 describe('createTestContainer', () => {
@@ -15,10 +16,13 @@ describe('createTestContainer', () => {
     db1.createTask({
       id: 'isolation-test-1',
       task_description: 'test task for isolation',
-      working_directory: '/tmp/test',
+      working_directory: os.tmpdir(),
       status: 'queued',
       priority: 0,
     });
+    // Verify the task was actually created
+    const tasksInDb1 = db1.listTasks({ limit: 100 });
+    expect(tasksInDb1.some(t => t.id === 'isolation-test-1')).toBe(true);
 
     const { db: db2 } = createTestContainer();
     const tasks = db2.listTasks({ limit: 100 });
