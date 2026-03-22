@@ -20,7 +20,7 @@ let _getConfig = null;
 let _setConfig = null;
 let _setConfigDefault = null;
 let _safeAddColumn = null;
-let _injectDbAll = null;
+let _wireAllModules = null;
 let _getDbPath = null;
 let _getDataDir = null;
 let _setDb = null;         // callback to update database.js's `db` reference
@@ -46,12 +46,12 @@ function getDbInstance() {
  * Wire dependencies that live in database.js.
  * Called once during init.
  */
-function setInternals({ getConfig, setConfig, setConfigDefault, safeAddColumn, injectDbAll, getDbPath, getDataDir, setDbRef, isDbClosed }) {
+function setInternals({ getConfig, setConfig, setConfigDefault, safeAddColumn, injectDbAll, wireAllModules, getDbPath, getDataDir, setDbRef, isDbClosed }) {
   _getConfig = getConfig;
   _setConfig = setConfig;
   _setConfigDefault = setConfigDefault;
   _safeAddColumn = safeAddColumn;
-  _injectDbAll = injectDbAll;
+  _wireAllModules = wireAllModules || injectDbAll;
   _getDbPath = getDbPath;
   _getDataDir = getDataDir;
   _setDb = setDbRef;
@@ -182,7 +182,7 @@ async function restoreDatabase(srcPath, confirm, { force = false } = {}) {
     // Update the live db reference BEFORE schema reconciliation so getConfig/setConfig work
     _db = newDb;
     _setDb(newDb);
-    _injectDbAll();
+    _wireAllModules();
 
     // Reconcile schema: backup may be from older version
     const { applySchema } = require('./schema');

@@ -414,7 +414,7 @@ function _wireAllModules() {
       setConfig,
       setConfigDefault,
       safeAddColumn,
-      injectDbAll: _wireAllModules,  // self-reference for restore
+      wireAllModules: _wireAllModules,  // self-reference for restore
       getDbPath: () => DB_PATH,
       getDataDir: () => DATA_DIR,
       setDbRef: (newDb) => { db = newDb; taskCore.setDb(newDb); configCore.setDb(newDb); },
@@ -545,7 +545,7 @@ function _wireCrossModuleDI() {
     setConfig,
     setConfigDefault,
     safeAddColumn,
-    injectDbAll: _injectDbAll,
+    wireAllModules: _wireAllModules,
     getDbPath: () => DB_PATH,
     getDataDir: () => DATA_DIR,
     setDbRef: (newDb) => { db = newDb; taskCore.setDb(newDb); configCore.setDb(newDb); },
