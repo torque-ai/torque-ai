@@ -49,7 +49,6 @@ describe('provider adapter registry', () => {
   it('registers expected built-in providers', () => {
     const providerIds = getRegisteredProviderIds();
     const expected = [
-      'aider-ollama',
       'anthropic',
       'claude-cli',
       'codex',

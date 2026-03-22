@@ -18,7 +18,6 @@ describe('v2-provider-registry', () => {
       'codex',
       'claude-cli',
       'ollama',
-      'aider-ollama',
       'hashline-ollama',
       'anthropic',
       'groq',

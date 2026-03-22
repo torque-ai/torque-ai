@@ -465,7 +465,7 @@ describe('v2-local-providers selection and payload behavior', () => {
     );
   });
 
-  it('initializes aider and hashline providers with configured defaults', () => {
+  it('initializes hashline provider with configured defaults', () => {
     const { providers } = loadProviders({
       db: {
         getConfig: vi.fn((key) => {
@@ -476,11 +476,8 @@ describe('v2-local-providers selection and payload behavior', () => {
       },
     });
 
-    const aider = new providers.AiderOllamaProvider();
     const hashline = new providers.HashlineOllamaProvider();
 
-    expect(aider.providerId).toBe('aider-ollama');
-    expect(aider.defaultModel).toBe('db-default:14b');
     expect(hashline.providerId).toBe('hashline-ollama');
     expect(hashline.defaultModel).toBe('db-default:14b');
   });

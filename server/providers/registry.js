@@ -20,7 +20,7 @@ const serverConfig = require('../config');
  * Used by: categorizeQueuedTasks, getProviderSlotLimits, dispatch routing.
  */
 const PROVIDER_CATEGORIES = {
-  ollama: ['ollama', 'aider-ollama', 'hashline-ollama'],
+  ollama: ['ollama', 'hashline-ollama'],
   codex:  ['codex', 'codex-spark', 'claude-cli'],
   api:    ['anthropic', 'groq', 'hyperbolic', 'deepinfra',
            'ollama-cloud', 'cerebras', 'google-ai', 'openrouter'],

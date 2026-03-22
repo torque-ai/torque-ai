@@ -59,22 +59,6 @@ const PROVIDER_REGISTRY = {
       code_interpretation: true,
     },
   },
-  'aider-ollama': {
-    name: 'Aider (Ollama)',
-    transport: 'api',
-    local: true,
-    request_rate_per_minute: DEFAULT_REQUEST_RATE_PER_MINUTE,
-    features: {
-      chat: true,
-      stream: true,
-      tools: true,
-      vision: false,
-      embeddings: false,
-      image_input: false,
-      file_edit: true,
-      code_interpretation: true,
-    },
-  },
   'hashline-ollama': {
     name: 'Hashline (Ollama)',
     transport: 'api',
@@ -213,7 +197,7 @@ const PROVIDER_REGISTRY = {
   },
 };
 
-const PROVIDER_LOCAL_IDS = new Set(['ollama', 'aider-ollama', 'hashline-ollama']);
+const PROVIDER_LOCAL_IDS = new Set(['ollama', 'hashline-ollama']);
 const V2_TRANSPORTS = new Set(['api', 'cli', 'hybrid']);
 
 module.exports = {

@@ -111,7 +111,6 @@ describe('Provider Registry', () => {
     it('includes all local ollama providers in the ollama category', () => {
       expect(registry.PROVIDER_CATEGORIES.ollama).toEqual([
         'ollama',
-        'aider-ollama',
         'hashline-ollama',
       ]);
     });

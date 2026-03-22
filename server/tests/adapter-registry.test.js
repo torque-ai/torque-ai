@@ -88,7 +88,6 @@ function installProviderMocks() {
     codex: createMockProviderClass('codex', { supportsStreaming: false }),
     'claude-cli': createMockProviderClass('claude-cli', { supportsStreaming: false }),
     ollama: createMockProviderClass('ollama'),
-    'aider-ollama': createMockProviderClass('aider-ollama'),
     'hashline-ollama': createMockProviderClass('hashline-ollama'),
   };
 
@@ -103,7 +102,6 @@ function installProviderMocks() {
   });
   installMock('../providers/v2-local-providers', {
     OllamaProvider: providers.ollama.MockProvider,
-    AiderOllamaProvider: providers['aider-ollama'].MockProvider,
     HashlineOllamaProvider: providers['hashline-ollama'].MockProvider,
   });
 
@@ -116,7 +114,6 @@ function loadRegistry() {
 }
 
 const expectedBuiltInProviderIds = [
-  'aider-ollama',
   'anthropic',
   'claude-cli',
   'codex',

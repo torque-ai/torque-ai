@@ -25,7 +25,6 @@ const OllamaStrategicProvider = require('./ollama-strategic');
 const { CodexCliProvider, ClaudeCliProvider } = require('./v2-cli-providers');
 const {
   OllamaProvider,
-  AiderOllamaProvider,
   HashlineOllamaProvider,
 } = require('./v2-local-providers');
 
@@ -255,10 +254,6 @@ registerApiAdapter('claude-cli', ClaudeCliProvider, {
   supportsAsync: false,
 });
 registerApiAdapter('ollama', OllamaProvider, {
-  supportsStream: true,
-  supportsAsync: true,
-});
-registerApiAdapter('aider-ollama', AiderOllamaProvider, {
   supportsStream: true,
   supportsAsync: true,
 });

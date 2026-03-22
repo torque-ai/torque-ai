@@ -707,16 +707,6 @@ class OllamaProvider extends BaseLocalOllamaProvider {
   }
 }
 
-class AiderOllamaProvider extends BaseLocalOllamaProvider {
-  constructor(config = {}) {
-    super({
-      providerId: 'aider-ollama',
-      defaultModel: config.defaultModel || sanitizeModel(db.getConfig?.('ollama_model')) || DEFAULT_FALLBACK_MODEL,
-      ...config,
-    });
-  }
-}
-
 class HashlineOllamaProvider extends BaseLocalOllamaProvider {
   constructor(config = {}) {
     super({
@@ -781,6 +771,5 @@ module.exports = {
   buildTruncatedError,
   BaseLocalOllamaProvider,
   OllamaProvider,
-  AiderOllamaProvider,
   HashlineOllamaProvider,
 };

@@ -30,12 +30,11 @@
     },
     "provider": {
       "type": "string",
-      "description": "Execution provider (codex, claude-cli, ollama, aider-ollama, hashline-ollama, anthropic, deepinfra, groq, hyperbolic). Defaults to configured default provider.",
+      "description": "Execution provider (codex, claude-cli, ollama, hashline-ollama, anthropic, deepinfra, groq, hyperbolic). Defaults to configured default provider.",
       "enum": [
         "codex",
         "claude-cli",
         "ollama",
-        "aider-ollama",
         "hashline-ollama",
         "anthropic",
         "deepinfra",
@@ -45,7 +44,7 @@
     },
     "model": {
       "type": "string",
-      "description": "Model to use. For ollama/aider-ollama: e.g., mistral:7b, qwen2.5-coder:7b (use list_ollama_models to see available). For codex: e.g., gpt-5.3-codex-spark (passed as -m flag)."
+      "description": "Model to use. For ollama: e.g., mistral:7b, qwen2.5-coder:7b (use list_ollama_models to see available). For codex: e.g., gpt-5.3-codex-spark (passed as -m flag)."
     }
   },
   "required": [

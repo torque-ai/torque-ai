@@ -88,7 +88,6 @@ const PROVIDER_DEFAULT_TIMEOUTS = {
   'codex': 30,
   'codex-spark': 30,
   'claude-cli': 30,
-  'aider-ollama': 30,
   'hashline-ollama': 30,
   'ollama': 30,
   'anthropic': 15,
