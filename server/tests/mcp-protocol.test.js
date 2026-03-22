@@ -61,7 +61,7 @@ describe('initialize', () => {
     await handleRequest({ method: 'initialize', params: {} }, session);
 
     expect(onInitialize).toHaveBeenCalledOnce();
-    expect(onInitialize).toHaveBeenCalledWith(session);
+    expect(onInitialize).toHaveBeenCalledWith(session, expect.anything());
   });
 
   it('does not throw when no onInitialize is provided', async () => {

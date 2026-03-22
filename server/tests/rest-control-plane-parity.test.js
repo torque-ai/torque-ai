@@ -212,7 +212,11 @@ describe('REST control-plane parity', () => {
       );
       const handlerSection = source.slice(source.indexOf('http.createServer'));
       const v2Pos = handlerSection.indexOf("startsWith('/api/v2/')");
-      const legacyPos = handlerSection.indexOf("startsWith('/api/')");
+      // Use the dispatch pattern (} else if) to distinguish the routing check
+      // from the auth middleware check that also uses startsWith('/api/')
+      const legacyDispatchPos = handlerSection.indexOf("} else if (urlPath.startsWith('/api/'))");
+      // Fall back to the simpler pattern if the else-if pattern isn't found
+      const legacyPos = legacyDispatchPos > -1 ? legacyDispatchPos : handlerSection.indexOf("startsWith('/api/')");
       expect(v2Pos).toBeLessThan(legacyPos);
     });
 
