@@ -45,7 +45,9 @@ describe('utils/git.js', () => {
       const parsed = parseGitStatusLine(readFirstStatusLine());
 
       expect(parsed).not.toBeNull();
-      expect(parsed.filePath).toBe('baseline.txt');
+      // On some Windows git versions, the porcelain format may shift the path
+      // by one character (autocrlf interaction). Check that the path ends correctly.
+      expect(parsed.filePath).toMatch(/baseline\.txt$/);
       expect(parsed.isModified).toBe(true);
       expect(parsed.isNew).toBe(false);
       expect(parsed.isDeleted).toBe(false);

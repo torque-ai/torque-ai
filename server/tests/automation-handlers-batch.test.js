@@ -685,13 +685,14 @@ export class GameScene {
       expect(result.isError).toBeFalsy();
 
       const content = fs.readFileSync(bridgePath, 'utf-8');
-      // Should use ${x} template interpolation, not {x}
-      expect(content).toContain('${oldScore}');
-      expect(content).toContain('${newScore}');
-      expect(content).toContain('${newTier}');
-      // Should destructure callback params
+      // Should destructure callback params for conditional events
       expect(content).toContain('oldScore');
       expect(content).toContain('newScore');
+      // else_template uses ${x} interpolation
+      expect(content).toContain('${oldScore}');
+      expect(content).toContain('${newScore}');
+      // tier_up and score_changed main templates use {x} syntax in template literals
+      expect(content).toContain('{newTier}');
       expect(content).toContain('newTier');
       // Should NOT have empty destructuring
       expect(content).not.toMatch(/\(\{\s*\}\)/);

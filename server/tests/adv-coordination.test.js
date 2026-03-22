@@ -343,7 +343,10 @@ describe('adv-coordination handlers', () => {
       expect(getText(result)).toContain('Agent Unregistered');
       expect(db.getAgent(agent.id)).toBeNull();
       expect(countMemberships(group.id)).toBe(0);
-      expect(leaveEvent.agent_id).toBe(agent.id);
+      // agent_id is nullified in coordination_events during agent deletion
+      // to preserve audit trail without violating FK constraints
+      expect(leaveEvent).toBeTruthy();
+      expect(leaveEvent.agent_id).toBeNull();
       expect(JSON.parse(leaveEvent.details)).toEqual({ name: 'Leaving Agent' });
     });
   });
