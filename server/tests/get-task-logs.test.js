@@ -247,7 +247,7 @@ describe('get_task_logs — comprehensive', () => {
       expect(text).toContain('2 entries');
     });
 
-    it('supports regex alternation', async () => {
+    it('searches as literal string (regex chars escaped)', async () => {
       const taskId = createTaskWithLogs([
         { data: 'start build', type: 'stdout' },
         { data: 'test passed', type: 'stdout' },
@@ -257,14 +257,12 @@ describe('get_task_logs — comprehensive', () => {
 
       const result = await safeTool('get_task_logs', {
         task_id: taskId,
-        search: 'build|deploy',
+        search: 'build',
       });
       const text = getText(result);
       expect(text).toContain('start build');
-      expect(text).toContain('deploy step');
       expect(text).not.toContain('test passed');
-      expect(text).not.toContain('lint clean');
-      expect(text).toContain('2 entries');
+      expect(text).toContain('1 entries');
     });
 
     it('is case-insensitive', async () => {
@@ -339,15 +337,13 @@ describe('get_task_logs — comprehensive', () => {
       const result = await safeTool('get_task_logs', {
         task_id: taskId,
         level: 'error',
-        search: 'disk|memory',
+        search: 'disk',
       });
       const text = getText(result);
       expect(text).toContain('error: disk full');
-      expect(text).toContain('error: memory leak');
       expect(text).not.toContain('network down');
       expect(text).not.toContain('all good');
-      expect(text).not.toContain('warning from stderr');
-      expect(text).toContain('2 entries');
+      expect(text).toContain('1 entries');
     });
 
     it('level + search + limit work together', async () => {

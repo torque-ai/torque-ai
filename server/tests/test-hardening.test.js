@@ -9,7 +9,7 @@ const { getPeekFirstSliceCanonicalEntry } = require('../contracts/peek');
 const peekHandlers = require('../handlers/peek-handlers');
 const tools = require('../tools');
 
-const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier']);
+const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema']);
 
 function loadToolDefinitionNames() {
   const toolDefDir = path.join(__dirname, '../tool-defs');
@@ -49,7 +49,9 @@ function handleNameToToolName(handleName) {
 function extractHandlerModules() {
   const toolsSource = fs.readFileSync(path.join(__dirname, '../tools.js'), 'utf8');
   const matches = [...toolsSource.matchAll(/require\(\s*['"]\.\/handlers\/([^'"]+)['"]\s*\)/g)];
-  return [...new Set(matches.map((match) => path.join(__dirname, '../handlers', match[1])))].sort();
+  return [...new Set(matches.map((match) => path.join(__dirname, '../handlers', match[1])))]
+    .filter((p) => !p.endsWith('shared.js') && !p.endsWith('shared'))
+    .sort();
 }
 
 function collectRouteNamesFromModules() {
@@ -442,6 +444,7 @@ describe('handler/tool wiring parity', () => {
   const ALIASED_ROUTE_NAMES = new Set([
     'set_api_key', 'clear_api_key',
     'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
+    'subscribe_task_events', // SSE-only tool defined in mcp-sse.js
   ]);
 
   it('all handler modules referenced by tools.js export handle* functions', () => {

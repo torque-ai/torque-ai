@@ -35,7 +35,8 @@ describe('Advanced Handlers', () => {
       const result = await safeTool('add_approval_rule', {
         name: 'Test Rule',
         description: 'A test approval rule',
-        rule_type: 'keyword'
+        rule_type: 'keyword',
+        condition: 'keyword_match'
       });
       expect(result.isError).not.toBe(true);
       const text = getText(result);
@@ -60,6 +61,7 @@ describe('Advanced Handlers', () => {
         name: 'Auto Reject',
         description: 'Auto reject dangerous tasks',
         rule_type: 'keyword',
+        condition: 'dangerous',
         auto_reject: true
       });
       expect(result.isError).not.toBe(true);
@@ -98,8 +100,9 @@ describe('Advanced Handlers', () => {
 
   describe('approve_task', () => {
     it('returns error for nonexistent task', async () => {
-      const result = await safeTool('approve_task', { task_id: 'nonexistent-task', decision: 'approve' });
-      expect(result.isError).not.toBe(true);
+      // Handler requires approval_id (not task_id). Missing approval_id returns error.
+      const result = await safeTool('approve_task', { approval_id: 'nonexistent-approval' });
+      expect(result.isError).toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -260,7 +263,8 @@ describe('Advanced Handlers', () => {
   describe('predict_failure', () => {
     it('returns error for nonexistent task', async () => {
       const result = await safeTool('predict_failure', { task_id: 'nonexistent-task' });
-      expect(result.isError).not.toBe(true);
+      // Handler returns error when task is not found
+      expect(result.isError).toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -295,7 +299,8 @@ describe('Advanced Handlers', () => {
   describe('delete_failure_pattern', () => {
     it('handles nonexistent pattern', async () => {
       const result = await safeTool('delete_failure_pattern', { pattern_id: 'nonexistent' });
-      expect(result.isError).not.toBe(true);
+      // Handler returns RESOURCE_NOT_FOUND error
+      expect(result.isError).toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -324,8 +329,8 @@ describe('Advanced Handlers', () => {
       const result = await safeTool('create_experiment', {
         name: 'Test Experiment',
         description: 'Testing model performance',
-        strategy_a: 'ollama:gemma3:4b',
-        strategy_b: 'ollama:qwen3:8b',
+        variant_a: 'ollama:gemma3:4b',
+        variant_b: 'ollama:qwen3:8b',
         sample_size: 50
       });
       expect(result.isError).not.toBe(true);
@@ -343,7 +348,8 @@ describe('Advanced Handlers', () => {
   describe('experiment_status', () => {
     it('handles nonexistent experiment', async () => {
       const result = await safeTool('experiment_status', { experiment_id: 'nonexistent' });
-      expect(result.isError).not.toBe(true);
+      // Handler returns error for nonexistent experiments
+      expect(result.isError).toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });
@@ -516,7 +522,8 @@ describe('Advanced Handlers', () => {
   describe('clear_breakpoint', () => {
     it('handles nonexistent breakpoint', async () => {
       const result = await safeTool('clear_breakpoint', { breakpoint_id: 'nonexistent' });
-      expect(result.isError).not.toBe(true);
+      // Handler returns RESOURCE_NOT_FOUND error
+      expect(result.isError).toBe(true);
       const text = getText(result);
       expect(typeof text).toBe('string');
     });

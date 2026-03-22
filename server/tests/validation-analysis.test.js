@@ -421,11 +421,11 @@ describe('validation/analysis handlers', () => {
         by_action: { create: 2, update: 10 },
       });
 
-      const payload = getJson(handlers.handleGetAuditSummary({ period: 'weekly' }));
+      const payload = getJson(handlers.handleGetAuditSummary({ days: 7 }));
 
-      expect(mockDb.getAuditSummary).toHaveBeenCalledWith('weekly');
+      expect(mockDb.getAuditSummary).toHaveBeenCalledWith(7);
       expect(payload).toEqual({
-        period: 'weekly',
+        days: 7,
         summary: {
           total_events: 12,
           by_action: { create: 2, update: 10 },
@@ -438,9 +438,9 @@ describe('validation/analysis handlers', () => {
 
       const payload = getJson(handlers.handleGetAuditSummary({}));
 
-      expect(mockDb.getAuditSummary).toHaveBeenCalledWith('daily');
+      expect(mockDb.getAuditSummary).toHaveBeenCalledWith(7);
       expect(payload).toEqual({
-        period: 'daily',
+        days: 7,
         summary: { total_events: 0 },
       });
     });

@@ -4,6 +4,7 @@ const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
 const keyManager = require('../auth/key-manager');
 const ticketManager = require('../auth/ticket-manager');
 const sessionManager = require('../auth/session-manager');
+const userManager = require('../auth/user-manager');
 const { resolve } = require('../auth/resolvers');
 const { authenticate, extractCredential, parseCookie } = require('../auth/middleware');
 const { requireRole } = require('../auth/role-guard');
@@ -31,6 +32,7 @@ beforeAll(() => {
 
   // Initialize key-manager with the raw DB handle (supports prepare())
   keyManager.init(handle);
+  userManager.init(handle);
 });
 
 afterAll(() => {
@@ -47,6 +49,7 @@ beforeEach(() => {
   // Reset cached secret so each test starts fresh
   keyManager._resetForTest();
   keyManager.init(handle);
+  userManager.init(handle);
 });
 
 describe('key-manager', () => {
@@ -593,7 +596,7 @@ describe('middleware', () => {
     // beforeEach already clears api_keys, so no keys exist
     const req = { headers: {} };
     const identity = authenticate(req);
-    expect(identity).toEqual({ id: 'open-mode', name: 'Open Mode', role: 'admin' });
+    expect(identity).toEqual({ id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' });
   });
 
   it('authenticate extracts Bearer token from Authorization header', () => {
@@ -935,7 +938,7 @@ describe('REST API auth', () => {
     // No keys created — open mode
     const req = { headers: {} };
     const result = authenticateRequest(req, '/api/tasks');
-    expect(result).toEqual({ id: 'open-mode', name: 'Open Mode', role: 'admin' });
+    expect(result).toEqual({ id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' });
   });
 
   it('authenticateRequest returns identity for valid bearer token', () => {

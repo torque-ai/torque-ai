@@ -243,9 +243,9 @@ describe('handler:validation-analysis-handlers', () => {
       const spy = vi.spyOn(db, 'getAuditSummary').mockReturnValue(summary);
 
       const payload = getJson(handlers.handleGetAuditSummary({}));
-      expect(spy).toHaveBeenCalledWith('daily');
+      expect(spy).toHaveBeenCalledWith(7);
       expect(payload).toEqual({
-        period: 'daily',
+        days: 7,
         summary
       });
     });
@@ -254,10 +254,10 @@ describe('handler:validation-analysis-handlers', () => {
       const summary = { total_events: 4 };
       const spy = vi.spyOn(db, 'getAuditSummary').mockReturnValue(summary);
 
-      const payload = getJson(handlers.handleGetAuditSummary({ period: 'weekly' }));
-      expect(spy).toHaveBeenCalledWith('weekly');
+      const payload = getJson(handlers.handleGetAuditSummary({ days: 30 }));
+      expect(spy).toHaveBeenCalledWith(30);
       expect(payload).toEqual({
-        period: 'weekly',
+        days: 30,
         summary
       });
     });

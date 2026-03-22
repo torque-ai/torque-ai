@@ -1318,7 +1318,7 @@ describe('api/v2-analytics-handlers', () => {
           model: 'gpt-5',
           status: 'completed',
           complexity: 'high',
-          description: longDescription,
+          task_description: longDescription,
           metadata: JSON.stringify({
             smart_routing: true,
             needs_review: true,
@@ -1331,7 +1331,7 @@ describe('api/v2-analytics-handlers', () => {
           provider: 'openrouter',
           model: null,
           status: 'failed',
-          description: 'secondary',
+          task_description: 'secondary',
           metadata: {
             auto_routed: true,
             complexity: 'medium',
@@ -1342,14 +1342,14 @@ describe('api/v2-analytics-handlers', () => {
           id: 'task-3',
           created_at: '2026-03-10T03:00:00.000Z',
           status: 'queued',
-          description: 'manual route',
+          task_description: 'manual route',
           metadata: '{"smart_routing":false}',
         },
         {
           id: 'task-4',
           created_at: '2026-03-10T04:00:00.000Z',
           status: 'queued',
-          description: 'bad metadata',
+          task_description: 'bad metadata',
           metadata: '{not-json',
         },
       ]);
@@ -1382,7 +1382,7 @@ describe('api/v2-analytics-handlers', () => {
             status: 'failed',
             fallback_used: true,
             needs_review: false,
-            description: 'secondary',
+            task_description: 'secondary',
           },
         ],
       });
@@ -1397,7 +1397,7 @@ describe('api/v2-analytics-handlers', () => {
           created_at: '2026-03-10T01:00:00.000Z',
           provider: 'codex',
           status: 'completed',
-          description: 'wrapped',
+          task_description: 'wrapped',
           metadata: { smart_routing: true },
         }],
       });
@@ -1418,7 +1418,7 @@ describe('api/v2-analytics-handlers', () => {
           status: 'completed',
           fallback_used: false,
           needs_review: false,
-          description: 'wrapped',
+          task_description: 'wrapped',
         }],
       });
     });
