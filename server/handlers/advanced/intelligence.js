@@ -1025,6 +1025,37 @@ function handleConcludeExperiment(args) {
 }
 
 
+function createIntelligenceHandlers() {
+  return {
+    handleCacheTaskResult,
+    handleLookupCache,
+    handleInvalidateCache,
+    handleCacheStats,
+    handleConfigureCache,
+    handleWarmCache,
+    handleComputePriority,
+    handleGetPriorityQueue,
+    handleConfigurePriorityWeights,
+    handleExplainPriority,
+    handleBoostPriority,
+    handlePredictFailure,
+    handleLearnFailurePattern,
+    handleListFailurePatterns,
+    handleDeleteFailurePattern,
+    handleSuggestIntervention,
+    handleApplyIntervention,
+    handleAnalyzeRetryPatterns,
+    handleConfigureAdaptiveRetry,
+    handleGetRetryRecommendation,
+    handleRetryWithAdaptation,
+    handleIntelligenceDashboard,
+    handleLogIntelligenceOutcome,
+    handleCreateExperiment,
+    handleExperimentStatus,
+    handleConcludeExperiment,
+  };
+}
+
 module.exports = {
   handleCacheTaskResult,
   handleLookupCache,
@@ -1052,4 +1083,5 @@ module.exports = {
   handleCreateExperiment,
   handleExperimentStatus,
   handleConcludeExperiment,
+  createIntelligenceHandlers,
 };

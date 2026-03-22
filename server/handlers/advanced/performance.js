@@ -251,10 +251,21 @@ function handleDatabaseStats(args) {
 }
 
 
+function createPerformanceHandlers() {
+  return {
+    handleAnalyzeQueryPerformance,
+    handleOptimizeDatabase,
+    handleClearCache,
+    handleQueryPlan,
+    handleDatabaseStats,
+  };
+}
+
 module.exports = {
   handleAnalyzeQueryPerformance,
   handleOptimizeDatabase,
   handleClearCache,
   handleQueryPlan,
   handleDatabaseStats,
+  createPerformanceHandlers,
 };

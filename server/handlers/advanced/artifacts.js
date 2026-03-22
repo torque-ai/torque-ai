@@ -583,6 +583,17 @@ async function handleExportArtifacts(args) {
   }}
 
 
+function createArtifactsHandlers() {
+  return {
+    handleStoreArtifact,
+    handleListArtifacts,
+    handleGetArtifact,
+    handleDeleteArtifact,
+    handleConfigureArtifactStorage,
+    handleExportArtifacts,
+  };
+}
+
 module.exports = {
   handleStoreArtifact,
   handleListArtifacts,
@@ -590,4 +601,5 @@ module.exports = {
   handleDeleteArtifact,
   handleConfigureArtifactStorage,
   handleExportArtifacts,
+  createArtifactsHandlers,
 };

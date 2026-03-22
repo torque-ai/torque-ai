@@ -280,6 +280,17 @@ function handleResourceReport(args) {
 }
 
 
+function createSchedulingHandlers() {
+  return {
+    handleCreateCronSchedule,
+    handleListSchedules,
+    handleToggleSchedule,
+    handleGetResourceUsage,
+    handleSetResourceLimits,
+    handleResourceReport,
+  };
+}
+
 module.exports = {
   handleCreateCronSchedule,
   handleListSchedules,
@@ -287,4 +298,5 @@ module.exports = {
   handleGetResourceUsage,
   handleSetResourceLimits,
   handleResourceReport,
+  createSchedulingHandlers,
 };

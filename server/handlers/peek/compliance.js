@@ -786,8 +786,17 @@ function exportAttestation(reportOrId, reportDataOrOptions) {
   };
 }
 
+function createPeekComplianceHandlers() {
+  return {
+    exportAttestation,
+    generateComplianceReport,
+    verifyAuditChain,
+  };
+}
+
 module.exports = {
   exportAttestation,
   generateComplianceReport,
   verifyAuditChain,
+  createPeekComplianceHandlers,
 };

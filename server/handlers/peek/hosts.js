@@ -163,9 +163,19 @@ async function handlePeekHealthAll(_args) {
   }
 }
 
+function createPeekHostsHandlers() {
+  return {
+    handleRegisterPeekHost,
+    handleUnregisterPeekHost,
+    handleListPeekHosts,
+    handlePeekHealthAll,
+  };
+}
+
 module.exports = {
   handleRegisterPeekHost,
   handleUnregisterPeekHost,
   handleListPeekHosts,
   handlePeekHealthAll,
+  createPeekHostsHandlers,
 };

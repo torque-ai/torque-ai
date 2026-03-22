@@ -294,6 +294,17 @@ function handleDebugStatus(args) {
 }
 
 
+function createDebuggerHandlers() {
+  return {
+    handleSetBreakpoint,
+    handleListBreakpoints,
+    handleClearBreakpoint,
+    handleStepExecution,
+    handleInspectState,
+    handleDebugStatus,
+  };
+}
+
 module.exports = {
   handleSetBreakpoint,
   handleListBreakpoints,
@@ -301,4 +312,5 @@ module.exports = {
   handleStepExecution,
   handleInspectState,
   handleDebugStatus,
+  createDebuggerHandlers,
 };

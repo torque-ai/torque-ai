@@ -1086,6 +1086,28 @@ async function handlePeekBuildAndOpen(args) {
   }
 }
 
+function createPeekCaptureHandlers() {
+  return {
+    applyAnnotations,
+    getOcrWorker,
+    extractText,
+    getRegionsPath,
+    loadRegions,
+    saveRegion,
+    resolveRegion,
+    buildCompareSummary,
+    getCompareImage,
+    handlePeekUi,
+    handlePeekInteract,
+    handlePeekLaunch,
+    handlePeekDiscover,
+    handlePeekOpenUrl,
+    handlePeekSnapshot,
+    handlePeekRefresh,
+    handlePeekBuildAndOpen,
+  };
+}
+
 module.exports = {
   applyAnnotations,
   getOcrWorker,
@@ -1104,4 +1126,5 @@ module.exports = {
   handlePeekSnapshot,
   handlePeekRefresh,
   handlePeekBuildAndOpen,
+  createPeekCaptureHandlers,
 };

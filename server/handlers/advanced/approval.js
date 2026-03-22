@@ -353,6 +353,18 @@ function handleConfigureAudit(args) {
 }
 
 
+function createApprovalHandlers() {
+  return {
+    handleAddApprovalRule,
+    handleListApprovalRules,
+    handleApproveTask,
+    handleListPendingApprovals,
+    handleGetAuditLog,
+    handleExportAuditReport,
+    handleConfigureAudit,
+  };
+}
+
 module.exports = {
   handleAddApprovalRule,
   handleListApprovalRules,
@@ -361,4 +373,5 @@ module.exports = {
   handleGetAuditLog,
   handleExportAuditReport,
   handleConfigureAudit,
+  createApprovalHandlers,
 };

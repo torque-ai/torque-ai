@@ -938,6 +938,39 @@ function handleTaskQuotas(args) {
 }
 
 
+function createCoordinationHandlers() {
+  return {
+    handleRegisterAgent,
+    handleUnregisterAgent,
+    handleAgentHeartbeat,
+    handleListAgents,
+    handleGetAgent,
+    handleUpdateAgent,
+    handleClaimTask,
+    handleRenewLease,
+    handleReleaseTask,
+    handleGetClaim,
+    handleListClaims,
+    handleCreateAgentGroup,
+    handleAddToGroup,
+    handleRemoveFromGroup,
+    handleCreateRoutingRule,
+    handleListRoutingRules,
+    handleListAgentRoutingRules,
+    handleDeleteAgentRoutingRule,
+    handleStealTask,
+    handleTriggerFailover,
+    handleGetStealingHistory,
+    handleConfigureFailover,
+    handleAcquireLock,
+    handleReleaseLock,
+    handleCoordinationDashboard,
+    handleExportMetricsPrometheus,
+    handleRateLimitTasks,
+    handleTaskQuotas,
+  };
+}
+
 module.exports = {
   handleRegisterAgent,
   handleUnregisterAgent,
@@ -967,4 +1000,5 @@ module.exports = {
   handleExportMetricsPrometheus,
   handleRateLimitTasks,
   handleTaskQuotas,
+  createCoordinationHandlers,
 };

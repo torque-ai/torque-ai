@@ -259,9 +259,19 @@ async function fireWebhookForEvent(event, data) {
   return { fired: webhooks.length };
 }
 
+function createPeekWebhookOutboundHandlers() {
+  return {
+    PEEK_WEBHOOK_EVENTS,
+    computeHmacSignature,
+    buildWebhookPayload,
+    fireWebhookForEvent,
+  };
+}
+
 module.exports = {
   PEEK_WEBHOOK_EVENTS,
   computeHmacSignature,
   buildWebhookPayload,
   fireWebhookForEvent,
+  createPeekWebhookOutboundHandlers,
 };

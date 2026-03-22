@@ -410,6 +410,26 @@ function ensurePeekBundlePersistence(bundleData, outputDir, args = {}) {
   return bundlePath;
 }
 
+function createPeekArtifactsHandlers() {
+  return {
+    applyEvidenceStateToBundle,
+    attachPeekArtifactReferences,
+    buildPeekFallbackPersistOutputDir,
+    canonicalizeBundleData,
+    classifyEvidenceSufficiency,
+    ensurePeekBundlePersistence,
+    generateBundleChecksum,
+    getPeekPrimarySnapshotField,
+    getPeekSnapshotEvidenceFields,
+    hasPeekEvidenceValue,
+    isPeekRichEvidenceBundle,
+    persistPeekResultReferences,
+    signBundleMetadata,
+    storePeekArtifactsForTask,
+    validateBundleIntegrity,
+  };
+}
+
 module.exports = {
   applyEvidenceStateToBundle,
   attachPeekArtifactReferences,
@@ -426,4 +446,5 @@ module.exports = {
   signBundleMetadata,
   storePeekArtifactsForTask,
   validateBundleIntegrity,
+  createPeekArtifactsHandlers,
 };

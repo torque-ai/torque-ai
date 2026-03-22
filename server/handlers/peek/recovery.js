@@ -939,8 +939,17 @@ async function handlePeekRecoveryStatus(args = {}) {
   }
 }
 
+function createPeekRecoveryHandlers() {
+  return {
+    handlePeekRecovery,
+    handlePeekRecoveryStatus,
+    resolveRecoveryMode,
+  };
+}
+
 module.exports = {
   handlePeekRecovery,
   handlePeekRecoveryStatus,
   resolveRecoveryMode,
+  createPeekRecoveryHandlers,
 };

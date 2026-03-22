@@ -366,6 +366,34 @@ async function peekHttpPostWithRetry(fullUrl, payload, timeoutMs, maxAttempts = 
   return lastResult;
 }
 
+function createPeekSharedHandlers() {
+  return {
+    PEEK_HOSTS,
+    DEFAULT_PEEK_TIMEOUT,
+    LARGE_ARTIFACT_THRESHOLD,
+    RETRYABLE_ERRORS,
+    RETRY_DELAY_MS,
+    formatBytes,
+    resolvePeekTaskContext,
+    getTorqueArtifactStorageRoot,
+    buildPeekPersistOutputDir,
+    inferPeekArtifactMimeType,
+    sanitizePeekTargetKey,
+    resolvePeekHost,
+    isLocalTarget,
+    getPeekTargetKey,
+    escapeXml,
+    getHttpModule,
+    peekHttpGetUrl,
+    peekHttpPost,
+    postCompare,
+    isRetryableError,
+    peekHttpGetWithRetry,
+    postCompareWithRetry,
+    peekHttpPostWithRetry,
+  };
+}
+
 module.exports = {
   PEEK_HOSTS,
   DEFAULT_PEEK_TIMEOUT,
@@ -390,4 +418,5 @@ module.exports = {
   peekHttpGetWithRetry,
   postCompareWithRetry,
   peekHttpPostWithRetry,
+  createPeekSharedHandlers,
 };
