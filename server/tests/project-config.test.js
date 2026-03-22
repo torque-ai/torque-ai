@@ -65,7 +65,7 @@ function createPipeline(overrides = {}) {
 }
 
 function insertHealthRow(checkType, status, responseTimeMs, errorMessage, details, checkedAt) {
-  db.getDb().prepare(`
+  rawDb().prepare(`
     INSERT INTO health_status (check_type, status, response_time_ms, error_message, details, checked_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(
