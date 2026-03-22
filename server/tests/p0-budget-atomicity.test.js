@@ -4,40 +4,21 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
 let testDir;
-let origDataDir;
 let db;
 let taskCore;
 let costTracking;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setupDb() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-budget-atomicity-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
+  ({ db, testDir } = setupTestDb('budget-atomicity-'));
   taskCore = require('../db/task-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
   costTracking = require('../db/cost-tracking');
   costTracking.setDb(db.getDbInstance());
   return db;
 }
 
-function teardownDb() {
-  if (db) {
-    try { db.close(); } catch { /* ignore */ }
-  }
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
+function teardown() {
+  teardownTestDb();
 }
 
 function createTask(overrides = {}) {

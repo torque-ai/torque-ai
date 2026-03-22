@@ -5,7 +5,6 @@ const { randomUUID } = require('crypto');
 const childProcess = require('child_process');
 
 let testDir;
-let origDataDir;
 let db;
 let taskCore;
 let projectConfigCore;
@@ -17,24 +16,17 @@ let saveBuildResultSpy;
 
 const originalExecFileSync = childProcess.execFileSync;
 const originalSpawnSync = childProcess.spawnSync;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-post-task-${Date.now()}-${randomUUID().slice(0, 8)}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
+  ({ db, testDir } = setupTestDb('post-task'));
 
   mockExecFileSync = vi.fn();
   mockSpawnSync = vi.fn();
   childProcess.execFileSync = mockExecFileSync;
   childProcess.spawnSync = mockSpawnSync;
 
-  db = require('../database');
   taskCore = require('../db/task-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
   projectConfigCore = require('../db/project-config-core');
   fileTracking = require('../db/file-tracking');
 
@@ -56,22 +48,7 @@ function setup() {
 }
 
 function teardown() {
-  childProcess.execFileSync = originalExecFileSync;
-  childProcess.spawnSync = originalSpawnSync;
-
-  if (db) {
-    try { db.close(); } catch { /* ignore */ }
-  }
-
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
-
-  if (origDataDir !== undefined) {
-    process.env.TORQUE_DATA_DIR = origDataDir;
-  } else {
-    delete process.env.TORQUE_DATA_DIR;
-  }
+  teardownTestDb();
 }
 
 function makeWorkDir(name) {

@@ -1,70 +1,27 @@
 /**
  * Integration Test: Stall Detection & Recovery
- *
- * Tests stall detection logic and auto-recovery via real DB and
- * task-manager function calls. Does NOT spawn actual provider processes.
- * Instead manipulates the in-memory runningProcesses map and DB timestamps
- * to simulate stalled tasks.
  */
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-const { v4: _uuidv4 } = require('uuid');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const configCore = require('../db/config-core');
 
-let testDir;
-let origDataDir;
 let db;
 let tm;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
-// Delete a config key from the DB entirely (setConfig(key, null) stores the string "null")
 function deleteConfig(key) {
   const conn = db.getDb ? db.getDb() : db.getDbInstance();
   conn.prepare('DELETE FROM config WHERE key = ?').run(key);
-  // Clear the config cache so subsequent reads don't return stale cached values
-  const configCore = require('../db/config-core');
   configCore.clearConfigCache();
-}
-
-function setupDb() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-stall-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-
-  tm = require('../task-manager');
-  return { db, tm };
-}
-
-function teardownDb() {
-  if (db) {
-    try { db.close(); } catch { /* ignore */ }
-  }
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
 }
 
 describe('Integration: Stall Detection & Recovery', () => {
   beforeAll(() => {
-    setupDb();
+    ({ db } = setupTestDb('integration-stall'));
+    tm = require('../task-manager');
     if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
     if (typeof tm.initSubModules === 'function') tm.initSubModules();
   });
-  afterAll(() => { teardownDb(); });
-
-  // ── Stall Threshold Configuration ───────────────────────
+  afterAll(() => { teardownTestDb(); });
 
   describe('Stall threshold by provider', () => {
     it('getStallThreshold returns a number for ollama provider', () => {
@@ -82,25 +39,20 @@ describe('Integration: Stall Detection & Recovery', () => {
     it('ollama threshold differs from hashline-ollama threshold', () => {
       const ollamaThreshold = tm.getStallThreshold(null, 'ollama');
       const hashlineThreshold = tm.getStallThreshold(null, 'hashline-ollama');
-      // They should have different thresholds (240s vs 300s)
       expect(ollamaThreshold).not.toBe(hashlineThreshold);
     });
 
     it('codex threshold is null or very high by default', () => {
       const threshold = tm.getStallThreshold(null, 'codex');
-      // Codex may have null (disabled) or a very high threshold (600s)
       if (threshold !== null) {
         expect(threshold).toBeGreaterThanOrEqual(600);
       }
     });
 
     it('runtime config override takes priority', () => {
-      // Set a custom threshold via config
       configCore.setConfig('stall_threshold_ollama', '999');
       const threshold = tm.getStallThreshold(null, 'ollama');
       expect(threshold).toBe(999);
-
-      // Clean up — must delete the row, not set to null (setConfig stores "null" as string)
       deleteConfig('stall_threshold_ollama');
     });
 
@@ -108,13 +60,9 @@ describe('Integration: Stall Detection & Recovery', () => {
       configCore.setConfig('stall_threshold_ollama', '0');
       const threshold = tm.getStallThreshold(null, 'ollama');
       expect(threshold).toBeNull();
-
-      // Clean up — must delete the row, not set to null (setConfig stores "null" as string)
       deleteConfig('stall_threshold_ollama');
     });
   });
-
-  // ── Model Size Scaling ──────────────────────────────────
 
   describe('Model size affects threshold', () => {
     it('32b model gets higher threshold than 8b model', () => {
@@ -126,24 +74,19 @@ describe('Integration: Stall Detection & Recovery', () => {
     it('thinking model gets multiplied threshold', () => {
       const regular = tm.getStallThreshold('qwen2.5-coder:8b', 'ollama');
       const thinking = tm.getStallThreshold('qwen3:8b', 'ollama');
-      // qwen3 is a thinking model — gets 1.5x multiplier
       expect(thinking).toBeGreaterThan(regular);
     });
 
     it('70b model gets very high threshold', () => {
       const threshold = tm.getStallThreshold('llama3:70b', 'ollama');
-      // 70b matches the :(\d+)b regex first → sizeB >= 32 → max(threshold, 360)
       expect(threshold).toBeGreaterThanOrEqual(300);
     });
   });
-
-  // ── checkStalledTasks Detection ─────────────────────────
 
   describe('checkStalledTasks detection', () => {
     it('returns empty array when no processes running', () => {
       const stalled = tm.checkStalledTasks(false);
       expect(Array.isArray(stalled)).toBe(true);
-      // Should be empty since we haven't started any real processes
       expect(stalled.length).toBe(0);
     });
 
@@ -158,8 +101,6 @@ describe('Integration: Stall Detection & Recovery', () => {
     });
   });
 
-  // ── Stall Recovery Configuration ────────────────────────
-
   describe('Stall recovery configuration', () => {
     it('stall_recovery_enabled config controls recovery', () => {
       configCore.setConfig('stall_recovery_enabled', '1');
@@ -168,7 +109,6 @@ describe('Integration: Stall Detection & Recovery', () => {
       configCore.setConfig('stall_recovery_enabled', '0');
       expect(configCore.getConfig('stall_recovery_enabled')).toBe('0');
 
-      // Restore
       configCore.setConfig('stall_recovery_enabled', '1');
     });
 
@@ -176,7 +116,6 @@ describe('Integration: Stall Detection & Recovery', () => {
       configCore.setConfig('stall_recovery_max_attempts', '5');
       expect(configCore.getConfig('stall_recovery_max_attempts')).toBe('5');
 
-      // Restore
       configCore.setConfig('stall_recovery_max_attempts', '3');
     });
 
@@ -185,8 +124,6 @@ describe('Integration: Stall Detection & Recovery', () => {
       expect(configCore.getConfig('auto_cancel_stalled')).toBe('1');
     });
   });
-
-  // ── Provider-Specific Threshold Constants ───────────────
 
   describe('Provider stall threshold constants', () => {
     it('all standard providers have defined thresholds', () => {
@@ -200,34 +137,27 @@ describe('Integration: Stall Detection & Recovery', () => {
 
     it('unknown provider falls back to base threshold', () => {
       const threshold = tm.getStallThreshold(null, 'unknown-provider');
-      // Should either return null or a base threshold
       if (threshold !== null) {
         expect(typeof threshold).toBe('number');
       }
     });
   });
 
-  // ── Stall Detection Integration ─────────────────────────
-
   describe('Stall detection integration with DB config', () => {
     it('per-provider config keys are consistent', () => {
-      // Verify the config keys follow a pattern
       const providers = ['ollama', 'hashline-ollama', 'codex'];
       for (const provider of providers) {
-        // Setting a value and reading it back should work
         const key = `stall_threshold_${provider.replace(/-/g, '_')}`;
         configCore.setConfig(key, '300');
         const val = configCore.getConfig(key);
         expect(val).toBe('300');
-        deleteConfig(key); // Clean up — must delete row, not set to null
+        deleteConfig(key);
       }
     });
 
     it('threshold with null config falls back to defaults', () => {
-      // Clear any config overrides — must delete the row, not set to null
       deleteConfig('stall_threshold_ollama');
       const threshold = tm.getStallThreshold(null, 'ollama');
-      // Should get the default PROVIDER_STALL_THRESHOLDS value
       expect(threshold).toBeTruthy();
       expect(typeof threshold).toBe('number');
     });

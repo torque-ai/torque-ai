@@ -11,8 +11,7 @@ const dbCoord = require('../db/coordination');
 const eventDispatch = require('../hooks/event-dispatch');
 const mcpSse = require('../mcp-sse');
 
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function createMockResponse() {
   const chunks = [];
@@ -76,22 +75,13 @@ async function dispatchRequest(handler, { method, url, headers = {} } = {}) {
 }
 
 function rawDb() {
-  return db.getDb ? db.getDb() : db.getDbInstance();
+  return _rawDb();
 }
 
 describe('P1 infra fixes', () => {
   describe('Coordination lock stale detection uses lease expiry', () => {
-    let prevDataDir;
-    let dataDir;
-
     beforeAll(() => {
-      if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-      dataDir = path.join(os.tmpdir(), `torque-vtest-p1-coord-${Date.now()}`);
-      fs.mkdirSync(dataDir, { recursive: true });
-      prevDataDir = process.env.TORQUE_DATA_DIR;
-      process.env.TORQUE_DATA_DIR = dataDir;
-
-      db.resetForTest(templateBuffer);
+      setupTestDb('p1-coord');
       if (!db.getDb && db.getDbInstance) {
         db.getDb = db.getDbInstance;
       }
@@ -102,18 +92,7 @@ describe('P1 infra fixes', () => {
     });
 
     afterAll(() => {
-      try {
-        db.close();
-      } catch {
-        /* ignore */
-      }
-      try {
-        fs.rmSync(dataDir, { recursive: true, force: true });
-      } catch {
-        /* ignore */
-      }
-      if (prevDataDir !== undefined) process.env.TORQUE_DATA_DIR = prevDataDir;
-      else delete process.env.TORQUE_DATA_DIR;
+      teardownTestDb();
     });
 
     beforeEach(() => {

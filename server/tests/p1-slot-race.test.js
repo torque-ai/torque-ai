@@ -10,41 +10,18 @@ const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
 let testDir;
-let originalDataDir;
 let db;
-let templateBuffer = null;
 
 function setupDbForTest() {
-  testDir = path.join(os.tmpdir(), `torque-slot-race-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  originalDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) {
-    templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  }
-  db.resetForTest(templateBuffer);
+  ({ db, testDir } = setupTestDb('slot-race'));
 }
 
-function teardownDbForTest() {
-  if (db) {
-    try { db.close(); } catch { /* ignore */ }
-    db = null;
-  }
-  if (testDir) {
-    fs.rmSync(testDir, { recursive: true, force: true });
-    testDir = null;
-  }
-  if (originalDataDir !== undefined) {
-    process.env.TORQUE_DATA_DIR = originalDataDir;
-  } else {
-    delete process.env.TORQUE_DATA_DIR;
-  }
+function teardown() {
+  teardownTestDb();
 }
 
 function createQueuedTask(overrides = {}) {

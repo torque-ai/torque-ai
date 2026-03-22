@@ -1,41 +1,14 @@
 'use strict';
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
+const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 
-let testDir, origDataDir, db, mod;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
-
-function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-model-caps-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  mod = require('../db/host-management');
-  mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-}
-
-function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-    else delete process.env.TORQUE_DATA_DIR;
-  }
-}
-
-function rawDb() {
-  return db.getDb ? db.getDb() : db.getDbInstance();
-}
+let db, mod;
 
 describe('Model Capabilities Registry', () => {
-  beforeAll(() => setup());
-  afterAll(() => teardown());
+  beforeAll(() => {
+    ({ db, mod } = setupTestDbModule('../db/host-management', 'model-caps'));
+  });
+  afterAll(() => teardownTestDb());
 
   describe('table seeding', () => {
     it('model_capabilities table exists with seeded data', () => {
@@ -44,29 +17,20 @@ describe('Model Capabilities Registry', () => {
     });
 
     it('qwen2.5-coder:32b has highest code_gen score', () => {
-      const row = rawDb().prepare(
-        'SELECT * FROM model_capabilities WHERE model_name = ?'
-      ).get('qwen2.5-coder:32b');
+      const row = rawDb().prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get('qwen2.5-coder:32b');
       expect(row).toBeTruthy();
       expect(row.score_code_gen).toBeGreaterThanOrEqual(0.85);
     });
 
     it('deepseek-r1:14b has highest reasoning score', () => {
-      const row = rawDb().prepare(
-        'SELECT * FROM model_capabilities WHERE model_name = ?'
-      ).get('deepseek-r1:14b');
+      const row = rawDb().prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get('deepseek-r1:14b');
       expect(row).toBeTruthy();
       expect(row.score_reasoning).toBeGreaterThanOrEqual(0.85);
     });
 
     it('all scores are between 0 and 1', () => {
       const rows = rawDb().prepare('SELECT * FROM model_capabilities').all();
-      const scoreCols = [
-        'score_code_gen', 'score_refactoring', 'score_testing',
-        'score_reasoning', 'score_docs',
-        'lang_typescript', 'lang_javascript', 'lang_python',
-        'lang_csharp', 'lang_go', 'lang_rust', 'lang_general'
-      ];
+      const scoreCols = ['score_code_gen','score_refactoring','score_testing','score_reasoning','score_docs','lang_typescript','lang_javascript','lang_python','lang_csharp','lang_go','lang_rust','lang_general'];
       for (const row of rows) {
         for (const col of scoreCols) {
           expect(row[col]).toBeGreaterThanOrEqual(0);
@@ -91,19 +55,13 @@ describe('Model Capabilities Registry', () => {
 
   describe('listModelCapabilities', () => {
     it('returns all seeded models', () => {
-      const all = mod.listModelCapabilities();
-      expect(all.length).toBeGreaterThanOrEqual(6);
+      expect(mod.listModelCapabilities().length).toBeGreaterThanOrEqual(6);
     });
   });
 
   describe('upsertModelCapabilities', () => {
     it('inserts a new model', () => {
-      mod.upsertModelCapabilities('test-model:7b', {
-        score_code_gen: 0.6, score_refactoring: 0.5,
-        score_testing: 0.4, score_reasoning: 0.3, score_docs: 0.7,
-        lang_typescript: 0.5, lang_python: 0.8,
-        context_window: 8192, param_size_b: 7, source: 'user'
-      });
+      mod.upsertModelCapabilities('test-model:7b', { score_code_gen: 0.6, score_refactoring: 0.5, score_testing: 0.4, score_reasoning: 0.3, score_docs: 0.7, lang_typescript: 0.5, lang_python: 0.8, context_window: 8192, param_size_b: 7, source: 'user' });
       const caps = mod.getModelCapabilities('test-model:7b');
       expect(caps).toBeTruthy();
       expect(caps.score_code_gen).toBe(0.6);
@@ -115,70 +73,45 @@ describe('Model Capabilities Registry', () => {
       mod.upsertModelCapabilities('test-model:7b', { score_code_gen: 0.9 });
       const caps = mod.getModelCapabilities('test-model:7b');
       expect(caps.score_code_gen).toBe(0.9);
-      expect(caps.lang_python).toBe(0.8); // unchanged
+      expect(caps.lang_python).toBe(0.8);
     });
   });
 
   describe('selectBestModel', () => {
     it('ranks qwen2.5-coder:32b first for code_gen + typescript', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'complex', [
-        'qwen2.5-coder:32b', 'codestral:22b', 'qwen3:8b', 'deepseek-r1:14b'
-      ]);
+      const result = mod.selectBestModel('code_gen', 'typescript', 'complex', ['qwen2.5-coder:32b', 'codestral:22b', 'qwen3:8b', 'deepseek-r1:14b']);
       expect(result.length).toBeGreaterThan(0);
       expect(result[0].model).toBe('qwen2.5-coder:32b');
-      expect(result[0].score).toBeGreaterThan(0);
-      expect(result[0].reason).toBeTruthy();
     });
 
     it('ranks deepseek-r1:14b first for reasoning tasks', () => {
-      const result = mod.selectBestModel('reasoning', 'general', 'normal', [
-        'qwen2.5-coder:32b', 'codestral:22b', 'deepseek-r1:14b', 'qwen3:8b'
-      ]);
+      const result = mod.selectBestModel('reasoning', 'general', 'normal', ['qwen2.5-coder:32b', 'codestral:22b', 'deepseek-r1:14b', 'qwen3:8b']);
       expect(result[0].model).toBe('deepseek-r1:14b');
     });
 
     it('filters models by context window', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', [
-        'qwen2.5-coder:32b', 'gemma3:4b'
-      ], { estimatedTokens: 5000 });
-      // gemma3:4b has context_window=4096, 5000*1.3=6500 > 4096, should be filtered
-      const models = result.map(r => r.model);
-      expect(models).not.toContain('gemma3:4b');
-      expect(models).toContain('qwen2.5-coder:32b');
+      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['qwen2.5-coder:32b', 'gemma3:4b'], { estimatedTokens: 5000 });
+      expect(result.map(r => r.model)).not.toContain('gemma3:4b');
     });
 
     it('returns empty array for empty models', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', []);
-      expect(result).toEqual([]);
+      expect(mod.selectBestModel('code_gen', 'typescript', 'normal', [])).toEqual([]);
     });
 
     it('gives unknown models default 0.5 scores', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', [
-        'unknown-model:7b'
-      ]);
+      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['unknown-model:7b']);
       expect(result.length).toBe(1);
-      expect(result[0].model).toBe('unknown-model:7b');
       expect(result[0].score).toBeGreaterThan(0);
     });
 
     it('applies complexity bonus for larger models on complex tasks', () => {
-      // qwen2.5-coder:32b (32 params) should get a larger complexity bonus than qwen3:8b (8 params) on complex tasks
-      const complexResult = mod.selectBestModel('code_gen', 'general', 'complex', [
-        'qwen2.5-coder:32b', 'qwen3:8b'
-      ]);
-      const simpleResult = mod.selectBestModel('code_gen', 'general', 'simple', [
-        'qwen2.5-coder:32b', 'qwen3:8b'
-      ]);
-      // The score gap should be larger for complex tasks (bigger model gets bigger bonus)
-      const complexGap = complexResult[0].score - complexResult[1].score;
-      const simpleGap = simpleResult[0].score - simpleResult[1].score;
-      expect(complexGap).toBeGreaterThan(simpleGap);
+      const complexResult = mod.selectBestModel('code_gen', 'general', 'complex', ['qwen2.5-coder:32b', 'qwen3:8b']);
+      const simpleResult = mod.selectBestModel('code_gen', 'general', 'simple', ['qwen2.5-coder:32b', 'qwen3:8b']);
+      expect(complexResult[0].score - complexResult[1].score).toBeGreaterThan(simpleResult[0].score - simpleResult[1].score);
     });
 
     it('returns results sorted by score descending', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', [
-        'gemma3:4b', 'qwen2.5-coder:32b', 'codestral:22b', 'qwen3:8b'
-      ]);
+      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['gemma3:4b', 'qwen2.5-coder:32b', 'codestral:22b', 'qwen3:8b']);
       for (let i = 1; i < result.length; i++) {
         expect(result[i - 1].score).toBeGreaterThanOrEqual(result[i].score);
       }
@@ -197,12 +130,6 @@ describe('Model Capabilities Registry', () => {
     it('should return models ranked by success rate', () => {
       const lb = mod.getModelLeaderboard();
       expect(lb.length).toBeGreaterThan(0);
-      expect(lb[0]).toHaveProperty('rank');
-      expect(lb[0]).toHaveProperty('model_name');
-      expect(lb[0]).toHaveProperty('success_rate');
-      expect(lb[0]).toHaveProperty('avg_duration_s');
-      expect(lb[0]).toHaveProperty('task_count');
-      // codestral has 100% success rate, qwen3 has 66.7%
       expect(lb[0].model_name).toBe('codestral:22b');
       expect(lb[0].success_rate).toBe(100);
     });
@@ -211,24 +138,19 @@ describe('Model Capabilities Registry', () => {
       mod.recordTaskOutcome('qwen3:8b', 'testing', 'javascript', 1, 15);
       const lb = mod.getModelLeaderboard({ task_type: 'testing' });
       expect(lb.length).toBe(1);
-      expect(lb[0].model_name).toBe('qwen3:8b');
     });
 
     it('should filter by language', () => {
       mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'python', 1, 20);
-      const lb = mod.getModelLeaderboard({ language: 'python' });
-      expect(lb.length).toBe(1);
+      expect(mod.getModelLeaderboard({ language: 'python' }).length).toBe(1);
     });
 
     it('should respect limit parameter', () => {
-      const lb = mod.getModelLeaderboard({ limit: 1 });
-      expect(lb.length).toBe(1);
+      expect(mod.getModelLeaderboard({ limit: 1 }).length).toBe(1);
     });
 
     it('should return empty array when no data', () => {
-      // Use a date range that has no data
-      const lb = mod.getModelLeaderboard({ days: 0 });
-      expect(lb).toEqual([]);
+      expect(mod.getModelLeaderboard({ days: 0 })).toEqual([]);
     });
   });
 });

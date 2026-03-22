@@ -8,11 +8,10 @@ const childProcess = require('child_process');
 
 const hostManagement = require('../db/host-management');
 
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 let db;
 let configCore;
 let monitoring;
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function loadHostMonitoring() {
   const monitoringPath = require.resolve('../utils/host-monitoring');
@@ -96,14 +95,11 @@ function addHost(overrides = {}) {
 
 describe('host-monitoring utility module', () => {
   beforeAll(() => {
-    templateBuffer = fs.readFileSync(TEMPLATE_BUF);
-    db = require('../database');
+    ({ db } = setupTestDb('host-monitoring'));
     configCore = require('../db/config-core');
-    db.resetForTest(templateBuffer);
   });
 
   beforeEach(() => {
-    db.resetForTest(templateBuffer);
 
     monitoring = loadHostMonitoring();
     monitoring.init({

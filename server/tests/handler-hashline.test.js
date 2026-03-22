@@ -1,30 +1,20 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
 
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-
-let templateBuffer;
-let db;
-let handleToolCall;
+let db, handleToolCall;
 let tempDir;
 let tempFilePath;
 
-function getText(result) {
-  return result?.content?.[0]?.text || '';
-}
-
 beforeAll(() => {
-  templateBuffer = fs.readFileSync(TEMPLATE_BUF);
-  db = require('../database');
-  db.resetForTest(templateBuffer);
-  handleToolCall = require('../tools').handleToolCall;
+  ({ db, handleToolCall } = setupTestDb('handler-hashline'));
   tempDir = path.join(os.tmpdir(), 'torque-hashline-handler-tests');
   fs.mkdirSync(tempDir, { recursive: true });
 });
 
 beforeEach(() => {
-  db.resetForTest(templateBuffer);
+  db.resetForTest(fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf')));
   tempFilePath = path.join(
     tempDir,
     `hashline-handler-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`
@@ -33,11 +23,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  try {
-    db.close();
-  } catch {
-    // ignore
-  }
+  teardownTestDb();
   if (tempDir && fs.existsSync(tempDir)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

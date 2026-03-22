@@ -12,29 +12,20 @@ const { randomUUID } = require('crypto');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
 
 let testDir;
-let origDataDir;
 let db;
 let taskCore;
-let templateBuffer;
 let executeHashline;
 let executeOllama;
 let executeApi;
 let executeCli;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 const hostManagement = require('../db/host-management');
 const webhooksStreaming = require('../db/webhooks-streaming');
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-p1-streaming-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
+  ({ db, testDir } = setupTestDb('p1-streaming-'));
 
   taskCore = require('../db/task-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
 
   executeHashline = require('../providers/execute-hashline');
   executeOllama = require('../providers/execute-ollama');
@@ -50,7 +41,6 @@ function teardown() {
 }
 
 function resetDb() {
-  db.resetForTest(templateBuffer);
 }
 
 function makeHashlineDeps(overrides = {}) {

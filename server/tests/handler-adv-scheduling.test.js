@@ -1,14 +1,7 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
 
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer, db, taskCore, handleToolCall, schedulingAutomation;
-
-function getText(result) {
-  return result?.content?.[0]?.text || '';
-}
+let db, handleToolCall, taskCore, schedulingAutomation;
 
 function createTask(overrides = {}) {
   const id = randomUUID();
@@ -31,26 +24,18 @@ function parseScheduleId(resultText) {
 }
 
 beforeAll(() => {
-  templateBuffer = fs.readFileSync(TEMPLATE_BUF);
-  db = require('../database');
+  ({ db, handleToolCall } = setupTestDb('handler-adv-scheduling'));
   taskCore = require('../db/task-core');
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   schedulingAutomation = require('../db/scheduling-automation');
   schedulingAutomation.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  handleToolCall = require('../tools').handleToolCall;
 });
 
 beforeEach(() => {
-  db.resetForTest(templateBuffer);
+  db.resetForTest(require('fs').readFileSync(require('path').join(require('os').tmpdir(), 'torque-vitest-template', 'template.db.buf')));
 });
 
 afterAll(() => {
-  try {
-    db.close();
-  } catch {
-    // ignore
-  }
+  teardownTestDb();
 });
 
 describe('handler-adv-scheduling via handleToolCall', () => {

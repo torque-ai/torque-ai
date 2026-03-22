@@ -13,22 +13,13 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 let testDir;
-let origDataDir;
 let db;
-let templateBuffer;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-p1-handler2-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
+  ({ db, testDir } = setupTestDb('p1-handler2-'));
 }
 
 function teardown() {
@@ -44,11 +35,10 @@ function teardown() {
 }
 
 function resetDb() {
-  db.resetForTest(templateBuffer);
 }
 
 function rawDb() {
-  return db.getDb ? db.getDb() : db.getDbInstance();
+  return _rawDb();
 }
 
 describe('P1 handler safety fixes (part 2)', () => {

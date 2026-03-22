@@ -1,16 +1,9 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
 
 vi.mock('../handlers/workflow-handlers', () => ({}));
 
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer, db, taskCore, handleToolCall, streamDb;
-
-function getText(result) {
-  return result?.content?.[0]?.text || '';
-}
+let db, handleToolCall, taskCore, streamDb;
 
 function createTask(overrides = {}) {
   const task = {
@@ -43,12 +36,8 @@ function parseSubscriptionId(text) {
 }
 
 beforeAll(() => {
-  templateBuffer = fs.readFileSync(TEMPLATE_BUF);
-  db = require('../database');
+  ({ db, handleToolCall } = setupTestDb('handler-task-intelligence'));
   taskCore = require('../db/task-core');
-  db.resetForTest(templateBuffer);
-
-  handleToolCall = require('../tools').handleToolCall;
   streamDb = require('../db/webhooks-streaming');
   if (typeof streamDb.setDb === 'function') {
     streamDb.setDb(db.getDbInstance());
@@ -56,15 +45,11 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  db.resetForTest(templateBuffer);
+  db.resetForTest(require('fs').readFileSync(require('path').join(require('os').tmpdir(), 'torque-vitest-template', 'template.db.buf')));
 });
 
 afterAll(() => {
-  try {
-    db.close();
-  } catch {
-    // ignore
-  }
+  teardownTestDb();
 });
 
 describe('task-intelligence handlers via handleToolCall', () => {

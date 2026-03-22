@@ -8,18 +8,15 @@ const { randomUUID } = require('crypto');
 const { createMockOllama } = require('./mocks/ollama');
 const { applyHashlineEdits, computeLineHash } = require('../utils/hashline-parser');
 const executeHashline = require('../providers/execute-hashline');
-
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let parserDir;
-let dbDir;
-let origDataDir;
 let db;
 let taskCore;
 let hostManagement;
-let templateBuffer;
 let mockOllama;
 let mockUrl;
+let testDir;
 
 function loadParserHarness() {
   const childLogger = {
@@ -106,7 +103,7 @@ async function runHashlineTask(taskOverrides = {}) {
   addHost();
 
   const relPath = taskOverrides.relPath || 'src/hashline-defaults.js';
-  const fullPath = path.join(dbDir, relPath);
+  const fullPath = path.join(testDir, relPath);
   fs.mkdirSync(path.dirname(fullPath), { recursive: true });
   fs.writeFileSync(fullPath, 'const value = 1;\n', 'utf8');
 
@@ -123,7 +120,7 @@ async function runHashlineTask(taskOverrides = {}) {
     status: 'running',
     provider: 'hashline-ollama',
     model: 'qwen2.5-coder:7b',
-    working_directory: dbDir,
+    working_directory: testDir,
     ...taskOverrides,
   };
 
@@ -140,18 +137,9 @@ describe('hashline fuzzy fallback', () => {
     parserDir = path.join(os.tmpdir(), `torque-hashline-fuzzy-parser-${Date.now()}`);
     fs.mkdirSync(parserDir, { recursive: true });
 
-    dbDir = path.join(os.tmpdir(), `torque-hashline-fuzzy-db-${Date.now()}`);
-    fs.mkdirSync(dbDir, { recursive: true });
-    origDataDir = process.env.TORQUE_DATA_DIR;
-    process.env.TORQUE_DATA_DIR = dbDir;
-
-    db = require('../database');
+    ({ db, testDir } = setupTestDb('hashline-fuzzy'));
     taskCore = require('../db/task-core');
     hostManagement = require('../db/host-management');
-    if (!templateBuffer) {
-      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-    }
-    db.resetForTest(templateBuffer);
 
     mockOllama = createMockOllama();
     const info = await mockOllama.start();
@@ -162,14 +150,8 @@ describe('hashline fuzzy fallback', () => {
     if (mockOllama) {
       await mockOllama.stop();
     }
-    try { if (db) db.close(); } catch { /* ignore */ }
-    if (origDataDir === undefined) {
-      delete process.env.TORQUE_DATA_DIR;
-    } else {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    }
+    teardownTestDb();
     fs.rmSync(parserDir, { recursive: true, force: true });
-    fs.rmSync(dbDir, { recursive: true, force: true });
   });
 
   beforeEach(() => {

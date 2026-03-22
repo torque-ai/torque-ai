@@ -3,10 +3,10 @@ const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
 
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 const schedulingAutomation = require('../db/scheduling-automation');
 const hostManagement = require('../db/host-management');
 const taskCore = require('../db/task-core');
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 vi.mock('../providers/registry', () => ({
   getProviderInstance: vi.fn().mockReturnValue({}),
@@ -17,22 +17,11 @@ vi.mock('../providers/registry', () => ({
 
 let db;
 let scheduler;
-let templateBuffer;
 let testDir;
-let originalDataDir;
 let safeStartTask;
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-p2-approval-gate-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  originalDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) {
-    templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  }
-  db.resetForTest(templateBuffer);
+  ({ db, testDir } = setupTestDb('p2-approval-gate-'));
 
   require.resolve('../execution/queue-scheduler');
   scheduler = require('../execution/queue-scheduler');
@@ -61,35 +50,7 @@ function setup() {
 }
 
 function teardown() {
-  if (scheduler) {
-    try {
-      scheduler.stop();
-    } catch {
-      // ignore
-    }
-  }
-
-  if (db) {
-    try {
-      db.close();
-    } catch {
-      // ignore
-    }
-  }
-
-  if (testDir) {
-    try {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      // ignore cleanup failures
-    }
-  }
-
-  if (originalDataDir !== undefined) {
-    process.env.TORQUE_DATA_DIR = originalDataDir;
-  } else {
-    delete process.env.TORQUE_DATA_DIR;
-  }
+  teardownTestDb();
 }
 
 function createQueuedTask(approvalStatus) {

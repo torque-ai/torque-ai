@@ -1,70 +1,30 @@
 /**
  * Integration Test: Safeguard Cascades
- *
- * Tests that quality safeguards compose correctly on the same output:
- * - checkFileQuality detects stubs, empty files, placeholder content
- * - checkSyntax detects basic syntax issues
- * - captureFileBaseline / compareFileToBaseline detects regressions
- * - Multiple safeguards can fire on the same file
- * - Valid output passes all checks
  */
 
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
-const { v4: _uuidv4 } = require('uuid');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
-let origDataDir;
 let db;
 let tm;
 let fileTracking;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
-
-function setupDb() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-safeguards-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-
-  fileTracking = require('../db/file-tracking');
-  fileTracking.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-
-  tm = require('../task-manager');
-  return { db, tm };
-}
-
-function teardownDb() {
-  if (db) {
-    try { db.close(); } catch { /* ignore */ }
-  }
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
-}
-
-/** Write a test file to the shared testDir */
-function writeTestFile(filename, content) {
-  const filePath = path.join(testDir, filename);
-  fs.writeFileSync(filePath, content, 'utf8');
-  return filePath;
-}
 
 describe('Integration: Safeguard Cascades', () => {
-  beforeAll(() => { setupDb(); });
-  afterAll(() => { teardownDb(); });
+  beforeAll(() => {
+    ({ db, testDir } = setupTestDb('integration-safeguards'));
+    fileTracking = require('../db/file-tracking');
+    fileTracking.setDb(db.getDb ? db.getDb() : db.getDbInstance());
+    tm = require('../task-manager');
+  });
+  afterAll(() => { teardownTestDb(); });
 
-  // ── File Quality: Empty Files ───────────────────────────
+  function writeTestFile(filename, content) {
+    const filePath = path.join(testDir, filename);
+    fs.writeFileSync(filePath, content, 'utf8');
+    return filePath;
+  }
 
   describe('Empty file detection', () => {
     it('nearly empty file triggers quality issue', () => {
@@ -77,12 +37,9 @@ describe('Integration: Safeguard Cascades', () => {
     it('completely empty file triggers quality issue', () => {
       const filePath = writeTestFile('blank.js', '');
       const result = tm.checkFileQuality(filePath);
-      // Empty files have 0 chars (< 50)
       expect(result.valid).toBe(false);
     });
   });
-
-  // ── File Quality: Stub Detection ────────────────────────
 
   describe('Stub/placeholder detection', () => {
     it('file with TODO: implement triggers stub detection', () => {
@@ -140,8 +97,6 @@ export default handler;
     });
   });
 
-  // ── File Quality: Diff Content Detection ────────────────
-
   describe('Diff content detection', () => {
     it('file containing diff markers triggers diff detection', () => {
       const filePath = writeTestFile('accidental-diff.js', `
@@ -158,8 +113,6 @@ export default handler;
       expect(result.issues.some(i => /diff|patch/i.test(i))).toBe(true);
     });
   });
-
-  // ── File Quality: Valid Output ──────────────────────────
 
   describe('Valid output passes all checks', () => {
     it('well-formed JS file passes quality check', () => {
@@ -189,8 +142,6 @@ module.exports = router;
     });
   });
 
-  // ── Baseline Comparison ─────────────────────────────────
-
   describe('Baseline capture and comparison', () => {
     it('capture baseline records file stats', () => {
       const content = 'function hello() { return "world"; }\n'.repeat(50);
@@ -210,7 +161,6 @@ module.exports = router;
     });
 
     it('compare detects truncation when file shrinks >50%', () => {
-      // Original was 50 lines, now shrink to 5 lines
       writeTestFile('baseline-test.js', 'function hello() { return "world"; }\n'.repeat(5));
 
       const comparison = fileTracking.compareFileToBaseline('baseline-test.js', testDir);
@@ -220,12 +170,10 @@ module.exports = router;
     });
 
     it('compare detects significant shrinkage (>25%)', () => {
-      // Re-capture baseline with 100 lines
       const bigContent = 'const x = 1;\n'.repeat(100);
       writeTestFile('shrink-test.js', bigContent);
       fileTracking.captureFileBaseline('shrink-test.js', testDir);
 
-      // Shrink to 60 lines (40% reduction)
       writeTestFile('shrink-test.js', 'const x = 1;\n'.repeat(60));
       const comparison = fileTracking.compareFileToBaseline('shrink-test.js', testDir);
       expect(comparison.hasBaseline).toBe(true);
@@ -238,19 +186,15 @@ module.exports = router;
     });
   });
 
-  // ── Multiple Safeguards on Same File ────────────────────
-
   describe('Cascading safeguards on same file', () => {
     it('stub + tiny file triggers multiple quality issues', () => {
       const filePath = writeTestFile('cascade.js', `// TODO: implement\n`);
       const result = tm.checkFileQuality(filePath);
       expect(result.valid).toBe(false);
-      // Should have multiple issues: nearly empty + placeholder content
       expect(result.issues.length).toBeGreaterThanOrEqual(2);
     });
 
     it('baseline truncation + quality issues compound', () => {
-      // Create a good baseline
       const goodContent = `
 function processData(input) {
   const validated = validate(input);
@@ -277,10 +221,8 @@ module.exports = { processData, validate, transform, save };
       writeTestFile('compound.js', goodContent);
       fileTracking.captureFileBaseline('compound.js', testDir);
 
-      // Replace with stub content (much smaller)
       writeTestFile('compound.js', '// ... code remains unchanged\n');
 
-      // Both checks fail
       const quality = tm.checkFileQuality(path.join(testDir, 'compound.js'));
       const baseline = fileTracking.compareFileToBaseline('compound.js', testDir);
 
@@ -288,8 +230,6 @@ module.exports = { processData, validate, transform, save };
       expect(baseline.isTruncated).toBe(true);
     });
   });
-
-  // ── Per-File Independence ───────────────────────────────
 
   describe('Per-file independence', () => {
     it('one file failing does not affect another file check', () => {
@@ -324,8 +264,6 @@ module.exports = { realImplementation };
     });
   });
 
-  // ── New File Handling ───────────────────────────────────
-
   describe('New file handling (isNewFile option)', () => {
     it('small new file does not trigger size/line-count warnings', () => {
       const filePath = writeTestFile('new-small.js', `
@@ -334,8 +272,6 @@ module.exports = function clamp(val, min, max) {
 };
 `);
       const result = tm.checkFileQuality(filePath, { isNewFile: true });
-      // isNewFile skips size/line-count checks, but placeholder detection still runs
-      // This file has no placeholders so it should pass
       expect(result.valid).toBe(true);
     });
 

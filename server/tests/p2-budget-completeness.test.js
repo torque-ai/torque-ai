@@ -2,44 +2,17 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 let testDir;
-let origDataDir;
 let db;
 const costTracking = require('../db/cost-tracking');
+const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setupDb() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-budget-completeness-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
+  ({ db, testDir } = setupTestDb('budget-completeness-'));
 }
 
-function teardownDb() {
-  if (db) {
-    try {
-      db.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  if (testDir) {
-    try {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
+function teardown() {
+  teardownTestDb();
 }
 
 function budgetIdForName(name) {

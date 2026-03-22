@@ -9,68 +9,24 @@
  * - Tool integration via safeTool
  */
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const crypto = require('crypto');
+const { setupTestDb, teardownTestDb, safeTool, getText, rawDb, resetTables } = require('./vitest-setup');
 
-let testDir, origDataDir, db, mod, handleToolCall;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+let db, handleToolCall, mod;
 
-function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-inbound-wh-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  // Clear cached modules so they pick up new data dir
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
+beforeAll(() => {
+  ({ db, handleToolCall } = setupTestDb('inbound-webhooks'));
   mod = require('../db/inbound-webhooks');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
+});
 
-  const tools = require('../tools');
-  handleToolCall = tools.handleToolCall;
-}
-
-function teardown() {
-  if (db) try { db.close(); } catch {}
-  db = null;
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-    else delete process.env.TORQUE_DATA_DIR;
-  }
-}
-
-function rawDb() {
-  return db.getDb ? db.getDb() : db.getDbInstance();
-}
+afterAll(() => {
+  teardownTestDb();
+});
 
 function resetInboundWebhooks() {
   rawDb().prepare('DELETE FROM inbound_webhooks').run();
 }
-
-async function safeTool(name, args) {
-  try {
-    return await handleToolCall(name, args);
-  } catch (err) {
-    return { content: [{ type: 'text', text: err.message }], isError: true };
-  }
-}
-
-function getText(result) {
-  if (result && result.content && result.content[0]) {
-    return result.content[0].text || '';
-  }
-  return '';
-}
-
-// Single lifecycle for all tests
-beforeAll(() => { setup(); });
-afterAll(() => { teardown(); });
 
 // ============================================
 // DB Module Tests
@@ -240,7 +196,7 @@ describe('Inbound Webhooks DB Module', () => {
       });
 
       const result = mod.listInboundWebhooks();
-      expect(result[0].secret).toBe('••••••••');
+      expect(result[0].secret).toBe('\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022');
     });
   });
 
@@ -522,7 +478,6 @@ describe('Inbound Webhook HMAC Verification', () => {
   let verifyWebhookSignature;
 
   beforeAll(() => {
-    // Clear cache to get fresh module
     const apiServer = require('../api-server');
     verifyWebhookSignature = apiServer.verifyWebhookSignature;
   });
