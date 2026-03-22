@@ -261,12 +261,12 @@ describe('API Server endpoints', () => {
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
       content: [{ type: 'text', text: 'ok' }],
     });
-    listProvidersSpy = vi.spyOn(db, 'listProviders').mockReturnValue([]);
-    vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
-    getProviderSpy = vi.spyOn(db, 'getProvider').mockReturnValue(null);
-    vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue(null);
-    getDefaultProviderSpy = vi.spyOn(db, 'getDefaultProvider').mockReturnValue('codex');
-    vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
+    vi.spyOn(db, 'listProviders').mockReturnValue([]);
+    listProvidersSpy = vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
+    vi.spyOn(db, 'getProvider').mockReturnValue(null);
+    getProviderSpy = vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue(null);
+    vi.spyOn(db, 'getDefaultProvider').mockReturnValue('codex');
+    getDefaultProviderSpy = vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
     getProviderHealthSpy = vi.spyOn(db, 'getProviderHealth').mockReturnValue({
       provider: 'codex',
       total_tasks: 0,
@@ -277,9 +277,9 @@ describe('API Server endpoints', () => {
       total_tokens: 0,
       total_cost: 0,
     });
-    isProviderHealthySpy = vi.spyOn(db, 'isProviderHealthy').mockReturnValue(true);
+    vi.spyOn(db, 'isProviderHealthy').mockReturnValue(true);
     vi.spyOn(providerRoutingCore, 'getProviderHealth').mockReturnValue({ successes: 0, failures: 0 });
-    vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
+    isProviderHealthySpy = vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
     getProviderStatsSpy = vi.spyOn(db, 'getProviderStats').mockReturnValue({
       provider: 'codex',
       total_tasks: 10,

@@ -11,7 +11,6 @@ const MODULE_PATHS = [
   '../database',
   '../db/host-management',
   '../db/coordination',
-  '../db/host-management',
   '../workstation/model',
   '../handlers/workstation-handlers',
   '../index',
@@ -29,12 +28,6 @@ const state = {
 };
 
 const mockDb = {
-  listOllamaHosts: vi.fn(),
-  getOllamaHost: vi.fn(),
-  updateOllamaHost: vi.fn(),
-  removeOllamaHost: vi.fn(),
-  recordHostHealthCheck: vi.fn(),
-  getHostSettings: vi.fn(),
   listPeekHosts: vi.fn(),
   getPeekHost: vi.fn(),
   registerPeekHost: vi.fn(),
@@ -42,10 +35,19 @@ const mockDb = {
   updatePeekHost: vi.fn(),
   getDbInstance: vi.fn(),
   getProviderPercentiles: vi.fn(),
+};
+
+const mockCoordination = {
   getCoordinationDashboard: vi.fn(),
 };
 
 const mockHostManagement = {
+  listOllamaHosts: vi.fn(),
+  getOllamaHost: vi.fn(),
+  updateOllamaHost: vi.fn(),
+  removeOllamaHost: vi.fn(),
+  recordHostHealthCheck: vi.fn(),
+  getHostSettings: vi.fn(),
   listCredentials: vi.fn(),
   saveCredential: vi.fn(),
   deleteCredential: vi.fn(),
@@ -365,17 +367,17 @@ function resetState() {
 function resetMockDefaults() {
   resetState();
 
-  mockDb.listOllamaHosts.mockReset().mockImplementation(() => Array.from(state.ollamaHosts.values()).map(clone));
-  mockDb.getOllamaHost.mockReset().mockImplementation((hostId) => clone(state.ollamaHosts.get(hostId)) || null);
-  mockDb.updateOllamaHost.mockReset().mockImplementation((hostId, updates) => {
+  mockHostManagement.listOllamaHosts.mockReset().mockImplementation(() => Array.from(state.ollamaHosts.values()).map(clone));
+  mockHostManagement.getOllamaHost.mockReset().mockImplementation((hostId) => clone(state.ollamaHosts.get(hostId)) || null);
+  mockHostManagement.updateOllamaHost.mockReset().mockImplementation((hostId, updates) => {
     const existing = state.ollamaHosts.get(hostId);
     if (!existing) return { changes: 0 };
     state.ollamaHosts.set(hostId, { ...existing, ...clone(updates) });
     return { changes: 1 };
   });
-  mockDb.removeOllamaHost.mockReset().mockImplementation((hostId) => state.ollamaHosts.delete(hostId));
-  mockDb.recordHostHealthCheck.mockReset().mockImplementation(() => undefined);
-  mockDb.getHostSettings.mockReset().mockImplementation((hostId) => clone(state.hostSettings.get(hostId)) || {});
+  mockHostManagement.removeOllamaHost.mockReset().mockImplementation((hostId) => state.ollamaHosts.delete(hostId));
+  mockHostManagement.recordHostHealthCheck.mockReset().mockImplementation(() => undefined);
+  mockHostManagement.getHostSettings.mockReset().mockImplementation((hostId) => clone(state.hostSettings.get(hostId)) || {});
 
   mockWorkstationModel.listWorkstations.mockReset().mockImplementation((filters = {}) => Array.from(state.workstations.values())
     .filter((workstation) => {
@@ -487,7 +489,7 @@ function resetMockDefaults() {
 
   mockHostMonitoring.getHostActivity.mockReset().mockReturnValue({});
   mockDb.getProviderPercentiles.mockReset().mockReturnValue({});
-  mockDb.getCoordinationDashboard.mockReset().mockReturnValue({ agents: [], rules: [], claims: [] });
+  mockCoordination.getCoordinationDashboard.mockReset().mockReturnValue({ agents: [], rules: [], claims: [] });
 
   mockParseBody.mockReset().mockResolvedValue({});
   mockSendJson.mockReset().mockImplementation((res, data, status = 200, req = null) => {
@@ -505,9 +507,8 @@ function resetMockDefaults() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
-  installCjsModuleMock('../db/host-management', mockDb);
-  installCjsModuleMock('../db/coordination', mockDb);
   installCjsModuleMock('../db/host-management', mockHostManagement);
+  installCjsModuleMock('../db/coordination', mockCoordination);
   installCjsModuleMock('../workstation/model', mockWorkstationModel);
   installCjsModuleMock('../handlers/workstation-handlers', mockWorkstationHandlers);
   installCjsModuleMock('../api/middleware', mockMiddleware);
@@ -684,12 +685,12 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      expect(mockDb.updateOllamaHost).toHaveBeenCalledWith('host-a', {
+      expect(mockHostManagement.updateOllamaHost).toHaveBeenCalledWith('host-a', {
         enabled: 0,
         status: 'unknown',
         consecutive_failures: 0,
       });
-      expect(mockDb.recordHostHealthCheck).not.toHaveBeenCalled();
+      expect(mockHostManagement.recordHostHealthCheck).not.toHaveBeenCalled();
       expect(httpGet).not.toHaveBeenCalled();
       expect(httpsGet).not.toHaveBeenCalled();
       expect(expectSuccess(res)).toEqual(expect.objectContaining({
@@ -713,7 +714,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
       expect(mockParseBody).toHaveBeenCalled();
       expect(httpGet).toHaveBeenCalledOnce();
-      expect(mockDb.recordHostHealthCheck).toHaveBeenCalledWith('host-b', true, ['llama3', 'mistral']);
+      expect(mockHostManagement.recordHostHealthCheck).toHaveBeenCalledWith('host-b', true, ['llama3', 'mistral']);
       expect(expectSuccess(res)).toEqual(expect.objectContaining({
         id: 'host-b',
         enabled: 1,
@@ -737,7 +738,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
       expect(httpGet).not.toHaveBeenCalled();
       expect(httpsGet).toHaveBeenCalledOnce();
-      expect(mockDb.recordHostHealthCheck).toHaveBeenCalledWith('host-c', true, null);
+      expect(mockHostManagement.recordHostHealthCheck).toHaveBeenCalledWith('host-c', true, null);
       expect(expectSuccess(res).enabled).toBe(1);
     });
 
@@ -751,7 +752,7 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      expect(mockDb.recordHostHealthCheck).toHaveBeenCalledWith('host-d', false, null);
+      expect(mockHostManagement.recordHostHealthCheck).toHaveBeenCalledWith('host-d', false, null);
       expect(expectSuccess(res).enabled).toBe(1);
     });
 
@@ -764,7 +765,7 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      expect(mockDb.recordHostHealthCheck).not.toHaveBeenCalled();
+      expect(mockHostManagement.recordHostHealthCheck).not.toHaveBeenCalled();
       expect(expectSuccess(res)).toEqual(expect.objectContaining({
         id: 'host-e',
         enabled: 1,
@@ -773,7 +774,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
     it('returns 500 when the update fails', async () => {
       seedOllamaHost({ id: 'host-f', url: 'http://foxtrot:11434' });
-      mockDb.updateOllamaHost.mockImplementation(() => {
+      mockHostManagement.updateOllamaHost.mockImplementation(() => {
         throw new Error('toggle failed');
       });
       const res = createMockRes();
@@ -798,7 +799,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
       await handlers.handleDeleteHost(createReq({ params: { host_id: 'host-a' } }), res);
 
-      expect(mockDb.removeOllamaHost).toHaveBeenCalledWith('host-a');
+      expect(mockHostManagement.removeOllamaHost).toHaveBeenCalledWith('host-a');
       expect(expectSuccess(res)).toEqual({
         removed: true,
         id: 'host-a',
@@ -824,7 +825,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
       await handlers.handleDeleteHost(createReq({ params: { host_id: 'host-b' } }), res);
 
-      expect(mockDb.removeOllamaHost).not.toHaveBeenCalled();
+      expect(mockHostManagement.removeOllamaHost).not.toHaveBeenCalled();
       expectError(res, {
         status: 400,
         code: 'host_busy',
@@ -834,7 +835,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
     it('returns 500 when host deletion throws', async () => {
       seedOllamaHost({ id: 'host-c', running_tasks: 0 });
-      mockDb.removeOllamaHost.mockImplementation(() => {
+      mockHostManagement.removeOllamaHost.mockImplementation(() => {
         throw new Error('delete failed');
       });
       const res = createMockRes();
@@ -2046,7 +2047,7 @@ describe('api/v2-infrastructure-handlers', () => {
     it('returns coordination data with default hours', async () => {
       const res = createMockRes();
 
-      mockDb.getCoordinationDashboard.mockReturnValue({
+      mockCoordination.getCoordinationDashboard.mockReturnValue({
         agents: [{ id: 'agent-a', status: 'active' }],
         rules: [{ id: 'rule-1', type: 'priority' }],
         claims: [],
@@ -2054,7 +2055,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
       await handlers.handleCoordinationDashboard(createReq(), res);
 
-      expect(mockDb.getCoordinationDashboard).toHaveBeenCalledWith(24);
+      expect(mockCoordination.getCoordinationDashboard).toHaveBeenCalledWith(24);
       expect(expectSuccess(res)).toEqual({
         agents: [{ id: 'agent-a', status: 'active' }],
         rules: [{ id: 'rule-1', type: 'priority' }],
@@ -2065,7 +2066,7 @@ describe('api/v2-infrastructure-handlers', () => {
     it('respects the hours query param', async () => {
       const res = createMockRes();
 
-      mockDb.getCoordinationDashboard.mockReturnValue({
+      mockCoordination.getCoordinationDashboard.mockReturnValue({
         agents: [],
         rules: [],
         claims: [],
@@ -2076,7 +2077,7 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      expect(mockDb.getCoordinationDashboard).toHaveBeenCalledWith(48);
+      expect(mockCoordination.getCoordinationDashboard).toHaveBeenCalledWith(48);
     });
 
     it('clamps hours to a minimum of one', async () => {
@@ -2087,7 +2088,7 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      expect(mockDb.getCoordinationDashboard).toHaveBeenCalledWith(1);
+      expect(mockCoordination.getCoordinationDashboard).toHaveBeenCalledWith(1);
     });
 
     it('clamps hours to a maximum of one hundred sixty-eight', async () => {
@@ -2098,17 +2099,17 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      expect(mockDb.getCoordinationDashboard).toHaveBeenCalledWith(168);
+      expect(mockCoordination.getCoordinationDashboard).toHaveBeenCalledWith(168);
     });
 
     it('returns default structure when db method is not a function', async () => {
       const res = createMockRes();
-      const saved = mockDb.getCoordinationDashboard;
-      mockDb.getCoordinationDashboard = null;
+      const saved = mockCoordination.getCoordinationDashboard;
+      mockCoordination.getCoordinationDashboard = null;
       try {
         await handlers.handleCoordinationDashboard(createReq(), res);
       } finally {
-        mockDb.getCoordinationDashboard = saved;
+        mockCoordination.getCoordinationDashboard = saved;
       }
 
       expect(expectSuccess(res)).toEqual({
@@ -2121,7 +2122,7 @@ describe('api/v2-infrastructure-handlers', () => {
     it('returns 500 when getCoordinationDashboard throws', async () => {
       const res = createMockRes();
 
-      mockDb.getCoordinationDashboard.mockImplementation(() => {
+      mockCoordination.getCoordinationDashboard.mockImplementation(() => {
         throw new Error('coordination failed');
       });
 
