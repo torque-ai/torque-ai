@@ -2,7 +2,7 @@
  * agentic-integration.test.js — Integration tests for the agentic tool-calling pipeline
  *
  * Three groups:
- *   1. Live Ollama Integration — skipped if BahumutsOmen is unreachable
+ *   1. Live Ollama Integration — skipped if the configured Ollama host is unreachable
  *   2. Mock OpenAI-Compatible Integration — deterministic, always runs
  *   3. Workflow Termination — verifies execution.js wires handleWorkflowTermination
  */
@@ -23,14 +23,14 @@ const openaiChatAdapter = require('../providers/adapters/openai-chat');
 
 /**
  * Normalise a host string to a full URL.
- * Handles bare IPs/hostnames (e.g. "0.0.0.0", "192.168.1.183") by prepending "http://".
+ * Handles bare IPs/hostnames (e.g. "0.0.0.0", "10.0.0.5") by prepending "http://".
  * Also appends a default port of 11434 when no port is specified.
  *
  * @param {string} raw - Raw value from OLLAMA_HOST env var or default
  * @returns {string} Full URL
  */
 function normaliseOllamaHost(raw) {
-  if (!raw) return 'http://192.168.1.183:11434';
+  if (!raw) return 'http://localhost:11434';
   // Already has a protocol
   if (/^https?:\/\//i.test(raw)) return raw;
   // Bare IP or hostname — prepend http and default port
@@ -89,12 +89,12 @@ function createTmpWorkspace() {
 // ─── Group 1: Live Ollama Integration ─────────────────────────────────────────
 
 describe('Group 1: Live Ollama Integration', () => {
-  // Use AGENTIC_TEST_OLLAMA_HOST to target BahumutsOmen specifically.
+  // Use AGENTIC_TEST_OLLAMA_HOST to target a specific Ollama host.
   // Falls back to OLLAMA_HOST only if it looks like a full URL (has protocol),
   // to avoid picking up bare IP/port values like "0.0.0.0" meant for the local server.
   const rawEnv = process.env.AGENTIC_TEST_OLLAMA_HOST
     || (process.env.OLLAMA_HOST && /^https?:\/\//i.test(process.env.OLLAMA_HOST) ? process.env.OLLAMA_HOST : null)
-    || 'http://192.168.1.183:11434';
+    || 'http://localhost:11434';
   const ollamaHost = normaliseOllamaHost(rawEnv);
   let ollamaReachable = false;
   let workspace;
