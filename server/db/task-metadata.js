@@ -1923,7 +1923,28 @@ function getTasksMatchingFilter(filterCriteria) {
   return stmt.all(...values);
 }
 
+// ============================================
+// Factory function — one-call DI setup
+// ============================================
+
+/**
+ * Create a fully-wired task-metadata instance.
+ * @param {{ db: any, taskCore?: object, getTaskEvents?: Function, getRetryHistory?: Function, recordAuditLog?: Function, getApprovalHistory?: Function, createTaskFn?: Function }} options
+ * @returns {object} All public functions from this module
+ */
+function createTaskMetadata({ db: dbInstance, taskCore, getTaskEvents, getRetryHistory, recordAuditLog, getApprovalHistory, createTaskFn } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  if (taskCore?.getTask) setGetTask(taskCore.getTask);
+  if (getTaskEvents) setGetTaskEvents(getTaskEvents);
+  if (getRetryHistory) setGetRetryHistory(getRetryHistory);
+  if (recordAuditLog) setRecordAuditLog(recordAuditLog);
+  if (getApprovalHistory) setGetApprovalHistory(getApprovalHistory);
+  if (createTaskFn) setCreateTask(createTaskFn);
+  return module.exports;
+}
+
 module.exports = {
+  createTaskMetadata,
   // DI
   setDb,
   setGetTask,

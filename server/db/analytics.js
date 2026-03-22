@@ -1258,7 +1258,26 @@ function purgeOldAnalytics(maxAgeDays = 90) {
   return result.changes;
 }
 
+// ============================================================
+// Factory function — one-call DI setup
+// ============================================================
+
+/**
+ * Create a fully-wired analytics instance.
+ * @param {{ db: any, taskCore?: object, dbFunctions?: object, findSimilarTasks?: Function, setPriorityWeights?: Function }} options
+ * @returns {object} All public functions from this module
+ */
+function createAnalytics({ db: dbInstance, taskCore, dbFunctions: dbFns, findSimilarTasks, setPriorityWeights } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  setGetTask(taskCore?.getTask || (() => null));
+  if (dbFns) setDbFunctions(dbFns);
+  if (findSimilarTasks) setFindSimilarTasks(findSimilarTasks);
+  if (setPriorityWeights) setSetPriorityWeights(setPriorityWeights);
+  return module.exports;
+}
+
 module.exports = {
+  createAnalytics,
   // DI
   setDb,
   setGetTask,

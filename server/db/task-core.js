@@ -1314,7 +1314,23 @@ function requeueAfterSlotFailure(taskId, failedProvider, options = {}, getMaxRet
   return txn();
 }
 
+// ============================================================
+// Factory function — one-call DI setup
+// ============================================================
+
+/**
+ * Create a fully-wired task-core instance.
+ * @param {{ db: any, externalFns?: object }} options
+ * @returns {object} All public functions from this module
+ */
+function createTaskCore({ db: dbInstance, externalFns } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  if (externalFns) setExternalFns(externalFns);
+  return module.exports;
+}
+
 module.exports = {
+  createTaskCore,
   setDb,
   setDbClosed,
   setExternalFns,

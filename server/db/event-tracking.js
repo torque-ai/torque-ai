@@ -725,7 +725,24 @@ function importData(importObj, options = {}) {
   return results;
 }
 
+// ============================================
+// Factory function — one-call DI setup
+// ============================================
+
+/**
+ * Create a fully-wired event-tracking instance.
+ * @param {{ db: any, taskCore?: object, dbFunctions?: object }} options
+ * @returns {object} All public functions from this module
+ */
+function createEventTracking({ db: dbInstance, taskCore, dbFunctions: dbFns } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  setGetTask(taskCore?.getTask || (() => null));
+  if (dbFns) setDbFunctions(dbFns);
+  return module.exports;
+}
+
 module.exports = {
+  createEventTracking,
   setDb,
   setGetTask,
   setDbFunctions,

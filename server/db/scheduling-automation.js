@@ -2025,10 +2025,29 @@ function duplicatePipeline(pipelineId, newName, paramOverrides = {}) {
 }
 
 // ============================================
+// Factory function — one-call DI setup
+// ============================================
+
+/**
+ * Create a fully-wired scheduling-automation instance.
+ * @param {{ db: any, taskCore?: object, recordTaskEvent?: Function, getPipeline?: Function, createPipeline?: Function }} options
+ * @returns {object} All public functions from this module
+ */
+function createSchedulingAutomation({ db: dbInstance, taskCore, recordTaskEvent, getPipeline, createPipeline } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  if (taskCore?.getTask) setGetTask(taskCore.getTask);
+  if (recordTaskEvent) setRecordTaskEvent(recordTaskEvent);
+  if (getPipeline) setGetPipeline(getPipeline);
+  if (createPipeline) setCreatePipeline(createPipeline);
+  return module.exports;
+}
+
+// ============================================
 // Exports
 // ============================================
 
 module.exports = {
+  createSchedulingAutomation,
   // Dependency injection
   setDb,
   setGetTask,
