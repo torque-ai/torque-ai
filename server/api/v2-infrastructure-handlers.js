@@ -662,9 +662,9 @@ async function handleCoordinationDashboard(req, res) {
   const hours = Math.max(1, Math.min(168, parseInt(query.hours, 10) || 24));
 
   try {
-    const coordination = typeof coordination.getCoordinationDashboard === 'function'
+    const coordData = typeof coordination.getCoordinationDashboard === 'function'
       ? coordination.getCoordinationDashboard(hours) : { agents: [], rules: [], claims: [] };
-    sendSuccess(res, requestId, coordination, 200, req);
+    sendSuccess(res, requestId, coordData, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
   }
