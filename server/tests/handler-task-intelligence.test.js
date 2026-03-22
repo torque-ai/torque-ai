@@ -6,7 +6,7 @@ const { randomUUID } = require('crypto');
 vi.mock('../handlers/workflow-handlers', () => ({}));
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer, db, handleToolCall, streamDb;
+let templateBuffer, db, taskCore, handleToolCall, streamDb;
 
 function getText(result) {
   return result?.content?.[0]?.text || '';
@@ -26,8 +26,8 @@ function createTask(overrides = {}) {
     provider: overrides.provider || 'codex',
   };
 
-  db.createTask(task);
-  return db.getTask(task.id);
+  taskCore.createTask(task);
+  return taskCore.getTask(task.id);
 }
 
 function seedStreamChunks(taskId, chunks = []) {
@@ -45,6 +45,7 @@ function parseSubscriptionId(text) {
 beforeAll(() => {
   templateBuffer = fs.readFileSync(TEMPLATE_BUF);
   db = require('../database');
+  taskCore = require('../db/task-core');
   db.resetForTest(templateBuffer);
 
   handleToolCall = require('../tools').handleToolCall;
@@ -140,7 +141,7 @@ describe('task-intelligence handlers via handleToolCall', () => {
 
   it('suggest_improvements returns suggestions for failed timeout task', async () => {
     const task = createTask({ status: 'queued', task_description: 'timeout handling test' });
-    db.updateTaskStatus(task.id, 'failed', {
+    taskCore.updateTaskStatus(task.id, 'failed', {
       error_output: 'timeout expired while processing job',
       retry_count: 0,
       exit_code: 1,

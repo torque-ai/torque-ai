@@ -15,6 +15,8 @@ let parserDir;
 let dbDir;
 let origDataDir;
 let db;
+let taskCore;
+let hostManagement;
 let templateBuffer;
 let mockOllama;
 let mockUrl;
@@ -83,8 +85,8 @@ function makeDeps(overrides = {}) {
 }
 
 function addHost({ id = randomUUID(), name = 'test-host', url = mockUrl, model = 'qwen2.5-coder:7b' } = {}) {
-  db.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
-  db.updateOllamaHost(id, {
+  hostManagement.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
+  hostManagement.updateOllamaHost(id, {
     enabled: 1,
     status: 'healthy',
     running_tasks: 0,
@@ -94,8 +96,8 @@ function addHost({ id = randomUUID(), name = 'test-host', url = mockUrl, model =
 }
 
 function clearHosts() {
-  for (const host of db.listOllamaHosts()) {
-    db.removeOllamaHost(host.id);
+  for (const host of hostManagement.listOllamaHosts()) {
+    hostManagement.removeOllamaHost(host.id);
   }
 }
 
@@ -125,7 +127,7 @@ async function runHashlineTask(taskOverrides = {}) {
     ...taskOverrides,
   };
 
-  db.createTask(task);
+  taskCore.createTask(task);
   await executeHashline.executeHashlineOllamaTask(task);
 
   const request = mockOllama.requestLog.find(entry => entry.url === '/api/generate');
@@ -144,6 +146,8 @@ describe('hashline fuzzy fallback', () => {
     process.env.TORQUE_DATA_DIR = dbDir;
 
     db = require('../database');
+    taskCore = require('../db/task-core');
+    hostManagement = require('../db/host-management');
     if (!templateBuffer) {
       templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
     }

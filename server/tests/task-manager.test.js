@@ -14,6 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let tm;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
@@ -25,6 +26,7 @@ function setupTm() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   tm = require('../task-manager');
@@ -64,7 +66,7 @@ describe('Task Manager Module', () => {
   describe('cancelTask', () => {
     it('cancels a queued task', () => {
       const id = uuidv4();
-      db.createTask({
+      taskCore.createTask({
         id,
         task_description: 'Task to cancel',
         status: 'queued',
@@ -72,7 +74,7 @@ describe('Task Manager Module', () => {
       });
       const result = tm.cancelTask(id, 'Unit test cancellation');
       expect(result).not.toBeNull();
-      const task = db.getTask(id);
+      const task = taskCore.getTask(id);
       expect(task.status).toBe('cancelled');
     });
 

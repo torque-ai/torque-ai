@@ -608,24 +608,24 @@ ${JSON.stringify([{
   // ─── Smart Routing → hashline-ollama ────────────────────────────────────
 
   describe('smart routing upgrade to hashline-ollama', () => {
-    const db = require('../database');
+    const hostManagement = require('../db/host-management');
 
     it('classifies targeted file edits as simple', () => {
-      const complexity = db.determineTaskComplexity(
+      const complexity = hostManagement.determineTaskComplexity(
         'Add a JSDoc comment to getCreditAdvantage in src/systems/CreditBureauSystem.ts'
       );
       expect(['simple', 'normal']).toContain(complexity);
     });
 
     it('classifies multi-file refactors as complex', () => {
-      const complexity = db.determineTaskComplexity(
+      const complexity = hostManagement.determineTaskComplexity(
         'Refactor the authentication system and wire it into the middleware'
       );
       expect(complexity).toBe('complex');
     });
 
     it('classifies add-comment tasks as simple or normal', () => {
-      const complexity = db.determineTaskComplexity(
+      const complexity = hostManagement.determineTaskComplexity(
         'Add JSDoc comment to the getData method in src/utils.ts'
       );
       // Both simple and normal are eligible for hashline-ollama upgrade
@@ -633,28 +633,28 @@ ${JSON.stringify([{
     });
 
     it('classifies rename tasks as simple', () => {
-      const complexity = db.determineTaskComplexity(
+      const complexity = hostManagement.determineTaskComplexity(
         'Rename the fetchData function in src/api.ts to loadData'
       );
       expect(complexity).toBe('simple');
     });
 
     it('classifies implement-system tasks as complex', () => {
-      const complexity = db.determineTaskComplexity(
+      const complexity = hostManagement.determineTaskComplexity(
         'Implement the notification system with email and SMS support'
       );
       expect(complexity).toBe('complex');
     });
 
     it('classifies fix-typo with file ref as simple', () => {
-      const complexity = db.determineTaskComplexity(
+      const complexity = hostManagement.determineTaskComplexity(
         'Fix the typo in src/utils.ts'
       );
       expect(complexity).toBe('simple');
     });
 
     it('classifies add-test tasks as normal', () => {
-      const complexity = db.determineTaskComplexity(
+      const complexity = hostManagement.determineTaskComplexity(
         'Write a unit test for the calculateTotal function in src/billing.ts'
       );
       expect(complexity).toBe('normal');

@@ -8,6 +8,8 @@ let templateBuffer;
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let costTracking;
 
 function setupDb() {
   testDir = path.join(os.tmpdir(), `torque-vtest-linear-regression-${Date.now()}`);
@@ -16,6 +18,8 @@ function setupDb() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
+  costTracking = require('../db/cost-tracking');
   if (!templateBuffer) {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   }
@@ -46,7 +50,7 @@ function teardownDb() {
 
 function createTask(overrides = {}) {
   const id = overrides.id || uuidv4();
-  db.createTask({
+  taskCore.createTask({
     id,
     task_description: 'test task',
     provider: 'codex',
@@ -58,7 +62,7 @@ function createTask(overrides = {}) {
 
 function addCostSample(daysAgo, costUsd) {
   const taskId = createTask();
-  db.recordTokenUsage(taskId, {
+  costTracking.recordTokenUsage(taskId, {
     input_tokens: 1000,
     output_tokens: 500,
     model: 'codex',
@@ -78,7 +82,7 @@ describe('getCostForecast linear regression', () => {
     addCostSample(1, 10);
     addCostSample(0, 10);
 
-    const forecast = db.getCostForecast();
+    const forecast = costTracking.getCostForecast();
     expect(forecast.trend_direction).toBe('stable');
     expect(forecast.slope).toBeCloseTo(0, 5);
     expect(forecast.trend_adjusted_monthly).toBeCloseTo(forecast.projected_monthly, 2);
@@ -89,7 +93,7 @@ describe('getCostForecast linear regression', () => {
     addCostSample(1, 20);
     addCostSample(0, 30);
 
-    const forecast = db.getCostForecast();
+    const forecast = costTracking.getCostForecast();
     expect(forecast.slope).toBeGreaterThan(0);
     expect(forecast.trend_direction).toBe('increasing');
     expect(forecast.trend_adjusted_monthly).toBeGreaterThan(forecast.projected_monthly);
@@ -100,7 +104,7 @@ describe('getCostForecast linear regression', () => {
     addCostSample(1, 20);
     addCostSample(0, 10);
 
-    const forecast = db.getCostForecast();
+    const forecast = costTracking.getCostForecast();
     expect(forecast.slope).toBeLessThan(0);
     expect(forecast.trend_direction).toBe('decreasing');
     expect(forecast.trend_adjusted_monthly).toBeLessThan(forecast.projected_monthly);
@@ -110,7 +114,7 @@ describe('getCostForecast linear regression', () => {
     addCostSample(2, 10);
     addCostSample(0, 20);
 
-    const forecast = db.getCostForecast();
+    const forecast = costTracking.getCostForecast();
     expect(forecast.days_analyzed).toBeLessThan(3);
     expect(forecast.slope).toBeCloseTo(0, 5);
     expect(forecast.trend_direction).toBe('stable');

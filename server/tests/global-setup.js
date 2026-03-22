@@ -96,13 +96,14 @@ module.exports = async function setup() {
   // Clear module cache to ensure fresh init
   delete require.cache[require.resolve('../database')];
   const db = require('../database');
+  const hostManagement = require('../db/host-management');
   db.init();
 
   // Remove seeded hosts to prevent real Ollama probes in tests
   try {
-    const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];
+    const hosts = typeof hostManagement.listOllamaHosts === 'function' ? hostManagement.listOllamaHosts() : [];
     for (const host of hosts) {
-      if (db.removeOllamaHost) db.removeOllamaHost(host.id);
+      if (typeof hostManagement.removeOllamaHost === 'function') hostManagement.removeOllamaHost(host.id);
     }
   } catch { /* ok */ }
 

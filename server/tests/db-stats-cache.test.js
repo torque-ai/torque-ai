@@ -8,6 +8,7 @@ const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'temp
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let templateBuffer;
 
 function setupDb() {
@@ -17,6 +18,7 @@ function setupDb() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
 }
@@ -34,7 +36,7 @@ function teardownDb() {
 }
 
 function createTaskWithStatus(status) {
-  db.createTask({
+  taskCore.createTask({
     id: randomUUID(),
     task_description: `status ${status}`,
     status,

@@ -7,12 +7,13 @@ const os = require('os');
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
 describe('context-handler', () => {
-  let db, templateBuffer;
+  let db, templateBuffer, workflowEngine;
 
   beforeAll(() => {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
     db = require('../database');
     db.resetForTest(templateBuffer);
+    workflowEngine = require('../db/workflow-engine');
   });
 
   afterAll(() => {
@@ -82,10 +83,10 @@ describe('context-handler', () => {
 
     beforeAll(() => {
       // Create a minimal workflow for testing
-      if (typeof db.createWorkflow === 'function') {
+      if (typeof workflowEngine.createWorkflow === 'function') {
         const crypto = require('crypto');
         testWorkflowId = crypto.randomUUID();
-        db.createWorkflow({ id: testWorkflowId, name: 'test-context-wf', status: 'pending' });
+        workflowEngine.createWorkflow({ id: testWorkflowId, name: 'test-context-wf', status: 'pending' });
       }
     });
 

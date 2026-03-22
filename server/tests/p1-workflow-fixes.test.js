@@ -12,6 +12,8 @@ const {
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
 let db;
+let taskCore;
+let workflowEngine;
 let testDir;
 let runtime;
 let templateBuffer;
@@ -43,7 +45,7 @@ function initRuntime() {
 
 function createWorkflow(overrides = {}) {
   const id = overrides.id || randomUUID();
-  db.createWorkflow({
+  workflowEngine.createWorkflow({
     id,
     name: overrides.name || `wf-${id.slice(0, 8)}`,
     status: overrides.status || 'running',
@@ -63,7 +65,7 @@ function createTask(overrides = {}) {
     provider: overrides.provider || 'codex',
     ...overrides,
   };
-  db.createTask(task);
+  taskCore.createTask(task);
   return id;
 }
 
@@ -71,6 +73,8 @@ describe('P1 workflow fixes', () => {
   beforeAll(() => {
     ({ testDir } = setupTestDb('workflow-fixes'));
     db = require('../database');
+    taskCore = require('../db/task-core');
+    workflowEngine = require('../db/workflow-engine');
     runtime = require('../execution/workflow-runtime');
     initRuntime();
   });
@@ -94,7 +98,7 @@ describe('P1 workflow fixes', () => {
     expect(() => runtime.handleWorkflowTermination(secondTask)).not.toThrow();
 
     // Workflow should reach a terminal state after processing both tasks
-    const wf = db.getWorkflow(workflowId);
+    const wf = workflowEngine.getWorkflow(workflowId);
     expect(['completed', 'failed', 'running']).toContain(wf.status);
   });
 

@@ -17,13 +17,14 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  const taskCore = require('../db/task-core');
   if (!templateBuffer) {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   }
   db.resetForTest(templateBuffer);
   mod = require('../db/host-management');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  mod.setGetTask((id) => db.getTask(id));
+  mod.setGetTask((id) => taskCore.getTask(id));
   mod.setGetProjectRoot((dir) => dir);
 }
 

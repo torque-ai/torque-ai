@@ -14,6 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let codeAnalysis;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
@@ -25,6 +26,7 @@ function setupDb() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
 
@@ -49,7 +51,7 @@ function teardownDb() {
 
 function createTask(overrides = {}) {
   const id = overrides.id || uuidv4();
-  db.createTask({
+  taskCore.createTask({
     id,
     task_description: 'test task',
     provider: 'ollama',

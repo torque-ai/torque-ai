@@ -17,11 +17,13 @@ describe('auto_routed overflow — proof of integration', () => {
 
   describe('createTask sets auto_routed correctly', () => {
     let db;
+    let taskCore;
 
     beforeEach(() => {
       vi.resetModules();
       delete require.cache[require.resolve('../database')];
       db = require('../database');
+      taskCore = require('../db/task-core');
       db.init(':memory:');
     });
 
@@ -31,7 +33,7 @@ describe('auto_routed overflow — proof of integration', () => {
 
     it('defaults to configured provider when NO provider specified (workflow path)', () => {
       const taskId = 'proof-no-provider-' + Date.now();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Write unit tests for parser module',
         working_directory: process.cwd(),
@@ -39,7 +41,7 @@ describe('auto_routed overflow — proof of integration', () => {
         // NO provider — this is how workflow tasks are created
       });
 
-      const task = db.getTask(taskId);
+      const task = taskCore.getTask(taskId);
 
       // PROOF: Provider is now null (deferred assignment) when no provider specified
       expect(task.provider).toBeNull();
@@ -50,7 +52,7 @@ describe('auto_routed overflow — proof of integration', () => {
 
     it('auto_routed is ABSENT when provider is explicitly "codex"', () => {
       const taskId = 'proof-explicit-codex-' + Date.now();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Security audit of auth module',
         working_directory: process.cwd(),
@@ -58,7 +60,7 @@ describe('auto_routed overflow — proof of integration', () => {
         provider: 'codex', // EXPLICIT
       });
 
-      const task = db.getTask(taskId);
+      const task = taskCore.getTask(taskId);
       const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
 
       // PROOF: no auto_routed flag — user chose codex deliberately
@@ -68,7 +70,7 @@ describe('auto_routed overflow — proof of integration', () => {
 
     it('auto_routed is ABSENT when user_provider_override is set', () => {
       const taskId = 'proof-override-' + Date.now();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Deploy pipeline task',
         working_directory: process.cwd(),
@@ -77,7 +79,7 @@ describe('auto_routed overflow — proof of integration', () => {
         metadata: JSON.stringify({ user_provider_override: true }),
       });
 
-      const task = db.getTask(taskId);
+      const task = taskCore.getTask(taskId);
       const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
 
       // PROOF: user override blocks auto_routed

@@ -135,10 +135,10 @@ describe('Task Templates', () => {
 
     it('returns empty message when no templates exist', async () => {
       // Create a fresh DB context by cleaning up all templates
-      const db = require('../database');
-      const templates = db.listTemplates();
+      const schedulingAutomation = require('../db/scheduling-automation');
+      const templates = schedulingAutomation.listTemplates();
       for (const t of templates) {
-        db.deleteTemplate(t.name);
+        schedulingAutomation.deleteTemplate(t.name);
       }
 
       const result = await safeTool('list_task_templates', {});
@@ -187,8 +187,8 @@ describe('Task Templates', () => {
     it('substitutes variables in template', async () => {
       // We can verify variable substitution by checking the template retrieval
       // and usage count increment, even if smart_submit fails (no Ollama in test)
-      const db = require('../database');
-      const beforeCount = db.getTemplate('submit-test').usage_count;
+      const schedulingAutomation = require('../db/scheduling-automation');
+      const beforeCount = schedulingAutomation.getTemplate('submit-test').usage_count;
 
       // Submit will likely fail because no providers are available in test,
       // but usage_count should still increment
@@ -197,7 +197,7 @@ describe('Task Templates', () => {
         variables: { file: 'src/auth.ts', scenario: 'login failure' }
       });
 
-      const afterCount = db.getTemplate('submit-test').usage_count;
+      const afterCount = schedulingAutomation.getTemplate('submit-test').usage_count;
       expect(afterCount).toBe(beforeCount + 1);
     });
 
@@ -208,8 +208,8 @@ describe('Task Templates', () => {
         task_template: 'Fix {{error}} in {{file}} at {{line}}'
       });
 
-      const db = require('../database');
-      const template = db.getTemplate('partial-vars');
+      const schedulingAutomation = require('../db/scheduling-automation');
+      const template = schedulingAutomation.getTemplate('partial-vars');
 
       // Manually verify substitution logic (same as handler)
       const variables = { file: 'src/app.ts' };
@@ -221,15 +221,15 @@ describe('Task Templates', () => {
     });
 
     it('increments usage count on submit', async () => {
-      const db = require('../database');
-      const before = db.getTemplate('submit-test').usage_count;
+      const schedulingAutomation = require('../db/scheduling-automation');
+      const before = schedulingAutomation.getTemplate('submit-test').usage_count;
 
       await safeTool('submit_from_template', {
         template_name: 'submit-test',
         variables: { file: 'src/bar.ts', scenario: 'edge case' }
       });
 
-      const after = db.getTemplate('submit-test').usage_count;
+      const after = schedulingAutomation.getTemplate('submit-test').usage_count;
       expect(after).toBe(before + 1);
     });
   });

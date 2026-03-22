@@ -13,6 +13,9 @@ const mockState = vi.hoisted(() => ({
 let helpers;
 let ctx;
 let db;
+let taskCore;
+let configCore;
+let providerRoutingCore;
 let tm;
 
 function resetRuntimeMocks() {
@@ -71,12 +74,15 @@ async function setup(options = {}) {
   helpers = require('./e2e-helpers');
   ctx = helpers.setupE2eDb('provider-override-runtime');
   db = ctx.db;
+  taskCore = require('../db/task-core');
+  configCore = require('../db/config-core');
+  providerRoutingCore = require('../db/provider-routing-core');
   tm = ctx.tm;
 
-  db.setConfig('max_concurrent', '10');
-  db.setConfig('rate_limit_enabled', '0');
-  db.setConfig('duplicate_check_enabled', '0');
-  db.setConfig('budget_check_enabled', '0');
+  configCore.setConfig('max_concurrent', '10');
+  configCore.setConfig('rate_limit_enabled', '0');
+  configCore.setConfig('duplicate_check_enabled', '0');
+  configCore.setConfig('budget_check_enabled', '0');
 
   if (tm._testing && tm._testing.resetForTest) {
     tm._testing.resetForTest();
@@ -101,7 +107,7 @@ async function cleanup() {
 
 function createTask(overrides = {}) {
   const id = overrides.id || randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id,
     status: overrides.status || 'pending',
     task_description: overrides.task_description || 'Test task for runtime fallback guards',
@@ -121,7 +127,7 @@ describe('runtime fallback guards respect user_provider_override', () => {
   it('keeps hashline-ollama review tasks on hashline-ollama when user_provider_override is set', async () => {
     await setup();
 
-    db.updateProvider('hashline-ollama', { enabled: 1 });
+    providerRoutingCore.updateProvider('hashline-ollama', { enabled: 1 });
     helpers.registerMockHost(db, 'http://127.0.0.1:19816', ['codellama:latest'], { name: 'override-review-runtime' });
 
     const taskId = createTask({
@@ -133,7 +139,7 @@ describe('runtime fallback guards respect user_provider_override', () => {
     const result = tm.startTask(taskId);
 
     expect(result).toEqual(expect.objectContaining({ started: true, taskId }));
-    expect(db.getTask(taskId).provider).toBe('hashline-ollama');
+    expect(taskCore.getTask(taskId).provider).toBe('hashline-ollama');
     expect(mockState.spawnAndTrackProcess).toHaveBeenCalledWith(
       taskId,
       expect.objectContaining({ provider: 'hashline-ollama' }),
@@ -156,7 +162,7 @@ describe('runtime fallback guards respect user_provider_override', () => {
 
     const ctxState = {
       taskId,
-      task: db.getTask(taskId),
+      task: taskCore.getTask(taskId),
       proc: { output: '' },
       status: 'completed',
       code: 0,
@@ -180,7 +186,7 @@ describe('runtime fallback guards respect user_provider_override', () => {
       },
     });
 
-    db.updateProvider('anthropic', { enabled: 1 });
+    providerRoutingCore.updateProvider('anthropic', { enabled: 1 });
 
     const taskId = createTask({
       provider: 'anthropic',
@@ -191,7 +197,7 @@ describe('runtime fallback guards respect user_provider_override', () => {
 
     expect(() => tm.startTask(taskId)).toThrow(/no registered instance/);
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.provider).toBe('anthropic');
     expect(mockState.spawnAndTrackProcess).not.toHaveBeenCalled();
   });
