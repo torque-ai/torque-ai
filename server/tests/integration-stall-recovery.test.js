@@ -23,6 +23,9 @@ let templateBuffer;
 function deleteConfig(key) {
   const conn = db.getDb ? db.getDb() : db.getDbInstance();
   conn.prepare('DELETE FROM config WHERE key = ?').run(key);
+  // Clear the config cache so subsequent reads don't return stale cached values
+  const configCore = require('../db/config-core');
+  configCore.clearConfigCache();
 }
 
 function setupDb() {
@@ -117,27 +120,20 @@ describe('Integration: Stall Detection & Recovery', () => {
     it('32b model gets higher threshold than 8b model', () => {
       const small = tm.getStallThreshold('qwen2.5-coder:8b', 'ollama');
       const large = tm.getStallThreshold('qwen2.5-coder:32b', 'ollama');
-      // Debug: surface actual return shape
-      expect({ smallType: typeof small, smallValue: small, largeType: typeof large, largeValue: large }).toEqual('DEBUG');
+      expect(large).toBeGreaterThanOrEqual(small);
     });
 
     it('thinking model gets multiplied threshold', () => {
       const regular = tm.getStallThreshold('qwen2.5-coder:8b', 'ollama');
       const thinking = tm.getStallThreshold('qwen3:8b', 'ollama');
-      const regularVal = typeof regular === 'object' && regular !== null ? regular.threshold : regular;
-      const thinkingVal = typeof thinking === 'object' && thinking !== null ? thinking.threshold : thinking;
-      expect(typeof regularVal).toBe('number');
-      expect(typeof thinkingVal).toBe('number');
       // qwen3 is a thinking model — gets 1.5x multiplier
-      expect(thinkingVal).toBeGreaterThan(regularVal);
+      expect(thinking).toBeGreaterThan(regular);
     });
 
     it('70b model gets very high threshold', () => {
       const threshold = tm.getStallThreshold('llama3:70b', 'ollama');
-      const thresholdVal = typeof threshold === 'object' && threshold !== null ? threshold.threshold : threshold;
-      expect(typeof thresholdVal).toBe('number');
       // 70b matches the :(\d+)b regex first → sizeB >= 32 → max(threshold, 360)
-      expect(thresholdVal).toBeGreaterThanOrEqual(300);
+      expect(threshold).toBeGreaterThanOrEqual(300);
     });
   });
 
