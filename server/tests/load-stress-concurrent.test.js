@@ -165,7 +165,7 @@ describe('Concurrent task submission', () => {
     expect(running.length + queued.length).toBe(5);
   });
 
-  it('completing a running task auto-starts a queued task via processQueue', () => {
+  it('completing a running task auto-starts a queued task via processQueue', async () => {
     ctx.db.setConfig('max_concurrent', '1');
     ctx.db.setConfig('max_codex_concurrent', '1');
     ctx.db.setConfig('max_ollama_concurrent', '0');
@@ -188,16 +188,20 @@ describe('Concurrent task submission', () => {
       simulateSuccess(child, 'done\n', 0);
     }
 
-    // Give async handlers time to fire and process queue.
-    // Close handlers and queue processing are async — wait longer for the full chain:
-    // exit event → close handler → task completion → processQueue → startTask
-    return new Promise(resolve => setTimeout(resolve, 500)).then(() => {
-      // Explicitly trigger queue processing in case the async chain hasn't fired
+    // Poll for task2 to leave 'queued' status.
+    // The chain is async: exit event → close handler → finalizeTask → processQueue → startTask.
+    // Between polls, explicitly trigger processQueue as a safety net.
+    const deadline = Date.now() + 5000;
+    let task2Status = 'queued';
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
       try { ctx.tm.processQueue(); } catch { /* ignore */ }
       const task2After = ctx.db.getTask(id2);
-      // Task 2 should have been picked up by processQueue (no longer queued)
-      expect(['running', 'completed', 'failed']).toContain(task2After.status);
-    });
+      task2Status = task2After.status;
+      if (task2Status !== 'queued') break;
+    }
+    // Task 2 should have been picked up by processQueue (no longer queued)
+    expect(['running', 'completed', 'failed']).toContain(task2Status);
   });
 
   it('submits tasks from multiple agent instance IDs', () => {
@@ -286,7 +290,7 @@ describe('Concurrent task submission', () => {
     expect(queuedCount).toBeGreaterThan(0);
   });
 
-  it('cancel frees slot, queued task starts via processQueue', () => {
+  it('cancel frees slot, queued task starts via processQueue', async () => {
     ctx.db.setConfig('max_concurrent', '1');
     ctx.db.setConfig('max_codex_concurrent', '1');
     ctx.db.setConfig('max_ollama_concurrent', '0');
@@ -306,16 +310,18 @@ describe('Concurrent task submission', () => {
 
     expect(ctx.db.getTask(id1).status).toBe('cancelled');
 
-    // processQueue should run automatically on cancel, but call it explicitly too
-    ctx.tm.processQueue();
-
-    // Give time for queue processing — cancel + processQueue + startTask chain is async
-    return new Promise(resolve => setTimeout(resolve, 500)).then(() => {
-      // Explicitly trigger queue processing again in case async chain didn't complete
+    // Poll for task2 to leave 'queued' status.
+    // cancelTask calls processQueue internally, but the chain may be async.
+    const deadline = Date.now() + 5000;
+    let task2Status = 'queued';
+    while (Date.now() < deadline) {
       try { ctx.tm.processQueue(); } catch { /* ignore */ }
       const task2 = ctx.db.getTask(id2);
-      // Task 2 should have been picked up by processQueue after cancel freed a slot
-      expect(['running', 'completed', 'failed']).toContain(task2.status);
-    });
+      task2Status = task2.status;
+      if (task2Status !== 'queued') break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    // Task 2 should have been picked up by processQueue after cancel freed a slot
+    expect(['running', 'completed', 'failed']).toContain(task2Status);
   });
 });

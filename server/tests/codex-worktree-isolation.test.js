@@ -1,23 +1,21 @@
 /**
- * Integration tests: Codex worktree isolation in spawnAndTrackProcess
+ * Integration tests: Codex worktree isolation in execute-cli.js spawnAndTrackProcess
  *
- * Verifies that when codex_worktree_isolation is enabled, Codex tasks:
+ * Verifies that when worktree isolation activates, Codex tasks:
  * 1. Receive a worktree path (not the original working_directory) as their -C arg
  * 2. Merge changes back on success (exit 0)
  * 3. Clean up without merging on failure (exit 1)
- * 4. Use the original working_directory when isolation is disabled
+ * 4. Use the original working_directory when the dir is not a git repo
  * 5. Fall back to direct execution when worktree creation fails
  *
- * Mocks: child_process.spawn (process-mock), git-worktree functions
- * Uses: setupE2eDb / teardownE2eDb for real DB + task-manager wiring
+ * Exercises execute-cli.js spawnAndTrackProcess directly (not task-manager.startTask),
+ * because worktree isolation lives in execute-cli.js's spawnAndTrackProcess.
  *
  * Mocking strategy for spawn:
- * - process-lifecycle.js captures spawn via destructuring at require-time:
+ * - execute-cli.js captures spawn via destructuring at require-time:
  *     const { spawn } = require('child_process')
- * - Patching child_process.spawn in beforeEach is too late — the reference
- *   is already bound. Instead, we monkey-patch child_process.spawn BEFORE
- *   any module that destructures it is loaded (same pattern as
- *   snapscope-handlers.test.js and worker-setup.js).
+ * - We monkey-patch child_process.spawn BEFORE execute-cli.js is loaded
+ *   so the destructured reference captures our mock.
  */
 
 'use strict';
@@ -25,35 +23,130 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { randomUUID } = require('crypto');
 const { createMockChild, simulateSuccess, simulateFailure } = require('./mocks/process-mock');
 
-// ─── Patch child_process.spawn BEFORE process-lifecycle.js is loaded ─────────
-// process-lifecycle.js does `const { spawn } = require('child_process')` at
-// require-time. We must replace spawn on the module object BEFORE that require
-// happens (triggered by setupE2eDb → task-manager → process-lifecycle).
+// ─── Patch child_process.spawn BEFORE execute-cli.js is loaded ───────────────
 const childProcess = require('child_process');
 const _originalSpawn = childProcess.spawn;
 const spawnMock = vi.fn();
 childProcess.spawn = spawnMock;
 
-// Now it's safe to load e2e-helpers (which lazily loads task-manager in setupE2eDb)
-const { setupE2eDb, teardownE2eDb, createTestTask, waitForTaskStatus } = require('./e2e-helpers');
+const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+let templateBuffer;
 
-let ctx;
+let db;
+let mod; // execute-cli module
+let testDir;
+let origDataDir;
 let origOpenAIKey;
 
 // We mock the git-worktree module at require level
 let gitWorktreeMock;
 
-describe('Codex worktree isolation integration', () => {
-  beforeEach(async () => {
-    origOpenAIKey = process.env.OPENAI_API_KEY;
-    if (ctx) {
-      await teardownE2eDb(ctx);
-    }
-    ctx = setupE2eDb('codex-worktree');
+// ─── Dependency helpers (modeled after execute-cli.test.js) ──────────────────
 
-    // Configure the spawn mock for this test (already installed on child_process)
+function defaultHelpers(overrides = {}) {
+  return {
+    wrapWithInstructions: (desc, provider, model, ctx) => {
+      const mp = model ? `:${model}` : '';
+      const fc = ctx?.fileContext ? `\n${ctx.fileContext}` : '';
+      return `[${provider}${mp}] ${desc}${fc}`;
+    },
+    shellEscape: (s) => s,
+    getProjectDefaults: () => ({}),
+    buildFileContextString: (fc) => fc || '',
+    getEffectiveModel: (task) => task.model || 'qwen3:8b',
+    startTask: vi.fn(),
+    classifyError: () => ({ retryable: false, reason: 'unknown' }),
+    detectTaskTypes: () => [],
+    extractTargetFilesFromDescription: () => [],
+    ensureTargetFilesExist: (wd, fps) => [...new Set(fps)].map((p) => path.resolve(wd, p)),
+    isLargeModelBlockedOnHost: () => ({ blocked: false }),
+    resolveWindowsCmdToNode: () => null,
+    cancelTask: vi.fn(),
+    estimateProgress: () => 50,
+    detectOutputCompletion: () => false,
+    checkBreakpoints: () => null,
+    pauseTaskForDebug: vi.fn(),
+    pauseTask: vi.fn(),
+    sanitizeAiderOutput: (o) => o || '',
+    getActualModifiedFiles: () => [],
+    runLLMSafeguards: () => ({ passed: true, issues: [] }),
+    rollbackTaskChanges: () => true,
+    checkFileQuality: () => ({ issues: [] }),
+    runBuildVerification: () => ({ skipped: true }),
+    runTestVerification: () => ({ skipped: true }),
+    runStyleCheck: () => ({ skipped: true }),
+    tryCreateAutoPR: vi.fn(),
+    evaluateWorkflowDependencies: vi.fn(),
+    handlePlanProjectTaskCompletion: vi.fn(),
+    handlePlanProjectTaskFailure: vi.fn(),
+    handlePipelineStepCompletion: vi.fn(),
+    handleWorkflowTermination: vi.fn(),
+    runOutputSafeguards: vi.fn(async () => {}),
+    isValidFilePath: () => true,
+    isShellSafe: () => true,
+    ...overrides,
+  };
+}
+
+function makeDeps(overrides = {}) {
+  return {
+    db,
+    dashboard: {
+      broadcast: vi.fn(),
+      broadcastTaskUpdate: vi.fn(),
+      notifyTaskUpdated: vi.fn(),
+      notifyTaskOutput: vi.fn(),
+    },
+    runningProcesses: overrides.runningProcesses || new Map(),
+    safeUpdateTaskStatus: overrides.safeUpdateTaskStatus || vi.fn(),
+    finalizeTask: overrides.finalizeTask || vi.fn(async () => ({ finalized: true, queueManaged: false })),
+    tryReserveHostSlotWithFallback: overrides.tryReserveHostSlotWithFallback || vi.fn(() => ({ success: true })),
+    markTaskCleanedUp: overrides.markTaskCleanedUp || vi.fn(() => true),
+    tryOllamaCloudFallback: overrides.tryOllamaCloudFallback || vi.fn(() => false),
+    tryLocalFirstFallback: overrides.tryLocalFirstFallback || vi.fn(() => false),
+    attemptFuzzySearchRepair: overrides.attemptFuzzySearchRepair || vi.fn(() => ({ repaired: false })),
+    tryHashlineTieredFallback: overrides.tryHashlineTieredFallback || vi.fn(() => false),
+    shellEscape: (s) => s,
+    processQueue: overrides.processQueue || vi.fn(),
+    isLargeModelBlockedOnHost: overrides.isLargeModelBlockedOnHost || vi.fn(() => ({ blocked: false })),
+    helpers: defaultHelpers(overrides.helpers || {}),
+    NVM_NODE_PATH: overrides.NVM_NODE_PATH !== undefined ? overrides.NVM_NODE_PATH : null,
+    QUEUE_LOCK_HOLDER_ID: 'test-lock',
+    MAX_OUTPUT_BUFFER: 10 * 1024 * 1024,
+    pendingRetryTimeouts: new Map(),
+    taskCleanupGuard: new Map(),
+    stallRecoveryAttempts: new Map(),
+  };
+}
+
+describe('Codex worktree isolation integration', () => {
+  let runningProcesses;
+  let finalizeMock;
+  let processQueueMock;
+
+  beforeEach(() => {
+    origOpenAIKey = process.env.OPENAI_API_KEY;
+    if (!process.env.OPENAI_API_KEY) {
+      process.env.OPENAI_API_KEY = 'test-key-for-worktree-e2e';
+    }
+
+    testDir = path.join(os.tmpdir(), `torque-e2e-codex-worktree-${Date.now()}`);
+    fs.mkdirSync(testDir, { recursive: true });
+    origDataDir = process.env.TORQUE_DATA_DIR;
+    process.env.TORQUE_DATA_DIR = testDir;
+
+    // Load DB and reset
+    db = require('../database');
+    if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
+    db.resetForTest(templateBuffer);
+
+    // Load execute-cli module (spawn is already patched at file top)
+    mod = require('../providers/execute-cli');
+
+    // Configure spawn mock for this test
     spawnMock.mockReset();
     spawnMock.mockImplementation(() => {
       const child = createMockChild();
@@ -61,22 +154,18 @@ describe('Codex worktree isolation integration', () => {
       return child;
     });
 
-    // Set OPENAI_API_KEY so codex provider doesn't warn
-    if (!process.env.OPENAI_API_KEY) {
-      process.env.OPENAI_API_KEY = 'test-key-for-worktree-e2e';
-    }
+    // Set up dependencies
+    runningProcesses = new Map();
+    finalizeMock = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+    processQueueMock = vi.fn();
+    const deps = makeDeps({
+      runningProcesses,
+      finalizeTask: finalizeMock,
+      processQueue: processQueueMock,
+    });
+    mod.init(deps);
 
-    // Ensure codex tasks can actually start (not queued due to concurrency limits)
-    ctx.db.setConfig('max_concurrent', '10');
-    ctx.db.setConfig('max_codex_concurrent', '5');
-    ctx.db.setConfig('codex_enabled', '1');
-    // Enable the codex provider in the provider_config table
-    try {
-      const conn = ctx.db.getDb ? ctx.db.getDb() : ctx.db.getDbInstance();
-      conn.prepare(`INSERT OR REPLACE INTO provider_config (provider, enabled) VALUES ('codex', 1)`).run();
-    } catch { /* table might not exist in test DB */ }
-
-    // Mock git-worktree module functions by replacing methods on the real module
+    // Mock git-worktree module functions
     const gitWorktree = require('../utils/git-worktree');
     gitWorktreeMock = {
       _origIsGitRepo: gitWorktree.isGitRepo,
@@ -98,7 +187,7 @@ describe('Codex worktree isolation integration', () => {
     gitWorktree.removeWorktree = vi.fn();
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     // Restore git-worktree functions
     if (gitWorktreeMock) {
       const gitWorktree = require('../utils/git-worktree');
@@ -113,32 +202,47 @@ describe('Codex worktree isolation integration', () => {
     } else {
       delete process.env.OPENAI_API_KEY;
     }
+
+    if (origDataDir !== undefined) {
+      process.env.TORQUE_DATA_DIR = origDataDir;
+    } else {
+      delete process.env.TORQUE_DATA_DIR;
+    }
+    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ok */ }
   });
 
-  afterAll(async () => {
+  afterAll(() => {
     // Restore the original spawn
     childProcess.spawn = _originalSpawn;
-    if (ctx) await teardownE2eDb(ctx);
   });
 
   /**
-   * Helper: create a codex task and start it, returning spawn details.
-   * Returns null if task was queued (concurrency limit) or spawn didn't fire.
+   * Helper: create a task in DB and call execute-cli's spawnAndTrackProcess.
    */
   function startCodexTask(description, workDir) {
-    const taskId = createTestTask(ctx.db, {
-      description: description || 'Test worktree isolation',
-      provider: 'codex',
-      workingDirectory: workDir || path.join(ctx.testDir, 'project'),
-    });
-    // Ensure workdir exists
-    const dir = workDir || path.join(ctx.testDir, 'project');
+    const taskId = randomUUID();
+    const dir = workDir || path.join(testDir, 'project');
     fs.mkdirSync(dir, { recursive: true });
 
-    const startResult = ctx.tm.startTask(taskId);
-    if (startResult && startResult.queued) {
-      return null; // Concurrency limit — valid but can't test spawn args
-    }
+    db.createTask({
+      id: taskId,
+      task_description: description || 'Test worktree isolation',
+      status: 'running',
+      provider: 'codex',
+      working_directory: dir,
+      timeout_minutes: 5,
+    });
+
+    const cmdSpec = {
+      cliPath: 'codex',
+      finalArgs: ['exec', '--full-auto', '-C', dir, '-'],
+      stdinPrompt: description || 'Test worktree isolation',
+      envExtras: {},
+      selectedOllamaHostId: null,
+      usedEditFormat: null,
+    };
+
+    mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: dir }, cmdSpec, 'codex');
 
     const child = spawnMock._lastChild;
     if (!child) return null;
@@ -149,10 +253,7 @@ describe('Codex worktree isolation integration', () => {
   // ─── Test 1: Worktree path passed as -C argument ───────────────────
 
   it('worktree enabled: codex process receives worktree path as -C argument', async () => {
-    // Enable worktree isolation (default, but be explicit)
-    ctx.db.setConfig('codex_worktree_isolation', '1');
-
-    const projectDir = path.join(ctx.testDir, 'my-project');
+    const projectDir = path.join(testDir, 'my-project');
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('Create a utility module', projectDir);
@@ -160,7 +261,7 @@ describe('Codex worktree isolation integration', () => {
     const { taskId, child } = result;
 
     simulateSuccess(child, 'Created util.js\n');
-    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 5000);
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // Verify spawn was called
     expect(spawnMock).toHaveBeenCalled();
@@ -190,9 +291,7 @@ describe('Codex worktree isolation integration', () => {
   // ─── Test 2: Changes merged back on success (exit 0) ──────────────
 
   it('worktree enabled + exit 0: mergeWorktreeChanges called, then removeWorktree', async () => {
-    ctx.db.setConfig('codex_worktree_isolation', '1');
-
-    const projectDir = path.join(ctx.testDir, 'merge-test');
+    const projectDir = path.join(testDir, 'merge-test');
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('Implement feature X', projectDir);
@@ -200,7 +299,7 @@ describe('Codex worktree isolation integration', () => {
     const { taskId, child } = result;
 
     simulateSuccess(child, 'Feature X implemented\n');
-    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 5000);
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     const gitWorktree = require('../utils/git-worktree');
 
@@ -220,9 +319,7 @@ describe('Codex worktree isolation integration', () => {
   // ─── Test 3: Worktree cleaned up without merging on failure ────────
 
   it('worktree enabled + exit 1: removeWorktree called WITHOUT mergeWorktreeChanges', async () => {
-    ctx.db.setConfig('codex_worktree_isolation', '1');
-
-    const projectDir = path.join(ctx.testDir, 'fail-test');
+    const projectDir = path.join(testDir, 'fail-test');
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('This task will fail', projectDir);
@@ -230,7 +327,7 @@ describe('Codex worktree isolation integration', () => {
     const { taskId, child } = result;
 
     simulateFailure(child, '', 'API error: rate limit', 1);
-    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 5000);
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     const gitWorktree = require('../utils/git-worktree');
 
@@ -243,13 +340,14 @@ describe('Codex worktree isolation integration', () => {
     expect(removeArgs[0]).toContain('torque-fake-wt');
   });
 
-  // ─── Test 4: Isolation disabled — original working_directory used ──
+  // ─── Test 4: Not a git repo — original working_directory used ─────
 
-  it('worktree disabled: codex process receives original working_directory', async () => {
-    // Explicitly disable worktree isolation
-    ctx.db.setConfig('codex_worktree_isolation', '0');
+  it('not a git repo: codex process receives original working_directory', async () => {
+    const gitWorktree = require('../utils/git-worktree');
+    // Override isGitRepo to return false (simulates non-git directory)
+    gitWorktree.isGitRepo = vi.fn().mockReturnValue(false);
 
-    const projectDir = path.join(ctx.testDir, 'no-wt-project');
+    const projectDir = path.join(testDir, 'no-wt-project');
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('Direct execution test', projectDir);
@@ -257,15 +355,10 @@ describe('Codex worktree isolation integration', () => {
     const { taskId, child } = result;
 
     simulateSuccess(child, 'Done\n');
-    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 5000);
-
-    const gitWorktree = require('../utils/git-worktree');
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // createWorktree should NOT have been called
     expect(gitWorktree.createWorktree).not.toHaveBeenCalled();
-    // isGitRepo should NOT have been called (short-circuit on config '0')
-    // Note: the code checks config first, so isGitRepo may or may not be called
-    // depending on the short-circuit order. What matters is no worktree was created.
 
     // Verify the -C argument is the original project dir
     const spawnArgs = spawnMock.mock.calls[0][1];
@@ -285,13 +378,11 @@ describe('Codex worktree isolation integration', () => {
   // ─── Test 5: Worktree creation fails — falls back to direct execution ─
 
   it('worktree creation fails: falls back to direct execution gracefully', async () => {
-    ctx.db.setConfig('codex_worktree_isolation', '1');
-
     const gitWorktree = require('../utils/git-worktree');
-    // Make createWorktree return null (simulates not-a-git-repo or other failure)
+    // Make createWorktree return null (simulates worktree creation failure)
     gitWorktree.createWorktree = vi.fn().mockReturnValue(null);
 
-    const projectDir = path.join(ctx.testDir, 'fallback-project');
+    const projectDir = path.join(testDir, 'fallback-project');
     fs.mkdirSync(projectDir, { recursive: true });
 
     const result = startCodexTask('Fallback test', projectDir);
@@ -299,7 +390,7 @@ describe('Codex worktree isolation integration', () => {
     const { taskId, child } = result;
 
     simulateSuccess(child, 'Completed without worktree\n');
-    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 5000);
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // createWorktree was attempted
     expect(gitWorktree.createWorktree).toHaveBeenCalledTimes(1);
@@ -313,10 +404,6 @@ describe('Codex worktree isolation integration', () => {
     // cwd should be the original dir too
     const spawnOpts = spawnMock.mock.calls[0][2];
     expect(spawnOpts.cwd).toBe(projectDir);
-
-    // Task should still complete successfully
-    const task = ctx.db.getTask(taskId);
-    expect(task.status).toBe('completed');
 
     // No merge or cleanup since there was no worktree
     expect(gitWorktree.mergeWorktreeChanges).not.toHaveBeenCalled();
