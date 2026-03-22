@@ -54,6 +54,12 @@ describe('Codex worktree isolation integration', () => {
     // Ensure codex tasks can actually start (not queued due to concurrency limits)
     ctx.db.setConfig('max_concurrent', '10');
     ctx.db.setConfig('max_codex_concurrent', '5');
+    ctx.db.setConfig('codex_enabled', '1');
+    // Enable the codex provider in the provider_config table
+    try {
+      const conn = ctx.db.getDb ? ctx.db.getDb() : ctx.db.getDbInstance();
+      conn.prepare(`INSERT OR REPLACE INTO provider_config (provider, enabled) VALUES ('codex', 1)`).run();
+    } catch { /* table might not exist in test DB */ }
 
     // Mock git-worktree module functions by replacing methods on the real module
     const gitWorktree = require('../utils/git-worktree');

@@ -51,6 +51,12 @@ beforeEach(() => {
   mockChildren.length = 0;
   resetE2eDb();
   installSpawnMock();
+  // Enable codex provider so tasks can start (codex is opt-in by default)
+  ctx.db.setConfig('codex_enabled', '1');
+  try {
+    const conn = ctx.db.getDb ? ctx.db.getDb() : ctx.db.getDbInstance();
+    conn.prepare(`INSERT OR REPLACE INTO provider_config (provider, enabled) VALUES ('codex', 1)`).run();
+  } catch { /* table might not exist */ }
 });
 
 afterEach(() => {
