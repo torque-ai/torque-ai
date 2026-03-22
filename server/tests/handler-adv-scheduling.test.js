@@ -4,7 +4,7 @@ const fs = require('fs');
 const { randomUUID } = require('crypto');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer, db, handleToolCall;
+let templateBuffer, db, handleToolCall, schedulingAutomation;
 
 function getText(result) {
   return result?.content?.[0]?.text || '';
@@ -34,6 +34,9 @@ beforeAll(() => {
   templateBuffer = fs.readFileSync(TEMPLATE_BUF);
   db = require('../database');
   db.resetForTest(templateBuffer);
+  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
+  schedulingAutomation = require('../db/scheduling-automation');
+  schedulingAutomation.setDb(db.getDb ? db.getDb() : db.getDbInstance());
   handleToolCall = require('../tools').handleToolCall;
 });
 
@@ -230,13 +233,13 @@ describe('handler-adv-scheduling via handleToolCall', () => {
     it('returns usage rows for a task with samples', async () => {
       const task = createTask({ task_description: 'task-with-usage', status: 'completed' });
 
-      db.recordResourceUsage({
+      schedulingAutomation.recordResourceUsage({
         task_id: task.id,
         cpu_percent: 45.5,
         memory_mb: 120,
         disk_io_mb: 2.5,
       });
-      db.recordResourceUsage({
+      schedulingAutomation.recordResourceUsage({
         task_id: task.id,
         cpu_percent: 50,
         memory_mb: 180,
@@ -261,7 +264,7 @@ describe('handler-adv-scheduling via handleToolCall', () => {
         project,
       });
 
-      db.recordResourceUsage({
+      schedulingAutomation.recordResourceUsage({
         task_id: task.id,
         cpu_percent: 40,
         memory_mb: 256,
@@ -333,14 +336,14 @@ describe('handler-adv-scheduling via handleToolCall', () => {
         project,
       });
 
-      db.recordResourceUsage({
+      schedulingAutomation.recordResourceUsage({
         task_id: task.id,
         cpu_percent: 55.2,
         memory_mb: 512,
         disk_io_mb: 12,
         timestamp: '2026-01-15T10:00:00.000Z',
       });
-      db.recordResourceUsage({
+      schedulingAutomation.recordResourceUsage({
         task_id: task.id,
         cpu_percent: 60.8,
         memory_mb: 488,
@@ -370,7 +373,7 @@ describe('handler-adv-scheduling via handleToolCall', () => {
         project,
       });
 
-      db.recordResourceUsage({
+      schedulingAutomation.recordResourceUsage({
         task_id: task.id,
         cpu_percent: 30,
         memory_mb: 100,

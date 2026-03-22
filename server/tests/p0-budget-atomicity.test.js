@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 let testDir;
 let origDataDir;
 let db;
+let costTracking;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -18,6 +19,8 @@ function setupDb() {
   db = require('../database');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
+  costTracking = require('../db/cost-tracking');
+  costTracking.setDb(db.getDbInstance());
   return db;
 }
 
@@ -57,7 +60,7 @@ describe('Budget atomicity and token validation', () => {
 
   it('simulates concurrent budget checks inside a transaction without exceeding the limit', () => {
     const budgetName = `Concurrent Budget ${Date.now()}`;
-    db.setBudget(budgetName, 100, null, 'monthly', 80);
+    costTracking.setBudget(budgetName, 100, null, 'monthly', 80);
     const budgetId = budgetIdForName(budgetName);
 
     const rawDb = db.getDbInstance();
@@ -82,12 +85,12 @@ describe('Budget atomicity and token validation', () => {
 
     expect(first.allowed).toBe(true);
     expect(second.allowed).toBe(false);
-    expect(db.getBudgetStatus(budgetId).current_spend).toBe(70);
+    expect(costTracking.getBudgetStatus(budgetId).current_spend).toBe(70);
   });
 
   it('rejects negative token counts in token usage calculation', () => {
     const taskId = createTask();
-    const result = db.recordTokenUsage(taskId, {
+    const result = costTracking.recordTokenUsage(taskId, {
       input_tokens: -42,
       output_tokens: -17,
       model: 'codex',
@@ -99,7 +102,7 @@ describe('Budget atomicity and token validation', () => {
 
   it('rejects NaN/Infinity token counts in provider cost tracking', () => {
     const taskId = createTask();
-    const result = db.recordCost('codex', taskId, Number.NaN, Number.POSITIVE_INFINITY, 'gpt-5.3-codex-spark');
+    const result = costTracking.recordCost('codex', taskId, Number.NaN, Number.POSITIVE_INFINITY, 'gpt-5.3-codex-spark');
 
     // Implementation returns 0 (early exit) for invalid inputs — no DB write
     expect(result).toBe(0);
@@ -112,12 +115,12 @@ describe('Budget atomicity and token validation', () => {
 
   it('updates budget spend atomically and blocks spending beyond the limit', () => {
     const budgetName = `Atomic Spend ${Date.now()}`;
-    db.setBudget(budgetName, 100, 'codex', 'monthly', 80);
+    costTracking.setBudget(budgetName, 100, 'codex', 'monthly', 80);
     const budgetId = budgetIdForName(budgetName);
 
-    const firstSpend = db.updateBudgetSpend('codex', 60);
-    const secondSpend = db.updateBudgetSpend('codex', 60);
-    const budget = db.getBudgetStatus(budgetId);
+    const firstSpend = costTracking.updateBudgetSpend('codex', 60);
+    const secondSpend = costTracking.updateBudgetSpend('codex', 60);
+    const budget = costTracking.getBudgetStatus(budgetId);
 
     expect(firstSpend.allowed).toBe(true);
     expect(secondSpend.allowed).toBe(false);

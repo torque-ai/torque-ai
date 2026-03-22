@@ -12,6 +12,7 @@ let testDir;
 let origDataDir;
 let db;
 let mod;
+let hostMgmt;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -70,6 +71,8 @@ function setup() {
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
+  hostMgmt = require('../db/host-management');
+  hostMgmt.setDb(db.getDb());
   mod = require('../providers/execution');
   initExecution();
 }
@@ -93,8 +96,8 @@ function teardown() {
 // resetAiderConfigs removed — aider provider no longer exists
 
 function clearHosts() {
-  for (const host of db.listOllamaHosts()) {
-    db.removeOllamaHost(host.id);
+  for (const host of hostMgmt.listOllamaHosts()) {
+    hostMgmt.removeOllamaHost(host.id);
   }
 }
 
@@ -105,14 +108,14 @@ function addHost({
   model = 'qwen2.5-coder:7b',
   settings = null,
 } = {}) {
-  db.addOllamaHost({
+  hostMgmt.addOllamaHost({
     id,
     name,
     url,
     max_concurrent: 2,
     memory_limit_mb: 8192,
   });
-  db.updateOllamaHost(id, {
+  hostMgmt.updateOllamaHost(id, {
     enabled: 1,
     status: 'healthy',
     running_tasks: 0,

@@ -63,6 +63,7 @@ function signPayload(secret, body) {
 
 describe('inbound webhook idempotency (RB-044)', () => {
   let db;
+  let inboundWebhooks;
   let apiServer;
   let requestHandler;
   let handleToolCallSpy;
@@ -97,6 +98,8 @@ describe('inbound webhook idempotency (RB-044)', () => {
     db = require('../database');
     templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
     db.resetForTest(templateBuffer);
+    inboundWebhooks = require('../db/inbound-webhooks');
+    inboundWebhooks.setDb(db.getDbInstance());
 
     const tools = require('../tools');
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
@@ -139,7 +142,7 @@ describe('inbound webhook idempotency (RB-044)', () => {
       __subscribe_task_id: 'task-default',
     });
 
-    db.createInboundWebhook({
+    inboundWebhooks.createInboundWebhook({
       name: webhookName,
       source_type: 'github',
       secret: webhookSecret,
@@ -240,14 +243,14 @@ describe('inbound webhook idempotency (RB-044)', () => {
   });
 
   it('cleanupOldDeliveries removes expired entries', () => {
-    db.recordDelivery('delivery-old', webhookName, 'task-old');
-    db.recordDelivery('delivery-new', webhookName, 'task-new');
+    inboundWebhooks.recordDelivery('delivery-old', webhookName, 'task-old');
+    inboundWebhooks.recordDelivery('delivery-new', webhookName, 'task-new');
 
     db.getDbInstance()
       .prepare("UPDATE webhook_deliveries SET received_at = datetime('now', '-10 days') WHERE delivery_id = ?")
       .run('delivery-old');
 
-    const result = db.cleanupOldDeliveries(7);
+    const result = inboundWebhooks.cleanupOldDeliveries(7);
     expect(result.changes).toBe(1);
 
     const remaining = db.getDbInstance()

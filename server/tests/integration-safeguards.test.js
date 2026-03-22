@@ -18,6 +18,7 @@ let testDir;
 let origDataDir;
 let db;
 let tm;
+let fileTracking;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -30,6 +31,9 @@ function setupDb() {
   db = require('../database');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
+
+  fileTracking = require('../db/file-tracking');
+  fileTracking.setDb(db.getDb ? db.getDb() : db.getDbInstance());
 
   tm = require('../task-manager');
   return { db, tm };
@@ -192,14 +196,14 @@ module.exports = router;
       const content = 'function hello() { return "world"; }\n'.repeat(50);
       writeTestFile('baseline-test.js', content);
 
-      const result = db.captureFileBaseline('baseline-test.js', testDir);
+      const result = fileTracking.captureFileBaseline('baseline-test.js', testDir);
       expect(result).toBeTruthy();
       expect(result.lines).toBeGreaterThan(0);
       expect(result.checksum).toBeTruthy();
     });
 
     it('compare detects no change when file unchanged', () => {
-      const comparison = db.compareFileToBaseline('baseline-test.js', testDir);
+      const comparison = fileTracking.compareFileToBaseline('baseline-test.js', testDir);
       expect(comparison.hasBaseline).toBe(true);
       expect(comparison.sizeDelta).toBe(0);
       expect(comparison.isTruncated).toBe(false);
@@ -209,7 +213,7 @@ module.exports = router;
       // Original was 50 lines, now shrink to 5 lines
       writeTestFile('baseline-test.js', 'function hello() { return "world"; }\n'.repeat(5));
 
-      const comparison = db.compareFileToBaseline('baseline-test.js', testDir);
+      const comparison = fileTracking.compareFileToBaseline('baseline-test.js', testDir);
       expect(comparison.hasBaseline).toBe(true);
       expect(comparison.sizeChangePercent).toBeLessThan(-50);
       expect(comparison.isTruncated).toBe(true);
@@ -219,17 +223,17 @@ module.exports = router;
       // Re-capture baseline with 100 lines
       const bigContent = 'const x = 1;\n'.repeat(100);
       writeTestFile('shrink-test.js', bigContent);
-      db.captureFileBaseline('shrink-test.js', testDir);
+      fileTracking.captureFileBaseline('shrink-test.js', testDir);
 
       // Shrink to 60 lines (40% reduction)
       writeTestFile('shrink-test.js', 'const x = 1;\n'.repeat(60));
-      const comparison = db.compareFileToBaseline('shrink-test.js', testDir);
+      const comparison = fileTracking.compareFileToBaseline('shrink-test.js', testDir);
       expect(comparison.hasBaseline).toBe(true);
       expect(comparison.isSignificantlyShrunk).toBe(true);
     });
 
     it('compare returns hasBaseline=false for unknown file', () => {
-      const comparison = db.compareFileToBaseline('never-captured.js', testDir);
+      const comparison = fileTracking.compareFileToBaseline('never-captured.js', testDir);
       expect(comparison.hasBaseline).toBe(false);
     });
   });
@@ -271,14 +275,14 @@ function save(data) {
 module.exports = { processData, validate, transform, save };
 `.trim();
       writeTestFile('compound.js', goodContent);
-      db.captureFileBaseline('compound.js', testDir);
+      fileTracking.captureFileBaseline('compound.js', testDir);
 
       // Replace with stub content (much smaller)
       writeTestFile('compound.js', '// ... code remains unchanged\n');
 
       // Both checks fail
       const quality = tm.checkFileQuality(path.join(testDir, 'compound.js'));
-      const baseline = db.compareFileToBaseline('compound.js', testDir);
+      const baseline = fileTracking.compareFileToBaseline('compound.js', testDir);
 
       expect(quality.valid).toBe(false);
       expect(baseline.isTruncated).toBe(true);

@@ -11,6 +11,8 @@ let db;
 let ollamaMod;
 let hashlineMod;
 let templateBuffer;
+let hostMgmt;
+let webhooksStreaming;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let mockOllamaA;
 let mockOllamaB;
@@ -50,6 +52,11 @@ function setup() {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   }
   db.resetForTest(templateBuffer);
+  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
+  hostMgmt = require('../db/host-management');
+  hostMgmt.setDb(db.getDb());
+  webhooksStreaming = require('../db/webhooks-streaming');
+  webhooksStreaming.setDb(db.getDb());
   ollamaMod = require('../providers/execute-ollama');
   hashlineMod = require('../providers/execute-hashline');
 }
@@ -78,8 +85,8 @@ function addHost({
   url = 'http://127.0.0.1:11434',
   model = 'qwen2.5-coder:7b'
 } = {}) {
-  db.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
-  db.updateOllamaHost(id, {
+  hostMgmt.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
+  hostMgmt.updateOllamaHost(id, {
     enabled: 1,
     status: 'healthy',
     running_tasks: 0,
@@ -89,8 +96,8 @@ function addHost({
 }
 
 function clearHosts() {
-  for (const host of db.listOllamaHosts()) {
-    db.removeOllamaHost(host.id);
+  for (const host of hostMgmt.listOllamaHosts()) {
+    hostMgmt.removeOllamaHost(host.id);
   }
 }
 
@@ -275,7 +282,7 @@ describe('provider fixes', () => {
       model: 'codellama:latest',
       working_directory: testDir,
     });
-    const streamId = db.getOrCreateTaskStream(hashlineTaskId, 'output');
+    const streamId = webhooksStreaming.getOrCreateTaskStream(hashlineTaskId, 'output');
 
     await hashlineMod.runOllamaGenerate({
       ollamaHost: 'http://localhost:11434',

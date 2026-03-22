@@ -9,6 +9,7 @@ const SCHEDULER_MODULE_PATH = require.resolve('../execution/slot-pull-scheduler'
 let templateBuffer;
 let db;
 let scheduler;
+let workflowEngine;
 
 function rawDb() {
   return db.getDbInstance();
@@ -48,7 +49,7 @@ function loadScheduler() {
 }
 
 function createWorkflow(overrides = {}) {
-  return db.createWorkflow({
+  return workflowEngine.createWorkflow({
     id: overrides.id || randomUUID(),
     name: overrides.name || `workflow-${randomUUID()}`,
     working_directory: overrides.working_directory || os.tmpdir(),
@@ -98,10 +99,12 @@ describe('cross-workflow priority', () => {
   beforeAll(() => {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF);
     db = require('../database');
+    workflowEngine = require('../db/workflow-engine');
   });
 
   beforeEach(() => {
     db.resetForTest(templateBuffer);
+    workflowEngine.setDb(db.getDbInstance());
     loadScheduler();
   });
 
@@ -119,11 +122,11 @@ describe('cross-workflow priority', () => {
       });
 
       expect(created.priority).toBe(4);
-      expect(db.getWorkflow(created.id).priority).toBe(4);
+      expect(workflowEngine.getWorkflow(created.id).priority).toBe(4);
 
-      const updated = db.updateWorkflow(created.id, { priority: 9 });
+      const updated = workflowEngine.updateWorkflow(created.id, { priority: 9 });
       expect(updated.priority).toBe(9);
-      expect(db.getWorkflow(created.id).priority).toBe(9);
+      expect(workflowEngine.getWorkflow(created.id).priority).toBe(9);
     });
 
     it('orders queued tasks by workflow priority before task priority', () => {
