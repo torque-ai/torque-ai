@@ -2728,14 +2728,14 @@ describe('API Server endpoints', () => {
       expect(payload.status).toBe('shutting_down');
     });
 
-    it('blocks shutdown from a remote IP when no API key is provided and a key is configured', async () => {
-      getConfigSpy.mockImplementation((key) => key === 'api_key' ? 'secret-key' : null);
+    it('blocks shutdown from a remote IP when authentication fails', async () => {
+      // Override the default auth mock to simulate missing/invalid credentials
+      authMiddleware.authenticate.mockReturnValueOnce(null);
 
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
         url: '/api/shutdown',
         remoteAddress: '192.168.1.50',
-        // No x-torque-key header
       });
 
       expect(response.statusCode).toBe(403);
@@ -2747,7 +2747,7 @@ describe('API Server endpoints', () => {
     });
 
     it('blocks shutdown from a remote IP when a wrong API key is provided', async () => {
-      getConfigSpy.mockImplementation((key) => key === 'api_key' ? 'secret-key' : null);
+      authMiddleware.authenticate.mockReturnValueOnce(null);
 
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
