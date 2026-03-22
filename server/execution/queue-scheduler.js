@@ -1032,6 +1032,25 @@ function resolveCodexPendingTasks() {
   }
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createQueueScheduler(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    FREE_PROVIDERS,
+    COST_FREE_PROVIDERS,
+    init,
+    stop,
+    resolveEffectiveProvider,
+    categorizeQueuedTasks,
+    shouldSkipTaskForApproval,
+    processQueueInternal,
+    resolveCodexPendingTasks,
+    _getLastAutoScaleActivation: () => _lastAutoScaleActivation,
+    _resetAutoScaleCooldown: () => { _lastAutoScaleActivation = 0; },
+  };
+}
+
 module.exports = {
   FREE_PROVIDERS,
   COST_FREE_PROVIDERS,
@@ -1045,4 +1064,5 @@ module.exports = {
   // Exposed for testing auto-scale cooldown
   _getLastAutoScaleActivation: () => _lastAutoScaleActivation,
   _resetAutoScaleCooldown: () => { _lastAutoScaleActivation = 0; },
+  createQueueScheduler,
 };

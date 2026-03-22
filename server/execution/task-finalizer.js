@@ -581,6 +581,25 @@ async function finalizeTask(taskId, options = {}) {
   }
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createTaskFinalizer(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    init,
+    finalizeTask,
+    _testing: {
+      get finalizationLocks() {
+        return finalizationLocks;
+      },
+      categorizeFailure,
+      resetForTest() {
+        finalizationLocks.clear();
+      },
+    },
+  };
+}
+
 module.exports = {
   init,
   finalizeTask,
@@ -593,4 +612,5 @@ module.exports = {
       finalizationLocks.clear();
     },
   },
+  createTaskFinalizer,
 };

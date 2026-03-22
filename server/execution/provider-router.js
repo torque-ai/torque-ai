@@ -307,6 +307,23 @@ function getEffectiveGlobalMaxConcurrent() {
     : configuredMaxConcurrent;
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createProviderRouter(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    init,
+    safeConfigInt,
+    tryReserveHostSlotWithFallback,
+    tryCreateAutoPR,
+    resolveProviderRouting,
+    normalizeProviderOverride,
+    failTaskForInvalidProvider,
+    getProviderSlotLimits,
+    getEffectiveGlobalMaxConcurrent,
+  };
+}
+
 module.exports = {
   init,
   safeConfigInt,
@@ -317,4 +334,5 @@ module.exports = {
   failTaskForInvalidProvider,
   getProviderSlotLimits,
   getEffectiveGlobalMaxConcurrent,
+  createProviderRouter,
 };

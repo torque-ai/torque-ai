@@ -242,9 +242,22 @@ function stopHeartbeat() {
   if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createSlotPullScheduler(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    init, findBestTaskForProvider, claimTask, runSlotPullPass,
+    requeueAfterFailure, onSlotFreed, startHeartbeat, stopHeartbeat,
+    hasOllamaHostCapacity, getMaxRetries,
+    STARVATION_THRESHOLD_MS, OLLAMA_PROVIDERS,
+  };
+}
+
 module.exports = {
   init, findBestTaskForProvider, claimTask, runSlotPullPass,
   requeueAfterFailure, onSlotFreed, startHeartbeat, stopHeartbeat,
   hasOllamaHostCapacity, getMaxRetries,
   STARVATION_THRESHOLD_MS, OLLAMA_PROVIDERS,
+  createSlotPullScheduler,
 };

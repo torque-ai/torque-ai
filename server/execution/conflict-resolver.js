@@ -291,6 +291,16 @@ function resolveWorkflowConflicts(workflowId) {
   return { merged, conflicts };
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createConflictResolver(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    resolveWorkflowConflicts,
+  };
+}
+
 module.exports = {
-  resolveWorkflowConflicts
+  resolveWorkflowConflicts,
+  createConflictResolver,
 };

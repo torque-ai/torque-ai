@@ -1213,6 +1213,30 @@ function maybeFinalizeAuditRun(workflowId, finalStatus) {
 // Exports
 // ---------------------------------------------------------------------------
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createWorkflowRuntime(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    init,
+    handlePlanProjectTaskCompletion,
+    handlePlanProjectTaskFailure,
+    generatePipelineDocumentation,
+    handlePipelineStepCompletion,
+    handleWorkflowTermination,
+    evaluateWorkflowDependencies,
+    unblockTask,
+    applyFailureAction,
+    cancelDependentTasks,
+    checkWorkflowCompletion,
+    injectDependencyOutputs,
+    applyContextFrom,
+    applyOutputInjection,
+    buildDepTasksMap,
+    OUTPUT_CAP_BYTES,
+  };
+}
+
 module.exports = {
   init,
   handlePlanProjectTaskCompletion,
@@ -1231,4 +1255,5 @@ module.exports = {
   applyOutputInjection,
   buildDepTasksMap,
   OUTPUT_CAP_BYTES,
+  createWorkflowRuntime,
 };

@@ -160,7 +160,18 @@ async function onTaskCompleted(ctx) {
   }
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createStrategicHooks(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    onTaskFailed,
+    onTaskCompleted,
+  };
+}
+
 module.exports = {
   onTaskFailed,
   onTaskCompleted,
+  createStrategicHooks,
 };

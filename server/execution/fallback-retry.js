@@ -941,6 +941,28 @@ function classifyError(errorOutput, exitCode) {
   return makeResult(true, 'Unknown error - attempting retry');
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createFallbackRetry(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    init,
+    setFreeQuotaTracker,
+    tryOllamaCloudFallback,
+    tryLocalFirstFallback,
+    tryStallRecovery,
+    findLargerAvailableModel,
+    isHashlineCapableModel,
+    findNextHashlineModel,
+    tryHashlineTieredFallback,
+    selectHashlineFormat,
+    classifyError,
+    BASE_RETRY_DELAY_MS,
+    MAX_RETRY_DELAY_MS,
+    getRetryDelayMs,
+  };
+}
+
 module.exports = {
   init,
   setFreeQuotaTracker,
@@ -956,4 +978,5 @@ module.exports = {
   BASE_RETRY_DELAY_MS,
   MAX_RETRY_DELAY_MS,
   getRetryDelayMs,
+  createFallbackRetry,
 };

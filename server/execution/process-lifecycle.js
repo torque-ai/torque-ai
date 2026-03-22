@@ -660,6 +660,25 @@ function spawnAndTrackProcess(taskId, task, {
   return { queued: false, task: db.getTask(taskId) };
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createProcessLifecycle(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    init,
+    clearProcTimeouts,
+    safeDecrementHostSlot,
+    killProcessGraceful,
+    killOrphanByPid,
+    pauseProcess,
+    safeTriggerWebhook,
+    cleanupProcessTracking,
+    cleanupChildProcessListeners,
+    handleCloseCleanup,
+    spawnAndTrackProcess,
+  };
+}
+
 module.exports = {
   // Init
   init,
@@ -675,4 +694,5 @@ module.exports = {
   // D4.3: Spawn + handler lifecycle
   handleCloseCleanup,
   spawnAndTrackProcess,
+  createProcessLifecycle,
 };
