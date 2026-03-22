@@ -25,6 +25,11 @@ const ALLOWED = new Set([
   'index.js',           // server entry point — opens db, passes to container
   'db/schema.js',       // DDL migrations — needs raw db for ALTER TABLE
   'db/throughput-metrics.js', // DB module — imports from parent database.js
+  // Files that use facade-only core functions (getDbInstance, safeAddColumn, countTasks, isDbClosed)
+  'mcp-sse.js',                       // getDbInstance — raw DB handle for subscription persistence
+  'config.js',                        // getDbInstance — raw DB handle for encrypted API key lookup
+  'handlers/experiment-handlers.js',  // getDbInstance — raw DB handle for SQLite transactions
+  'handlers/peek/compliance.js',      // getDbInstance — raw DB handle for direct SQL audit queries
 ]);
 
 const DB_IMPORT_PATTERN = /require\s*\(\s*['"]\..*database['"]\s*\)/;

@@ -10,7 +10,8 @@
 const http = require('http');
 const https = require('https');
 const BaseProvider = require('./base');
-let db = require('../database');
+const configCore = require('../db/config-core');
+const hostManagement = require('../db/host-management');
 const logger = require('../logger').child({ component: 'v2-local-providers' });
 const { DEFAULT_FALLBACK_MODEL, MAX_STREAMING_OUTPUT, TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 
@@ -62,7 +63,7 @@ function uniqueStrings(values) {
 function parseProviderModels() {
   const hosts = (() => {
     try {
-      return db.listOllamaHosts?.({ enabled: true }) || [];
+      return hostManagement.listOllamaHosts?.({ enabled: true }) || [];
     } catch {
       return [];
     }
@@ -81,7 +82,7 @@ function parseProviderModels() {
 }
 
 function isHashlineCapableModelName(modelName) {
-  const configured = db.getConfig?.('hashline_capable_models') || '';
+  const configured = configCore.getConfig?.('hashline_capable_models') || '';
   if (!configured) return true;
 
   const capable = configured
@@ -157,7 +158,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
   async checkHealth() {
     const hosts = this._getOllamaHosts();
     if (!Array.isArray(hosts) || hosts.length === 0) {
-      const host = resolveOllamaEndpoint(db.getConfig?.('ollama_host') || 'http://localhost:11434');
+      const host = resolveOllamaEndpoint(configCore.getConfig?.('ollama_host') || 'http://localhost:11434');
       return this._probeHealth(host);
     }
 
@@ -202,7 +203,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
 
   _getOllamaHosts() {
     try {
-      return db.listOllamaHosts?.({ enabled: true }) || [];
+      return hostManagement.listOllamaHosts?.({ enabled: true }) || [];
     } catch {
       return [];
     }
@@ -211,7 +212,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
   _getRequestedModel(model) {
     const requested = sanitizeModel(model);
     const defaultModel = this.defaultModel
-      || sanitizeModel(db.getConfig?.('ollama_model'))
+      || sanitizeModel(configCore.getConfig?.('ollama_model'))
       || DEFAULT_FALLBACK_MODEL;
 
     if (requested) return requested;
@@ -249,7 +250,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
     const shouldPreferExact = exactOrFast;
 
     if (!availableHosts.length) {
-      const fallbackHost = resolveOllamaEndpoint(db.getConfig?.('ollama_host') || 'http://localhost:11434');
+      const fallbackHost = resolveOllamaEndpoint(configCore.getConfig?.('ollama_host') || 'http://localhost:11434');
       return {
         hostUrl: fallbackHost,
         model: selectedModel,
@@ -260,15 +261,15 @@ class BaseLocalOllamaProvider extends BaseProvider {
     let selection = null;
     let exactSelectionCached = null;
 
-    if (typeof db.selectOllamaHostForModel === 'function') {
-      exactSelectionCached = db.selectOllamaHostForModel(selectedModel);
+    if (typeof hostManagement.selectOllamaHostForModel === 'function') {
+      exactSelectionCached = hostManagement.selectOllamaHostForModel(selectedModel);
       if (shouldPreferExact) {
         selection = exactSelectionCached;
       }
     }
 
-    if (!selection?.host && !hasExactVersionTag(selectedModel) && typeof db.selectHostWithModelVariant === 'function') {
-      selection = db.selectHostWithModelVariant(baseModel);
+    if (!selection?.host && !hasExactVersionTag(selectedModel) && typeof hostManagement.selectHostWithModelVariant === 'function') {
+      selection = hostManagement.selectHostWithModelVariant(baseModel);
       if (selection?.host && selection.model) {
         selectedModel = selection.model;
       }
@@ -323,7 +324,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
   }
 
   _findBestAvailableModel() {
-    const aggregated = typeof db.getAggregatedModels === 'function' ? db.getAggregatedModels() : [];
+    const aggregated = typeof hostManagement.getAggregatedModels === 'function' ? hostManagement.getAggregatedModels() : [];
     const candidates = Array.isArray(aggregated)
       ? aggregated
           .map((entry) => {
@@ -348,14 +349,14 @@ class BaseLocalOllamaProvider extends BaseProvider {
 
   _modelAvailable(requestedModel) {
     if (!requestedModel) return false;
-    if (typeof db.selectOllamaHostForModel === 'function') {
-      const exact = db.selectOllamaHostForModel(requestedModel);
+    if (typeof hostManagement.selectOllamaHostForModel === 'function') {
+      const exact = hostManagement.selectOllamaHostForModel(requestedModel);
       if (exact?.host) return true;
     }
 
     const base = requestedModel.split(':')[0];
-    if (typeof db.selectHostWithModelVariant === 'function') {
-      const variant = db.selectHostWithModelVariant(base);
+    if (typeof hostManagement.selectHostWithModelVariant === 'function') {
+      const variant = hostManagement.selectHostWithModelVariant(base);
       if (variant?.host) return true;
     }
 
@@ -364,17 +365,17 @@ class BaseLocalOllamaProvider extends BaseProvider {
 
   _acquireHostSlot(host, model) {
     if (!host?.id) return null;
-    if (typeof db.tryReserveHostSlot !== 'function') return null;
+    if (typeof hostManagement.tryReserveHostSlot !== 'function') return null;
 
     // Issue #12 fix: pass model to tryReserveHostSlot so VRAM checks can be applied per-model.
-    const result = db.tryReserveHostSlot(host.id, model || undefined);
+    const result = hostManagement.tryReserveHostSlot(host.id, model || undefined);
     if (result?.acquired) {
       return () => {
         try {
-          if (typeof db.releaseHostSlot === 'function') {
-            db.releaseHostSlot(host.id);
+          if (typeof hostManagement.releaseHostSlot === 'function') {
+            hostManagement.releaseHostSlot(host.id);
           } else {
-            db.decrementHostTasks?.(host.id);
+            hostManagement.decrementHostTasks?.(host.id);
           }
         } catch {
           // non-fatal
@@ -413,7 +414,7 @@ class BaseLocalOllamaProvider extends BaseProvider {
       system: this.defaultSystemPrompt,
       stream,
       think: false,
-      keep_alive: db.getConfig?.('ollama_keep_alive') || '5m',
+      keep_alive: configCore.getConfig?.('ollama_keep_alive') || '5m',
       options: generationOptions,
     };
   }
@@ -701,7 +702,7 @@ class OllamaProvider extends BaseLocalOllamaProvider {
   constructor(config = {}) {
     super({
       providerId: 'ollama',
-      defaultModel: config.defaultModel || sanitizeModel(db.getConfig?.('ollama_model')) || DEFAULT_FALLBACK_MODEL,
+      defaultModel: config.defaultModel || sanitizeModel(configCore.getConfig?.('ollama_model')) || DEFAULT_FALLBACK_MODEL,
       ...config,
     });
   }
@@ -711,7 +712,7 @@ class HashlineOllamaProvider extends BaseLocalOllamaProvider {
   constructor(config = {}) {
     super({
       providerId: 'hashline-ollama',
-      defaultModel: config.defaultModel || sanitizeModel(db.getConfig?.('ollama_model')) || DEFAULT_FALLBACK_MODEL,
+      defaultModel: config.defaultModel || sanitizeModel(configCore.getConfig?.('ollama_model')) || DEFAULT_FALLBACK_MODEL,
       ...config,
     });
   }
@@ -753,8 +754,7 @@ class HashlineOllamaProvider extends BaseLocalOllamaProvider {
 
 // ── DI factory ──────────────────────────────────────────────────────────────
 
-function createV2LocalProviders({ db: dbInstance } = {}) {
-  if (dbInstance) db = dbInstance;
+function createV2LocalProviders({ db: _dbInstance } = {}) {
   return module.exports;
 }
 

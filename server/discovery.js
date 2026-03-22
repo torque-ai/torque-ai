@@ -30,13 +30,20 @@ function isPrivateIP(address, allowAny192 = false) {
 // Cache for LAN IP detection
 let cachedLanIP = null;
 
-// Lazy-load database to avoid circular dependencies
-let db = null;
-function getDb() {
-  if (!db) {
-    db = require('./database');
+// Lazy-load db sub-modules to avoid circular dependencies
+let _configCore = null;
+let _hostManagement = null;
+function getConfigCore() {
+  if (!_configCore) {
+    _configCore = require('./db/config-core');
   }
-  return db;
+  return _configCore;
+}
+function getHostManagement() {
+  if (!_hostManagement) {
+    _hostManagement = require('./db/host-management');
+  }
+  return _hostManagement;
 }
 
 // Module state
@@ -97,10 +104,10 @@ function clearBonjourCollisionLogFilter() {
  * Initialize discovery - start advertising and browsing
  */
 function initDiscovery() {
-  const database = getDb();
+  const configDb = getConfigCore();
 
   // Check if discovery is enabled
-  if (database.getConfig('discovery_enabled') === '0') {
+  if (configDb.getConfig('discovery_enabled') === '0') {
     logger.info('[Discovery] Disabled by configuration');
     return { success: false, reason: 'Discovery disabled' };
   }
@@ -115,12 +122,12 @@ function initDiscovery() {
     isInitialized = true;
 
     // Start advertising local Ollama if enabled and healthy
-    if (database.getConfig('discovery_advertise') === '1') {
+    if (configDb.getConfig('discovery_advertise') === '1') {
       startAdvertising();
     }
 
     // Start browsing for other hosts if enabled
-    if (database.getConfig('discovery_browse') !== '0') {
+    if (configDb.getConfig('discovery_browse') !== '0') {
       startBrowsing();
     }
 
@@ -136,7 +143,8 @@ function initDiscovery() {
  * Start advertising local Ollama instance
  */
 function startAdvertising() {
-  const database = getDb();
+  const configDb = getConfigCore();
+  const hostDb = getHostManagement();
 
   if (!bonjour) {
     logger.info('[Discovery] Cannot advertise - not initialized');
@@ -149,7 +157,7 @@ function startAdvertising() {
   }
 
   // Get local Ollama configuration
-  const ollamaHost = database.getConfig('ollama_host') || 'http://localhost:11434';
+  const ollamaHost = configDb.getConfig('ollama_host') || 'http://localhost:11434';
 
   try {
     const configUrl = new URL(ollamaHost);
@@ -162,7 +170,7 @@ function startAdvertising() {
 
     // Get models from local Ollama if available
     let models = '';
-    const hosts = database.listOllamaHosts();
+    const hosts = hostDb.listOllamaHosts();
     const localHost = hosts.find(h => h.url === ollamaHost);
     if (localHost && localHost.models_cache) {
       try {
@@ -322,7 +330,8 @@ function getServiceIdentity(service, url) {
  * @returns {void}
  */
 function handleServiceFound(service) {
-  const database = getDb();
+  const configDb = getConfigCore();
+  const hostDb = getHostManagement();
 
   try {
     // Extract service information
@@ -335,20 +344,20 @@ function handleServiceFound(service) {
     }
 
     // Skip if this is our own advertisement
-    const localOllama = database.getConfig('ollama_host') || 'http://localhost:11434';
+    const localOllama = configDb.getConfig('ollama_host') || 'http://localhost:11434';
     if (url === localOllama || isLocalUrl(url)) {
       return;
     }
 
     // Check if host already exists
-    const existing = database.getOllamaHostByUrl(url);
+    const existing = hostDb.getOllamaHostByUrl(url);
 
     if (existing) {
       // mDNS advertisement seen — verify the host is actually reachable before marking healthy
       refreshHostModels(existing.id, url);
     } else {
       // New host discovered — only auto-add if explicitly allowed via config
-      const autoAddEnabled = database.getConfig('discovery_auto_add') === '1';
+      const autoAddEnabled = configDb.getConfig('discovery_auto_add') === '1';
       const identity = getServiceIdentity(service, url) || txt.id || service.name || 'ollama';
       const id = sanitizeId(`discovered-${identity}`);
       const name = txt.name || service.name || `Discovered Ollama`;
@@ -358,7 +367,7 @@ function handleServiceFound(service) {
         return;
       }
 
-      database.addOllamaHost({
+      hostDb.addOllamaHost({
         id: id,
         name: name,
         url: url,
@@ -397,8 +406,7 @@ function probeGpuMetricsServer(hostId, hostUrl) {
           try {
             const body = JSON.parse(data);
             if (body.status === 'ok') {
-              const database = getDb();
-              database.updateOllamaHost(hostId, { gpu_metrics_port: DEFAULT_GPU_METRICS_PORT });
+              getHostManagement().updateOllamaHost(hostId, { gpu_metrics_port: DEFAULT_GPU_METRICS_PORT });
               logger.info(`[Discovery] Auto-detected gpu-metrics-server on ${hostname}:${DEFAULT_GPU_METRICS_PORT} for host ${hostId}`);
             }
           } catch { /* not valid JSON */ }
@@ -416,18 +424,18 @@ function probeGpuMetricsServer(hostId, hostUrl) {
  * @returns {void}
  */
 function handleServiceLost(service) {
-  const database = getDb();
+  const hostDb = getHostManagement();
 
   try {
     const url = getServiceUrl(service);
 
     if (!url) return;
 
-    const existing = database.getOllamaHostByUrl(url);
+    const existing = hostDb.getOllamaHostByUrl(url);
     if (existing) {
       const wasHealthy = existing.status === 'healthy';
       // Record a health check failure - consistent with existing behavior
-      database.recordHostHealthCheck(existing.id, false);
+      hostDb.recordHostHealthCheck(existing.id, false);
       // Only log on first transition away from healthy, not repeated offline events
       if (wasHealthy) {
         logger.info(`[Discovery] Host went offline: ${url}`);
@@ -484,15 +492,15 @@ function shutdownDiscovery() {
  * @returns {{initialized: boolean, enabled: boolean, advertising: boolean, browsing: boolean, advertiseEnabled: boolean, browseEnabled: boolean, lanIP: string, isWSL2: boolean}} Discovery status object
  */
 function getDiscoveryStatus() {
-  const database = getDb();
+  const configDb = getConfigCore();
 
   return {
     initialized: isInitialized,
-    enabled: database.getConfig('discovery_enabled') !== '0',
+    enabled: configDb.getConfig('discovery_enabled') !== '0',
     advertising: advertiser !== null,
     browsing: browser !== null,
-    advertiseEnabled: database.getConfig('discovery_advertise') === '1',
-    browseEnabled: database.getConfig('discovery_browse') !== '0',
+    advertiseEnabled: configDb.getConfig('discovery_advertise') === '1',
+    browseEnabled: configDb.getConfig('discovery_browse') !== '0',
     lanIP: getLanIP(),
     isWSL2: isWSL2()
   };
@@ -619,7 +627,7 @@ function sanitizeId(id) {
 async function refreshHostModels(hostId, url) {
   const http = require('http');
   const https = require('https');
-  const database = getDb();
+  const hostDb = getHostManagement();
 
   try {
     const parsedUrl = new URL(`${url}/api/tags`);
@@ -640,7 +648,7 @@ async function refreshHostModels(hostId, url) {
           if (res.statusCode === 200) {
             const response = JSON.parse(data);
             const models = response.models || [];
-            database.updateOllamaHost(hostId, {
+            hostDb.updateOllamaHost(hostId, {
               models_cache: JSON.stringify(models),
               models_updated_at: new Date().toISOString(),
               status: 'healthy',
@@ -815,8 +823,9 @@ async function scanSubnet(subnet, port = 11434) {
  * @returns {Promise<{success: boolean, reason?: string, timestamp?: string, duration?: number, subnetsScanned?: string[], totalFound?: number, newHosts?: Array<Object>, skipped?: Array<Object>}>} Scan results
  */
 async function scanNetworkForOllama(options = {}) {
-  const database = getDb();
-  const autoAddConfig = database.getConfig('discovery_auto_add') === '1';
+  const configDb = getConfigCore();
+  const hostDb = getHostManagement();
+  const autoAddConfig = configDb.getConfig('discovery_auto_add') === '1';
   const {
     port = 11434,
     autoAdd = autoAddConfig,
@@ -860,7 +869,7 @@ async function scanNetworkForOllama(options = {}) {
     }
 
     // Filter out local machine and already-known hosts
-    const existingHosts = database.listOllamaHosts();
+    const existingHosts = hostDb.listOllamaHosts();
     const existingUrls = new Set(existingHosts.map(h => h.url));
 
     const newHosts = [];
@@ -892,14 +901,14 @@ async function scanNetworkForOllama(options = {}) {
       if (autoAdd) {
         const id = `scan-${result.ip.replace(/\./g, '-')}`;
         try {
-          database.addOllamaHost({
+          hostDb.addOllamaHost({
             id: id,
             name: hostname,
             url: result.url
           });
 
           // Update models cache
-          database.updateOllamaHost(id, {
+          hostDb.updateOllamaHost(id, {
             models_cache: JSON.stringify(result.models),
             models_updated_at: new Date().toISOString(),
             status: 'healthy',
@@ -974,7 +983,7 @@ function isScanInProgress() {
  * @returns {boolean} True if auto-scan started successfully
  */
 function startAutoScan(intervalMinutes = 5) {
-  const database = getDb();
+  const configDb = getConfigCore();
 
   if (autoScanInterval) {
     logger.info('[Discovery] Auto-scan already running');
@@ -1021,8 +1030,8 @@ function startAutoScan(intervalMinutes = 5) {
   autoScanInterval = setInterval(checkAndScan, intervalMs);
 
   // Save config
-  database.setConfig('auto_scan_enabled', '1');
-  database.setConfig('auto_scan_interval', String(intervalMinutes));
+  configDb.setConfig('auto_scan_enabled', '1');
+  configDb.setConfig('auto_scan_interval', String(intervalMinutes));
 
   return true;
 }
@@ -1032,7 +1041,7 @@ function startAutoScan(intervalMinutes = 5) {
  * @returns {boolean} True when auto-scan has been stopped
  */
 function stopAutoScan() {
-  const database = getDb();
+  const configDb = getConfigCore();
 
   if (autoScanInterval) {
     clearInterval(autoScanInterval);
@@ -1040,7 +1049,7 @@ function stopAutoScan() {
     logger.info('[Discovery] Auto-scan stopped');
   }
 
-  database.setConfig('auto_scan_enabled', '0');
+  configDb.setConfig('auto_scan_enabled', '0');
   return true;
 }
 
@@ -1057,12 +1066,12 @@ function isAutoScanRunning() {
  * @returns {{running: boolean, enabled: boolean, intervalMinutes: number, currentSubnets: string[], lastKnownSubnets: string[]}} Auto-scan status object
  */
 function getAutoScanStatus() {
-  const database = getDb();
+  const configDb = getConfigCore();
 
   return {
     running: autoScanInterval !== null,
-    enabled: database.getConfig('auto_scan_enabled') === '1',
-    intervalMinutes: parseInt(database.getConfig('auto_scan_interval') || '5', 10),
+    enabled: configDb.getConfig('auto_scan_enabled') === '1',
+    intervalMinutes: parseInt(configDb.getConfig('auto_scan_interval') || '5', 10),
     currentSubnets: getLocalSubnets(),
     lastKnownSubnets
   };
@@ -1073,10 +1082,10 @@ function getAutoScanStatus() {
  * @returns {boolean} True if auto-scan was enabled and started, false otherwise
  */
 function initAutoScanFromConfig() {
-  const database = getDb();
+  const configDb = getConfigCore();
 
-  if (database.getConfig('auto_scan_enabled') === '1') {
-    const interval = parseInt(database.getConfig('auto_scan_interval') || '5', 10);
+  if (configDb.getConfig('auto_scan_enabled') === '1') {
+    const interval = parseInt(configDb.getConfig('auto_scan_interval') || '5', 10);
     startAutoScan(interval);
     return true;
   }
@@ -1086,7 +1095,7 @@ function initAutoScanFromConfig() {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createDiscovery(deps) {
-  // deps reserved for Phase 5 when database.js facade is removed
+  // deps reserved for future DI refinement
   return {
     initDiscovery, shutdownDiscovery,
     startAdvertising, stopAdvertising,

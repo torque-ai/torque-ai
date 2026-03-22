@@ -12,13 +12,14 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const BaseProvider = require('./base');
-let db = require('../database');
+const configCore = require('../db/config-core');
+const providerRoutingCore = require('../db/provider-routing-core');
 const prompts = require('./prompts');
 const logger = require('../logger').child({ component: 'v2-cli-providers' });
 const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 const { buildSafeEnv } = require('../utils/safe-env');
 
-prompts.init({ db });
+prompts.init({ db: { getConfig: configCore.getConfig } });
 
 function resolveCliPath(baseName, providerConfig) {
   if (providerConfig && providerConfig.cli_path) {
@@ -126,7 +127,7 @@ class CliProviderAdapter extends BaseProvider {
 
   getProviderConfig() {
     try {
-      return db.getProvider(this.providerId) || {};
+      return providerRoutingCore.getProvider(this.providerId) || {};
     } catch {
       return {};
     }
@@ -290,10 +291,10 @@ class CodexCliProvider extends CliProviderAdapter {
 
     const startTime = Date.now();
     const timeoutMs = resolveTimeoutMinutes(options, this.providerId) * 60 * 1000;
-    const baseUrl = cleanText(db.getConfig?.('openai_base_url')) || 'https://api.openai.com';
+    const baseUrl = cleanText(configCore.getConfig?.('openai_base_url')) || 'https://api.openai.com';
     const selectedModel = cleanText(model)
-      || cleanText(db.getConfig?.('codex_api_model'))
-      || cleanText(db.getConfig?.('codex_model'))
+      || cleanText(configCore.getConfig?.('codex_api_model'))
+      || cleanText(configCore.getConfig?.('codex_model'))
       || this.defaultModel
       || 'gpt-5.3-codex';
 
@@ -419,7 +420,6 @@ class ClaudeCliProvider extends CliProviderAdapter {
 
 function createV2CliProviders({ db: dbInstance } = {}) {
   if (dbInstance) {
-    db = dbInstance;
     prompts.init({ db: dbInstance });
   }
   return module.exports;

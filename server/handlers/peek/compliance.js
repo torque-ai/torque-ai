@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const database = require('../../database'); // facade: getDbInstance
+const database = require('../../database'); // facade-only: getDbInstance (raw DB handle for direct SQL queries)
 const peekPolicyAudit = require('../../db/peek-policy-audit');
 const { fireWebhookForEvent } = require('./webhook-outbound');
 const { classifyActionRisk } = require('./rollback');

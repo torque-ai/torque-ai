@@ -16,8 +16,9 @@ const _baseLogger = require('./logger');
 const logger = typeof _baseLogger.child === 'function'
   ? _baseLogger.child({ component: 'config' })
   : _baseLogger;
+const configCore = require('./db/config-core');
 
-let db = null;
+let db = null; // facade: getDbInstance for raw DB access in getApiKey()
 let _decryptWarnedProviders = null;
 
 // ── Config Registry ──────────────────────────────────────────────────────
@@ -103,10 +104,8 @@ function get(key, fallback) {
   }
 
   // 2. Check DB config table
-  if (db && typeof db.getConfig === 'function') {
-    const dbVal = db.getConfig(key);
-    if (dbVal !== null && dbVal !== undefined) return dbVal;
-  }
+  const dbVal = configCore.getConfig(key);
+  if (dbVal !== null && dbVal !== undefined) return dbVal;
 
   // 3. Registry default
   if (entry && entry.default !== undefined) return entry.default;
@@ -220,10 +219,8 @@ function getApiKey(provider) {
 
   // 3. DB config table (legacy)
   const dbKey = `${provider.replace(/-/g, '_')}_api_key`;
-  if (db && typeof db.getConfig === 'function') {
-    const dbVal = db.getConfig(dbKey);
-    if (dbVal) return dbVal;
-  }
+  const legacyVal = configCore.getConfig(dbKey);
+  if (legacyVal) return legacyVal;
 
   return null;
 }

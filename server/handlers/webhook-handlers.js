@@ -7,7 +7,6 @@ const { v4: uuidv4 } = require('uuid');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
-const database = require('../database'); // kept for database.upsertIntegration (legacy)
 const configCore = require('../db/config-core');
 const costTracking = require('../db/cost-tracking');
 const taskCore = require('../db/task-core');
@@ -1179,16 +1178,6 @@ function handleQuickSetupNotifications(args) {
     events,
     project,
   });
-
-  // Also configure as integration if Slack/Discord
-  if (webhookType === 'slack' || webhookType === 'discord') {
-    try {
-      database.upsertIntegration(webhookType, { webhook_url: url }, true);
-    } catch (err) {
-      // Integration config is best-effort — webhook still works via triggerWebhooks
-      logger.debug('[webhook-handlers] non-critical error updating webhook integration:', err.message || err);
-    }
-  }
 
   return result;
 }

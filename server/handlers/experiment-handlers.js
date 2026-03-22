@@ -8,7 +8,7 @@
  */
 
 const { randomUUID } = require('crypto');
-const database = require('../database'); // facade: getDbInstance
+const database = require('../database'); // facade-only: getDbInstance (raw DB handle for transactions)
 const taskCore = require('../db/task-core');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'experiment-handlers' });

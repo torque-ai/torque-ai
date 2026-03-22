@@ -13,7 +13,8 @@
 const http = require('http');
 const { randomUUID } = require('crypto');
 const { TOOLS, handleToolCall } = require('./tools');
-const db = require('./database');
+const db = require('./database'); // facade: getDbInstance (raw DB handle for subscription persistence)
+const workflowEngine = require('./db/workflow-engine');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'mcp-sse' });
 const { validateJsonRpcRequest } = require('./utils/jsonrpc-validation');
@@ -291,8 +292,8 @@ function buildSubscriptionTargetFromResult(result) {
     taskIds = normalizeSubscriptionTaskIds([result.__subscribe_task_id]);
   }
 
-  if (taskIds.length === 0 && workflowId && typeof db.getWorkflowTasks === 'function') {
-    const workflowTaskIds = db.getWorkflowTasks(workflowId) || [];
+  if (taskIds.length === 0 && workflowId && typeof workflowEngine.getWorkflowTasks === 'function') {
+    const workflowTaskIds = workflowEngine.getWorkflowTasks(workflowId) || [];
     taskIds = normalizeSubscriptionTaskIds(workflowTaskIds.map(task => task && task.id));
   }
 
