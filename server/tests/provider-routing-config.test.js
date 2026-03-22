@@ -61,8 +61,7 @@ function createMockDb(options = {}) {
       anthropic: createProviderRow('anthropic', { priority: 30 }),
       groq: createProviderRow('groq', { priority: 40 }),
       ollama: createProviderRow('ollama', { priority: 50 }),
-      'aider-ollama': createProviderRow('aider-ollama', { priority: 60 }),
-      'hashline-ollama': createProviderRow('hashline-ollama', { priority: 70 }),
+      'hashline-ollama': createProviderRow('hashline-ollama', { priority: 60 }),
       ...clone(options.providerConfig || {}),
     },
     templateConditions: clone(options.templateConditions || []),
@@ -1358,7 +1357,7 @@ describe('provider-routing-core behaviors tied to config state', () => {
     const { core } = loadCoreWithDb(db);
     const determineTaskComplexity = vi.fn(() => 'normal');
     const routeTask = vi.fn(() => ({
-      provider: 'aider-ollama',
+      provider: 'ollama',
       hostId: 'desktop-17',
       model: 'qwen3:32b',
     }));
@@ -1370,7 +1369,7 @@ describe('provider-routing-core behaviors tied to config state', () => {
     expect(determineTaskComplexity).toHaveBeenCalledWith('Stabilize queue fairness for the scheduler', []);
     expect(routeTask).toHaveBeenCalledWith('normal');
     expect(result).toEqual(expect.objectContaining({
-      provider: 'aider-ollama',
+      provider: 'ollama',
       hostId: 'desktop-17',
       selectedHost: 'desktop-17',
       model: 'qwen3:32b',

@@ -12,7 +12,6 @@ describe('COST_FREE_PROVIDERS constant', () => {
   it('includes local Ollama providers', () => {
     expect(COST_FREE_PROVIDERS).toContain('ollama');
     expect(COST_FREE_PROVIDERS).toContain('hashline-ollama');
-    expect(COST_FREE_PROVIDERS).toContain('aider-ollama');
   });
 
   it('does not include paid providers', () => {
@@ -29,7 +28,7 @@ describe('COST_FREE_PROVIDERS constant', () => {
 
   it('is a superset of FREE_PROVIDERS with exactly the local Ollama additions', () => {
     const extras = COST_FREE_PROVIDERS.filter(p => !FREE_PROVIDERS.includes(p));
-    expect(extras.sort()).toEqual(['aider-ollama', 'hashline-ollama', 'ollama']);
+    expect(extras.sort()).toEqual(['hashline-ollama', 'ollama']);
   });
 });
 

@@ -74,13 +74,6 @@ function createProviderMap(overrides = {}) {
       transport: 'api',
       quota_error_patterns: '[]',
     },
-    'aider-ollama': {
-      provider: 'aider-ollama',
-      enabled: 1,
-      priority: 80,
-      transport: 'api',
-      quota_error_patterns: '[]',
-    },
     'hashline-ollama': {
       provider: 'hashline-ollama',
       enabled: 1,
@@ -118,7 +111,7 @@ function createDbHarness(overrides = {}) {
       Object.entries({
         smart_routing_enabled: '1',
         default_provider: 'codex',
-        smart_routing_default_provider: 'aider-ollama',
+        smart_routing_default_provider: 'hashline-ollama',
         ollama_fallback_provider: 'codex',
         ...overrides.config,
       }),
@@ -241,7 +234,7 @@ describe('slot-pull routing tier lists', () => {
       tierList: true,
     });
 
-    expect(result.provider).toBe('aider-ollama');
+    expect(result.provider).toBe('hashline-ollama');
     expect(result.eligible_providers).toEqual(expect.any(Array));
     expect(result.eligible_providers.length).toBeGreaterThan(0);
     expect(result.eligible_providers).toContain('codex');
@@ -253,9 +246,9 @@ describe('slot-pull routing tier lists', () => {
     const result = core.analyzeTaskForRouting('Create a new API handler', 'C:/repo');
 
     expect(result).toEqual({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       rule: null,
-      reason: 'No rule matched, using smart routing default: aider-ollama',
+      reason: 'No rule matched, using smart routing default: hashline-ollama',
     });
   });
 

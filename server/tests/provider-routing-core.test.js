@@ -78,13 +78,6 @@ function createProviderMap(overrides = {}) {
       transport: 'api',
       quota_error_patterns: '[]',
     },
-    'aider-ollama': {
-      provider: 'aider-ollama',
-      enabled: 1,
-      priority: 80,
-      transport: 'api',
-      quota_error_patterns: '[]',
-    },
     'hashline-ollama': {
       provider: 'hashline-ollama',
       enabled: 1,
@@ -122,7 +115,7 @@ function createDbHarness(overrides = {}) {
       Object.entries({
         smart_routing_enabled: '1',
         default_provider: 'codex',
-        smart_routing_default_provider: 'aider-ollama',
+        smart_routing_default_provider: 'hashline-ollama',
         ollama_fallback_provider: 'codex',
         ...overrides.config,
       }),
@@ -640,7 +633,7 @@ describe('provider-routing-core', () => {
       const hostManagement = createHostManagement({
         determineTaskComplexity: vi.fn(() => 'normal'),
         routeTask: vi.fn(() => ({
-          provider: 'aider-ollama',
+          provider: 'ollama',
           hostId: 'host-local',
           model: 'qwen3:8b',
         })),

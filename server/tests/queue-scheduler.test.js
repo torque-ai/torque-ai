@@ -8,7 +8,7 @@
 // Provider registry mock — getCategory is used by categorizeQueuedTasks, not hoisted
 vi.mock('../providers/registry', () => {
   const cats = {
-    ollama: 'ollama', 'aider-ollama': 'ollama', 'hashline-ollama': 'ollama',
+    ollama: 'ollama', 'hashline-ollama': 'ollama',
     codex: 'codex', 'claude-cli': 'codex',
     anthropic: 'api', groq: 'api', hyperbolic: 'api',
     deepinfra: 'api', 'ollama-cloud': 'api', cerebras: 'api', 'google-ai': 'api', openrouter: 'api',
@@ -153,13 +153,12 @@ describe('Queue Scheduler', () => {
     it('maps all ollama aliases to ollamaTasks', () => {
       const tasks = [
         makeTask({ id: '1', provider: 'ollama' }),
-        makeTask({ id: '2', provider: 'aider-ollama' }),
-        makeTask({ id: '3', provider: 'hashline-ollama' }),
+        makeTask({ id: '2', provider: 'hashline-ollama' }),
       ];
 
       const result = scheduler.categorizeQueuedTasks(tasks, true);
 
-      expect(result.ollamaTasks.map((t) => t.id)).toEqual(['1', '2', '3']);
+      expect(result.ollamaTasks.map((t) => t.id)).toEqual(['1', '2']);
       expect(result.ollamaTasks).toHaveLength(3);
     });
 
@@ -222,30 +221,29 @@ describe('Queue Scheduler', () => {
     it('separates ollama/codex/api tasks correctly', () => {
       const tasks = [
         makeTask({ id: '1', provider: 'ollama' }),
-        makeTask({ id: '2', provider: 'aider-ollama' }),
-        makeTask({ id: '3', provider: 'hashline-ollama' }),
-        makeTask({ id: '4', provider: 'codex' }),
-        makeTask({ id: '5', provider: 'claude-cli' }),
-        makeTask({ id: '6', provider: 'anthropic' }),
-        makeTask({ id: '7', provider: 'groq' }),
-        makeTask({ id: '8', provider: 'hyperbolic' }),
-        makeTask({ id: '9', provider: 'deepinfra' }),
-        makeTask({ id: '10', provider: 'ollama-cloud' }),
-        makeTask({ id: '11', provider: 'cerebras' }),
-        makeTask({ id: '12', provider: 'google-ai' }),
-        makeTask({ id: '13', provider: 'openrouter' }),
+        makeTask({ id: '2', provider: 'hashline-ollama' }),
+        makeTask({ id: '3', provider: 'codex' }),
+        makeTask({ id: '4', provider: 'claude-cli' }),
+        makeTask({ id: '5', provider: 'anthropic' }),
+        makeTask({ id: '6', provider: 'groq' }),
+        makeTask({ id: '7', provider: 'hyperbolic' }),
+        makeTask({ id: '8', provider: 'deepinfra' }),
+        makeTask({ id: '9', provider: 'ollama-cloud' }),
+        makeTask({ id: '10', provider: 'cerebras' }),
+        makeTask({ id: '11', provider: 'google-ai' }),
+        makeTask({ id: '12', provider: 'openrouter' }),
       ];
 
       const result = scheduler.categorizeQueuedTasks(tasks, true);
 
-      expect(result.ollamaTasks).toHaveLength(3);
-      expect(result.ollamaTasks.map((t) => t.id)).toEqual(['1', '2', '3']);
+      expect(result.ollamaTasks).toHaveLength(2);
+      expect(result.ollamaTasks.map((t) => t.id)).toEqual(['1', '2']);
 
       expect(result.codexTasks).toHaveLength(2);
-      expect(result.codexTasks.map((t) => t.id)).toEqual(['4', '5']);
+      expect(result.codexTasks.map((t) => t.id)).toEqual(['3', '4']);
 
       expect(result.apiTasks).toHaveLength(8);
-      expect(result.apiTasks.map((t) => t.id)).toEqual(['6', '7', '8', '9', '10', '11', '12', '13']);
+      expect(result.apiTasks.map((t) => t.id)).toEqual(['5', '6', '7', '8', '9', '10', '11', '12']);
     });
 
     it('filters codex-pending tasks', () => {
@@ -1422,7 +1420,7 @@ describe('Queue Scheduler', () => {
           'overflow-1',
           'queued',
           expect.objectContaining({
-            provider: 'aider-ollama',
+            provider: 'hashline-ollama',
             model: 'qwen3:8b',
           })
         );
@@ -1430,13 +1428,13 @@ describe('Queue Scheduler', () => {
           'overflow-1',
           expect.objectContaining({
             status: 'queued',
-            provider: 'aider-ollama',
+            provider: 'hashline-ollama',
             model: 'qwen3:8b',
           }),
         );
         // Verify metadata includes overflow flag and original provider
         const updateCall = mockDb.updateTaskStatus.mock.calls.find(
-          (c) => c[0] === 'overflow-1' && c[2]?.provider === 'aider-ollama'
+          (c) => c[0] === 'overflow-1' && c[2]?.provider === 'hashline-ollama'
         );
         expect(updateCall).toBeTruthy();
         const updatedMeta = JSON.parse(updateCall[2].metadata);
@@ -1462,9 +1460,9 @@ describe('Queue Scheduler', () => {
 
         scheduler.processQueueInternal();
 
-        // updateTaskStatus should NOT be called with aider-ollama provider
+        // updateTaskStatus should NOT be called with hashline-ollama provider
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'aider-ollama'
+          (c) => c[2]?.provider === 'hashline-ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1488,7 +1486,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'aider-ollama'
+          (c) => c[2]?.provider === 'hashline-ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1516,7 +1514,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'aider-ollama'
+          (c) => c[2]?.provider === 'hashline-ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1542,7 +1540,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'aider-ollama'
+          (c) => c[2]?.provider === 'hashline-ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1566,7 +1564,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'overflow-default' && c[2]?.provider === 'aider-ollama'
+          (c) => c[0] === 'overflow-default' && c[2]?.provider === 'hashline-ollama'
         );
         expect(overflowCalls).toHaveLength(1);
       });
@@ -1590,7 +1588,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'overflow-smart' && c[2]?.provider === 'aider-ollama'
+          (c) => c[0] === 'overflow-smart' && c[2]?.provider === 'hashline-ollama'
         );
         expect(overflowCalls).toHaveLength(1);
       });
@@ -1635,13 +1633,13 @@ describe('Queue Scheduler', () => {
 
         // user-specified task should NOT be overflowed
         const userOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'user-codex' && c[2]?.provider === 'aider-ollama'
+          (c) => c[0] === 'user-codex' && c[2]?.provider === 'hashline-ollama'
         );
         expect(userOverflow).toHaveLength(0);
 
         // smart-routed task behind it SHOULD be overflowed
         const smartOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'smart-codex' && c[2]?.provider === 'aider-ollama'
+          (c) => c[0] === 'smart-codex' && c[2]?.provider === 'hashline-ollama'
         );
         expect(smartOverflow).toHaveLength(1);
       });
@@ -1668,7 +1666,7 @@ describe('Queue Scheduler', () => {
         expect(mocks.safeStartTask).toHaveBeenCalledWith('codex-normal', 'codex');
         // No overflow should have occurred
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'aider-ollama'
+          (c) => c[2]?.provider === 'hashline-ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1819,7 +1817,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'overflow-full-host' && c[2]?.provider === 'aider-ollama',
+          (c) => c[0] === 'overflow-full-host' && c[2]?.provider === 'hashline-ollama',
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1910,7 +1908,7 @@ describe('Queue Scheduler', () => {
         expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
           'overflow-normal',
           'queued',
-          expect.objectContaining({ provider: 'aider-ollama', model: 'qwen3:8b' }),
+          expect.objectContaining({ provider: 'hashline-ollama', model: 'qwen3:8b' }),
         );
       });
 
@@ -1939,7 +1937,7 @@ describe('Queue Scheduler', () => {
         expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
           'overflow-simple',
           'queued',
-          expect.objectContaining({ provider: 'aider-ollama', model: 'gemma3:4b' }),
+          expect.objectContaining({ provider: 'hashline-ollama', model: 'gemma3:4b' }),
         );
       });
       it('overflows tasks with null metadata (workflow default path)', () => {
@@ -1961,7 +1959,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'overflow-null-meta' && c[2]?.provider === 'aider-ollama'
+          (c) => c[0] === 'overflow-null-meta' && c[2]?.provider === 'hashline-ollama'
         );
         expect(overflowCalls).toHaveLength(1);
       });

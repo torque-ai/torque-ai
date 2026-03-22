@@ -111,7 +111,7 @@ function createTask(overrides = {}) {
     id,
     status,
     task_description: overrides.task_description || 'Fallback retry test task',
-    provider: overrides.provider || 'aider-ollama',
+    provider: overrides.provider || 'ollama',
     model: overrides.model !== undefined ? overrides.model : 'qwen2.5-coder:14b',
     working_directory: overrides.working_directory || testDir,
     ollama_host_id: overrides.ollama_host_id || null,
@@ -537,7 +537,7 @@ describe('fallback-retry module', () => {
       const hostB = registerHealthyHost('local-b', ['qwen2.5-coder:14b'], { running_tasks: 0 });
 
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         ollama_host_id: hostA,
       });
@@ -547,18 +547,18 @@ describe('fallback-retry module', () => {
       expect(ok).toBe(true);
       const updated = db.getTask(task.id);
       expect(updated.status).toBe('queued');
-      expect(updated.provider).toBe('aider-ollama');
+      expect(updated.provider).toBe('ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.ollama_host_id).toBe(hostB);
       const meta = updated.metadata || {};
-      expect(meta.original_provider).toBe('aider-ollama');
+      expect(meta.original_provider).toBe('ollama');
       expect(updated.error_output).toContain('[Local-First] Trying qwen2.5-coder:14b on host');
     });
 
     it('tries a different coder model when same-host retry is skipped', () => {
       const hostA = registerHealthyHost('model-a', ['qwen2.5-coder:14b', 'deepseek-coder:33b']);
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         ollama_host_id: hostA
       });
@@ -567,7 +567,7 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = db.getTask(task.id);
-      expect(updated.provider).toBe('aider-ollama');
+      expect(updated.provider).toBe('ollama');
       expect(updated.model).toBe('deepseek-coder:33b');
       expect(updated.ollama_host_id).toBe(hostA);
       expect(updated.error_output).toContain('[Local-First] Trying model deepseek-coder:33b');
@@ -575,7 +575,7 @@ describe('fallback-retry module', () => {
 
     it('switches to a different local provider when no host/model alternative exists', () => {
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         ollama_host_id: null
       });
@@ -584,7 +584,7 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = db.getTask(task.id);
-      expect(updated.provider).toBe('ollama');
+      expect(updated.provider).toBe('hashline-ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.ollama_host_id).toBeNull();
       expect(updated.error_output).toContain('[Local-First] Trying provider ollama');
@@ -596,11 +596,11 @@ describe('fallback-retry module', () => {
       db.setConfig('codex_enabled', '1');
 
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         error_output: '[Local-First] prior local attempt',
         metadata: {
           local_first_attempts: 1,
-          original_provider: 'aider-ollama',
+          original_provider: 'ollama',
         },
       });
 
@@ -615,6 +615,8 @@ describe('fallback-retry module', () => {
 
     it('skips raw ollama when task is greenfield (new file creation)', () => {
       // EXP7: Raw ollama produces instructions instead of code for greenfield tasks
+      db.setConfig('ollama_fallback_provider', 'codex');
+      db.setConfig('codex_enabled', '1');
       const task = createTask({
         provider: 'hashline-ollama',
         model: 'qwen2.5-coder:14b',
@@ -626,14 +628,13 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = db.getTask(task.id);
-      // Should skip 'ollama' and pick 'aider-ollama' instead
-      expect(updated.provider).toBe('aider-ollama');
+      // Should skip 'ollama' (greenfield) and escalate to cloud since no other local providers
       expect(updated.error_output).not.toContain('[Local-First] Trying provider ollama');
     });
 
     it('allows raw ollama for non-greenfield tasks', () => {
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'hashline-ollama',
         model: 'qwen2.5-coder:14b',
         task_description: 'Fix the auth handler validation bug in auth.ts',
         ollama_host_id: null
@@ -650,7 +651,7 @@ describe('fallback-retry module', () => {
     it('keeps moving through the chain when host selection and model enumeration throw', () => {
       db.setConfig('max_local_retries', '3');
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         ollama_host_id: 'host-primary'
       });
@@ -667,8 +668,8 @@ describe('fallback-retry module', () => {
 
         expect(ok).toBe(true);
         const updated = db.getTask(task.id);
-        expect(updated.provider).toBe('ollama');
-        expect(updated.error_output).toContain('[Local-First] Trying provider ollama');
+        expect(updated.provider).toBe('hashline-ollama');
+        expect(updated.error_output).toContain('[Local-First] Trying provider hashline-ollama');
       });
     });
 
@@ -679,10 +680,9 @@ describe('fallback-retry module', () => {
       db.setConfig('claude_cli_enabled', '0');
 
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         error_output: [
-          '[Local-First] Trying provider ollama',
           '[Local-First] Trying provider hashline-ollama',
         ].join('\n')
       });
@@ -704,7 +704,7 @@ describe('fallback-retry module', () => {
   describe('tryStallRecovery', () => {
     it('first attempt switches edit format from diff to whole', () => {
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         error_output: 'existing error'
       });
@@ -730,7 +730,7 @@ describe('fallback-retry module', () => {
     it('switches to a larger model when task is already using whole edits', () => {
       const hostA = registerHealthyHost('stall-large-host', ['qwen2.5-coder:14b', 'qwen2.5-coder:32b']);
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         ollama_host_id: hostA
       });
@@ -756,7 +756,7 @@ describe('fallback-retry module', () => {
     it('falls back to local-first fallback when no larger model is available', () => {
       const hostA = registerHealthyHost('stall-no-larger', ['qwen2.5-coder:70b']);
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:70b',
         ollama_host_id: hostA
       });
@@ -781,7 +781,7 @@ describe('fallback-retry module', () => {
 
       try {
         const task = createTask({
-          provider: 'aider-ollama',
+          provider: 'ollama',
           model: 'qwen2.5-coder:14b',
           error_output: 'existing error'
         });
@@ -803,7 +803,7 @@ describe('fallback-retry module', () => {
 
     it('keeps stall state across attempts and clears it only when limit is hit', () => {
       db.setConfig('stall_recovery_max_attempts', '1');
-      const task = createTask({ provider: 'aider-ollama' });
+      const task = createTask({ provider: 'ollama' });
       stallRecoveryAttempts.set(task.id, { attempts: 0, lastStrategy: null });
 
       const first = mod.tryStallRecovery(task.id, { lastActivitySeconds: 360 });
@@ -830,7 +830,7 @@ describe('fallback-retry module', () => {
 
     it('marks task failed if stall recovery re-queue update throws', () => {
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b'
       });
 
@@ -859,7 +859,7 @@ describe('fallback-retry module', () => {
     it('second attempt switches to a larger available model', () => {
       registerHealthyHost('stall-models', ['qwen2.5-coder:14b', 'qwen2.5-coder:32b']);
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
       });
       stallRecoveryAttempts.set(task.id, { attempts: 1, lastStrategy: 'switch_edit_format' });
@@ -882,7 +882,7 @@ describe('fallback-retry module', () => {
 
     it('cancels task when maximum stall recovery attempts are exhausted', () => {
       db.setConfig('stall_recovery_max_attempts', '2');
-      const task = createTask({ provider: 'aider-ollama' });
+      const task = createTask({ provider: 'ollama' });
       stallRecoveryAttempts.set(task.id, { attempts: 2, lastStrategy: 'local_first_fallback' });
 
       const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 999 });
@@ -897,7 +897,7 @@ describe('fallback-retry module', () => {
     it('uses local-first fallback directly on third-and-later stall recovery attempts', () => {
       db.setConfig('max_local_retries', '3');
       const task = createTask({
-        provider: 'aider-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
       });
       runningProcesses.set(task.id, { editFormat: 'whole' });
@@ -1295,7 +1295,7 @@ describe('fallback-retry module', () => {
         getAggregatedModels: vi.fn(() => []),
       }, () => {
         const task = createTask({
-          provider: 'aider-ollama',
+          provider: 'ollama',
           model: 'qwen2.5-coder:14b',
           ollama_host_id: hostA
         });

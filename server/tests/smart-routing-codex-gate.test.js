@@ -28,7 +28,6 @@ function createTaskManagerMock() {
     PROVIDER_DEFAULT_TIMEOUTS: {
       codex: 60,
       ollama: 30,
-      'aider-ollama': 30,
       'claude-cli': 45,
     },
   };
@@ -199,7 +198,7 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
 
       const task = extractTaskFromResult(result);
       expect(task).toBeTruthy();
-      // Smart routing default is now hashline-ollama; modification routing only applies to aider-ollama/ollama.
+      // Smart routing default is now hashline-ollama; modification routing only applies to ollama.
       const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
       expect(meta.intended_provider || task.provider).toBeTruthy();
     });

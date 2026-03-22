@@ -334,7 +334,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   }
 
   // Helper to check if provider needs Ollama and handle fallback
-  const isOllamaProvider = (provider) => provider === 'ollama' || provider === 'aider-ollama' || provider === 'hashline-ollama';
+  const isOllamaProvider = (provider) => provider === 'ollama' || provider === 'hashline-ollama';
 
   const maybeApplyFallback = (result) => {
     if (!skipHealthCheck && isOllamaProvider(result.provider) && ollamaHealthy === false) {
@@ -693,10 +693,10 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       };
 
       // HASHLINE-OLLAMA UPGRADE: For simple/normal tasks routed to a local LLM
-      // that are targeted file edits, use hashline-ollama instead of aider-ollama.
-      // Hashline is faster (no aider overhead) and more reliable (hash-verified edits).
+      // that are targeted file edits, use hashline-ollama instead of raw ollama.
+      // Hashline is faster and more reliable (hash-verified edits).
       if ((complexity === 'simple' || complexity === 'normal') &&
-          (result.provider === 'aider-ollama' || result.provider === 'ollama') &&
+          result.provider === 'ollama' &&
           isTargetedFileEdit(descLower)) {
         const hashlineProvider = getProvider('hashline-ollama');
         if (hashlineProvider && hashlineProvider.enabled) {
@@ -853,7 +853,7 @@ const CLOUD_PROVIDERS = [
 ];
 
 // Providers that run locally (Ollama-backed).
-const LOCAL_PROVIDERS = ['ollama', 'aider-ollama', 'hashline-ollama'];
+const LOCAL_PROVIDERS = ['ollama', 'hashline-ollama'];
 
 /**
  * Get the fallback chain for a provider.
@@ -876,7 +876,6 @@ function getProviderFallbackChain(provider, options) {
   if (!chain) {
     // Local-first fallback chains — try local providers before cloud
     // hashline-ollama is the primary local edit provider (82% success rate).
-    // aider-ollama is legacy (11% success) and demoted in all chains.
     // groq removed from fallback chains — its tool calling fails on multi-step
     // tasks (only reliable for single-tool-call docs/simple tasks via smart routing).
     const defaultChains = {
@@ -890,7 +889,6 @@ function getProviderFallbackChain(provider, options) {
       'hyperbolic':      ['deepinfra', 'ollama-cloud', 'claude-cli', 'codex', 'hashline-ollama'],
       'deepinfra':       ['ollama-cloud', 'hyperbolic', 'claude-cli', 'codex', 'hashline-ollama'],
       'ollama':          ['hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
-      'aider-ollama':    ['hashline-ollama', 'ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
       'hashline-ollama': ['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
     };
     chain = defaultChains[provider] || ['hashline-ollama', 'ollama', 'deepinfra', 'codex', 'claude-cli'];

@@ -258,7 +258,7 @@ describe('db/provider-routing-core', () => {
       bindCore({
         determineTaskComplexity: () => 'normal',
         routeTask: () => ({
-          provider: 'aider-ollama',
+          provider: 'ollama',
           rule: { name: 'complexity' },
           hostId: 'host-alpha',
           model: 'qwen3:8b',
@@ -267,7 +267,7 @@ describe('db/provider-routing-core', () => {
       });
 
       const result = core.analyzeTaskForRouting('Implement a service layer', os.tmpdir(), ['src/service.js']);
-      expect(result.provider).toBe('aider-ollama');
+      expect(result.provider).toBe('ollama');
       expect(result.complexity).toBe('normal');
       expect(result.hostId).toBe('host-alpha');
       expect(result.model).toBe('qwen3:8b');
@@ -278,7 +278,7 @@ describe('db/provider-routing-core', () => {
       bindCore({
         determineTaskComplexity: () => 'simple',
         routeTask: () => ({
-          provider: 'aider-ollama',
+          provider: 'ollama',
           hostId: 'host-local',
           model: 'qwen3:8b',
         }),

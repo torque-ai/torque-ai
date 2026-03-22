@@ -305,7 +305,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
   // EXP7: Raw ollama cannot create new files — it produces instructions instead of code.
   // Skip 'ollama' as a fallback candidate when the task is greenfield.
   const isGreenfield = _isGreenfieldTask(task.task_description);
-  const localProviders = ['aider-ollama', 'ollama', 'hashline-ollama'];
+  const localProviders = ['ollama', 'hashline-ollama'];
   const untriedProviders = localProviders.filter(p => {
     if (p === currentProvider) return false;
     if (priorErrors.includes(`provider ${p}`)) return false;
@@ -382,7 +382,7 @@ function tryStallRecovery(taskId, activity) {
   const proc = _runningProcesses.get(taskId);
   const currentEditFormat = proc?.editFormat || serverConfig.get('aider_edit_format') || 'diff';
   const currentModel = task.model || 'qwen2.5-coder:14b';
-  const currentProvider = task.provider || 'aider-ollama';
+  const currentProvider = task.provider || 'ollama';
 
   // Determine recovery strategy based on attempt number
   let strategy = null;
@@ -393,7 +393,7 @@ function tryStallRecovery(taskId, activity) {
     strategy = 'switch_edit_format';
     newSettings = { editFormat: 'whole' };
     logger.info(`[StallRecovery] Task ${taskId}: Attempt ${recovery.attempts + 1} - switching edit format ${currentEditFormat} → whole`);
-  } else if (recovery.attempts <= 1 && currentProvider === 'aider-ollama') {
+  } else if (recovery.attempts <= 1 && (currentProvider === 'ollama' || currentProvider === 'hashline-ollama')) {
     // Attempt 2: Try larger model if available
     const largerModel = findLargerAvailableModel(currentModel);
     if (largerModel && largerModel !== currentModel) {

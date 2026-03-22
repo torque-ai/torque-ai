@@ -200,17 +200,6 @@ function resolveProviderRouting(task, taskId) {
     }
   }
 
-  if (provider === 'aider-ollama' && !isUserOverride) {
-    const desc = (task.task_description || '').toLowerCase();
-    const isReviewTask = /\b(review|analyze|audit|hunt for bugs|find bugs|check for|look for|report|inspect)\b/.test(desc)
-      && !/\b(fix|implement|create|add|write|modify|update|change|refactor|convert|migrate|replace)\b/.test(desc);
-    if (isReviewTask) {
-      switchReason = `aider-ollama -> ollama (review-only task, streaming enabled)`;
-      provider = 'ollama';
-      logger.info(`[Routing] Auto-switched task ${taskId} from aider-ollama to ollama (review-only task, streaming enabled)`);
-    }
-  }
-
   if (provider !== task.provider) {
     logger.info(`[Routing] Routed task ${taskId} provider: ${task.provider} → ${provider}`);
   }
