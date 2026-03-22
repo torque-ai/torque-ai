@@ -305,6 +305,23 @@ async function runAgenticLoop({
         emptySummaryRetried = true;
         continue; // one retry
       }
+      // Incomplete task nudge: if the task asks to create/add/write files but the model
+      // only called read-only tools (list_directory, read_file, search_files) and is now
+      // declaring itself "done" with a text response, nudge it to actually complete the work.
+      // This catches the pattern where cheap LLMs describe what they would do instead of doing it.
+      const hasWriteTools = toolLog.some(t => ['write_file', 'edit_file', 'run_command'].includes(t.name));
+      const taskMentionsCreation = /\b(create|add|write|implement|generate)\b/i.test(taskPrompt);
+      if (!hasWriteTools && taskMentionsCreation && toolLog.length > 0 && toolLog.length <= 3 && !emptySummaryRetried) {
+        logger.info(`[Agentic] Task mentions file creation but only read-only tools used (${toolLog.length} calls) — nudging to complete`);
+        messages.push({ role: 'assistant', content });
+        messages.push({
+          role: 'user',
+          content: 'You described what you would create but did not actually create the files. Use the write_file tool now to create the files as described. Do not just describe them — actually write them.',
+        });
+        emptySummaryRetried = true; // reuse flag to prevent infinite nudge loop
+        continue;
+      }
+
       finalOutput = content;
       logger.info(`[Agentic] Model finished after ${iterations + 1} iterations (${toolLog.length} tool calls)`);
       break;
