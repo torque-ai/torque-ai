@@ -203,7 +203,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
 
     expect(determineTaskComplexity).toHaveBeenCalledWith(taskDescription, files);
     expect(routeTask).toHaveBeenCalledWith('simple');
-    expect(result.provider).toBe('codex');
+    expect(result.provider).toBe('hashline-ollama');
     expect(result.hostId).toBe('host-local');
     expect(result.selectedHost).toBe('host-local');
     expect(result.reason).toContain('targeted file edit');

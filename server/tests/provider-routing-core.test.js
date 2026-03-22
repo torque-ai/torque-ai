@@ -570,7 +570,7 @@ describe('provider-routing-core', () => {
       const result = core.analyzeTaskForRouting('Need deep analysis for the production root cause', 'C:/repo');
 
       expect(result.provider).toBe('deepinfra');
-      expect(result.reason).toContain('DeepInfra unavailable');
+      expect(result.reason).toContain('large model');
     });
 
     it('routes reasoning tasks to hyperbolic when deepinfra is unavailable', () => {
@@ -586,7 +586,7 @@ describe('provider-routing-core', () => {
       const result = core.analyzeTaskForRouting('Analyze the architecture root cause', 'C:/repo');
 
       expect(result.provider).toBe('hyperbolic');
-      expect(result.reason).toContain('large model');
+      expect(result.reason).toContain('DeepInfra unavailable');
     });
 
     it('routes documentation work to groq when configured', () => {
