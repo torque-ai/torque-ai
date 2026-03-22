@@ -339,6 +339,15 @@ describe('dashboard/router', () => {
 
 describe('route handlers with mock db', () => {
   const db = require('../database');
+  const taskCore = require('../db/task-core');
+  const webhooksStreaming = require('../db/webhooks-streaming');
+  const fileTracking = require('../db/file-tracking');
+  const providerRoutingCore = require('../db/provider-routing-core');
+  const eventTracking = require('../db/event-tracking');
+  const costTracking = require('../db/cost-tracking');
+  const workflowEngine = require('../db/workflow-engine');
+  const hostManagement = require('../db/host-management');
+  const projectConfigCore = require('../db/project-config-core');
 
   // Mock db methods used by route handlers
   beforeEach(() => {
@@ -349,10 +358,10 @@ describe('route handlers with mock db', () => {
     const tasks = require('../dashboard/routes/tasks');
 
     it('handleListTasks returns paginated tasks', () => {
-      vi.spyOn(db, 'listTasks').mockReturnValue([
+      vi.spyOn(taskCore, 'listTasks').mockReturnValue([
         { id: 't1', description: 'test', status: 'completed' },
       ]);
-      vi.spyOn(db, 'countTasks').mockReturnValue(1);
+      vi.spyOn(taskCore, 'countTasks').mockReturnValue(1);
 
       const { res } = createMockRes();
       tasks.handleListTasks(null, res, { page: '1', limit: '25' });
@@ -364,7 +373,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleGetTask returns 404 for missing task', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
 
       const { res } = createMockRes();
       tasks.handleGetTask(null, res, {}, 'nonexistent');
@@ -373,10 +382,10 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleGetTask returns task with output chunks', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({
         id: 't1', description: 'test', status: 'completed',
       });
-      vi.spyOn(db, 'getStreamChunks').mockReturnValue([{ chunk: 'hello' }]);
+      vi.spyOn(webhooksStreaming, 'getStreamChunks').mockReturnValue([{ chunk: 'hello' }]);
 
       const { res } = createMockRes();
       tasks.handleGetTask(null, res, {}, 't1');
@@ -387,7 +396,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleTaskDiff returns diff or null fallback', () => {
-      vi.spyOn(db, 'getDiffPreview').mockReturnValue(null);
+      vi.spyOn(fileTracking, 'getDiffPreview').mockReturnValue(null);
 
       const { res } = createMockRes();
       tasks.handleTaskDiff(null, res, {}, 't1');
@@ -398,7 +407,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleTaskLogs returns logs array', () => {
-      vi.spyOn(db, 'getTaskLogs').mockReturnValue([{ level: 'info', message: 'ok' }]);
+      vi.spyOn(webhooksStreaming, 'getTaskLogs').mockReturnValue([{ level: 'info', message: 'ok' }]);
 
       const { res } = createMockRes();
       tasks.handleTaskLogs(null, res, {}, 't1');
@@ -412,10 +421,10 @@ describe('route handlers with mock db', () => {
     const providers = require('../dashboard/routes/infrastructure');
 
     it('handleListProviders returns providers with stats', () => {
-      vi.spyOn(db, 'listProviders').mockReturnValue([
+      vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([
         { provider: 'codex', enabled: 1 },
       ]);
-      vi.spyOn(db, 'getProviderStats').mockReturnValue({ total: 10, completed: 8 });
+      vi.spyOn(fileTracking, 'getProviderStats').mockReturnValue({ total: 10, completed: 8 });
 
       const { res } = createMockRes();
       providers.handleListProviders(null, res, {});
@@ -426,10 +435,10 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleProviderTrends returns series with provider keys', () => {
-      vi.spyOn(db, 'listProviders').mockReturnValue([
+      vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([
         { provider: 'codex' },
       ]);
-      vi.spyOn(db, 'countTasks').mockReturnValue(0);
+      vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
 
       const { res } = createMockRes();
       providers.handleProviderTrends(null, res, { days: '2' });
@@ -445,8 +454,8 @@ describe('route handlers with mock db', () => {
     const eventDispatch = require('../hooks/event-dispatch');
 
     it('handleStatsOverview returns today/yesterday/active/providers', () => {
-      vi.spyOn(db, 'countTasks').mockReturnValue(5);
-      vi.spyOn(db, 'getProviderStats').mockReturnValue({});
+      vi.spyOn(taskCore, 'countTasks').mockReturnValue(5);
+      vi.spyOn(fileTracking, 'getProviderStats').mockReturnValue({});
 
       const { res } = createMockRes();
       stats.handleStatsOverview(null, res);
@@ -459,7 +468,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleTimeSeries clamps days to safe range', () => {
-      vi.spyOn(db, 'countTasks').mockReturnValue(0);
+      vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
 
       const bad = createMockRes();
       stats.handleTimeSeries(null, bad.res, { days: 'not-a-number' });
@@ -508,7 +517,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleFormatSuccess returns array even on error', () => {
-      vi.spyOn(db, 'getFormatSuccessRatesSummary').mockImplementation(() => {
+      vi.spyOn(eventTracking, 'getFormatSuccessRatesSummary').mockImplementation(() => {
         throw new Error('no such table');
       });
 
@@ -524,11 +533,11 @@ describe('route handlers with mock db', () => {
     const budget = require('../dashboard/routes/analytics');
 
     it('handleBudgetSummary returns aggregated cost summary', () => {
-      vi.spyOn(db, 'getCostSummary').mockReturnValue([
+      vi.spyOn(costTracking, 'getCostSummary').mockReturnValue([
         { provider: 'codex', task_count: 10, total_cost: 1.00 },
         { provider: 'claude-cli', task_count: 5, total_cost: 0.50 },
       ]);
-      vi.spyOn(db, 'getCostByPeriod').mockReturnValue([
+      vi.spyOn(costTracking, 'getCostByPeriod').mockReturnValue([
         { period: '2026-03-01', cost: 0.25 },
       ]);
 
@@ -543,7 +552,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleBudgetStatus returns limit and used', () => {
-      vi.spyOn(db, 'getBudgetStatus').mockReturnValue([
+      vi.spyOn(costTracking, 'getBudgetStatus').mockReturnValue([
         { id: 'b1', budget_usd: 50, current_spend: 12.50 },
       ]);
 
@@ -561,10 +570,10 @@ describe('route handlers with mock db', () => {
     const workflows = require('../dashboard/routes/analytics');
 
     it('handleListWorkflows returns list with filtering', () => {
-      vi.spyOn(db, 'listWorkflows').mockReturnValue([
+      vi.spyOn(workflowEngine, 'listWorkflows').mockReturnValue([
         { id: 'wf1', name: 'test', status: 'completed' },
       ]);
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf1',
         name: 'test',
         status: 'completed',
@@ -592,7 +601,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleGetWorkflow returns 404 for missing workflow', () => {
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue(null);
 
       const { res } = createMockRes();
       workflows.handleGetWorkflow(null, res, {}, 'nonexistent');
@@ -601,7 +610,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleGetWorkflow merges cost summary', () => {
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf1',
         name: 'test',
         status: 'pending',
@@ -616,7 +625,7 @@ describe('route handlers with mock db', () => {
         },
         tasks: {}
       });
-      vi.spyOn(db, 'getWorkflowCostSummary').mockReturnValue({ total: 0.25 });
+      vi.spyOn(costTracking, 'getWorkflowCostSummary').mockReturnValue({ total: 0.25 });
 
       const { res } = createMockRes();
       workflows.handleGetWorkflow(null, res, {}, 'wf1');
@@ -632,7 +641,7 @@ describe('route handlers with mock db', () => {
     const hosts = require('../dashboard/routes/infrastructure');
 
     it('handleListHosts returns host list', () => {
-      vi.spyOn(db, 'listOllamaHosts').mockReturnValue([
+      vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([
         { id: 'h1', name: 'test-host' },
       ]);
 
@@ -645,7 +654,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleGetHost returns 404 for missing host', () => {
-      vi.spyOn(db, 'getOllamaHost').mockReturnValue(null);
+      vi.spyOn(hostManagement, 'getOllamaHost').mockReturnValue(null);
 
       const { res } = createMockRes();
       hosts.handleGetHost(null, res, {}, 'nonexistent');
@@ -847,20 +856,20 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleListBenchmarks clamps limit query values to safe range', () => {
-      vi.spyOn(db, 'getBenchmarkResults').mockReturnValue([]);
-      vi.spyOn(db, 'getBenchmarkStats').mockReturnValue({});
+      vi.spyOn(hostManagement, 'getBenchmarkResults').mockReturnValue([]);
+      vi.spyOn(hostManagement, 'getBenchmarkStats').mockReturnValue({});
 
       const bad = createMockRes();
       benchmarks.handleListBenchmarks(null, bad.res, { hostId: 'host-1', limit: 'not-a-number' });
-      expect(db.getBenchmarkResults).toHaveBeenCalledWith('host-1', 10);
+      expect(hostManagement.getBenchmarkResults).toHaveBeenCalledWith('host-1', 10);
 
       const low = createMockRes();
       benchmarks.handleListBenchmarks(null, low.res, { hostId: 'host-1', limit: '-5' });
-      expect(db.getBenchmarkResults).toHaveBeenCalledWith('host-1', 1);
+      expect(hostManagement.getBenchmarkResults).toHaveBeenCalledWith('host-1', 1);
 
       const high = createMockRes();
       benchmarks.handleListBenchmarks(null, high.res, { hostId: 'host-1', limit: '5000' });
-      expect(db.getBenchmarkResults).toHaveBeenCalledWith('host-1', 1000);
+      expect(hostManagement.getBenchmarkResults).toHaveBeenCalledWith('host-1', 1000);
     });
   });
 
@@ -868,7 +877,7 @@ describe('route handlers with mock db', () => {
     const tuning = require('../dashboard/routes/admin');
 
     it('handleListProjectTuning returns tuning list', () => {
-      vi.spyOn(db, 'listProjectTuning').mockReturnValue([
+      vi.spyOn(hostManagement, 'listProjectTuning').mockReturnValue([
         { project_path: '/foo', settings: '{}' },
       ]);
 
@@ -880,7 +889,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleGetProjectTuning returns 404 for missing', () => {
-      vi.spyOn(db, 'getProjectTuning').mockReturnValue(null);
+      vi.spyOn(hostManagement, 'getProjectTuning').mockReturnValue(null);
 
       const { res } = createMockRes();
       tuning.handleGetProjectTuning(null, res, {}, 'nonexistent');
@@ -896,7 +905,7 @@ describe('route handlers with mock db', () => {
     const logger = require('../logger');
 
     it('handleListPlanProjects returns projects with progress', () => {
-      vi.spyOn(db, 'listPlanProjects').mockReturnValue([
+      vi.spyOn(projectConfigCore, 'listPlanProjects').mockReturnValue([
         { id: 'p1', total_tasks: 10, completed_tasks: 5 },
       ]);
 
@@ -908,7 +917,7 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleGetPlanProject returns 404 for missing', () => {
-      vi.spyOn(db, 'getPlanProject').mockReturnValue(null);
+      vi.spyOn(projectConfigCore, 'getPlanProject').mockReturnValue(null);
 
       const { res } = createMockRes();
       plans.handleGetPlanProject(null, res, {}, 'nonexistent');

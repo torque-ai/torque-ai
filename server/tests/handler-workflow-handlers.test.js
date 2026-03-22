@@ -1,4 +1,6 @@
 const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
+const configCore = require('../db/config-core');
 const taskManager = require('../task-manager');
 const workflowRuntime = require('../execution/workflow-runtime');
 const taskPolicyHooks = require('../policy-engine/task-hooks');
@@ -15,7 +17,7 @@ describe('handler:workflow-handlers', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     // Prevent reconcileStaleWorkflows from hitting an uninitialised raw db handle
-    vi.spyOn(db, 'reconcileStaleWorkflows').mockReturnValue(0);
+    vi.spyOn(workflowEngine, 'reconcileStaleWorkflows').mockReturnValue(0);
   });
 
   afterEach(() => {
@@ -43,7 +45,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('rejects empty workflow creation without initial tasks', () => {
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
 
       const result = handlers.handleCreateWorkflow({
         name: 'Release Workflow'
@@ -56,7 +58,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('returns CONFLICT when an empty placeholder with the same name already exists', () => {
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue({
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue({
         id: 'wf-empty-existing',
         status: 'pending'
       });
@@ -72,12 +74,12 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('creates workflow, seeds tasks, and trims name before persistence', () => {
-      const createWorkflowSpy = vi.spyOn(db, 'createWorkflow').mockReturnValue(undefined);
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
       const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      const addTaskDependencySpy = vi.spyOn(db, 'addTaskDependency').mockReturnValue(undefined);
-      const updateWorkflowCountsSpy = vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      const addTaskDependencySpy = vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
+      const updateWorkflowCountsSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
 
       const result = handlers.handleCreateWorkflow({
         name: '  Release Workflow  ',
@@ -109,12 +111,12 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('skips policy-rejected initial tasks and reports them in the response', () => {
-      const createWorkflowSpy = vi.spyOn(db, 'createWorkflow').mockReturnValue(undefined);
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
       const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'addTaskDependency').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
       vi.spyOn(taskPolicyHooks, 'evaluateTaskSubmissionPolicy')
         .mockImplementation((taskData) => (taskData.task_description === 'Run release tests'
           ? { blocked: true, reason: 'Approval required' }
@@ -144,9 +146,9 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('blocks workflow creation when workflow_submit policy blocks', () => {
-      const createWorkflowSpy = vi.spyOn(db, 'createWorkflow').mockReturnValue(undefined);
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
       vi.spyOn(taskPolicyHooks, 'evaluateTaskSubmissionPolicy').mockReturnValue({ blocked: false });
       vi.spyOn(shadowEnforcer, 'isEngineEnabled').mockReturnValue(true);
       vi.spyOn(shadowEnforcer, 'isShadowOnly').mockReturnValue(false);
@@ -194,7 +196,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('returns WORKFLOW_NOT_FOUND when parent workflow is missing', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue(null);
 
       const result = handlers.handleAddWorkflowTask({
         workflow_id: 'wf-missing',
@@ -208,16 +210,16 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('returns RESOURCE_NOT_FOUND when a dependency node is missing', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
         working_directory: '/repo'
       });
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
       vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([]);
-      vi.spyOn(db, 'getTaskDependencies').mockReturnValue([]);
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([]);
+      vi.spyOn(workflowEngine, 'getTaskDependencies').mockReturnValue([]);
 
       const result = handlers.handleAddWorkflowTask({
         workflow_id: 'wf-1',
@@ -232,19 +234,19 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('returns INVALID_PARAM when adding the dependency would create a cycle', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
         working_directory: '/repo'
       });
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
       vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 'task-a', workflow_node_id: 'A' },
         { id: 'task-b', workflow_node_id: 'B' }
       ]);
-      vi.spyOn(db, 'getTaskDependencies').mockImplementation((taskId) => {
+      vi.spyOn(workflowEngine, 'getTaskDependencies').mockImplementation((taskId) => {
         if (taskId === 'task-a') {
           return [{ depends_on_task_id: 'task-b' }];
         }
@@ -265,21 +267,21 @@ describe('handler:workflow-handlers', () => {
 
     it('creates dependency metadata and maps alternate dependency node IDs', () => {
       const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      const addTaskDependencySpy = vi.spyOn(db, 'addTaskDependency').mockReturnValue(undefined);
+      const addTaskDependencySpy = vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
 
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
         working_directory: '/repo'
       });
-      vi.spyOn(db, 'getConfig').mockReturnValue('45');
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('45');
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 'task-a', workflow_node_id: 'node-a' },
         { id: 'task-alt', workflow_node_id: 'node-alt' }
       ]);
-      vi.spyOn(db, 'getTaskDependencies').mockReturnValue([]);
-      vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getTaskDependencies').mockReturnValue([]);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
 
       const result = handlers.handleAddWorkflowTask({
         workflow_id: 'wf-1',
@@ -317,15 +319,15 @@ describe('handler:workflow-handlers', () => {
     it('starts dependency-free task immediately in active workflow and does not call workflow-runtime directly', () => {
       const runtimeSpy = vi.spyOn(workflowRuntime, 'evaluateWorkflowDependencies');
 
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'running',
         working_directory: '/repo'
       });
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
       vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
       vi.spyOn(db, 'getTask').mockReturnValue({ status: 'running' });
 
@@ -341,15 +343,15 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('reports queued status when an active-workflow task is deferred for capacity', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'running',
         working_directory: '/repo'
       });
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
       vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: true });
       vi.spyOn(db, 'getTask').mockReturnValue({ status: 'pending' });
 
@@ -364,21 +366,21 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('reopens failed workflow and unblocks task when all dependencies are terminal', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'failed',
         working_directory: '/repo'
       });
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
       vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'getWorkflowTasks')
+      vi.spyOn(workflowEngine, 'getWorkflowTasks')
         .mockReturnValueOnce([{ id: 'task-a', workflow_node_id: 'node-a' }])
         .mockReturnValueOnce([{ id: 'task-a', workflow_node_id: 'node-a', status: 'completed' }]);
-      vi.spyOn(db, 'getTaskDependencies').mockReturnValue([]);
-      vi.spyOn(db, 'addTaskDependency').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      const updateWorkflowSpy = vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getTaskDependencies').mockReturnValue([]);
+      vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'unblockTask').mockReturnValue(undefined);
       vi.spyOn(db, 'getTask').mockReturnValue({ status: 'queued' });
 
@@ -400,13 +402,13 @@ describe('handler:workflow-handlers', () => {
     it('does not create a task when task submission policy rejects it', () => {
       const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
 
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
         working_directory: '/repo'
       });
-      vi.spyOn(db, 'getConfig').mockReturnValue('30');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
       vi.spyOn(taskPolicyHooks, 'evaluateTaskSubmissionPolicy').mockReturnValue({
         blocked: true,
         reason: 'Needs manual approval'
@@ -433,7 +435,7 @@ describe('handler:workflow-handlers', () => {
 
   describe('handleRunWorkflow', () => {
     it('returns WORKFLOW_NOT_FOUND when workflow does not exist', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue(null);
 
       const result = handlers.handleRunWorkflow({ workflow_id: 'wf-missing' });
 
@@ -442,18 +444,18 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('returns INVALID_PARAM when workflow has no tasks', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending'
       });
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
         tasks: {}
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([]);
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([]);
 
       const result = handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
@@ -463,12 +465,12 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('attempts every runnable pending task and trusts startTask to queue overflow', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'paused'
       });
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'paused',
@@ -479,18 +481,18 @@ describe('handler:workflow-handlers', () => {
           t4: { id: 't4', status: 'blocked' }
         }
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 't1', status: 'pending', provider: 'codex' },
         { id: 't2', status: 'pending', provider: 'codex' },
         { id: 't3', status: 'pending', provider: 'openai' },
         { id: 't4', status: 'blocked', provider: 'openai' }
       ]);
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'max_codex_concurrent') return '1';
         if (key === 'max_concurrent') return '2';
         return null;
       });
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       const updateTaskStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
       // Track call counts to distinguish pre-start check from post-start classification
       const getTaskCallCount = {};
@@ -520,12 +522,12 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('counts deferred startTask results as queued instead of started', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending'
       });
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
@@ -534,16 +536,16 @@ describe('handler:workflow-handlers', () => {
           t2: { id: 't2', status: 'pending' }
         }
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 't1', status: 'pending', provider: 'codex' },
         { id: 't2', status: 'pending', provider: 'openai' }
       ]);
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'max_codex_concurrent') return '5';
         if (key === 'max_concurrent') return '10';
         return null;
       });
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask')
         .mockReturnValueOnce({ queued: true })
         .mockReturnValueOnce(undefined);
@@ -558,12 +560,12 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('logs non-critical start errors and continues', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending'
       });
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
@@ -572,16 +574,16 @@ describe('handler:workflow-handlers', () => {
           t2: { id: 't2', status: 'pending' }
         }
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 't1', status: 'pending', provider: 'codex' },
         { id: 't2', status: 'pending', provider: 'openai' }
       ]);
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'max_codex_concurrent') return '5';
         if (key === 'max_concurrent') return '10';
         return null;
       });
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask')
         .mockImplementationOnce(() => { throw new Error('capacity'); })
         .mockImplementationOnce(() => undefined);
@@ -595,13 +597,13 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('runs workflow_run policy in fail-open mode when no policies are configured', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
         working_directory: '/repo'
       });
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'pending',
@@ -609,15 +611,15 @@ describe('handler:workflow-handlers', () => {
           t1: { id: 't1', status: 'pending' }
         }
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 't1', status: 'pending', provider: 'codex' }
       ]);
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'max_codex_concurrent') return '5';
         if (key === 'max_concurrent') return '10';
         return null;
       });
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
       vi.spyOn(shadowEnforcer, 'isEngineEnabled').mockReturnValue(true);
       vi.spyOn(shadowEnforcer, 'isShadowOnly').mockReturnValue(false);
@@ -653,7 +655,7 @@ describe('handler:workflow-handlers', () => {
 
   describe('handleWorkflowStatus', () => {
     it('returns WORKFLOW_NOT_FOUND when status payload is missing', () => {
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue(null);
 
       const result = handlers.handleWorkflowStatus({ workflow_id: 'wf-missing' });
 
@@ -662,7 +664,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('renders status summary and per-task progress table', () => {
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'WF Status',
         status: 'running',
@@ -694,7 +696,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('surfaces empty workflows as hygiene issues', () => {
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-empty',
         name: 'WF Empty',
         status: 'pending',
@@ -722,7 +724,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('surfaces stale active workflows as hygiene issues', () => {
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-stale',
         name: 'WF Stale',
         status: 'running',
@@ -754,8 +756,8 @@ describe('handler:workflow-handlers', () => {
 
   describe('handleCancelWorkflow', () => {
     it('cancels running/pending/blocked/queued tasks and records cancellation reason', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'WF' });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'WF' });
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 'run-1', status: 'running' },
         { id: 'pen-1', status: 'pending' },
         { id: 'blk-1', status: 'blocked' },
@@ -764,7 +766,7 @@ describe('handler:workflow-handlers', () => {
       ]);
       vi.spyOn(taskManager, 'cancelTask').mockReturnValue(undefined);
       const updateTaskStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
-      const updateWorkflowSpy = vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
 
       const result = handlers.handleCancelWorkflow({
         workflow_id: 'wf-1',
@@ -786,7 +788,7 @@ describe('handler:workflow-handlers', () => {
 
   describe('handlePauseWorkflow', () => {
     it('returns INVALID_STATUS_TRANSITION when workflow is not running', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'completed'
@@ -800,12 +802,12 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('pauses a running workflow', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'WF',
         status: 'running'
       });
-      const updateSpy = vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      const updateSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
 
       const result = handlers.handlePauseWorkflow({ workflow_id: 'wf-1' });
 
@@ -817,7 +819,7 @@ describe('handler:workflow-handlers', () => {
 
   describe('handleListWorkflows', () => {
     it('passes normalized filters and renders workflow rows', () => {
-      const listSpy = vi.spyOn(db, 'listWorkflows').mockReturnValue([
+      const listSpy = vi.spyOn(workflowEngine, 'listWorkflows').mockReturnValue([
         {
           id: 'wf-1',
           name: 'Shipping',
@@ -826,7 +828,7 @@ describe('handler:workflow-handlers', () => {
           created_at: '2026-01-01T00:00:00.000Z'
         }
       ]);
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'Shipping',
         status: 'running',
@@ -868,7 +870,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('separates hygiene workflows from actionable ones', () => {
-      vi.spyOn(db, 'listWorkflows').mockReturnValue([
+      vi.spyOn(workflowEngine, 'listWorkflows').mockReturnValue([
         {
           id: 'wf-empty',
           name: 'Empty Noise',
@@ -884,7 +886,7 @@ describe('handler:workflow-handlers', () => {
           created_at: '2026-01-03T00:00:00.000Z'
         }
       ]);
-      vi.spyOn(db, 'getWorkflowStatus')
+      vi.spyOn(workflowEngine, 'getWorkflowStatus')
         .mockImplementation((workflowId) => {
           if (workflowId === 'wf-empty') {
             return {
@@ -934,8 +936,8 @@ describe('handler:workflow-handlers', () => {
 
   describe('handleWorkflowHistory', () => {
     it('shows explicit empty-state when there are no events', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'WF History' });
-      vi.spyOn(db, 'getWorkflowHistory').mockReturnValue([]);
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'WF History' });
+      vi.spyOn(workflowEngine, 'getWorkflowHistory').mockReturnValue([]);
 
       const result = handlers.handleWorkflowHistory({ workflow_id: 'wf-1' });
 
@@ -944,8 +946,8 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('renders event rows with detail and exit code fallback', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'WF History' });
-      vi.spyOn(db, 'getWorkflowHistory').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'WF History' });
+      vi.spyOn(workflowEngine, 'getWorkflowHistory').mockReturnValue([
         {
           timestamp: '2026-01-01T00:00:00.000Z',
           type: 'task_started',
@@ -982,7 +984,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('rejects feature workflows that would create an empty DAG', () => {
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
 
       const result = handlers.handleCreateFeatureWorkflow({
         feature_name: 'PlayerStats',
@@ -996,7 +998,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('returns CONFLICT when a duplicate empty feature placeholder already exists', () => {
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue({
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue({
         id: 'wf-feature-empty',
         status: 'pending'
       });
@@ -1013,11 +1015,11 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('creates full feature DAG with dependencies and parallel tasks', () => {
-      const createWorkflowSpy = vi.spyOn(db, 'createWorkflow').mockReturnValue(undefined);
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
       const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      const addTaskDependencySpy = vi.spyOn(db, 'addTaskDependency').mockReturnValue(undefined);
-      const updateCountsSpy = vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      const addTaskDependencySpy = vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
+      const updateCountsSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
 
       const result = handlers.handleCreateFeatureWorkflow({
         feature_name: 'PlayerStats',
@@ -1053,13 +1055,13 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('auto-runs pending feature tasks and logs non-critical start failures', () => {
-      vi.spyOn(db, 'createWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
       vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'addTaskDependency').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 't1', status: 'pending' },
         { id: 't2', status: 'blocked' },
         { id: 't3', status: 'pending' }
@@ -1077,7 +1079,7 @@ describe('handler:workflow-handlers', () => {
         auto_run: true
       });
 
-      expect(db.updateWorkflow).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      expect(workflowEngine.updateWorkflow).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
         status: 'running',
         started_at: expect.any(String)
       }));

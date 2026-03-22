@@ -1,4 +1,4 @@
-const db = require('../database');
+const providerRoutingCore = require('../db/provider-routing-core');
 const { setupTestDb, teardownTestDb, safeTool, getText, resetTables } = require('./vitest-setup');
 
 describe('Webhook Handlers', () => {
@@ -685,7 +685,7 @@ describe('Webhook Handlers', () => {
 
     it('rejects internal webhook hosts before fetch', async () => {
       resetTables('integration_config');
-      db.saveIntegrationConfig({
+      providerRoutingCore.saveIntegrationConfig({
         id: 'slack-internal',
         integration_type: 'slack',
         enabled: true,
@@ -732,7 +732,7 @@ describe('Webhook Handlers', () => {
 
     it('rejects internal webhook hosts before fetch', async () => {
       resetTables('integration_config');
-      db.saveIntegrationConfig({
+      providerRoutingCore.saveIntegrationConfig({
         id: 'discord-internal',
         integration_type: 'discord',
         enabled: true,

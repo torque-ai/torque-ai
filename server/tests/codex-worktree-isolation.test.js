@@ -27,6 +27,7 @@ const { randomUUID } = require('crypto');
 const { createMockChild, simulateSuccess, simulateFailure } = require('./mocks/process-mock');
 
 // ─── Patch child_process.spawn BEFORE execute-cli.js is loaded ───────────────
+const taskCore = require('../db/task-core');
 const childProcess = require('child_process');
 const _originalSpawn = childProcess.spawn;
 const spawnMock = vi.fn();
@@ -224,7 +225,7 @@ describe('Codex worktree isolation integration', () => {
     const dir = workDir || path.join(testDir, 'project');
     fs.mkdirSync(dir, { recursive: true });
 
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: description || 'Test worktree isolation',
       status: 'running',

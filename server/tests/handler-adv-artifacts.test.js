@@ -1,7 +1,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const taskMetadata = require('../db/task-metadata');
 const logger = require('../logger');
 const handlers = require('../handlers/advanced/artifacts');
 
@@ -77,7 +78,7 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('returns TASK_NOT_FOUND when task does not exist', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
 
       const dir = makeTempDir();
       const filePath = writeTempFile(dir, 'artifact.txt', 'hello');
@@ -88,14 +89,14 @@ describe('handler:adv-artifacts', () => {
         file_path: filePath
       });
 
-      expect(db.getTask).toHaveBeenCalledWith('task-missing');
+      expect(taskCore.getTask).toHaveBeenCalledWith('task-missing');
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('TASK_NOT_FOUND');
     });
 
     it('returns RESOURCE_NOT_FOUND when source file does not exist', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1' });
-      vi.spyOn(db, 'getArtifactConfig').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1' });
+      vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
         max_size_mb: '10',
         storage_path: makeTempDir()
       });
@@ -112,8 +113,8 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('returns INVALID_PARAM when source path is not a regular file', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1' });
-      vi.spyOn(db, 'getArtifactConfig').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1' });
+      vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
         max_size_mb: '10',
         storage_path: makeTempDir()
       });
@@ -137,8 +138,8 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('returns INVALID_PARAM when file exceeds configured max size', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1' });
-      vi.spyOn(db, 'getArtifactConfig').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1' });
+      vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
         max_size_mb: '1',
         storage_path: makeTempDir()
       });
@@ -166,12 +167,12 @@ describe('handler:adv-artifacts', () => {
       const storageDir = makeTempDir();
       const sourcePath = writeTempFile(sourceDir, 'notes.txt', 'alpha\nbeta\n');
 
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1' });
-      vi.spyOn(db, 'getArtifactConfig').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1' });
+      vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
         max_size_mb: '10',
         storage_path: storageDir
       });
-      const storeSpy = vi.spyOn(db, 'storeArtifact').mockImplementation((artifact) => ({
+      const storeSpy = vi.spyOn(taskMetadata, 'storeArtifact').mockImplementation((artifact) => ({
         ...artifact,
         name: artifact.name || 'notes.txt',
         created_at: '2026-01-01T00:00:00.000Z',
@@ -203,12 +204,12 @@ describe('handler:adv-artifacts', () => {
       const storageDir = makeTempDir();
       const sourcePath = writeTempFile(sourceDir, 'result.json', '{"ok":true}');
 
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-json' });
-      vi.spyOn(db, 'getArtifactConfig').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-json' });
+      vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
         max_size_mb: '10',
         storage_path: storageDir
       });
-      const storeSpy = vi.spyOn(db, 'storeArtifact').mockImplementation((artifact) => ({
+      const storeSpy = vi.spyOn(taskMetadata, 'storeArtifact').mockImplementation((artifact) => ({
         ...artifact,
         name: artifact.name || 'result.json',
         created_at: '2026-01-01T00:00:00.000Z',
@@ -232,8 +233,8 @@ describe('handler:adv-artifacts', () => {
       const storageDir = makeTempDir();
       const sourcePath = writeTempFile(sourceDir, 'payload.exe', 'MZ-fake');
 
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1' });
-      vi.spyOn(db, 'getArtifactConfig').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1' });
+      vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
         max_size_mb: '10',
         storage_path: storageDir
       });
@@ -257,12 +258,12 @@ describe('handler:adv-artifacts', () => {
       const sourcePath = writeTempFile(sourceDir, 'db-fail.txt', 'artifact body');
       const taskId = 'task-42';
 
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: taskId });
-      vi.spyOn(db, 'getArtifactConfig').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: taskId });
+      vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
         max_size_mb: '10',
         storage_path: storageDir
       });
-      vi.spyOn(db, 'storeArtifact').mockImplementation(() => {
+      vi.spyOn(taskMetadata, 'storeArtifact').mockImplementation(() => {
         throw new Error('insert failed');
       });
 
@@ -292,7 +293,7 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('lists artifacts with table output and total count', () => {
-      vi.spyOn(db, 'listArtifacts').mockReturnValue([
+      vi.spyOn(taskMetadata, 'listArtifacts').mockReturnValue([
         {
           id: 'a1',
           name: 'notes.txt',
@@ -329,7 +330,7 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('returns RESOURCE_NOT_FOUND when artifact cannot be resolved', () => {
-      vi.spyOn(db, 'getArtifact').mockReturnValue(null);
+      vi.spyOn(taskMetadata, 'getArtifact').mockReturnValue(null);
 
       const result = handlers.handleGetArtifact({ artifact_id: 'missing-id' });
 
@@ -339,7 +340,7 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('retrieves artifact by artifact_id', () => {
-      vi.spyOn(db, 'getArtifact').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getArtifact').mockReturnValue({
         id: 'art-1',
         task_id: 'task-1',
         name: 'notes.txt',
@@ -365,7 +366,7 @@ describe('handler:adv-artifacts', () => {
       const longContent = 'x'.repeat(5100);
       const filePath = writeTempFile(dir, 'big.txt', longContent);
 
-      vi.spyOn(db, 'listArtifacts').mockReturnValue([
+      vi.spyOn(taskMetadata, 'listArtifacts').mockReturnValue([
         {
           id: 'art-2',
           task_id: 'task-2',
@@ -394,7 +395,7 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('returns readable error in output when content read fails', () => {
-      vi.spyOn(db, 'getArtifact').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getArtifact').mockReturnValue({
         id: 'art-3',
         task_id: 'task-3',
         name: 'bad.txt',
@@ -430,7 +431,7 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('returns RESOURCE_NOT_FOUND when artifact does not exist', () => {
-      vi.spyOn(db, 'getArtifact').mockReturnValue(null);
+      vi.spyOn(taskMetadata, 'getArtifact').mockReturnValue(null);
 
       const result = handlers.handleDeleteArtifact({ artifact_id: 'nope' });
 
@@ -440,7 +441,7 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('deletes database row even when filesystem deletion fails', () => {
-      vi.spyOn(db, 'getArtifact').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getArtifact').mockReturnValue({
         id: 'art-1',
         name: 'artifact.txt',
         file_path: '/tmp/artifact.txt'
@@ -450,7 +451,7 @@ describe('handler:adv-artifacts', () => {
         throw new Error('permission denied');
       });
       const debugSpy = vi.spyOn(logger.constructor.prototype, 'debug').mockReturnValue(undefined);
-      const deleteSpy = vi.spyOn(db, 'deleteArtifact').mockReturnValue(undefined);
+      const deleteSpy = vi.spyOn(taskMetadata, 'deleteArtifact').mockReturnValue(undefined);
 
       const result = handlers.handleDeleteArtifact({ artifact_id: 'art-1' });
 
@@ -471,8 +472,8 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('updates configuration values and validates numeric inputs', () => {
-      const setSpy = vi.spyOn(db, 'setArtifactConfig').mockReturnValue(undefined);
-      vi.spyOn(db, 'getArtifactConfig').mockReturnValue({
+      const setSpy = vi.spyOn(taskMetadata, 'setArtifactConfig').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
         storage_path: '/data/artifacts',
         max_size_mb: '25',
         retention_days: '30',
@@ -507,7 +508,7 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('returns RESOURCE_NOT_FOUND when no artifacts exist for the task', async () => {
-      vi.spyOn(db, 'listArtifacts').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'listArtifacts').mockReturnValue([]);
 
       const result = await handlers.handleExportArtifacts({ task_id: 'task-empty' });
 
