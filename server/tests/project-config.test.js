@@ -338,7 +338,7 @@ describe('project-config module', () => {
 
     it('checkBudgetAlerts triggers when threshold is crossed', () => {
       mod.setDbFunctions({
-        getTokenUsageSummary: () => ({ totalCost: 120, totalTokens: 5000 })
+        getTokenUsageSummary: () => ({ total_cost_usd: 120, total_tokens: 5000 })
       });
 
       const alert = mod.createBudgetAlert({
@@ -357,7 +357,7 @@ describe('project-config module', () => {
 
     it('checkBudgetAlerts respects cooldown and skips recently triggered alerts', () => {
       mod.setDbFunctions({
-        getTokenUsageSummary: () => ({ totalCost: 200, totalTokens: 9000 })
+        getTokenUsageSummary: () => ({ total_cost_usd: 200, total_tokens: 9000 })
       });
 
       const alert = mod.createBudgetAlert({
@@ -375,7 +375,7 @@ describe('project-config module', () => {
 
     it('checkBudgetAlerts(project) excludes alerts from other projects', () => {
       mod.setDbFunctions({
-        getTokenUsageSummary: () => ({ totalCost: 200, totalTokens: 9000 })
+        getTokenUsageSummary: () => ({ total_cost_usd: 200, total_tokens: 9000 })
       });
 
       const a = mod.createBudgetAlert({

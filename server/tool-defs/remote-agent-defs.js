@@ -15,7 +15,7 @@ const tools = [
         },
         host: {
           type: 'string',
-          description: 'Hostname or IP address of the remote agent (e.g., "192.168.1.50")'
+          description: 'Hostname or IP address of the remote agent (e.g., "192.0.2.50")'
         },
         port: {
           type: 'integer',

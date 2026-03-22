@@ -814,7 +814,7 @@ const tools = [
         },
         url: {
           type: 'string',
-          description: 'Base HTTP URL for the peek server (for example "http://192.168.1.100:9876").'
+          description: 'Base HTTP URL for the peek server (for example "http://192.0.2.100:9876").'
         },
         ssh: {
           type: 'string',

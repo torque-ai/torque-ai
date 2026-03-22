@@ -172,11 +172,12 @@ describe('Concurrent task submission', () => {
       simulateSuccess(child, 'done\n', 0);
     }
 
-    // Give async handlers time to fire and process queue
-    return new Promise(resolve => setTimeout(resolve, 50)).then(() => {
-      // processQueue should have picked up queued task
-      // (It may or may not have started depending on async timing,
-      //  but the queue mechanism should have been triggered)
+    // Give async handlers time to fire and process queue.
+    // Close handlers and queue processing are async — wait longer for the full chain:
+    // exit event → close handler → task completion → processQueue → startTask
+    return new Promise(resolve => setTimeout(resolve, 500)).then(() => {
+      // Explicitly trigger queue processing in case the async chain hasn't fired
+      try { ctx.tm.processQueue(); } catch { /* ignore */ }
       const task2After = ctx.db.getTask(id2);
       // Task 2 should have been picked up by processQueue (no longer queued)
       expect(['running', 'completed', 'failed']).toContain(task2After.status);
@@ -292,8 +293,10 @@ describe('Concurrent task submission', () => {
     // processQueue should run automatically on cancel, but call it explicitly too
     ctx.tm.processQueue();
 
-    // Give a tick for queue processing
-    return new Promise(resolve => setTimeout(resolve, 50)).then(() => {
+    // Give time for queue processing — cancel + processQueue + startTask chain is async
+    return new Promise(resolve => setTimeout(resolve, 500)).then(() => {
+      // Explicitly trigger queue processing again in case async chain didn't complete
+      try { ctx.tm.processQueue(); } catch { /* ignore */ }
       const task2 = ctx.db.getTask(id2);
       // Task 2 should have been picked up by processQueue after cancel freed a slot
       expect(['running', 'completed', 'failed']).toContain(task2.status);

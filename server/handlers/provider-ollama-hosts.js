@@ -270,7 +270,7 @@ async function handleCheckOllamaHealth(args) {
   output += `To enable load balancing across multiple Ollama instances:\n`;
   output += `\`\`\`\n`;
   output += `add_ollama_host id="local" name="Local GPU" url="http://localhost:11434"\n`;
-  output += `add_ollama_host id="remote" name="Remote 3090" url="http://192.168.1.100:11434"\n`;
+  output += `add_ollama_host id="remote" name="Remote 3090" url="http://192.0.2.100:11434"\n`;
   output += `\`\`\``;
 
   const structuredData = {
@@ -442,7 +442,7 @@ function handleListOllamaHosts(args) {
     output += `**Example:**\n`;
     output += `\`\`\`\n`;
     output += `add_ollama_host id="local" name="Local GPU" url="http://localhost:11434"\n`;
-    output += `add_ollama_host id="remote" name="Remote 3090" url="http://192.168.1.100:11434"\n`;
+    output += `add_ollama_host id="remote" name="Remote 3090" url="http://192.0.2.100:11434"\n`;
     output += `\`\`\``;
     return {
       content: [{ type: 'text', text: output }],

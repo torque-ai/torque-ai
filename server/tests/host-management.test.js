@@ -820,12 +820,11 @@ describe('host-management module', () => {
 
     it('routeTask returns matching rule for a complexity level', () => {
       rawDb().prepare('DELETE FROM complexity_routing').run();
-      mod.addRoutingRule({
-        name: 'simple-route',
-        complexity: 'simple',
-        target_provider: 'ollama',
-        model: 'fast:4b',
-      });
+      // Insert directly into complexity_routing (routeTask queries this table, not routing_rules)
+      rawDb().prepare(`
+        INSERT INTO complexity_routing (name, complexity, target_provider, model, priority, enabled, created_at)
+        VALUES (?, ?, ?, ?, ?, 1, ?)
+      `).run('simple-route', 'simple', 'ollama', 'fast:4b', 10, new Date().toISOString());
 
       const routed = mod.routeTask('simple');
       expect(routed).toBeTruthy();
@@ -843,13 +842,11 @@ describe('host-management module', () => {
       makeHost({ id: 'route-fallback' });
       setHostModels('route-fallback', ['qwen3:8b']);
 
-      mod.addRoutingRule({
-        name: 'fallback-route',
-        complexity: 'normal',
-        target_provider: 'ollama',
-        target_host: 'dead-host-id',
-        model: 'qwen3:8b',
-      });
+      // Insert directly into complexity_routing with a dead target_host
+      rawDb().prepare(`
+        INSERT INTO complexity_routing (name, complexity, target_provider, target_host, model, priority, enabled, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+      `).run('fallback-route', 'normal', 'ollama', 'dead-host-id', 'qwen3:8b', 10, new Date().toISOString());
 
       const routed = mod.routeTask('normal');
       expect(routed).toBeTruthy();

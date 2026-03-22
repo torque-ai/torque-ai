@@ -214,7 +214,7 @@ const tools = [
         },
         url: {
           type: 'string',
-          description: 'Ollama API URL (e.g., "http://192.168.1.100:11434")'
+          description: 'Ollama API URL (e.g., "http://192.0.2.100:11434")'
         },
         memory_limit_gb: {
           type: 'number',
@@ -436,7 +436,7 @@ const tools = [
         },
         subnet: {
           type: 'string',
-          description: 'Specific subnet to scan (e.g., "192.168.1"). If not specified, scans all local subnets.'
+          description: 'Specific subnet to scan (e.g., "192.0.2"). If not specified, scans all local subnets.'
         }
       }
     }
@@ -796,7 +796,7 @@ const tools = [
         },
         host_url: {
           type: 'string',
-          description: 'Direct Ollama URL to benchmark (e.g., "http://192.168.1.100:11434"). Overrides host_id.'
+          description: 'Direct Ollama URL to benchmark (e.g., "http://192.0.2.100:11434"). Overrides host_id.'
         },
         model: {
           type: 'string',
@@ -1032,7 +1032,7 @@ const tools = [
         },
         url: {
           type: 'string',
-          description: 'Ollama API URL (required for add, e.g., "http://192.168.1.100:11434")'
+          description: 'Ollama API URL (required for add, e.g., "http://192.0.2.100:11434")'
         },
         id: {
           type: 'string',

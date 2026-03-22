@@ -666,7 +666,7 @@ Options:
 Examples:
   node benchmark.js --list-hosts
   node benchmark.js --host-id=desktop-17
-  node benchmark.js --host=http://192.168.1.100:11434 --full
+  node benchmark.js --host=http://192.0.2.100:11434 --full
   node benchmark.js --model=qwen2.5-coder:32b --gpu --gpu-layers=-1,60,80,99
 `);
 }

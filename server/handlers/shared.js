@@ -764,7 +764,7 @@ const VALIDATION_HINTS = {
  * Returns a structured result with health, models, latency, and error info.
  * Callers handle DB recording themselves.
  *
- * @param {string} hostUrl - Base URL of the Ollama host (e.g., "http://192.168.1.100:11434")
+ * @param {string} hostUrl - Base URL of the Ollama host (e.g., "http://192.0.2.100:11434")
  * @param {number} [timeoutMs] - Timeout in ms (defaults to TASK_TIMEOUTS.HEALTH_CHECK)
  * @returns {Promise<{ok: boolean, models: Array, latencyMs: number, error: string|null}>}
  */

@@ -2,6 +2,7 @@ const { EventEmitter } = require('events');
 const http = require('http');
 const db = require('../database');
 const tools = require('../tools');
+const authMiddleware = require('../auth/middleware');
 
 // Mock response object for in-process HTTP dispatch.
 function createMockResponse() {
@@ -87,6 +88,8 @@ describe('MCP SSE workflow auto-subscribe', () => {
 
   beforeAll(async () => {
     vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    // Auth now uses key-manager (not config). Mock isOpenMode to allow unauthenticated access.
+    vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
 
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall');
     getWorkflowTasksSpy = vi.spyOn(db, 'getWorkflowTasks');

@@ -19,6 +19,12 @@ let tm;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
+// Delete a config key from the DB entirely (setConfig(key, null) stores the string "null")
+function deleteConfig(key) {
+  const conn = db.getDb ? db.getDb() : db.getDbInstance();
+  conn.prepare('DELETE FROM config WHERE key = ?').run(key);
+}
+
 function setupDb() {
   testDir = path.join(os.tmpdir(), `torque-vtest-stall-${Date.now()}`);
   fs.mkdirSync(testDir, { recursive: true });
@@ -91,8 +97,8 @@ describe('Integration: Stall Detection & Recovery', () => {
       const threshold = tm.getStallThreshold(null, 'ollama');
       expect(threshold).toBe(999);
 
-      // Clean up
-      db.setConfig('stall_threshold_ollama', null);
+      // Clean up — must delete the row, not set to null (setConfig stores "null" as string)
+      deleteConfig('stall_threshold_ollama');
     });
 
     it('config value of 0 disables stall detection', () => {
@@ -100,8 +106,8 @@ describe('Integration: Stall Detection & Recovery', () => {
       const threshold = tm.getStallThreshold(null, 'ollama');
       expect(threshold).toBeNull();
 
-      // Clean up
-      db.setConfig('stall_threshold_ollama', null);
+      // Clean up — must delete the row, not set to null (setConfig stores "null" as string)
+      deleteConfig('stall_threshold_ollama');
     });
   });
 
@@ -210,13 +216,13 @@ describe('Integration: Stall Detection & Recovery', () => {
         db.setConfig(key, '300');
         const val = db.getConfig(key);
         expect(val).toBe('300');
-        db.setConfig(key, null); // Clean up
+        deleteConfig(key); // Clean up — must delete row, not set to null
       }
     });
 
     it('threshold with null config falls back to defaults', () => {
-      // Clear any config overrides
-      db.setConfig('stall_threshold_ollama', null);
+      // Clear any config overrides — must delete the row, not set to null
+      deleteConfig('stall_threshold_ollama');
       const threshold = tm.getStallThreshold(null, 'ollama');
       // Should get the default PROVIDER_STALL_THRESHOLDS value
       expect(threshold).toBeTruthy();
