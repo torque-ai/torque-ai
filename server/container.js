@@ -335,6 +335,113 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('slotPullScheduler', require('./execution/slot-pull-scheduler'));
   }
 
+  // API modules
+  if (!_defaultContainer.has('apiMiddleware')) {
+    _defaultContainer.registerValue('apiMiddleware', require('./api/middleware'));
+    _defaultContainer.registerValue('apiRoutes', require('./api/routes'));
+    _defaultContainer.registerValue('apiHealthProbes', require('./api/health-probes'));
+    _defaultContainer.registerValue('apiWebhooks', require('./api/webhooks'));
+    _defaultContainer.registerValue('v2AnalyticsHandlers', require('./api/v2-analytics-handlers'));
+    _defaultContainer.registerValue('v2ControlPlane', require('./api/v2-control-plane'));
+    _defaultContainer.registerValue('v2GovernanceHandlers', require('./api/v2-governance-handlers'));
+    _defaultContainer.registerValue('v2InfrastructureHandlers', require('./api/v2-infrastructure-handlers'));
+    _defaultContainer.registerValue('v2Router', require('./api/v2-router'));
+    _defaultContainer.registerValue('v2TaskHandlers', require('./api/v2-task-handlers'));
+    _defaultContainer.registerValue('v2WorkflowHandlers', require('./api/v2-workflow-handlers'));
+  }
+
+  // Dashboard modules
+  if (!_defaultContainer.has('dashboardUtils')) {
+    _defaultContainer.registerValue('dashboardUtils', require('./dashboard/utils'));
+    _defaultContainer.registerValue('dashboardAdminRoutes', require('./dashboard/routes/admin'));
+    _defaultContainer.registerValue('dashboardAnalyticsRoutes', require('./dashboard/routes/analytics'));
+    _defaultContainer.registerValue('dashboardInfraRoutes', require('./dashboard/routes/infrastructure'));
+    _defaultContainer.registerValue('dashboardTaskRoutes', require('./dashboard/routes/tasks'));
+  }
+
+  // Handler modules
+  if (!_defaultContainer.has('taskCoreHandlers')) {
+    // handlers/task/
+    _defaultContainer.registerValue('taskCoreHandlers', require('./handlers/task/core'));
+    _defaultContainer.registerValue('taskIntelligenceHandlers', require('./handlers/task/intelligence'));
+    _defaultContainer.registerValue('taskOperationsHandlers', require('./handlers/task/operations'));
+    _defaultContainer.registerValue('taskPipelineHandlers', require('./handlers/task/pipeline'));
+    _defaultContainer.registerValue('taskProjectHandlers', require('./handlers/task/project'));
+    // handlers/workflow/
+    _defaultContainer.registerValue('workflowHandlers', require('./handlers/workflow/index'));
+    _defaultContainer.registerValue('workflowAdvancedHandlers', require('./handlers/workflow/advanced'));
+    _defaultContainer.registerValue('workflowAwaitHandlers', require('./handlers/workflow/await'));
+    _defaultContainer.registerValue('workflowDagHandlers', require('./handlers/workflow/dag'));
+    _defaultContainer.registerValue('workflowTemplatesHandlers', require('./handlers/workflow/templates'));
+    // handlers/integration/
+    _defaultContainer.registerValue('integrationHandlers', require('./handlers/integration/index'));
+    _defaultContainer.registerValue('integrationRoutingHandlers', require('./handlers/integration/routing'));
+    _defaultContainer.registerValue('integrationInfraHandlers', require('./handlers/integration/infra'));
+    _defaultContainer.registerValue('integrationPlansHandlers', require('./handlers/integration/plans'));
+    // handlers/advanced/
+    _defaultContainer.registerValue('approvalHandlers', require('./handlers/advanced/approval'));
+    _defaultContainer.registerValue('artifactsHandlers', require('./handlers/advanced/artifacts'));
+    _defaultContainer.registerValue('coordinationHandlers', require('./handlers/advanced/coordination'));
+    _defaultContainer.registerValue('debuggerHandlers', require('./handlers/advanced/debugger'));
+    _defaultContainer.registerValue('intelligenceHandlers', require('./handlers/advanced/intelligence'));
+    _defaultContainer.registerValue('performanceHandlers', require('./handlers/advanced/performance'));
+    _defaultContainer.registerValue('schedulingHandlers', require('./handlers/advanced/scheduling'));
+    // handlers/peek/
+    _defaultContainer.registerValue('peekArtifactsHandlers', require('./handlers/peek/artifacts'));
+    _defaultContainer.registerValue('peekCaptureHandlers', require('./handlers/peek/capture'));
+    _defaultContainer.registerValue('peekComplianceHandlers', require('./handlers/peek/compliance'));
+    _defaultContainer.registerValue('peekHostsHandlers', require('./handlers/peek/hosts'));
+    _defaultContainer.registerValue('peekRecoveryHandlers', require('./handlers/peek/recovery'));
+    _defaultContainer.registerValue('peekSharedHandlers', require('./handlers/peek/shared'));
+    _defaultContainer.registerValue('peekWebhookOutboundHandlers', require('./handlers/peek/webhook-outbound'));
+    // handlers/validation/
+    _defaultContainer.registerValue('validationHandlers', require('./handlers/validation/index'));
+    _defaultContainer.registerValue('validationAnalysisHandlers', require('./handlers/validation/analysis'));
+    _defaultContainer.registerValue('validationFailureHandlers', require('./handlers/validation/failure'));
+    _defaultContainer.registerValue('validationFileHandlers', require('./handlers/validation/file'));
+    _defaultContainer.registerValue('validationSafeguardHandlers', require('./handlers/validation/safeguard'));
+    _defaultContainer.registerValue('validationSecurityHandlers', require('./handlers/validation/security'));
+    _defaultContainer.registerValue('validationXamlHandlers', require('./handlers/validation/xaml'));
+    // handlers/ top-level
+    _defaultContainer.registerValue('automationBatchOrchestration', require('./handlers/automation-batch-orchestration'));
+    _defaultContainer.registerValue('automationHandlers', require('./handlers/automation-handlers'));
+    _defaultContainer.registerValue('ciHandlers', require('./handlers/ci-handlers'));
+    _defaultContainer.registerValue('comparisonHandler', require('./handlers/comparison-handler'));
+    _defaultContainer.registerValue('competitiveFeatureHandlers', require('./handlers/competitive-feature-handlers'));
+    _defaultContainer.registerValue('concurrencyHandlers', require('./handlers/concurrency-handlers'));
+    _defaultContainer.registerValue('conflictResolutionHandlers', require('./handlers/conflict-resolution-handlers'));
+    _defaultContainer.registerValue('contextHandler', require('./handlers/context-handler'));
+    _defaultContainer.registerValue('experimentHandlers', require('./handlers/experiment-handlers'));
+    _defaultContainer.registerValue('inboundWebhookHandlers', require('./handlers/inbound-webhook-handlers'));
+    _defaultContainer.registerValue('orchestratorHandlers', require('./handlers/orchestrator-handlers'));
+    _defaultContainer.registerValue('providerCrudHandlers', require('./handlers/provider-crud-handlers'));
+    _defaultContainer.registerValue('providerHandlers', require('./handlers/provider-handlers'));
+    _defaultContainer.registerValue('providerOllamaHostsHandlers', require('./handlers/provider-ollama-hosts'));
+    _defaultContainer.registerValue('providerTuningHandlers', require('./handlers/provider-tuning'));
+    _defaultContainer.registerValue('remoteAgentHandlers', require('./handlers/remote-agent-handlers'));
+    _defaultContainer.registerValue('reviewHandler', require('./handlers/review-handler'));
+    _defaultContainer.registerValue('strategicConfigHandlers', require('./handlers/strategic-config-handlers'));
+    _defaultContainer.registerValue('webhookHandlers', require('./handlers/webhook-handlers'));
+  }
+
+  // Hooks, CI, MCP, utils
+  if (!_defaultContainer.has('approvalGate')) {
+    _defaultContainer.registerValue('approvalGate', require('./hooks/approval-gate'));
+    _defaultContainer.registerValue('eventDispatch', require('./hooks/event-dispatch'));
+    _defaultContainer.registerValue('ciWatcher', require('./ci/watcher'));
+    _defaultContainer.registerValue('agentDiscovery', require('./utils/agent-discovery'));
+    _defaultContainer.registerValue('mcpGateway', require('./mcp'));
+  }
+
+  // Policy engine
+  if (!_defaultContainer.has('policyEngine')) {
+    _defaultContainer.registerValue('policyEngine', require('./policy-engine/engine'));
+    _defaultContainer.registerValue('architectureAdapter', require('./policy-engine/adapters/architecture'));
+    _defaultContainer.registerValue('featureFlagAdapter', require('./policy-engine/adapters/feature-flag'));
+    _defaultContainer.registerValue('refactorDebtAdapter', require('./policy-engine/adapters/refactor-debt'));
+    _defaultContainer.registerValue('releaseGateAdapter', require('./policy-engine/adapters/release-gate'));
+  }
+
   logger.info('Container: core modules initialized (legacy path)');
 }
 
