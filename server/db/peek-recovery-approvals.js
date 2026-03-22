@@ -172,8 +172,20 @@ function getApprovalForAction(action, taskId = null) {
   return mapApprovalRow(selectLatestApproval(handle, action, taskId));
 }
 
+function createPeekRecoveryApprovals({ db: dbInst }) {
+  setDb(dbInst);
+  return {
+    requestApproval,
+    grantApproval,
+    denyApproval,
+    getApprovalStatus,
+    getApprovalForAction,
+  };
+}
+
 module.exports = {
   setDb,
+  createPeekRecoveryApprovals,
   requestApproval,
   grantApproval,
   denyApproval,

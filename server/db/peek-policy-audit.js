@@ -383,9 +383,20 @@ function getPolicyProofAudit(id) {
   return normalizeAuditRow(row);
 }
 
+function createPeekPolicyAudit({ db: dbInst }) {
+  setDb(dbInst);
+  return {
+    formatPolicyProof,
+    recordPolicyProofAudit,
+    listPolicyProofAudits,
+    getPolicyProofAudit,
+  };
+}
+
 module.exports = {
   formatPolicyProof,
   setDb,
+  createPeekPolicyAudit,
   recordPolicyProofAudit,
   listPolicyProofAudits,
   getPolicyProofAudit,

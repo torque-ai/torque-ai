@@ -497,10 +497,34 @@ function seedDefaultFixtures() {
   });
 }
 
+function createPeekFixtureCatalog({ db: dbInst }) {
+  setDb(dbInst);
+  return {
+    isPlainObject,
+    cloneValue,
+    computeChecksum,
+    safeJsonParse,
+    mapFixtureRow,
+    hasCatalogTable,
+    deepMerge,
+    registerFixture,
+    getFixture,
+    getFixtureByName,
+    listFixtures,
+    resolveFixtureWithInheritance,
+    createNewVersion,
+    updateFixture,
+    freezeFixture,
+    deleteFixture,
+    seedDefaultFixtures,
+  };
+}
+
 module.exports = {
   isPlainObject,
   cloneValue,
   setDb,
+  createPeekFixtureCatalog,
   computeChecksum,
   safeJsonParse,
   mapFixtureRow,

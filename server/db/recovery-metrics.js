@@ -119,8 +119,22 @@ function isReadyForClosedLoop(threshold = 50) {
   return { ready: count >= threshold, current: count, threshold };
 }
 
+function createRecoveryMetrics({ db: dbInst }) {
+  setDb(dbInst);
+  return {
+    recordRecoveryMetric,
+    getActionStats,
+    getOverallStats,
+    getStatsByRiskLevel,
+    getRecentMetrics,
+    getExecutionCount,
+    isReadyForClosedLoop,
+  };
+}
+
 module.exports = {
   setDb,
+  createRecoveryMetrics,
   recordRecoveryMetric,
   getActionStats,
   getOverallStats,

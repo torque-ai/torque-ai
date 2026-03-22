@@ -177,8 +177,27 @@ function updatePeekHost(name, updates) {
   return _db.prepare(`UPDATE peek_hosts SET ${sets.join(', ')} WHERE name = ?`).run(...values).changes > 0;
 }
 
+function createEmailPeek({ db: dbInst }) {
+  setDb(dbInst);
+  return {
+    recordFailoverEvent,
+    getFailoverEvents,
+    recordEmailNotification,
+    listEmailNotifications,
+    getEmailNotification,
+    updateEmailNotificationStatus,
+    registerPeekHost,
+    unregisterPeekHost,
+    listPeekHosts,
+    getDefaultPeekHost,
+    getPeekHost,
+    updatePeekHost,
+  };
+}
+
 module.exports = {
   setDb,
+  createEmailPeek,
   recordFailoverEvent,
   getFailoverEvents,
   recordEmailNotification,

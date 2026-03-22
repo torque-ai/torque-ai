@@ -639,9 +639,39 @@ function getRetryAttempts(taskId) {
 // Module exports
 // ============================================================
 
+function createValidationRules({ db: dbInst, taskCore }) {
+  setDb(dbInst);
+  setGetTask(taskCore?.getTask || (() => null));
+  return {
+    getValidationRules,
+    getValidationRule,
+    saveValidationRule,
+    recordValidationResult,
+    getValidationResults,
+    hasValidationFailures,
+    validateTaskOutput,
+    getApprovalRules,
+    getApprovalRule,
+    saveApprovalRule,
+    getPendingApprovals,
+    decideApproval,
+    hasAllApprovals,
+    getFailurePatterns,
+    saveFailurePattern,
+    matchFailurePatterns,
+    getFailureMatches,
+    getRetryRules,
+    saveRetryRule,
+    shouldRetryWithCloud,
+    updateRetryOutcome,
+    getRetryAttempts,
+  };
+}
+
 module.exports = {
   setDb,
   setGetTask,
+  createValidationRules,
   getValidationRules,
   getValidationRule,
   saveValidationRule,

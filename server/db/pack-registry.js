@@ -338,8 +338,31 @@ function deletePack(id) {
   return true;
 }
 
+function createPackRegistry({ db: dbInst }) {
+  setDb(dbInst);
+  return {
+    safeJsonParse,
+    mapPackRow,
+    registerPack,
+    getPack,
+    getPackByName,
+    listPacks,
+    queryByAppType,
+    deprecatePack,
+    transferOwnership,
+    setSunsetDate,
+    getPackVersionHistory,
+    listDeprecatedPacks,
+    setMaintainer,
+    setSuccessorPack,
+    recordVersionHistory,
+    deletePack,
+  };
+}
+
 module.exports = {
   setDb,
+  createPackRegistry,
   safeJsonParse,
   mapPackRow,
   registerPack,

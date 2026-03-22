@@ -497,8 +497,26 @@ function getFalsePositives(projectPath) {
   }
 }
 
+function createAuditStore({ db: dbInst }) {
+  setDb(dbInst)
+  return {
+    VALID_RUN_UPDATE_FIELDS,
+    createAuditRun,
+    getAuditRun,
+    updateAuditRun,
+    listAuditRuns,
+    insertFindings,
+    getFindings,
+    updateFinding,
+    getAuditSummary,
+    incrementAuditRunCounters,
+    getFalsePositives
+  }
+}
+
 module.exports = {
   setDb,
+  createAuditStore,
   VALID_RUN_UPDATE_FIELDS,
   createAuditRun,
   getAuditRun,
