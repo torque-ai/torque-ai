@@ -1,11 +1,12 @@
+const os = require('os');
 const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 
-let db, mod;
+let db, mod, testDir;
 const taskCore = require('../db/task-core');
 
 function setup() {
-  ({ db, mod } = setupTestDbModule('../db/task-metadata', 'task-artifacts'));
+  ({ db, mod, testDir } = setupTestDbModule('../db/task-metadata', 'task-artifacts'));
 }
 
 function resetState() {
@@ -19,7 +20,7 @@ function mkTask(overrides = {}) {
   const task = {
     id: overrides.id || randomUUID(),
     task_description: overrides.task_description || 'artifact test task',
-    working_directory: overrides.working_directory || '/tmp/test',
+    working_directory: overrides.working_directory || testDir,
     status: overrides.status || 'queued',
     timeout_minutes: overrides.timeout_minutes ?? 30,
     auto_approve: overrides.auto_approve ?? false,
