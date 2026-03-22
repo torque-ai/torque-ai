@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
-const db = require('../../database');
+const webhooksStreaming = require('../../db/webhooks-streaming');
 const logger = require('../../logger').child({ component: 'peek-webhook-outbound' });
 const { isInternalHost } = require('../shared');
 
@@ -79,15 +79,15 @@ function webhookMatchesEvent(webhook, event) {
 }
 
 function getSubscribedPeekWebhooks(event) {
-  if (typeof db.listWebhooks === 'function') {
-    const webhooks = db.listWebhooks();
+  if (typeof webhooksStreaming.listWebhooks === 'function') {
+    const webhooks = webhooksStreaming.listWebhooks();
     return Array.isArray(webhooks)
       ? webhooks.filter((webhook) => webhookMatchesEvent(webhook, event))
       : [];
   }
 
-  if (typeof db.getWebhooksForEvent === 'function') {
-    const webhooks = db.getWebhooksForEvent(event);
+  if (typeof webhooksStreaming.getWebhooksForEvent === 'function') {
+    const webhooks = webhooksStreaming.getWebhooksForEvent(event);
     return Array.isArray(webhooks)
       ? webhooks.filter((webhook) => webhookMatchesEvent(webhook, event))
       : [];
@@ -121,12 +121,12 @@ function buildSafeHeaders(headers) {
 }
 
 function logWebhookDelivery(details) {
-  if (typeof db.logWebhookDelivery !== 'function') {
+  if (typeof webhooksStreaming.logWebhookDelivery !== 'function') {
     return;
   }
 
   try {
-    db.logWebhookDelivery(details);
+    webhooksStreaming.logWebhookDelivery(details);
   } catch (error) {
     logger.debug(`Webhook delivery log failed for ${details?.webhookId || 'unknown'}: ${error.message}`);
   }

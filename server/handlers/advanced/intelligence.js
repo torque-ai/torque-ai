@@ -6,7 +6,10 @@
  * Extracted from advanced-handlers.js during Phase 7 handler decomposition.
  */
 
-const db = require('../../database');
+const database = require('../../database');
+const { cacheTaskResult, lookupCache, invalidateCache, getCacheStats, warmCache } = require('../../db/project-config-core');
+const { computePriorityScore, getPriorityQueue, boostPriority, predictFailureForTask, learnFailurePattern, deleteFailurePattern, suggestIntervention, analyzeRetryPatterns, getRetryRecommendation, updateIntelligenceOutcome, getIntelligenceDashboard, createExperiment, getExperiment, concludeExperiment } = require('../../db/analytics');
+const { getFailurePatterns } = require('../../db/validation-rules');
 const taskManager = require('../../task-manager');
 const serverConfig = require('../../config');
 const { safeLimit, ErrorCodes, makeError, requireTask } = require('../shared');
@@ -23,7 +26,7 @@ const { safeLimit, ErrorCodes, makeError, requireTask } = require('../shared');
 function handleCacheTaskResult(args) {
   const { task_id, ttl_hours } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'completed') {
@@ -32,7 +35,7 @@ function handleCacheTaskResult(args) {
     };
   }
 
-  const cacheEntry = db.cacheTaskResult(task_id, ttl_hours || 24);
+  const cacheEntry = cacheTaskResult(task_id, ttl_hours || 24);
 
   if (!cacheEntry) {
     return {
@@ -60,7 +63,7 @@ function handleCacheTaskResult(args) {
 function handleLookupCache(args) {
   const { task_description, working_directory, min_confidence, use_semantic } = args;
 
-  const result = db.lookupCache(task_description, working_directory || null, null, min_confidence || 0.85);
+  const result = lookupCache(task_description, working_directory || null, null, min_confidence || 0.85);
 
   if (!result) {
     return {
@@ -97,17 +100,17 @@ function handleInvalidateCache(args) {
   let invalidated = 0;
 
   if (cache_id) {
-    const result = db.invalidateCache({ cacheId: cache_id });
+    const result = invalidateCache({ cacheId: cache_id });
     invalidated = result.deleted || 0;
   } else if (task_description) {
-    const result = db.invalidateCache({ pattern: task_description });
+    const result = invalidateCache({ pattern: task_description });
     invalidated = result.deleted || 0;
   } else if (older_than_hours) {
     const cutoff = new Date(Date.now() - older_than_hours * 3600000).toISOString();
-    const result = db.invalidateCache({ olderThan: cutoff });
+    const result = invalidateCache({ olderThan: cutoff });
     invalidated = result.deleted || 0;
   } else if (all_expired) {
-    const result = db.invalidateCache();
+    const result = invalidateCache();
     invalidated = result.deleted || 0;
   } else {
     return {
@@ -130,7 +133,7 @@ function handleInvalidateCache(args) {
 function handleCacheStats(args) {
   const { cache_name } = args;
 
-  let stats = db.getCacheStats();
+  let stats = getCacheStats();
 
   if (cache_name) {
     stats = stats.filter(s => s.cache_name === cache_name);
@@ -168,10 +171,10 @@ function handleConfigureCache(args) {
   if (enable_semantic !== undefined) config.enable_semantic = enable_semantic ? 1 : 0;
 
   // Persist cache config via setConfig
-  if (config.default_ttl_hours !== undefined) db.setConfig('cache_ttl_hours', String(config.default_ttl_hours));
-  if (config.max_entries !== undefined) db.setConfig('cache_max_entries', String(config.max_entries));
-  if (config.min_confidence_threshold !== undefined) db.setConfig('cache_min_confidence', String(config.min_confidence_threshold));
-  if (config.enable_semantic !== undefined) db.setConfig('cache_enable_semantic', String(config.enable_semantic));
+  if (config.default_ttl_hours !== undefined) database.setConfig('cache_ttl_hours', String(config.default_ttl_hours));
+  if (config.max_entries !== undefined) database.setConfig('cache_max_entries', String(config.max_entries));
+  if (config.min_confidence_threshold !== undefined) database.setConfig('cache_min_confidence', String(config.min_confidence_threshold));
+  if (config.enable_semantic !== undefined) database.setConfig('cache_enable_semantic', String(config.enable_semantic));
 
   const ttl = serverConfig.get('cache_ttl_hours', '24');
   const maxEnt = serverConfig.get('cache_max_entries', '1000');
@@ -201,7 +204,7 @@ function handleConfigureCache(args) {
 function handleWarmCache(args) {
   const { limit, min_exit_code } = args;
 
-  const warmed = db.warmCache(safeLimit(limit, 50), undefined, null);
+  const warmed = warmCache(safeLimit(limit, 50), undefined, null);
 
   let output = `## Cache Warmed\n\n`;
   output += `**Entries Cached:** ${warmed.cached}\n`;
@@ -224,10 +227,10 @@ function handleWarmCache(args) {
 function handleComputePriority(args) {
   const { task_id, recalculate } = args;
 
-  const { task: _task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
-  const score = db.computePriorityScore(task_id);
+  const score = computePriorityScore(task_id);
 
   if (!score) {
     return {
@@ -264,7 +267,7 @@ function handleComputePriority(args) {
 function handleGetPriorityQueue(args) {
   const { status, limit } = args;
 
-  const queue = db.getPriorityQueue(safeLimit(limit, 20), 0);
+  const queue = getPriorityQueue(safeLimit(limit, 20), 0);
 
   if (queue.length === 0) {
     return {
@@ -311,9 +314,9 @@ function handleConfigurePriorityWeights(args) {
   }
 
   // Persist priority weights via setConfig
-  if (config.resource_weight !== undefined) db.setConfig('priority_resource_weight', String(config.resource_weight));
-  if (config.success_weight !== undefined) db.setConfig('priority_success_weight', String(config.success_weight));
-  if (config.dependency_weight !== undefined) db.setConfig('priority_dependency_weight', String(config.dependency_weight));
+  if (config.resource_weight !== undefined) database.setConfig('priority_resource_weight', String(config.resource_weight));
+  if (config.success_weight !== undefined) database.setConfig('priority_success_weight', String(config.success_weight));
+  if (config.dependency_weight !== undefined) database.setConfig('priority_dependency_weight', String(config.dependency_weight));
 
   const rw = serverConfig.getFloat('priority_resource_weight', 0.3);
   const sw = serverConfig.getFloat('priority_success_weight', 0.3);
@@ -341,7 +344,7 @@ function handleConfigurePriorityWeights(args) {
 function handleExplainPriority(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
   // Priority explanation using config weights and task data
@@ -375,12 +378,12 @@ function handleExplainPriority(args) {
 function handleBoostPriority(args) {
   const { task_id, boost_amount, reason } = args;
 
-  const { task: _task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
-  db.boostPriority(task_id, boost_amount, reason || 'Manual boost');
+  boostPriority(task_id, boost_amount, reason || 'Manual boost');
 
-  const newScore = db.computePriorityScore(task_id);
+  const newScore = computePriorityScore(task_id);
 
   let output = `## Priority Boosted\n\n`;
   output += `**Task:** ${task_id.substring(0, 8)}...\n`;
@@ -407,11 +410,11 @@ function handlePredictFailure(args) {
 
   let prediction;
   if (task_id) {
-    const { task, error: taskErr } = requireTask(db, task_id);
+    const { task, error: taskErr } = requireTask(database, task_id);
     if (taskErr) return taskErr;
-    prediction = db.predictFailureForTask(task.task_description, task.working_directory);
+    prediction = predictFailureForTask(task.task_description, task.working_directory);
   } else if (task_description) {
-    prediction = db.predictFailureForTask(task_description, working_directory || null);
+    prediction = predictFailureForTask(task_description, working_directory || null);
   } else {
     return {
       ...makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Provide either task_id or task_description')
@@ -450,7 +453,7 @@ function handleLearnFailurePattern(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id, name, and description are required');
   }
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
   // Verify task has output to learn from
@@ -459,7 +462,7 @@ function handleLearnFailurePattern(args) {
     return makeError(ErrorCodes.OPERATION_FAILED, 'Task has no output to learn from');
   }
 
-  const patterns = db.learnFailurePattern(task_id);
+  const patterns = learnFailurePattern(task_id);
 
   if (!patterns || patterns.length === 0) {
     return {
@@ -490,7 +493,7 @@ function handleLearnFailurePattern(args) {
  */
 function handleListFailurePatterns(args) {
   const { provider, enabled_only = true } = args;
-  const patterns = db.getFailurePatterns(provider, enabled_only);
+  const patterns = getFailurePatterns(provider, enabled_only);
 
   if (patterns.length === 0) {
     return {
@@ -520,7 +523,7 @@ function handleListFailurePatterns(args) {
  * @returns {Object} MCP response payload.
  */
 function handleDeleteFailurePattern(args) {
-  const deleted = db.deleteFailurePattern(args.pattern_id);
+  const deleted = deleteFailurePattern(args.pattern_id);
 
   if (!deleted) {
     return {
@@ -543,10 +546,10 @@ function handleDeleteFailurePattern(args) {
 function handleSuggestIntervention(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
-  const result = db.suggestIntervention(task.task_description, task.working_directory);
+  const result = suggestIntervention(task.task_description, task.working_directory);
   const interventions = result.interventions || [];
 
   let output = `## Intervention Suggestions: ${task_id.substring(0, 8)}...\n\n`;
@@ -581,20 +584,20 @@ function handleSuggestIntervention(args) {
 function handleApplyIntervention(args) {
   const { task_id, intervention_type, parameters } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
   // Apply intervention based on type
   let result = { success: false, message: 'Unknown intervention type' };
   try {
     if (intervention_type === 'cancel') {
-      db.updateTaskStatus(task_id, 'cancelled', { error_output: `Cancelled via intervention: ${JSON.stringify(parameters || {})}` });
+      database.updateTaskStatus(task_id, 'cancelled', { error_output: `Cancelled via intervention: ${JSON.stringify(parameters || {})}` });
       result = { success: true, message: 'Task cancelled' };
     } else if (intervention_type === 'requeue') {
-      db.updateTaskStatus(task_id, 'queued', { pid: null, started_at: null });
+      database.updateTaskStatus(task_id, 'queued', { pid: null, started_at: null });
       result = { success: true, message: 'Task requeued' };
     } else if (intervention_type === 'reprioritize' && parameters?.priority !== undefined) {
-      db.updateTaskStatus(task_id, task.status, { priority: parameters.priority });
+      database.updateTaskStatus(task_id, task.status, { priority: parameters.priority });
       result = { success: true, message: `Priority set to ${parameters.priority}` };
     } else {
       result = { success: false, message: `Unsupported intervention type: ${intervention_type}` };
@@ -630,7 +633,7 @@ function handleAnalyzeRetryPatterns(args) {
 
   const hours = time_range_hours || 168; // 7 days default
   // Pass null to avoid WHERE clause on missing column; filter post-query if needed
-  const patterns = db.analyzeRetryPatterns(null);
+  const patterns = analyzeRetryPatterns(null);
 
   let output = `## Retry Pattern Analysis\n\n`;
   output += `**Period:** Last ${hours} hours\n\n`;
@@ -665,17 +668,17 @@ function handleConfigureAdaptiveRetry(args) {
   const updates = [];
 
   if (enabled !== undefined) {
-    db.setConfig('adaptive_retry_enabled', enabled ? '1' : '0');
+    database.setConfig('adaptive_retry_enabled', enabled ? '1' : '0');
     updates.push(`enabled \u2192 ${enabled}`);
   }
 
   if (default_fallback) {
-    db.setConfig('adaptive_retry_default_fallback', default_fallback);
+    database.setConfig('adaptive_retry_default_fallback', default_fallback);
     updates.push(`default_fallback \u2192 ${default_fallback}`);
   }
 
   if (max_retries_per_task !== undefined) {
-    db.setConfig('adaptive_retry_max_per_task', max_retries_per_task.toString());
+    database.setConfig('adaptive_retry_max_per_task', max_retries_per_task.toString());
     updates.push(`max_retries_per_task \u2192 ${max_retries_per_task}`);
   }
 
@@ -710,7 +713,7 @@ function handleConfigureAdaptiveRetry(args) {
 function handleGetRetryRecommendation(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'failed') {
@@ -720,7 +723,7 @@ function handleGetRetryRecommendation(args) {
   }
 
   const previousError = task.error_output || task.error || '';
-  const recommendation = db.getRetryRecommendation(task_id, previousError);
+  const recommendation = getRetryRecommendation(task_id, previousError);
 
   if (!recommendation) {
     return {
@@ -762,7 +765,7 @@ function handleGetRetryRecommendation(args) {
 function handleRetryWithAdaptation(args) {
   const { task_id, apply_recommendations } = args;
 
-  const { task, error: taskErr2 } = requireTask(db, task_id);
+  const { task, error: taskErr2 } = requireTask(database, task_id);
   if (taskErr2) return taskErr2;
 
   if (task.status !== 'failed') {
@@ -773,7 +776,7 @@ function handleRetryWithAdaptation(args) {
 
   // Get recommendation
   const previousError = task.error_output || task.error || '';
-  const recommendation = db.getRetryRecommendation(task_id, previousError);
+  const recommendation = getRetryRecommendation(task_id, previousError);
 
   if (!recommendation) {
     return {
@@ -784,7 +787,7 @@ function handleRetryWithAdaptation(args) {
   const adaptations = recommendation.adaptations || {};
 
   // Reset task and update
-  db.updateTaskStatus(task_id, 'pending', {
+  database.updateTaskStatus(task_id, 'pending', {
     output: null,
     error_output: null,
     exit_code: null
@@ -823,7 +826,7 @@ function handleIntelligenceDashboard(args) {
 
   const hours = time_range_hours || 24;
   const since = new Date(Date.now() - hours * 3600000).toISOString();
-  const dashboard = db.getIntelligenceDashboard(since);
+  const dashboard = getIntelligenceDashboard(since);
 
   let output = `## Task Intelligence Dashboard\n\n`;
   output += `**Period:** Last ${hours} hours\n\n`;
@@ -881,7 +884,7 @@ function handleIntelligenceDashboard(args) {
 function handleLogIntelligenceOutcome(args) {
   const { log_id, outcome } = args;
 
-  db.updateIntelligenceOutcome(log_id, outcome);
+  updateIntelligenceOutcome(log_id, outcome);
 
   return {
     content: [{ type: 'text', text: `## Outcome Logged\n\n**Log ID:** ${log_id}\n**Outcome:** ${outcome}` }]
@@ -904,7 +907,7 @@ function handleCreateExperiment(args) {
     };
   }
 
-  const experiment = db.createExperiment(
+  const experiment = createExperiment(
     name,
     strategy_type || 'experiment',
     variant_a,
@@ -930,7 +933,7 @@ function handleCreateExperiment(args) {
  * @returns {Object} MCP response payload.
  */
 function handleExperimentStatus(args) {
-  const experiment = db.getExperiment(args.experiment_id);
+  const experiment = getExperiment(args.experiment_id);
 
   if (!experiment) {
     return {
@@ -986,7 +989,7 @@ function handleExperimentStatus(args) {
 function handleConcludeExperiment(args) {
   const { experiment_id, apply_winner } = args;
 
-  const experiment = db.getExperiment(experiment_id);
+  const experiment = getExperiment(experiment_id);
   if (!experiment) {
     return {
       ...makeError(ErrorCodes.EXPERIMENT_NOT_FOUND, `Experiment not found: ${experiment_id}`)
@@ -999,7 +1002,7 @@ function handleConcludeExperiment(args) {
     };
   }
 
-  const result = db.concludeExperiment(experiment_id, !!apply_winner);
+  const result = concludeExperiment(experiment_id, !!apply_winner);
 
   if (!result) {
     return {

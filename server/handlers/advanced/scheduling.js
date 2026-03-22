@@ -5,7 +5,7 @@
  * Extracted from advanced-handlers.js during Phase 7 handler decomposition.
  */
 
-const db = require('../../database');
+const { createCronScheduledTask, listScheduledTasks, toggleScheduledTask, getResourceUsage, getResourceUsageByProject, setResourceLimits, getResourceReport } = require('../../db/scheduling-automation');
 const { ErrorCodes, makeError } = require('../shared');
 
 
@@ -28,7 +28,7 @@ function handleCreateCronSchedule(args) {
   } = args;
 
   try {
-    const schedule = db.createCronScheduledTask({
+    const schedule = createCronScheduledTask({
       name,
       cron_expression,
       task_config: {
@@ -74,7 +74,7 @@ function handleCreateCronSchedule(args) {
 function handleListSchedules(args) {
   const { enabled_only = false, limit = 50 } = args;
 
-  const schedules = db.listScheduledTasks({ enabled_only, limit });
+  const schedules = listScheduledTasks({ enabled_only, limit });
 
   if (schedules.length === 0) {
     return {
@@ -112,7 +112,7 @@ function handleListSchedules(args) {
 function handleToggleSchedule(args) {
   const { schedule_id, enabled } = args;
 
-  const schedule = db.toggleScheduledTask(schedule_id, enabled);
+  const schedule = toggleScheduledTask(schedule_id, enabled);
 
   if (!schedule) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Schedule not found: ${schedule_id}`);
@@ -145,7 +145,7 @@ function handleGetResourceUsage(args) {
 
   if (project) {
     // Get project-level aggregated usage
-    const usage = db.getResourceUsageByProject(project, { start_time, end_time });
+    const usage = getResourceUsageByProject(project, { start_time, end_time });
 
     if (!usage || !usage.sample_count) {
       return {
@@ -174,7 +174,7 @@ function handleGetResourceUsage(args) {
 
   if (task_id) {
     // Get task-level usage
-    const usage = db.getResourceUsage(task_id, { limit, start_time, end_time });
+    const usage = getResourceUsage(task_id, { limit, start_time, end_time });
 
     if (usage.length === 0) {
       return {
@@ -216,7 +216,7 @@ function handleGetResourceUsage(args) {
 function handleSetResourceLimits(args) {
   const { project, max_cpu_percent, max_memory_mb, max_concurrent } = args;
 
-  const limits = db.setResourceLimits(project, {
+  const limits = setResourceLimits(project, {
     max_cpu_percent,
     max_memory_mb,
     max_concurrent
@@ -244,7 +244,7 @@ function handleSetResourceLimits(args) {
 function handleResourceReport(args) {
   const { project, start_time, end_time, group_by = 'day' } = args;
 
-  const report = db.getResourceReport({ project, start_time, end_time, group_by });
+  const report = getResourceReport({ project, start_time, end_time, group_by });
 
   if (report.length === 0) {
     return {

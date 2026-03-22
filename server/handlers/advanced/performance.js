@@ -6,7 +6,7 @@
  * Extracted from advanced-handlers.js during Phase 7 handler decomposition.
  */
 
-const db = require('../../database');
+const { getSlowQueries, getFrequentQueries, vacuumDatabase, analyzeDatabase, integrityCheck, clearCacheStats, explainQueryPlan, getDatabaseStats, getIndexStats, getOptimizationHistory } = require('../../db/project-config-core');
 const { ErrorCodes, makeError } = require('../error-codes');
 
 
@@ -23,7 +23,7 @@ function handleAnalyzeQueryPerformance(args) {
   const results = {};
 
   if (analysis_type === 'slow' || analysis_type === 'both') {
-    const slowQueries = db.getSlowQueries(limit, min_avg_ms);
+    const slowQueries = getSlowQueries(limit, min_avg_ms);
     results.slow_queries = slowQueries;
 
     output += `### Slow Queries (avg >= ${min_avg_ms}ms)\n\n`;
@@ -43,7 +43,7 @@ function handleAnalyzeQueryPerformance(args) {
   }
 
   if (analysis_type === 'frequent' || analysis_type === 'both') {
-    const frequentQueries = db.getFrequentQueries(limit);
+    const frequentQueries = getFrequentQueries(limit);
     results.frequent_queries = frequentQueries;
 
     output += `### Most Frequent Queries\n\n`;
@@ -81,7 +81,7 @@ function handleOptimizeDatabase(args) {
   for (const op of operations) {
     switch (op) {
       case 'vacuum': {
-        const result = db.vacuumDatabase();
+        const result = vacuumDatabase();
         results.push({ operation: 'vacuum', ...result });
         output += `### VACUUM\n`;
         output += `- Duration: ${result.duration_ms}ms\n`;
@@ -91,7 +91,7 @@ function handleOptimizeDatabase(args) {
         break;
       }
       case 'analyze': {
-        const result = db.analyzeDatabase(table_name);
+        const result = analyzeDatabase(table_name);
         results.push({ operation: 'analyze', ...result });
         output += `### ANALYZE\n`;
         output += `- Duration: ${result.duration_ms}ms\n`;
@@ -99,7 +99,7 @@ function handleOptimizeDatabase(args) {
         break;
       }
       case 'integrity_check': {
-        const result = db.integrityCheck();
+        const result = integrityCheck();
         results.push({ operation: 'integrity_check', ...result });
         output += `### Integrity Check\n`;
         output += `- Status: ${result.ok ? '✓ OK' : '✗ Issues Found'}\n`;
@@ -128,7 +128,7 @@ function handleClearCache(args) {
   let output = `## Cache Cleared\n\n`;
 
   if (clear_stats) {
-    const result = db.clearCacheStats(cache_name);
+    const result = clearCacheStats(cache_name);
     output += `- Statistics cleared: ${result.changes} record(s)\n`;
   }
 
@@ -155,7 +155,7 @@ function handleQueryPlan(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'query parameter is required and must be a string');
   }
 
-  const result = db.explainQueryPlan(query);
+  const result = explainQueryPlan(query);
 
   let output = `## Query Execution Plan\n\n`;
   output += `**Query:** \`${query}\`\n\n`;
@@ -198,7 +198,7 @@ function handleQueryPlan(args) {
 function handleDatabaseStats(args) {
   const { include_indexes = false, include_history = false } = args;
 
-  const stats = db.getDatabaseStats();
+  const stats = getDatabaseStats();
 
   let output = `## Database Statistics\n\n`;
   output += `### Overview\n\n`;
@@ -219,7 +219,7 @@ function handleDatabaseStats(args) {
   output += '\n';
 
   if (include_indexes) {
-    const indexStats = db.getIndexStats();
+    const indexStats = getIndexStats();
     output += `### Index Details\n\n`;
     output += `| Table | Index | Columns |\n`;
     output += `|-------|-------|----------|\n`;
@@ -233,7 +233,7 @@ function handleDatabaseStats(args) {
   }
 
   if (include_history) {
-    const history = db.getOptimizationHistory(10);
+    const history = getOptimizationHistory(10);
     output += `### Recent Optimization History\n\n`;
     if (history.length === 0) {
       output += `No optimization history available\n`;

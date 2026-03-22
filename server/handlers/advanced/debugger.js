@@ -6,7 +6,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const db = require('../../database');
+const { createBreakpoint, getBreakpoint, listBreakpoints, deleteBreakpoint, getDebugSessionByTask, updateDebugSession, getDebugState, getDebugCaptures } = require('../../db/task-metadata');
 const taskManager = require('../../task-manager');
 const { VALID_BREAKPOINT_ACTIONS, VALID_PATTERN_TYPES, isSafeRegexPattern, ErrorCodes, makeError } = require('../shared');
 
@@ -37,7 +37,7 @@ function handleSetBreakpoint(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'max_hits must be a positive number');
   }
 
-  const breakpoint = db.createBreakpoint({
+  const breakpoint = createBreakpoint({
     id: uuidv4(),
     task_id: task_id || null,
     pattern,
@@ -71,7 +71,7 @@ function handleListBreakpoints(args) {
   if (args.task_id) options.task_id = args.task_id;
   if (args.enabled_only) options.enabled = true;
 
-  const breakpoints = db.listBreakpoints(options);
+  const breakpoints = listBreakpoints(options);
 
   let output = `## Breakpoints\n\n`;
 
@@ -103,13 +103,13 @@ function handleListBreakpoints(args) {
  * @returns {Object} MCP response payload.
  */
 function handleClearBreakpoint(args) {
-  const breakpoint = db.getBreakpoint(args.breakpoint_id);
+  const breakpoint = getBreakpoint(args.breakpoint_id);
 
   if (!breakpoint) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Breakpoint not found: ${args.breakpoint_id}`);
   }
 
-  db.deleteBreakpoint(args.breakpoint_id);
+  deleteBreakpoint(args.breakpoint_id);
 
   return {
     content: [{ type: 'text', text: `Breakpoint deleted: ${breakpoint.pattern}` }]
@@ -127,7 +127,7 @@ function handleStepExecution(args) {
   const { task_id, step_mode, step_count } = args;
   const resolvedStepMode = step_mode || 'continue';
 
-  const session = db.getDebugSessionByTask(task_id);
+  const session = getDebugSessionByTask(task_id);
   if (!session) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `No active debug session for task: ${task_id}`);
   }
@@ -137,7 +137,7 @@ function handleStepExecution(args) {
   }
 
   // Update session with step mode
-  db.updateDebugSession(session.id, {
+  updateDebugSession(session.id, {
     status: 'stepping',
     step_mode: resolvedStepMode
   });
@@ -147,11 +147,11 @@ function handleStepExecution(args) {
   try {
     resumed = taskManager.resumeTask(task_id);
   } catch (err) {
-    db.updateDebugSession(session.id, { status: 'paused' });
+    updateDebugSession(session.id, { status: 'paused' });
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to resume task: ${err.message}`);
   }
   if (!resumed) {
-    db.updateDebugSession(session.id, { status: 'paused' });
+    updateDebugSession(session.id, { status: 'paused' });
   }
 
   let output = `## Stepping Execution\n\n`;
@@ -182,7 +182,7 @@ function handleInspectState(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const state = db.getDebugState(args.task_id);
+  const state = getDebugState(args.task_id);
 
   if (!state) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `No debug state for task: ${args.task_id}`);
@@ -196,7 +196,7 @@ function handleInspectState(args) {
   output += `**Created:** ${new Date(state.session.created_at).toLocaleString()}\n`;
 
   if (state.session.current_breakpoint_id) {
-    const bp = db.getBreakpoint(state.session.current_breakpoint_id);
+    const bp = getBreakpoint(state.session.current_breakpoint_id);
     if (bp) {
       output += `**Paused at:** \`${bp.pattern}\`\n`;
     }
@@ -249,8 +249,8 @@ function handleDebugStatus(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const session = db.getDebugSessionByTask(args.task_id);
-  const breakpoints = db.listBreakpoints({ task_id: args.task_id });
+  const session = getDebugSessionByTask(args.task_id);
+  const breakpoints = listBreakpoints({ task_id: args.task_id });
 
   let output = `## Debug Status: ${args.task_id.substring(0, 8)}...\n\n`;
 
@@ -263,7 +263,7 @@ function handleDebugStatus(args) {
       output += `**Current Breakpoint:** ${session.current_breakpoint_id.substring(0, 8)}...\n`;
     }
 
-    const captures = db.getDebugCaptures(session.id);
+    const captures = getDebugCaptures(session.id);
     output += `**Captures:** ${captures.length}\n`;
   } else {
     output += `No active debug session.\n`;

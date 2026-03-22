@@ -5,7 +5,8 @@
  * Extracted from advanced-handlers.js during Phase 7 handler decomposition.
  */
 
-const db = require('../../database');
+const { saveApprovalRule, getApprovalRules, decideApproval, getPendingApprovals } = require('../../db/validation-rules');
+const { getAuditLog, getAuditLogCount, getAuditStats, setAuditConfig, getAllAuditConfig } = require('../../db/scheduling-automation');
 const { ErrorCodes, makeError } = require('../shared');
 
 
@@ -29,7 +30,7 @@ function handleAddApprovalRule(args) {
   }
 
   const id = `apr-${Date.now()}`;
-  db.saveApprovalRule({
+  saveApprovalRule({
     id,
     name,
     description,
@@ -55,7 +56,7 @@ function handleAddApprovalRule(args) {
  */
 function handleListApprovalRules(args) {
   const { enabled_only = true } = args;
-  const rules = db.getApprovalRules(enabled_only);
+  const rules = getApprovalRules(enabled_only);
 
   if (rules.length === 0) {
     return {
@@ -91,7 +92,7 @@ function handleApproveTask(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'approval_id is required');
   }
 
-  const result = db.decideApproval(approval_id, true, 'user', notes || null);
+  const result = decideApproval(approval_id, true, 'user', notes || null);
   if (result && result.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Approval failed: ${result.error}`);
   }
@@ -113,7 +114,7 @@ function handleApproveTask(args) {
  */
 function handleListPendingApprovals(args) {
   const { task_id } = args;
-  const approvals = db.getPendingApprovals(task_id);
+  const approvals = getPendingApprovals(task_id);
 
   if (approvals.length === 0) {
     return {
@@ -155,7 +156,7 @@ function handleGetAuditLog(args) {
     offset = 0
   } = args;
 
-  const logs = db.getAuditLog({
+  const logs = getAuditLog({
     entityType: entity_type,
     entityId: entity_id,
     action,
@@ -166,7 +167,7 @@ function handleGetAuditLog(args) {
     offset
   });
 
-  const total = db.getAuditLogCount({
+  const total = getAuditLogCount({
     entityType: entity_type,
     entityId: entity_id,
     action,
@@ -216,7 +217,7 @@ function handleExportAuditReport(args) {
   const { format = 'json', start_date, end_date, entity_type } = args;
 
   // Get raw rows instead of formatted export — the handler does its own rendering
-  const data = db.getAuditLog({ since: start_date, until: end_date, entityType: entity_type, limit: 10000 });
+  const data = getAuditLog({ since: start_date, until: end_date, entityType: entity_type, limit: 10000 });
 
   if (!data || data.length === 0) {
     return {
@@ -228,7 +229,7 @@ function handleExportAuditReport(args) {
   }
 
   // Get stats (DB expects {since, until} keys)
-  const stats = db.getAuditStats({ since: start_date, until: end_date });
+  const stats = getAuditStats({ since: start_date, until: end_date });
 
   let output = '';
 
@@ -300,27 +301,27 @@ function handleConfigureAudit(args) {
   const updates = [];
 
   if (retention_days !== undefined) {
-    db.setAuditConfig('retention_days', retention_days.toString());
+    setAuditConfig('retention_days', retention_days.toString());
     updates.push(`retention_days = ${retention_days}`);
   }
 
   if (track_reads !== undefined) {
-    db.setAuditConfig('track_reads', track_reads.toString());
+    setAuditConfig('track_reads', track_reads.toString());
     updates.push(`track_reads = ${track_reads}`);
   }
 
   if (track_config_changes !== undefined) {
-    db.setAuditConfig('track_config_changes', track_config_changes.toString());
+    setAuditConfig('track_config_changes', track_config_changes.toString());
     updates.push(`track_config_changes = ${track_config_changes}`);
   }
 
   if (track_task_operations !== undefined) {
-    db.setAuditConfig('track_task_operations', track_task_operations.toString());
+    setAuditConfig('track_task_operations', track_task_operations.toString());
     updates.push(`track_task_operations = ${track_task_operations}`);
   }
 
   // Get current config
-  const config = db.getAllAuditConfig();
+  const config = getAllAuditConfig();
 
   let output = `## Audit Configuration\n\n`;
 
@@ -341,7 +342,7 @@ function handleConfigureAudit(args) {
   }
 
   // Show audit stats
-  const stats = db.getAuditStats({});
+  const stats = getAuditStats({});
   output += `\n### Audit Statistics\n\n`;
   output += `- **Total logged actions:** ${stats.total || 0}\n`;
   output += `- **Unique entities tracked:** ${(stats.byEntity || []).length}\n`;

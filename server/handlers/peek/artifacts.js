@@ -1,7 +1,9 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const db = require('../../database');
+const database = require('../../database');
+const { storeArtifact } = require('../../db/task-metadata');
+const { getWorkflow, updateWorkflow } = require('../../db/workflow-engine');
 const {
   attachPeekArtifactReferences: attachPeekArtifactReferencesToContainer,
   mergePeekArtifactReferences,
@@ -126,7 +128,7 @@ function storePeekArtifactsForTask(taskId, refs, context = {}) {
 
     const workflowId = context.workflowId || normalizedRef.workflow_id || null;
     const taskLabel = context.taskLabel || normalizedRef.task_label || null;
-    const artifact = db.storeArtifact({
+    const artifact = storeArtifact({
       id: crypto.randomUUID(),
       task_id: taskId,
       name: normalizedRef.name || path.basename(artifactPath),
@@ -164,9 +166,9 @@ function storePeekArtifactsForTask(taskId, refs, context = {}) {
 
   if (storedRefs.length > 0 && context?.policyProof) {
     try {
-      const recordPolicyProof = typeof db.formatPolicyProof === 'function'
-        ? db.formatPolicyProof
-        : db.recordPolicyProofAudit;
+      const recordPolicyProof = typeof database.formatPolicyProof === 'function'
+        ? database.formatPolicyProof
+        : database.recordPolicyProofAudit;
       if (typeof recordPolicyProof === 'function') {
         recordPolicyProof({
           surface: 'artifact_persistence',
@@ -208,7 +210,7 @@ function persistPeekResultReferences(context = {}, refs) {
     try {
       finalRefs = storePeekArtifactsForTask(context.taskId, normalizedRefs, context);
       if (finalRefs.length > 0) {
-        db.updateTask(context.taskId, {
+        database.updateTask(context.taskId, {
           metadata: attachPeekArtifactReferences(context.task?.metadata, finalRefs),
         });
       }
@@ -219,9 +221,9 @@ function persistPeekResultReferences(context = {}, refs) {
 
   if (context.workflowId) {
     try {
-      const workflow = db.getWorkflow(context.workflowId);
+      const workflow = getWorkflow(context.workflowId);
       if (workflow) {
-        db.updateWorkflow(context.workflowId, {
+        updateWorkflow(context.workflowId, {
           context: attachPeekArtifactReferences(workflow.context, finalRefs),
         });
       }

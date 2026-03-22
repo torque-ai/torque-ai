@@ -10,7 +10,8 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const db = require('../../database');
+const database = require('../../database');
+const { storeArtifact, listArtifacts, getArtifact, deleteArtifact, getArtifactConfig, setArtifactConfig } = require('../../db/task-metadata');
 const { validateArtifactMimeType, isPathTraversalSafe, validateObjectDepth, requireTask, ErrorCodes, makeError } = require('../shared');
 const logger = require('../../logger').child({ component: 'advanced-artifacts' });
 
@@ -57,10 +58,10 @@ function handleStoreArtifact(args) {
   }
 
   // Verify task exists
-  const { task: _task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
-  const config = db.getArtifactConfig();
+  const config = getArtifactConfig();
   const maxSizeMb = parseInt(config.max_size_mb || '50', 10);
 
   // Open file descriptor first to prevent TOCTOU race condition
@@ -203,7 +204,7 @@ function handleStoreArtifact(args) {
   }
 
   try {
-    const artifact = db.storeArtifact({
+    const artifact = storeArtifact({
       id: artifactId,
       task_id,
       name,
@@ -251,7 +252,7 @@ function handleListArtifacts(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const artifacts = db.listArtifacts(args.task_id);
+  const artifacts = listArtifacts(args.task_id);
 
   let output = `## Artifacts for Task ${args.task_id.substring(0, 8)}...\n\n`;
 
@@ -290,9 +291,9 @@ function handleGetArtifact(args) {
   let artifact;
 
   if (args.artifact_id) {
-    artifact = db.getArtifact(args.artifact_id);
+    artifact = getArtifact(args.artifact_id);
   } else if (args.task_id && args.name) {
-    const artifacts = db.listArtifacts(args.task_id);
+    const artifacts = listArtifacts(args.task_id);
     artifact = artifacts.find(a => a.name === args.name);
   }
 
@@ -349,7 +350,7 @@ function handleDeleteArtifact(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'artifact_id is required');
   }
 
-  const artifact = db.getArtifact(args.artifact_id);
+  const artifact = getArtifact(args.artifact_id);
 
   if (!artifact) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Artifact not found: ${args.artifact_id}`);
@@ -366,7 +367,7 @@ function handleDeleteArtifact(args) {
   }
 
   // Delete database record
-  db.deleteArtifact(args.artifact_id);
+  deleteArtifact(args.artifact_id);
 
   return {
     content: [{ type: 'text', text: `Artifact deleted: ${artifact.name}` }]
@@ -388,7 +389,7 @@ function handleConfigureArtifactStorage(args) {
   const updates = [];
 
   if (args.storage_path !== undefined) {
-    db.setArtifactConfig('storage_path', args.storage_path);
+    setArtifactConfig('storage_path', args.storage_path);
     updates.push(`storage_path = ${args.storage_path}`);
   }
 
@@ -397,7 +398,7 @@ function handleConfigureArtifactStorage(args) {
     if (!Number.isFinite(val) || val <= 0) {
       return makeError(ErrorCodes.INVALID_PARAM, 'max_size_mb must be a positive number');
     }
-    db.setArtifactConfig('max_size_mb', String(val));
+    setArtifactConfig('max_size_mb', String(val));
     updates.push(`max_size_mb = ${val}`);
   }
 
@@ -406,7 +407,7 @@ function handleConfigureArtifactStorage(args) {
     if (!Number.isFinite(val) || val < 1) {
       return makeError(ErrorCodes.INVALID_PARAM, 'retention_days must be at least 1');
     }
-    db.setArtifactConfig('retention_days', String(val));
+    setArtifactConfig('retention_days', String(val));
     updates.push(`retention_days = ${val}`);
   }
 
@@ -415,11 +416,11 @@ function handleConfigureArtifactStorage(args) {
     if (!Number.isFinite(val) || val < 1) {
       return makeError(ErrorCodes.INVALID_PARAM, 'max_per_task must be at least 1');
     }
-    db.setArtifactConfig('max_per_task', String(val));
+    setArtifactConfig('max_per_task', String(val));
     updates.push(`max_per_task = ${val}`);
   }
 
-  const config = db.getArtifactConfig();
+  const config = getArtifactConfig();
 
   let output = `## Artifact Storage Configuration\n\n`;
 
@@ -463,7 +464,7 @@ async function handleExportArtifacts(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'output_path contains path traversal');
   }
 
-  const artifacts = db.listArtifacts(args.task_id);
+  const artifacts = listArtifacts(args.task_id);
 
   if (artifacts.length === 0) {
     return {

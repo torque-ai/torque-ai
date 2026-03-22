@@ -7,8 +7,9 @@
  */
 
 const crypto = require('crypto');
-const db = require('../../database');
+const { safeJsonParse } = require('../../db/event-tracking');
 const coordinationDb = require('../../db/coordination');
+const { getPrometheusMetrics, setRateLimit, setTaskQuota, getRoutingRules } = require('../../db/provider-routing-core');
 const serverConfig = require('../../config');
 const { validateObjectDepth, safeLimit, safeDate, requireTask, ErrorCodes, makeError } = require('../shared');
 
@@ -34,7 +35,7 @@ function handleRegisterAgent(args) {
     }
   }
 
-  const agent = db.registerAgent({ id: crypto.randomUUID(), name, capabilities: capabilities || [], max_concurrent: max_concurrent || 1, agent_type: agent_type || 'worker', priority: priority || 0, metadata });
+  const agent = coordinationDb.registerAgent({ id: crypto.randomUUID(), name, capabilities: capabilities || [], max_concurrent: max_concurrent || 1, agent_type: agent_type || 'worker', priority: priority || 0, metadata });
 
   let output = `## Agent Registered\n\n`;
   output += `**ID:** ${agent.id}\n`;
@@ -43,7 +44,7 @@ function handleRegisterAgent(args) {
   output += `**Status:** ${agent.status}\n`;
   output += `**Max Concurrent:** ${agent.max_concurrent}\n`;
   if (agent.capabilities && agent.capabilities.length > 0) {
-    const caps = Array.isArray(agent.capabilities) ? agent.capabilities : db.safeJsonParse(agent.capabilities, []);
+    const caps = Array.isArray(agent.capabilities) ? agent.capabilities : safeJsonParse(agent.capabilities, []);
     output += `**Capabilities:** ${caps.join(', ')}\n`;
   }
   output += `**Registered At:** ${agent.registered_at}\n`;
@@ -65,12 +66,12 @@ function handleUnregisterAgent(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Agent ID is required');
   }
 
-  const agent = db.getAgent(agent_id);
+  const agent = coordinationDb.getAgent(agent_id);
   if (!agent) {
     return makeError(ErrorCodes.AGENT_NOT_FOUND, `Agent not found: ${agent_id}`);
   }
 
-  const result = db.unregisterAgent(agent_id, reassign_tasks !== false);
+  const result = coordinationDb.unregisterAgent(agent_id, reassign_tasks !== false);
 
   let output = `## Agent Unregistered\n\n`;
   output += `**Agent:** ${agent.name} (${agent_id})\n`;
@@ -95,12 +96,12 @@ function handleAgentHeartbeat(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Agent ID is required');
   }
 
-  const agent = db.getAgent(agent_id);
+  const agent = coordinationDb.getAgent(agent_id);
   if (!agent) {
     return makeError(ErrorCodes.AGENT_NOT_FOUND, `Agent not found: ${agent_id}`);
   }
 
-  db.updateAgentHeartbeat(agent_id, current_load, status);
+  coordinationDb.updateAgentHeartbeat(agent_id, current_load, status);
 
   return {
     content: [{ type: 'text', text: `Heartbeat recorded for agent ${agent.name}` }]
@@ -115,7 +116,7 @@ function handleAgentHeartbeat(args) {
 function handleListAgents(args) {
   const { status, group_id, capability, limit } = args;
 
-  const agents = db.listAgents({ status, group_id, capability, limit: safeLimit(limit, 50) });
+  const agents = coordinationDb.listAgents({ status, group_id, capability, limit: safeLimit(limit, 50) });
 
   if (agents.length === 0) {
     return {
@@ -128,7 +129,7 @@ function handleListAgents(args) {
   output += `|------|------|--------|------|---------------|\n`;
 
   for (const agent of agents) {
-    const caps = Array.isArray(agent.capabilities) ? agent.capabilities : db.safeJsonParse(agent.capabilities, []);
+    const caps = Array.isArray(agent.capabilities) ? agent.capabilities : safeJsonParse(agent.capabilities, []);
     const capList = caps.length > 0 ? caps.slice(0, 3).join(', ') + (caps.length > 3 ? '...' : '') : '-';
     output += `| ${agent.name} | ${agent.agent_type} | ${agent.status} | ${agent.current_load}/${agent.max_concurrent} | ${capList} |\n`;
   }
@@ -150,7 +151,7 @@ function handleGetAgent(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Agent ID is required');
   }
 
-  const agent = db.getAgent(agent_id, include_metrics);
+  const agent = coordinationDb.getAgent(agent_id, include_metrics);
   if (!agent) {
     return makeError(ErrorCodes.AGENT_NOT_FOUND, `Agent not found: ${agent_id}`);
   }
@@ -164,7 +165,7 @@ function handleGetAgent(args) {
   output += `**Priority:** ${agent.priority}\n`;
 
   if (agent.capabilities) {
-    const caps = Array.isArray(agent.capabilities) ? agent.capabilities : db.safeJsonParse(agent.capabilities, []);
+    const caps = Array.isArray(agent.capabilities) ? agent.capabilities : safeJsonParse(agent.capabilities, []);
     output += `**Capabilities:** ${caps.join(', ') || 'none'}\n`;
   }
 
@@ -199,7 +200,7 @@ function handleUpdateAgent(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Agent ID is required');
   }
 
-  const agent = db.getAgent(agent_id);
+  const agent = coordinationDb.getAgent(agent_id);
   if (!agent) {
     return makeError(ErrorCodes.AGENT_NOT_FOUND, `Agent not found: ${agent_id}`);
   }
@@ -210,7 +211,7 @@ function handleUpdateAgent(args) {
   if (priority !== undefined) updates.priority = priority;
   if (status !== undefined) updates.status = status;
 
-  db.updateAgent(agent_id, updates);
+  coordinationDb.updateAgent(agent_id, updates);
 
   return {
     content: [{ type: 'text', text: `Agent ${agent.name} updated successfully` }]
@@ -234,12 +235,12 @@ function handleClaimTask(args) {
   const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const agent = db.getAgent(agent_id);
+  const agent = coordinationDb.getAgent(agent_id);
   if (!agent) {
     return makeError(ErrorCodes.AGENT_NOT_FOUND, `Agent not found: ${agent_id}`);
   }
 
-  const result = db.claimTask(task_id, agent_id, lease_seconds || 300);
+  const result = coordinationDb.claimTask(task_id, agent_id, lease_seconds || 300);
 
   if (result.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to claim task: ${result.error}`);
@@ -268,7 +269,7 @@ function handleRenewLease(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'claim_id is required');
   }
 
-  const result = db.renewLease(claim_id, extend_seconds || 300);
+  const result = coordinationDb.renewLease(claim_id, extend_seconds || 300);
 
   if (result.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to renew lease: ${result.error}`);
@@ -291,7 +292,7 @@ function handleReleaseTask(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'claim_id is required');
   }
 
-  const result = db.releaseTaskClaim(claim_id, reason || 'released', final_status);
+  const result = coordinationDb.releaseTaskClaim(claim_id, reason || 'released', final_status);
 
   if (result.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to release task: ${result.error}`);
@@ -314,7 +315,7 @@ function handleGetClaim(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id or claim_id is required');
   }
 
-  const claim = db.getClaim(task_id || claim_id);
+  const claim = coordinationDb.getClaim(task_id || claim_id);
 
   if (!claim) {
     return {
@@ -349,7 +350,7 @@ function handleGetClaim(args) {
 function handleListClaims(args) {
   const { agent_id, status, include_expired, limit } = args;
 
-  const claims = db.listClaims({ agent_id, status, include_expired, limit: safeLimit(limit, 50) });
+  const claims = coordinationDb.listClaims({ agent_id, status, include_expired, limit: safeLimit(limit, 50) });
 
   if (claims.length === 0) {
     return {
@@ -385,7 +386,7 @@ function handleCreateAgentGroup(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Group name is required');
   }
 
-  const group = db.createAgentGroup({ name, description, routing_strategy: routing_strategy || 'round_robin', max_agents });
+  const group = coordinationDb.createAgentGroup({ name, description, routing_strategy: routing_strategy || 'round_robin', max_agents });
 
   let output = `## Agent Group Created\n\n`;
   output += `**ID:** ${group.id}\n`;
@@ -412,7 +413,7 @@ function handleAddToGroup(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'agent_id and group_id are required');
   }
 
-  const result = db.addAgentToGroup(agent_id, group_id);
+  const result = coordinationDb.addAgentToGroup(agent_id, group_id);
 
   if (result.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to add to group: ${result.error}`);
@@ -435,7 +436,7 @@ function handleRemoveFromGroup(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'agent_id and group_id are required');
   }
 
-  db.removeAgentFromGroup(agent_id, group_id);
+  coordinationDb.removeAgentFromGroup(agent_id, group_id);
 
   return {
     content: [{ type: 'text', text: `Agent removed from group successfully` }]
@@ -454,7 +455,7 @@ function handleCreateRoutingRule(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'name, condition_type, condition_value, target_type, and target_value are required');
   }
 
-  const rule = db.createRoutingRule({ name, priority: priority || 0, condition_type, condition_value, target_type, target_value });
+  const rule = coordinationDb.createRoutingRule({ name, priority: priority || 0, condition_type, condition_value, target_type, target_value });
 
   let output = `## Routing Rule Created\n\n`;
   output += `**ID:** ${rule.id}\n`;
@@ -482,7 +483,7 @@ function handleListRoutingRules(args) {
   if (enabled_only) options.enabled = true;
   if (rule_type) options.rule_type = rule_type;
 
-  const rules = db.getRoutingRules(options);
+  const rules = getRoutingRules(options);
 
   if (rules.length === 0) {
     return {
@@ -607,7 +608,7 @@ function handleStealTask(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id and thief_agent_id are required');
   }
 
-  const result = db.stealTask(task_id, thief_agent_id, reason || 'manual');
+  const result = coordinationDb.stealTask(task_id, thief_agent_id, reason || 'manual');
 
   if (result.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to steal task: ${result.error}`);
@@ -637,7 +638,7 @@ function handleTriggerFailover(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'agent_id is required');
   }
 
-  const result = db.triggerFailover(agent_id, reassign_to);
+  const result = coordinationDb.triggerFailover(agent_id, reassign_to);
 
   if (result.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failover failed: ${result.error}`);
@@ -664,7 +665,7 @@ function handleTriggerFailover(args) {
 function handleGetStealingHistory(args) {
   const { victim_agent_id, thief_agent_id, since, limit } = args;
 
-  const history = db.getStealingHistory({ victim_agent_id, thief_agent_id, since: safeDate(since), limit: safeLimit(limit, 50) });
+  const history = coordinationDb.getStealingHistory({ victim_agent_id, thief_agent_id, since: safeDate(since), limit: safeLimit(limit, 50) });
 
   if (history.length === 0) {
     return {
@@ -709,7 +710,7 @@ function handleConfigureFailover(args) {
 
   if (Object.keys(updates).length === 0) {
     // Return current config
-    const config = db.getFailoverConfig();
+    const config = coordinationDb.getFailoverConfig();
     let output = `## Current Failover Configuration\n\n`;
     for (const [key, value] of Object.entries(config)) {
       output += `**${key}:** ${value}\n`;
@@ -719,7 +720,7 @@ function handleConfigureFailover(args) {
     };
   }
 
-  db.updateFailoverConfig(updates);
+  coordinationDb.updateFailoverConfig(updates);
 
   return {
     content: [{ type: 'text', text: `Failover configuration updated: ${Object.keys(updates).join(', ')}` }]
@@ -740,7 +741,7 @@ function handleAcquireLock(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'lock_name and agent_id are required');
   }
 
-  const result = db.acquireLock(lock_name, agent_id, ttl_seconds || 60);
+  const result = coordinationDb.acquireLock(lock_name, agent_id, ttl_seconds || 60);
 
   if (!result.acquired) {
     return {
@@ -765,7 +766,7 @@ function handleReleaseLock(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'lock_name and agent_id are required');
   }
 
-  const result = db.releaseLock(lock_name, agent_id);
+  const result = coordinationDb.releaseLock(lock_name, agent_id);
 
   if (result.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to release lock: ${result.error}`);
@@ -787,7 +788,7 @@ function handleReleaseLock(args) {
 function handleCoordinationDashboard(args) {
   const { time_range_hours } = args;
 
-  const dashboard = db.getCoordinationDashboard(time_range_hours || 24);
+  const dashboard = coordinationDb.getCoordinationDashboard(time_range_hours || 24);
 
   let output = `## Multi-Agent Coordination Dashboard\n\n`;
   output += `### Agent Summary\n\n`;
@@ -835,7 +836,7 @@ function handleCoordinationDashboard(args) {
  * @returns {Object} MCP response payload.
  */
 function handleExportMetricsPrometheus(_args) {
-  const metrics = db.getPrometheusMetrics();
+  const metrics = getPrometheusMetrics();
 
   return {
     content: [{
@@ -873,7 +874,7 @@ function handleRateLimitTasks(args) {
     }
   }
 
-  const rateLimit = db.setRateLimit({
+  const rateLimit = setRateLimit({
     id: `${project_id || 'global'}_${limit_type}`,
     project_id,
     limit_type,
@@ -919,7 +920,7 @@ function handleTaskQuotas(args) {
     else if (quota_type.includes('monthly')) period = 'monthly';
   }
 
-  const quota = db.setTaskQuota({
+  const quota = setTaskQuota({
     id: `${project_id || 'global'}_${quota_type}`,
     project_id,
     quota_type,

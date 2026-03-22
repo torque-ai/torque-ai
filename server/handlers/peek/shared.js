@@ -4,7 +4,9 @@ const os = require('os');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
-const db = require('../../database');
+const database = require('../../database');
+const { getWorkflow } = require('../../db/workflow-engine');
+const { getArtifactConfig } = require('../../db/task-metadata');
 const { ErrorCodes, makeError } = require('../shared');
 
 const BYTES_PER_KIB = 1024;
@@ -29,7 +31,7 @@ function resolvePeekTaskContext(args) {
   const taskId = typeof args?.__taskId === 'string' && args.__taskId.trim()
     ? args.__taskId.trim()
     : (typeof args?.task_id === 'string' && args.task_id.trim() ? args.task_id.trim() : null);
-  const task = taskId ? db.getTask(taskId) : null;
+  const task = taskId ? database.getTask(taskId) : null;
   if (taskId && !task) {
     throw new Error(`Task not found: ${taskId}`);
   }
@@ -38,7 +40,7 @@ function resolvePeekTaskContext(args) {
     ? args.__workflowId.trim()
     : (typeof args?.workflow_id === 'string' && args.workflow_id.trim() ? args.workflow_id.trim() : null);
   const workflowId = explicitWorkflowId || task?.workflow_id || null;
-  if (explicitWorkflowId && !db.getWorkflow(explicitWorkflowId)) {
+  if (explicitWorkflowId && !getWorkflow(explicitWorkflowId)) {
     throw new Error(`Workflow not found: ${explicitWorkflowId}`);
   }
 
@@ -51,7 +53,7 @@ function resolvePeekTaskContext(args) {
 }
 
 function getTorqueArtifactStorageRoot() {
-  const config = typeof db.getArtifactConfig === 'function' ? db.getArtifactConfig() : null;
+  const config = typeof getArtifactConfig === 'function' ? getArtifactConfig() : null;
   return config?.storage_path || path.join(os.homedir(), ...PEEK_ARTIFACT_STORAGE_ROOT);
 }
 
@@ -114,7 +116,7 @@ function resolvePeekHost(args) {
   } catch { /* fall through to legacy */ }
 
   if (args.host) {
-    const host = db.getPeekHost(args.host);
+    const host = database.getPeekHost(args.host);
     if (!host) {
       return {
         error: makeError(ErrorCodes.INVALID_PARAM, `Peek host not found: ${args.host}`),
@@ -135,9 +137,9 @@ function resolvePeekHost(args) {
   }
 
   let hosts = [];
-  if (typeof db.listPeekHosts === 'function') {
+  if (typeof database.listPeekHosts === 'function') {
     try {
-      hosts = db.listPeekHosts() || [];
+      hosts = database.listPeekHosts() || [];
     } catch (_err) {
       hosts = [];
     }
@@ -162,9 +164,9 @@ function resolvePeekHost(args) {
   }
 
   let defaultHost = null;
-  if (typeof db.getDefaultPeekHost === 'function') {
+  if (typeof database.getDefaultPeekHost === 'function') {
     try {
-      defaultHost = db.getDefaultPeekHost();
+      defaultHost = database.getDefaultPeekHost();
     } catch (_err) {
       defaultHost = null;
     }
