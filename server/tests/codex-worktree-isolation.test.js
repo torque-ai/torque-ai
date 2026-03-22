@@ -10,6 +10,14 @@
  *
  * Mocks: child_process.spawn (process-mock), git-worktree functions
  * Uses: setupE2eDb / teardownE2eDb for real DB + task-manager wiring
+ *
+ * Mocking strategy for spawn:
+ * - process-lifecycle.js captures spawn via destructuring at require-time:
+ *     const { spawn } = require('child_process')
+ * - Patching child_process.spawn in beforeEach is too late — the reference
+ *   is already bound. Instead, we monkey-patch child_process.spawn BEFORE
+ *   any module that destructures it is loaded (same pattern as
+ *   snapscope-handlers.test.js and worker-setup.js).
  */
 
 'use strict';
@@ -18,11 +26,20 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { createMockChild, simulateSuccess, simulateFailure } = require('./mocks/process-mock');
+
+// ─── Patch child_process.spawn BEFORE process-lifecycle.js is loaded ─────────
+// process-lifecycle.js does `const { spawn } = require('child_process')` at
+// require-time. We must replace spawn on the module object BEFORE that require
+// happens (triggered by setupE2eDb → task-manager → process-lifecycle).
+const childProcess = require('child_process');
+const _originalSpawn = childProcess.spawn;
+const spawnMock = vi.fn();
+childProcess.spawn = spawnMock;
+
+// Now it's safe to load e2e-helpers (which lazily loads task-manager in setupE2eDb)
 const { setupE2eDb, teardownE2eDb, createTestTask, waitForTaskStatus } = require('./e2e-helpers');
 
 let ctx;
-let spawnMock;
-let originalSpawn;
 let origOpenAIKey;
 
 // We mock the git-worktree module at require level
@@ -36,15 +53,13 @@ describe('Codex worktree isolation integration', () => {
     }
     ctx = setupE2eDb('codex-worktree');
 
-    // Mock child_process.spawn
-    const childProcess = require('child_process');
-    originalSpawn = childProcess.spawn;
-    spawnMock = vi.fn().mockImplementation(() => {
+    // Configure the spawn mock for this test (already installed on child_process)
+    spawnMock.mockReset();
+    spawnMock.mockImplementation(() => {
       const child = createMockChild();
       spawnMock._lastChild = child;
       return child;
     });
-    childProcess.spawn = spawnMock;
 
     // Set OPENAI_API_KEY so codex provider doesn't warn
     if (!process.env.OPENAI_API_KEY) {
@@ -84,10 +99,6 @@ describe('Codex worktree isolation integration', () => {
   });
 
   afterEach(async () => {
-    // Restore spawn
-    const childProcess = require('child_process');
-    childProcess.spawn = originalSpawn;
-
     // Restore git-worktree functions
     if (gitWorktreeMock) {
       const gitWorktree = require('../utils/git-worktree');
@@ -105,6 +116,8 @@ describe('Codex worktree isolation integration', () => {
   });
 
   afterAll(async () => {
+    // Restore the original spawn
+    childProcess.spawn = _originalSpawn;
     if (ctx) await teardownE2eDb(ctx);
   });
 

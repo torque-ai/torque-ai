@@ -6,37 +6,45 @@
  *
  * Pattern: setupE2eDb/teardownE2eDb + mock child_process.spawn via process-mock.
  * All tests use direct DB operations + task-manager calls with mocked spawn.
+ *
+ * Mocking strategy for spawn:
+ * - process-lifecycle.js captures spawn via destructuring at require-time:
+ *     const { spawn } = require('child_process')
+ * - Patching child_process.spawn in beforeEach is too late — the reference
+ *   is already bound. Instead, we monkey-patch child_process.spawn BEFORE
+ *   any module that destructures it is loaded (same pattern as
+ *   snapscope-handlers.test.js and worker-setup.js).
  */
 
 const os = require('os');
 const { v4: _uuidv4 } = require('uuid');
 const { createMockChild, simulateSuccess } = require('./mocks/process-mock');
+
+// ─── Patch child_process.spawn BEFORE process-lifecycle.js is loaded ─────────
+// process-lifecycle.js does `const { spawn } = require('child_process')` at
+// require-time. We must replace spawn on the module object BEFORE that require
+// happens (triggered by setupE2eDb → task-manager → process-lifecycle).
+const childProcess = require('child_process');
+const _originalSpawn = childProcess.spawn;
+const spawnMock = vi.fn();
+childProcess.spawn = spawnMock;
+
+// Now it's safe to load e2e-helpers (which lazily loads task-manager in setupE2eDb)
 const { setupE2eDb, resetE2eDb, teardownE2eDb, createTestTask } = require('./e2e-helpers');
 
 let ctx;
-let spawnMock;
-let originalSpawn;
 let origApiKey;
 const mockChildren = [];
 
 // Track all mock children so tests can drive them
 function installSpawnMock() {
-  const childProcess = require('child_process');
-  originalSpawn = childProcess.spawn;
-  spawnMock = vi.fn().mockImplementation(() => {
+  spawnMock.mockReset();
+  spawnMock.mockImplementation(() => {
     const child = createMockChild();
     mockChildren.push(child);
     spawnMock._lastChild = child;
     return child;
   });
-  childProcess.spawn = spawnMock;
-}
-
-function restoreSpawn() {
-  const childProcess = require('child_process');
-  if (originalSpawn) {
-    childProcess.spawn = originalSpawn;
-  }
 }
 
 beforeAll(() => {
@@ -60,10 +68,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  restoreSpawn();
+  // No need to restore spawn — it stays as our mock for the entire file
 });
 
 afterAll(async () => {
+  // Restore the original spawn
+  childProcess.spawn = _originalSpawn;
   if (origApiKey !== undefined) {
     process.env.OPENAI_API_KEY = origApiKey;
   } else {
