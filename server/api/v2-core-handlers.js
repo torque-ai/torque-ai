@@ -10,6 +10,9 @@
 
 const { randomUUID } = require('crypto');
 const db = require('../database');
+const { getTask, updateTaskStatus } = require('../db/task-core');
+const { getDefaultProvider, getProvider, listProviders } = require('../db/provider-routing-core');
+const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'api-server' });
 const remoteAgentHandlers = require('../handlers/remote-agent-handlers');
@@ -227,7 +230,7 @@ function sendV2SseEvent(res, eventName, eventData) {
 
 function resolveV2Task(taskId) {
   try {
-    const task = db.getTask(taskId);
+    const task = getTask(taskId);
     if (task) {
       return task;
     }
@@ -243,7 +246,7 @@ function getV2TaskStatusRow(taskId) {
 
 function recordV2TaskEvent(taskId, eventType, oldValue, newValue, eventData = {}) {
   try {
-    db.recordTaskEvent(taskId, eventType, oldValue, newValue, eventData);
+    recordTaskEvent(taskId, eventType, oldValue, newValue, eventData);
   } catch {
     // Event recording should not fail the request path.
   }
@@ -329,7 +332,7 @@ function validateV2TimeoutMs(payload, errors) {
 function getV2DefaultProviderForRequest(payload) {
   if (payload?.provider) return payload.provider;
   try {
-    return db.getDefaultProvider();
+    return getDefaultProvider();
   } catch {
     return null;
   }
@@ -521,7 +524,7 @@ async function handleV2TaskCancel(_req, res, context = {}, taskId = null, req = 
     if (_v2TaskManager) {
       _v2TaskManager.cancelTask(taskRow.id, 'Task cancelled by request');
     } else {
-      db.updateTaskStatus(taskRow.id, 'cancelled', {
+      updateTaskStatus(taskRow.id, 'cancelled', {
         error_output: 'Task cancelled by request',
       });
     }
@@ -578,7 +581,7 @@ async function handleV2TaskEvents(_req, res, context = {}, taskId = null, req = 
   sendV2SseHeaders(res, req);
 
   try {
-    const taskEvents = db.getTaskEvents(taskRow.id, { limit: 100 }) || [];
+    const taskEvents = getTaskEvents(taskRow.id, { limit: 100 }) || [];
     const rows = Array.isArray(taskEvents) ? taskEvents : [];
     const latestTaskPayload = buildV2TaskPayload(taskRow, requestId);
     const terminalStates = new Set(['completed', 'failed', 'cancelled']);
@@ -653,7 +656,7 @@ async function handleV2Inference(_req, res, context = {}, req = null) {
     }
 
     const providerId = validation.provider;
-    const provider = providerId ? db.getProvider?.(providerId) : null;
+    const provider = providerId ? getProvider?.(providerId) : null;
     if (!provider) {
       sendV2Error(
         res,
@@ -734,7 +737,7 @@ async function handleV2ProviderInference(_req, res, context = {}, providerId, re
       return;
     }
 
-    const provider = db.getProvider?.(decodedProviderId);
+    const provider = getProvider?.(decodedProviderId);
     if (!provider) {
       sendV2Error(
         res,
@@ -798,7 +801,7 @@ async function handleV2ProviderModels(_req, res, context = {}, providerId, req =
   }
 
   try {
-    const provider = db.getProvider?.(decodedProviderId);
+    const provider = getProvider?.(decodedProviderId);
     if (!provider) {
       sendV2DiscoveryError(
         res,
@@ -860,7 +863,7 @@ async function handleV2ProviderHealth(_req, res, context = {}, providerId, req =
   }
 
   try {
-    const provider = db.getProvider?.(decodedProviderId);
+    const provider = getProvider?.(decodedProviderId);
     if (!provider) {
       sendV2DiscoveryError(
         res,
@@ -904,7 +907,7 @@ async function handleV2ProviderHealth(_req, res, context = {}, providerId, req =
 async function handleV2ListProviders(_req, res, context = {}, req = null) {
   const requestId = context.requestId || req?.requestId || randomUUID();
   try {
-    const providers = Array.isArray(db.listProviders?.()) ? db.listProviders() : [];
+    const providers = Array.isArray(listProviders?.()) ? listProviders() : [];
     const defaultProviderId = getV2ProviderDefaultProvider();
     const descriptors = providers.map(provider => buildV2ProviderDescriptor(provider, defaultProviderId)).filter(Boolean);
 
@@ -943,7 +946,7 @@ function handleV2ProviderCapabilities(_req, res, context = {}, providerId, req =
   }
 
   try {
-    const provider = db.getProvider?.(decodedProviderId);
+    const provider = getProvider?.(decodedProviderId);
     if (!provider) {
       sendV2DiscoveryError(
         res,
@@ -999,7 +1002,7 @@ function handleV2ProviderDetail(_req, res, context = {}, providerId, req = null)
   }
 
   try {
-    const provider = db.getProvider?.(decodedProviderId);
+    const provider = getProvider?.(decodedProviderId);
     if (!provider) {
       sendV2DiscoveryError(
         res,

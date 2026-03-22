@@ -9,7 +9,10 @@
 
 const serverConfig = require('../config');
 const { API_KEY_ENV_VARS } = serverConfig;
-const db = require('../database');
+const { countTasks } = require('../db/task-core');
+const { getDefaultProvider, getProviderHealth, isProviderHealthy } = require('../db/provider-routing-core');
+const { listOllamaHosts, recordHostHealthCheck } = require('../db/host-management');
+const { getProviderStats } = require('../db/file-tracking');
 const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('../constants');
 const {
   getProviderCapabilityMatrix,
@@ -243,7 +246,7 @@ function getV2ProviderDefaultTimeoutMs(providerId) {
 
 function getV2ProviderQueueDepth(providerId) {
   try {
-    return Number(db.countTasks({ provider: providerId, status: 'queued' })) || 0;
+    return Number(countTasks({ provider: providerId, status: 'queued' })) || 0;
   } catch {
     return 0;
   }
@@ -251,7 +254,7 @@ function getV2ProviderQueueDepth(providerId) {
 
 function getV2ProviderDefaultProvider() {
   try {
-    return db.getDefaultProvider();
+    return getDefaultProvider();
   } catch {
     return null;
   }
@@ -259,7 +262,7 @@ function getV2ProviderDefaultProvider() {
 
 function getV2ProviderHealth(providerId) {
   try {
-    return db.getProviderHealth(providerId);
+    return getProviderHealth(providerId);
   } catch {
     return { successes: 0, failures: 0, failureRate: 0 };
   }
@@ -267,7 +270,7 @@ function getV2ProviderHealth(providerId) {
 
 function isV2ProviderHealthy(providerId) {
   try {
-    return db.isProviderHealthy(providerId);
+    return isProviderHealthy(providerId);
   } catch {
     return true;
   }
@@ -599,8 +602,8 @@ function mergeV2ModelDescriptors(descriptors) {
 
 function resolveV2OllamaHosts() {
   try {
-    const configuredHosts = Array.isArray(db.listOllamaHosts?.({ enabled: true }))
-      ? db.listOllamaHosts({ enabled: true })
+    const configuredHosts = Array.isArray(listOllamaHosts?.({ enabled: true }))
+      ? listOllamaHosts({ enabled: true })
       : [];
 
     if (configuredHosts.length > 0) {
@@ -634,12 +637,12 @@ function resolveV2OllamaHosts() {
 }
 
 function recordV2OllamaProbeResult(hostId, healthy, models = null) {
-  if (!hostId || typeof db.recordHostHealthCheck !== 'function') {
+  if (!hostId || typeof recordHostHealthCheck !== 'function') {
     return;
   }
 
   try {
-    db.recordHostHealthCheck(hostId, healthy, models);
+    recordHostHealthCheck(hostId, healthy, models);
   } catch {
     // Health snapshots should not fail the request path.
   }
@@ -768,7 +771,7 @@ function isV2ProviderApiKeyConfigured(providerId) {
 async function getV2ProviderHealthPayload(provider, providerId) {
   const providerStats = (() => {
     try {
-      return db.getProviderStats ? db.getProviderStats(providerId, 30) : null;
+      return getProviderStats ? getProviderStats(providerId, 30) : null;
     } catch {
       return null;
     }

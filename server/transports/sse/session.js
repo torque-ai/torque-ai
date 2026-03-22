@@ -8,7 +8,7 @@
  * Extracted from mcp-sse.js to keep the transport module under 1000 lines.
  */
 
-const db = require('../../database');
+const { getDbInstance } = require('../../database');
 const workflowEngine = require('../../db/workflow-engine');
 const serverConfig = require('../../config');
 const logger = require('../../logger').child({ component: 'mcp-sse:session' });
@@ -553,7 +553,7 @@ function persistSubscription(sessionId, session) {
       logger.warn(`[mcp-sse] Refusing to persist subscription for unowned session ${sessionId}`);
       return;
     }
-    const rawDb = db.getDbInstance && db.getDbInstance();
+    const rawDb = getDbInstance && getDbInstance();
     if (!rawDb) return;
     const eventTypes = JSON.stringify([...session.eventFilter]);
     const taskIds = session.taskFilter.size > 0 ? JSON.stringify([...session.taskFilter]) : null;
@@ -574,7 +574,7 @@ function persistSubscription(sessionId, session) {
 
 function restoreSubscription(sessionId) {
   try {
-    const rawDb = db.getDbInstance && db.getDbInstance();
+    const rawDb = getDbInstance && getDbInstance();
     if (!rawDb) return null;
     const row = rawDb.prepare(
       'SELECT event_types, task_id FROM task_event_subscriptions WHERE id = ? AND (expires_at IS NULL OR expires_at > ?)'
@@ -591,7 +591,7 @@ function restoreSubscription(sessionId) {
 
 function cleanExpiredSubscriptions() {
   try {
-    const rawDb = db.getDbInstance && db.getDbInstance();
+    const rawDb = getDbInstance && getDbInstance();
     if (!rawDb) return;
     rawDb.prepare("DELETE FROM task_event_subscriptions WHERE expires_at < ?").run(new Date().toISOString());
   } catch {

@@ -6,7 +6,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const database = require('../../database');
+const { createTask } = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
 const {
   ErrorCodes,
@@ -111,7 +111,7 @@ function handleCreateFeatureWorkflow(args) {
   // Step 1: Types (no deps)
   if (args.types_task) {
     const typesId = uuidv4();
-    database.createTask({
+    createTask({
       id: typesId,
       task_description: args.types_task,
       working_directory: wdir,
@@ -127,7 +127,7 @@ function handleCreateFeatureWorkflow(args) {
   // Step 2: Events (no deps, parallel with types)
   if (args.events_task) {
     const eventsId = uuidv4();
-    database.createTask({
+    createTask({
       id: eventsId,
       task_description: args.events_task,
       working_directory: wdir,
@@ -144,7 +144,7 @@ function handleCreateFeatureWorkflow(args) {
   if (args.data_task) {
     const dataId = uuidv4();
     const typesTask = tasks.find(t => t.step === 'types');
-    database.createTask({
+    createTask({
       id: dataId,
       task_description: args.data_task,
       working_directory: wdir,
@@ -170,7 +170,7 @@ function handleCreateFeatureWorkflow(args) {
     const dataTask = tasks.find(t => t.step === 'data');
     const eventsTask = tasks.find(t => t.step === 'events');
     const hasDeps = dataTask || eventsTask;
-    database.createTask({
+    createTask({
       id: systemId,
       task_description: args.system_task,
       working_directory: wdir,
@@ -201,7 +201,7 @@ function handleCreateFeatureWorkflow(args) {
   if (args.tests_task) {
     const testsId = uuidv4();
     const systemTask = tasks.find(t => t.step === 'system');
-    database.createTask({
+    createTask({
       id: testsId,
       task_description: args.tests_task,
       working_directory: wdir,
@@ -225,7 +225,7 @@ function handleCreateFeatureWorkflow(args) {
   if (args.wire_task) {
     const wireId = uuidv4();
     const systemTask = tasks.find(t => t.step === 'system');
-    database.createTask({
+    createTask({
       id: wireId,
       task_description: args.wire_task,
       working_directory: wdir,
@@ -255,7 +255,7 @@ function handleCreateFeatureWorkflow(args) {
         nodeId = `parallel-${nodeId}`;
       }
       const ptProvider = pt.provider || stepProviders.parallel;
-      database.createTask({
+      createTask({
         id: ptId,
         task_description: pt.task,
         working_directory: wdir,
