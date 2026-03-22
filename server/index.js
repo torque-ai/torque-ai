@@ -18,6 +18,7 @@ const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const db = require('./database'); // Phase 3: migrate to container.js init(deps) pattern
+const { defaultContainer } = require('./container');
 const serverConfig = require('./config');
 const taskManager = require('./task-manager');
 const { TASK_TIMEOUTS } = require('./constants');
@@ -580,6 +581,16 @@ function init() {
     debugLog(`Auth initialization error: ${err.message}`);
   }
 
+  // Register core singletons with DI container
+  if (!defaultContainer.has('db')) {
+    defaultContainer.registerValue('db', db);
+    defaultContainer.registerValue('eventBus', eventBus);
+    defaultContainer.registerValue('logger', logger);
+    defaultContainer.registerValue('serverConfig', serverConfig);
+    defaultContainer.registerValue('taskManager', taskManager);
+    defaultContainer.registerValue('dashboard', dashboard);
+  }
+
   // Initialize task-manager early deps (provider registry, config) now that DB is ready.
   // initSubModules() wires the extracted module graph; must run before queue processing.
   taskManager.initEarlyDeps();
@@ -596,6 +607,15 @@ function init() {
     logger.info('Slot-pull scheduler active');
   } else if (typeof slotPullScheduler.stopHeartbeat === 'function') {
     slotPullScheduler.stopHeartbeat();
+  }
+
+  // Boot the DI container — makes registered services available via container.get()
+  // boot() is internally idempotent — safe to call multiple times
+  try {
+    defaultContainer.boot();
+  } catch (err) {
+    logger.error(`Container boot failed: ${err.message}`);
+    // Non-fatal during migration — existing require() paths still work
   }
 
   // Initialize remote agent registry (needs raw better-sqlite3 instance)
