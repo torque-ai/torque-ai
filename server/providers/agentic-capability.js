@@ -18,7 +18,7 @@
 // These providers use their own execution paths and must never be routed through
 // the agentic tool-calling loop.
 
-const EXCLUDED_PROVIDERS = new Set(['hashline-ollama', 'aider-ollama', 'codex', 'claude-cli']);
+const EXCLUDED_PROVIDERS = new Set(['hashline-ollama', 'codex', 'claude-cli']);
 
 // ── Cloud providers known to support OpenAI-compatible tool calling ───────────
 

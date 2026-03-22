@@ -1,7 +1,7 @@
 /**
  * Unit tests for providers/execute-cli.js
  *
- * Tests: buildAiderOllamaCommand, buildClaudeCliCommand, buildCodexCommand,
+ * Tests: buildClaudeCliCommand, buildCodexCommand,
  * spawnAndTrackProcess lifecycle (stdout/stderr/close/error handlers).
  *
  * NOTE: The builder tests overlap with execution-builders.test.js, which
@@ -51,7 +51,6 @@ function defaultHelpers(overrides = {}) {
     checkBreakpoints: () => null,
     pauseTaskForDebug: vi.fn(),
     pauseTask: vi.fn(),
-    sanitizeAiderOutput: (o) => o || '',
     getActualModifiedFiles: () => [],
     runLLMSafeguards: () => ({ passed: true, issues: [] }),
     rollbackTaskChanges: () => true,
@@ -153,14 +152,8 @@ function clearHosts() {
   }
 }
 
-function resetAiderConfigs() {
-  db.setConfig('aider_edit_format', 'diff');
-  db.setConfig('aider_map_tokens', '0');
-  db.setConfig('aider_auto_commits', '0');
-  db.setConfig('aider_subtree_only', '1');
-  db.setConfig('aider_auto_switch_format', '0');
+function resetConfigs() {
   db.setConfig('proactive_format_selection_enabled', '0');
-  db.setConfig('aider_model_edit_formats', '');
   db.setConfig('ollama_model_settings', '');
   db.setConfig('ollama_host', 'http://localhost:11434');
 }
@@ -175,7 +168,7 @@ describe('execute-cli.js', () => {
 
   describe('buildCodexCommand', () => {
     beforeEach(() => {
-      resetAiderConfigs();
+      resetConfigs();
       clearHosts();
       mod.init(makeDeps());
     });
@@ -277,7 +270,7 @@ describe('execute-cli.js', () => {
 
   describe('buildClaudeCliCommand', () => {
     beforeEach(() => {
-      resetAiderConfigs();
+      resetConfigs();
       clearHosts();
       mod.init(makeDeps());
     });
@@ -348,244 +341,13 @@ describe('execute-cli.js', () => {
     });
   });
 
-  // ── buildAiderOllamaCommand ────────────────────────────────────
-
-  describe('buildAiderOllamaCommand', () => {
-    beforeEach(() => {
-      resetAiderConfigs();
-      clearHosts();
-      mod.init(makeDeps());
-    });
-
-    it('builds default aider command with expected args', () => {
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Patch a file',
-        model: 'qwen3:8b',
-        files: [],
-        retry_count: 0,
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result.finalArgs).toContain('--model');
-      expect(result.finalArgs).toContain('ollama/qwen3:8b');
-      expect(result.finalArgs).toContain('--edit-format');
-      expect(result.finalArgs).toContain('diff');
-      expect(result.finalArgs).toContain('--yes');
-      expect(result.finalArgs).toContain('--no-pretty');
-      expect(result.finalArgs).toContain('--exit');
-    });
-
-    it('uses model-specific edit format when configured', () => {
-      db.setConfig('aider_model_edit_formats', JSON.stringify({ 'qwen2.5-coder': 'whole' }));
-      mod.init(makeDeps());
-
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Fix code',
-        model: 'qwen2.5-coder:7b',
-        retry_count: 0,
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result.usedEditFormat).toBe('whole');
-    });
-
-    it('applies stall recovery format over model format', () => {
-      db.setConfig('aider_model_edit_formats', JSON.stringify({ 'qwen2.5-coder': 'whole' }));
-      mod.init(makeDeps());
-
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Fix code',
-        model: 'qwen2.5-coder:7b',
-        retry_count: 0,
-        metadata: JSON.stringify({ stallRecoveryEditFormat: 'diff' }),
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result.usedEditFormat).toBe('diff');
-    });
-
-    it('selects registered host and sets OLLAMA_API_BASE', () => {
-      const host = addHost({ name: 'host-a', url: 'http://10.0.0.5:11434' });
-      mod.init(makeDeps());
-
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Test host selection',
-        model: 'qwen2.5-coder:7b',
-        retry_count: 0,
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result.selectedOllamaHostId).toBe(host.id);
-      expect(result.envExtras.OLLAMA_API_BASE).toBe('http://10.0.0.5:11434');
-    });
-
-    it('sets LITELLM env vars', () => {
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Test env',
-        model: 'qwen3:8b',
-        retry_count: 0,
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result.envExtras.LITELLM_NUM_RETRIES).toBe('3');
-      expect(result.envExtras.LITELLM_REQUEST_TIMEOUT).toBe('120');
-    });
-
-    it('adds thinking-tokens flag for qwen3 models', () => {
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Test thinking',
-        model: 'qwen3:8b',
-        retry_count: 0,
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result.finalArgs).toContain('--thinking-tokens');
-      expect(result.finalArgs).toContain('0');
-      expect(result.finalArgs).toContain('--no-check-model-accepts-settings');
-    });
-
-    it('does not add thinking-tokens for non-thinking models', () => {
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Test no thinking',
-        model: 'codestral:22b',
-        retry_count: 0,
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result.finalArgs).not.toContain('--thinking-tokens');
-    });
-
-    it('adds resolved file paths to args', () => {
-      mod.init(makeDeps({
-        helpers: {
-          extractTargetFilesFromDescription: () => ['src/a.js'],
-          ensureTargetFilesExist: (wd, fps) => [...new Set(fps)].map((p) => path.resolve(wd, p)),
-        },
-      }));
-
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Fix src/a.js',
-        model: 'qwen3:8b',
-        files: ['src/b.js'],
-        retry_count: 0,
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', ['src/c.js']);
-
-      expect(result.finalArgs).toContain(path.resolve(testDir, 'src/a.js'));
-      expect(result.finalArgs).toContain(path.resolve(testDir, 'src/b.js'));
-      expect(result.finalArgs).toContain(path.resolve(testDir, 'src/c.js'));
-    });
-
-    it('returns requeued when VRAM is blocked', () => {
-      addHost();
-      mod.init(makeDeps({
-        helpers: {
-          isLargeModelBlockedOnHost: () => ({ blocked: true, reason: 'VRAM full' }),
-        },
-      }));
-
-      const taskId = randomUUID();
-      db.createTask({
-        id: taskId,
-        task_description: 'VRAM block test',
-        status: 'running',
-        provider: 'aider-ollama',
-        working_directory: testDir,
-      });
-
-      const task = {
-        id: taskId,
-        provider: 'aider-ollama',
-        task_description: 'VRAM block test',
-        model: 'qwen2.5-coder:7b',
-        retry_count: 0,
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result).toEqual(expect.objectContaining({ requeued: true }));
-    });
-
-    it('returns requeued when host slot reservation fails', () => {
-      addHost();
-      mod.init(makeDeps({
-        tryReserveHostSlotWithFallback: vi.fn(() => ({ success: false, reason: 'at capacity' })),
-      }));
-
-      const taskId = randomUUID();
-      db.createTask({
-        id: taskId,
-        task_description: 'Slot fail test',
-        status: 'running',
-        provider: 'aider-ollama',
-        working_directory: testDir,
-      });
-
-      const task = {
-        id: taskId,
-        provider: 'aider-ollama',
-        task_description: 'Slot fail test',
-        model: 'qwen2.5-coder:7b',
-        retry_count: 0,
-        error_output: '',
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result).toEqual(expect.objectContaining({ requeued: true }));
-    });
-
-    it('applies per-task tuning overrides to env', () => {
-      addHost({ url: 'http://10.0.0.1:11434' });
-      mod.init(makeDeps());
-
-      const task = {
-        id: randomUUID(),
-        provider: 'aider-ollama',
-        task_description: 'Tune test',
-        model: 'qwen2.5-coder:7b',
-        retry_count: 0,
-        metadata: JSON.stringify({ tuning_overrides: { num_ctx: 16384, num_gpu: 2 } }),
-        working_directory: testDir,
-      };
-      const result = mod.buildAiderOllamaCommand(task, '', []);
-
-      expect(result.envExtras.OLLAMA_NUM_CTX).toBe('16384');
-      expect(result.envExtras.OLLAMA_NUM_GPU).toBe('2');
-    });
-  });
-
   // ── spawnAndTrackProcess ───────────────────────────────────────
 
   describe('spawnAndTrackProcess', () => {
     const { createMockChild, simulateSuccess } = require('./mocks/process-mock');
 
     beforeEach(() => {
-      resetAiderConfigs();
+      resetConfigs();
       clearHosts();
       spawnMock.mockReset();
     });
@@ -670,7 +432,7 @@ describe('execute-cli.js', () => {
         id: taskId,
         task_description: 'CWD test',
         status: 'running',
-        provider: 'aider-ollama',
+        provider: 'codex',
         working_directory: testDir,
       });
 
@@ -683,7 +445,7 @@ describe('execute-cli.js', () => {
         usedEditFormat: null,
       };
 
-      mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'aider-ollama');
+      mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'codex');
 
       const spawnOpts = spawnMock.mock.calls[0][2];
       expect(spawnOpts.cwd).toBe(testDir);
@@ -703,7 +465,7 @@ describe('execute-cli.js', () => {
         id: taskId,
         task_description: 'Env test',
         status: 'running',
-        provider: 'aider-ollama',
+        provider: 'codex',
         working_directory: testDir,
       });
 
@@ -716,7 +478,7 @@ describe('execute-cli.js', () => {
         usedEditFormat: null,
       };
 
-      mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'aider-ollama');
+      mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'codex');
 
       const spawnOpts = spawnMock.mock.calls[0][2];
       expect(spawnOpts.env.OLLAMA_API_BASE).toBe('http://10.0.0.1:11434');

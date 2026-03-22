@@ -75,7 +75,6 @@ function createExecutionSubmoduleMocks() {
   };
   const cliMock = {
     init: vi.fn(),
-    buildAiderOllamaCommand: vi.fn((...args) => ({ source: 'cli:aider', args })),
     buildClaudeCliCommand: vi.fn((...args) => ({ source: 'cli:claude', args })),
     buildCodexCommand: vi.fn((...args) => ({ source: 'cli:codex', args })),
     spawnAndTrackProcess: vi.fn((...args) => ({ source: 'cli:spawn', args })),

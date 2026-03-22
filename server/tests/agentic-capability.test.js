@@ -78,12 +78,6 @@ describe('isAgenticCapable — excluded providers', () => {
     expect(result.reason).toContain('claude-cli');
   });
 
-  it('returns false for aider-ollama', () => {
-    const result = isAgenticCapable('aider-ollama', 'codestral:22b');
-    expect(result.capable).toBe(false);
-    expect(result.source).toBe('config');
-    expect(result.reason).toContain('aider-ollama');
-  });
 });
 
 describe('isAgenticCapable — whitelist (built-in)', () => {

@@ -151,36 +151,6 @@ namespace MyNamespace;
  * These wrap the task description with standardized safeguard instructions.
  */
 const DEFAULT_INSTRUCTION_TEMPLATES = {
-  // Template for aider with Ollama models
-  'aider-ollama': `## Task Instructions
-
-You are modifying code in an existing codebase. Follow these rules strictly:
-
-${BASE_LLM_RULES}
-
-### Code Quality:
-- Follow the existing code style and conventions in the project
-- Use proper error handling appropriate to the language
-- Include only necessary comments (avoid obvious comments)
-- Ensure all code compiles/parses correctly
-
-### Output Format (P66):
-- Output ONLY the file edits in the required format
-- Do NOT add usage examples, explanations, or extra code blocks after the file content
-- Any extra \`\`\` code blocks after the file edit will cause a parse error
-- NEVER use language tags like \`\`\`typescript or \`\`\`python after the filename — use bare \`\`\` only
-{TASK_TYPE_INSTRUCTIONS}
-### Your Task:
-{TASK_DESCRIPTION}
-
-### Files to modify:
-{FILES}
-{FILE_CONTEXT}
-### IMPORTANT — Completeness Check (P88):
-Re-read the task description above. Your implementation MUST include ALL requested features, methods, and behaviors — not just the primary ones. Missing ANY requirement will cause validation failure.
-
-Make the changes directly without asking questions.`,
-
   // Template for Claude CLI
   'claude-cli': `You are an autonomous coding agent. You MUST use your tools (Read, Write, Edit, Glob, Grep, Bash) to complete this task — do NOT respond conversationally.
 
@@ -254,7 +224,7 @@ function detectTaskTypes(taskDescription) {
 
 /**
  * Get the instruction template for a provider/model.
- * @param {string} provider - The provider (aider-ollama, claude-cli, codex)
+ * @param {string} provider - The provider (claude-cli, codex)
  * @param {string} model - Optional model name for model-specific templates
  * @returns {string} The instruction template
  */
@@ -365,22 +335,6 @@ function wrapWithInstructions(taskDescription, provider, model, context = {}) {
   // Fallback: if template lacks placeholder but context exists, append
   if (fileContextStr && wrapped.indexOf(fileContextStr) === -1) {
     wrapped += fileContextStr;
-  }
-
-  // Note: Thinking token suppression for qwen3/deepseek-r1 is handled via
-  // --thinking-tokens 0 in Aider CLI args (not in prompt — Aider intercepts /commands)
-
-  // P70: Thinking models (deepseek-r1, qwq) add explanatory text and code blocks
-  // after file edits, breaking Aider's whole-edit parser. Append a suffix instruction
-  // at the END of the prompt so it's the last thing the model reads before generating.
-  if (isThinkingModel(model) && provider === 'aider-ollama') {
-    wrapped += `
-
-### STOP — OUTPUT FORMAT REMINDER (P70):
-Your response MUST end immediately after the closing \`\`\` of the file content.
-Do NOT add usage examples, explanations, "can be used like this", or ANY text after the file edit.
-Extra text or code blocks after the file content will cause a PARSE ERROR and the task will FAIL.`;
-    logger.info(`[Prompt] Adding P70 thinking-model output suffix for ${model}`);
   }
 
   return wrapped;

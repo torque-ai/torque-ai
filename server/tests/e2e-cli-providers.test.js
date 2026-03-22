@@ -1,5 +1,5 @@
 /**
- * E2E Test: CLI-Based Providers (Codex, Claude-CLI, Aider-Ollama)
+ * E2E Test: CLI-Based Providers (Codex, Claude-CLI)
  *
  * Tests: startTask() → command build → spawn() (mocked) → stdout/stderr → close → DB update
  * Uses a mock child_process.spawn to control CLI execution without real binaries.
@@ -152,43 +152,6 @@ describe('E2E: CLI provider execution', () => {
     const spawnOpts = spawnMock.mock.calls[0][2]; // 3rd arg = options
     expect(spawnOpts).toBeDefined();
     expect(spawnOpts.cwd).toBe(testWorkDir);
-  });
-
-  it('Aider-Ollama: provider recorded correctly', async () => {
-    // Register a mock ollama host for aider
-    const { createMockOllama } = require('./mocks/ollama');
-    const mock = createMockOllama();
-    const info = await mock.start();
-    const { registerMockHost } = require('./e2e-helpers');
-    registerMockHost(ctx.db, info.url, ['qwen2.5-coder:7b']);
-
-    const taskId = createTestTask(ctx.db, {
-      description: 'Implement a sorting algorithm',
-      provider: 'aider-ollama',
-      model: 'qwen2.5-coder:7b',
-      workingDirectory: os.tmpdir(),
-    });
-
-    const startResult = ctx.tm.startTask(taskId);
-    if (startResult?.queued) {
-      const task = ctx.db.getTask(taskId);
-      expect(task.status).toBe('queued');
-      expect(task.provider).toBe('aider-ollama');
-      await mock.stop();
-      return;
-    }
-
-    // Aider tasks use spawn, so check if spawn was called
-    const child = spawnMock._lastChild;
-    expect(child).toBeDefined();
-    simulateSuccess(child, 'Applied changes\n');
-    await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 3000);
-
-    const task = ctx.db.getTask(taskId);
-    expect(['aider-ollama', 'ollama']).toContain(task.provider);
-    expect(['running', 'completed', 'failed', 'queued']).toContain(task.status);
-
-    await mock.stop();
   });
 
   it('Claude-CLI: provider sets up correctly', async () => {

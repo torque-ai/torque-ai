@@ -46,7 +46,7 @@ describe('Prompt tier templates', () => {
   it('adds small-model guidance for small models', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
-      'aider-ollama',
+      'ollama',
       'qwen2.5-coder:7b'
     );
 
@@ -57,7 +57,7 @@ describe('Prompt tier templates', () => {
   it('adds medium-model guidance for medium models', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
-      'aider-ollama',
+      'ollama',
       'qwen2.5-coder:14b'
     );
 
@@ -68,7 +68,7 @@ describe('Prompt tier templates', () => {
   it('does not add small or medium guidance for large models', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
-      'aider-ollama',
+      'ollama',
       'qwen2.5-coder:32b'
     );
 
@@ -79,7 +79,7 @@ describe('Prompt tier templates', () => {
   it('adds large-model guidance for 32B models', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
-      'aider-ollama',
+      'ollama',
       'qwen2.5-coder:32b'
     );
 

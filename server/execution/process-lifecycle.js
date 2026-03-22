@@ -569,7 +569,7 @@ function spawnAndTrackProcess(taskId, task, {
       cleanupProcessTracking(proc, taskId, deps.runningProcesses, deps.runningProcesses.stallAttempts);
 
       // If this was an Ollama-based task, invalidate health cache
-      if (provider === 'ollama' || provider === 'aider-ollama') {
+      if (provider === 'ollama') {
         db.invalidateOllamaHealth();
         logger.info(`[${provider}] Invalidated health cache due to process error`);
       }

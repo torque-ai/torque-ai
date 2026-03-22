@@ -1,8 +1,8 @@
 /**
- * providers/execute-cli.js — CLI builders + process lifecycle (aider-ollama, claude-cli, codex)
+ * providers/execute-cli.js — CLI builders for claude-cli and codex
  * Extracted from providers/execution.js Phase decomposition
  *
- * Contains buildAiderOllamaCommand, buildClaudeCliCommand, buildCodexCommand, spawnAndTrackProcess.
+ * Contains buildClaudeCliCommand, buildCodexCommand, spawnAndTrackProcess.
  * Uses init() dependency injection for database, dashboard, and task-manager internals.
  */
 
@@ -20,7 +20,6 @@ const { redactCommandArgs, redactSecrets } = require('../utils/sanitize');
 const gitWorktree = require('../utils/git-worktree');
 const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
-const aiderCommand = require('./aider-command');
 
 // Dependency injection
 let db = null;
@@ -66,18 +65,6 @@ function init(deps) {
   if (deps.taskCleanupGuard) _taskCleanupGuard = deps.taskCleanupGuard;
   if (deps.stallRecoveryAttempts) stallRecoveryAttempts = deps.stallRecoveryAttempts;
 
-  // Forward relevant deps to aider-command so buildAiderCommand/configureAiderHost work
-  aiderCommand.init({
-    db: deps.db,
-    dashboard: deps.dashboard,
-    wrapWithInstructions: deps.helpers?.wrapWithInstructions,
-    detectTaskTypes: deps.helpers?.detectTaskTypes,
-    isLargeModelBlockedOnHost: deps.helpers?.isLargeModelBlockedOnHost || deps.isLargeModelBlockedOnHost,
-    tryReserveHostSlotWithFallback: deps.tryReserveHostSlotWithFallback,
-    processQueue: deps.processQueue,
-    extractTargetFilesFromDescription: deps.helpers?.extractTargetFilesFromDescription,
-    ensureTargetFilesExist: deps.helpers?.ensureTargetFilesExist,
-  });
 }
 
 // Proxy helpers
@@ -85,34 +72,6 @@ function tryReserveHostSlotWithFallback(...args) { if (!_tryReserveHostSlotWithF
 function markTaskCleanedUp(...args) { if (!_markTaskCleanedUp) throw new Error('execute-cli not initialized'); return _markTaskCleanedUp(...args); }
 function processQueue(...args) { return _processQueue ? _processQueue(...args) : undefined; }
 function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cli not initialized'); return _finalizeTask(...args); }
-
-/**
- * Build aider-ollama CLI command specification.
- * Delegates to aider-command.js (buildAiderCommand + configureAiderHost) which
- * contains the canonical, fully-featured implementation including --no-detect-urls
- * and --timeout flags.
- *
- * @param {Object} task - Full task object
- * @param {string} resolvedFileContext - Pre-resolved file context string
- * @param {string[]} resolvedFilePaths - Pre-resolved file path array
- * @returns {{ cliPath, finalArgs, stdinPrompt, envExtras, selectedOllamaHostId, usedEditFormat } | { requeued: true, reason: string }}
- */
-function buildAiderOllamaCommand(task, resolvedFileContext, resolvedFilePaths) {
-  const taskId = task.id;
-
-  // Build CLI args via canonical aider-command module
-  const cmdResult = aiderCommand.buildAiderCommand(task, resolvedFileContext, resolvedFilePaths);
-  const { cliPath, finalArgs, usedEditFormat } = cmdResult;
-
-  // Configure host selection, VRAM guard, slot reservation, and env vars
-  const envExtras = {};
-  const hostResult = aiderCommand.configureAiderHost(task, taskId, envExtras);
-  if (hostResult.requeued) {
-    return { requeued: true, reason: hostResult.result?.reason || 'requeued' };
-  }
-
-  return { cliPath, finalArgs, stdinPrompt: null, envExtras, selectedOllamaHostId: hostResult.selectedHostId, usedEditFormat };
-}
 
 /**
  * Build claude-cli command specification.
@@ -227,7 +186,7 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
 
 /**
  * Spawn a CLI process and manage its lifecycle (stdout/stderr/close/error handlers).
- * Unified handler for aider-ollama, claude-cli, and codex providers.
+ * Unified handler for claude-cli and codex providers.
  *
  * @param {string} taskId - Task ID
  * @param {Object} task - Full task object
@@ -816,7 +775,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
       stallRecoveryAttempts.delete(taskId);
     }
 
-    if (provider === 'ollama' || provider === 'aider-ollama') {
+    if (provider === 'ollama') {
       db.invalidateOllamaHealth();
       logger.info(`[${provider}] Invalidated health cache due to process error`);
     }
@@ -889,7 +848,6 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
 module.exports = {
   init,
-  buildAiderOllamaCommand,
   buildClaudeCliCommand,
   buildCodexCommand,
   spawnAndTrackProcess,

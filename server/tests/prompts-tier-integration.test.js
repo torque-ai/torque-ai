@@ -43,7 +43,7 @@ describe('Prompt tier integration', () => {
     const fileContext = '~'.repeat(2600);
     const result = prompts.wrapWithInstructions(
       'Fix helper behavior in server/utils/helper.js',
-      'aider-ollama',
+      'ollama',
       'qwen2.5-coder:7b',
       { fileContext, files: ['server/utils/helper.js'] }
     );
@@ -57,7 +57,7 @@ describe('Prompt tier integration', () => {
     const fileContext = '!'.repeat(7000);
     const result = prompts.wrapWithInstructions(
       'Refine task orchestration in server/task-manager.js',
-      'aider-ollama',
+      'ollama',
       'qwen2.5-coder:14b',
       { fileContext, files: ['server/task-manager.js'] }
     );
@@ -71,7 +71,7 @@ describe('Prompt tier integration', () => {
     const fileContext = '#'.repeat(18000);
     const result = prompts.wrapWithInstructions(
       'Refactor provider prompt assembly across server/providers/prompts.js',
-      'aider-ollama',
+      'ollama',
       'qwen2.5-coder:32b',
       { fileContext, files: ['server/providers/prompts.js'] }
     );
@@ -111,7 +111,7 @@ describe('Prompt tier integration', () => {
     const fileContext = '?'.repeat(4500);
     const result = prompts.wrapWithInstructions(
       'Patch the unknown model path in server/providers/prompts.js',
-      'aider-ollama',
+      'ollama',
       'gpt-4',
       { fileContext, files: ['server/providers/prompts.js'] }
     );

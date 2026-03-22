@@ -52,14 +52,6 @@ describe('Prompts Module', () => {
   // ── DEFAULT_INSTRUCTION_TEMPLATES ─────────────────────────
 
   describe('DEFAULT_INSTRUCTION_TEMPLATES', () => {
-    it('has aider-ollama template with placeholder tokens', () => {
-      const tmpl = prompts.DEFAULT_INSTRUCTION_TEMPLATES['aider-ollama'];
-      expect(tmpl).toBeDefined();
-      expect(tmpl).toContain('{TASK_DESCRIPTION}');
-      expect(tmpl).toContain('{FILES}');
-      expect(tmpl).toContain('{TASK_TYPE_INSTRUCTIONS}');
-    });
-
     it('has claude-cli template', () => {
       expect(prompts.DEFAULT_INSTRUCTION_TEMPLATES['claude-cli']).toBeDefined();
       expect(prompts.DEFAULT_INSTRUCTION_TEMPLATES['claude-cli']).toContain('{TASK_DESCRIPTION}');
@@ -164,29 +156,29 @@ describe('Prompts Module', () => {
   describe('getInstructionTemplate', () => {
     it('returns model-specific template from db when available', () => {
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'instruction_template_aider-ollama_gemma3:4b') return 'model-specific-template';
+        if (key === 'instruction_template_claude-cli_gemma3:4b') return 'model-specific-template';
         return null;
       });
 
-      const result = prompts.getInstructionTemplate('aider-ollama', 'gemma3:4b');
+      const result = prompts.getInstructionTemplate('claude-cli', 'gemma3:4b');
       expect(result).toBe('model-specific-template');
-      expect(mockDb.getConfig).toHaveBeenCalledWith('instruction_template_aider-ollama_gemma3:4b');
+      expect(mockDb.getConfig).toHaveBeenCalledWith('instruction_template_claude-cli_gemma3:4b');
     });
 
     it('falls back to provider-specific template from db', () => {
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'instruction_template_aider-ollama') return 'provider-specific-template';
+        if (key === 'instruction_template_claude-cli') return 'provider-specific-template';
         return null;
       });
 
-      const result = prompts.getInstructionTemplate('aider-ollama', 'qwen3:8b');
+      const result = prompts.getInstructionTemplate('claude-cli', 'qwen3:8b');
       expect(result).toBe('provider-specific-template');
     });
 
     it('falls back to default template when db has no overrides', () => {
       mockDb.getConfig.mockReturnValue(null);
-      const result = prompts.getInstructionTemplate('aider-ollama', 'qwen3:8b');
-      expect(result).toBe(prompts.DEFAULT_INSTRUCTION_TEMPLATES['aider-ollama']);
+      const result = prompts.getInstructionTemplate('claude-cli', 'qwen3:8b');
+      expect(result).toBe(prompts.DEFAULT_INSTRUCTION_TEMPLATES['claude-cli']);
     });
 
     it('falls back to codex template for unknown provider', () => {
@@ -239,7 +231,7 @@ describe('Prompts Module', () => {
     it('replaces {FILES} placeholder with provided file list', () => {
       const result = prompts.wrapWithInstructions(
         'Update code',
-        'aider-ollama',
+        'claude-cli',
         null,
         { files: ['src/app.ts', 'src/utils.ts'] }
       );
@@ -248,14 +240,14 @@ describe('Prompts Module', () => {
     });
 
     it('replaces {FILES} with default text when no files provided', () => {
-      const result = prompts.wrapWithInstructions('Update code', 'aider-ollama', null, {});
+      const result = prompts.wrapWithInstructions('Update code', 'claude-cli', null, {});
       expect(result).toContain('As specified in the task');
     });
 
     it('includes task type instructions for detected types', () => {
       const result = prompts.wrapWithInstructions(
         'Add xml doc comments to Service.cs',
-        'aider-ollama',
+        'claude-cli',
         null
       );
       expect(result).toContain('XML DOCUMENTATION RULES');
@@ -264,7 +256,7 @@ describe('Prompts Module', () => {
     it('includes small-model guidance for small models', () => {
       const result = prompts.wrapWithInstructions(
         'Fix a bug in helper.js',
-        'aider-ollama',
+        'ollama',
         'gemma3:4b'
       );
       expect(result).toContain('SMALL MODEL CONSTRAINTS');
@@ -273,7 +265,7 @@ describe('Prompts Module', () => {
     it('does not include small-model guidance for large models', () => {
       const result = prompts.wrapWithInstructions(
         'Fix a bug in helper.js',
-        'aider-ollama',
+        'ollama',
         'qwen2.5-coder:32b'
       );
       expect(result).not.toContain('SMALL MODEL CONSTRAINTS');
@@ -282,43 +274,15 @@ describe('Prompts Module', () => {
     it('includes medium-model guidance for medium models', () => {
       const result = prompts.wrapWithInstructions(
         'Fix a bug in helper.js',
-        'aider-ollama',
+        'ollama',
         'deepseek-r1:14b'
       );
       expect(result).toContain('MEDIUM MODEL GUIDANCE');
     });
 
-    it('adds P70 thinking model suffix for aider-ollama with deepseek-r1', () => {
-      const result = prompts.wrapWithInstructions(
-        'Refactor the module',
-        'aider-ollama',
-        'deepseek-r1:14b'
-      );
-      expect(result).toContain('STOP — OUTPUT FORMAT REMINDER (P70)');
-      expect(result).toContain('PARSE ERROR');
-    });
-
-    it('does not add P70 suffix for non-thinking models', () => {
-      const result = prompts.wrapWithInstructions(
-        'Refactor the module',
-        'aider-ollama',
-        'qwen3:8b'
-      );
-      expect(result).not.toContain('P70');
-    });
-
-    it('does not add P70 suffix for thinking model on non-aider provider', () => {
-      const result = prompts.wrapWithInstructions(
-        'Refactor the module',
-        'codex',
-        'deepseek-r1:14b'
-      );
-      expect(result).not.toContain('P70');
-    });
-
     it('appends file context when template has {FILE_CONTEXT} placeholder', () => {
       const ctx = { fileContext: '\n### File Context:\nLine 1: import foo\n' };
-      const result = prompts.wrapWithInstructions('Update code', 'aider-ollama', null, ctx);
+      const result = prompts.wrapWithInstructions('Update code', 'claude-cli', null, ctx);
       expect(result).toContain('### File Context:');
     });
 
@@ -337,7 +301,7 @@ describe('Prompts Module', () => {
       const fileContext = 'x'.repeat(2200);
       const result = prompts.wrapWithInstructions(
         'Update code',
-        'aider-ollama',
+        'ollama',
         'gemma3:4b',
         { fileContext }
       );
@@ -365,7 +329,7 @@ describe('Prompts Module', () => {
       const fileContext = 'y'.repeat(6500);
       const result = prompts.wrapWithInstructions(
         'Update code',
-        'aider-ollama',
+        'ollama',
         'deepseek-r1:14b',
         { fileContext }
       );
@@ -377,7 +341,7 @@ describe('Prompts Module', () => {
       const fileContext = 'z'.repeat(4300);
       const result = prompts.wrapWithInstructions(
         'Update code',
-        'aider-ollama',
+        'ollama',
         'gpt-4',
         { fileContext }
       );

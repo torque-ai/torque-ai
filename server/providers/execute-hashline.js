@@ -1027,10 +1027,10 @@ async function executeHashlineOllamaTask(task) {
         db.recordFormatSuccess(ollamaModel, editFormat, false, failureReason, duration);
         if (selectedHostId) { db.decrementHostTasks(selectedHostId); selectedHostId = null; }
 
-        // Syntax gate rejection: try hashline-lite before falling back to aider-ollama
+        // Syntax gate rejection: try hashline-lite before escalating to tiered fallback
         if (hasSyntaxGateReject) {
           if (editFormat === 'hashline') {
-            // Standard hashline failed syntax gate — try hashline-lite before aider
+            // Standard hashline failed syntax gate — try hashline-lite first
             logger.info(`[HashlineOllama] Syntax gate rejected ${editFormat} for task ${taskId.slice(0,8)} — retrying with hashline-lite`);
             let currentMeta;
             try { currentMeta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {}); }
@@ -1048,16 +1048,9 @@ async function executeHashlineOllamaTask(task) {
             return;
           }
 
-          // Hashline-lite also failed syntax gate — fall back to aider-ollama
-          logger.info(`[HashlineOllama] Syntax gate rejected ${editFormat} for task ${taskId.slice(0,8)} — falling back to aider-ollama`);
-          db.updateTaskStatus(taskId, 'queued', {
-            _provider_switch_reason: `hashline_ollama_syntax_gate_${editFormat}_to_aider_ollama`,
-            provider: 'aider-ollama',
-            pid: null, started_at: null, ollama_host_id: null,
-            error_output: (task.error_output || '') + `\nSyntax gate rejected ${editFormat} edits: ${failedFiles}. Falling back to aider-ollama.`
-          });
-          dashboard.notifyTaskUpdated(taskId);
-          setTimeout(() => processQueue(), 50);
+          // Hashline-lite also failed syntax gate — escalate to tiered fallback
+          logger.info(`[HashlineOllama] Syntax gate rejected ${editFormat} for task ${taskId.slice(0,8)} — escalating to tiered fallback`);
+          tryHashlineTieredFallback(taskId, task, `syntax gate rejected ${editFormat} edits: ${failedFiles}`);
           return;
         }
 
