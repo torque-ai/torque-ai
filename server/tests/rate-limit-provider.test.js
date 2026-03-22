@@ -36,50 +36,50 @@ beforeEach(() => {
 
 describe('checkRateLimit — provider isolation', () => {
   it('running tasks from provider B do not count against provider A concurrent limit', () => {
-    // Set concurrent limit of 2 for aider-ollama
-    mod.setRateLimit('aider-ollama', 'concurrent', 2, 60, true);
+    // Set concurrent limit of 2 for hashline-ollama
+    mod.setRateLimit('hashline-ollama', 'concurrent', 2, 60, true);
 
     // Insert 2 running tasks for a DIFFERENT provider (codex)
     insertRunningTask('task-codex-1', 'codex');
     insertRunningTask('task-codex-2', 'codex');
 
-    // aider-ollama has 0 running tasks — should be allowed
-    const result = mod.checkRateLimit('aider-ollama');
+    // hashline-ollama has 0 running tasks — should be allowed
+    const result = mod.checkRateLimit('hashline-ollama');
     expect(result.allowed).toBe(true);
   });
 
   it('rate limit triggers only when the specific provider hits its limit', () => {
-    // Set concurrent limit of 2 for aider-ollama
-    mod.setRateLimit('aider-ollama', 'concurrent', 2, 60, true);
+    // Set concurrent limit of 2 for hashline-ollama
+    mod.setRateLimit('hashline-ollama', 'concurrent', 2, 60, true);
 
-    // Insert 2 running tasks for aider-ollama itself
-    insertRunningTask('task-aider-1', 'aider-ollama');
-    insertRunningTask('task-aider-2', 'aider-ollama');
+    // Insert 2 running tasks for hashline-ollama itself
+    insertRunningTask('task-hashline-1', 'hashline-ollama');
+    insertRunningTask('task-hashline-2', 'hashline-ollama');
 
     // Also insert running tasks for another provider — should not matter
     insertRunningTask('task-codex-1', 'codex');
     insertRunningTask('task-codex-2', 'codex');
     insertRunningTask('task-codex-3', 'codex');
 
-    // aider-ollama is at its limit of 2 — should be blocked
-    const result = mod.checkRateLimit('aider-ollama');
+    // hashline-ollama is at its limit of 2 — should be blocked
+    const result = mod.checkRateLimit('hashline-ollama');
     expect(result.allowed).toBe(false);
     expect(result.reason).toMatch(/Concurrent limit reached \(2\/2\)/);
   });
 
   it('each provider has its own independent concurrent limit', () => {
-    mod.setRateLimit('aider-ollama', 'concurrent', 1, 60, true);
+    mod.setRateLimit('hashline-ollama', 'concurrent', 1, 60, true);
     mod.setRateLimit('codex', 'concurrent', 3, 60, true);
 
-    // aider-ollama is at its limit (1 running)
-    insertRunningTask('task-aider-1', 'aider-ollama');
+    // hashline-ollama is at its limit (1 running)
+    insertRunningTask('task-hashline-1', 'hashline-ollama');
     // codex has 2 running tasks — still under its limit of 3
     insertRunningTask('task-codex-1', 'codex');
     insertRunningTask('task-codex-2', 'codex');
 
-    const aiderResult = mod.checkRateLimit('aider-ollama');
-    expect(aiderResult.allowed).toBe(false);
-    expect(aiderResult.reason).toMatch(/Concurrent limit reached \(1\/1\)/);
+    const hashlineResult = mod.checkRateLimit('hashline-ollama');
+    expect(hashlineResult.allowed).toBe(false);
+    expect(hashlineResult.reason).toMatch(/Concurrent limit reached \(1\/1\)/);
 
     const codexResult = mod.checkRateLimit('codex');
     expect(codexResult.allowed).toBe(true);
@@ -91,7 +91,7 @@ describe('checkRateLimit — provider isolation', () => {
     // Many tasks running for other providers
     for (let i = 0; i < 5; i++) {
       insertRunningTask(`task-codex-${i}`, 'codex');
-      insertRunningTask(`task-aider-${i}`, 'aider-ollama');
+      insertRunningTask(`task-hashline-${i}`, 'hashline-ollama');
     }
 
     // hashline-ollama has 0 running tasks — should be allowed

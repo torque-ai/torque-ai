@@ -4,7 +4,7 @@
  * Task Utilities
  *
  * Extracted from task-manager.js — pure utility functions for task metadata
- * parsing, token estimation, shell escaping, and aider output sanitization.
+ * parsing, token estimation, shell escaping, and output sanitization.
  *
  * No dependencies — these are stateless pure functions.
  */

@@ -182,7 +182,7 @@ async function runHostHealthChecks() {
         if (result.healthy && result.models && result.models.length > 0) {
           try {
             const registry = require('../models/registry');
-            const ollamaProviders = ['ollama', 'hashline-ollama', 'aider-ollama'];
+            const ollamaProviders = ['ollama', 'hashline-ollama'];
             for (const provider of ollamaProviders) {
               const sync = registry.syncModelsFromHealthCheck(provider, host.id, result.models);
               if (sync.new.length > 0) {

@@ -124,14 +124,7 @@ describe('provider-tuning handlers', () => {
       expect(db.setConfig).toHaveBeenCalledWith('ollama_mirostat', '2');
     });
 
-    it('returns error for aider_map_tokens out of range', () => {
-      const r1 = handlers.handleSetLlmTuning({ aider_map_tokens: 256 });
-      expect(r1.isError).toBe(true);
-      expect(r1.content[0].text).toContain('aider_map_tokens must be between 512 and 4096');
-      const r2 = handlers.handleSetLlmTuning({ aider_map_tokens: 8192 });
-      expect(r2.isError).toBe(true);
-      expect(r2.content[0].text).toContain('aider_map_tokens must be between 512 and 4096');
-    });
+    // aider_map_tokens test removed — aider provider no longer exists
 
     it('returns error for mirostat_tau out of range', () => {
       const result = handlers.handleSetLlmTuning({ mirostat_tau: 0.5 });
@@ -233,13 +226,7 @@ describe('provider-tuning handlers', () => {
       expect(db.setConfig).toHaveBeenCalledWith('ollama_auto_start_enabled', '1');
     });
 
-    it('sets aider parameters', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
-
-      handlers.handleSetLlmTuning({ aider_edit_format: 'whole', aider_auto_commits: false });
-      expect(db.setConfig).toHaveBeenCalledWith('aider_edit_format', 'whole');
-      expect(db.setConfig).toHaveBeenCalledWith('aider_auto_commits', '0');
-    });
+    // 'sets aider parameters' test removed — aider provider no longer exists
 
     it('applies preset then overrides with explicit params', () => {
       vi.spyOn(db, 'getConfig').mockImplementation((key) => {
@@ -614,7 +601,7 @@ describe('provider-tuning handlers', () => {
         template: 'Do {TASK_DESCRIPTION}'
       });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Invalid provider. Must be one of: aider-ollama, claude-cli, codex');
+      expect(result.content[0].text).toContain('Invalid provider. Must be one of: hashline-ollama, claude-cli, codex');
     });
 
     it('returns error when template missing {TASK_DESCRIPTION} placeholder', () => {
@@ -642,14 +629,14 @@ describe('provider-tuning handlers', () => {
 
       const template = 'Model-specific: {TASK_DESCRIPTION}';
       const result = handlers.handleSetInstructionTemplate({
-        provider: 'aider-ollama',
+        provider: 'hashline-ollama',
         model: 'qwen3:8b',
         template
       });
       const text = result.content[0].text;
 
-      expect(text).toContain('aider-ollama (model: qwen3:8b)');
-      expect(db.setConfig).toHaveBeenCalledWith('instruction_template_aider-ollama_qwen3:8b', template);
+      expect(text).toContain('hashline-ollama (model: qwen3:8b)');
+      expect(db.setConfig).toHaveBeenCalledWith('instruction_template_hashline-ollama_qwen3:8b', template);
     });
   });
 

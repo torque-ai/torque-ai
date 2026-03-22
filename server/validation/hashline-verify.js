@@ -5,7 +5,7 @@
  *
  * Extracted from task-manager.js (Phase 10B) — verifies hashline references
  * in task output against actual file content and attempts fuzzy SEARCH/REPLACE
- * repair for failed aider edits.
+ * repair for failed edits.
  *
  * Uses init() dependency injection for hashline parser and post-task functions.
  */
@@ -102,11 +102,11 @@ function verifyHashlineReferences(taskId, output, workingDirectory) {
 }
 
 /**
- * Attempt fuzzy repair of a failed Aider SEARCH/REPLACE block.
+ * Attempt fuzzy repair of a failed SEARCH/REPLACE block.
  * Parses the failed SEARCH block from output, fuzzy-matches against actual file content,
  * and applies the corrected edit if similarity >= 80%.
  * @param {string} taskId - Task ID
- * @param {string} output - Aider output containing failed SEARCH block
+ * @param {string} output - Task output containing failed SEARCH block
  * @param {string} workingDirectory - Working directory
  * @returns {{ repaired: boolean, file: string|null, similarity: number }}
  */

@@ -714,7 +714,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('routes aider-ollama review tasks to direct ollama', () => {
+  it('routes hashline-ollama review tasks to direct ollama', () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -728,7 +728,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     });
 
     const id = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'review the code and report any bugs found',
     });
     try {
@@ -743,7 +743,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('keeps aider-ollama for edit/fix tasks (not review)', () => {
+  it('keeps hashline-ollama for edit/fix tasks (not review)', () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -756,24 +756,24 @@ describe('resolveProviderRouting (via startTask)', () => {
     });
 
     const id = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'fix the login bug and add error handling',
     });
 
     try {
       tm.startTask(id);
     } catch {
-      // Will fail trying to execute aider-ollama (no real binary)
+      // Will fail trying to execute hashline-ollama (no real binary)
     }
 
-    // Provider should remain aider-ollama since it's an edit task
+    // Provider should remain hashline-ollama since it's an edit task
     const task = db.getTask(id);
-    expect(task.provider).toBe('aider-ollama');
+    expect(task.provider).toBe('hashline-ollama');
 
     budgetSpy.mockRestore();
   });
 
-  it('keeps aider-ollama review tasks when user_provider_override is set', () => {
+  it('keeps hashline-ollama review tasks when user_provider_override is set', () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -786,7 +786,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     });
 
     const id = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'review the code and report any bugs found',
       metadata: JSON.stringify({ user_provider_override: true }),
     });
@@ -796,9 +796,9 @@ describe('resolveProviderRouting (via startTask)', () => {
       // May fail in execution
     }
 
-    // Provider should remain aider-ollama since user explicitly chose it
+    // Provider should remain hashline-ollama since user explicitly chose it
     const task = db.getTask(id);
-    expect(task.provider).toBe('aider-ollama');
+    expect(task.provider).toBe('hashline-ollama');
 
     budgetSpy.mockRestore();
   });

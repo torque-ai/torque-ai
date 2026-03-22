@@ -5,7 +5,7 @@
  *
  * Extracted from task-manager.js — functions that build file context blocks,
  * detect JS/TS function boundaries, create stub target files, and parse
- * aider output for edit detection.
+ * task output for edit detection.
  *
  * Uses init() dependency injection to receive server config and enrichment refs.
  */
@@ -255,7 +255,7 @@ function ensureTargetFilesExist(workingDir, filePaths) {
     // Safety: ensure the resolved path is inside the working directory
     const rel = path.relative(path.resolve(workingDir), absPath);
     if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      logger.warn(`[Aider] Skipping target file outside working dir: ${relPath}`);
+      logger.warn(`[FileContext] Skipping target file outside working dir: ${relPath}`);
       continue;
     }
 
@@ -278,11 +278,11 @@ function ensureTargetFilesExist(workingDir, filePaths) {
           stub = '// Placeholder\n';
         }
         fs.writeFileSync(absPath, stub, 'utf8');
-        logger.info(`[Aider] Created stub file: ${relPath}`);
+        logger.info(`[FileContext] Created stub file: ${relPath}`);
       }
       resolvedPaths.push(absPath);
     } catch (e) {
-      logger.warn(`[Aider] Failed to ensure file exists: ${relPath} — ${e.message}`);
+      logger.warn(`[FileContext] Failed to ensure file exists: ${relPath} — ${e.message}`);
     }
   }
 

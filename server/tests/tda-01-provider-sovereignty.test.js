@@ -394,7 +394,7 @@ describe('TDA-01: Queue processing — overflow sovereignty', () => {
 // --- Provider change in startTask ---
 
 describe('TDA-01: startTask — provider identity preservation', () => {
-  it.todo('resolveProviderRouting should not reroute user-override from aider-ollama to ollama for review tasks');
+  it.todo('resolveProviderRouting should not reroute user-override from hashline-ollama to ollama for review tasks');
 
   it.todo('API provider instance fallback should fail for user overrides instead of silently switching to codex');
 });

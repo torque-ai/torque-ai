@@ -37,7 +37,6 @@ const SAFE_ENV_KEYS = new Set([
 const PROVIDER_KEYS = {
   'codex':        ['OPENAI_API_KEY'],
   'claude-cli':   ['ANTHROPIC_API_KEY'],
-  'aider-ollama': ['OLLAMA_HOST'],
   'anthropic':    ['ANTHROPIC_API_KEY'],
   'cerebras':     ['CEREBRAS_API_KEY'],
   'deepinfra':    ['DEEPINFRA_API_KEY'],

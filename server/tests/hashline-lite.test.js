@@ -457,7 +457,7 @@ function add(a, b) {
     });
   });
 
-  // ─── Format escalation chain (syntax gate → hashline-lite → aider) ──
+  // ─── Format escalation chain (syntax gate → hashline-lite → ollama) ──
 
   describe('format escalation chain', () => {
     // Helper: create a task in the DB for escalation testing
@@ -522,7 +522,7 @@ function add(a, b) {
       expect(format.reason).toBe('fallback_override');
     });
 
-    it('syntax gate reject on hashline-lite → falls back to aider-ollama', () => {
+    it('syntax gate reject on hashline-lite → falls back to ollama', () => {
       // Step 1: Create a JS file
       const testFile = path.join(tempDir, 'escalation-step2.js');
       const content = 'function calc(x) {\n  return x * 2;\n}';
@@ -550,19 +550,19 @@ function add(a, b) {
       });
 
       db.updateTaskStatus(task.id, 'queued', {
-        provider: 'aider-ollama',
+        provider: 'ollama',
         pid: null, started_at: null, ollama_host_id: null,
-        error_output: 'Syntax gate rejected hashline-lite edits. Falling back to aider-ollama.'
+        error_output: 'Syntax gate rejected hashline-lite edits. Falling back to ollama.'
       });
 
-      // Step 4: Verify the task is now aider-ollama
+      // Step 4: Verify the task is now ollama
       const updated = db.getTask(task.id);
       expect(updated.status).toBe('queued');
-      expect(updated.provider).toBe('aider-ollama');
-      expect(updated.error_output).toContain('aider-ollama');
+      expect(updated.provider).toBe('ollama');
+      expect(updated.error_output).toContain('ollama');
     });
 
-    it('full escalation: hashline → hashline-lite → aider-ollama state machine', () => {
+    it('full escalation: hashline → hashline-lite → ollama state machine', () => {
       const model = 'escalation-chain-model:8b';
       const testFile = path.join(tempDir, 'escalation-full.js');
       const content = 'function process(data) {\n  return data.map(x => x + 1);\n}';
@@ -589,16 +589,16 @@ function add(a, b) {
       db.updateTaskStatus(task.id, 'running', {});
       db.recordFormatSuccess(model, 'hashline-lite', false, 'syntax_gate', 25);
 
-      // Simulate fallback to aider-ollama
+      // Simulate fallback to ollama
       db.updateTaskStatus(task.id, 'queued', {
-        provider: 'aider-ollama',
+        provider: 'ollama',
         pid: null, started_at: null, ollama_host_id: null,
-        error_output: 'Stage 2: syntax gate rejected hashline-lite. Falling back to aider-ollama.'
+        error_output: 'Stage 2: syntax gate rejected hashline-lite. Falling back to ollama.'
       });
 
       const state2 = db.getTask(task.id);
       expect(state2.status).toBe('queued');
-      expect(state2.provider).toBe('aider-ollama');
+      expect(state2.provider).toBe('ollama');
 
       // ─── Verify format success tracking ───
       const hashlineRate = db.getFormatSuccessRate(model, 'hashline');

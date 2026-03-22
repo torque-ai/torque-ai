@@ -152,7 +152,6 @@ function loadScheduler(overrides = {}) {
     codex: { provider: 'codex', enabled: 1, max_concurrent: 6, transport: 'hybrid', quota_error_patterns: '[]' },
     'claude-cli': { provider: 'claude-cli', enabled: 1, max_concurrent: 6, transport: 'cli', quota_error_patterns: '[]' },
     ollama: { provider: 'ollama', enabled: 1, max_concurrent: 8, transport: 'api', quota_error_patterns: '[]' },
-    'aider-ollama': { provider: 'aider-ollama', enabled: 1, max_concurrent: 8, transport: 'cli', quota_error_patterns: '[]' },
     'hashline-ollama': { provider: 'hashline-ollama', enabled: 1, max_concurrent: 8, transport: 'cli', quota_error_patterns: '[]' },
     groq: { provider: 'groq', enabled: 1, max_concurrent: 4, transport: 'api', quota_error_patterns: '[]' },
     anthropic: { provider: 'anthropic', enabled: 1, max_concurrent: 4, transport: 'api', quota_error_patterns: '[]' },

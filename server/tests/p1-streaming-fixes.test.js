@@ -401,7 +401,7 @@ describe('P1 streaming fixes', () => {
         id: taskId,
         task_description: 'Queue wakeup test',
         status: 'running',
-        provider: 'aider-ollama',
+        provider: 'hashline-ollama',
         model: 'qwen2.5-coder:7b',
         working_directory: testDir,
       });
@@ -409,7 +409,7 @@ describe('P1 streaming fixes', () => {
       const result = executeCli.buildAiderOllamaCommand(
         {
           id: taskId,
-          provider: 'aider-ollama',
+          provider: 'hashline-ollama',
           task_description: 'Queue wakeup test',
           model: 'qwen2.5-coder:7b',
           retry_count: 0,
@@ -440,7 +440,7 @@ describe('P1 streaming fixes', () => {
         id: taskId,
         task_description: 'Queue wakeup capacity test',
         status: 'running',
-        provider: 'aider-ollama',
+        provider: 'hashline-ollama',
         model: 'qwen2.5-coder:7b',
         working_directory: testDir,
       });
@@ -448,7 +448,7 @@ describe('P1 streaming fixes', () => {
       const result = executeCli.buildAiderOllamaCommand(
         {
           id: taskId,
-          provider: 'aider-ollama',
+          provider: 'hashline-ollama',
           task_description: 'Queue wakeup capacity test',
           model: 'qwen2.5-coder:7b',
           retry_count: 0,

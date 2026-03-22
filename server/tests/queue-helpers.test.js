@@ -45,8 +45,7 @@ describe('categorizeQueuedTasks', () => {
   it('separates ollama, codex, and API tasks', () => {
     const tasks = [
       { provider: 'ollama', id: '1' },
-      { provider: 'aider-ollama', id: '2' },
-      { provider: 'hashline-ollama', id: '3' },
+      { provider: 'hashline-ollama', id: '2' },
       { provider: 'codex', id: '4' },
       { provider: 'claude-cli', id: '5' },
       { provider: 'anthropic', id: '6' },

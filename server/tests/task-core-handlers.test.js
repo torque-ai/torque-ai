@@ -104,7 +104,6 @@ const mockConstants = {
   PROVIDER_DEFAULT_TIMEOUTS: {
     codex: 45,
     ollama: 90,
-    aider: 75,
   },
 };
 

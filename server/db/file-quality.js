@@ -895,7 +895,7 @@ function calculateTaskComplexityScore(taskId, taskDescription, _options = {}) {
   }
 
   // Determine recommended provider
-  const recommendedProvider = score > 4 ? 'claude-cli' : 'aider-ollama';
+  const recommendedProvider = score > 4 ? 'claude-cli' : 'hashline-ollama';
 
   // Record score
   db.prepare(`

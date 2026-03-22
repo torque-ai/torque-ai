@@ -25,7 +25,6 @@ function createMockDb({ config = {}, providers = {}, routingRules = [] } = {}) {
     deepinfra: createProviderRow('deepinfra'),
     hyperbolic: createProviderRow('hyperbolic'),
     ollama: createProviderRow('ollama'),
-    'aider-ollama': createProviderRow('aider-ollama'),
     'hashline-ollama': createProviderRow('hashline-ollama'),
     ...providers,
   };
@@ -182,7 +181,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
   it('routes targeted file edits to hashline-ollama when local complexity routing selects Ollama', () => {
     const determineTaskComplexity = vi.fn(() => 'simple');
     const routeTask = vi.fn(() => ({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       hostId: 'host-local',
       model: 'qwen3:8b',
     }));
@@ -213,7 +212,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
-        smart_routing_default_provider: 'aider-ollama',
+        smart_routing_default_provider: 'hashline-ollama',
       },
     });
 
@@ -222,7 +221,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
       'C:/repo'
     );
 
-    expect(result.provider).toBe('aider-ollama');
+    expect(result.provider).toBe('hashline-ollama');
     expect(result.reason).toContain('No rule matched');
   });
 
@@ -230,7 +229,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
-        smart_routing_default_provider: 'aider-ollama',
+        smart_routing_default_provider: 'hashline-ollama',
         ollama_fallback_provider: 'codex',
       },
       ollamaHealthy: false,
@@ -242,7 +241,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     );
 
     expect(result.provider).toBe('codex');
-    expect(result.originalProvider).toBe('aider-ollama');
+    expect(result.originalProvider).toBe('hashline-ollama');
     expect(result.fallbackApplied).toBe(true);
     expect(result.reason).toContain('falling back to codex');
   });

@@ -650,7 +650,7 @@ describe('provider-routing module', () => {
         description: 'name lookup',
         rule_type: 'extension',
         pattern: '.js|.ts',
-        target_provider: 'aider-ollama',
+        target_provider: 'hashline-ollama',
         priority: 44,
         enabled: true,
       });

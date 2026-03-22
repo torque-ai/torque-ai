@@ -10,7 +10,6 @@ const DEFAULT_CAPABILITIES = {
   hyperbolic: { capabilities: ['reasoning', 'large_context'], band: 'B' },
   anthropic: { capabilities: ['reasoning', 'code_review'], band: 'B' },
   'hashline-ollama': { capabilities: ['file_edit'], band: 'C' },
-  'aider-ollama': { capabilities: ['file_creation', 'file_edit', 'multi_file'], band: 'C' },
   ollama: { capabilities: ['reasoning', 'code_review'], band: 'C' },
   openrouter: { capabilities: ['reasoning', 'code_review'], band: 'C' },
   groq: { capabilities: [], band: 'D' },

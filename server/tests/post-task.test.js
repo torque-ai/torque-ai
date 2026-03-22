@@ -684,15 +684,15 @@ module.exports = { add, sub };
       );
     });
 
-    it('reverts last commit when clean repo has aider-authored commit message', () => {
-      const workingDir = makeWorkDir('rollback-aider');
+    it('reverts last commit when clean repo has TORQUE-authored commit message', () => {
+      const workingDir = makeWorkDir('rollback-torque');
 
       mockExecFileSync.mockImplementation((cmd, args) => {
         if (cmd === 'git' && args[0] === 'status') {
           return '';
         }
         if (cmd === 'git' && args[0] === 'log') {
-          return 'fix: update flow with aider\n';
+          return 'fix: update flow [Torque local]\n';
         }
         if (cmd === 'git' && args[0] === 'revert') {
           return '';

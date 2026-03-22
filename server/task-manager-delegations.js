@@ -22,7 +22,6 @@ const _orphanCleanup = require('./maintenance/orphan-cleanup');
 const _instanceManager = require('./coordination/instance-manager');
 const _promptsModule = require('./providers/prompts');
 const _hashlineVerify = require('./validation/hashline-verify');
-const _aiderCommand = require('./providers/aider-command');
 const _closePhases = require('./validation/close-phases');
 const _completionPipeline = require('./execution/completion-pipeline');
 const _taskFinalizer = require('./execution/task-finalizer');
@@ -134,10 +133,6 @@ function handlePostCompletion(...args) { return _completionPipeline.handlePostCo
 // ─── execution/task-finalizer.js ──────────────────────────────────────────
 function finalizeTask(...args) { return _taskFinalizer.finalizeTask(...args); }
 
-// ─── providers/aider-command.js ───────────────────────────────────────────
-function buildAiderCommand(...args) { return _aiderCommand.buildAiderCommand(...args); }
-function configureAiderHost(...args) { return _aiderCommand.configureAiderHost(...args); }
-
 // ─── execution/queue-scheduler.js ─────────────────────────────────────────
 function categorizeQueuedTasks(...args) { return _queueScheduler.categorizeQueuedTasks(...args); }
 function processQueueInternal(...args) { return _queueScheduler.processQueueInternal(...args); }
@@ -191,8 +186,6 @@ module.exports = {
   fireTerminalTaskHook, handlePostCompletion,
   // task-finalizer
   finalizeTask,
-  // aider-command
-  buildAiderCommand, configureAiderHost,
   // queue-scheduler
   categorizeQueuedTasks, processQueueInternal,
   // hashline-verify

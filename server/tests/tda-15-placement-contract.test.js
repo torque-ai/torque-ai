@@ -86,7 +86,7 @@ describe('TDA-15: Movement narrative reason contract', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'review the API integration for edge cases',
     });
 
@@ -96,7 +96,7 @@ describe('TDA-15: Movement narrative reason contract', () => {
     if (task.provider === 'ollama') {
       const meta = parseMetadata(task);
       const reason = meta._provider_switch_reason || meta.last_provider_switch?.reason;
-      expect(reason).toContain('aider-ollama');
+      expect(reason).toContain('hashline-ollama');
       expect(reason).toContain('ollama');
       expect(reason).toContain('review');
     }
@@ -174,11 +174,11 @@ describe('TDA-15: Sovereignty + review redirect interaction', () => {
   beforeEach(setup);
   afterEach(cleanup);
 
-  it('user-override aider-ollama review task stays on aider-ollama', () => {
+  it('user-override hashline-ollama review task stays on hashline-ollama', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'review the codebase for security issues',
       metadata: JSON.stringify({ user_provider_override: true }),
     });
@@ -186,15 +186,15 @@ describe('TDA-15: Sovereignty + review redirect interaction', () => {
     try { tm.startTask(id); } catch { /* execution may fail */ }
     const task = db.getTask(id);
 
-    // User chose aider-ollama explicitly — review redirect should NOT override
-    expect(task.provider).toBe('aider-ollama');
+    // User chose hashline-ollama explicitly — review redirect should NOT override
+    expect(task.provider).toBe('hashline-ollama');
   });
 
-  it('auto-routed aider-ollama review task redirects to ollama', () => {
+  it('auto-routed hashline-ollama review task redirects to ollama', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'review the codebase for security issues',
       // No user_provider_override
     });
@@ -202,7 +202,7 @@ describe('TDA-15: Sovereignty + review redirect interaction', () => {
     try { tm.startTask(id); } catch { /* execution may fail */ }
     const task = db.getTask(id);
 
-    // Auto-routed: review task on aider-ollama should redirect to ollama
+    // Auto-routed: review task on hashline-ollama should redirect to ollama
     expect(task.provider).toBe('ollama');
   });
 });
@@ -217,7 +217,7 @@ describe('TDA-15: Movement narrative persisted through DB round-trip', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'review the API code for bugs',
     });
 
@@ -229,7 +229,7 @@ describe('TDA-15: Movement narrative persisted through DB round-trip', () => {
 
       // The switch should be recorded in the history
       expect(meta.last_provider_switch).toBeDefined();
-      expect(meta.last_provider_switch.from).toBe('aider-ollama');
+      expect(meta.last_provider_switch.from).toBe('hashline-ollama');
       expect(meta.last_provider_switch.to).toBe('ollama');
       expect(meta.last_provider_switch.reason).toContain('runtime_provider_fallback');
       expect(meta.last_provider_switch.at).toBeDefined();
@@ -238,7 +238,7 @@ describe('TDA-15: Movement narrative persisted through DB round-trip', () => {
       expect(meta.provider_switch_history).toBeDefined();
       expect(meta.provider_switch_history.length).toBeGreaterThanOrEqual(1);
       const entry = meta.provider_switch_history[0];
-      expect(entry.from).toBe('aider-ollama');
+      expect(entry.from).toBe('hashline-ollama');
       expect(entry.to).toBe('ollama');
       expect(entry.reason).toContain('runtime_provider_fallback');
     }
@@ -248,7 +248,7 @@ describe('TDA-15: Movement narrative persisted through DB round-trip', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'analyze the test coverage gaps',
     });
 
@@ -256,7 +256,7 @@ describe('TDA-15: Movement narrative persisted through DB round-trip', () => {
     const task = db.getTask(id);
 
     if (task.provider === 'ollama') {
-      expect(task.original_provider).toBe('aider-ollama');
+      expect(task.original_provider).toBe('hashline-ollama');
       expect(task.provider_switched_at).toBeDefined();
     }
   });

@@ -118,14 +118,14 @@ function createTask(overrides = {}) {
 describe('runtime fallback guards respect user_provider_override', () => {
   afterEach(cleanup);
 
-  it('keeps aider-ollama review tasks on aider-ollama when user_provider_override is set', async () => {
+  it('keeps hashline-ollama review tasks on hashline-ollama when user_provider_override is set', async () => {
     await setup();
 
-    db.updateProvider('aider-ollama', { enabled: 1 });
+    db.updateProvider('hashline-ollama', { enabled: 1 });
     helpers.registerMockHost(db, 'http://127.0.0.1:19816', ['codellama:latest'], { name: 'override-review-runtime' });
 
     const taskId = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'review the code and report any bugs found',
       metadata: JSON.stringify({ user_provider_override: true }),
     });
@@ -133,11 +133,11 @@ describe('runtime fallback guards respect user_provider_override', () => {
     const result = tm.startTask(taskId);
 
     expect(result).toEqual(expect.objectContaining({ started: true, taskId }));
-    expect(db.getTask(taskId).provider).toBe('aider-ollama');
+    expect(db.getTask(taskId).provider).toBe('hashline-ollama');
     expect(mockState.spawnAndTrackProcess).toHaveBeenCalledWith(
       taskId,
-      expect.objectContaining({ provider: 'aider-ollama' }),
-      expect.objectContaining({ provider: 'aider-ollama' }),
+      expect.objectContaining({ provider: 'hashline-ollama' }),
+      expect.objectContaining({ provider: 'hashline-ollama' }),
     );
   });
 
@@ -147,7 +147,7 @@ describe('runtime fallback guards respect user_provider_override', () => {
     const tryLocalFirstFallbackSpy = vi.spyOn(fallbackRetry, 'tryLocalFirstFallback');
 
     const taskId = createTask({
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       task_description: 'implement the login flow',
       metadata: JSON.stringify({ user_provider_override: true }),
       max_retries: 2,

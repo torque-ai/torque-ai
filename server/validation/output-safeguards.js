@@ -17,7 +17,6 @@ const logger = require('../logger').child({ component: 'output-safeguards' });
 let db = null;
 let _getFileChangesForValidation = null;
 let _checkFileQuality = null;
-let _parseAiderOutput = null;
 let _verifyHashlineReferences = null;
 let _cleanupJunkFiles = null;
 let _findPlaceholderArtifacts = null;
@@ -26,7 +25,6 @@ function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.getFileChangesForValidation) _getFileChangesForValidation = deps.getFileChangesForValidation;
   if (deps.checkFileQuality) _checkFileQuality = deps.checkFileQuality;
-  if (deps.parseAiderOutput) _parseAiderOutput = deps.parseAiderOutput;
   if (deps.verifyHashlineReferences) _verifyHashlineReferences = deps.verifyHashlineReferences;
   if (deps.cleanupJunkFiles) _cleanupJunkFiles = deps.cleanupJunkFiles;
   if (deps.findPlaceholderArtifacts) _findPlaceholderArtifacts = deps.findPlaceholderArtifacts;
@@ -205,8 +203,8 @@ async function runOutputSafeguards(taskId, status, task) {
       }
     }
 
-    // 1b. Clean up junk files created by aider hallucinating filenames
-    if (status === 'completed' && task?.working_directory && task?.provider === 'aider-ollama') {
+    // 1b. Clean up junk files created by LLM hallucinating filenames
+    if (status === 'completed' && task?.working_directory && (task?.provider === 'ollama' || task?.provider === 'hashline-ollama')) {
       try {
         _cleanupJunkFiles(task.working_directory, taskId);
       } catch (err) {
@@ -281,12 +279,8 @@ async function runOutputSafeguards(taskId, status, task) {
     if (qualityScoringEnabled && status === 'completed') {
       const taskType = db.classifyTaskType(task?.task_description || '');
 
-      // Compute completenessScore based on provider
-      if (task?.provider === 'aider-ollama') {
-        const parsed = _parseAiderOutput(output);
-        completenessScore = parsed.score;
-      } else {
-        // Check if there were actual file changes
+      // Compute completenessScore based on file changes
+      {
         const fcCheck = _getFileChangesForValidation(task?.working_directory, 1);
         if (fcCheck.length > 0) {
           completenessScore = 100;
@@ -367,7 +361,7 @@ async function runOutputSafeguards(taskId, status, task) {
       const estimatedInputTokens = Math.ceil(inputLength / 4);
       const estimatedOutputTokens = Math.ceil(outputLength / 4);
 
-      if (task.provider !== 'aider-ollama') {
+      {
         db.recordCost(
           task.provider,
           taskId,

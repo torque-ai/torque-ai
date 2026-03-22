@@ -164,7 +164,7 @@ function applyProviderSwitchEnrichment(sourceTask, targetProvider, additionalFie
     additionalFields.model = null;
   }
   // TDA-02: Clear host identity when moving away from an Ollama provider.
-  const ollamaProviders = new Set(['ollama', 'aider-ollama', 'hashline-ollama']);
+  const ollamaProviders = new Set(['ollama', 'hashline-ollama']);
   if (!ollamaProviders.has(normalizedTargetProvider) && !Object.prototype.hasOwnProperty.call(additionalFields, 'ollama_host_id')) {
     additionalFields.ollama_host_id = null;
   }

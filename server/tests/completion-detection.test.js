@@ -13,7 +13,7 @@ const {
 describe('completion-detection', () => {
   describe('constants', () => {
     it('exports COMPLETION_OUTPUT_THRESHOLDS with expected providers', () => {
-      expect(COMPLETION_OUTPUT_THRESHOLDS).toHaveProperty('aider-ollama');
+      expect(COMPLETION_OUTPUT_THRESHOLDS).toHaveProperty('hashline-ollama');
       expect(COMPLETION_OUTPUT_THRESHOLDS).toHaveProperty('codex');
       expect(COMPLETION_OUTPUT_THRESHOLDS).toHaveProperty('default');
       expect(typeof COMPLETION_OUTPUT_THRESHOLDS['default']).toBe('number');
@@ -26,7 +26,6 @@ describe('completion-detection', () => {
     });
 
     it('exports PROVIDER_COMPLETION_PATTERNS with provider keys', () => {
-      expect(PROVIDER_COMPLETION_PATTERNS).toHaveProperty('aider-ollama');
       expect(PROVIDER_COMPLETION_PATTERNS).toHaveProperty('codex');
       expect(PROVIDER_COMPLETION_PATTERNS).toHaveProperty('claude-cli');
     });
@@ -118,14 +117,14 @@ describe('completion-detection', () => {
     // Provider-aware thresholds
     // Use "89 passed, 0 failed" which matches shared patterns but NOT explicit signals
     // (explicit signals like /\btests\s+passed\b/ bypass threshold checks)
-    it('requires 8KB+ for aider-ollama before matching shared patterns', () => {
-      const shortOutput = 'x'.repeat(4000) + '\n89 passed, 0 failed';
-      expect(detectSuccessFromOutput(shortOutput, 'aider-ollama')).toBe(false);
+    it('requires 4KB+ for hashline-ollama before matching shared patterns', () => {
+      const shortOutput = 'x'.repeat(2000) + '\n89 passed, 0 failed';
+      expect(detectSuccessFromOutput(shortOutput, 'hashline-ollama')).toBe(false);
     });
 
-    it('matches shared patterns for aider-ollama when above threshold', () => {
-      const longOutput = 'x'.repeat(9000) + '\n89 passed, 0 failed';
-      expect(detectSuccessFromOutput(longOutput, 'aider-ollama')).toBe(true);
+    it('matches shared patterns for hashline-ollama when above threshold', () => {
+      const longOutput = 'x'.repeat(5000) + '\n89 passed, 0 failed';
+      expect(detectSuccessFromOutput(longOutput, 'hashline-ollama')).toBe(true);
     });
 
     it('uses low threshold for codex', () => {
@@ -171,11 +170,6 @@ describe('completion-detection', () => {
     it('detects codex "Validation run: passed" pattern', () => {
       const output = 'x'.repeat(600) + '\nValidation run: passed';
       expect(detectSuccessFromOutput(output, 'codex')).toBe(true);
-    });
-
-    it('detects aider "Applied edit to file.cs" pattern', () => {
-      const output = 'x'.repeat(9000) + '\nApplied edit to MyFile.cs';
-      expect(detectSuccessFromOutput(output, 'aider-ollama')).toBe(true);
     });
 
     it('detects claude-cli "summary of changes" pattern', () => {

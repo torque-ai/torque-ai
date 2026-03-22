@@ -103,10 +103,6 @@ const mockModules = {
   '../execution/task-finalizer': {
     finalizeTask: vi.fn(),
   },
-  '../providers/aider-command': {
-    buildAiderCommand: vi.fn(() => 'aider'),
-    configureAiderHost: vi.fn(),
-  },
   '../execution/queue-scheduler': {
     categorizeQueuedTasks: vi.fn(() => ({ ready: [], blocked: [] })),
     processQueueInternal: vi.fn(),
@@ -280,9 +276,6 @@ describe('task-manager-delegations', () => {
     ['handlePostCompletion', '../execution/completion-pipeline'],
     // task-finalizer
     ['finalizeTask', '../execution/task-finalizer'],
-    // aider-command
-    ['buildAiderCommand', '../providers/aider-command'],
-    ['configureAiderHost', '../providers/aider-command'],
     // queue-scheduler
     ['categorizeQueuedTasks', '../execution/queue-scheduler'],
     ['processQueueInternal', '../execution/queue-scheduler'],

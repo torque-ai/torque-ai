@@ -69,7 +69,7 @@ describe('Automation Handlers', () => {
 
     it('reports changes applied when setting threshold', async () => {
       const result = await safeTool('configure_stall_detection', {
-        provider: 'aider',
+        provider: 'invalid-provider',
         stall_threshold_seconds: 300
       });
       const text = getText(result);

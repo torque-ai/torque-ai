@@ -29,7 +29,6 @@ const AUTO_VERIFY_PROVIDERS = new Set([
   'codex',
   'codex-spark',
   'hashline-ollama',
-  'aider-ollama',
   'ollama',
 ]);
 

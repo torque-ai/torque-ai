@@ -107,7 +107,7 @@ describe('Close Phases', () => {
   function makeTask(overrides = {}) {
     return {
       id: 'task-001',
-      provider: 'aider-ollama',
+      provider: 'hashline-ollama',
       model: 'codellama:latest',
       working_directory: '/tmp/test-project',
       task_description: 'Test task for close phases',
@@ -154,14 +154,14 @@ describe('Close Phases', () => {
       expect(ctx.status).toBe('failed');
     });
 
-    it('skips if provider !== aider-ollama', () => {
+    it('is a no-op after aider removal (all providers skip)', () => {
       const ctx = makeCtx({ task: makeTask({ provider: 'codex' }) });
       closePhases.handleAutoValidation(ctx);
       expect(mocks.checkFileQuality).not.toHaveBeenCalled();
       expect(ctx.status).toBe('completed');
     });
 
-    it('detects quality issues and reverts files, sets status=failed', () => {
+    it.skip('detects quality issues and reverts files, sets status=failed (disabled — was aider-only)', () => {
       mockExecFileSync.mockImplementation((cmd, args) => {
         if (args[0] === 'diff' && args[1] === '--name-only') return 'src/foo.js\n';
         if (args[0] === 'show') return 'line1\nline2\nline3\n';
@@ -271,7 +271,7 @@ describe('Close Phases', () => {
     it('commits changes when build passes and auto_commits disabled', () => {
       mocks.runBuildVerification.mockReturnValue({ skipped: false, success: true });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'aider_auto_commits') return '0';
+        if (key === 'auto_commits_disabled') return '1';
         return '1';
       });
 
@@ -298,7 +298,7 @@ describe('Close Phases', () => {
     it('recovers modified files from stderr-only codex transcripts before staging', () => {
       mocks.runBuildVerification.mockReturnValue({ skipped: false, success: true });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'aider_auto_commits') return '0';
+        if (key === 'auto_commits_disabled') return '1';
         return '1';
       });
 
@@ -479,8 +479,8 @@ describe('Close Phases', () => {
       vi.useRealTimers();
     });
 
-    it('falls back locally for aider-ollama failures', () => {
-      const task = makeTask({ provider: 'aider-ollama', retry_count: 0 });
+    it('falls back locally for hashline-ollama failures', () => {
+      const task = makeTask({ provider: 'hashline-ollama', retry_count: 0 });
       const proc = makeProc({ errorOutput: 'connection refused' });
       const ctx = makeCtx({ status: 'failed', task, proc, code: 1 });
 
@@ -492,7 +492,7 @@ describe('Close Phases', () => {
       expect(mocks.tryLocalFirstFallback).toHaveBeenCalledWith(
         'task-001',
         expect.objectContaining({
-          provider: 'aider-ollama',
+          provider: 'hashline-ollama',
           error_output: 'connection refused',
         }),
         'connection refused'

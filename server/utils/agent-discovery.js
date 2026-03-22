@@ -30,12 +30,6 @@ const KNOWN_AGENTS = Object.freeze([
     provider: 'ollama',
     installHint: 'https://ollama.ai/download',
   },
-  {
-    name: 'Aider',
-    binary: 'aider',
-    provider: 'aider-ollama',
-    installHint: 'pip install aider-chat',
-  },
 ]);
 
 function getExecOptions() {

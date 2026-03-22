@@ -99,7 +99,6 @@ const _instanceManager = require('./coordination/instance-manager');
 // Phase 7-10 extracted modules
 const _promptsModule = require('./providers/prompts');
 const _hashlineVerify = require('./validation/hashline-verify');
-const _aiderCommand = require('./providers/aider-command');
 const _closePhases = require('./validation/close-phases');
 const _autoVerifyRetry = require('./validation/auto-verify-retry');
 const _retryFramework = require('./execution/retry-framework');
@@ -384,11 +383,7 @@ function extractJsFunctionBoundaries(...args) { return _fileContextBuilder.extra
  */
 function ensureTargetFilesExist(...args) { return _fileContextBuilder.ensureTargetFilesExist(...args); }
 
-/**
- * Parse aider output to detect real edits vs conversational text.
- * Delegated to execution/file-context-builder.js
- */
-function parseAiderOutput(...args) { return _fileContextBuilder.parseAiderOutput(...args); }
+// Dead code: parseAiderOutput removed (aider provider removed)
 
 // ============================================================
 // Pre-Execution File Resolution (delegated to utils/file-resolution.js)
@@ -584,70 +579,17 @@ function handleSafeguardChecks(ctx) {
 }
 
 /**
- * Phase 3: Fuzzy SEARCH/REPLACE repair for aider failures.
- * Mutates ctx.status and ctx.code on successful repair.
+ * Phase 3: Fuzzy SEARCH/REPLACE repair (no-op — aider provider removed).
  */
 function handleFuzzyRepair(ctx) {
-  const { taskId, proc, task } = ctx;
-  const fuzzyRepairEnabled = serverConfig.getBool('fuzzy_search_repair_enabled');
-  if (!fuzzyRepairEnabled || !task || task.provider !== 'aider-ollama') return;
-
-  const taskOutput = proc?.output || '';
-  const hasSearchFailure = /Can't edit|FAILED to apply|SearchReplaceNoExactMatch/i.test(taskOutput);
-  if (!hasSearchFailure || !task.working_directory) return;
-
-  try {
-    const repairResult = attemptFuzzySearchRepair(taskId, taskOutput, task.working_directory);
-    if (repairResult.repaired) {
-      logger.info(`[FuzzyRepair] Task ${taskId}: successfully repaired SEARCH block in ${repairResult.file} — upgrading to completed`);
-      if (ctx.status === 'failed' || ctx.code !== 0) {
-        ctx.status = 'completed';
-        ctx.code = 0;
-      }
-    } else if (repairResult.similarity > 0) {
-      logger.info(`[FuzzyRepair] Task ${taskId}: best match similarity ${(repairResult.similarity * 100).toFixed(1)}% — below 80% threshold, falling through to retry`);
-    }
-  } catch (e) {
-    logger.info(`[FuzzyRepair] Task ${taskId}: repair attempt error: ${e.message}`);
-  }
+  // Was aider-ollama specific; now a no-op
 }
 
 /**
- * Phase 4: Detect no-file-change aider tasks, trigger local fallback.
- * Sets ctx.earlyExit = true if fallback is triggered.
+ * Phase 4: Detect no-file-change tasks (no-op — was aider-ollama specific).
  */
-const CONVERSATIONAL_REFUSAL_PATTERN = /\b(I'm ready to|share the files|provide more information|which files you want)\b/i;
-
 function handleNoFileChangeDetection(ctx) {
-  const { taskId, proc, task } = ctx;
-  if (ctx.status !== 'completed' || !proc || !task || task.provider !== 'aider-ollama') return;
-
-  const workingDir = task.working_directory || process.cwd();
-  const actuallyModified = getActualModifiedFiles(workingDir);
-  const noFilesChanged = !actuallyModified || actuallyModified.length === 0;
-  const taskDesc = task.task_description || '';
-  const codeGenVerbs = /\b(implement|build|create|wire|add|write|generate|make)\b/i;
-  const hasRefusal = CONVERSATIONAL_REFUSAL_PATTERN.test(proc?.output || '');
-
-  if (!(noFilesChanged && (codeGenVerbs.test(taskDesc) || hasRefusal))) return;
-
-  const reason = hasRefusal ? 'conversational refusal detected' : 'code-gen verb matched but no files produced';
-  logger.info(`[No-File-Change] Task ${taskId} completed with no file changes (${reason}) — marking failed`);
-  ctx.status = 'failed';
-  ctx.errorOutput = (ctx.errorOutput || '') +
-    `\n\n[NO FILES MODIFIED] Task expected code changes but aider produced only conversational output (${reason}).`;
-
-  const retryCount = (task.retry_count ?? 0);
-  const maxRetries = (task.max_retries ?? 2);
-  const taskMeta = parseTaskMetadata(task.metadata);
-  if (retryCount < maxRetries && !taskMeta.user_provider_override) {
-    logger.info(`[No-File-Change] Auto-retrying task ${taskId} via local-first fallback (attempt ${retryCount + 1}/${maxRetries})`);
-    taskCleanupGuard.delete(taskId);
-    tryLocalFirstFallback(taskId, task, `[NO FILES MODIFIED] ${reason}`);
-    ctx.earlyExit = true;
-  } else if (retryCount < maxRetries) {
-    logger.info(`[No-File-Change] Task ${taskId} has user_provider_override — skipping local-first fallback, retrying on same provider`);
-  }
+  // Was aider-ollama specific; now a no-op
 }
 
 
@@ -978,11 +920,6 @@ function startTask(taskId) {
   } else if (provider === 'hashline-ollama') {
     recordTaskStartedAuditEvent(task, taskId, provider);
     return executeHashlineOllamaTask(task);
-  } else if (provider === 'aider-ollama') {
-    const aiderResult = buildAiderCommand(task, resolvedFileContext, resolvedFilePaths);
-    cliPath = aiderResult.cliPath;
-    finalArgs = aiderResult.finalArgs;
-    usedEditFormat = aiderResult.usedEditFormat;
   } else if (providerRegistry.isApiProvider(provider)) {
     // All cloud API providers use the same execution path via registry
     const instance = providerRegistry.getProviderInstance(provider);
@@ -1089,13 +1026,7 @@ function startTask(taskId) {
     PYTHONIOENCODING: 'utf-8'
   };
 
-  // Add Ollama-specific env vars for aider (with multi-host routing)
   let selectedOllamaHostId = null;
-  if (provider === 'aider-ollama') {
-    const hostResult = configureAiderHost(task, taskId, envVars);
-    if (hostResult.requeued) return hostResult.result;
-    selectedOllamaHostId = hostResult.selectedHostId;
-  }
 
   recordTaskStartedAuditEvent(task, taskId, provider);
 
@@ -1363,7 +1294,7 @@ function getActualModifiedFiles(workingDir) {
       if (!parsed) continue;
       // Only include modified/added files, not deleted or untracked
       // Untracked files (?) are excluded because:
-      // 1. For review tasks, they're likely temporary files from aider
+      // 1. For review tasks, they're likely temporary files from the LLM
       // 2. They weren't part of the original codebase to begin with
       // 3. New files should be added via git add, not just created
       // P99: Also exclude files with D (deleted) in either column — these are
@@ -1371,7 +1302,7 @@ function getActualModifiedFiles(workingDir) {
       // no-file-change detector into thinking code was modified.
       if ((parsed.isModified || parsed.indexStatus === 'A') && !parsed.isDeleted) {
         // Skip obvious non-code files
-        // P96: Also skip .gitignore — aider always creates it, which fools
+        // P96: Also skip .gitignore — LLMs sometimes create it, which fools
         // the no-file-change detector into thinking code was produced
         if (!parsed.filePath.endsWith('.db') && !parsed.filePath.startsWith('.git/') && parsed.filePath !== '.gitignore') {
           files.push(parsed.filePath);
@@ -1548,7 +1479,7 @@ activityMonitoring.init({
 });
 
 // ─── Hashline-Ollama Provider ─────────────────────────────────────────────────
-// Direct Ollama API + hashline edits — bypasses aider entirely.
+// Direct Ollama API + hashline edits.
 // Hash verification catches hallucinated edits before writing to disk.
 
 const HASHLINE_OLLAMA_SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts/hashline-ollama-system.txt'), 'utf-8');
@@ -1728,7 +1659,6 @@ _outputSafeguards.init({
   getFileChangesForValidation,
   checkFileQuality,
   findPlaceholderArtifacts,
-  parseAiderOutput,
   verifyHashlineReferences,
   cleanupJunkFiles,
 });
@@ -1774,17 +1704,6 @@ _hashlineVerify.init({
   computeLineHash,
   getFileChangesForValidation,
   lineSimilarity,
-});
-_aiderCommand.init({
-  db,
-  dashboard,
-  wrapWithInstructions,
-  detectTaskTypes,
-  isLargeModelBlockedOnHost,
-  tryReserveHostSlotWithFallback,
-  processQueue,
-  extractTargetFilesFromDescription,
-  ensureTargetFilesExist,
 });
 _closePhases.init({
   db,

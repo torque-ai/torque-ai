@@ -1,7 +1,6 @@
 vi.mock('../providers/registry', () => {
   const categories = {
     ollama: 'ollama',
-    'aider-ollama': 'ollama',
     'hashline-ollama': 'ollama',
     codex: 'codex',
     'claude-cli': 'codex',

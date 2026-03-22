@@ -348,7 +348,7 @@ function recordCost(provider, taskId, inputTokens, outputTokens, model) {
   const costRates = {
     'claude-cli': { input: 0.003, output: 0.015 },
     'codex': { input: 0.002, output: 0.010 },
-    'aider-ollama': { input: 0, output: 0 }
+    'ollama': { input: 0, output: 0 }
   };
 
   const rates = costRates[provider] || { input: 0.003, output: 0.015 };

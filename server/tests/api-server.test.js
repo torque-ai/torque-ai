@@ -222,7 +222,6 @@ describe('API Server endpoints', () => {
 
   function buildTestProviderCapabilityMatrix() {
     const providers = [
-      'aider-ollama',
       'anthropic',
       'claude-cli',
       'codex',

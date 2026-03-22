@@ -406,7 +406,7 @@ describe('Host Distribution & Load Balancing', () => {
       const hostA = addHost('fb-host-a', ['qwen2.5-coder:14b'], { runningTasks: 0 });
       const _hostB = addHost('fb-host-b', ['qwen2.5-coder:14b'], { runningTasks: 0 });
 
-      const taskId = createTask('aider-ollama', 'qwen2.5-coder:14b', hostA);
+      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:14b', hostA);
       const task = db.getTask(taskId);
 
       const result = taskManager.tryLocalFirstFallback(taskId, task, 'connection timeout');
@@ -415,9 +415,9 @@ describe('Host Distribution & Load Balancing', () => {
 
       const updated = db.getTask(taskId);
       // Should stay on same provider + model, just different host
-      expect(updated.provider).toBe('aider-ollama');
+      expect(updated.provider).toBe('hashline-ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
-      // processQueue() may have started the task already (which fails in test env since aider
+      // processQueue() may have started the task already (which fails in test env since the provider
       // binary doesn't exist), so accept queued, running, or failed
       expect(['queued', 'running', 'failed']).toContain(updated.status);
       expect(updated.error_output).toContain('[Local-First]');
@@ -444,7 +444,7 @@ describe('Host Distribution & Load Balancing', () => {
 
     it('step 3: tries different local provider when models exhausted', () => {
       // No other models or hosts available, but different provider can be tried
-      const taskId = createTask('aider-ollama', 'qwen2.5-coder:7b', null);
+      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:7b', null);
 
       // Simulate prior errors showing models already tried
       const allModels = db.getAggregatedModels ? db.getAggregatedModels() : [];
@@ -468,7 +468,7 @@ describe('Host Distribution & Load Balancing', () => {
       db.setConfig('max_local_retries', '3');
       db.setConfig('codex_enabled', '1');
 
-      const taskId = createTask('aider-ollama', 'qwen2.5-coder:7b', null);
+      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:7b', null);
       // Simulate 3 prior local retries via the metadata counter (authoritative source)
       const priorErrors = [
         '[Local-First] Trying qwen2.5-coder:7b on host X',
@@ -493,14 +493,14 @@ describe('Host Distribution & Load Balancing', () => {
     it('preserves original_provider metadata on first fallback', () => {
       addHost('meta-host', ['qwen2.5-coder:14b'], { runningTasks: 0 });
 
-      const taskId = createTask('aider-ollama', 'qwen2.5-coder:14b', null);
+      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:14b', null);
       const task = db.getTask(taskId);
 
       taskManager.tryLocalFirstFallback(taskId, task, 'error');
 
       const updated = db.getTask(taskId);
       const metadata = updated.metadata || {};
-      expect(metadata.original_provider).toBe('aider-ollama');
+      expect(metadata.original_provider).toBe('hashline-ollama');
     });
   });
 
@@ -742,7 +742,7 @@ describe('Host Distribution & Load Balancing', () => {
         id: taskId,
         status: 'running',
         task_description: 'Test VRAM tracking',
-        provider: 'aider-ollama',
+        provider: 'hashline-ollama',
         model: 'codellama:34b',
         working_directory: process.cwd()
       });
@@ -772,7 +772,7 @@ describe('Host Distribution & Load Balancing', () => {
         id: runningTaskId,
         status: 'running',
         task_description: 'Already running large model',
-        provider: 'aider-ollama',
+        provider: 'hashline-ollama',
         model: 'qwen2.5-coder:32b',
         working_directory: process.cwd()
       });

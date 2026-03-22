@@ -73,17 +73,17 @@ describe('Integration: Stall Detection & Recovery', () => {
       expect(threshold).toBeGreaterThan(0);
     });
 
-    it('getStallThreshold returns a number for aider-ollama provider', () => {
-      const threshold = tm.getStallThreshold(null, 'aider-ollama');
+    it('getStallThreshold returns a number for hashline-ollama provider', () => {
+      const threshold = tm.getStallThreshold(null, 'hashline-ollama');
       expect(typeof threshold).toBe('number');
       expect(threshold).toBeGreaterThan(0);
     });
 
-    it('ollama threshold differs from aider threshold', () => {
+    it('ollama threshold differs from hashline-ollama threshold', () => {
       const ollamaThreshold = tm.getStallThreshold(null, 'ollama');
-      const aiderThreshold = tm.getStallThreshold(null, 'aider-ollama');
-      // They should have different thresholds (180s vs 240s)
-      expect(ollamaThreshold).not.toBe(aiderThreshold);
+      const hashlineThreshold = tm.getStallThreshold(null, 'hashline-ollama');
+      // They should have different thresholds (240s vs 300s)
+      expect(ollamaThreshold).not.toBe(hashlineThreshold);
     });
 
     it('codex threshold is null or very high by default', () => {
@@ -190,7 +190,7 @@ describe('Integration: Stall Detection & Recovery', () => {
 
   describe('Provider stall threshold constants', () => {
     it('all standard providers have defined thresholds', () => {
-      const providers = ['ollama', 'aider-ollama'];
+      const providers = ['ollama', 'hashline-ollama'];
       for (const provider of providers) {
         const threshold = tm.getStallThreshold(null, provider);
         expect(threshold).toBeTruthy();
@@ -212,7 +212,7 @@ describe('Integration: Stall Detection & Recovery', () => {
   describe('Stall detection integration with DB config', () => {
     it('per-provider config keys are consistent', () => {
       // Verify the config keys follow a pattern
-      const providers = ['ollama', 'aider-ollama', 'codex'];
+      const providers = ['ollama', 'hashline-ollama', 'codex'];
       for (const provider of providers) {
         // Setting a value and reading it back should work
         const key = `stall_threshold_${provider.replace(/-/g, '_')}`;

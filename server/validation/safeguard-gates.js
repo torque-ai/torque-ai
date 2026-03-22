@@ -31,7 +31,7 @@ function handleSafeguardChecks(ctx) {
 
   // Skip safeguard checks for Codex — it runs in its own sandbox with built-in
   // approval gates. Our safeguards (file-quality, size regression) are designed
-  // for aider/ollama output and produce false failures on Codex tasks.
+  // for local LLM output and produce false failures on Codex tasks.
   if (task.provider === 'codex') return;
 
   const workingDir = task.working_directory || process.cwd();

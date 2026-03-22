@@ -16,7 +16,6 @@ const { extractModifiedFiles } = require('../utils/file-resolution');
 // ── Thresholds ──────────────────────────────────────────────────────────
 
 const COMPLETION_OUTPUT_THRESHOLDS = {
-  'aider-ollama': 8000,     // Aider echoes prompts — need 8KB+ before matching
   'hashline-ollama': 4000,  // Hashline has structured output but can echo
   'claude-cli': 4000,       // Claude-cli can be verbose
   'codex': 500,             // Codex produces tight 1-3KB summaries
@@ -49,10 +48,6 @@ const SHARED_COMPLETION_PATTERNS = [
  * Only tested when the provider matches (or for unknown providers, all are tested).
  */
 const PROVIDER_COMPLETION_PATTERNS = {
-  'aider-ollama': [
-    /applied edit to\s+\S+/,                            // "Applied edit to file.cs"
-    /tokens:\s*[\d.]+k?\s+sent,\s*[\d.]+k?\s+received/,// "Tokens: 2.2k sent, 5.1k received"
-  ],
   'codex': [
     /implemented\s+\S+/i,                              // "Implemented RB-155 in..."
     /changes made:/i,                                  // "Changes made:\n-..."

@@ -1554,7 +1554,7 @@ function runStyleCheck(taskId, task, workingDir) {
 
 /**
  * Rollback task changes by reverting only files recorded for the task when the
- * workspace is dirty, or reverting the last aider/codex commit when the repo is clean.
+ * workspace is dirty, or reverting the last auto-generated commit when the repo is clean.
  * @param {string} taskId - The task ID
  * @param {string} workingDir - Working directory
  * @returns {boolean} True if rollback was performed successfully
@@ -1578,7 +1578,7 @@ function rollbackTaskChanges(taskId, workingDir) {
       return result.reverted.length > 0;
     }
 
-    // Check if last commit was made by aider/codex
+    // Check if last commit was made by a TORQUE provider
     const lastCommitMessage = execFileSync('git', ['log', '-1', '--format=%s'], {
       cwd: workingDir,
       encoding: 'utf8',
@@ -1586,11 +1586,11 @@ function rollbackTaskChanges(taskId, workingDir) {
       windowsHide: true,
     }).trim();
 
-    const isAiderCommit = lastCommitMessage.includes('aider') ||
-                          lastCommitMessage.includes('Co-authored-by: aider');
+    const isTorqueCommit = lastCommitMessage.includes('[Torque') ||
+                           lastCommitMessage.includes('Co-authored-by: aider');
 
-    if (isAiderCommit) {
-      logger.info(`[Rollback] Task ${taskId}: Reverting last aider commit`);
+    if (isTorqueCommit) {
+      logger.info(`[Rollback] Task ${taskId}: Reverting last auto-generated commit`);
       execFileSync('git', ['revert', '--no-commit', 'HEAD'], { cwd: workingDir, encoding: 'utf8', timeout: TASK_TIMEOUTS.GIT_COMMIT, windowsHide: true });
       execFileSync('git', ['commit', '-m', `Revert: Build verification failed for task ${taskId}`], {
         cwd: workingDir,

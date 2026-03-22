@@ -94,7 +94,9 @@ function recoverModifiedFiles(ctx) {
  */
 function handleAutoValidation(ctx) {
   const { taskId, proc, task } = ctx;
-  if (ctx.status !== 'completed' || !task || task.provider !== 'aider-ollama') return;
+  // Auto-validation was aider-ollama specific; now a no-op (provider removed)
+  if (ctx.status !== 'completed' || !task) return;
+  return;
 
   const workingDir = task.working_directory || process.cwd();
   try {
@@ -196,8 +198,8 @@ function handleBuildTestStyleCommit(ctx) {
 
   logger.info(`[Build Verification] Task ${taskId}: Build verified successfully`);
 
-  // Commit uncommitted changes after build passes (when aider auto-commits is disabled)
-  const autoCommitsDisabled = serverConfig.get('aider_auto_commits') === '0';
+  // Commit uncommitted changes after build passes (when auto-commits is disabled)
+  const autoCommitsDisabled = serverConfig.get('auto_commits_disabled') === '1';
   if (autoCommitsDisabled) {
     try {
       const gitStatusResult = spawnSync('git', ['status', '--porcelain'], {
@@ -406,7 +408,7 @@ function handleProviderFailover(ctx) {
         ctx.code = 1;
       }
     }
-  } else if (ctx.status === 'failed' && task && ['aider-ollama', 'ollama', 'hashline-ollama'].includes(task.provider)) {
+  } else if (ctx.status === 'failed' && task && ['ollama', 'hashline-ollama'].includes(task.provider)) {
     // Local LLM task failed — try fallback to different host/model/provider
     logger.info(`[Local-Fallback] Task ${taskId} failed on ${task.provider}/${task.model || '?'} — attempting local-first fallback`);
 

@@ -2,7 +2,7 @@
  * Orphan Cleanup Module — Extracted from task-manager.js (Phase 5, Step 2)
  *
  * Handles cleanup of orphaned/zombie/stale processes and tasks:
- * - Orphaned aider processes from crashed sessions
+ * - Orphaned processes from crashed sessions
  * - Orphaned dotnet processes from interrupted tests/builds
  * - Stale running tasks that exceeded timeout
  * - Zombie processes (close event never fired)
@@ -64,8 +64,7 @@ const BASE_STALL_THRESHOLD_SECONDS = 180; // 3 minutes without output = stalled
 // Per-provider stall thresholds (in seconds)
 // These are base thresholds before model-size adjustments
 const PROVIDER_STALL_THRESHOLDS = {
-  'aider-ollama': 300,      // 5 minutes - aider needs time for file analysis
-  'hashline-ollama': 300,   // 5 minutes - hashline edits need similar time
+  'hashline-ollama': 300,   // 5 minutes - hashline edits need time
   'ollama': 240,            // 4 minutes - direct API is faster
   'claude-cli': 600,        // 10 minutes - claude can be slow on complex tasks
   'codex': 600,             // 10 minutes - catches hung processes below 30-min hard timeout
@@ -79,8 +78,7 @@ const PROVIDER_STALL_THRESHOLDS = {
 
 // Map provider names to stall config keys (configure_stall_detection writes these)
 const PROVIDER_STALL_CONFIG_KEYS = {
-  'aider-ollama': 'stall_threshold_aider',
-  'hashline-ollama': 'stall_threshold_aider',  // shares aider config
+  'hashline-ollama': 'stall_threshold_hashline',
   'ollama': 'stall_threshold_ollama',
   'claude-cli': 'stall_threshold_claude',
   'codex': 'stall_threshold_codex',
@@ -102,63 +100,7 @@ let zombieCheckCycle = 0;
 // Orphaned Process Cleanup
 // ============================================================
 
-/**
- * Kill orphaned aider processes from previous crashed sessions
- * This prevents overloading Ollama when MCP crashes and restarts
- * Uses execFileSync (not execSync) to avoid shell injection vulnerabilities
- * Only kills processes NOT tracked in our runningProcesses map
- */
-function cleanupOrphanedAiderProcesses() {
-  try {
-    let aiderPids = [];
-
-    if (process.platform === 'win32') {
-      // Windows: use WMIC to find aider processes
-      // execFileSync with static args - no user input, safe from injection
-      try {
-        const result = execFileSync('wmic', [
-          'process', 'where', 'name like \'%aider%\'', 'get', 'processid', '/format:list'
-        ], { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true });
-        aiderPids = result.match(/ProcessId=(\d+)/g)?.map(m => parseInt(m.split('=')[1], 10)) || [];
-      } catch {
-        // WMIC might not be available or no matches
-      }
-    } else {
-      // Linux/Mac: use pgrep with execFileSync
-      // Static pattern - no user input, safe from injection
-      try {
-        const result = execFileSync('pgrep', ['-f', 'aider.*--model.*ollama'], {
-          encoding: 'utf8',
-          timeout: TASK_TIMEOUTS.PROCESS_QUERY
-        });
-        aiderPids = result.trim().split('\n').filter(p => p).map(p => parseInt(p, 10));
-      } catch {
-        // pgrep returns non-zero if no matches - this is expected
-      }
-    }
-
-    // Filter out PIDs that are tracked in our runningProcesses map
-    // These are legitimate running tasks, not orphans
-    const trackedPids = new Set();
-    for (const [_taskId, proc] of runningProcesses.entries()) {
-      if (proc.process && proc.process.pid) {
-        trackedPids.add(proc.process.pid);
-      }
-    }
-    const orphanedPids = aiderPids.filter(pid => !trackedPids.has(pid));
-
-    if (orphanedPids.length > 0) {
-      logger.info(`[Cleanup] Found ${orphanedPids.length} orphaned aider process(es): ${orphanedPids.join(', ')}`);
-
-      for (const pid of orphanedPids) {
-        killOrphanByPid(pid, `aider-orphan-${pid}`, 2000, 'AiderOrphan');
-      }
-    }
-    // Don't log if no orphans - it's noisy
-  } catch (err) {
-    logger.info(`[Cleanup] Error cleaning up orphaned processes: ${err.message}`);
-  }
-}
+// cleanupOrphanedAiderProcesses removed — aider provider no longer exists
 
 /**
  * Kill orphaned dotnet processes from previous crashed sessions
@@ -586,7 +528,7 @@ function cleanupOrphanedHostTasks(hostId, hostName) {
  * Calculate dynamic stall threshold based on model size and provider.
  * Priority: runtime config override > model-size heuristic > provider default > base.
  * @param {string} model - Model name (e.g., "qwen2.5-coder:32b")
- * @param {string} provider - Provider name (e.g., "aider-ollama")
+ * @param {string} provider - Provider name (e.g., "hashline-ollama")
  * @returns {number|null} Stall threshold in seconds, or null if stall detection disabled for provider
  */
 function getStallThreshold(model, provider) {
@@ -653,7 +595,6 @@ function startTimers() {
   timersStarted = true;
 
   // Run initial cleanups immediately
-  cleanupOrphanedAiderProcesses();
   cleanupOrphanedDotnetProcesses();
 
   // Periodic dotnet cleanup every 5 minutes
@@ -729,7 +670,6 @@ module.exports = {
   startTimers,
   stopTimers,
   // Cleanup functions
-  cleanupOrphanedAiderProcesses,
   cleanupOrphanedDotnetProcesses,
   checkStaleRunningTasks,
   checkZombieProcesses,
