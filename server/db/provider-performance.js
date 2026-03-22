@@ -75,4 +75,13 @@ function inferTaskType(taskDescription) {
   return 'general';
 }
 
-module.exports = { setDb, recordTaskOutcome, getProviderTaskStats, getEmpiricalRank, inferTaskType };
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createProviderPerformance({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
+module.exports = { setDb, createProviderPerformance, recordTaskOutcome, getProviderTaskStats, getEmpiricalRank, inferTaskType };

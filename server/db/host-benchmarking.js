@@ -453,9 +453,19 @@ function ensureModelsLoaded() {
   return refreshedCount;
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createHostBenchmarking({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   setDb,
   setHostSettings,
+  createHostBenchmarking,
   recordBenchmarkResult,
   getBenchmarkResults,
   getOptimalSettingsFromBenchmarks,

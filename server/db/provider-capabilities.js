@@ -110,9 +110,18 @@ function generateEligibleProviders({ capabilityRequirements = [], qualityTier = 
   return eligible.map(e => e.provider);
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createProviderCapabilities({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   DEFAULT_CAPABILITIES, BAND_ORDER, QUALITY_GATES,
-  setDb, getProviderCapabilities, getQualityBand,
+  setDb, createProviderCapabilities, getProviderCapabilities, getQualityBand,
   meetsCapabilityRequirements, passesQualityGate,
   inferCapabilityRequirements, generateEligibleProviders,
 };

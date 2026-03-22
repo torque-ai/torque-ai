@@ -482,8 +482,18 @@ function createPolicyOverride(override) {
   };
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createPolicyEvaluationStore({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   setDb,
+  createPolicyEvaluationStore,
   createPolicyEvaluation,
   updatePolicyEvaluation,
   getPolicyEvaluation,

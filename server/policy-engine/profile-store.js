@@ -579,9 +579,20 @@ function resolvePoliciesForStage(options = {}) {
   });
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createPolicyProfileStore({ db: dbInstance, getProjectMetadata: getMetaFn } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  if (getMetaFn) setGetProjectMetadata(getMetaFn);
+  return module.exports;
+}
+
 module.exports = {
   setDb,
   setGetProjectMetadata,
+  createPolicyProfileStore,
   listPolicyProfiles,
   getPolicyProfile,
   savePolicyProfile,

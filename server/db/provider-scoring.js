@@ -262,8 +262,18 @@ function setCompositeWeights(weights) {
   return getCompositeWeights();
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createProviderScoring({ db: dbInstance } = {}) {
+  if (dbInstance) init(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   init,
+  createProviderScoring,
   recordTaskCompletion,
   recomputeRelativeScores,
   getProviderScore,

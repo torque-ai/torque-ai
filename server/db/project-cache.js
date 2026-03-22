@@ -692,10 +692,20 @@ function getIndexStats() {
 // Module exports
 // ============================================================
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createProjectCache({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   setDb,
   setGetTask,
   setDbFunctions,
+  createProjectCache,
   computeContentHash,
   computeEmbedding,
   cosineSimilarity,

@@ -1196,8 +1196,18 @@ function getWorkflowHistory(workflowId) {
 // Module Exports
 // ============================================
 
+// ============================================
+// Factory function (dependency injection without singletons)
+// ============================================
+
+function createWorkflowEngine({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   setDb,
+  createWorkflowEngine,
   createWorkflow,
   getWorkflow,
   getWorkflowTaskCount,

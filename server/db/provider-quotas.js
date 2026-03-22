@@ -229,7 +229,18 @@ function getQuotaStore() {
   return instance;
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createProviderQuotas({ db: _dbInstance } = {}) {
+  // provider-quotas is an in-memory store with no DB dependency;
+  // the factory accepts { db } for interface consistency but ignores it.
+  return module.exports;
+}
+
 module.exports = {
   createQuotaStore,
   getQuotaStore,
+  createProviderQuotas,
 };

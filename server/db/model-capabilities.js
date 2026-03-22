@@ -323,8 +323,18 @@ function getModelLeaderboard(options = {}) {
   }));
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createModelCapabilities({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   setDb,
+  createModelCapabilities,
   getModelCapabilities,
   listModelCapabilities,
   upsertModelCapabilities,

@@ -2483,4 +2483,18 @@ const ownExports = {
   purgeGrowthTables,
 };
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createProjectConfigCore({ db: dbInstance, taskCore, recordEvent, dbFunctions } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  if (taskCore) setGetTask(taskCore);
+  if (recordEvent) setRecordEvent(recordEvent);
+  if (dbFunctions) setDbFunctions(dbFunctions);
+  return ownExports;
+}
+
+ownExports.createProjectConfigCore = createProjectConfigCore;
+
 module.exports = ownExports;

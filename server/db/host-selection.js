@@ -441,9 +441,19 @@ function getOllamaHost(hostId) {
   return host;
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createHostSelection({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   setDb,
   setHostTierHint,
+  createHostSelection,
   selectOllamaHostForModel,
   selectHostWithModelVariant,
   getAggregatedModels,

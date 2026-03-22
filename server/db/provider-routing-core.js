@@ -2949,6 +2949,17 @@ function pruneHealthHistory(days = 30) {
   return result.changes;
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createProviderRoutingCore({ db: dbInstance, taskCore, hostManagement } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  if (taskCore) setGetTask(taskCore);
+  if (hostManagement) setHostManagement(hostManagement);
+  return module.exports;
+}
+
 
 module.exports = {
   // Canonical provider lists (single source of truth for fallback ordering)
@@ -3057,4 +3068,7 @@ module.exports = {
   getHealthHistory,
   getHealthTrend,
   pruneHealthHistory,
+
+  // Factory function (dependency injection without singletons)
+  createProviderRoutingCore,
 };

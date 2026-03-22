@@ -378,8 +378,18 @@ function shouldBlockSubmission(provider) {
   return budgets.some((budget) => buildBudgetStatus(budget).thresholdBreached === 'hard_stop');
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createBudgetWatcher({ db: dbInstance } = {}) {
+  if (dbInstance) init(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   init,
+  createBudgetWatcher,
   checkBudgetThresholds,
   getActiveBudgets,
   configureBudgetAction,

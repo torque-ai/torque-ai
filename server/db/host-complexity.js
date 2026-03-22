@@ -340,8 +340,18 @@ function getSplitAdvisory(complexity, files = []) {
   return complexity === 'complex' && Array.isArray(files) && files.length >= 3;
 }
 
+// ============================================================
+// Factory function (dependency injection without singletons)
+// ============================================================
+
+function createHostComplexity({ db: dbInstance } = {}) {
+  if (dbInstance) setDb(dbInstance);
+  return module.exports;
+}
+
 module.exports = {
   setDb,
+  createHostComplexity,
   determineTaskComplexity,
   getModelTierForComplexity,
   decomposeTask,
