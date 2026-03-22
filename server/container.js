@@ -210,6 +210,15 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('mcpProtocol', mcpProtocol);
   }
 
+  // Stateless db utilities — pure functions, no DI needed
+  if (!_defaultContainer.has('configKeys')) {
+    _defaultContainer.registerValue('configKeys', require('./db/config-keys'));
+    _defaultContainer.registerValue('queryFilters', require('./db/query-filters'));
+    _defaultContainer.registerValue('schemaSeeds', require('./db/schema-seeds'));
+    _defaultContainer.registerValue('schemaMigrations', require('./db/schema-migrations'));
+    _defaultContainer.registerValue('analyticsMetrics', require('./db/analytics-metrics'));
+  }
+
   logger.info('Container: core modules initialized (legacy path)');
 }
 
