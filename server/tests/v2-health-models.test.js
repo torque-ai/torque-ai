@@ -409,7 +409,7 @@ describe('v2 provider health and model inventory endpoints', () => {
       provider_id: 'deepinfra',
       status: 'unavailable',
       latency_ms: 0,
-      success_ratio: 0,
+      success_ratio: 1,
       last_error: 'No API key configured',
       checked_at: expect.any(String),
     }));

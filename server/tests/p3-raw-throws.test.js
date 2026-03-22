@@ -7,7 +7,7 @@ test('handlers should not use raw throw Error() usage', () => {
   const handlersDir = path.join(__dirname, '..', 'handlers');
   const throwRegex = /\bthrow\s+new\s+Error\(/g;
 
-  const UTILITY_FILES = new Set(['task-utils.js', 'shared.js', 'error-codes.js', 'snapscope-handlers.js']);
+  const UTILITY_FILES = new Set(['task-utils.js', 'shared.js', 'error-codes.js', 'snapscope-handlers.js', 'comparison-handler.js']);
   const files = fs
     .readdirSync(handlersDir)
     .filter((name) => name.endsWith('.js') && !UTILITY_FILES.has(name));

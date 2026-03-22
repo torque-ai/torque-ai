@@ -525,11 +525,11 @@ describe('automation-handlers', () => {
 
       const result = handlers.handleSetProjectDefaults({
         working_directory: 'C:\\repo',
-        provider: 'groq',
+        provider: 'nonexistent-provider',
       });
 
       expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('Invalid provider "groq"');
+      expect(getText(result)).toContain('Invalid provider "nonexistent-provider"');
     });
 
     it('persists project defaults and formats them on retrieval', () => {

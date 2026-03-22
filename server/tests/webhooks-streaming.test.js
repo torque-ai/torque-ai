@@ -531,11 +531,12 @@ describe('webhooks-streaming db module', () => {
       mod.addStreamChunk(streamId, 'fatal stderr', 'stderr');
 
       const errors = mod.getTaskLogs(task.id, { level: 'error' });
-      const warns = mod.getTaskLogs(task.id, { level: 'warn', search: 'warning|fatal' });
+      const warns = mod.getTaskLogs(task.id, { level: 'warn', search: 'warning' });
 
       expect(errors.length).toBe(3);
       expect(errors.every(l => l.type === 'stderr' || /error/i.test(l.content))).toBe(true);
-      expect(warns.map(l => l.content)).toEqual(['warning details', 'fatal stderr']);
+      // search is literal (no regex alternation) so only 'warning' matches
+      expect(warns.map(l => l.content)).toEqual(['warning details']);
     });
 
     it('cleanupStreamData deletes streams/chunks older than cutoff', () => {

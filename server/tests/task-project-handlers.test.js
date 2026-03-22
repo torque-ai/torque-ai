@@ -657,13 +657,13 @@ describe('Task Project Handlers', () => {
 
       const result = handlers.handleSetProjectDefaults({
         working_directory: 'C:\\repo\\root',
-        provider: 'groq',
+        provider: 'nonexistent-provider',
       });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe(mockShared.ErrorCodes.INVALID_PARAM.code);
       expect(mockDb.setProjectConfig).not.toHaveBeenCalled();
-      expect(textOf(result)).toContain('Invalid provider "groq"');
+      expect(textOf(result)).toContain('Invalid provider "nonexistent-provider"');
     });
 
     it('persists provider, verify, auto-fix, test pattern, and remote settings', () => {

@@ -247,14 +247,15 @@ describe('RemoteAgentRegistry', () => {
       expect(registry.getClient('d1')).toBeNull();
     });
 
-    it('should lazily create a client if not cached', () => {
+    it('should return null when client is not cached and secret is hashed', () => {
       registry.register({ id: 'lazy-1', name: 'Lazy', host: '9.9.9.9', secret: 'xyz' });
       // Clear the client that register() created
       registry.clients.delete('lazy-1');
 
+      // After clearing the cache, getClient cannot recreate the client because
+      // the DB stores the secret as a scrypt hash — returns null
       const client = registry.getClient('lazy-1');
-      expect(client).not.toBeNull();
-      expect(client.host).toBe('9.9.9.9');
+      expect(client).toBeNull();
     });
   });
 

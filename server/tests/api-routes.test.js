@@ -697,6 +697,10 @@ describe('api/routes route table', () => {
 
     expect(skipAuthPaths).toEqual([
       '/api/openapi.json',
+      '/api/bootstrap/workstation',
+      '/api/auth/login',
+      '/api/auth/setup',
+      '/api/auth/status',
       '/api/shutdown',
     ]);
   });

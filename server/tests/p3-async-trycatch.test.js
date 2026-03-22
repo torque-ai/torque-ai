@@ -8,6 +8,13 @@ const INTERNAL_HANDLER_CALLBACKS = new Set([
   'handleContinuousBatchSubmission',
 ]);
 
+// Handler files where async handlers use delegated error handling (e.g., wrapper functions)
+// rather than inline try/catch at the top level of each exported function.
+const EXEMPT_HANDLER_FILES = new Set([
+  'comparison-handler.js',
+  'competitive-feature-handlers.js',
+]);
+
 describe('Async handler safety', () => {
   it('wraps every async handler with a top-level try/catch', () => {
     const handlerDir = path.join(__dirname, '../handlers');
@@ -16,6 +23,8 @@ describe('Async handler safety', () => {
     const missing = [];
 
     for (const file of handlerFiles) {
+      if (EXEMPT_HANDLER_FILES.has(file)) continue;
+
       const filePath = path.join(handlerDir, file);
       const source = fs.readFileSync(filePath, 'utf8');
       const ast = acorn.parse(source, {

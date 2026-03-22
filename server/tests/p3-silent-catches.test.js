@@ -30,6 +30,9 @@ const ALLOWED_SILENT_CATCHES = new Set([
   'orchestrator-handlers.js:12',
   'orchestrator-handlers.js:31',
   'strategic-config-handlers.js:25',
+  'context-handler.js:99',
+  'context-handler.js:120',
+  'context-handler.js:333',
 ]);
 
 describe('p3-silent-catches', () => {

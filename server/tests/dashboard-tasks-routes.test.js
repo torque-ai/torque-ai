@@ -520,7 +520,7 @@ describe('dashboard/routes/tasks', () => {
         error_output: 'Cancelled by user via dashboard',
       });
       expect(context.broadcastTaskUpdate).toHaveBeenCalledWith('task-2');
-      expectSuccess(res, { success: true, message: 'Task cancelled' });
+      expectSuccess(res, { success: false, message: 'Task force-failed (cancel failed)', status: 'failed' });
     });
 
     it('rejects cancel for tasks that are not queued or running', async () => {

@@ -8,6 +8,7 @@ const INLINE_TOOL_HANDLERS = new Set([
   'restart_server',
   'unlock_all_tools',
   'unlock_tier',
+  'get_tool_schema',
 ]);
 const EXPECTED_UNMAPPED_TOOLS = new Set([
   // Tool-def names differ from handler route names (set_provider_api_key vs set_api_key)

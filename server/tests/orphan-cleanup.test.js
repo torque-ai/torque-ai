@@ -138,15 +138,13 @@ describe('Orphan Cleanup', () => {
       expect(threshold).toBe(180);
     });
 
-    it('config value "null" falls through to model-size heuristic (dead code path)', () => {
-      // The outer guard `configValue !== 'null'` prevents entry to the override block,
-      // so config value "null" is treated as "no override" — model-size heuristic runs
+    it('config value "null" disables stall detection (returns null)', () => {
+      // Config value "null" is treated as explicit disable — returns null
       mockDb.getConfig.mockImplementation((key) => {
         if (key === 'stall_threshold_aider') return 'null';
         return null;
       });
-      // qwen3:8b on aider-ollama: base=300, 8b→max(300,210)=300, thinking→300*1.5=450
-      expect(orphanCleanup.getStallThreshold('qwen3:8b', 'aider-ollama')).toBe(450);
+      expect(orphanCleanup.getStallThreshold('qwen3:8b', 'aider-ollama')).toBeNull();
     });
   });
 

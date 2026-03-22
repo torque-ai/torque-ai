@@ -254,7 +254,7 @@ module.exports = { greet, farewell };
     it('getInstructionTemplate returns a string', () => {
       const template = tm.getInstructionTemplate('default');
       expect(template).toBeTruthy();
-      expect(template).toContain('{{TASK}}');
+      expect(template).toContain('{TASK_DESCRIPTION}');
     });
 
     it('wrapWithInstructions wraps task description', () => {

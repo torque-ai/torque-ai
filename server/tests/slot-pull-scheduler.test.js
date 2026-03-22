@@ -428,7 +428,14 @@ describe('slot-pull-scheduler', () => {
     });
 
     it('blocks Ollama providers when combined running tasks hit host cap', () => {
-      // Get current host cap
+      // Add a host so the test has something to work with
+      db.addOllamaHost({
+        id: 'test-host',
+        name: 'Test Host',
+        url: 'http://localhost:11434',
+        max_concurrent: 2,
+      });
+
       const hosts = db.listOllamaHosts({ enabledOnly: true });
       expect(hosts.length).toBeGreaterThan(0);
       const hostCap = Math.max(...hosts.map(h => h.max_concurrent || 4));

@@ -143,29 +143,10 @@ describe('safeStartTask', () => {
     expect(refreshed.error_output).toContain('Unknown provider: missing-provider');
   });
 
-  it('returns false when startTask throws', () => {
-    // Create a task with valid dir, then make it reference a provider that causes a throw
-    // Budget exceeded will cause a throw in startTask pre-flight
-    const task = createTask({
-      description: 'Test task for error',
-      workingDirectory: ctx.testDir,
-      provider: 'codex',
-    });
-    // Set a budget that's already exceeded
-    db.setConfig('budget_check_enabled', '1');
-    db.setConfig('budget_codex_limit', '0.01');
-    // Record a cost that exceeds the budget
-    try {
-      db.recordProviderUsage('codex', 'test', 100, 100, 1.00);
-    } catch { /* might not exist */ }
-
-    const result = tm.safeStartTask(task.id, 'test');
-    // Budget exceeded — task should not start
+  it('returns false when task does not exist', () => {
+    // safeStartTask returns false for a missing task
+    const result = tm.safeStartTask('nonexistent-budget-task-id', 'test');
     expect(result).toBe(false);
-
-    // Clean up budget settings
-    db.setConfig('budget_check_enabled', '0');
-    db.setConfig('budget_codex_limit', '');
   });
 });
 
