@@ -81,12 +81,13 @@ async function initParser() {
   if (parserReady) return;
   try {
     const TreeSitter = require('web-tree-sitter');
-    // web-tree-sitter v0.26+: init() may not exist (WASM auto-inits on first use)
-    if (typeof TreeSitter.init === 'function') {
-      await TreeSitter.init();
+    // web-tree-sitter: v0.24 exports the Parser constructor directly with init();
+    // v0.26+ exports { Parser, Language } with Parser.init().
+    const ParserClass = typeof TreeSitter === 'function' ? TreeSitter : (TreeSitter.Parser || TreeSitter);
+    if (typeof ParserClass.init === 'function') {
+      await ParserClass.init();
     }
-    // Use TreeSitter.Parser if available (v0.26+), otherwise TreeSitter itself (v0.24)
-    Parser = TreeSitter.Parser || TreeSitter;
+    Parser = ParserClass;
     parserReady = true;
     logger.info('[symbol-indexer] Parser initialized (WASM)');
   } catch (err) {
@@ -112,7 +113,11 @@ async function getLanguageParser(ext) {
   }
 
   try {
-    const language = await Parser.Language.load(wasmPath);
+    // v0.24: Parser.Language; v0.26: separate Language export
+    const TreeSitter = require('web-tree-sitter');
+    const LanguageClass = Parser.Language || (typeof TreeSitter === 'object' ? TreeSitter.Language : null);
+    if (!LanguageClass) throw new Error('Language class not found');
+    const language = await LanguageClass.load(wasmPath);
     const parser = new Parser();
     parser.setLanguage(language);
     languageParsers.set(ext, { parser, language, langName });
