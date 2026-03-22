@@ -10,6 +10,8 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const taskCore = require('../db/task-core');
+const configCore = require('../db/config-core');
 
 let testDir;
 let origDataDir;
@@ -101,17 +103,17 @@ function insertHost(overrides = {}) {
 }
 
 function enableCodex() {
-  db.setConfig('codex_enabled', '1');
-  db.setConfig('codex_spark_enabled', '1');
+  configCore.setConfig('codex_enabled', '1');
+  configCore.setConfig('codex_spark_enabled', '1');
 }
 
 function disableCodexExhaustion() {
-  db.setConfig('codex_exhausted', '0');
+  configCore.setConfig('codex_exhausted', '0');
 }
 
 function setCodexExhausted() {
-  db.setConfig('codex_exhausted', '1');
-  db.setConfig('codex_exhausted_at', new Date().toISOString());
+  configCore.setConfig('codex_exhausted', '1');
+  configCore.setConfig('codex_exhausted_at', new Date().toISOString());
 }
 
 /** Extract taskId from result and get task from DB to check provider/model */
@@ -119,13 +121,13 @@ function extractTaskFromResult(result) {
   // The result has __subscribe_task_id and content
   const taskId = result.__subscribe_task_id;
   if (taskId) {
-    return db.getTask(taskId);
+    return taskCore.getTask(taskId);
   }
   // Fallback: parse task ID from markdown output
   const text = result.content?.[0]?.text || '';
   const match = text.match(/Task ID \| `([^`]+)`/);
   if (match) {
-    return db.getTask(match[1]);
+    return taskCore.getTask(match[1]);
   }
   return null;
 }
@@ -276,7 +278,7 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
       const task = extractTaskFromResult(result);
       expect(task).toBeTruthy();
       // Provider is now deferred (null) — check intended_provider in metadata
-      expect(db.getConfig('codex_enabled')).toBe('1');
+      expect(configCore.getConfig('codex_enabled')).toBe('1');
       const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
       expect(meta.intended_provider).toBe('codex');
     });

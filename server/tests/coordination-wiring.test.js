@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const taskCore = require('../db/task-core');
 
 let testDir;
 let origDataDir;
@@ -24,7 +25,7 @@ function setup() {
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   coord = require('../db/coordination');
   coord.setDb(db.getDb());
-  coord.setGetTask(db.getTask);
+  coord.setGetTask(taskCore.getTask);
 }
 
 function teardown() {
@@ -434,7 +435,7 @@ describe('approval wiring', () => {
     setup();
     schedMod = require('../db/scheduling-automation');
     schedMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-    schedMod.setGetTask((id) => db.getTask(id));
+    schedMod.setGetTask((id) => taskCore.getTask(id));
     schedMod.setRecordTaskEvent((..._args) => { /* no-op */ });
   });
   afterAll(() => { teardown(); });
@@ -463,7 +464,7 @@ describe('approval wiring', () => {
       { requiredApprovers: 1 }
     );
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task).toBeTruthy();
 
     const result = schedMod.checkApprovalRequired(task);
@@ -538,7 +539,7 @@ describe('end-to-end coordination', () => {
     });
 
     // 2. Create task with submitted_by_agent in metadata
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'E2E test task',
       status: 'pending',
@@ -551,7 +552,7 @@ describe('end-to-end coordination', () => {
     coord.recordCoordinationEvent('task_submitted', sessionId, taskId, null);
 
     // 4. Simulate execution start — update status and create claim
-    db.updateTaskStatus(taskId, 'running', { started_at: new Date().toISOString() });
+    taskCore.updateTaskStatus(taskId, 'running', { started_at: new Date().toISOString() });
     coord.claimTask(taskId, sessionId, 600);
     coord.recordCoordinationEvent('task_claimed', sessionId, taskId, null);
 
@@ -560,7 +561,7 @@ describe('end-to-end coordination', () => {
     expect(claims.length).toBe(1);
 
     // 6. Complete task — release claim
-    db.updateTaskStatus(taskId, 'completed', { output: 'done', exit_code: 0, completed_at: new Date().toISOString() });
+    taskCore.updateTaskStatus(taskId, 'completed', { output: 'done', exit_code: 0, completed_at: new Date().toISOString() });
     coord.releaseTaskClaim(claims[0].id);
     coord.recordCoordinationEvent('completed', sessionId, taskId, null);
 

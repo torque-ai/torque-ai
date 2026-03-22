@@ -10,6 +10,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
 
 let testDir;
 let origDataDir;
@@ -31,8 +33,8 @@ function setup() {
 
   mod = require('../db/project-cache');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  mod.setGetTask((id) => db.getTask(id));
-  mod.setDbFunctions({ getConfig: db.getConfig });
+  mod.setGetTask((id) => taskCore.getTask(id));
+  mod.setDbFunctions({ getConfig: configCore.getConfig });
 }
 
 function teardown() {
@@ -59,7 +61,7 @@ function createTask(overrides = {}) {
     working_directory: overrides.working_directory || testDir,
     status: overrides.status || 'completed',
   };
-  db.createTask(payload);
+  taskCore.createTask(payload);
 
   // Set output and exit_code via direct SQL since createTask() doesn't support these fields
   const conn = rawDb();
@@ -67,7 +69,7 @@ function createTask(overrides = {}) {
   const exitCode = overrides.exit_code ?? 0;
   conn.prepare('UPDATE tasks SET output = ?, exit_code = ? WHERE id = ?').run(output, exitCode, id);
 
-  return db.getTask(id);
+  return taskCore.getTask(id);
 }
 
 function resetCacheTables() {

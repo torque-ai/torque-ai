@@ -9,6 +9,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const db = require('../database');
+const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const fileTracking = require('../db/file-tracking');
 const strategic = require('../dashboard/routes/analytics');
@@ -140,7 +141,7 @@ describe('strategic dashboard routes', () => {
     let listTasksSpy;
 
     beforeEach(() => {
-      listTasksSpy = vi.spyOn(db, 'listTasks').mockReturnValue(mockTasks);
+      listTasksSpy = vi.spyOn(taskCore, 'listTasks').mockReturnValue(mockTasks);
     });
 
     afterEach(() => {
@@ -230,8 +231,8 @@ describe('strategic dashboard routes', () => {
 
     it('handles missing listTasks gracefully', () => {
       listTasksSpy.mockRestore();
-      const origFn = db.listTasks;
-      db.listTasks = undefined;
+      const origFn = taskCore.listTasks;
+      taskCore.listTasks = undefined;
 
       const { res } = createMockRes();
       strategic.handleGetRoutingDecisions({}, res, {});
@@ -239,7 +240,7 @@ describe('strategic dashboard routes', () => {
 
       expect(data.decisions).toEqual([]);
 
-      db.listTasks = origFn;
+      taskCore.listTasks = origFn;
     });
 
     it('skips tasks with unparseable metadata', () => {
@@ -484,7 +485,7 @@ describe('strategic dashboard routes', () => {
     let listTasksSpy;
 
     beforeEach(() => {
-      listTasksSpy = vi.spyOn(db, 'listTasks').mockReturnValue(mockTasks);
+      listTasksSpy = vi.spyOn(taskCore, 'listTasks').mockReturnValue(mockTasks);
     });
 
     afterEach(() => {

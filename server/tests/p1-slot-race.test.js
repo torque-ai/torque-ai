@@ -9,6 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
+const taskCore = require('../db/task-core');
 
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
@@ -48,7 +49,7 @@ function teardownDbForTest() {
 
 function createQueuedTask(overrides = {}) {
   const taskId = overrides.id || randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     status: overrides.status || 'pending',
     task_description: overrides.task_description || 'Slot race test task',
@@ -79,9 +80,9 @@ describe('Slot claim atomicity', () => {
     expect(firstClaim.success).toBe(true);
     expect(secondClaim.success).toBe(false);
     expect(['at_capacity', 'global_limit']).toContain(secondClaim.reason);
-    expect(db.getTask(task1).status).toBe('running');
-    expect(db.getTask(task2).status).toBe('pending');
-    expect(db.getRunningCount()).toBe(1);
+    expect(taskCore.getTask(task1).status).toBe('running');
+    expect(taskCore.getTask(task2).status).toBe('pending');
+    expect(taskCore.getRunningCount()).toBe(1);
   });
 
   it('respects provider-specific limits', () => {
@@ -192,7 +193,7 @@ describe('Slot claim atomicity', () => {
       expect(interleavedStartExecuted).toBe(true);
       expect(claim.success).toBe(false);
       expect(claim.reason).toBe('already_running');
-      expect(db.getTask(taskId).status).toBe('pending');
+      expect(taskCore.getTask(taskId).status).toBe('pending');
     } finally {
       rawDb.prepare = originalPrepare;
     }

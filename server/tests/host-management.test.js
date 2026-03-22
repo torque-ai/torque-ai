@@ -2,6 +2,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
 
 let testDir, origDataDir, db, mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
@@ -18,7 +20,7 @@ function setup() {
   db.resetForTest(templateBuffer);
   mod = require('../db/host-management');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  mod.setGetTask((id) => db.getTask(id));
+  mod.setGetTask((id) => taskCore.getTask(id));
   mod.setGetProjectRoot((dir) => dir); // identity for tests
 }
 
@@ -75,8 +77,8 @@ function makeTask(overrides = {}) {
     status: overrides.status || 'queued',
     priority: overrides.priority || 0,
   };
-  db.createTask(payload);
-  return db.getTask(payload.id);
+  taskCore.createTask(payload);
+  return taskCore.getTask(payload.id);
 }
 
 describe('host-management module', () => {
@@ -875,7 +877,7 @@ describe('host-management module', () => {
       const task = makeTask({ status: 'completed' });
       rawDb().prepare("UPDATE tasks SET status = 'completed' WHERE id = ?").run(task.id);
       mod.setTaskReviewStatus(task.id, 'approved', 'looks good');
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.review_status).toBe('approved');
       expect(updated.review_notes).toBe('looks good');
       expect(updated.reviewed_at).toBeTruthy();
@@ -1042,14 +1044,14 @@ describe('host-management module', () => {
     });
 
     it('returns no-config when ollama_host config is missing', () => {
-      db.setConfig('ollama_host', '');
+      configCore.setConfig('ollama_host', '');
       const result = mod.migrateToMultiHost();
       expect(result.migrated).toBe(false);
       expect(result.reason).toContain('No existing ollama_host config');
     });
 
     it('migrates from single-host config', () => {
-      db.setConfig('ollama_host', 'http://localhost:11434');
+      configCore.setConfig('ollama_host', 'http://localhost:11434');
       const result = mod.migrateToMultiHost();
       expect(result.migrated).toBe(true);
       expect(result.hostId).toBe('default');

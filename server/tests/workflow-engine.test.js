@@ -10,6 +10,7 @@ const os = require('os');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const workflowEngine = require('../db/workflow-engine');
+const taskCore = require('../db/task-core');
 
 let testDir;
 let origDataDir;
@@ -55,7 +56,7 @@ function createWorkflow(overrides = {}) {
 
 function createTask(overrides = {}) {
   const id = overrides.id || uuidv4();
-  db.createTask({
+  taskCore.createTask({
     id,
     task_description: 'test task',
     provider: 'codex',
@@ -402,8 +403,8 @@ describe('Workflow Engine Module', () => {
       const taskId = createTask({ workflow_id: wf.id });
 
       // Transition through running to completed to set both timestamps
-      db.updateTaskStatus(taskId, 'running');
-      db.updateTaskStatus(taskId, 'completed');
+      taskCore.updateTaskStatus(taskId, 'running');
+      taskCore.updateTaskStatus(taskId, 'completed');
 
       const history = workflowEngine.getWorkflowHistory(wf.id);
 
@@ -425,7 +426,7 @@ describe('Workflow Engine Module', () => {
       const wf = createWorkflow({ id: `wf-hist-fail-${Date.now()}` });
       const taskId = createTask({ workflow_id: wf.id });
 
-      db.updateTaskStatus(taskId, 'failed', {
+      taskCore.updateTaskStatus(taskId, 'failed', {
         started_at: new Date().toISOString(),
       });
 

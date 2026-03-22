@@ -14,6 +14,8 @@ let projectCache;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 const costTracking = require('../db/cost-tracking');
+const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-injection-${Date.now()}`);
@@ -28,8 +30,8 @@ function setup() {
 
   projectCache = require('../db/project-cache');
   projectCache.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  projectCache.setGetTask((id) => db.getTask(id));
-  projectCache.setDbFunctions({ getConfig: db.getConfig });
+  projectCache.setGetTask((id) => taskCore.getTask(id));
+  projectCache.setDbFunctions({ getConfig: configCore.getConfig });
 }
 
 function teardown() {
@@ -54,10 +56,10 @@ function createTask(overrides = {}) {
     working_directory: testDir,
     status: overrides.status || 'completed',
   };
-  db.createTask(payload);
+  taskCore.createTask(payload);
 
   db.getDb().prepare('UPDATE tasks SET project = ? WHERE id = ?').run('security-project', id);
-  return db.getTask(id);
+  return taskCore.getTask(id);
 }
 
 describe('P0 SQL injection hardening', () => {

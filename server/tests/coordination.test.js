@@ -2,6 +2,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const taskCore = require('../db/task-core');
 
 let testDir;
 let origDataDir;
@@ -22,7 +23,7 @@ function setup() {
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   mod = require('../db/coordination');
   mod.setDb(db.getDb());
-  mod.setGetTask(db.getTask);
+  mod.setGetTask(taskCore.getTask);
 }
 
 function teardown() {
@@ -94,8 +95,8 @@ function makeTask(overrides = {}) {
     tags: overrides.tags,
     project: overrides.project || null
   };
-  db.createTask(task);
-  return db.getTask(task.id);
+  taskCore.createTask(task);
+  return taskCore.getTask(task.id);
 }
 
 function patchTask(taskId, fields) {
@@ -242,7 +243,7 @@ describe('coordination module', () => {
       const task = makeTask({ id: 'claim-task', status: 'queued' });
       const claim = mod.claimTask(task.id, agent.id, 60);
 
-      const taskAfter = db.getTask(task.id);
+      const taskAfter = taskCore.getTask(task.id);
       const agentAfter = mod.getAgent(agent.id);
 
       expect(claim.task_id).toBe(task.id);
@@ -302,7 +303,7 @@ describe('coordination module', () => {
 
       const released = mod.releaseTaskClaim(claim.id, 'done');
       const claimRow = rawDb().prepare('SELECT * FROM task_claims WHERE id = ?').get(claim.id);
-      const taskAfter = db.getTask(task.id);
+      const taskAfter = taskCore.getTask(task.id);
       const agentAfter = mod.getAgent(agent.id);
 
       expect(released.id).toBe(claim.id);
@@ -349,7 +350,7 @@ describe('coordination module', () => {
 
       const expired = mod.expireStaleLeases();
       const claimAfter = rawDb().prepare('SELECT status FROM task_claims WHERE id = ?').get(claim.id);
-      const taskAfter = db.getTask(task.id);
+      const taskAfter = taskCore.getTask(task.id);
       const agentAfter = mod.getAgent(agent.id);
 
       expect(expired.map(c => c.id)).toEqual([claim.id]);
@@ -671,8 +672,8 @@ describe('coordination module', () => {
       expect(result.tasks_released).toBe(2);
       expect(result.tasks_reassigned).toBe(0);
       expect(mod.getAgent(victim.id).status).toBe('offline');
-      expect(db.getTask(t1.id).status).toBe('queued');
-      expect(db.getTask(t2.id).status).toBe('queued');
+      expect(taskCore.getTask(t1.id).status).toBe('queued');
+      expect(taskCore.getTask(t2.id).status).toBe('queued');
       expect(() => mod.triggerFailover('missing-agent')).toThrow(/Agent not found/);
     });
 

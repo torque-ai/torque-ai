@@ -18,6 +18,7 @@ const { mocks } = vi.hoisted(() => {
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const db = require('../database');
+const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
 const taskMetadata = require('../db/task-metadata');
 const fileTracking = require('../db/file-tracking');
@@ -57,7 +58,7 @@ function createWorkflow(overrides = {}) {
 
 function createTask(overrides = {}) {
   const id = overrides.id || randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id,
     task_description: 'Await task test',
     provider: 'codex',
@@ -70,21 +71,21 @@ function createTask(overrides = {}) {
 }
 
 function finalizeTask(taskId, status = 'completed', overrides = {}) {
-  const task = db.getTask(taskId);
+  const task = taskCore.getTask(taskId);
   if (!task) return;
 
   if (task.status === 'blocked') {
-    db.updateTaskStatus(taskId, 'pending');
+    taskCore.updateTaskStatus(taskId, 'pending');
   }
 
-  const current = db.getTask(taskId);
+  const current = taskCore.getTask(taskId);
   if (current && ['pending', 'queued'].includes(current.status)) {
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: overrides.started_at || '2026-01-01T00:00:00.000Z',
     });
   }
 
-  db.updateTaskStatus(taskId, status, {
+  taskCore.updateTaskStatus(taskId, status, {
     output: overrides.output ?? (status === 'completed' ? 'task output' : ''),
     error_output: overrides.error_output ?? (status === 'failed' ? 'task failed' : null),
     exit_code: overrides.exit_code
@@ -585,7 +586,7 @@ describe('workflow-await handlers with DB-backed state', () => {
         context: { acknowledged_tasks: [taskA, taskB] },
       });
 
-      db.createTask({
+      taskCore.createTask({
         id: taskA,
         workflow_id: workflow.id,
         workflow_node_id: 'a',
@@ -594,7 +595,7 @@ describe('workflow-await handlers with DB-backed state', () => {
         status: 'completed',
         working_directory: process.cwd(),
       });
-      db.createTask({
+      taskCore.createTask({
         id: taskB,
         workflow_id: workflow.id,
         workflow_node_id: 'b',

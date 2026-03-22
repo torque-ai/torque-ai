@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const taskCore = require('../db/task-core');
 
 let testDir;
 let origDataDir;
@@ -60,7 +61,7 @@ describe('execute-api handleWorkflowTermination integration', () => {
     executeApi.init(makeApiDeps({ handleWorkflowTermination }));
 
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test workflow termination on completion',
       status: 'running',
@@ -83,7 +84,7 @@ describe('execute-api handleWorkflowTermination integration', () => {
     expect(handleWorkflowTermination).toHaveBeenCalledWith(taskId);
     expect(handleWorkflowTermination).toHaveBeenCalledTimes(1);
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.status).toBe('completed');
   });
 
@@ -92,7 +93,7 @@ describe('execute-api handleWorkflowTermination integration', () => {
     executeApi.init(makeApiDeps({ handleWorkflowTermination }));
 
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test workflow termination on failure',
       status: 'running',
@@ -115,7 +116,7 @@ describe('execute-api handleWorkflowTermination integration', () => {
     expect(handleWorkflowTermination).toHaveBeenCalledWith(taskId);
     expect(handleWorkflowTermination).toHaveBeenCalledTimes(1);
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.status).toBe('failed');
   });
 
@@ -126,7 +127,7 @@ describe('execute-api handleWorkflowTermination integration', () => {
     executeApi.init(makeApiDeps({ handleWorkflowTermination }));
 
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test resilience',
       status: 'running',
@@ -148,7 +149,7 @@ describe('execute-api handleWorkflowTermination integration', () => {
     }, provider);
 
     expect(handleWorkflowTermination).toHaveBeenCalledWith(taskId);
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.status).toBe('completed');
   });
 
@@ -157,7 +158,7 @@ describe('execute-api handleWorkflowTermination integration', () => {
     executeApi.init(makeApiDeps());
 
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'No termination handler',
       status: 'running',
@@ -178,7 +179,7 @@ describe('execute-api handleWorkflowTermination integration', () => {
       timeout_minutes: 5,
     }, provider);
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.status).toBe('completed');
   });
 });

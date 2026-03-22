@@ -4,6 +4,7 @@ const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { EventEmitter } = require('events');
 const http = require('http');
+const taskCore = require('../db/task-core');
 
 let testDir;
 let origDataDir;
@@ -171,7 +172,7 @@ describe('provider fixes', () => {
     ollamaMod.init(makeDeps({ safeUpdateTaskStatus: safeUpdate }));
 
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Exact match test',
       status: 'running',
@@ -215,7 +216,7 @@ describe('provider fixes', () => {
     hashlineMod.init(makeDeps({ safeUpdateTaskStatus: vi.fn(), tryHashlineTieredFallback: fallback }));
 
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Fix hashline-pre-routed/fix.js',
       status: 'running',
@@ -249,7 +250,7 @@ describe('provider fixes', () => {
       model: 'codellama:latest',
     });
 
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Signal forward test',
       status: 'running',
@@ -274,7 +275,7 @@ describe('provider fixes', () => {
     const hashlineTaskId = randomUUID();
     const { spy: hashSpy, getRequestOptions: getHashlineOptions } = captureHttpRequestWithSignal();
     hashlineMod.init(makeDeps());
-    db.createTask({
+    taskCore.createTask({
       id: hashlineTaskId,
       task_description: 'Hashline signal test',
       status: 'running',

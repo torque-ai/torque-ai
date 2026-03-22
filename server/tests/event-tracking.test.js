@@ -9,6 +9,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
 
 let testDir;
 let origDataDir;
@@ -32,12 +34,12 @@ function setup() {
 
   mod = require('../db/event-tracking');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  mod.setGetTask((id) => db.getTask(id));
+  mod.setGetTask((id) => taskCore.getTask(id));
   mod.setDbFunctions({
-    getConfig: db.getConfig,
+    getConfig: configCore.getConfig,
     getPipelineSteps: schedulingAutomation.getPipelineSteps,
-    getAllConfig: db.getAllConfig,
-    createTask: db.createTask,
+    getAllConfig: configCore.getAllConfig,
+    createTask: taskCore.createTask,
     getTemplate: schedulingAutomation.getTemplate,
     saveTemplate: schedulingAutomation.saveTemplate,
     deleteTemplate: schedulingAutomation.deleteTemplate,
@@ -74,8 +76,8 @@ function createTask(overrides = {}) {
     status: overrides.status || 'queued',
     ...overrides,
   };
-  db.createTask(payload);
-  return db.getTask(payload.id);
+  taskCore.createTask(payload);
+  return taskCore.getTask(payload.id);
 }
 
 function patchTask(taskId, fields) {

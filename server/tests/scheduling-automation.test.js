@@ -7,6 +7,7 @@ let testDir, origDataDir, db, mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 const projectConfigCore = require('../db/project-config-core');
+const taskCore = require('../db/task-core');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-schedauto-${Date.now()}`);
@@ -19,7 +20,7 @@ function setup() {
   mod = require('../db/scheduling-automation');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
   // Inject cross-module dependencies
-  mod.setGetTask((id) => db.getTask(id));
+  mod.setGetTask((id) => taskCore.getTask(id));
   mod.setRecordTaskEvent((..._args) => { /* no-op for tests */ });
   mod.setGetPipeline((id) => projectConfigCore.getPipeline(id));
   mod.setCreatePipeline((...args) => projectConfigCore.createPipeline(...args));
@@ -68,8 +69,8 @@ function createTask(overrides = {}) {
     priority: 0,
     ...overrides
   };
-  db.createTask(payload);
-  return db.getTask(payload.id);
+  taskCore.createTask(payload);
+  return taskCore.getTask(payload.id);
 }
 
 describe('scheduling-automation module', () => {
@@ -456,7 +457,7 @@ describe('scheduling-automation module', () => {
       expect(request.status).toBe('pending');
       expect(request.rule_id).toBe(ruleId);
 
-      const updatedTask = db.getTask(task.id);
+      const updatedTask = taskCore.getTask(task.id);
       expect(updatedTask.approval_status).toBe('pending');
     });
 
@@ -476,7 +477,7 @@ describe('scheduling-automation module', () => {
       expect(req.status).toBe('approved');
       expect(req.approved_by).toBe('alice');
       expect(req.comment).toBe('looks good');
-      expect(db.getTask(task.id).approval_status).toBe('approved');
+      expect(taskCore.getTask(task.id).approval_status).toBe('approved');
 
       expect(() => mod.approveTask(task.id, 'bob')).toThrow(/not pending/i);
     });
@@ -520,7 +521,7 @@ describe('scheduling-automation module', () => {
       expect(req.status).toBe('rejected');
       expect(req.approved_by).toBe('reviewer');
       expect(req.comment).toBe('needs fixes');
-      const rejectedTask = db.getTask(task.id);
+      const rejectedTask = taskCore.getTask(task.id);
       expect(rejectedTask.approval_status).toBe('rejected');
       expect(rejectedTask.status).toBe('cancelled');
       expect(rejectedTask.error_output).toBe('Approval rejected by reviewer: needs fixes');
@@ -595,7 +596,7 @@ describe('scheduling-automation module', () => {
       expect(req.approved_by).toBe('auto');
       expect(req.auto_approved).toBe(1);
 
-      const updatedTask = db.getTask(task.id);
+      const updatedTask = taskCore.getTask(task.id);
       expect(updatedTask.approval_status).toBe('approved');
     });
 
@@ -621,7 +622,7 @@ describe('scheduling-automation module', () => {
         const req = mod.getApprovalRequest(task.id);
         expect(req.status).toBe('approved');
         expect(req.approved_by).toBe('auto');
-        expect(db.getTask(task.id).approval_status).toBe('approved');
+        expect(taskCore.getTask(task.id).approval_status).toBe('approved');
       }
     });
 

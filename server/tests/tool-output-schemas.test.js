@@ -6,6 +6,7 @@ const fs = require('fs');
 
 const { getOutputSchema, OUTPUT_SCHEMAS } = require('../tool-output-schemas');
 const workflowEngine = require('../db/workflow-engine');
+const taskCore = require('../db/task-core');
 
 describe('tool-output-schemas', () => {
   describe('getOutputSchema', () => {
@@ -194,7 +195,7 @@ describe('tool-output-schemas', () => {
     it('check_status with task_id returns structuredData with task object', () => {
       const { randomUUID } = require('crypto');
       const taskId = randomUUID();
-      db.createTask({ id: taskId, task_description: 'test task', status: 'completed', exit_code: 0 });
+      taskCore.createTask({ id: taskId, task_description: 'test task', status: 'completed', exit_code: 0 });
       const { handleCheckStatus } = require('../handlers/task/core');
       const result = handleCheckStatus({ task_id: taskId });
 
@@ -253,7 +254,7 @@ describe('tool-output-schemas', () => {
     it('list_tasks returns structuredData with count and tasks array', () => {
       const { randomUUID } = require('crypto');
       const taskId = randomUUID();
-      db.createTask({ id: taskId, task_description: 'list test task', status: 'completed', exit_code: 0 });
+      taskCore.createTask({ id: taskId, task_description: 'list test task', status: 'completed', exit_code: 0 });
       const { handleListTasks } = require('../handlers/task/core');
       const result = handleListTasks({ all_projects: true });
 
@@ -274,15 +275,15 @@ describe('tool-output-schemas', () => {
     it('get_result returns structuredData with task fields', () => {
       const { randomUUID } = require('crypto');
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'test',
         status: 'pending',
         exit_code: 0,
       });
       // Transition through running → completed to get started_at / completed_at
-      db.updateTaskStatus(taskId, 'running');
-      db.updateTaskStatus(taskId, 'completed', { output: 'hello world', exit_code: 0 });
+      taskCore.updateTaskStatus(taskId, 'running');
+      taskCore.updateTaskStatus(taskId, 'completed', { output: 'hello world', exit_code: 0 });
       const { handleGetResult } = require('../handlers/task/core');
       const result = handleGetResult({ task_id: taskId });
 
@@ -296,7 +297,7 @@ describe('tool-output-schemas', () => {
     it('get_result for running task returns no structuredData', () => {
       const { randomUUID } = require('crypto');
       const taskId = randomUUID();
-      db.createTask({ id: taskId, task_description: 'test', status: 'running' });
+      taskCore.createTask({ id: taskId, task_description: 'test', status: 'running' });
       const { handleGetResult } = require('../handlers/task/core');
       const result = handleGetResult({ task_id: taskId });
 
@@ -307,7 +308,7 @@ describe('tool-output-schemas', () => {
     it('get_progress returns structuredData with progress fields', () => {
       const { randomUUID } = require('crypto');
       const taskId = randomUUID();
-      db.createTask({ id: taskId, task_description: 'test', status: 'running' });
+      taskCore.createTask({ id: taskId, task_description: 'test', status: 'running' });
       const { handleGetProgress } = require('../handlers/task/core');
       const result = handleGetProgress({ task_id: taskId });
 

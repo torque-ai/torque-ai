@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 const schedulingAutomation = require('../db/scheduling-automation');
 const hostManagement = require('../db/host-management');
+const taskCore = require('../db/task-core');
 
 vi.mock('../providers/registry', () => ({
   getProviderInstance: vi.fn().mockReturnValue({}),
@@ -93,7 +94,7 @@ function teardown() {
 
 function createQueuedTask(approvalStatus) {
   const taskId = randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     task_description: 'approval gate test task',
     working_directory: testDir,
@@ -104,12 +105,12 @@ function createQueuedTask(approvalStatus) {
   db.getDbInstance()
     .prepare('UPDATE tasks SET approval_status = ? WHERE id = ?')
     .run(approvalStatus, taskId);
-  return db.getTask(taskId);
+  return taskCore.getTask(taskId);
 }
 
 function createQueuedTaskForRule(overrides = {}) {
   const taskId = randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     task_description: overrides.task_description || 'approval gate rule test task',
     working_directory: testDir,
@@ -121,7 +122,7 @@ function createQueuedTaskForRule(overrides = {}) {
     ...overrides,
   });
 
-  return db.getTask(taskId);
+  return taskCore.getTask(taskId);
 }
 
 describe('Approval gate enforcement in processQueue', () => {
@@ -250,7 +251,7 @@ describe('tryClaimTaskSlot approval enforcement', () => {
 
     expect(claim.success).toBe(false);
     expect(claim.reason).toBe('approval_not_approved');
-    expect(db.getTask(task.id).status).toBe('queued');
+    expect(taskCore.getTask(task.id).status).toBe('queued');
   });
 
   it('claims queued tasks that are already approved', () => {
@@ -259,6 +260,6 @@ describe('tryClaimTaskSlot approval enforcement', () => {
     const claim = db.tryClaimTaskSlot(task.id, 10, 'queue-lock-id', 'ollama', null, ['ollama']);
     expect(claim.success).toBe(true);
     expect(claim.task.id).toBe(task.id);
-    expect(db.getTask(task.id).status).toBe('running');
+    expect(taskCore.getTask(task.id).status).toBe('running');
   });
 });

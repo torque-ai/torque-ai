@@ -12,6 +12,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const taskCore = require('../db/task-core');
 
 let testDir;
 let origDataDir;
@@ -151,7 +152,7 @@ describe('P1 handler safety fixes (part 2)', () => {
     it('wraps claim operations in a transaction to prevent duplicate active claims', () => {
       const coordination = require('../db/coordination');
       coordination.setDb(rawDb());
-      coordination.setGetTask((id) => db.getTask(id));
+      coordination.setGetTask((id) => taskCore.getTask(id));
 
       // Register an agent
       const agentId = randomUUID();
@@ -164,7 +165,7 @@ describe('P1 handler safety fixes (part 2)', () => {
 
       // Create a task
       const taskId = randomUUID();
-      db.createTask({ id: taskId, task_description: 'claimable task', status: 'pending', working_directory: testDir });
+      taskCore.createTask({ id: taskId, task_description: 'claimable task', status: 'pending', working_directory: testDir });
 
       // First claim should succeed
       const claim1 = coordination.claimTask(taskId, agentId, 300);
@@ -184,7 +185,7 @@ describe('P1 handler safety fixes (part 2)', () => {
     it('prevents two different agents from claiming the same task simultaneously', () => {
       const coordination = require('../db/coordination');
       coordination.setDb(rawDb());
-      coordination.setGetTask((id) => db.getTask(id));
+      coordination.setGetTask((id) => taskCore.getTask(id));
 
       const agent1 = randomUUID();
       const agent2 = randomUUID();
@@ -192,7 +193,7 @@ describe('P1 handler safety fixes (part 2)', () => {
       coordination.registerAgent({ id: agent2, name: 'agent-2', type: 'worker', capabilities: ['code'] });
 
       const taskId = randomUUID();
-      db.createTask({ id: taskId, task_description: 'contested task', status: 'pending', working_directory: testDir });
+      taskCore.createTask({ id: taskId, task_description: 'contested task', status: 'pending', working_directory: testDir });
 
       // Agent 1 claims first
       coordination.claimTask(taskId, agent1, 300);

@@ -4,6 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { ErrorCodes } = require('../handlers/error-codes');
+const taskCore = require('../db/task-core');
 
 const TASK_CHILD_TABLES = [
   'pipeline_steps', 'token_usage', 'retry_history', 'task_file_changes', 'task_file_writes',
@@ -92,7 +93,7 @@ function resetDbTables() {
 
 function createTask(overrides = {}) {
   const taskId = overrides.id || `task-${crypto.randomUUID()}`;
-  db.createTask({
+  taskCore.createTask({
     task_description: overrides.task_description || `Task ${taskId}`,
     working_directory: overrides.working_directory || workingDir,
     status: overrides.status || 'queued',
@@ -128,11 +129,11 @@ describe('p1 database fixes', () => {
     expect(raw.metadata).toBe(JSON.stringify({ mode: 'object', nested: { flag: true }, requested_provider: 'codex' }));
     expect(raw.metadata).not.toBe('[object Object]');
 
-    const createdTask = db.getTask(taskId);
+    const createdTask = taskCore.getTask(taskId);
     expect(createdTask.metadata).toEqual({ mode: 'object', nested: { flag: true }, requested_provider: 'codex' });
 
-    db.updateTaskStatus(taskId, 'running', { metadata: { updated: true, step: 2 } });
-    const updatedTask = db.getTask(taskId);
+    taskCore.updateTaskStatus(taskId, 'running', { metadata: { updated: true, step: 2 } });
+    const updatedTask = taskCore.getTask(taskId);
     expect(updatedTask.metadata).toEqual({ updated: true, step: 2 });
   });
 
@@ -170,7 +171,7 @@ describe('p1 database fixes', () => {
     ).run(second, 'src/b.txt', 'added', new Date().toISOString());
 
     try {
-      const result = db.deleteTasks('completed');
+      const result = taskCore.deleteTasks('completed');
       expect(result).toEqual({ deleted: 2, status: 'completed' });
     } finally {
       rawDb.pragma = originalPragma;

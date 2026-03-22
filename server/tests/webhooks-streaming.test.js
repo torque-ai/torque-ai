@@ -2,6 +2,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const taskCore = require('../db/task-core');
 
 let testDir, origDataDir, db, mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
@@ -63,8 +64,8 @@ function makeTask(overrides = {}) {
     provider: overrides.provider || 'codex'
   };
 
-  db.createTask(task);
-  return db.getTask(task.id);
+  taskCore.createTask(task);
+  return taskCore.getTask(task.id);
 }
 
 function makeWebhook(overrides = {}) {
@@ -809,7 +810,7 @@ describe('webhooks-streaming db module', () => {
       const task = makeTask({ status: 'running' });
 
       const ok = mod.pauseTask(task.id, 'manual pause');
-      const after = db.getTask(task.id);
+      const after = taskCore.getTask(task.id);
       const events = mod.getTaskEvents(task.id, { eventType: 'status_change' });
 
       expect(ok).toBe(true);
@@ -831,7 +832,7 @@ describe('webhooks-streaming db module', () => {
       mod.pauseTask(task.id, 'clear me');
 
       const result = mod.clearPauseState(task.id);
-      const after = db.getTask(task.id);
+      const after = taskCore.getTask(task.id);
 
       expect(result.changes).toBe(1);
       expect(after.pause_reason).toBeNull();

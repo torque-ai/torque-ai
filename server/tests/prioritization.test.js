@@ -2,6 +2,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const taskCore = require('../db/task-core');
 
 let testDir, origDataDir, db, mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
@@ -19,7 +20,7 @@ function setup() {
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   mod = require('../db/analytics');
   mod.setDb(db.getDb());
-  mod.setGetTask((id) => db.getTask(id));
+  mod.setGetTask((id) => taskCore.getTask(id));
   // Provide a stub findSimilarTasks that returns empty by default
   mod.setFindSimilarTasks(() => []);
 }
@@ -59,8 +60,8 @@ function mkTask(overrides = {}) {
     provider: overrides.provider || 'codex',
     workflow_id: overrides.workflow_id || null
   };
-  db.createTask(task);
-  return db.getTask(task.id);
+  taskCore.createTask(task);
+  return taskCore.getTask(task.id);
 }
 
 describe('prioritization module', () => {

@@ -12,6 +12,7 @@ let hostMod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 const projectConfigCore = require('../db/project-config-core');
+const taskCore = require('../db/task-core');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-p1-sched-approval-${Date.now()}`);
@@ -25,14 +26,14 @@ function setup() {
 
   schedulingMod = require('../db/scheduling-automation');
   schedulingMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  schedulingMod.setGetTask((id) => db.getTask(id));
+  schedulingMod.setGetTask((id) => taskCore.getTask(id));
   schedulingMod.setRecordTaskEvent(() => {});
   schedulingMod.setGetPipeline((id) => projectConfigCore.getPipeline(id));
   schedulingMod.setCreatePipeline((...args) => projectConfigCore.createPipeline(...args));
 
   hostMod = require('../db/host-management');
   hostMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  hostMod.setGetTask((id) => db.getTask(id));
+  hostMod.setGetTask((id) => taskCore.getTask(id));
   hostMod.setGetProjectRoot((dir) => dir);
 }
 
@@ -82,8 +83,8 @@ function createTask(overrides = {}) {
     priority: 0,
     ...overrides
   };
-  db.createTask(payload);
-  return db.getTask(payload.id);
+  taskCore.createTask(payload);
+  return taskCore.getTask(payload.id);
 }
 
 function makeHost(overrides = {}) {
@@ -143,7 +144,7 @@ describe('p1 scheduling approval and host reservation correctness', () => {
     expect(() => schedulingMod.approveTask(task.id, 'alice', 'looks good')).toThrow(/event sink unavailable/i);
 
     const req = schedulingMod.getApprovalRequest(task.id);
-    const afterTask = db.getTask(task.id);
+    const afterTask = taskCore.getTask(task.id);
 
     expect(req.status).toBe('pending');
     expect(afterTask.approval_status).toBe('pending');
@@ -161,7 +162,7 @@ describe('p1 scheduling approval and host reservation correctness', () => {
     expect(() => schedulingMod.rejectApproval(task.id, 'reviewer', 'needs fixes')).toThrow(/event sink unavailable/i);
 
     const req = schedulingMod.getApprovalRequest(task.id);
-    const afterTask = db.getTask(task.id);
+    const afterTask = taskCore.getTask(task.id);
 
     expect(req.status).toBe('pending');
     expect(afterTask.approval_status).toBe('pending');
@@ -205,7 +206,7 @@ describe('p1 scheduling approval and host reservation correctness', () => {
       expect(schedulingMod.approveTask(task.id, 'alice', 'looks good')).toBe(true);
 
       const req = schedulingMod.getApprovalRequest(task.id);
-      const afterTask = db.getTask(task.id);
+      const afterTask = taskCore.getTask(task.id);
       const auditEntries = schedulingMod.getAuditLog({ entityType: 'task', entityId: task.id, action: 'approval' });
 
       expect(req.status).toBe('approved');
@@ -227,7 +228,7 @@ describe('p1 scheduling approval and host reservation correctness', () => {
       expect(schedulingMod.rejectApproval(task.id, 'reviewer', 'needs fixes')).toBe(true);
 
       const req = schedulingMod.getApprovalRequest(task.id);
-      const afterTask = db.getTask(task.id);
+      const afterTask = taskCore.getTask(task.id);
       const auditEntries = schedulingMod.getAuditLog({ entityType: 'task', entityId: task.id, action: 'approval' });
 
       expect(req.status).toBe('rejected');

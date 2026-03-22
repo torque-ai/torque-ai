@@ -10,6 +10,7 @@ let mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 const costTracking = require('../db/cost-tracking');
+const taskCore = require('../db/task-core');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-projconfig-${Date.now()}`);
@@ -27,7 +28,7 @@ function setup() {
   mod = require('../db/project-config-core');
   mod.setDb(db.getDb());
   // Inject required cross-module dependencies
-  mod.setGetTask((id) => db.getTask(id));
+  mod.setGetTask((id) => taskCore.getTask(id));
   mod.setRecordEvent((...args) => {
     // recordEvent comes from analytics-metrics module; provide a no-op or delegation
     try {
@@ -83,8 +84,8 @@ function createTask(overrides = {}) {
     ...overrides
   };
 
-  db.createTask(payload);
-  return db.getTask(payload.id);
+  taskCore.createTask(payload);
+  return taskCore.getTask(payload.id);
 }
 
 function createPipeline(overrides = {}) {
@@ -261,7 +262,7 @@ describe('project-config module', () => {
       mod.recordRetryAttempt(task.id, { attempt_number: 1, delay_used: 1, error_message: 'first' });
 
       const history = mod.getRetryHistory(task.id);
-      const refreshedTask = db.getTask(task.id);
+      const refreshedTask = taskCore.getTask(task.id);
 
       expect(history).toHaveLength(2);
       expect(history.map(h => h.attempt_number)).toEqual([1, 2]);
