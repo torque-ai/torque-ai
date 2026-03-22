@@ -3,7 +3,9 @@
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const fileTracking = require('../db/file-tracking');
+const validationRules = require('../db/validation-rules');
 const logger = require('../logger').child({ component: 'approval-gate' });
 const { TASK_TIMEOUTS } = require('../constants');
 
@@ -65,8 +67,8 @@ function readGitDiffFiles(workingDirectory) {
 
 function collectCandidateFiles(task) {
   const filePaths = new Set();
-  const fileChanges = typeof db.getTaskFileChanges === 'function'
-    ? db.getTaskFileChanges(task.id)
+  const fileChanges = typeof fileTracking.getTaskFileChanges === 'function'
+    ? fileTracking.getTaskFileChanges(task.id)
     : [];
 
   for (const change of fileChanges) {
@@ -86,7 +88,7 @@ function collectCandidateFiles(task) {
 }
 
 function getBaselineComparison(task, relativePath) {
-  const comparison = db.compareFileToBaseline(relativePath, task.working_directory);
+  const comparison = fileTracking.compareFileToBaseline(relativePath, task.working_directory);
   if (comparison && comparison.hasBaseline) {
     return comparison;
   }
@@ -94,7 +96,7 @@ function getBaselineComparison(task, relativePath) {
   const absolutePath = path.isAbsolute(relativePath)
     ? relativePath
     : path.join(task.working_directory, relativePath);
-  return db.compareFileToBaseline(absolutePath, task.working_directory);
+  return fileTracking.compareFileToBaseline(absolutePath, task.working_directory);
 }
 
 function collectFileShrinkReasons(task) {
@@ -120,11 +122,11 @@ function collectFileShrinkReasons(task) {
 }
 
 function collectValidationReasons(taskId) {
-  if (typeof db.getValidationResults !== 'function') {
+  if (typeof validationRules.getValidationResults !== 'function') {
     return [];
   }
 
-  const results = db.getValidationResults(taskId)
+  const results = validationRules.getValidationResults(taskId)
     .filter((result) => result.status === 'fail');
 
   const reasons = new Set();
@@ -147,7 +149,7 @@ function checkApprovalGate(taskId) {
     };
   }
 
-  const task = db.getTask(normalizedTaskId);
+  const task = taskCore.getTask(normalizedTaskId);
   if (!task) {
     return {
       approved: false,

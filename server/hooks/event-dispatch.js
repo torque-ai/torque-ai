@@ -14,7 +14,7 @@
  */
 
 const { EventEmitter } = require('events');
-const db = require('../database');
+const database = require('../database');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'event-dispatch' });
 
@@ -187,7 +187,7 @@ function persistTaskEvent(eventName, task) {
     : buildTaskEventContext(eventName, task);
 
   try {
-    const rawDb = db.getDbInstance();
+    const rawDb = database.getDbInstance();
     if (!rawDb) return;
 
     logMalformedTaskEvent(context, 'persist');
@@ -295,7 +295,7 @@ function dispatchTaskEvent(eventName, task) {
  */
 function getTaskEvents(options = {}) {
   try {
-    const rawDb = db.getDbInstance();
+    const rawDb = database.getDbInstance();
     if (!rawDb) return [];
 
     let sql = 'SELECT * FROM task_events WHERE 1=1';
@@ -335,7 +335,7 @@ function getTaskEvents(options = {}) {
  */
 function pruneOldTaskEvents() {
   try {
-    const rawDb = db.getDbInstance();
+    const rawDb = database.getDbInstance();
     if (!rawDb) return 0;
 
     const retentionDays = serverConfig.getInt('event_retention_days', 30);

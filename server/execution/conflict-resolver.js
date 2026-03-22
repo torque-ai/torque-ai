@@ -4,7 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { safeGitExec } = require('../utils/git');
-const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
+const fileTracking = require('../db/file-tracking');
 const logger = require('../logger').child({ component: 'conflict-resolver' });
 
 function isAbsolutePath(filePath) {
@@ -14,7 +15,7 @@ function isAbsolutePath(filePath) {
 }
 
 function getWorkflowTasksById(workflowId) {
-  return new Map((db.getWorkflowTasks(workflowId) || []).map((task) => [task.id, task]));
+  return new Map((workflowEngine.getWorkflowTasks(workflowId) || []).map((task) => [task.id, task]));
 }
 
 function getGitRoot(workingDirectory) {
@@ -188,12 +189,12 @@ function resolveWorkflowConflicts(workflowId) {
     throw new Error('workflowId must be a non-empty string');
   }
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     throw new Error(`Workflow not found: ${workflowId}`);
   }
 
-  const conflictedFiles = db.getConflictedFiles(workflowId);
+  const conflictedFiles = fileTracking.getConflictedFiles(workflowId);
   if (!conflictedFiles.length) {
     return { merged: [], conflicts: [] };
   }
@@ -203,7 +204,7 @@ function resolveWorkflowConflicts(workflowId) {
   const conflicts = [];
 
   for (const conflict of conflictedFiles) {
-    const writeRecords = db.getWorkflowFileWrites(workflowId, conflict.file_path);
+    const writeRecords = fileTracking.getWorkflowFileWrites(workflowId, conflict.file_path);
     const taskRecords = writeRecords
       .map((record) => tasksById.get(record.task_id))
       .filter(Boolean);
@@ -221,7 +222,7 @@ function resolveWorkflowConflicts(workflowId) {
     const contributors = writeRecords.map((record) => ({
       ...record,
       task: tasksById.get(record.task_id) || null,
-      snapshot: db.getTaskFileSnapshot(record.content_hash)
+      snapshot: fileTracking.getTaskFileSnapshot(record.content_hash)
     }));
 
     if (contributors.some((entry) => !entry.snapshot)) {

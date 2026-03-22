@@ -63,22 +63,22 @@ function extractVersion(value) {
   return match ? match[0] : null;
 }
 
-function getDatabase() {
+function getProviderRoutingCore() {
   try {
-    return require('../database');
+    return require('../db/provider-routing-core');
   } catch {
     return null;
   }
 }
 
 function isProviderConfigured(provider) {
-  const database = getDatabase();
-  if (!database || typeof database.getProvider !== 'function') {
+  const providerRoutingCore = getProviderRoutingCore();
+  if (!providerRoutingCore || typeof providerRoutingCore.getProvider !== 'function') {
     return false;
   }
 
   try {
-    const config = database.getProvider(provider);
+    const config = providerRoutingCore.getProvider(provider);
     return Boolean(config && config.enabled);
   } catch {
     return false;

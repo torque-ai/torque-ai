@@ -1,7 +1,8 @@
 'use strict';
 
 const StrategicBrain = require('../orchestrator/strategic-brain');
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const database = require('../database');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'strategic-hooks' });
 
@@ -57,22 +58,22 @@ function shouldSkipTask(task) {
 }
 
 function getCurrentTask(taskId, fallbackTask) {
-  if (typeof db.getTask === 'function') {
-    return db.getTask(taskId) || fallbackTask || null;
+  if (typeof taskCore.getTask === 'function') {
+    return taskCore.getTask(taskId) || fallbackTask || null;
   }
   return fallbackTask || null;
 }
 
 function persistMetadata(taskId, metadata) {
-  if (typeof db.updateTask === 'function') {
-    return db.updateTask(taskId, { metadata });
+  if (typeof taskCore.updateTask === 'function') {
+    return taskCore.updateTask(taskId, { metadata });
   }
 
-  const dbInstance = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
+  const dbInstance = typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
   if (!dbInstance) return null;
 
   dbInstance.prepare('UPDATE tasks SET metadata = ? WHERE id = ?').run(JSON.stringify(metadata), taskId);
-  return typeof db.getTask === 'function' ? db.getTask(taskId) : null;
+  return typeof taskCore.getTask === 'function' ? taskCore.getTask(taskId) : null;
 }
 
 async function onTaskFailed(ctx) {

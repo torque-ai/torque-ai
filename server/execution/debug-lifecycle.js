@@ -6,8 +6,8 @@
  * and lazy-load for database access (same pattern as process-lifecycle.js).
  */
 
-// Lazy-load db to survive test-time module cache resets (setupTestDb)
-function getDb() { return require('../database'); }
+const taskCore = require('../db/task-core');
+const taskMetadata = require('../db/task-metadata');
 const logger = require('../logger').child({ component: 'debug-lifecycle' });
 const { pauseProcess } = require('./process-lifecycle');
 
@@ -61,17 +61,16 @@ function pauseTask(taskId, reason = null) {
  * @returns {boolean|{ queued: boolean, task?: Object, rateLimited?: boolean, retryAfter?: number }} True if resumed, false if not, or startTask result when restarted
  */
 function resumeTask(taskId) {
-  const db = getDb();
   const proc = _runningProcesses.get(taskId);
   if (!proc || (process.platform === 'win32' && proc.paused)) {
     // Task not in memory, or on Windows after pause (process was killed).
     // Restart from DB.
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     if (task && (task.status === 'paused' || (proc && proc.paused))) {
       if (proc) {
         _runningProcesses.delete(taskId);
       }
-      db.updateTaskStatus(taskId, 'pending');
+      taskCore.updateTaskStatus(taskId, 'pending');
       return _startTask(taskId);
     }
     return false;
@@ -85,7 +84,7 @@ function resumeTask(taskId) {
     proc.pauseReason = null;
 
     // Update task status
-    db.updateTaskStatus(taskId, 'running');
+    taskCore.updateTaskStatus(taskId, 'running');
 
     return true;
   } catch (err) {
@@ -128,9 +127,8 @@ function isSafeRegexPattern(pattern) {
  * @returns {Object|null} Matching breakpoint or null
  */
 function checkBreakpoints(taskId, text, type = 'output') {
-  const db = getDb();
   // Use listBreakpoints with task_id and enabled filters
-  const breakpoints = db.listBreakpoints({ task_id: taskId, enabled: true });
+  const breakpoints = taskMetadata.listBreakpoints({ task_id: taskId, enabled: true });
 
   for (const bp of breakpoints) {
     if (bp.pattern_type !== type) continue;
@@ -148,7 +146,7 @@ function checkBreakpoints(taskId, text, type = 'output') {
       const regex = new RegExp(bp.pattern, 'i');
       if (regex.test(text)) {
         // Increment hit count atomically to prevent race conditions
-        db.updateBreakpoint(bp.id, { hit_count: 'increment' });
+        taskMetadata.updateBreakpoint(bp.id, { hit_count: 'increment' });
         return bp;
       }
     } catch {
@@ -167,7 +165,6 @@ function checkBreakpoints(taskId, text, type = 'output') {
  * @returns {boolean} True if the task was paused for debugging
  */
 function pauseTaskForDebug(taskId, breakpoint) {
-  const db = getDb();
   const proc = _runningProcesses.get(taskId);
   if (!proc) return false;
 
@@ -179,23 +176,23 @@ function pauseTaskForDebug(taskId, breakpoint) {
     proc.debugBreakpoint = breakpoint;
 
     // Get or create debug session
-    let session = db.getDebugSessionByTask(taskId);
+    let session = taskMetadata.getDebugSessionByTask(taskId);
     if (!session) {
-      session = db.createDebugSession({
+      session = taskMetadata.createDebugSession({
         id: require('crypto').randomUUID(),
         task_id: taskId,
         status: 'paused',
         current_breakpoint_id: breakpoint.id
       });
     } else {
-      db.updateDebugSession(session.id, {
+      taskMetadata.updateDebugSession(session.id, {
         status: 'paused',
         current_breakpoint_id: breakpoint.id
       });
     }
 
     // Capture state
-    db.recordDebugCapture({
+    taskMetadata.recordDebugCapture({
       session_id: session.id,
       breakpoint_id: breakpoint.id,
       output_snapshot: proc?.output?.slice(-5000) || '', // Last 5KB
@@ -205,7 +202,7 @@ function pauseTaskForDebug(taskId, breakpoint) {
     });
 
     // Update task status
-    db.updateTaskStatus(taskId, 'paused');
+    taskCore.updateTaskStatus(taskId, 'paused');
 
     return true;
   } catch (err) {
@@ -222,26 +219,25 @@ function pauseTaskForDebug(taskId, breakpoint) {
  * @returns {{ success: boolean, error?: string, stepMode?: string, count?: number }} Result info
  */
 function stepExecution(taskId, stepMode = 'continue', count = 1) {
-  const db = getDb();
   const proc = _runningProcesses.get(taskId);
   if (!proc || (process.platform === 'win32' && proc.paused)) {
     // Task not in memory, or on Windows after pause (process was killed).
     // Restart from DB.
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     if (task && (task.status === 'paused' || (proc && proc.paused))) {
       if (proc) {
         _runningProcesses.delete(taskId);
       }
-      db.updateTaskStatus(taskId, 'pending');
+      taskCore.updateTaskStatus(taskId, 'pending');
       return _startTask(taskId);
     }
     return { success: false, error: 'Task not found or not paused' };
   }
 
   // Update debug session
-  const session = db.getDebugSessionByTask(taskId);
+  const session = taskMetadata.getDebugSessionByTask(taskId);
   if (session) {
-    db.updateDebugSession(session.id, {
+    taskMetadata.updateDebugSession(session.id, {
       status: 'stepping',
       step_mode: stepMode
     });
@@ -260,7 +256,7 @@ function stepExecution(taskId, stepMode = 'continue', count = 1) {
     proc.debugBreakpoint = null;
 
     // Update task status
-    db.updateTaskStatus(taskId, 'running');
+    taskCore.updateTaskStatus(taskId, 'running');
 
     return { success: true, stepMode, count };
   } catch (err) {
