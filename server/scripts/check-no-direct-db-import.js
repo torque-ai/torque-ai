@@ -26,10 +26,28 @@ const ALLOWED = new Set([
   'db/schema.js',       // DDL migrations — needs raw db for ALTER TABLE
   'db/throughput-metrics.js', // DB module — imports from parent database.js
   // Files that use facade-only core functions (getDbInstance, safeAddColumn, countTasks, isDbClosed)
-  'mcp-sse.js',                       // getDbInstance — raw DB handle for subscription persistence
-  'config.js',                        // getDbInstance — raw DB handle for encrypted API key lookup
-  'handlers/experiment-handlers.js',  // getDbInstance — raw DB handle for SQLite transactions
-  'handlers/peek/compliance.js',      // getDbInstance — raw DB handle for direct SQL audit queries
+  'mcp-sse.js',                       // getDbInstance — raw DB for subscription persistence
+  'config.js',                        // getDbInstance — raw DB for encrypted API key lookup
+  'handlers/experiment-handlers.js',  // getDbInstance — raw DB for SQLite transactions
+  'handlers/peek/compliance.js',      // getDbInstance — raw DB for direct SQL audit queries
+  // Raw SQL users — these call db.prepare() or db.getDbInstance().prepare() directly
+  'ci/watcher.js',                    // raw SQL for CI watch state
+  'hooks/event-dispatch.js',          // raw SQL for event persistence
+  'execution/strategic-hooks.js',     // raw SQL fallback in persistMetadata
+  'execution/task-finalizer.js',      // inline require for getDbInstance in scoring/budget
+  'handlers/concurrency-handlers.js', // raw SQL via db.prepare()
+  'handlers/provider-crud-handlers.js', // raw SQL via getDbInstance().prepare()
+  'handlers/competitive-feature-handlers.js', // getDbInstance for scoring/indexer
+  'handlers/automation-handlers.js',  // safeAddColumn — schema migrations
+  // Core infrastructure — heaviest facade consumers, migrate last
+  'api-server.core.js',              // broad facade usage, Phase 5 final migration
+  'dashboard-server.js',             // broad facade usage, Phase 5 final migration
+  'task-manager.js',                 // heaviest consumer — uses everything
+  'api/health-probes.js',            // getDbInstance, isDbClosed, countTasks
+  'api/v2-analytics-handlers.js',    // getDbInstance for raw SQL + facade functions
+  'api/v2-infrastructure-handlers.js', // getDbInstance for raw SQL
+  'dashboard/routes/analytics.js',   // getDbInstance for raw SQL
+  'dashboard/routes/infrastructure.js', // getDbInstance for raw SQL
 ]);
 
 const DB_IMPORT_PATTERN = /require\s*\(\s*['"]\..*database['"]\s*\)/;
