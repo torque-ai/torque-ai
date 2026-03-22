@@ -1,90 +1,229 @@
 'use strict';
 
 /**
- * server/container.js — Composition root for TORQUE dependency wiring.
+ * server/container.js — DI container and composition root for TORQUE.
  *
- * Centralizes and documents the initialization order that was previously
- * scattered across index.js:init() and the task-manager.js module body.
+ * Every module registers as a factory with declared dependencies.
+ * boot() resolves the dependency graph via topological sort and
+ * instantiates all services in the correct order.
  *
- * Usage: called from index.js:init() as a helper after db.init().
- * Does NOT replace index.js:init() yet — that migration is a future step.
+ * API:
+ *   createContainer()   → new container instance
+ *   .register(name, deps, factory)  — register a factory
+ *   .registerValue(name, value)     — register a pre-built value
+ *   .boot()             — resolve deps, run factories, freeze
+ *   .get(name)          — retrieve an instantiated service
+ *   .has(name)          — check if a service is registered
+ *   .list()             — list all registered service names
+ *   .resetForTest()     — reset to pre-boot state (keeps registrations)
+ *   .freeze()           — explicit freeze (must be called after boot)
  */
 
 const logger = require('./logger').child({ component: 'container' });
 
 /**
- * Phase 2.4: These 8 modules directly require('./database').
- * Phase 3 will migrate each to receive db through init(deps).
- *
- * Migration order (least-coupled first):
- * 1. config.js — only uses getConfig/setConfig/getBool
- * 2. discovery.js — only uses host management functions
- * 3. tools.js — only uses getConfig for tool mode
- * 4. dashboard-server.js — uses listTasks, getTask, updateTaskStatus
- * 5. api-server.core.js — uses broad set of db functions
- * 6. mcp-sse.js — uses config and task functions
- * 7. task-manager.js — heaviest consumer, uses everything
- * 8. index.js — orchestrator, last to migrate
+ * Topological sort using Kahn's algorithm.
+ * @param {Map<string, string[]>} graph - service name → dependency names
+ * @returns {string[]} Sorted service names (dependency-first order)
  */
-const DIRECT_DB_CONSUMERS = [
-  'config.js', 'discovery.js', 'tools.js', 'dashboard-server.js',
-  'api-server.core.js', 'mcp-sse.js', 'task-manager.js', 'index.js',
-];
+function topoSort(graph) {
+  // Validate all deps exist
+  for (const [name, deps] of graph) {
+    for (const dep of deps) {
+      if (!graph.has(dep)) {
+        throw new Error(
+          `Container: service '${name}' depends on '${dep}' which is not registered`
+        );
+      }
+    }
+  }
 
-// Module references — populated by initModules
-const _modules = {};
+  // In-degree = number of unresolved dependencies each node has
+  const inDeg = new Map();
+  for (const [name, deps] of graph) {
+    inDeg.set(name, deps.length);
+  }
+
+  // Queue starts with nodes that have no dependencies
+  const queue = [];
+  for (const [name, deg] of inDeg) {
+    if (deg === 0) queue.push(name);
+  }
+
+  // Reverse adjacency: for each dep, which services depend on it?
+  const dependents = new Map();
+  for (const name of graph.keys()) {
+    dependents.set(name, []);
+  }
+  for (const [name, deps] of graph) {
+    for (const dep of deps) {
+      dependents.get(dep).push(name);
+    }
+  }
+
+  const sorted = [];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    sorted.push(current);
+    for (const dependent of (dependents.get(current) || [])) {
+      const newDeg = inDeg.get(dependent) - 1;
+      inDeg.set(dependent, newDeg);
+      if (newDeg === 0) queue.push(dependent);
+    }
+  }
+
+  if (sorted.length !== graph.size) {
+    const remaining = [...graph.keys()].filter(n => !sorted.includes(n));
+    throw new Error(
+      `Container: circular dependency detected among: ${remaining.join(', ')}`
+    );
+  }
+
+  return sorted;
+}
 
 /**
- * Initialize core infrastructure modules in dependency order.
- *
- * Phase 1: Core infrastructure (no inter-module dependencies)
- * Phase 2: Provider config and registry (depend on db)
- * Phase 3: MCP protocol (depends on tools, wired after tools are loaded)
- *
- * @param {object} db           - Initialized database module
- * @param {object} serverConfig - Server configuration module
+ * Create a new DI container.
+ * @returns {object} Container instance
  */
-function initModules(db, serverConfig) {
-  // Phase 1: Core infrastructure (no dependencies)
-  _modules.db = db;
-  _modules.serverConfig = serverConfig;
+function createContainer() {
+  const _registry = new Map();
+  const _instances = new Map();
+  let _booted = false;
 
-  // Phase 2.4 (PoC): config.js migrated to init(deps) — receives db here
-  // rather than requiring('./database') directly.
+  function register(name, deps, factory) {
+    if (_booted) {
+      throw new Error(`Container is frozen after boot() — cannot register '${name}'`);
+    }
+    if (_registry.has(name)) {
+      logger.warn(`Container: overwriting registration for '${name}'`);
+    }
+    _registry.set(name, { deps, factory, value: undefined });
+  }
+
+  function registerValue(name, value) {
+    if (_booted) {
+      throw new Error(`Container is frozen after boot() — cannot register '${name}'`);
+    }
+    _registry.set(name, { deps: [], factory: null, value });
+  }
+
+  function boot() {
+    if (_booted) {
+      logger.warn('Container: boot() called multiple times — skipping');
+      return;
+    }
+
+    const graph = new Map();
+    for (const [name, entry] of _registry) {
+      graph.set(name, entry.deps);
+    }
+
+    const order = topoSort(graph);
+
+    for (const name of order) {
+      const entry = _registry.get(name);
+      if (entry.factory) {
+        const deps = {};
+        for (const depName of entry.deps) {
+          deps[depName] = _instances.get(depName);
+        }
+        try {
+          _instances.set(name, entry.factory(deps));
+        } catch (err) {
+          const depNames = entry.deps.join(', ') || 'none';
+          logger.error(`Container: factory for '${name}' threw (deps: ${depNames}): ${err.message}`);
+          throw err;
+        }
+      } else {
+        _instances.set(name, entry.value);
+      }
+    }
+
+    _booted = true;
+    logger.info(`Container: booted ${_instances.size} services`);
+  }
+
+  function get(name) {
+    if (!_booted) {
+      throw new Error(
+        `Container: get('${name}') called before boot() — ` +
+        `ensure container.boot() is called during startup`
+      );
+    }
+    if (!_instances.has(name)) {
+      throw new Error(`Container: service '${name}' is not registered`);
+    }
+    return _instances.get(name);
+  }
+
+  function has(name) {
+    return _registry.has(name);
+  }
+
+  function list() {
+    return [..._instances.keys()];
+  }
+
+  function freeze() {
+    if (!_booted) {
+      throw new Error('Container: cannot freeze before boot() — call boot() first');
+    }
+  }
+
+  function resetForTest() {
+    _instances.clear();
+    _booted = false;
+  }
+
+  return { register, registerValue, boot, get, has, list, freeze, resetForTest };
+}
+
+// ── Legacy compatibility ────────────────────────────────────────────────────
+const _defaultContainer = createContainer();
+
+function initModules(db, serverConfig) {
+  if (!_defaultContainer.has('db')) {
+    _defaultContainer.registerValue('db', db);
+  }
+  if (!_defaultContainer.has('serverConfig')) {
+    _defaultContainer.registerValue('serverConfig', serverConfig);
+  }
+
   serverConfig.init({ db });
   logger.info('Container: config.js wired via init(deps)');
 
-  // Phase 2: Provider config and registry
   const providerCfg = require('./providers/config');
   providerCfg.init({ db });
-  _modules.providerCfg = providerCfg;
+  if (!_defaultContainer.has('providerCfg')) {
+    _defaultContainer.registerValue('providerCfg', providerCfg);
+  }
 
   const providerRegistry = require('./providers/registry');
   providerRegistry.init({ db });
-  _modules.providerRegistry = providerRegistry;
+  if (!_defaultContainer.has('providerRegistry')) {
+    _defaultContainer.registerValue('providerRegistry', providerRegistry);
+  }
 
-  // Phase 3: MCP protocol
-  // mcpProtocol.init() is called later in index.js:init() after tools are loaded
   const mcpProtocol = require('./mcp-protocol');
-  _modules.mcpProtocol = mcpProtocol;
+  if (!_defaultContainer.has('mcpProtocol')) {
+    _defaultContainer.registerValue('mcpProtocol', mcpProtocol);
+  }
 
-  // Phase 3 (future): DB sub-module injection will move here.
-  // db._injectDbAll() and db._wireCrossModuleDI() are currently called
-  // internally by db.init(), but are exported so the container can eventually
-  // own this wiring — decoupling it from the database module itself.
-  // That migration requires converting 26 sub-modules from setDb(db) to
-  // init({ db }) and is tracked as Phase 2.3 / Phase 3 work.
-
-  logger.info('Container: core modules initialized');
+  logger.info('Container: core modules initialized (legacy path)');
 }
 
-/**
- * Retrieve a module registered during initModules().
- * @param {string} name - Module key (e.g., 'db', 'providerCfg', 'providerRegistry')
- * @returns {object|undefined}
- */
 function getModule(name) {
-  return _modules[name];
+  try {
+    return _defaultContainer.get(name);
+  } catch {
+    return undefined;
+  }
 }
 
-module.exports = { initModules, getModule };
+module.exports = {
+  createContainer,
+  initModules,
+  getModule,
+  defaultContainer: _defaultContainer,
+};
