@@ -11,7 +11,12 @@
 
 const { v4: uuidv4 } = require('uuid');
 const childProcess = require('child_process');
-const db = require('../../database');
+const database = require('../../database');
+const eventTracking = require('../../db/event-tracking');
+const fileTracking = require('../../db/file-tracking');
+const projectConfigCore = require('../../db/project-config-core');
+const schedulingAutomation = require('../../db/scheduling-automation');
+const taskMetadata = require('../../db/task-metadata');
 const taskManager = require('../../task-manager');
 const logger = require('../../logger').child({ component: 'task-handlers' });
 const { TASK_TIMEOUTS } = require('../../constants');
@@ -96,7 +101,7 @@ function handleSaveTemplate(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'default_priority must be a number');
   }
 
-  const template = db.saveTemplate({
+  const template = schedulingAutomation.saveTemplate({
     name: args.name.trim(),
     description: args.description,
     task_template: args.task_template,
@@ -105,7 +110,7 @@ function handleSaveTemplate(args) {
     auto_approve: args.auto_approve
   });
 
-  db.recordEvent('template_saved', null, { name: args.name });
+  eventTracking.recordEvent('template_saved', null, { name: args.name });
 
   return {
     content: [{
@@ -120,7 +125,7 @@ function handleSaveTemplate(args) {
  * List all templates
  */
 function handleListTemplates(_args) {
-  const templates = db.listTemplates();
+  const templates = schedulingAutomation.listTemplates();
 
   if (templates.length === 0) {
     return {
@@ -149,7 +154,7 @@ function handleListTemplates(_args) {
  * Create a task from a template
  */
 function handleUseTemplate(args) {
-  const template = db.getTemplate(args.template_name);
+  const template = schedulingAutomation.getTemplate(args.template_name);
 
   if (!template) {
     return makeError(ErrorCodes.TEMPLATE_NOT_FOUND, `Template not found: ${args.template_name}`);
@@ -195,7 +200,7 @@ function handleUseTemplate(args) {
 
   const taskId = uuidv4();
 
-  db.createTask({
+  database.createTask({
     id: taskId,
     status: 'pending',
     task_description: taskDescription,
@@ -206,7 +211,7 @@ function handleUseTemplate(args) {
     template_name: template.name
   });
 
-  db.incrementTemplateUsage(template.name);
+  schedulingAutomation.incrementTemplateUsage(template.name);
 
   const result = taskManager.startTask(taskId);
 
@@ -227,7 +232,7 @@ function handleUseTemplate(args) {
  * Get analytics summary
  */
 function handleGetAnalytics(args) {
-  const analytics = db.getAnalytics({
+  const analytics = eventTracking.getAnalytics({
     includeEvents: args.include_events
   });
 
@@ -302,7 +307,7 @@ function handleRetryTask(args) {
     }
   } catch { /* resume context injection is best-effort */ }
 
-  db.createTask({
+  database.createTask({
     id: taskId,
     status: 'pending',
     task_description: taskDescription,
@@ -314,7 +319,7 @@ function handleRetryTask(args) {
     context: { retry_of: args.task_id }
   });
 
-  db.recordEvent('task_retried', taskId, { original_task: args.task_id });
+  eventTracking.recordEvent('task_retried', taskId, { original_task: args.task_id });
 
   const result = taskManager.startTask(taskId);
 
@@ -361,7 +366,7 @@ function handleCreatePipeline(args) {
 
   const pipelineId = uuidv4();
 
-  const pipeline = db.createPipeline({
+  const pipeline = projectConfigCore.createPipeline({
     id: pipelineId,
     name: args.name.trim(),
     description: args.description,
@@ -371,7 +376,7 @@ function handleCreatePipeline(args) {
   // Add steps
   for (let i = 0; i < args.steps.length; i++) {
     const step = args.steps[i];
-    db.addPipelineStep({
+    projectConfigCore.addPipelineStep({
       pipeline_id: pipelineId,
       step_order: i + 1,
       name: step.name,
@@ -381,7 +386,7 @@ function handleCreatePipeline(args) {
     });
   }
 
-  const createdPipeline = db.getPipeline(pipelineId);
+  const createdPipeline = projectConfigCore.getPipeline(pipelineId);
 
   let result = `## Pipeline Created: ${pipeline.name}\n\n`;
   result += `**ID:** ${pipelineId}\n`;
@@ -405,7 +410,7 @@ function handleCreatePipeline(args) {
  * Run a pipeline
  */
 function handleRunPipeline(args) {
-  const pipeline = db.getPipeline(args.pipeline_id);
+  const pipeline = projectConfigCore.getPipeline(args.pipeline_id);
 
   if (!pipeline) {
     return makeError(ErrorCodes.PIPELINE_NOT_FOUND, `Pipeline not found: ${args.pipeline_id}`);
@@ -421,8 +426,8 @@ function handleRunPipeline(args) {
   }
 
   // Start the pipeline
-  db.updatePipelineStatus(args.pipeline_id, 'running');
-  db.recordEvent('pipeline_started', args.pipeline_id, { name: pipeline.name });
+  projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running');
+  eventTracking.recordEvent('pipeline_started', args.pipeline_id, { name: pipeline.name });
 
   // Start first step
   const firstStep = pipeline.steps[0];
@@ -442,7 +447,7 @@ function handleRunPipeline(args) {
     const taskContext = { pipeline_id: args.pipeline_id, step_id: firstStep.id };
     logger.info(`[Pipeline] Creating first task ${taskId} with context: ${JSON.stringify(taskContext)}`);
 
-    db.createTask({
+    database.createTask({
       id: taskId,
       status: 'pending',
       task_description: taskDescription,
@@ -452,22 +457,22 @@ function handleRunPipeline(args) {
     });
 
     // Verify context was stored
-    const verifyTask = db.getTask(taskId);
+    const verifyTask = database.getTask(taskId);
     logger.info(`[Pipeline] Verified task context after create: ${JSON.stringify(verifyTask?.context)}`);
 
-    db.updatePipelineStatus(args.pipeline_id, 'running', { current_step: 1 });
+    projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running', { current_step: 1 });
 
     let startResult;
     try {
       startResult = taskManager.startTask(taskId);
     } catch (startErr) {
       // Revert pipeline status on start failure
-      db.updatePipelineStatus(args.pipeline_id, 'failed', { error: `Failed to start first step: ${startErr.message}` });
-      db.updatePipelineStep(firstStep.id, { status: 'failed' });
+      projectConfigCore.updatePipelineStatus(args.pipeline_id, 'failed', { error: `Failed to start first step: ${startErr.message}` });
+      projectConfigCore.updatePipelineStep(firstStep.id, { status: 'failed' });
       return makeError(ErrorCodes.OPERATION_FAILED, `Pipeline start failed: ${startErr.message}`);
     }
 
-    db.updatePipelineStep(firstStep.id, {
+    projectConfigCore.updatePipelineStep(firstStep.id, {
       task_id: taskId,
       status: startResult?.queued === true ? 'queued' : 'running',
     });
@@ -486,7 +491,7 @@ function handleRunPipeline(args) {
  * Get pipeline status
  */
 function handleGetPipelineStatus(args) {
-  const pipeline = db.getPipeline(args.pipeline_id);
+  const pipeline = projectConfigCore.getPipeline(args.pipeline_id);
 
   if (!pipeline) {
     return makeError(ErrorCodes.PIPELINE_NOT_FOUND, `Pipeline not found: ${args.pipeline_id}`);
@@ -526,7 +531,7 @@ function handleGetPipelineStatus(args) {
  * List all pipelines
  */
 function handleListPipelines(args) {
-  const pipelines = db.listPipelines({
+  const pipelines = projectConfigCore.listPipelines({
     status: args.status,
     limit: safeLimit(args.limit, 20)
   });
@@ -647,12 +652,12 @@ function handleCommitTask(args) {
   const afterSha = afterShaResult.success ? afterShaResult.output.trim() : null;
 
   // Update task with git info
-  db.updateTaskGitState(args.task_id, {
+  taskMetadata.updateTaskGitState(args.task_id, {
     before_sha: beforeSha,
     after_sha: afterSha
   });
 
-  db.recordEvent('task_committed', args.task_id, { sha: afterSha });
+  eventTracking.recordEvent('task_committed', args.task_id, { sha: afterSha });
 
   return {
     content: [{
@@ -677,7 +682,7 @@ function handleRollbackTask(args) {
   if (taskErr3) return taskErr3;
 
   // Create rollback record
-  const rollbackId = db.createRollback(task_id, 'git', null, null, reason || 'User requested rollback', 'user');
+  const rollbackId = fileTracking.createRollback(task_id, 'git', null, null, reason || 'User requested rollback', 'user');
 
   // In a real implementation, this would run git commands to rollback
   // For now, just record the intent
@@ -695,7 +700,7 @@ function handleRollbackTask(args) {
  * List tasks with commits
  */
 function handleListCommits(args) {
-  const tasks = db.getTasksWithCommits({
+  const tasks = taskMetadata.getTasksWithCommits({
     working_directory: args.working_directory,
     limit: safeLimit(args.limit, 10)
   });

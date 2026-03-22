@@ -3,7 +3,11 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const db = require('../../database');
+const database = require('../../database');
+const eventTracking = require('../../db/event-tracking');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const schedulingAutomation = require('../../db/scheduling-automation');
+const workflowEngine = require('../../db/workflow-engine');
 const taskManager = require('../../task-manager');
 const logger = require('../../logger').child({ component: 'workflow-advanced' });
 const { ErrorCodes, getWorkflowRestartGuardError, makeError, requireWorkflow, requireTask } = require('../shared');
@@ -30,7 +34,7 @@ function handleForkWorkflow(args) {
   const { workflow: _workflow, error: wfErr } = requireWorkflow(db, workflow_id);
   if (wfErr) return wfErr;
 
-  const fork = db.createWorkflowFork({
+  const fork = providerRoutingCore.createWorkflowFork({
     id: uuidv4(),
     workflow_id,
     branches,
@@ -49,7 +53,7 @@ function handleForkWorkflow(args) {
     branchTaskIds[branch.name] = [];
     for (const taskDesc of branch.tasks) {
       const taskId = uuidv4();
-      db.createTask({
+      database.createTask({
         id: taskId,
         task_description: taskDesc,
         workflow_id,
@@ -84,13 +88,13 @@ function handleMergeWorkflows(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'fork_id must be a non-empty string');
   }
 
-  const fork = db.getWorkflowFork(fork_id);
+  const fork = providerRoutingCore.getWorkflowFork(fork_id);
   if (!fork) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Fork not found: ${fork_id}`);
   }
 
   // Update fork status
-  db.updateWorkflowForkStatus(fork_id, 'merged');
+  providerRoutingCore.updateWorkflowForkStatus(fork_id, 'merged');
 
   let output = `## Workflow Branches Merged\n\n`;
   output += `**Fork ID:** \`${fork_id}\`\n`;
@@ -122,7 +126,7 @@ function handleReplayTask(args) {
   const taskDescription = modified_inputs?.task || originalTask.task_description;
   const workingDir = new_working_directory || originalTask.working_directory;
 
-  db.createTask({
+  database.createTask({
     id: replayTaskId,
     task_description: taskDescription,
     working_directory: workingDir,
@@ -134,7 +138,7 @@ function handleReplayTask(args) {
   });
 
   // Record replay
-  db.createTaskReplay({
+  providerRoutingCore.createTaskReplay({
     id: uuidv4(),
     original_task_id: task_id,
     replay_task_id: replayTaskId,
@@ -214,7 +218,7 @@ function handleDiffTaskRuns(args) {
 function handleDuplicatePipeline(args) {
   const { pipeline_id, new_name, working_directory, auto_approve, timeout_minutes, description } = args;
 
-  const newPipeline = db.duplicatePipeline(pipeline_id, new_name, {
+  const newPipeline = schedulingAutomation.duplicatePipeline(pipeline_id, new_name, {
     working_directory,
     auto_approve,
     timeout_minutes,
@@ -230,7 +234,7 @@ function handleDuplicatePipeline(args) {
   output += `**ID:** ${newPipeline.id}\n`;
   output += `**Description:** ${newPipeline.description}\n\n`;
 
-  const definition = db.safeJsonParse(newPipeline.definition, []);
+  const definition = eventTracking.safeJsonParse(newPipeline.definition, []);
   output += `**Steps:** ${definition.length}\n\n`;
 
   output += `| Step | Task |\n`;
@@ -266,7 +270,7 @@ function handleExportReport(args) {
   // Parse status if comma-separated
   const statusFilter = status ? status.split(',').map(s => s.trim()) : null;
 
-  const { tasks, summary } = db.exportTasksReport({
+  const { tasks, summary } = schedulingAutomation.exportTasksReport({
     project,
     status: statusFilter,
     start_date,
@@ -363,7 +367,7 @@ function handleRetryWorkflowFrom(args) {
   const { workflow, error: wfErr } = requireWorkflow(db, args.workflow_id);
   if (wfErr) return wfErr;
 
-  const task = db.getTask(args.from_task_id);
+  const task = database.getTask(args.from_task_id);
   if (!task || task.workflow_id !== args.workflow_id) {
     return makeError(
       ErrorCodes.TASK_NOT_FOUND,
@@ -371,7 +375,7 @@ function handleRetryWorkflowFrom(args) {
     );
   }
 
-  const workflowStatus = db.getWorkflowStatus(args.workflow_id) || workflow;
+  const workflowStatus = workflowEngine.getWorkflowStatus(args.workflow_id) || workflow;
   const restartGuard = getWorkflowRestartGuardError(workflowStatus, {
     attemptedAction: 'retry this workflow from a task'
   });
@@ -381,7 +385,7 @@ function handleRetryWorkflowFrom(args) {
 
   // Reset the task and all its dependents
   const toReset = [args.from_task_id];
-  const deps = db.getWorkflowDependencies(args.workflow_id);
+  const deps = workflowEngine.getWorkflowDependencies(args.workflow_id);
 
   // BFS to find all downstream tasks
   const queue = [args.from_task_id];
@@ -403,13 +407,13 @@ function handleRetryWorkflowFrom(args) {
   // Reset tasks
   let resetCount = 0;
   for (const taskId of toReset) {
-    const taskToReset = db.getTask(taskId);
+    const taskToReset = database.getTask(taskId);
     if (taskToReset?.status === 'running') {
       continue;
     }
     if (taskToReset) {
       const hasDeps = deps.some(d => d.task_id === taskId);
-      db.updateTaskStatus(taskId, hasDeps ? 'blocked' : 'pending');
+      database.updateTaskStatus(taskId, hasDeps ? 'blocked' : 'pending');
       resetCount++;
     }
   }
@@ -417,14 +421,14 @@ function handleRetryWorkflowFrom(args) {
   // Update workflow status and clear the acknowledged set so await_workflow
   // will yield the retried tasks again rather than treating them as already seen.
   const currentCtx = (workflow.context && typeof workflow.context === 'object') ? workflow.context : {};
-  db.updateWorkflow(args.workflow_id, {
+  workflowEngine.updateWorkflow(args.workflow_id, {
     status: 'running',
     completed_at: null,
     context: { ...currentCtx, acknowledged_tasks: [] }
   });
 
   // Start tasks that are now pending
-  const tasks = db.getWorkflowTasks(args.workflow_id);
+  const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
   for (const t of tasks) {
     if (t.status === 'pending') {
       try {
@@ -461,13 +465,13 @@ function handleSkipTask(args) {
   }
 
   // Update task to skipped
-  db.updateTaskStatus(args.task_id, 'skipped', {
+  database.updateTaskStatus(args.task_id, 'skipped', {
     error_output: args.reason || 'Manually skipped'
   });
 
   // If part of workflow, use the shared runtime to evaluate dependents (avoids duplication)
   if (task.workflow_id) {
-    db.updateWorkflowCounts(task.workflow_id);
+    workflowEngine.updateWorkflowCounts(task.workflow_id);
     handleWorkflowTermination(args.task_id);
   }
 

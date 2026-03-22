@@ -3,7 +3,10 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const db = require('../../database');
+const database = require('../../database');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const schedulingAutomation = require('../../db/scheduling-automation');
+const workflowEngine = require('../../db/workflow-engine');
 const { safeLimit, ErrorCodes, makeError } = require('../shared');
 
 function escapeRegex(str) {
@@ -15,7 +18,7 @@ function escapeRegex(str) {
  */
 function handleCreateWorkflowTemplate(args) {
   // Check if name already exists
-  const existing = db.getWorkflowTemplateByName(args.name);
+  const existing = workflowEngine.getWorkflowTemplateByName(args.name);
   if (existing) {
     return {
       ...makeError(ErrorCodes.CONFLICT, `Template with name '${args.name}' already exists`)
@@ -24,7 +27,7 @@ function handleCreateWorkflowTemplate(args) {
 
   const templateId = uuidv4();
 
-  db.createWorkflowTemplate({
+  workflowEngine.createWorkflowTemplate({
     id: templateId,
     name: args.name,
     description: args.description,
@@ -51,7 +54,7 @@ function handleCreateWorkflowTemplate(args) {
  * List workflow templates
  */
 function handleListWorkflowTemplates(args) {
-  const templates = db.listWorkflowTemplates({
+  const templates = workflowEngine.listWorkflowTemplates({
     filter: args.filter,
     limit: safeLimit(args.limit, 20)
   });
@@ -82,9 +85,9 @@ function handleListWorkflowTemplates(args) {
  */
 function handleInstantiateTemplate(args) {
   // Find template by ID or name
-  let template = db.getWorkflowTemplate(args.template_id);
+  let template = workflowEngine.getWorkflowTemplate(args.template_id);
   if (!template) {
-    template = db.getWorkflowTemplateByName(args.template_id);
+    template = workflowEngine.getWorkflowTemplateByName(args.template_id);
   }
   if (!template) {
     return {
@@ -98,7 +101,7 @@ function handleInstantiateTemplate(args) {
   const taskDefinitions = Array.isArray(template.task_definitions) ? template.task_definitions : [];
 
   if (taskDefinitions.length === 0) {
-    const duplicatePlaceholder = db.findEmptyWorkflowPlaceholder(workflowName, 'pending');
+    const duplicatePlaceholder = workflowEngine.findEmptyWorkflowPlaceholder(workflowName, 'pending');
     if (duplicatePlaceholder) {
       return {
         ...makeError(
@@ -116,7 +119,7 @@ function handleInstantiateTemplate(args) {
     };
   }
 
-  db.createWorkflow({
+  workflowEngine.createWorkflow({
     id: workflowId,
     name: workflowName,
     description: template.description,
@@ -139,7 +142,7 @@ function handleInstantiateTemplate(args) {
     const deps = (template.dependency_graph || {})[taskDef.node_id] || [];
     const hasDeps = deps.length > 0;
 
-    db.createTask({
+    database.createTask({
       id: taskId,
       status: hasDeps ? 'blocked' : 'pending',
       task_description: substitute(taskDef.task_description),
@@ -162,7 +165,7 @@ function handleInstantiateTemplate(args) {
       const depTaskId = nodeToTaskMap[dep.node];
       if (!depTaskId) continue;
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: taskId,
         depends_on_task_id: depTaskId,
@@ -173,7 +176,7 @@ function handleInstantiateTemplate(args) {
   }
 
   // Update counts
-  db.updateWorkflowCounts(workflowId);
+  workflowEngine.updateWorkflowCounts(workflowId);
 
   // Auto-run if requested
   if (args.auto_run) {
@@ -203,7 +206,7 @@ function handleInstantiateTemplate(args) {
  * Delete a workflow template
  */
 function handleDeleteWorkflowTemplate(args) {
-  const deleted = db.deleteWorkflowTemplate(args.template_id);
+  const deleted = workflowEngine.deleteWorkflowTemplate(args.template_id);
 
   if (!deleted) {
     return {
@@ -234,7 +237,7 @@ function handleCreateConditionalTemplate(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'condition_expr must be a non-empty string');
   }
 
-  const condition = db.createTemplateCondition({
+  const condition = providerRoutingCore.createTemplateCondition({
     id: uuidv4(),
     template_id,
     condition_type,
@@ -273,7 +276,7 @@ function handleTemplateLoop(args) {
   }
 
   // Get template
-  const template = db.getTemplate(template_id) || db.getWorkflowTemplateByName(template_id);
+  const template = schedulingAutomation.getTemplate(template_id) || workflowEngine.getWorkflowTemplateByName(template_id);
   if (!template) {
     return makeError(ErrorCodes.TEMPLATE_NOT_FOUND, `Template not found: ${template_id}`);
   }
@@ -289,7 +292,7 @@ function handleTemplateLoop(args) {
                              .replace(new RegExp(`\\$\\{index\\}`, 'g'), i.toString());
 
     const taskId = uuidv4();
-    db.createTask({
+    database.createTask({
       id: taskId,
       task_description: task,
       template_name: template_id,

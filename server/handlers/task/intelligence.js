@@ -15,7 +15,12 @@
  *           handleSetTaskComplexity, handleGetComplexityRouting, handleDeleteTask
  */
 
-const db = require('../../database');
+const database = require('../../database');
+const analytics = require('../../db/analytics');
+const hostManagement = require('../../db/host-management');
+const schedulingAutomation = require('../../db/scheduling-automation');
+const taskMetadata = require('../../db/task-metadata');
+const webhooksStreaming = require('../../db/webhooks-streaming');
 const taskManager = require('../../task-manager');
 const { safeLimit, safeOffset, MAX_LIMIT, ErrorCodes, makeError, requireTask } = require('../shared');
 const logger = require('../../logger').child({ component: 'task-intelligence' });
@@ -37,7 +42,7 @@ function handleStreamTaskOutput(args) {
   const { task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const chunks = db.getLatestStreamChunks(task_id, safeSequence, safeStreamLimit);
+  const chunks = webhooksStreaming.getLatestStreamChunks(task_id, safeSequence, safeStreamLimit);
   const maxSequence = chunks.length > 0
     ? Math.max(...chunks.map(c => c.sequence_num))
     : since_sequence;
@@ -70,7 +75,7 @@ function handleGetTaskLogs(args) {
   const { task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const logs = db.getTaskLogs(task_id, { level, search, limit });
+  const logs = webhooksStreaming.getTaskLogs(task_id, { level, search, limit });
 
   // Format logs for display
   let output = `## Task Logs: ${task_id}\n\n`;
@@ -120,7 +125,7 @@ function handleSubscribeTaskEvents(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'expires_in_minutes must be a positive number (max 10080 = 1 week)');
   }
 
-  const subscriptionId = db.createEventSubscription(task_id, event_types, expires_in_minutes);
+  const subscriptionId = webhooksStreaming.createEventSubscription(task_id, event_types, expires_in_minutes);
 
   return {
     content: [{
@@ -142,7 +147,7 @@ function handleSubscribeTaskEvents(args) {
 function handlePollTaskEvents(args) {
   const { subscription_id } = args;
 
-  const result = db.pollSubscription(subscription_id);
+  const result = webhooksStreaming.pollSubscription(subscription_id);
 
   if (!result) {
     return makeError(ErrorCodes.SUBSCRIPTION_NOT_FOUND, `Subscription not found: ${subscription_id}`);
@@ -211,11 +216,11 @@ function handlePauseTask(args) {
   // Save checkpoint
   const checkpoint = taskManager.getTaskProgress(task_id);
   if (checkpoint) {
-    db.saveTaskCheckpoint(task_id, checkpoint, 'pause');
+    webhooksStreaming.saveTaskCheckpoint(task_id, checkpoint, 'pause');
   }
 
   // Update database status
-  db.pauseTask(task_id, reason);
+  webhooksStreaming.pauseTask(task_id, reason);
 
   return {
     content: [{
@@ -244,7 +249,7 @@ function handleResumeTask(args) {
   }
 
   // Get checkpoint
-  const checkpoint = db.getTaskCheckpoint(task_id);
+  const checkpoint = webhooksStreaming.getTaskCheckpoint(task_id);
 
   // Resume the process
   const resumed = taskManager.resumeTask(task_id);
@@ -253,8 +258,8 @@ function handleResumeTask(args) {
   }
 
   // Clear pause state
-  db.clearPauseState(task_id);
-  db.recordTaskEvent(task_id, 'status_change', 'paused', 'running', null);
+  webhooksStreaming.clearPauseState(task_id);
+  webhooksStreaming.recordTaskEvent(task_id, 'status_change', 'paused', 'running', null);
 
   const pauseDuration = task.paused_at
     ? Math.round((Date.now() - new Date(task.paused_at).getTime()) / 1000 / 60)
@@ -279,7 +284,7 @@ function handleResumeTask(args) {
 function handleListPausedTasks(args) {
   const { project, limit = 50 } = args;
 
-  const tasks = db.listPausedTasks({ project, limit });
+  const tasks = webhooksStreaming.listPausedTasks({ project, limit });
 
   if (tasks.length === 0) {
     return {
@@ -326,7 +331,7 @@ function handleSuggestImprovements(args) {
   }
 
   // Generate suggestions
-  const suggestions = db.generateTaskSuggestions(task_id);
+  const suggestions = taskMetadata.generateTaskSuggestions(task_id);
 
   if (suggestions.length === 0) {
     return {
@@ -369,7 +374,7 @@ function handleFindSimilarTasks(args) {
   const { task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const results = db.findSimilarTasks(task_id, {
+  const results = taskMetadata.findSimilarTasks(task_id, {
     limit,
     minSimilarity: min_similarity,
     statusFilter: status_filter
@@ -412,10 +417,10 @@ function handleFindSimilarTasks(args) {
 function handleLearnDefaults(args) {
   const { task_limit = 100 } = args;
 
-  const result = db.learnFromRecentTasks(task_limit);
+  const result = taskMetadata.learnFromRecentTasks(task_limit);
 
   // Get current learned patterns
-  const patterns = db.getTaskPatterns({ minHitCount: 1, limit: 20 });
+  const patterns = taskMetadata.getTaskPatterns({ minHitCount: 1, limit: 20 });
 
   let output = `## Learning Complete\n\n`;
   output += `**Tasks analyzed:** ${result.tasksProcessed}\n`;
@@ -446,7 +451,7 @@ function handleLearnDefaults(args) {
 function handleApplySmartDefaults(args) {
   const { task_description, project } = args;
 
-  const defaults = db.getSmartDefaults(task_description, project);
+  const defaults = taskMetadata.getSmartDefaults(task_description, project);
 
   let output = `## Smart Defaults\n\n`;
   output += `**Task:** ${task_description.substring(0, 100)}${task_description.length > 100 ? '...' : ''}\n`;
@@ -500,14 +505,14 @@ function handleAddComment(args) {
   const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const result = db.addTaskComment(task_id, comment, {
+  const result = taskMetadata.addTaskComment(task_id, comment, {
     author,
     commentType: comment_type
   });
 
   // Record audit log (positional args: entityType, entityId, action, actor, oldValue, newValue, metadata)
   try {
-    db.recordAuditLog('comment', String(result), 'create', author, null, null,
+    schedulingAutomation.recordAuditLog('comment', String(result), 'create', author, null, null,
       JSON.stringify({ task_id, comment_type, comment: comment.substring(0, 100) }));
   } catch (err) {
     logger.debug('[task-intelligence] non-critical error writing audit log:', err.message || err);
@@ -538,7 +543,7 @@ function handleListComments(args) {
   const { task: _task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const comments = db.getTaskComments(task_id, { commentType: comment_type });
+  const comments = taskMetadata.getTaskComments(task_id, { commentType: comment_type });
 
   if (comments.length === 0) {
     return {
@@ -583,7 +588,7 @@ function handleTaskTimeline(args) {
   const { task, error: taskErr } = requireTask(db, task_id);
   if (taskErr) return taskErr;
 
-  const timeline = db.getTaskTimeline(task_id);
+  const timeline = taskMetadata.getTaskTimeline(task_id);
 
   if (timeline.length === 0) {
     return {
@@ -650,7 +655,7 @@ function handleDryRunBulk(args) {
   if (older_than_hours) filterCriteria.older_than_hours = older_than_hours;
   if (project) filterCriteria.project = project;
 
-  const result = db.dryRunBulkOperation(operation, filterCriteria);
+  const result = taskMetadata.dryRunBulkOperation(operation, filterCriteria);
 
   let output = `## Dry Run: ${operation.toUpperCase()} Operation\n\n`;
   output += `**Total Tasks Affected:** ${result.total_tasks}\n\n`;
@@ -688,7 +693,7 @@ function handleDryRunBulk(args) {
  * Get bulk operation status
  */
 function handleBulkOperationStatus(args) {
-  const operation = db.getBulkOperation(args.operation_id);
+  const operation = taskMetadata.getBulkOperation(args.operation_id);
 
   if (!operation) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Bulk operation not found: ${args.operation_id}`);
@@ -731,7 +736,7 @@ function handleBulkOperationStatus(args) {
  * List bulk operations
  */
 function handleListBulkOperations(args) {
-  const operations = db.listBulkOperations({
+  const operations = taskMetadata.listBulkOperations({
     operation_type: args.operation_type,
     status: args.status,
     limit: safeLimit(args.limit, 20)
@@ -769,7 +774,7 @@ function handleListBulkOperations(args) {
 function handlePredictDuration(args) {
   const { task_description, template_name, project } = args;
 
-  const prediction = db.predictDuration(task_description, {
+  const prediction = analytics.predictDuration(task_description, {
     template_name,
     project
   });
@@ -804,7 +809,7 @@ function handlePredictDuration(args) {
  * Get duration prediction insights
  */
 function handleDurationInsights(args) {
-  const insights = db.getDurationInsights({
+  const insights = analytics.getDurationInsights({
     project: args.project,
     limit: safeLimit(args.limit, 20)
   });
@@ -851,7 +856,7 @@ function handleDurationInsights(args) {
  * Calibrate prediction models
  */
 function handleCalibratePredictions(_args) {
-  const results = db.calibratePredictionModels();
+  const results = analytics.calibratePredictionModels();
 
   let output = `## Prediction Models Calibrated\n\n`;
   output += `**Models Updated:** ${results.models_updated}\n`;
@@ -888,7 +893,7 @@ function handleStartPendingTask(args) {
     return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Task ${task_id} is not pending (status: ${task.status})`);
   }
 
-  db.updateTaskStatus(task_id, 'queued');
+  database.updateTaskStatus(task_id, 'queued');
   taskManager.processQueue();
 
   let output = `## Task Started\n\n`;
@@ -930,7 +935,7 @@ function handleSetTaskReviewStatus(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'status must be one of: pending, approved, needs_correction');
   }
 
-  db.setTaskReviewStatus(args.task_id, args.status, args.notes || null);
+  hostManagement.setTaskReviewStatus(args.task_id, args.status, args.notes || null);
 
   let output = `## Task Review Status Updated\n\n`;
   output += `| Field | Value |\n`;
@@ -953,7 +958,7 @@ function handleSetTaskReviewStatus(args) {
  */
 function handleListPendingReviews(args) {
   const limit = Math.min(args.limit || 20, MAX_LIMIT);
-  const tasks = db.getTasksPendingReview(limit);
+  const tasks = hostManagement.getTasksPendingReview(limit);
 
   if (!tasks || tasks.length === 0) {
     return {
@@ -984,7 +989,7 @@ function handleListPendingReviews(args) {
  * List tasks needing correction
  */
 function handleListTasksNeedingCorrection(_args) {
-  const tasks = db.getTasksNeedingCorrection();
+  const tasks = hostManagement.getTasksNeedingCorrection();
 
   if (!tasks || tasks.length === 0) {
     return {
@@ -1026,7 +1031,7 @@ function handleSetTaskComplexity(args) {
   const { task, error: taskErr } = requireTask(db, args.task_id);
   if (taskErr) return taskErr;
 
-  db.updateTaskStatus(args.task_id, task.status, { complexity: args.complexity });
+  database.updateTaskStatus(args.task_id, task.status, { complexity: args.complexity });
 
   return {
     content: [{ type: 'text', text: `## Task Complexity Set\n\nTask ${args.task_id} complexity set to **${args.complexity}**.\n\nRouting:\n- simple → Laptop WSL\n- normal → Desktop\n- complex → Codex` }]
@@ -1042,7 +1047,7 @@ function handleGetComplexityRouting(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'complexity must be one of: simple, normal, complex');
   }
 
-  const routing = db.routeTask(args.complexity);
+  const routing = hostManagement.routeTask(args.complexity);
 
   let output = `## Complexity Routing for "${args.complexity}"\n\n`;
   output += `| Field | Value |\n`;
@@ -1069,14 +1074,14 @@ function handleGetComplexityRouting(args) {
 function handleDeleteTask(args) {
   if (args.status) {
     try {
-      const result = db.deleteTasks(args.status);
+      const result = database.deleteTasks(args.status);
       return { content: [{ type: 'text', text: `Deleted ${result.deleted} task(s) with status '${result.status}'.` }] };
     } catch (err) {
       return makeError(ErrorCodes.INTERNAL_ERROR, `Failed to delete tasks: ${err.message}`);
     }
   } else if (args.task_id) {
     try {
-      const result = db.deleteTask(args.task_id);
+      const result = database.deleteTask(args.task_id);
       return { content: [{ type: 'text', text: `Deleted task ${result.id} (was '${result.status}').` }] };
     } catch (err) {
       return makeError(ErrorCodes.TASK_NOT_FOUND, `Failed to delete task: ${err.message}`);

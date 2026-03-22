@@ -15,7 +15,11 @@
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const db = require('../../database');
+const database = require('../../database');
+const eventTracking = require('../../db/event-tracking');
+const projectConfigCore = require('../../db/project-config-core');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const taskMetadata = require('../../db/task-metadata');
 const taskManager = require('../../task-manager');
 const { TASK_TIMEOUTS } = require('../../constants');
 const { safeLimit, safeOffset, safeDate, isPathTraversalSafe, MAX_BATCH_SIZE, ErrorCodes, makeError, requireTask } = require('../shared');
@@ -39,7 +43,7 @@ function handleTagTask(args) {
   // Normalize tags (lowercase, trim)
   const normalizedTags = args.tags.map(t => t.toLowerCase().trim()).filter(t => t.length > 0);
 
-  const updated = db.addTaskTags(args.task_id, normalizedTags);
+  const updated = taskMetadata.addTaskTags(args.task_id, normalizedTags);
 
   return {
     content: [{
@@ -64,7 +68,7 @@ function handleUntagTask(args) {
   // Normalize tags
   const normalizedTags = args.tags.map(t => t.toLowerCase().trim());
 
-  const updated = db.removeTaskTags(args.task_id, normalizedTags);
+  const updated = taskMetadata.removeTaskTags(args.task_id, normalizedTags);
 
   return {
     content: [{
@@ -79,8 +83,8 @@ function handleUntagTask(args) {
  * List all tags with usage statistics
  */
 function handleListTags(_args) {
-  const allTags = db.getAllTags();
-  const tagStats = db.getTagStats();
+  const allTags = taskMetadata.getAllTags();
+  const tagStats = taskMetadata.getTagStats();
 
   if (allTags.length === 0) {
     return {
@@ -127,7 +131,7 @@ async function handleCheckTaskProgress(args) {
   const waitSeconds = Math.min(args.wait_seconds ?? 5, 300);
 
   // Snapshot 1
-  const running1 = db.listTasks({ status: 'running', limit: 20 });
+  const running1 = database.listTasks({ status: 'running', limit: 20 });
   
   if (running1.length === 0) {
     return {
@@ -142,7 +146,7 @@ async function handleCheckTaskProgress(args) {
   await new Promise(r => setTimeout(r, waitSeconds * 1000));
 
   // Snapshot 2
-  const running2 = db.listTasks({ status: 'running', limit: 20 });
+  const running2 = database.listTasks({ status: 'running', limit: 20 });
 
   let result = `## Task Progress Check (${waitSeconds}s interval)\n\n`;
   result += '| Task | Host | Runtime | Output | Growth | Status |\n';
@@ -181,9 +185,9 @@ async function handleCheckTaskProgress(args) {
   }
 
   // Summary
-  const queued = db.countTasks({ status: 'queued' });
-  const completed = db.countTasks({ status: 'completed' });
-  const failed = db.countTasks({ status: 'failed' });
+  const queued = database.countTasks({ status: 'queued' });
+  const completed = database.countTasks({ status: 'completed' });
+  const failed = database.countTasks({ status: 'failed' });
 
   result += `\n**Queue:** ${queued} waiting | ${running2.length} running | ${completed} done | ${failed} failed\n`;
 
@@ -261,7 +265,7 @@ function handleHealthCheck(args) {
     if ((checkType === 'full' || checkType === 'performance') && status === 'healthy') {
       // Check current running tasks
       const runningTasks = taskManager.getRunningTaskCount();
-      const config = db.getAllConfig();
+      const config = database.getAllConfig();
       const maxConcurrent = parseInt(config.max_concurrent || '3', 10);
 
       details.running_tasks = runningTasks;
@@ -297,7 +301,7 @@ function handleHealthCheck(args) {
   const responseTime = Date.now() - startTime;
 
   // Record health check in database
-  db.recordHealthCheck(
+  projectConfigCore.recordHealthCheck(
     checkType,
     status,
     responseTime,
@@ -335,8 +339,8 @@ function handleHealthCheck(args) {
  * Get health monitoring status and history
  */
 function handleHealthStatus(args) {
-  const summary = db.getHealthSummary();
-  const latestCheck = db.getLatestHealthCheck();
+  const summary = projectConfigCore.getHealthSummary();
+  const latestCheck = projectConfigCore.getLatestHealthCheck();
 
   let result = `## Health Monitoring Status\n\n`;
 
@@ -367,7 +371,7 @@ function handleHealthStatus(args) {
 
   // History
   if (args.include_history) {
-    const history = db.getHealthHistory({ limit: safeLimit(args.limit, 10) });
+    const history = providerRoutingCore.getHealthHistory({ limit: safeLimit(args.limit, 10) });
 
     if (history.length > 0) {
       result += `\n### Recent History\n\n`;
@@ -497,7 +501,7 @@ function handleScheduleTask(args) {
     nextRunAt = args.run_at || new Date(Date.now() + args.interval_minutes * 60000).toISOString();
   }
 
-  const scheduled = db.createScheduledTask({
+  const scheduled = projectConfigCore.createScheduledTask({
     id: scheduleId,
     name: args.name,
     task_description: args.task,
@@ -537,7 +541,7 @@ function handleScheduleTask(args) {
  * List scheduled tasks
  */
 function handleListScheduled(args) {
-  const scheduled = db.listScheduledTasks({
+  const scheduled = projectConfigCore.listScheduledTasks({
     status: args.status,
     limit: safeLimit(args.limit, 20)
   });
@@ -571,13 +575,13 @@ function handleListScheduled(args) {
  * Cancel a scheduled task
  */
 function handleCancelScheduled(args) {
-  const scheduled = db.getScheduledTask(args.schedule_id);
+  const scheduled = projectConfigCore.getScheduledTask(args.schedule_id);
 
   if (!scheduled) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Scheduled task not found: ${args.schedule_id}`);
   }
 
-  const deleted = db.deleteScheduledTask(args.schedule_id);
+  const deleted = projectConfigCore.deleteScheduledTask(args.schedule_id);
 
   if (deleted) {
     return {
@@ -603,14 +607,14 @@ function handlePauseScheduled(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'action must be "pause" or "resume"');
   }
 
-  const scheduled = db.getScheduledTask(args.schedule_id);
+  const scheduled = projectConfigCore.getScheduledTask(args.schedule_id);
 
   if (!scheduled) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Scheduled task not found: ${args.schedule_id}`);
   }
 
   const newStatus = args.action === 'pause' ? 'paused' : 'active';
-  db.updateScheduledTask(args.schedule_id, { status: newStatus });
+  projectConfigCore.updateScheduledTask(args.schedule_id, { status: newStatus });
 
   return {
     content: [{
@@ -640,7 +644,7 @@ function listTasksForBatchCancel(options = {}, statuses = []) {
     let offset = 0;
     const limit = 1000;
     while (true) {
-      const page = db.listTasks({ ...options, status, limit, offset });
+      const page = database.listTasks({ ...options, status, limit, offset });
       results.push(...page);
       if (page.length < limit) {
         break;
@@ -688,7 +692,7 @@ function handleBatchCancel(args) {
 
   // Create bulk operation record
   const operationId = uuidv4();
-  db.createBulkOperation({
+  taskMetadata.createBulkOperation({
     id: operationId,
     operation_type: 'cancel',
     filter_criteria: options,
@@ -724,12 +728,12 @@ function handleBatchCancel(args) {
   }
 
   // Bulk-update any remaining matching tasks, including running tasks we did not kill directly.
-  db.batchCancelTasks(options);
+  taskMetadata.batchCancelTasks(options);
   const processesKilled = killedTaskIds.size;
   const totalCancelled = cancelledTaskIds.size;
 
   // Update operation with results
-  db.updateBulkOperation(operationId, {
+  taskMetadata.updateBulkOperation(operationId, {
     status: 'completed',
     total_tasks: totalCancelled,
     succeeded_tasks: totalCancelled,
@@ -770,7 +774,7 @@ function handleBatchRetry(args) {
 
   // Create bulk operation record
   const operationId = uuidv4();
-  db.createBulkOperation({
+  taskMetadata.createBulkOperation({
     id: operationId,
     operation_type: 'retry',
     filter_criteria: { ...options, include_cancelled: args.include_cancelled },
@@ -778,10 +782,10 @@ function handleBatchRetry(args) {
   });
 
   // Get retryable tasks
-  const tasks = db.getRetryableTasks(options);
+  const tasks = taskMetadata.getRetryableTasks(options);
 
   if (tasks.length === 0) {
-    db.updateBulkOperation(operationId, {
+    taskMetadata.updateBulkOperation(operationId, {
       status: 'completed',
       total_tasks: 0,
       succeeded_tasks: 0,
@@ -801,7 +805,7 @@ function handleBatchRetry(args) {
     : tasks.filter(t => t.status === 'failed');
 
   if (toRetry.length === 0) {
-    db.updateBulkOperation(operationId, {
+    taskMetadata.updateBulkOperation(operationId, {
       status: 'completed',
       total_tasks: 0,
       succeeded_tasks: 0,
@@ -820,7 +824,7 @@ function handleBatchRetry(args) {
   const affectedIds = [];
   for (const task of toRetry.slice(0, safeLimit(args.limit, 10))) {
     const newId = uuidv4();
-    db.createTask({
+    database.createTask({
       id: newId,
       status: 'pending',
       task_description: task.task_description,
@@ -838,7 +842,7 @@ function handleBatchRetry(args) {
   }
 
   // Update operation with results
-  db.updateBulkOperation(operationId, {
+  taskMetadata.updateBulkOperation(operationId, {
     status: 'completed',
     affected_task_ids: affectedIds,
     total_tasks: retried.length,
@@ -889,17 +893,17 @@ function handleBatchTag(args) {
 
   // Create bulk operation record
   const operationId = uuidv4();
-  db.createBulkOperation({
+  taskMetadata.createBulkOperation({
     id: operationId,
     operation_type: 'tag',
     filter_criteria: { ...options, tags_to_add: args.tags },
     dry_run: false
   });
 
-  const updated = db.batchAddTagsByFilter(options, args.tags);
+  const updated = taskMetadata.batchAddTagsByFilter(options, args.tags);
 
   // Update operation with results
-  db.updateBulkOperation(operationId, {
+  taskMetadata.updateBulkOperation(operationId, {
     status: 'completed',
     total_tasks: updated,
     succeeded_tasks: updated,
@@ -930,7 +934,7 @@ function handleSearchOutputs(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Pattern must be at least 2 characters');
   }
 
-  const results = db.searchTaskOutputs(args.pattern, {
+  const results = eventTracking.searchTaskOutputs(args.pattern, {
     status: args.status,
     tags: args.tags,
     since: safeDate(args.since),
@@ -973,7 +977,7 @@ function handleSearchOutputs(args) {
  * Get output statistics
  */
 function handleOutputStats(_args) {
-  const stats = db.getOutputStats();
+  const stats = eventTracking.getOutputStats();
 
   let result = `## Task Output Statistics\n\n`;
   result += `**Total Completed/Failed Tasks:** ${stats.total_tasks}\n`;
@@ -1040,7 +1044,7 @@ function handleExportData(args) {
     options.taskLimit = args.task_limit;
   }
 
-  const exportData = db.exportData(options);
+  const exportData = eventTracking.exportData(options);
 
   // Count items
   const counts = {
@@ -1099,7 +1103,7 @@ function handleImportData(args) {
     }
     try {
       const content = fs.readFileSync(args.file_path, 'utf8');
-      importObj = db.safeJsonParse(content, null);
+      importObj = eventTracking.safeJsonParse(content, null);
       if (importObj === null) {
         return makeError(ErrorCodes.INVALID_PARAM, 'Failed to parse import file: invalid JSON');
       }
@@ -1107,7 +1111,7 @@ function handleImportData(args) {
       return makeError(ErrorCodes.OPERATION_FAILED, `Failed to read import file: ${error.message}`);
     }
   } else {
-    importObj = db.safeJsonParse(args.json_data, null);
+    importObj = eventTracking.safeJsonParse(args.json_data, null);
     if (importObj === null) {
       return makeError(ErrorCodes.INVALID_PARAM, 'Failed to parse JSON data: invalid JSON');
     }
@@ -1129,7 +1133,7 @@ function handleImportData(args) {
     skipExisting: args.skip_existing !== false
   };
 
-  const results = db.importData(importObj, options);
+  const results = eventTracking.importData(importObj, options);
 
   let result = `## Data Import Complete\n\n`;
   result += `**Source:** ${args.file_path || 'JSON data'}\n`;
@@ -1180,7 +1184,7 @@ function handleArchiveTask(args) {
     return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Cannot archive task with status: ${task.status}. Only completed, failed, or cancelled tasks can be archived.`);
   }
 
-  const archived = db.archiveTask(args.task_id, args.reason);
+  const archived = taskMetadata.archiveTask(args.task_id, args.reason);
 
   if (!archived) {
     return makeError(ErrorCodes.OPERATION_FAILED, 'Failed to archive task');
@@ -1214,7 +1218,7 @@ function handleArchiveTasks(args) {
     options.tags = args.tags;
   }
 
-  const result = db.archiveTasks(options);
+  const result = taskMetadata.archiveTasks(options);
 
   let text = `## Bulk Archive Complete\n\n`;
   text += `**Tasks Archived:** ${result.archived}\n`;
@@ -1244,7 +1248,7 @@ function handleArchiveTasks(args) {
  * List archived tasks
  */
 function handleListArchived(args) {
-  const archived = db.listArchivedTasks({
+  const archived = taskMetadata.listArchivedTasks({
     limit: safeLimit(args.limit, 20),
     offset: safeOffset(args.offset)
   });
@@ -1264,7 +1268,7 @@ function handleListArchived(args) {
 
   const structuredTasks = [];
   for (const a of archived) {
-    const data = db.safeJsonParse(a.original_data, {});
+    const data = eventTracking.safeJsonParse(a.original_data, {});
     const status = data.status || 'unknown';
     const desc = (data.task_description || '').slice(0, 25);
     result += `| ${a.id.slice(0, 8)}... | ${status} | ${desc}... | ${formatTime(a.archived_at)} | ${(a.archive_reason || '-').slice(0, 15)} |\n`;
@@ -1293,13 +1297,13 @@ function handleListArchived(args) {
  * Restore an archived task
  */
 function handleRestoreTask(args) {
-  const archived = db.getArchivedTask(args.task_id);
+  const archived = taskMetadata.getArchivedTask(args.task_id);
 
   if (!archived) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Archived task not found: ${args.task_id}`);
   }
 
-  const restored = db.restoreTask(args.task_id);
+  const restored = taskMetadata.restoreTask(args.task_id);
 
   if (!restored) {
     return makeError(ErrorCodes.OPERATION_FAILED, 'Failed to restore task');
@@ -1318,7 +1322,7 @@ function handleRestoreTask(args) {
  * Get archive statistics
  */
 function handleGetArchiveStats(_args) {
-  const stats = db.getArchiveStats();
+  const stats = taskMetadata.getArchiveStats();
 
   let result = `## Archive Statistics\n\n`;
   result += `**Total Archived:** ${stats.total_archived}\n`;

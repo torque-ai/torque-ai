@@ -3,7 +3,10 @@
  */
 
 const path = require('path');
-const db = require('../../database');
+const database = require('../../database');
+const fileTracking = require('../../db/file-tracking');
+const taskMetadata = require('../../db/task-metadata');
+const workflowEngine = require('../../db/workflow-engine');
 const {
   buildPeekArtifactReferencesFromTaskArtifacts,
   formatPeekArtifactReferenceSection,
@@ -24,12 +27,12 @@ const logger = require('../../logger').child({ component: 'workflow-await' });
 const { safeJsonParse } = require('../../utils/json');
 
 function buildTaskPeekArtifactSection(taskId, options = {}) {
-  if (!taskId || typeof db.listArtifacts !== 'function') {
+  if (!taskId || typeof taskMetadata.listArtifacts !== 'function') {
     return '';
   }
 
   try {
-    const refs = buildPeekArtifactReferencesFromTaskArtifacts(db.listArtifacts(taskId), options);
+    const refs = buildPeekArtifactReferencesFromTaskArtifacts(taskMetadata.listArtifacts(taskId), options);
     return formatPeekArtifactReferenceSection(refs);
   } catch (err) {
     logger.debug('[workflow-await] non-critical error reading task artifacts: ' + (err.message || err));
@@ -47,7 +50,7 @@ function buildWorkflowPeekArtifactSection(tasks) {
     const taskLabel = task.workflow_node_id || task.id.substring(0, 8);
     try {
       refs.push(
-        ...buildPeekArtifactReferencesFromTaskArtifacts(db.listArtifacts(task.id), {
+        ...buildPeekArtifactReferencesFromTaskArtifacts(taskMetadata.listArtifacts(task.id), {
           task_id: task.id,
           workflow_id: task.workflow_id || null,
           task_label: taskLabel,
@@ -100,7 +103,7 @@ function collectTaskCommitPaths(taskId, workingDir) {
   if (!taskId || !workingDir) return files;
 
   try {
-    const taskChanges = db.getTaskFileChanges(taskId) || [];
+    const taskChanges = fileTracking.getTaskFileChanges(taskId) || [];
     for (const change of taskChanges) {
       if (!change || change.is_outside_workdir) continue;
       addTrackedPath(files, change.relative_path || change.file_path, workingDir);
@@ -114,7 +117,7 @@ function collectTaskCommitPaths(taskId, workingDir) {
   }
 
   try {
-    const fullTask = db.getTask(taskId);
+    const fullTask = database.getTask(taskId);
     const modifiedFiles = Array.isArray(fullTask?.files_modified) ? fullTask.files_modified : [];
     for (const file of modifiedFiles) {
       const candidate = typeof file === 'string'
@@ -360,7 +363,7 @@ async function handleAwaitWorkflow(args) {
   if (wfErr) return wfErr;
 
   // Build set of workflow task IDs for filtering notable events
-  const initialTasks = db.getWorkflowTasks(args.workflow_id) || [];
+  const initialTasks = workflowEngine.getWorkflowTasks(args.workflow_id) || [];
   const workflowTaskIds = new Set(initialTasks.map(t => t.id));
 
   // Load acknowledged set from workflow context
@@ -370,7 +373,7 @@ async function handleAwaitWorkflow(args) {
 
   // Poll until we find an unacknowledged terminal task, or all are done
   while (true) {
-    const tasks = db.getWorkflowTasks(args.workflow_id);
+    const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
     if (!tasks) break;
 
     // Find terminal tasks not yet acknowledged
@@ -383,7 +386,7 @@ async function handleAwaitWorkflow(args) {
 
       // Persist acknowledged set to workflow context
       const updatedCtx = { ...ctx, acknowledged_tasks: Array.from(acknowledged) };
-      db.updateWorkflow(args.workflow_id, { context: updatedCtx });
+      workflowEngine.updateWorkflow(args.workflow_id, { context: updatedCtx });
 
       // Visual verification if task metadata has visual_verify config
       let visualContent = [];
@@ -462,7 +465,7 @@ async function handleAwaitWorkflow(args) {
     let notablePayload = null;
 
     // Refresh the workflow task ID set in case tasks were added dynamically
-    const currentWfTasks = db.getWorkflowTasks(args.workflow_id) || [];
+    const currentWfTasks = workflowEngine.getWorkflowTasks(args.workflow_id) || [];
     for (const t of currentWfTasks) {
       workflowTaskIds.add(t.id);
     }
@@ -572,7 +575,7 @@ async function handleAwaitWorkflow(args) {
     if ((signalType === 'heartbeat' || signalType.startsWith('notable:'))
         && (Date.now() - startTime) < timeoutMs) {
       // Re-check for unacked terminal tasks — task yields always take priority
-      const freshTasks = db.getWorkflowTasks(args.workflow_id) || [];
+      const freshTasks = workflowEngine.getWorkflowTasks(args.workflow_id) || [];
       const freshUnacked = freshTasks.filter(t => terminalStates.includes(t.status) && !acknowledged.has(t.id));
       if (freshUnacked.length === 0) {
         // No new completions — build and return heartbeat
@@ -601,7 +604,7 @@ async function handleAwaitWorkflow(args) {
 
         // Use longest-running task's partial output
         const primaryRunning = [...runningTasks].sort((a, b) => b.elapsedMs - a.elapsedMs)[0];
-        const primaryTask = primaryRunning ? db.getTask(primaryRunning.id) : null;
+        const primaryTask = primaryRunning ? database.getTask(primaryRunning.id) : null;
 
         const reason = signalType === 'heartbeat'
           ? 'scheduled'
@@ -671,7 +674,7 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
 
   // Surface unresolved file conflicts if any were recorded during auto-merge
   try {
-    const freshWorkflow = db.getWorkflow(workflow.id);
+    const freshWorkflow = workflowEngine.getWorkflow(workflow.id);
     const wfCtx = (freshWorkflow && typeof freshWorkflow.context === 'object' && freshWorkflow.context) ? freshWorkflow.context : {};
     const unresolvedConflicts = Array.isArray(wfCtx.unresolved_conflicts) ? wfCtx.unresolved_conflicts : [];
     const autoMerged = Array.isArray(wfCtx.auto_merged) ? wfCtx.auto_merged : [];
@@ -968,7 +971,7 @@ async function handleAwaitTask(args) {
 
     // Poll until terminal or heartbeat
     while (true) {
-      const task = db.getTask(taskId);
+      const task = database.getTask(taskId);
       if (!task) {
         return makeError(ErrorCodes.TASK_NOT_FOUND, `Task disappeared: ${taskId}`);
       }
@@ -1231,7 +1234,7 @@ async function handleAwaitTask(args) {
       if ((signalType === 'heartbeat' || signalType.startsWith('notable:'))
           && (Date.now() - awaitStartTime) < timeoutMs) {
         // Read current task state from DB for heartbeat response
-        const currentTask = db.getTask(taskId);
+        const currentTask = database.getTask(taskId);
         const reason = signalType === 'heartbeat'
           ? 'scheduled'
           : REASON_MAP[signalType.replace('notable:', '')] || signalType;

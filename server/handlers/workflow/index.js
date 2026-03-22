@@ -4,7 +4,10 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const db = require('../../database');
+const database = require('../../database');
+const coordination = require('../../db/coordination');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const workflowEngine = require('../../db/workflow-engine');
 const serverConfig = require('../../config');
 const taskManager = require('../../task-manager');
 const taskPolicyHooks = require('../../policy-engine/task-hooks');
@@ -211,7 +214,7 @@ function classifyWorkflowStartOutcome(taskId, startResult) {
     return 'queued';
   }
 
-  const updatedTask = db.getTask(taskId);
+  const updatedTask = database.getTask(taskId);
   if (updatedTask?.status === 'queued') {
     return 'queued';
   }
@@ -439,7 +442,7 @@ function normalizeInitialWorkflowTasks(taskDefs, workflowId, workflowWorkingDire
 
 function validateProviderOverride(provider) {
   if (!provider) return null;
-  const providerConfig = db.getProvider(provider);
+  const providerConfig = providerRoutingCore.getProvider(provider);
   if (!providerConfig) {
     return makeError(
       ErrorCodes.RESOURCE_NOT_FOUND,
@@ -461,7 +464,7 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
 
   // Wrap task creation + dependency creation in a single transaction so that
   // a failure during dependency insertion does not leave orphaned tasks.
-  const rawDb = db.getDbInstance ? db.getDbInstance() : (db.getDb ? db.getDb() : null);
+  const rawDb = database.getDbInstance ? database.getDbInstance() : (database.getDb ? database.getDb() : null);
   const runInTransaction = (fn) => {
     if (rawDb && typeof rawDb.transaction === 'function') {
       return rawDb.transaction(fn)();
@@ -484,7 +487,7 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
         120
       );
 
-      db.createTask({
+      database.createTask({
         id: taskId,
         status: taskDef.depends_on.length > 0 ? 'blocked' : 'pending',
         task_description: taskDef.task_description,
@@ -504,7 +507,7 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
       if (taskDef.depends_on.length === 0) continue;
       const taskId = nodeToTaskMap[taskDef.node_id];
       for (const depNodeId of taskDef.depends_on) {
-        db.addTaskDependency({
+        workflowEngine.addTaskDependency({
           workflow_id: workflowId,
           task_id: taskId,
           depends_on_task_id: nodeToTaskMap[depNodeId],
@@ -516,16 +519,16 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
     }
   });
 
-  db.updateWorkflowCounts(workflowId);
+  workflowEngine.updateWorkflowCounts(workflowId);
 }
 
 function startWorkflowExecution(workflow) {
-  const tasks = db.getWorkflowTasks(workflow.id);
+  const tasks = workflowEngine.getWorkflowTasks(workflow.id);
   if (tasks.length === 0) {
     return { error: buildEmptyWorkflowStartError(workflow) };
   }
 
-  db.updateWorkflow(workflow.id, {
+  workflowEngine.updateWorkflow(workflow.id, {
     status: 'running',
     started_at: new Date().toISOString()
   });
@@ -538,7 +541,7 @@ function startWorkflowExecution(workflow) {
   for (const task of tasks) {
     // Re-read current status before each start attempt — another task's start handler
     // may have unblocked or changed this task's status (e.g., via workflow dependency eval).
-    const currentTask = db.getTask(task.id) || task;
+    const currentTask = database.getTask(task.id) || task;
     if (currentTask.status === 'pending') {
       try {
         attemptedToStart += 1;
@@ -602,7 +605,7 @@ function handleCreateWorkflow(args) {
 
   const trimmedName = args.name.trim();
   if (!Array.isArray(args.tasks) || args.tasks.length === 0) {
-    const duplicatePlaceholder = db.findEmptyWorkflowPlaceholder(trimmedName, 'pending');
+    const duplicatePlaceholder = workflowEngine.findEmptyWorkflowPlaceholder(trimmedName, 'pending');
     return buildEmptyWorkflowCreationError(
       trimmedName,
       'Provide a non-empty tasks array in create_workflow, or use create_feature_workflow / instantiate_template to seed the DAG.',
@@ -646,7 +649,7 @@ function handleCreateWorkflow(args) {
   }
 
   const workflowContext = args.routing_template ? { _routing_template: args.routing_template } : undefined;
-  db.createWorkflow({
+  workflowEngine.createWorkflow({
     id: workflowId,
     name: trimmedName,
     description: args.description,
@@ -790,7 +793,7 @@ function handleAddWorkflowTask(args) {
   const metadata = Object.keys(metaObj).length > 0 ? JSON.stringify(metaObj) : null;
 
   try {
-    db.createTask({
+    database.createTask({
       id: taskId,
       status: hasDependencies ? 'blocked' : 'pending',
       task_description: effectiveDescription,
@@ -813,7 +816,7 @@ function handleAddWorkflowTask(args) {
   // Add dependencies if specified
   if (hasDependencies) {
     // Find task IDs for the node_ids we depend on
-    const workflowTasks = db.getWorkflowTasks(args.workflow_id);
+    const workflowTasks = workflowEngine.getWorkflowTasks(args.workflow_id);
     const nodeToTaskMap = {};
     for (const t of workflowTasks) {
       if (t.workflow_node_id) {
@@ -829,7 +832,7 @@ function handleAddWorkflowTask(args) {
     // Build existing dependency edges
     for (const t of workflowTasks) {
       if (t.workflow_node_id) {
-        const deps = db.getTaskDependencies ? db.getTaskDependencies(t.id) : [];
+        const deps = workflowEngine.getTaskDependencies ? workflowEngine.getTaskDependencies(t.id) : [];
         for (const d of deps) {
           const depNode = workflowTasks.find(wt => wt.id === d.depends_on_task_id);
           if (depNode && depNode.workflow_node_id) {
@@ -868,7 +871,7 @@ function handleAddWorkflowTask(args) {
         );
       }
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: args.workflow_id,
         task_id: taskId,
         depends_on_task_id: depTaskId,
@@ -880,11 +883,11 @@ function handleAddWorkflowTask(args) {
   }
 
   // Update workflow task count
-  db.updateWorkflowCounts(args.workflow_id);
+  workflowEngine.updateWorkflowCounts(args.workflow_id);
 
   // Re-open completed/failed workflows when new tasks are added (extends the workflow)
   if (['completed', 'failed'].includes(workflow.status)) {
-    db.updateWorkflow(args.workflow_id, { status: 'running', completed_at: null });
+    workflowEngine.updateWorkflow(args.workflow_id, { status: 'running', completed_at: null });
   }
 
   // If workflow is running or completed, auto-start the new task when possible
@@ -895,21 +898,21 @@ function handleAddWorkflowTask(args) {
     const terminalStates = ['completed', 'failed', 'cancelled', 'skipped'];
     if (hasDependencies) {
       // Check if all dependencies are already terminal
-      const freshTasks = db.getWorkflowTasks(args.workflow_id);
+      const freshTasks = workflowEngine.getWorkflowTasks(args.workflow_id);
       const allDepsTerminal = args.depends_on.every(nodeId => {
         const depTask = freshTasks.find(t => t.workflow_node_id === nodeId);
         return depTask && terminalStates.includes(depTask.status);
       });
       if (allDepsTerminal) {
         taskManager.unblockTask(taskId);
-        const updated = db.getTask(taskId);
+        const updated = database.getTask(taskId);
         actualStatus = updated ? updated.status : 'pending';
       }
     } else {
       // No deps and workflow is running → start immediately
       try {
         const startResult = taskManager.startTask(taskId);
-        const updated = db.getTask(taskId);
+        const updated = database.getTask(taskId);
         if (isQueuedStartResult(startResult)) {
           actualStatus = updated && updated.status && updated.status !== 'pending'
             ? updated.status
@@ -973,7 +976,7 @@ function handleRunWorkflow(args) {
     };
   }
 
-  const workflowStatus = db.getWorkflowStatus(args.workflow_id) || workflow;
+  const workflowStatus = workflowEngine.getWorkflowStatus(args.workflow_id) || workflow;
   const restartGuard = getWorkflowRestartGuardError(workflowStatus, {
     allowFreshPendingStart: true,
     allowPausedResume: true,
@@ -1005,7 +1008,7 @@ function handleRunWorkflow(args) {
 
   // L-10: Record workflow-level event
   try {
-    db.recordCoordinationEvent('workflow_started', null, null, JSON.stringify({
+    coordination.recordCoordinationEvent('workflow_started', null, null, JSON.stringify({
       workflow_id: workflow.id,
       workflow_name: workflow.name,
       total_tasks: startResult.tasks.length
@@ -1037,10 +1040,10 @@ function handleRunWorkflow(args) {
  * Get workflow status
  */
 function handleWorkflowStatus(args) {
-  if (typeof db.reconcileStaleWorkflows === 'function') {
-    db.reconcileStaleWorkflows(args.workflow_id);
+  if (typeof workflowEngine.reconcileStaleWorkflows === 'function') {
+    workflowEngine.reconcileStaleWorkflows(args.workflow_id);
   }
-  const status = db.getWorkflowStatus(args.workflow_id);
+  const status = workflowEngine.getWorkflowStatus(args.workflow_id);
   if (!status) {
     return {
       ...makeError(ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow not found: ${args.workflow_id}`)
@@ -1151,32 +1154,32 @@ function handleCancelWorkflow(args) {
   const { workflow, error: wfErr } = requireWorkflow(db, args.workflow_id);
   if (wfErr) return wfErr;
 
-  const tasks = db.getWorkflowTasks(args.workflow_id);
+  const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
   let cancelled = 0;
 
   for (const task of tasks) {
     // Re-fetch current status: cancelling a running task triggers handleWorkflowTermination
     // which may change dependent tasks' statuses (e.g. blocked -> skipped) mid-loop
-    const current = db.getTask(task.id);
+    const current = database.getTask(task.id);
     const currentStatus = current ? current.status : task.status;
     if (['pending', 'running', 'blocked', 'queued', 'pending_provider_switch'].includes(currentStatus)) {
       if (currentStatus === 'running') {
         taskManager.cancelTask(task.id, args.reason || 'Workflow cancelled');
       } else {
-        db.updateTaskStatus(task.id, 'cancelled');
+        database.updateTaskStatus(task.id, 'cancelled');
       }
       cancelled++;
     }
   }
 
-  db.updateWorkflow(args.workflow_id, {
+  workflowEngine.updateWorkflow(args.workflow_id, {
     status: 'cancelled',
     completed_at: new Date().toISOString()
   });
 
   // L-10: Record workflow-level event
   try {
-    db.recordCoordinationEvent('workflow_cancelled', null, null, JSON.stringify({
+    coordination.recordCoordinationEvent('workflow_cancelled', null, null, JSON.stringify({
       workflow_id: args.workflow_id,
       workflow_name: workflow.name,
       tasks_cancelled: cancelled,
@@ -1210,18 +1213,18 @@ function handlePauseWorkflow(args) {
 
   // Race guard: check if all tasks are already terminal before pausing.
   // evaluateWorkflowDependencies may have just completed the workflow concurrently.
-  const freshWorkflow = db.getWorkflow(args.workflow_id);
+  const freshWorkflow = workflowEngine.getWorkflow(args.workflow_id);
   if (freshWorkflow && ['completed', 'failed', 'cancelled'].includes(freshWorkflow.status)) {
     return {
       ...makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Workflow has already reached terminal status '${freshWorkflow.status}' and cannot be paused.`)
     };
   }
 
-  db.updateWorkflow(args.workflow_id, { status: 'paused' });
+  workflowEngine.updateWorkflow(args.workflow_id, { status: 'paused' });
 
   // L-10: Record workflow-level event
   try {
-    db.recordCoordinationEvent('workflow_paused', null, null, JSON.stringify({
+    coordination.recordCoordinationEvent('workflow_paused', null, null, JSON.stringify({
       workflow_id: args.workflow_id,
       workflow_name: workflow.name
     }));
@@ -1241,10 +1244,10 @@ function handlePauseWorkflow(args) {
  * List workflows
  */
 function handleListWorkflows(args) {
-  if (typeof db.reconcileStaleWorkflows === 'function') {
-    db.reconcileStaleWorkflows();
+  if (typeof workflowEngine.reconcileStaleWorkflows === 'function') {
+    workflowEngine.reconcileStaleWorkflows();
   }
-  const workflows = db.listWorkflows({
+  const workflows = workflowEngine.listWorkflows({
     status: args.status,
     template_id: args.template_id,
     since: safeDate(args.since),
@@ -1259,7 +1262,7 @@ function handleListWorkflows(args) {
   }
 
   const annotated = workflows.map((workflow) => {
-    const detailed = db.getWorkflowStatus(workflow.id) || workflow;
+    const detailed = workflowEngine.getWorkflowStatus(workflow.id) || workflow;
     const visibility = evaluateWorkflowVisibility(detailed);
     const counts = visibility.counts || getWorkflowTaskCounts(detailed);
     return { workflow, visibility, counts };
@@ -1313,7 +1316,7 @@ function handleWorkflowHistory(args) {
   const { workflow, error: wfErr } = requireWorkflow(db, args.workflow_id);
   if (wfErr) return wfErr;
 
-  const events = db.getWorkflowHistory(args.workflow_id);
+  const events = workflowEngine.getWorkflowHistory(args.workflow_id);
 
   let output = `## Workflow History: ${workflow.name}\n\n`;
 
@@ -1408,7 +1411,7 @@ function handleCreateFeatureWorkflow(args) {
     parallelTasks.length;
 
   if (plannedTaskCount === 0) {
-    const duplicatePlaceholder = db.findEmptyWorkflowPlaceholder(workflowName, 'pending');
+    const duplicatePlaceholder = workflowEngine.findEmptyWorkflowPlaceholder(workflowName, 'pending');
     return buildEmptyWorkflowCreationError(
       workflowName,
       'Set at least one of types_task, events_task, data_task, system_task, tests_task, wire_task, or parallel_tasks before creating the feature workflow.',
@@ -1419,7 +1422,7 @@ function handleCreateFeatureWorkflow(args) {
   // Create workflow — store routing_template in context for inheritance by tasks
   const workflowId = uuidv4();
   const workflowContext = routingTemplate ? { _routing_template: routingTemplate } : undefined;
-  db.createWorkflow({
+  workflowEngine.createWorkflow({
     id: workflowId,
     name: workflowName,
     description: args.description || `Auto-generated feature workflow for ${pascal}`,
@@ -1442,7 +1445,7 @@ function handleCreateFeatureWorkflow(args) {
   // Step 1: Types (no deps)
   if (args.types_task) {
     const typesId = uuidv4();
-    db.createTask({
+    database.createTask({
       id: typesId,
       task_description: args.types_task,
       working_directory: wdir,
@@ -1458,7 +1461,7 @@ function handleCreateFeatureWorkflow(args) {
   // Step 2: Events (no deps, parallel with types)
   if (args.events_task) {
     const eventsId = uuidv4();
-    db.createTask({
+    database.createTask({
       id: eventsId,
       task_description: args.events_task,
       working_directory: wdir,
@@ -1475,7 +1478,7 @@ function handleCreateFeatureWorkflow(args) {
   if (args.data_task) {
     const dataId = uuidv4();
     const typesTask = tasks.find(t => t.step === 'types');
-    db.createTask({
+    database.createTask({
       id: dataId,
       task_description: args.data_task,
       working_directory: wdir,
@@ -1486,7 +1489,7 @@ function handleCreateFeatureWorkflow(args) {
       metadata: buildStepMeta(stepProviders.data),
     });
     if (typesTask) {
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: dataId,
         depends_on_task_id: typesTask.id,
@@ -1501,7 +1504,7 @@ function handleCreateFeatureWorkflow(args) {
     const dataTask = tasks.find(t => t.step === 'data');
     const eventsTask = tasks.find(t => t.step === 'events');
     const hasDeps = dataTask || eventsTask;
-    db.createTask({
+    database.createTask({
       id: systemId,
       task_description: args.system_task,
       working_directory: wdir,
@@ -1512,14 +1515,14 @@ function handleCreateFeatureWorkflow(args) {
       metadata: buildStepMeta(stepProviders.system, { needs_review: true }),
     });
     if (dataTask) {
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: systemId,
         depends_on_task_id: dataTask.id,
       });
     }
     if (eventsTask) {
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: systemId,
         depends_on_task_id: eventsTask.id,
@@ -1532,7 +1535,7 @@ function handleCreateFeatureWorkflow(args) {
   if (args.tests_task) {
     const testsId = uuidv4();
     const systemTask = tasks.find(t => t.step === 'system');
-    db.createTask({
+    database.createTask({
       id: testsId,
       task_description: args.tests_task,
       working_directory: wdir,
@@ -1543,7 +1546,7 @@ function handleCreateFeatureWorkflow(args) {
       metadata: buildStepMeta(stepProviders.tests),
     });
     if (systemTask) {
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: testsId,
         depends_on_task_id: systemTask.id,
@@ -1556,7 +1559,7 @@ function handleCreateFeatureWorkflow(args) {
   if (args.wire_task) {
     const wireId = uuidv4();
     const systemTask = tasks.find(t => t.step === 'system');
-    db.createTask({
+    database.createTask({
       id: wireId,
       task_description: args.wire_task,
       working_directory: wdir,
@@ -1567,7 +1570,7 @@ function handleCreateFeatureWorkflow(args) {
       metadata: buildStepMeta(stepProviders.wire),
     });
     if (systemTask) {
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: wireId,
         depends_on_task_id: systemTask.id,
@@ -1586,7 +1589,7 @@ function handleCreateFeatureWorkflow(args) {
         nodeId = `parallel-${nodeId}`;
       }
       const ptProvider = pt.provider || stepProviders.parallel;
-      db.createTask({
+      database.createTask({
         id: ptId,
         task_description: pt.task,
         working_directory: wdir,
@@ -1600,7 +1603,7 @@ function handleCreateFeatureWorkflow(args) {
     }
   }
 
-  db.updateWorkflowCounts(workflowId);
+  workflowEngine.updateWorkflowCounts(workflowId);
 
   // Auto-run if requested
   let started = 0;
@@ -1667,7 +1670,7 @@ function handleExportWorkflow(args) {
   const { workflow, error: wfErr } = requireWorkflow(db, args.workflow_id);
   if (wfErr) return wfErr;
 
-  const tasks = db.getWorkflowTasks(args.workflow_id);
+  const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
   const exportedTasks = tasks.map(t => ({
     node_id: t.node_id || t.workflow_node_id,
     task_description: t.task_description,

@@ -10,7 +10,14 @@
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
-const db = require('../../database');
+const database = require('../../database');
+const costTracking = require('../../db/cost-tracking');
+const hostManagement = require('../../db/host-management');
+const projectConfigCore = require('../../db/project-config-core');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const schedulingAutomation = require('../../db/scheduling-automation');
+const taskMetadata = require('../../db/task-metadata');
+const webhooksStreaming = require('../../db/webhooks-streaming');
 const serverConfig = require('../../config');
 const taskManager = require('../../task-manager');
 const {
@@ -77,7 +84,7 @@ function formatTaskStatus(task, progress) {
     } catch {
       // Ignore workstation lookup errors and fall back to DB host resolution.
     }
-    const host = db.getOllamaHost(task.ollama_host_id);
+    const host = hostManagement.getOllamaHost(task.ollama_host_id);
     if (host) {
       hostName = host.name;
       result += `**Ollama Host:** ${hostName} (\`${host.url}\`)\n`;
@@ -121,12 +128,12 @@ function formatTaskStatus(task, progress) {
 }
 
 function buildTaskPeekArtifactSection(taskId) {
-  if (!taskId || typeof db.listArtifacts !== 'function') {
+  if (!taskId || typeof taskMetadata.listArtifacts !== 'function') {
     return '';
   }
 
   try {
-    const artifacts = db.listArtifacts(taskId);
+    const artifacts = taskMetadata.listArtifacts(taskId);
     const refs = buildPeekArtifactReferencesFromTaskArtifacts(artifacts, { task_id: taskId });
     if (refs.length === 0) {
       return '';
@@ -211,11 +218,11 @@ function handleSubmitTask(args) {
 
   const taskId = uuidv4();
   const defaultTimeout = serverConfig.getInt('default_timeout', 30);
-  const defaultProvider = db.getDefaultProvider();
+  const defaultProvider = providerRoutingCore.getDefaultProvider();
 
   // Validate provider if specified
   if (args.provider) {
-    const providerConfig = db.getProvider(args.provider);
+    const providerConfig = providerRoutingCore.getProvider(args.provider);
     if (!providerConfig) {
       return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Unknown provider: ${args.provider}`);
     }
@@ -234,11 +241,11 @@ function handleSubmitTask(args) {
   const timeout = args.timeout_minutes ?? providerTimeout;
   const taskDescription = args.task.trim();
   const model = args.model || null;
-  const schedulingMode = db.getConfig ? (db.getConfig('scheduling_mode') || 'legacy') : 'legacy';
+  const schedulingMode = database.getConfig ? (database.getConfig('scheduling_mode') || 'legacy') : 'legacy';
   const useTierList = schedulingMode === 'slot-pull';
   const routingFiles = Array.isArray(args.files) ? args.files.filter(f => typeof f === 'string') : [];
   const tierResult = useTierList
-    ? db.analyzeTaskForRouting(taskDescription, args.working_directory || null, routingFiles, {
+    ? providerRoutingCore.analyzeTaskForRouting(taskDescription, args.working_directory || null, routingFiles, {
         tierList: true,
         isUserOverride: !!args.provider,
         overrideProvider: args.provider || null,
@@ -265,8 +272,8 @@ function handleSubmitTask(args) {
   };
 
   if (serverConfig.getBool('budget_check_enabled')) {
-    const estimate = db.estimateCost(taskDescription, model || providerName);
-    const budgetCheck = db.checkBudgetBeforeSubmission(providerName, estimate.estimated_cost_usd);
+    const estimate = costTracking.estimateCost(taskDescription, model || providerName);
+    const budgetCheck = costTracking.checkBudgetBeforeSubmission(providerName, estimate.estimated_cost_usd);
     if (!budgetCheck.allowed) {
       return makeError(
         ErrorCodes.BUDGET_EXCEEDED,
@@ -289,7 +296,7 @@ function handleSubmitTask(args) {
   // F9: Early model availability check — warn if requested model not found on any host
   if (args.model) {
     try {
-      const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];
+      const hosts = hostManagement.listOllamaHosts ? hostManagement.listOllamaHosts() : [];
       const available = hosts.some(h => h.status !== 'down' && h.models_cache && h.models_cache.includes(args.model));
       if (!available && hosts.length > 0) {
         const availableModels = [...new Set(hosts.flatMap(h => (h.models_cache || '').split(',').map(m => m.trim()).filter(Boolean)))];
@@ -324,7 +331,7 @@ function handleSubmitTask(args) {
   checkDepth(metadata);
 
   if (useTierList) {
-    db.createTask({
+    database.createTask({
       id: taskId,
       status: 'pending',
       task_description: taskDescription,
@@ -337,7 +344,7 @@ function handleSubmitTask(args) {
       metadata: JSON.stringify(metadata)
     });
   } else {
-    db.createTask({
+    database.createTask({
       id: taskId,
       status: 'pending',
       task_description: taskDescription,
@@ -361,9 +368,9 @@ function handleSubmitTask(args) {
 
   // Check if approval is required for this task
   try {
-    const task = db.getTask(taskId);
-    if (task && db.checkApprovalRequired) {
-      const approvalResult = db.checkApprovalRequired(task);
+    const task = database.getTask(taskId);
+    if (task && schedulingAutomation.checkApprovalRequired) {
+      const approvalResult = schedulingAutomation.checkApprovalRequired(task);
       if (approvalResult && approvalResult.required) {
         // checkApprovalRequired already set approval_status='pending' and created the request
         try {
@@ -378,9 +385,9 @@ function handleSubmitTask(args) {
     // Non-fatal — if approval check fails, task proceeds without gate
   }
 
-  if (useTierList && !args.provider && typeof db.patchTaskSlotBinding === 'function') {
+  if (useTierList && !args.provider && typeof database.patchTaskSlotBinding === 'function') {
     try {
-      db.patchTaskSlotBinding(taskId, slotPullMetadata);
+      database.patchTaskSlotBinding(taskId, slotPullMetadata);
     } catch (err) {
       logger.debug(`[submit_task] Failed to persist slot-pull late binding for ${taskId}: ${err.message}`);
     }
@@ -397,11 +404,11 @@ function handleSubmitTask(args) {
       const contextWorkDir = args.working_directory || null;
       if (!contextWorkDir) {
         // No working directory — can't resolve context files; add warning to metadata
-        // Parse metadata once and reuse; avoids a second db.getTask call in the scan branch
-        const taskRowCtx = db.getTask(taskId);
+        // Parse metadata once and reuse; avoids a second database.getTask call in the scan branch
+        const taskRowCtx = database.getTask(taskId);
         const existingMetaCtx = taskRowCtx?.metadata ? (typeof taskRowCtx.metadata === 'string' ? JSON.parse(taskRowCtx.metadata) : { ...taskRowCtx.metadata }) : {};
         existingMetaCtx.warning = 'No working directory specified — file context unavailable';
-        db.patchTaskMetadata(taskId, existingMetaCtx);
+        database.patchTaskMetadata(taskId, existingMetaCtx);
       }
       const scanResult = contextWorkDir ? resolveContextFiles({
         taskDescription,
@@ -411,11 +418,11 @@ function handleSubmitTask(args) {
       }) : null;
       if (scanResult && scanResult.contextFiles.length > 0) {
         // Fetch task once here (the !contextWorkDir branch above won't have run)
-        const taskRowScan = db.getTask(taskId);
+        const taskRowScan = database.getTask(taskId);
         const existingMetaScan = taskRowScan?.metadata ? (typeof taskRowScan.metadata === 'string' ? JSON.parse(taskRowScan.metadata) : { ...taskRowScan.metadata }) : {};
         existingMetaScan.context_files = scanResult.contextFiles;
         existingMetaScan.context_scan_reasons = Object.fromEntries(scanResult.reasons);
-        db.patchTaskMetadata(taskId, existingMetaScan);
+        database.patchTaskMetadata(taskId, existingMetaScan);
       }
     } catch (err) {
       logger.debug(`[submit_task] Context scan failed for ${taskId}: ${err.message}`);
@@ -460,12 +467,12 @@ function handleQueueTask(args) {
 
   const taskId = uuidv4();
   const defaultTimeout = serverConfig.getInt('default_timeout', 30);
-  const defaultProvider = db.getDefaultProvider();
+  const defaultProvider = providerRoutingCore.getDefaultProvider();
 
   // Validate provider if specified
   const providerName = args.provider || defaultProvider;
   if (args.provider) {
-    const providerConfig = db.getProvider(args.provider);
+    const providerConfig = providerRoutingCore.getProvider(args.provider);
     if (!providerConfig) {
       return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Unknown provider: ${args.provider}`);
     }
@@ -485,8 +492,8 @@ function handleQueueTask(args) {
   const model = args.model || null;
 
   if (serverConfig.getBool('budget_check_enabled')) {
-    const estimate = db.estimateCost(taskDescription, model || providerName);
-    const budgetCheck = db.checkBudgetBeforeSubmission(providerName, estimate.estimated_cost_usd);
+    const estimate = costTracking.estimateCost(taskDescription, model || providerName);
+    const budgetCheck = costTracking.checkBudgetBeforeSubmission(providerName, estimate.estimated_cost_usd);
     if (!budgetCheck.allowed) {
       return makeError(
         ErrorCodes.BUDGET_EXCEEDED,
@@ -518,7 +525,7 @@ function handleQueueTask(args) {
 
   checkDepth(metadata);
 
-  db.createTask({
+  database.createTask({
     id: taskId,
     status: 'queued',
     task_description: taskDescription,
@@ -575,14 +582,14 @@ function handleCheckStatus(args) {
   }
 
   // Summary of all tasks
-  const running = db.listTasks({ status: 'running' });
-  const queued = db.listTasks({ status: 'queued' });
-  const recent = db.listTasks({ limit: 5 });
+  const running = database.listTasks({ status: 'running' });
+  const queued = database.listTasks({ status: 'queued' });
+  const recent = database.listTasks({ limit: 5 });
 
   let summary = `## TORQUE Task Status\n\n`;
   summary += `**Resource Pressure:** ${pressureLevel}\n`;
   // TDA-14: Explicit gating visibility — tell callers when tasks are being deferred
-  const gatingEnabled = db.getConfig ? db.getConfig('resource_gating_enabled') === '1' : false;
+  const gatingEnabled = database.getConfig ? database.getConfig('resource_gating_enabled') === '1' : false;
   if (gatingEnabled && (pressureLevel === 'high' || pressureLevel === 'critical')) {
     summary += `**Resource Gating:** Active — queued task starts deferred until pressure drops\n`;
   }
@@ -718,7 +725,7 @@ function handleGetResult(args) {
     } catch {
       // Ignore workstation lookup errors and fall back to DB host resolution.
     }
-    const host = db.getOllamaHost(task.ollama_host_id);
+    const host = hostManagement.getOllamaHost(task.ollama_host_id);
     if (host) {
       hostName = host.name;
       result += `**Host:** ${hostName} (\`${host.url}\`)\n`;
@@ -808,7 +815,7 @@ async function handleWaitForTask(args) {
       try {
         const elapsed = Date.now() - startTime;
         if (elapsed >= timeoutMs) {
-          const current = db.getTask(taskId);
+          const current = database.getTask(taskId);
           resolve({
             content: [{
               type: 'text',
@@ -822,7 +829,7 @@ async function handleWaitForTask(args) {
           return;
         }
 
-        const current = db.getTask(taskId);
+        const current = database.getTask(taskId);
         if (!current) {
           resolve(makeError(ErrorCodes.TASK_NOT_FOUND, `Task ${taskId} was deleted while waiting.`));
           return;
@@ -858,10 +865,10 @@ function handleListTasks(args) {
   let projectFilter = null;
   if (!args.all_projects) {
     // Use specified project or detect from current working directory
-    projectFilter = args.project || db.getCurrentProject(process.cwd());
+    projectFilter = args.project || projectConfigCore.getCurrentProject(process.cwd());
   }
 
-  const tasks = db.listTasks({
+  const tasks = database.listTasks({
     status: args.status,
     tags: args.tags,
     project: projectFilter,
@@ -897,7 +904,7 @@ function handleListTasks(args) {
     // Get host name if available
     let hostName = '-';
     if (task.ollama_host_id) {
-      const host = db.getOllamaHost(task.ollama_host_id);
+      const host = hostManagement.getOllamaHost(task.ollama_host_id);
       hostName = host ? host.name.slice(0, 10) : task.ollama_host_id.slice(0, 10);
     }
     // Get model name, truncate if needed
@@ -1000,7 +1007,7 @@ function handleConfigure(args) {
       return makeError(ErrorCodes.INVALID_PARAM, 'max_concurrent must be a finite number');
     }
     const value = Math.max(1, Math.min(10, num));
-    db.setConfig('max_concurrent', value);
+    database.setConfig('max_concurrent', value);
     changed = true;
   }
 
@@ -1010,7 +1017,7 @@ function handleConfigure(args) {
       return makeError(ErrorCodes.INVALID_PARAM, 'default_timeout must be a finite number');
     }
     const value = Math.max(1, Math.min(120, num));
-    db.setConfig('default_timeout', value);
+    database.setConfig('default_timeout', value);
     changed = true;
   }
 
@@ -1019,11 +1026,11 @@ function handleConfigure(args) {
     if (!['legacy', 'slot-pull'].includes(mode)) {
       return makeError(ErrorCodes.INVALID_PARAM, 'scheduling_mode must be "legacy" or "slot-pull"');
     }
-    db.setConfig('scheduling_mode', mode);
+    database.setConfig('scheduling_mode', mode);
     changed = true;
   }
 
-  const config = db.getAllConfig();
+  const config = database.getAllConfig();
 
   let result = `## Configuration\n\n`;
   result += `**Max Concurrent Tasks:** ${config.max_concurrent}\n`;
@@ -1065,7 +1072,7 @@ function handleGetProgress(args) {
   let outputText = progress.output || '';
   if (progress.running && (!outputText || outputText.startsWith('[Streaming:'))) {
     try {
-      const chunks = db.getLatestStreamChunks(args.task_id, 0, 200);
+      const chunks = webhooksStreaming.getLatestStreamChunks(args.task_id, 0, 200);
       if (chunks.length > 0) {
         outputText = chunks.map(c => c.chunk_data).join('');
       }
@@ -1156,12 +1163,12 @@ function handleShareContext(args) {
   fs.writeFileSync(contextFile, args.content);
 
   // Update task context in database — re-read current state to avoid stale context overwrite
-  const currentTask = db.getTask(args.task_id);
+  const currentTask = database.getTask(args.task_id);
   const currentStatus = currentTask ? currentTask.status : task.status;
   const freshContext = currentTask?.context;
   const existingContext = (typeof freshContext === 'object' && freshContext !== null) ? freshContext : {};
   existingContext[contextType] = contextFile;
-  db.updateTaskStatus(args.task_id, currentStatus, { context: existingContext });
+  database.updateTaskStatus(args.task_id, currentStatus, { context: existingContext });
 
   return {
     content: [{

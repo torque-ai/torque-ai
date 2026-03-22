@@ -2,7 +2,8 @@
  * Workflow DAG and dependency analysis handlers
  */
 
-const db = require('../../database');
+const database = require('../../database');
+const workflowEngine = require('../../db/workflow-engine');
 const {
   ErrorCodes,
   makeError,
@@ -57,8 +58,8 @@ function handleDependencyGraph(args) {
   if (workflowResult.error) return workflowResult.error;
   const { workflow } = workflowResult;
 
-  const tasks = db.getWorkflowTasks(args.workflow_id);
-  const deps = db.getWorkflowDependencies(args.workflow_id);
+  const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
+  const deps = workflowEngine.getWorkflowDependencies(args.workflow_id);
 
   // Build node map
   const nodeMap = {};
@@ -153,8 +154,8 @@ function handleCriticalPath(args) {
   if (workflowResult.error) return workflowResult.error;
   const { workflow } = workflowResult;
 
-  const tasks = db.getWorkflowTasks(args.workflow_id);
-  const deps = db.getWorkflowDependencies(args.workflow_id);
+  const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
+  const deps = workflowEngine.getWorkflowDependencies(args.workflow_id);
 
   // Build adjacency list
   const graph = {};
@@ -272,7 +273,7 @@ function handleWhatIf(args) {
   }
 
   // Get dependents
-  const dependents = db.getTaskDependents(args.task_id);
+  const dependents = workflowEngine.getTaskDependents(args.task_id);
   const simulatedStatus = args.simulated_status;
   const exitCode = args.simulated_exit_code || (simulatedStatus === 'failed' ? 1 : 0);
 
@@ -300,13 +301,13 @@ function handleWhatIf(args) {
   output += `|------|-----------|--------|--------|\n`;
 
   for (const dep of dependents) {
-    const depTask = db.getTask(dep.task_id);
+    const depTask = database.getTask(dep.task_id);
     const nodeName = depTask?.workflow_node_id || dep.task_id.substring(0, 8);
     const condition = dep.condition_expr || '(none)';
 
     let conditionPasses = true;
     if (dep.condition_expr) {
-      conditionPasses = db.evaluateCondition(dep.condition_expr, context);
+      conditionPasses = workflowEngine.evaluateCondition(dep.condition_expr, context);
     }
 
     let result, action;
@@ -341,7 +342,7 @@ function handleBlockedTasks(args) {
     workflow = workflowResult.workflow;
   }
 
-  const tasks = db.getBlockedTasks(args.workflow_id);
+  const tasks = workflowEngine.getBlockedTasks(args.workflow_id);
 
   if (tasks.length === 0) {
     return {
@@ -355,11 +356,11 @@ function handleBlockedTasks(args) {
 
   for (const task of tasks) {
     const nodeName = task.workflow_node_id || task.id.substring(0, 8);
-    const deps = db.getTaskDependencies(task.id);
+    const deps = workflowEngine.getTaskDependencies(task.id);
     const waitingOn = deps
       .filter(d => !['completed', 'failed', 'cancelled', 'skipped'].includes(d.depends_on_status))
       .map(d => {
-        const depTask = db.getTask(d.depends_on_task_id);
+        const depTask = database.getTask(d.depends_on_task_id);
         return depTask?.workflow_node_id || d.depends_on_task_id.substring(0, 8);
       })
       .join(', ');

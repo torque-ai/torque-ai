@@ -12,7 +12,11 @@
 
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
-const db = require('../../database');
+const database = require('../../database');
+const costTracking = require('../../db/cost-tracking');
+const eventTracking = require('../../db/event-tracking');
+const projectConfigCore = require('../../db/project-config-core');
+const taskMetadata = require('../../db/task-metadata');
 const serverConfig = require('../../config');
 const taskManager = require('../../task-manager');
 const { safeLimit, safeDate, isPathTraversalSafe, MAX_BATCH_SIZE, ErrorCodes, makeError } = require('../shared');
@@ -26,13 +30,13 @@ const logger = require('../../logger').child({ component: 'task-project' });
  * Record token usage for a task
  */
 function handleRecordUsage(args) {
-  const task = db.getTask(args.task_id);
+  const task = database.getTask(args.task_id);
 
   if (!task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
   }
 
-  const usage = db.recordTokenUsage(args.task_id, {
+  const usage = costTracking.recordTokenUsage(args.task_id, {
     input_tokens: args.input_tokens,
     output_tokens: args.output_tokens,
     model: args.model || 'codex'
@@ -51,13 +55,13 @@ function handleRecordUsage(args) {
  * Get token usage for a specific task
  */
 function handleGetTaskUsage(args) {
-  const task = db.getTask(args.task_id);
+  const task = database.getTask(args.task_id);
 
   if (!task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
   }
 
-  const usage = db.getTaskTokenUsage(args.task_id);
+  const usage = costTracking.getTaskTokenUsage(args.task_id);
 
   if (!usage || usage.length === 0) {
     return {
@@ -103,7 +107,7 @@ function handleCostSummary(args) {
   // Determine project filter
   let projectFilter = null;
   if (!args.all_projects) {
-    projectFilter = args.project || db.getCurrentProject(process.cwd());
+    projectFilter = args.project || projectConfigCore.getCurrentProject(process.cwd());
   }
 
   let result = `## Cost Summary`;
@@ -112,7 +116,7 @@ function handleCostSummary(args) {
   result += `\n\n`;
 
   // Get overall summary
-  const summary = db.getTokenUsageSummary({
+  const summary = costTracking.getTokenUsageSummary({
     since: safeDate(args.since),
     model: args.model,
     project: projectFilter
@@ -138,7 +142,7 @@ function handleCostSummary(args) {
 
   // Period breakdown if requested
   if (args.period) {
-    const periodData = db.getCostByPeriod(args.period, safeLimit(args.limit, 30));
+    const periodData = costTracking.getCostByPeriod(args.period, safeLimit(args.limit, 30));
 
     if (periodData && periodData.length > 0) {
       result += `\n### By ${args.period.charAt(0).toUpperCase() + args.period.slice(1)}\n`;
@@ -164,7 +168,7 @@ function handleEstimateCost(args) {
   if (!args.task_description) {
     return makeError(ErrorCodes.VALIDATION_ERROR, 'task_description is required');
   }
-  const estimate = db.estimateCost(args.task_description, args.model || 'codex');
+  const estimate = costTracking.estimateCost(args.task_description, args.model || 'codex');
 
   let result = `## Cost Estimate\n\n`;
   result += `**Model:** ${estimate.model}\n`;
@@ -188,7 +192,7 @@ function handleEstimateCost(args) {
  * List all projects
  */
 function handleListProjects(_args) {
-  const projects = db.listProjects();
+  const projects = projectConfigCore.listProjects();
 
   if (projects.length === 0) {
     return {
@@ -225,13 +229,13 @@ function handleListProjects(_args) {
  */
 function handleProjectStats(args) {
   // Use specified project or detect from current directory
-  const project = args.project || db.getCurrentProject(process.cwd());
+  const project = args.project || projectConfigCore.getCurrentProject(process.cwd());
 
   if (!project) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Unable to determine project. Please specify a project name or run from within a project directory.');
   }
 
-  const stats = db.getProjectStats(project);
+  const stats = projectConfigCore.getProjectStats(project);
 
   let result = `## Project: ${project}\n\n`;
 
@@ -291,8 +295,8 @@ function handleProjectStats(args) {
  */
 function handleCurrentProject(args) {
   const workingDir = args.working_directory || process.cwd();
-  const projectRoot = db.getProjectRoot(workingDir);
-  const project = db.getCurrentProject(workingDir);
+  const projectRoot = projectConfigCore.getProjectRoot(workingDir);
+  const project = projectConfigCore.getCurrentProject(workingDir);
 
   if (!project) {
     return {
@@ -304,9 +308,9 @@ function handleCurrentProject(args) {
   }
 
   // Get quick stats for this project
-  const stats = db.getProjectStats(project);
-  const config = db.getEffectiveProjectConfig(project);
-  const canStart = db.canProjectStartTask(project);
+  const stats = projectConfigCore.getProjectStats(project);
+  const config = projectConfigCore.getEffectiveProjectConfig(project);
+  const canStart = projectConfigCore.canProjectStartTask(project);
 
   let result = `## Current Project\n\n`;
   result += `**Working Directory:** ${workingDir}\n`;
@@ -316,15 +320,15 @@ function handleCurrentProject(args) {
 
   result += `### Quick Stats\n`;
   result += `- **Total Tasks:** ${stats.total_tasks}\n`;
-  result += `- **Running Tasks:** ${db.getProjectRunningCount(project)}\n`;
+  result += `- **Running Tasks:** ${projectConfigCore.getProjectRunningCount(project)}\n`;
   result += `- **Total Cost:** $${stats.cost.total_cost.toFixed(4)}\n`;
 
   // Show quotas if set
   if (config.max_concurrent > 0 || config.max_daily_cost > 0 || config.max_daily_tokens > 0) {
-    const usage = db.getProjectDailyUsage(project);
+    const usage = projectConfigCore.getProjectDailyUsage(project);
     result += `\n### Quotas\n`;
     if (config.max_concurrent > 0) {
-      result += `- **Concurrency:** ${db.getProjectRunningCount(project)}/${config.max_concurrent}\n`;
+      result += `- **Concurrency:** ${projectConfigCore.getProjectRunningCount(project)}/${config.max_concurrent}\n`;
     }
     if (config.max_daily_cost > 0) {
       result += `- **Daily Cost:** $${usage.cost.toFixed(2)}/$${config.max_daily_cost.toFixed(2)}\n`;
@@ -351,7 +355,7 @@ function handleCurrentProject(args) {
  * Configure project settings
  */
 function handleConfigureProject(args) {
-  const project = args.project || db.getCurrentProject(process.cwd());
+  const project = args.project || projectConfigCore.getCurrentProject(process.cwd());
 
   if (!project) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Unable to determine project. Please specify a project name.');
@@ -383,7 +387,7 @@ function handleConfigureProject(args) {
   }
 
   // Update config
-  const updated = db.setProjectConfig(project, config);
+  const updated = projectConfigCore.setProjectConfig(project, config);
 
   let result = `## Project Configuration Updated\n\n`;
   result += `**Project:** ${project}\n\n`;
@@ -423,22 +427,22 @@ function handleConfigureProject(args) {
  * Get project configuration
  */
 function handleGetProjectConfig(args) {
-  const project = args.project || db.getCurrentProject(process.cwd());
+  const project = args.project || projectConfigCore.getCurrentProject(process.cwd());
 
   if (!project) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Unable to determine project. Please specify a project name.');
   }
 
-  const config = db.getEffectiveProjectConfig(project);
-  const usage = db.getProjectDailyUsage(project);
-  const canStart = db.canProjectStartTask(project);
+  const config = projectConfigCore.getEffectiveProjectConfig(project);
+  const usage = projectConfigCore.getProjectDailyUsage(project);
+  const canStart = projectConfigCore.canProjectStartTask(project);
 
   let result = `## Project Configuration: ${project}\n\n`;
 
   result += `### Limits\n`;
   result += `| Setting | Value | Current |\n`;
   result += `|---------|-------|--------|\n`;
-  result += `| Max Concurrent | ${config.max_concurrent || `Global (${config.global_max_concurrent})`} | ${db.getProjectRunningCount(project)} running |\n`;
+  result += `| Max Concurrent | ${config.max_concurrent || `Global (${config.global_max_concurrent})`} | ${projectConfigCore.getProjectRunningCount(project)} running |\n`;
   result += `| Max Daily Cost | ${config.max_daily_cost > 0 ? '$' + config.max_daily_cost.toFixed(2) : 'Unlimited'} | $${usage.cost.toFixed(2)} used |\n`;
   result += `| Max Daily Tokens | ${config.max_daily_tokens > 0 ? config.max_daily_tokens.toLocaleString() : 'Unlimited'} | ${usage.tokens.toLocaleString()} used |\n`;
 
@@ -471,7 +475,7 @@ function handleGetProjectConfig(args) {
  * List all project configurations
  */
 function handleListProjectConfigs(_args) {
-  const configs = db.listProjectConfigs();
+  const configs = projectConfigCore.listProjectConfigs();
 
   if (configs.length === 0) {
     return {
@@ -504,13 +508,13 @@ function handleListProjectConfigs(_args) {
  * Clone a task
  */
 function handleCloneTask(args) {
-  const original = db.getTask(args.task_id);
+  const original = database.getTask(args.task_id);
   if (!original) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
   }
 
   const newTaskId = uuidv4();
-  db.createTask({
+  database.createTask({
     id: newTaskId,
     status: 'pending',
     task_description: args.task || original.task_description,
@@ -552,12 +556,12 @@ function handleBulkImportTasks(args) {
         // Basic YAML parsing (for simple structures)
         return makeError(ErrorCodes.INVALID_PARAM, 'YAML import not yet supported. Use JSON format.');
       }
-      data = db.safeJsonParse(content, null);
+      data = eventTracking.safeJsonParse(content, null);
       if (data === null) {
         return makeError(ErrorCodes.INVALID_PARAM, 'Failed to parse JSON file');
       }
     } else if (args.content) {
-      data = db.safeJsonParse(args.content, null);
+      data = eventTracking.safeJsonParse(args.content, null);
       if (data === null) {
         return makeError(ErrorCodes.INVALID_PARAM, 'Failed to parse JSON content');
       }
@@ -599,7 +603,7 @@ function handleBulkImportTasks(args) {
       });
     }
 
-    const task = db.createTask({
+    const task = database.createTask({
       id: taskId,
       status: 'pending',
       task_description: t.task,
@@ -698,7 +702,7 @@ function handleValidateImport(args) {
 function handleCreateGroup(args) {
   const groupId = uuidv4();
 
-  const group = db.createTaskGroup({
+  const group = taskMetadata.createTaskGroup({
     id: groupId,
     name: args.name,
     project: args.project,
@@ -723,7 +727,7 @@ function handleCreateGroup(args) {
  * List task groups
  */
 function handleListGroups(args) {
-  const groups = db.listTaskGroups({ project: args.project });
+  const groups = taskMetadata.listTaskGroups({ project: args.project });
 
   if (groups.length === 0) {
     return { content: [{ type: 'text', text: 'No task groups found.' }] };
@@ -746,12 +750,12 @@ function handleListGroups(args) {
  * Perform bulk action on a group
  */
 function handleGroupAction(args) {
-  const group = db.getTaskGroup(args.group_id);
+  const group = taskMetadata.getTaskGroup(args.group_id);
   if (!group) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Group not found: ${args.group_id}`);
   }
 
-  const tasks = db.getGroupTasks(args.group_id);
+  const tasks = taskMetadata.getGroupTasks(args.group_id);
   let affected = 0;
 
   switch (args.action) {
@@ -782,7 +786,7 @@ function handleGroupAction(args) {
         if (task.status === 'failed') {
           // Create new task with same description
           const newTaskId = uuidv4();
-          db.createTask({
+          database.createTask({
             id: newTaskId,
             status: 'pending',
             task_description: task.task_description,
@@ -825,7 +829,7 @@ function handleForecastCosts(args) {
   const basedOnDays = args.based_on_days || 30;
 
   // Get historical data (getCostByPeriod takes period string + limit)
-  const history = db.getCostByPeriod('day', basedOnDays);
+  const history = costTracking.getCostByPeriod('day', basedOnDays);
 
   if (!history || history.length < 7) {
     return {
@@ -892,7 +896,7 @@ function handleDeleteBudget(args) {
   if (!budget_id) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'budget_id is required');
   }
-  const result = db.deleteBudget(budget_id);
+  const result = costTracking.deleteBudget(budget_id);
   if (!result.deleted) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Budget not found: ${budget_id}`);
   }
@@ -906,13 +910,13 @@ function handleDeleteBudget(args) {
  */
 function handleSetDefaultLimits(args) {
   if (args.max_concurrent !== undefined) {
-    db.setConfig('default_project_max_concurrent', String(args.max_concurrent));
+    database.setConfig('default_project_max_concurrent', String(args.max_concurrent));
   }
   if (args.max_daily_cost !== undefined) {
-    db.setConfig('default_project_max_daily_cost', String(args.max_daily_cost));
+    database.setConfig('default_project_max_daily_cost', String(args.max_daily_cost));
   }
   if (args.auto_create_config !== undefined) {
-    db.setConfig('auto_create_project_config', args.auto_create_config ? '1' : '0');
+    database.setConfig('auto_create_project_config', args.auto_create_config ? '1' : '0');
   }
 
   const config = {
