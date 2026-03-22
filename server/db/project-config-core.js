@@ -2116,7 +2116,7 @@ function updatePipelineStatus(id, status, additionalFields = {}) {
     values.push(new Date().toISOString());
   }
 
-  const PIPELINE_STATUS_FIELDS = new Set(['started_at', 'completed_at', 'error', 'output', 'result']);
+  const PIPELINE_STATUS_FIELDS = new Set(['started_at', 'completed_at', 'error', 'output', 'result', 'current_step']);
   for (const [key, value] of Object.entries(additionalFields)) {
     if (!PIPELINE_STATUS_FIELDS.has(key)) continue; // skip unknown keys
     updates.push(`${key} = ?`);
