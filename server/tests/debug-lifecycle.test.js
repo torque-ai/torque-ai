@@ -7,14 +7,16 @@ function installMock(modulePath, exports) {
 }
 
 const SUBJECT_MODULE = '../execution/debug-lifecycle';
-const DATABASE_MODULE = '../database';
+const TASK_CORE_MODULE = '../db/task-core';
+const TASK_METADATA_MODULE = '../db/task-metadata';
 const LOGGER_MODULE = '../logger';
 const PROCESS_LIFECYCLE_MODULE = '../execution/process-lifecycle';
 
 function clearModuleCache() {
   for (const modulePath of [
     SUBJECT_MODULE,
-    DATABASE_MODULE,
+    TASK_CORE_MODULE,
+    TASK_METADATA_MODULE,
     LOGGER_MODULE,
     PROCESS_LIFECYCLE_MODULE,
   ]) {
@@ -37,10 +39,15 @@ function withPlatform(platform, fn) {
   }
 }
 
-function createDbMock() {
+function createTaskCoreMock() {
   return {
     getTask: vi.fn(),
     updateTaskStatus: vi.fn(),
+  };
+}
+
+function createTaskMetadataMock() {
+  return {
     listBreakpoints: vi.fn(() => []),
     updateBreakpoint: vi.fn(),
     getDebugSessionByTask: vi.fn(() => null),
@@ -79,16 +86,20 @@ function createProc(overrides = {}) {
 function loadSubject(overrides = {}) {
   clearModuleCache();
 
-  const db = overrides.db || createDbMock();
+  const taskCore = overrides.taskCore || createTaskCoreMock();
+  const taskMetadata = overrides.taskMetadata || createTaskMetadataMock();
   const logger = overrides.logger || createLoggerMock();
   const processLifecycle = overrides.processLifecycle || { pauseProcess: vi.fn() };
 
-  installMock(DATABASE_MODULE, db);
+  installMock(TASK_CORE_MODULE, taskCore);
+  installMock(TASK_METADATA_MODULE, taskMetadata);
   installMock(LOGGER_MODULE, logger);
   installMock(PROCESS_LIFECYCLE_MODULE, processLifecycle);
 
   const subject = require(SUBJECT_MODULE);
-  return { subject, db, logger, processLifecycle };
+  // Combined db reference for test assertions — keeps test diffs minimal
+  const db = { ...taskCore, ...taskMetadata };
+  return { subject, db, taskCore, taskMetadata, logger, processLifecycle };
 }
 
 function initSubject(subject, overrides = {}) {

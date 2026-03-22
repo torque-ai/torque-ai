@@ -8,20 +8,26 @@ function installMock(modulePath, exports) {
 }
 
 const SUBJECT_MODULE = '../hooks/approval-gate';
-const DATABASE_MODULE = '../database';
+const TASK_CORE_MODULE = '../db/task-core';
+const FILE_TRACKING_MODULE = '../db/file-tracking';
+const VALIDATION_RULES_MODULE = '../db/validation-rules';
 const LOGGER_MODULE = '../logger';
 const CONSTANTS_MODULE = '../constants';
 const CHILD_PROCESS_MODULE = 'child_process';
 
 const subjectPath = require.resolve(SUBJECT_MODULE);
-const databasePath = require.resolve(DATABASE_MODULE);
+const taskCorePath = require.resolve(TASK_CORE_MODULE);
+const fileTrackingPath = require.resolve(FILE_TRACKING_MODULE);
+const validationRulesPath = require.resolve(VALIDATION_RULES_MODULE);
 const loggerPath = require.resolve(LOGGER_MODULE);
 const constantsPath = require.resolve(CONSTANTS_MODULE);
 const childProcessPath = require.resolve(CHILD_PROCESS_MODULE);
 
 function clearModuleCaches() {
   delete require.cache[subjectPath];
-  delete require.cache[databasePath];
+  delete require.cache[taskCorePath];
+  delete require.cache[fileTrackingPath];
+  delete require.cache[validationRulesPath];
   delete require.cache[loggerPath];
   delete require.cache[constantsPath];
   delete require.cache[childProcessPath];
@@ -55,8 +61,20 @@ function loadSubject(options = {}) {
     },
   };
 
+  // Split db mock into per-module mocks matching the source imports
+  const taskCoreMock = { getTask: db.getTask };
+  const fileTrackingMock = {
+    getTaskFileChanges: db.getTaskFileChanges,
+    compareFileToBaseline: db.compareFileToBaseline,
+  };
+  const validationRulesMock = {
+    getValidationResults: db.getValidationResults,
+  };
+
   clearModuleCaches();
-  installMock(DATABASE_MODULE, db);
+  installMock(TASK_CORE_MODULE, taskCoreMock);
+  installMock(FILE_TRACKING_MODULE, fileTrackingMock);
+  installMock(VALIDATION_RULES_MODULE, validationRulesMock);
   installMock(LOGGER_MODULE, logger);
   installMock(CONSTANTS_MODULE, constants);
   installMock(CHILD_PROCESS_MODULE, childProcess);
