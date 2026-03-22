@@ -1,4 +1,5 @@
-const db = require('../database');
+const validationRules = require('../db/validation-rules');
+const schedulingAutomation = require('../db/scheduling-automation');
 const handlers = require('../handlers/advanced/approval');
 
 function textOf(result) {
@@ -40,7 +41,7 @@ describe('handler:adv-approval', () => {
 
     it('saves approval rule with default auto_reject and null condition', () => {
       vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
-      const saveSpy = vi.spyOn(db, 'saveApprovalRule').mockReturnValue(undefined);
+      const saveSpy = vi.spyOn(validationRules, 'saveApprovalRule').mockReturnValue(undefined);
 
       const result = handlers.handleAddApprovalRule({
         name: 'Directory Gate',
@@ -63,7 +64,7 @@ describe('handler:adv-approval', () => {
 
     it('supports auto_reject=true and includes it in output', () => {
       vi.spyOn(Date, 'now').mockReturnValue(1700000001234);
-      vi.spyOn(db, 'saveApprovalRule').mockReturnValue(undefined);
+      vi.spyOn(validationRules, 'saveApprovalRule').mockReturnValue(undefined);
 
       const result = handlers.handleAddApprovalRule({
         name: 'Keyword Block',
@@ -81,7 +82,7 @@ describe('handler:adv-approval', () => {
 
   describe('handleListApprovalRules', () => {
     it('returns empty-state message when no rules exist', () => {
-      const getRulesSpy = vi.spyOn(db, 'getApprovalRules').mockReturnValue([]);
+      const getRulesSpy = vi.spyOn(validationRules, 'getApprovalRules').mockReturnValue([]);
 
       const result = handlers.handleListApprovalRules({});
 
@@ -91,7 +92,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('passes enabled_only=false to database query', () => {
-      const getRulesSpy = vi.spyOn(db, 'getApprovalRules').mockReturnValue([]);
+      const getRulesSpy = vi.spyOn(validationRules, 'getApprovalRules').mockReturnValue([]);
 
       handlers.handleListApprovalRules({ enabled_only: false });
 
@@ -99,7 +100,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('renders approval rules table with enabled and auto-reject markers', () => {
-      vi.spyOn(db, 'getApprovalRules').mockReturnValue([
+      vi.spyOn(validationRules, 'getApprovalRules').mockReturnValue([
         {
           id: 'r1',
           name: 'Rule A',
@@ -136,7 +137,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('passes user actor and null notes when no notes are provided', () => {
-      const decideSpy = vi.spyOn(db, 'decideApproval').mockReturnValue(null);
+      const decideSpy = vi.spyOn(validationRules, 'decideApproval').mockReturnValue(null);
 
       const result = handlers.handleApproveTask({ approval_id: 'appr-1' });
 
@@ -147,7 +148,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('includes notes in approval decision and output', () => {
-      const decideSpy = vi.spyOn(db, 'decideApproval').mockReturnValue(null);
+      const decideSpy = vi.spyOn(validationRules, 'decideApproval').mockReturnValue(null);
 
       const result = handlers.handleApproveTask({
         approval_id: 'appr-2',
@@ -160,7 +161,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('returns OPERATION_FAILED when decision backend reports error', () => {
-      vi.spyOn(db, 'decideApproval').mockReturnValue({ error: 'already decided' });
+      vi.spyOn(validationRules, 'decideApproval').mockReturnValue({ error: 'already decided' });
 
       const result = handlers.handleApproveTask({ approval_id: 'appr-3' });
 
@@ -172,7 +173,7 @@ describe('handler:adv-approval', () => {
 
   describe('handleListPendingApprovals', () => {
     it('renders empty-state without task suffix when task_id is not provided', () => {
-      vi.spyOn(db, 'getPendingApprovals').mockReturnValue([]);
+      vi.spyOn(validationRules, 'getPendingApprovals').mockReturnValue([]);
 
       const result = handlers.handleListPendingApprovals({});
 
@@ -181,7 +182,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('renders empty-state with task suffix when task_id is provided', () => {
-      vi.spyOn(db, 'getPendingApprovals').mockReturnValue([]);
+      vi.spyOn(validationRules, 'getPendingApprovals').mockReturnValue([]);
 
       const result = handlers.handleListPendingApprovals({ task_id: 'task-7' });
 
@@ -190,7 +191,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('lists pending approvals with task/rule/reason details', () => {
-      vi.spyOn(db, 'getPendingApprovals').mockReturnValue([
+      vi.spyOn(validationRules, 'getPendingApprovals').mockReturnValue([
         {
           id: 'pa-1',
           task_id: 'task-1',
@@ -221,8 +222,8 @@ describe('handler:adv-approval', () => {
 
   describe('handleGetAuditLog', () => {
     it('returns empty-state when no audit entries match', () => {
-      vi.spyOn(db, 'getAuditLog').mockReturnValue([]);
-      vi.spyOn(db, 'getAuditLogCount').mockReturnValue(0);
+      vi.spyOn(schedulingAutomation, 'getAuditLog').mockReturnValue([]);
+      vi.spyOn(schedulingAutomation, 'getAuditLogCount').mockReturnValue(0);
 
       const result = handlers.handleGetAuditLog({});
 
@@ -231,7 +232,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('passes filter and pagination options to database queries', () => {
-      const getAuditLogSpy = vi.spyOn(db, 'getAuditLog').mockReturnValue([
+      const getAuditLogSpy = vi.spyOn(schedulingAutomation, 'getAuditLog').mockReturnValue([
         {
           timestamp: '2026-01-01T01:00:00.000Z',
           entity_type: 'task',
@@ -241,7 +242,7 @@ describe('handler:adv-approval', () => {
           new_value: 'value'
         }
       ]);
-      const getCountSpy = vi.spyOn(db, 'getAuditLogCount').mockReturnValue(12);
+      const getCountSpy = vi.spyOn(schedulingAutomation, 'getAuditLogCount').mockReturnValue(12);
 
       handlers.handleGetAuditLog({
         entity_type: 'task',
@@ -275,7 +276,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('renders row details with truncation and offset indicator', () => {
-      vi.spyOn(db, 'getAuditLog').mockReturnValue([
+      vi.spyOn(schedulingAutomation, 'getAuditLog').mockReturnValue([
         {
           timestamp: '2026-01-01T01:00:00.000Z',
           entity_type: null,
@@ -285,7 +286,7 @@ describe('handler:adv-approval', () => {
           new_value: '0123456789012345678901234567890123456789'
         }
       ]);
-      vi.spyOn(db, 'getAuditLogCount').mockReturnValue(99);
+      vi.spyOn(schedulingAutomation, 'getAuditLogCount').mockReturnValue(99);
 
       const result = handlers.handleGetAuditLog({ offset: 2 });
       const text = textOf(result);
@@ -297,7 +298,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('omits offset suffix when offset is zero', () => {
-      vi.spyOn(db, 'getAuditLog').mockReturnValue([
+      vi.spyOn(schedulingAutomation, 'getAuditLog').mockReturnValue([
         {
           timestamp: '2026-01-01T01:00:00.000Z',
           entity_type: 'task',
@@ -307,7 +308,7 @@ describe('handler:adv-approval', () => {
           new_value: null
         }
       ]);
-      vi.spyOn(db, 'getAuditLogCount').mockReturnValue(1);
+      vi.spyOn(schedulingAutomation, 'getAuditLogCount').mockReturnValue(1);
 
       const result = handlers.handleGetAuditLog({ offset: 0 });
 
@@ -318,7 +319,7 @@ describe('handler:adv-approval', () => {
 
   describe('handleExportAuditReport', () => {
     it('returns no-data message when export query is empty', () => {
-      vi.spyOn(db, 'getAuditLog').mockReturnValue([]);
+      vi.spyOn(schedulingAutomation, 'getAuditLog').mockReturnValue([]);
 
       const result = handlers.handleExportAuditReport({});
 
@@ -327,7 +328,7 @@ describe('handler:adv-approval', () => {
     });
 
     it('exports CSV report and escapes quote characters', () => {
-      vi.spyOn(db, 'getAuditLog').mockReturnValue([
+      vi.spyOn(schedulingAutomation, 'getAuditLog').mockReturnValue([
         {
           id: 1,
           timestamp: '2026-01-01T00:00:00.000Z',
@@ -339,7 +340,7 @@ describe('handler:adv-approval', () => {
           new_value: 'new "quoted"'
         }
       ]);
-      vi.spyOn(db, 'getAuditStats').mockReturnValue({ total: 1, byEntity: [], byActor: [] });
+      vi.spyOn(schedulingAutomation, 'getAuditStats').mockReturnValue({ total: 1, byEntity: [], byActor: [] });
 
       const result = handlers.handleExportAuditReport({ format: 'csv' });
       const text = textOf(result);
@@ -363,8 +364,8 @@ describe('handler:adv-approval', () => {
         new_value: `value-${i}`
       }));
 
-      vi.spyOn(db, 'getAuditLog').mockReturnValue(rows);
-      vi.spyOn(db, 'getAuditStats').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'getAuditLog').mockReturnValue(rows);
+      vi.spyOn(schedulingAutomation, 'getAuditStats').mockReturnValue({
         total: 55,
         byEntity: [{ entity_type: 'task', count: 55 }],
         byActor: [{ actor: 'system', count: 55 }],
@@ -387,13 +388,13 @@ describe('handler:adv-approval', () => {
 
   describe('handleConfigureAudit', () => {
     it('returns current settings and stats when no updates are provided', () => {
-      vi.spyOn(db, 'getAllAuditConfig').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'getAllAuditConfig').mockReturnValue({
         retention_days: '30',
         track_reads: 'true',
         track_config_changes: 'true',
         track_task_operations: 'true'
       });
-      vi.spyOn(db, 'getAuditStats').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'getAuditStats').mockReturnValue({
         total: 4,
         byEntity: [{ entity_type: 'task', count: 2 }],
         byActor: [{ actor: 'user', count: 2 }]
@@ -410,14 +411,14 @@ describe('handler:adv-approval', () => {
     });
 
     it('persists provided settings as strings and lists updated values', () => {
-      const setSpy = vi.spyOn(db, 'setAuditConfig').mockReturnValue(undefined);
-      vi.spyOn(db, 'getAllAuditConfig').mockReturnValue({
+      const setSpy = vi.spyOn(schedulingAutomation, 'setAuditConfig').mockReturnValue(undefined);
+      vi.spyOn(schedulingAutomation, 'getAllAuditConfig').mockReturnValue({
         retention_days: '14',
         track_reads: 'false',
         track_config_changes: 'false',
         track_task_operations: 'true'
       });
-      vi.spyOn(db, 'getAuditStats').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'getAuditStats').mockReturnValue({
         total: 0,
         byEntity: [],
         byActor: []

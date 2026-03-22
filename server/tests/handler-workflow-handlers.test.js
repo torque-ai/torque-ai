@@ -1,6 +1,7 @@
 const db = require('../database');
 const workflowEngine = require('../db/workflow-engine');
 const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
 const taskManager = require('../task-manager');
 const workflowRuntime = require('../execution/workflow-runtime');
 const taskPolicyHooks = require('../policy-engine/task-hooks');
@@ -75,7 +76,7 @@ describe('handler:workflow-handlers', () => {
 
     it('creates workflow, seeds tasks, and trims name before persistence', () => {
       const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       const addTaskDependencySpy = vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
       const updateWorkflowCountsSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
@@ -112,7 +113,7 @@ describe('handler:workflow-handlers', () => {
 
     it('skips policy-rejected initial tasks and reports them in the response', () => {
       const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
@@ -217,7 +218,7 @@ describe('handler:workflow-handlers', () => {
         working_directory: '/repo'
       });
       vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([]);
       vi.spyOn(workflowEngine, 'getTaskDependencies').mockReturnValue([]);
 
@@ -241,7 +242,7 @@ describe('handler:workflow-handlers', () => {
         working_directory: '/repo'
       });
       vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 'task-a', workflow_node_id: 'A' },
         { id: 'task-b', workflow_node_id: 'B' }
@@ -266,7 +267,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('creates dependency metadata and maps alternate dependency node IDs', () => {
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       const addTaskDependencySpy = vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
 
       vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
@@ -326,10 +327,10 @@ describe('handler:workflow-handlers', () => {
         working_directory: '/repo'
       });
       vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'getTask').mockReturnValue({ status: 'running' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ status: 'running' });
 
       const result = handlers.handleAddWorkflowTask({
         workflow_id: 'wf-1',
@@ -350,10 +351,10 @@ describe('handler:workflow-handlers', () => {
         working_directory: '/repo'
       });
       vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: true });
-      vi.spyOn(db, 'getTask').mockReturnValue({ status: 'pending' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ status: 'pending' });
 
       const result = handlers.handleAddWorkflowTask({
         workflow_id: 'wf-1',
@@ -373,7 +374,7 @@ describe('handler:workflow-handlers', () => {
         working_directory: '/repo'
       });
       vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'getWorkflowTasks')
         .mockReturnValueOnce([{ id: 'task-a', workflow_node_id: 'node-a' }])
         .mockReturnValueOnce([{ id: 'task-a', workflow_node_id: 'node-a', status: 'completed' }]);
@@ -382,7 +383,7 @@ describe('handler:workflow-handlers', () => {
       vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'unblockTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'getTask').mockReturnValue({ status: 'queued' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ status: 'queued' });
 
       const result = handlers.handleAddWorkflowTask({
         workflow_id: 'wf-1',
@@ -400,7 +401,7 @@ describe('handler:workflow-handlers', () => {
     });
 
     it('does not create a task when task submission policy rejects it', () => {
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
 
       vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
@@ -493,10 +494,10 @@ describe('handler:workflow-handlers', () => {
         return null;
       });
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
-      const updateTaskStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
+      const updateTaskStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockReturnValue(undefined);
       // Track call counts to distinguish pre-start check from post-start classification
       const getTaskCallCount = {};
-      vi.spyOn(db, 'getTask').mockImplementation((taskId) => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation((taskId) => {
         getTaskCallCount[taskId] = (getTaskCallCount[taskId] || 0) + 1;
         const isPreCheck = getTaskCallCount[taskId] === 1;
         if (taskId === 't1') return { id: 't1', status: isPreCheck ? 'pending' : 'running' };
@@ -765,7 +766,7 @@ describe('handler:workflow-handlers', () => {
         { id: 'done-1', status: 'completed' }
       ]);
       vi.spyOn(taskManager, 'cancelTask').mockReturnValue(undefined);
-      const updateTaskStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
+      const updateTaskStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockReturnValue(undefined);
       const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
 
       const result = handlers.handleCancelWorkflow({
@@ -1016,7 +1017,7 @@ describe('handler:workflow-handlers', () => {
 
     it('creates full feature DAG with dependencies and parallel tasks', () => {
       const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       const addTaskDependencySpy = vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
       const updateCountsSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
@@ -1056,7 +1057,7 @@ describe('handler:workflow-handlers', () => {
 
     it('auto-runs pending feature tasks and logs non-critical start failures', () => {
       vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);

@@ -1,4 +1,4 @@
-const db = require('../database');
+const validationRules = require('../db/validation-rules');
 const handlers = require('../handlers/validation/failure');
 
 function getText(result) {
@@ -19,7 +19,7 @@ describe('handler:validation-failure-handlers', () => {
 
     it('persists failure pattern with defaults and returns formatted summary', () => {
       vi.spyOn(Date, 'now').mockReturnValue(123456);
-      const saveSpy = vi.spyOn(db, 'saveFailurePattern').mockReturnValue(undefined);
+      const saveSpy = vi.spyOn(validationRules,'saveFailurePattern').mockReturnValue(undefined);
 
       const result = handlers.handleAddFailurePattern({
         name: 'Dependency install failed',
@@ -42,7 +42,7 @@ describe('handler:validation-failure-handlers', () => {
 
     it('uses explicit provider and severity when adding failure patterns', () => {
       vi.spyOn(Date, 'now').mockReturnValue(456789);
-      const saveSpy = vi.spyOn(db, 'saveFailurePattern').mockReturnValue(undefined);
+      const saveSpy = vi.spyOn(validationRules,'saveFailurePattern').mockReturnValue(undefined);
 
       const result = handlers.handleAddFailurePattern({
         name: 'Secrets leaked',
@@ -70,7 +70,7 @@ describe('handler:validation-failure-handlers', () => {
     });
 
     it('filters matches by pattern_id and applies result limits', () => {
-      vi.spyOn(db, 'getFailureMatches').mockReturnValue([
+      vi.spyOn(validationRules,'getFailureMatches').mockReturnValue([
         { pattern_id: 'p-1', pattern_name: 'Auth', severity: 'high', matched_at: '2026-01-01' },
         { pattern_id: 'p-2', pattern_name: 'Timeout', severity: 'low', matched_at: '2026-01-02' },
         { pattern_id: 'p-1', pattern_name: 'Auth', severity: 'high', matched_at: '2026-01-03' }
@@ -90,7 +90,7 @@ describe('handler:validation-failure-handlers', () => {
     });
 
     it('returns no-match message when no failure signatures are found', () => {
-      vi.spyOn(db, 'getFailureMatches').mockReturnValue([]);
+      vi.spyOn(validationRules,'getFailureMatches').mockReturnValue([]);
       const result = handlers.handleGetFailureMatches({ task_id: 'task-2' });
       expect(getText(result)).toContain('No failure pattern matches found for task task-2');
     });
@@ -98,19 +98,19 @@ describe('handler:validation-failure-handlers', () => {
 
   describe('retry recommendation handlers', () => {
     it('uses enabled_only=true by default when listing retry rules', () => {
-      const listSpy = vi.spyOn(db, 'getRetryRules').mockReturnValue([]);
+      const listSpy = vi.spyOn(validationRules,'getRetryRules').mockReturnValue([]);
       handlers.handleListRetryRules({});
       expect(listSpy).toHaveBeenCalledWith(true);
     });
 
     it('returns empty-state message when no retry rules exist', () => {
-      vi.spyOn(db, 'getRetryRules').mockReturnValue([]);
+      vi.spyOn(validationRules,'getRetryRules').mockReturnValue([]);
       const result = handlers.handleListRetryRules({});
       expect(getText(result)).toContain('No retry rules found');
     });
 
     it('renders retry rule table including enabled marker', () => {
-      vi.spyOn(db, 'getRetryRules').mockReturnValue([
+      vi.spyOn(validationRules,'getRetryRules').mockReturnValue([
         {
           name: 'Transient Network',
           rule_type: 'network',
@@ -139,7 +139,7 @@ describe('handler:validation-failure-handlers', () => {
 
     it('persists retry rules with defaults and returns recommendation summary', () => {
       vi.spyOn(Date, 'now').mockReturnValue(7890);
-      const saveSpy = vi.spyOn(db, 'saveRetryRule').mockReturnValue(undefined);
+      const saveSpy = vi.spyOn(validationRules,'saveRetryRule').mockReturnValue(undefined);
 
       const result = handlers.handleAddRetryRule({
         name: 'Retry on flaky timeout',
@@ -164,7 +164,7 @@ describe('handler:validation-failure-handlers', () => {
 
     it('persists retry rules with custom fallback provider and retry count', () => {
       vi.spyOn(Date, 'now').mockReturnValue(9876);
-      const saveSpy = vi.spyOn(db, 'saveRetryRule').mockReturnValue(undefined);
+      const saveSpy = vi.spyOn(validationRules,'saveRetryRule').mockReturnValue(undefined);
 
       handlers.handleAddRetryRule({
         name: 'Escalate auth failures',

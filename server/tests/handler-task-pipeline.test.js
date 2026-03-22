@@ -1,5 +1,10 @@
 const childProcess = require('child_process');
-const db = require('../database');
+const schedulingAutomation = require('../db/scheduling-automation');
+const eventTracking = require('../db/event-tracking');
+const taskCore = require('../db/task-core');
+const pipelineCrud = require('../db/pipeline-crud');
+const taskMetadata = require('../db/task-metadata');
+const fileTracking = require('../db/file-tracking');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/task/pipeline');
 
@@ -21,13 +26,13 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleSaveTemplate persists valid template and records event', () => {
-    const saveSpy = vi.spyOn(db, 'saveTemplate').mockReturnValue({
+    const saveSpy = vi.spyOn(schedulingAutomation, 'saveTemplate').mockReturnValue({
       name: 'ci-template',
       description: 'CI checks',
       default_timeout: 20,
       default_priority: 2,
     });
-    const eventSpy = vi.spyOn(db, 'recordEvent').mockReturnValue(undefined);
+    const eventSpy = vi.spyOn(eventTracking, 'recordEvent').mockReturnValue(undefined);
 
     const result = handlers.handleSaveTemplate({
       name: '  ci-template  ',
@@ -50,7 +55,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleListTemplates returns empty-state when no templates exist', () => {
-    vi.spyOn(db, 'listTemplates').mockReturnValue([]);
+    vi.spyOn(schedulingAutomation, 'listTemplates').mockReturnValue([]);
 
     const result = handlers.handleListTemplates({});
 
@@ -58,7 +63,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleListTemplates renders a table for saved templates', () => {
-    vi.spyOn(db, 'listTemplates').mockReturnValue([
+    vi.spyOn(schedulingAutomation, 'listTemplates').mockReturnValue([
       {
         name: 'lint-template',
         description: 'Run lint and checks',
@@ -73,7 +78,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleUseTemplate returns TEMPLATE_NOT_FOUND for unknown template', () => {
-    vi.spyOn(db, 'getTemplate').mockReturnValue(null);
+    vi.spyOn(schedulingAutomation, 'getTemplate').mockReturnValue(null);
 
     const result = handlers.handleUseTemplate({ template_name: 'missing' });
 
@@ -82,7 +87,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleUseTemplate rejects object variable values', () => {
-    vi.spyOn(db, 'getTemplate').mockReturnValue({
+    vi.spyOn(schedulingAutomation, 'getTemplate').mockReturnValue({
       name: 'x',
       task_template: 'Run {thing}',
       default_timeout: 10,
@@ -100,7 +105,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleUseTemplate reports unsubstituted placeholders', () => {
-    vi.spyOn(db, 'getTemplate').mockReturnValue({
+    vi.spyOn(schedulingAutomation, 'getTemplate').mockReturnValue({
       name: 'x',
       task_template: 'Run {thing} then {next}',
       default_timeout: 10,
@@ -119,15 +124,15 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleUseTemplate creates and starts a task from template variables', () => {
-    vi.spyOn(db, 'getTemplate').mockReturnValue({
+    vi.spyOn(schedulingAutomation, 'getTemplate').mockReturnValue({
       name: 'runtime-template',
       task_template: 'Run {job} with {parallel}',
       default_timeout: 12,
       default_priority: 1,
       auto_approve: true,
     });
-    const createSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => task);
-    const usageSpy = vi.spyOn(db, 'incrementTemplateUsage').mockReturnValue(undefined);
+    const createSpy = vi.spyOn(taskCore, 'createTask').mockImplementation((task) => task);
+    const usageSpy = vi.spyOn(schedulingAutomation, 'incrementTemplateUsage').mockReturnValue(undefined);
     vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: true });
 
     const result = handlers.handleUseTemplate({
@@ -148,7 +153,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleGetAnalytics renders top templates and recent events', () => {
-    vi.spyOn(db, 'getAnalytics').mockReturnValue({
+    vi.spyOn(eventTracking, 'getAnalytics').mockReturnValue({
       tasksByStatus: { running: 2, completed: 5 },
       successRate: 80,
       avgDurationMinutes: 7,
@@ -166,7 +171,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleRetryTask rejects retry for non-failed status', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'running' });
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'running' });
 
     const result = handlers.handleRetryTask({ task_id: 'task-1' });
 
@@ -175,7 +180,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleRetryTask creates retry task with increased priority', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-2',
       status: 'failed',
       task_description: 'Original failure',
@@ -185,8 +190,8 @@ describe('handler:task-pipeline', () => {
       priority: 3,
       template_name: 'template-a',
     });
-    const createSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => task);
-    vi.spyOn(db, 'recordEvent').mockReturnValue(undefined);
+    const createSpy = vi.spyOn(taskCore, 'createTask').mockImplementation((task) => task);
+    vi.spyOn(eventTracking, 'recordEvent').mockReturnValue(undefined);
     vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
 
     const result = handlers.handleRetryTask({ task_id: 'task-2', modified_task: 'Retry with fixes' });
@@ -208,13 +213,13 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleCreatePipeline stores ordered steps and returns run hint', () => {
-    vi.spyOn(db, 'createPipeline').mockReturnValue({
+    vi.spyOn(pipelineCrud, 'createPipeline').mockReturnValue({
       id: 'pipeline-1',
       name: 'build-and-test',
       description: 'CI flow',
     });
-    const addStepSpy = vi.spyOn(db, 'addPipelineStep').mockReturnValue(undefined);
-    vi.spyOn(db, 'getPipeline').mockReturnValue({
+    const addStepSpy = vi.spyOn(pipelineCrud, 'addPipelineStep').mockReturnValue(undefined);
+    vi.spyOn(pipelineCrud, 'getPipeline').mockReturnValue({
       id: 'pipeline-1',
       steps: [
         { step_order: 1, name: 'Build', condition: 'on_success' },
@@ -238,7 +243,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleRunPipeline returns PIPELINE_NOT_FOUND when missing', () => {
-    vi.spyOn(db, 'getPipeline').mockReturnValue(null);
+    vi.spyOn(pipelineCrud, 'getPipeline').mockReturnValue(null);
 
     const result = handlers.handleRunPipeline({ pipeline_id: 'missing' });
 
@@ -247,18 +252,18 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleRunPipeline marks pipeline failed if first task cannot start', () => {
-    vi.spyOn(db, 'getPipeline').mockReturnValue({
+    vi.spyOn(pipelineCrud, 'getPipeline').mockReturnValue({
       id: 'pipe-1',
       name: 'pipe-1',
       status: 'pending',
       working_directory: '/repo',
       steps: [{ id: 'step-1', step_order: 1, task_template: 'Run ${target}', timeout_minutes: 8 }],
     });
-    vi.spyOn(db, 'recordEvent').mockReturnValue(undefined);
-    vi.spyOn(db, 'createTask').mockImplementation((task) => task);
-    vi.spyOn(db, 'getTask').mockReturnValue({ context: { pipeline_id: 'pipe-1', step_id: 'step-1' } });
-    const updateStatusSpy = vi.spyOn(db, 'updatePipelineStatus').mockReturnValue(undefined);
-    const updateStepSpy = vi.spyOn(db, 'updatePipelineStep').mockReturnValue(undefined);
+    vi.spyOn(eventTracking, 'recordEvent').mockReturnValue(undefined);
+    vi.spyOn(taskCore, 'createTask').mockImplementation((task) => task);
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ context: { pipeline_id: 'pipe-1', step_id: 'step-1' } });
+    const updateStatusSpy = vi.spyOn(pipelineCrud, 'updatePipelineStatus').mockReturnValue(undefined);
+    const updateStepSpy = vi.spyOn(pipelineCrud, 'updatePipelineStep').mockReturnValue(undefined);
     vi.spyOn(taskManager, 'startTask').mockImplementation(() => {
       throw new Error('scheduler offline');
     });
@@ -274,7 +279,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleGetPipelineStatus renders current step and rows', () => {
-    vi.spyOn(db, 'getPipeline').mockReturnValue({
+    vi.spyOn(pipelineCrud, 'getPipeline').mockReturnValue({
       id: 'pipe-2',
       name: 'pipe-2',
       status: 'running',
@@ -293,7 +298,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleListPipelines passes status and safe-limited limit', () => {
-    const listSpy = vi.spyOn(db, 'listPipelines').mockReturnValue([
+    const listSpy = vi.spyOn(pipelineCrud, 'listPipelines').mockReturnValue([
       {
         id: 'abcd1234-abcd-1234-abcd-123456789012',
         name: 'pipe-a',
@@ -310,7 +315,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handlePreviewDiff returns operation error when git status fails', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-3', working_directory: '/repo' });
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-3', working_directory: '/repo' });
     vi.spyOn(childProcess, 'spawnSync').mockReturnValueOnce({ status: 1, stderr: 'not a git repo', stdout: '' });
 
     const result = handlers.handlePreviewDiff({ task_id: 'task-3' });
@@ -321,7 +326,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleCommitTask returns no-op message when no staged changes exist', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-4',
       task_description: 'No-op commit',
       working_directory: '/repo',
@@ -339,13 +344,13 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleCommitTask creates commit and updates task git state', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-5',
       task_description: 'Add feature',
       working_directory: '/repo',
     });
-    const updateGitSpy = vi.spyOn(db, 'updateTaskGitState').mockReturnValue(undefined);
-    const eventSpy = vi.spyOn(db, 'recordEvent').mockReturnValue(undefined);
+    const updateGitSpy = vi.spyOn(taskMetadata, 'updateTaskGitState').mockReturnValue(undefined);
+    const eventSpy = vi.spyOn(eventTracking, 'recordEvent').mockReturnValue(undefined);
 
     vi.spyOn(childProcess, 'spawnSync')
       .mockReturnValueOnce({ status: 0, stdout: 'old-sha\n', stderr: '' }) // rev-parse before
@@ -373,8 +378,8 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleRollbackTask creates rollback record for valid task', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-6' });
-    const rollbackSpy = vi.spyOn(db, 'createRollback').mockReturnValue('rb-123');
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-6' });
+    const rollbackSpy = vi.spyOn(fileTracking, 'createRollback').mockReturnValue('rb-123');
 
     const result = handlers.handleRollbackTask({ task_id: 'task-6', reason: 'bad output' });
 
@@ -383,7 +388,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleListCommits returns empty-state when no commits exist', () => {
-    vi.spyOn(db, 'getTasksWithCommits').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'getTasksWithCommits').mockReturnValue([]);
 
     const result = handlers.handleListCommits({});
 

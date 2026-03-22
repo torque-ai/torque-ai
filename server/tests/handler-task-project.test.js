@@ -1,4 +1,9 @@
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const costTracking = require('../db/cost-tracking');
+const projectConfigCore = require('../db/project-config-core');
+const taskMetadata = require('../db/task-metadata');
+const eventTracking = require('../db/event-tracking');
+const configCore = require('../db/config-core');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/task/project');
 
@@ -13,7 +18,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleRecordUsage returns TASK_NOT_FOUND when task does not exist', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue(null);
+    vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
 
     const result = handlers.handleRecordUsage({
       task_id: 'missing-task',
@@ -26,8 +31,8 @@ describe('handler:task-project', () => {
   });
 
   it('handleRecordUsage records usage with default model', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1' });
-    const recordSpy = vi.spyOn(db, 'recordTokenUsage').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1' });
+    const recordSpy = vi.spyOn(costTracking, 'recordTokenUsage').mockReturnValue({
       model: 'codex',
       input_tokens: 1200,
       output_tokens: 340,
@@ -53,8 +58,8 @@ describe('handler:task-project', () => {
   });
 
   it('handleGetTaskUsage returns empty-state message when no usage exists', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-2', task_description: 'No usage task' });
-    vi.spyOn(db, 'getTaskTokenUsage').mockReturnValue([]);
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-2', task_description: 'No usage task' });
+    vi.spyOn(costTracking, 'getTaskTokenUsage').mockReturnValue([]);
 
     const result = handlers.handleGetTaskUsage({ task_id: 'task-2' });
 
@@ -62,11 +67,11 @@ describe('handler:task-project', () => {
   });
 
   it('handleGetTaskUsage aggregates totals across usage rows', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-3',
       task_description: 'Aggregate usage task description',
     });
-    vi.spyOn(db, 'getTaskTokenUsage').mockReturnValue([
+    vi.spyOn(costTracking, 'getTaskTokenUsage').mockReturnValue([
       {
         input_tokens: 100,
         output_tokens: 50,
@@ -94,8 +99,8 @@ describe('handler:task-project', () => {
   });
 
   it('handleCostSummary includes model and period breakdown', () => {
-    vi.spyOn(db, 'getCurrentProject').mockReturnValue('alpha');
-    vi.spyOn(db, 'getTokenUsageSummary').mockReturnValue({
+    vi.spyOn(projectConfigCore, 'getCurrentProject').mockReturnValue('alpha');
+    vi.spyOn(costTracking, 'getTokenUsageSummary').mockReturnValue({
       total_input_tokens: 500,
       total_output_tokens: 200,
       total_tokens: 700,
@@ -105,7 +110,7 @@ describe('handler:task-project', () => {
         codex: { input_tokens: 500, output_tokens: 200, cost_usd: 1.25 },
       },
     });
-    const periodSpy = vi.spyOn(db, 'getCostByPeriod').mockReturnValue([
+    const periodSpy = vi.spyOn(costTracking, 'getCostByPeriod').mockReturnValue([
       { period: '2026-03-01', tokens: 350, cost: 0.6 },
       { period: '2026-03-02', tokens: 350, cost: 0.65 },
     ]);
@@ -121,7 +126,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleEstimateCost renders estimate for provided model', () => {
-    const estimateSpy = vi.spyOn(db, 'estimateCost').mockReturnValue({
+    const estimateSpy = vi.spyOn(costTracking, 'estimateCost').mockReturnValue({
       model: 'deepinfra',
       estimated_input_tokens: 200,
       estimated_output_tokens: 400,
@@ -142,7 +147,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleListProjects returns empty-state when no projects exist', () => {
-    vi.spyOn(db, 'listProjects').mockReturnValue([]);
+    vi.spyOn(projectConfigCore, 'listProjects').mockReturnValue([]);
 
     const result = handlers.handleListProjects({});
 
@@ -150,7 +155,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleListProjects renders totals for non-empty project list', () => {
-    vi.spyOn(db, 'listProjects').mockReturnValue([
+    vi.spyOn(projectConfigCore, 'listProjects').mockReturnValue([
       {
         project: 'alpha',
         task_count: 2,
@@ -179,7 +184,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleProjectStats returns error when project cannot be determined', () => {
-    vi.spyOn(db, 'getCurrentProject').mockReturnValue(null);
+    vi.spyOn(projectConfigCore, 'getCurrentProject').mockReturnValue(null);
 
     const result = handlers.handleProjectStats({});
 
@@ -188,9 +193,9 @@ describe('handler:task-project', () => {
   });
 
   it('handleCurrentProject shows quotas and task status counts', () => {
-    vi.spyOn(db, 'getProjectRoot').mockReturnValue('/repo/alpha');
-    vi.spyOn(db, 'getCurrentProject').mockReturnValue('alpha');
-    vi.spyOn(db, 'getProjectStats').mockReturnValue({
+    vi.spyOn(projectConfigCore, 'getProjectRoot').mockReturnValue('/repo/alpha');
+    vi.spyOn(projectConfigCore, 'getCurrentProject').mockReturnValue('alpha');
+    vi.spyOn(projectConfigCore, 'getProjectStats').mockReturnValue({
       total_tasks: 7,
       tasks_by_status: { running: 2, completed: 5 },
       pipelines: 1,
@@ -200,7 +205,7 @@ describe('handler:task-project', () => {
       top_tags: [],
       recent_tasks: [],
     });
-    vi.spyOn(db, 'getEffectiveProjectConfig').mockReturnValue({
+    vi.spyOn(projectConfigCore, 'getEffectiveProjectConfig').mockReturnValue({
       max_concurrent: 3,
       max_daily_cost: 5,
       max_daily_tokens: 20000,
@@ -209,9 +214,9 @@ describe('handler:task-project', () => {
       auto_approve: false,
       enabled: true,
     });
-    vi.spyOn(db, 'canProjectStartTask').mockReturnValue({ allowed: true });
-    vi.spyOn(db, 'getProjectRunningCount').mockReturnValue(2);
-    vi.spyOn(db, 'getProjectDailyUsage').mockReturnValue({ cost: 1.5, tokens: 1500 });
+    vi.spyOn(projectConfigCore, 'canProjectStartTask').mockReturnValue({ allowed: true });
+    vi.spyOn(projectConfigCore, 'getProjectRunningCount').mockReturnValue(2);
+    vi.spyOn(projectConfigCore, 'getProjectDailyUsage').mockReturnValue({ cost: 1.5, tokens: 1500 });
 
     const result = handlers.handleCurrentProject({ working_directory: '/repo/alpha/src' });
     const text = getText(result);
@@ -224,9 +229,9 @@ describe('handler:task-project', () => {
   });
 
   it('handleConfigureProject without settings falls back to current config view', () => {
-    vi.spyOn(db, 'getCurrentProject').mockReturnValue('alpha');
-    const setSpy = vi.spyOn(db, 'setProjectConfig');
-    vi.spyOn(db, 'getEffectiveProjectConfig').mockReturnValue({
+    vi.spyOn(projectConfigCore, 'getCurrentProject').mockReturnValue('alpha');
+    const setSpy = vi.spyOn(projectConfigCore, 'setProjectConfig');
+    vi.spyOn(projectConfigCore, 'getEffectiveProjectConfig').mockReturnValue({
       max_concurrent: 2,
       global_max_concurrent: 5,
       max_daily_cost: 10,
@@ -236,9 +241,9 @@ describe('handler:task-project', () => {
       auto_approve: false,
       enabled: true,
     });
-    vi.spyOn(db, 'getProjectDailyUsage').mockReturnValue({ cost: 1.2, tokens: 450 });
-    vi.spyOn(db, 'canProjectStartTask').mockReturnValue({ allowed: true });
-    vi.spyOn(db, 'getProjectRunningCount').mockReturnValue(1);
+    vi.spyOn(projectConfigCore, 'getProjectDailyUsage').mockReturnValue({ cost: 1.2, tokens: 450 });
+    vi.spyOn(projectConfigCore, 'canProjectStartTask').mockReturnValue({ allowed: true });
+    vi.spyOn(projectConfigCore, 'getProjectRunningCount').mockReturnValue(1);
 
     const result = handlers.handleConfigureProject({ project: 'alpha' });
 
@@ -247,7 +252,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleGetProjectConfig returns error when no project is resolved', () => {
-    vi.spyOn(db, 'getCurrentProject').mockReturnValue(null);
+    vi.spyOn(projectConfigCore, 'getCurrentProject').mockReturnValue(null);
 
     const result = handlers.handleGetProjectConfig({});
 
@@ -256,7 +261,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleListProjectConfigs renders configured projects', () => {
-    vi.spyOn(db, 'listProjectConfigs').mockReturnValue([
+    vi.spyOn(projectConfigCore, 'listProjectConfigs').mockReturnValue([
       {
         project: 'alpha',
         max_concurrent: 2,
@@ -273,7 +278,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleCloneTask clones and starts immediately when requested', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'orig-task',
       task_description: 'Original task description',
       working_directory: '/repo',
@@ -285,7 +290,7 @@ describe('handler:task-project', () => {
       retry_strategy: 'linear',
       retry_delay_seconds: 10,
     });
-    const createSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => task);
+    const createSpy = vi.spyOn(taskCore, 'createTask').mockImplementation((task) => task);
     vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: true });
 
     const result = handlers.handleCloneTask({ task_id: 'orig-task', start_immediately: true });
@@ -307,11 +312,11 @@ describe('handler:task-project', () => {
   });
 
   it('handleBulkImportTasks resolves $index dependencies and only auto-starts roots', () => {
-    vi.spyOn(db, 'safeJsonParse').mockReturnValue([
+    vi.spyOn(eventTracking, 'safeJsonParse').mockReturnValue([
       { task: 'root-task' },
       { task: 'child-task', depends_on: ['$0'] },
     ]);
-    const createSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => task);
+    const createSpy = vi.spyOn(taskCore, 'createTask').mockImplementation((task) => task);
     const startSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
 
     const result = handlers.handleBulkImportTasks({
@@ -340,7 +345,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleCreateGroup applies default priority and timeout', () => {
-    const createSpy = vi.spyOn(db, 'createTaskGroup').mockImplementation((group) => group);
+    const createSpy = vi.spyOn(taskMetadata, 'createTaskGroup').mockImplementation((group) => group);
 
     const result = handlers.handleCreateGroup({
       name: 'Ops',
@@ -357,7 +362,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleListGroups renders group statistics table', () => {
-    const listSpy = vi.spyOn(db, 'listTaskGroups').mockReturnValue([
+    const listSpy = vi.spyOn(taskMetadata, 'listTaskGroups').mockReturnValue([
       {
         name: 'Ops',
         project: 'alpha',
@@ -372,12 +377,12 @@ describe('handler:task-project', () => {
   });
 
   it('handleGroupAction retries only failed tasks', () => {
-    vi.spyOn(db, 'getTaskGroup').mockReturnValue({ id: 'g-1', name: 'Ops' });
-    vi.spyOn(db, 'getGroupTasks').mockReturnValue([
+    vi.spyOn(taskMetadata, 'getTaskGroup').mockReturnValue({ id: 'g-1', name: 'Ops' });
+    vi.spyOn(taskMetadata, 'getGroupTasks').mockReturnValue([
       { id: 't1', status: 'failed', task_description: 'fail 1', working_directory: '/repo', timeout_minutes: 10, auto_approve: false, priority: 0, tags: [] },
       { id: 't2', status: 'completed', task_description: 'done', working_directory: '/repo', timeout_minutes: 10, auto_approve: false, priority: 0, tags: [] },
     ]);
-    const createSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => task);
+    const createSpy = vi.spyOn(taskCore, 'createTask').mockImplementation((task) => task);
     const startSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
 
     const result = handlers.handleGroupAction({ group_id: 'g-1', action: 'retry_failed' });
@@ -388,8 +393,8 @@ describe('handler:task-project', () => {
   });
 
   it('handleGroupAction rejects unknown actions', () => {
-    vi.spyOn(db, 'getTaskGroup').mockReturnValue({ id: 'g-2' });
-    vi.spyOn(db, 'getGroupTasks').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'getTaskGroup').mockReturnValue({ id: 'g-2' });
+    vi.spyOn(taskMetadata, 'getGroupTasks').mockReturnValue([]);
 
     const result = handlers.handleGroupAction({ group_id: 'g-2', action: 'archive' });
 
@@ -405,7 +410,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleDeleteBudget returns success when budget is deleted', () => {
-    vi.spyOn(db, 'deleteBudget').mockReturnValue({ deleted: true });
+    vi.spyOn(costTracking, 'deleteBudget').mockReturnValue({ deleted: true });
 
     const result = handlers.handleDeleteBudget({ budget_id: 'budget-1' });
 
@@ -414,7 +419,7 @@ describe('handler:task-project', () => {
   });
 
   it('handleDeleteBudget returns RESOURCE_NOT_FOUND when budget is missing', () => {
-    vi.spyOn(db, 'deleteBudget').mockReturnValue({ deleted: false });
+    vi.spyOn(costTracking, 'deleteBudget').mockReturnValue({ deleted: false });
 
     const result = handlers.handleDeleteBudget({ budget_id: 'budget-missing' });
 
@@ -424,8 +429,8 @@ describe('handler:task-project', () => {
   });
 
   it('handleSetDefaultLimits writes provided defaults and renders current values', () => {
-    const setConfigSpy = vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
-    const getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+    const setConfigSpy = vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
+    const getConfigSpy = vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
       if (key === 'default_project_max_concurrent') return '4';
       if (key === 'default_project_max_daily_cost') return '2.5';
       if (key === 'auto_create_project_config') return '0';

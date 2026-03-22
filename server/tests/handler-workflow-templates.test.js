@@ -1,4 +1,6 @@
-const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
+const taskCore = require('../db/task-core');
+const schedulingAutomation = require('../db/scheduling-automation');
 const workflowHandlers = require('../handlers/workflow');
 const handlers = require('../handlers/workflow/templates');
 
@@ -17,7 +19,7 @@ describe('workflow-templates handlers', () => {
 
   describe('handleCreateWorkflowTemplate', () => {
     it('returns CONFLICT when template name already exists', () => {
-      vi.spyOn(db, 'getWorkflowTemplateByName').mockReturnValue({ id: 'tmpl-1' });
+      vi.spyOn(workflowEngine, 'getWorkflowTemplateByName').mockReturnValue({ id: 'tmpl-1' });
 
       const result = handlers.handleCreateWorkflowTemplate({
         name: 'existing-template',
@@ -31,8 +33,8 @@ describe('workflow-templates handlers', () => {
     });
 
     it('creates a template and includes variable names in output', () => {
-      vi.spyOn(db, 'getWorkflowTemplateByName').mockReturnValue(null);
-      const createSpy = vi.spyOn(db, 'createWorkflowTemplate').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getWorkflowTemplateByName').mockReturnValue(null);
+      const createSpy = vi.spyOn(workflowEngine, 'createWorkflowTemplate').mockReturnValue(undefined);
 
       const result = handlers.handleCreateWorkflowTemplate({
         name: 'build-template',
@@ -58,13 +60,13 @@ describe('workflow-templates handlers', () => {
 
   describe('handleListWorkflowTemplates', () => {
     it('returns empty message when no templates exist', () => {
-      vi.spyOn(db, 'listWorkflowTemplates').mockReturnValue([]);
+      vi.spyOn(workflowEngine, 'listWorkflowTemplates').mockReturnValue([]);
       const result = handlers.handleListWorkflowTemplates({});
       expect(textOf(result)).toContain('No workflow templates found');
     });
 
     it('uses safe default limit when limit is invalid', () => {
-      const listSpy = vi.spyOn(db, 'listWorkflowTemplates').mockReturnValue([
+      const listSpy = vi.spyOn(workflowEngine, 'listWorkflowTemplates').mockReturnValue([
         { name: 'tmpl-a', description: 'A', task_definitions: [{}, {}] }
       ]);
 
@@ -84,8 +86,8 @@ describe('workflow-templates handlers', () => {
 
   describe('handleInstantiateTemplate', () => {
     it('returns TEMPLATE_NOT_FOUND when template is missing', () => {
-      vi.spyOn(db, 'getWorkflowTemplate').mockReturnValue(null);
-      vi.spyOn(db, 'getWorkflowTemplateByName').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflowTemplate').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflowTemplateByName').mockReturnValue(null);
 
       const result = handlers.handleInstantiateTemplate({ template_id: 'missing-template' });
 
@@ -94,15 +96,15 @@ describe('workflow-templates handlers', () => {
     });
 
     it('rejects templates with no task definitions before creating a workflow', () => {
-      vi.spyOn(db, 'getWorkflowTemplate').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowTemplate').mockReturnValue({
         id: 'tmpl-empty',
         name: 'empty-template',
         description: 'No task defs',
         task_definitions: [],
         dependency_graph: {}
       });
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
-      const createWorkflowSpy = vi.spyOn(db, 'createWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
 
       const result = handlers.handleInstantiateTemplate({ template_id: 'tmpl-empty' });
 
@@ -113,14 +115,14 @@ describe('workflow-templates handlers', () => {
     });
 
     it('returns CONFLICT when an empty template instantiation would duplicate an existing placeholder', () => {
-      vi.spyOn(db, 'getWorkflowTemplate').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflowTemplate').mockReturnValue({
         id: 'tmpl-empty',
         name: 'empty-template',
         description: 'No task defs',
         task_definitions: [],
         dependency_graph: {}
       });
-      vi.spyOn(db, 'findEmptyWorkflowPlaceholder').mockReturnValue({
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue({
         id: 'wf-empty-template',
         status: 'pending'
       });
@@ -156,12 +158,12 @@ describe('workflow-templates handlers', () => {
         }
       };
 
-      vi.spyOn(db, 'getWorkflowTemplate').mockReturnValue(null);
-      vi.spyOn(db, 'getWorkflowTemplateByName').mockReturnValue(template);
-      const createWorkflowSpy = vi.spyOn(db, 'createWorkflow').mockReturnValue(undefined);
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      const addDepSpy = vi.spyOn(db, 'addTaskDependency').mockReturnValue(undefined);
-      const updateCountsSpy = vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getWorkflowTemplate').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflowTemplateByName').mockReturnValue(template);
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
+      const addDepSpy = vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
+      const updateCountsSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
 
       const result = handlers.handleInstantiateTemplate({
         template_id: 'release-template',
@@ -205,11 +207,11 @@ describe('workflow-templates handlers', () => {
         dependency_graph: {}
       };
 
-      vi.spyOn(db, 'getWorkflowTemplate').mockReturnValue(template);
-      vi.spyOn(db, 'createWorkflow').mockReturnValue(undefined);
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'addTaskDependency').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getWorkflowTemplate').mockReturnValue(template);
+      vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'addTaskDependency').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       const runSpy = vi.spyOn(workflowHandlers, 'handleRunWorkflow').mockReturnValue({
         content: [{ type: 'text', text: 'started' }]
       });
@@ -228,14 +230,14 @@ describe('workflow-templates handlers', () => {
 
   describe('handleDeleteWorkflowTemplate', () => {
     it('returns TEMPLATE_NOT_FOUND when delete target is missing', () => {
-      vi.spyOn(db, 'deleteWorkflowTemplate').mockReturnValue(false);
+      vi.spyOn(workflowEngine, 'deleteWorkflowTemplate').mockReturnValue(false);
       const result = handlers.handleDeleteWorkflowTemplate({ template_id: 'missing' });
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('TEMPLATE_NOT_FOUND');
     });
 
     it('returns confirmation when template is deleted', () => {
-      vi.spyOn(db, 'deleteWorkflowTemplate').mockReturnValue(true);
+      vi.spyOn(workflowEngine, 'deleteWorkflowTemplate').mockReturnValue(true);
       const result = handlers.handleDeleteWorkflowTemplate({ template_id: 'tmpl-1' });
       expect(textOf(result)).toContain('Template deleted: tmpl-1');
     });
@@ -255,7 +257,7 @@ describe('workflow-templates handlers', () => {
     });
 
     it('creates condition and includes then/else blocks in output', () => {
-      vi.spyOn(db, 'createTemplateCondition').mockReturnValue({ id: 'cond-1' });
+      vi.spyOn(workflowEngine, 'createTemplateCondition').mockReturnValue({ id: 'cond-1' });
 
       const result = handlers.handleCreateConditionalTemplate({
         template_id: 'tmpl-1',
@@ -286,8 +288,8 @@ describe('workflow-templates handlers', () => {
     });
 
     it('returns TEMPLATE_NOT_FOUND when template lookup fails', () => {
-      vi.spyOn(db, 'getTemplate').mockReturnValue(null);
-      vi.spyOn(db, 'getWorkflowTemplateByName').mockReturnValue(null);
+      vi.spyOn(schedulingAutomation, 'getTemplate').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflowTemplateByName').mockReturnValue(null);
 
       const result = handlers.handleTemplateLoop({
         template_id: 'missing-template',
@@ -299,10 +301,10 @@ describe('workflow-templates handlers', () => {
     });
 
     it('expands loop tasks with escaped variable names and index substitution', () => {
-      vi.spyOn(db, 'getTemplate').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'getTemplate').mockReturnValue({
         task_template: 'echo ${item.name}-${index}'
       });
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
 
       const result = handlers.handleTemplateLoop({
         template_id: 'loop-template',

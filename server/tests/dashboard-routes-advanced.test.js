@@ -3,7 +3,6 @@
  */
 const { EventEmitter } = require('events');
 
-const db = require('../database');
 const taskCore = require('../db/task-core');
 const hostManagement = require('../db/host-management');
 const coordination = require('../db/coordination');

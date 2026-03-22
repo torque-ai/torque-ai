@@ -1,4 +1,4 @@
-const db = require('../database');
+const taskDebugger = require('../db/task-debugger');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/advanced/debugger');
 
@@ -47,7 +47,7 @@ describe('handler:adv-debugger', () => {
     });
 
     it('creates breakpoint with default values', () => {
-      const createSpy = vi.spyOn(db, 'createBreakpoint').mockImplementation((bp) => ({
+      const createSpy = vi.spyOn(taskDebugger, 'createBreakpoint').mockImplementation((bp) => ({
         ...bp,
         id: 'bp-12345678'
       }));
@@ -69,14 +69,14 @@ describe('handler:adv-debugger', () => {
 
   describe('handleListBreakpoints', () => {
     it('renders empty-state message when no breakpoints exist', () => {
-      vi.spyOn(db, 'listBreakpoints').mockReturnValue([]);
+      vi.spyOn(taskDebugger, 'listBreakpoints').mockReturnValue([]);
       const result = handlers.handleListBreakpoints({});
       expect(getText(result)).toContain('No breakpoints found.');
     });
 
     it('passes filters and renders rows with truncated pattern values', () => {
       const longPattern = 'very-long-pattern-that-should-be-truncated-in-output';
-      const listSpy = vi.spyOn(db, 'listBreakpoints').mockReturnValue([{
+      const listSpy = vi.spyOn(taskDebugger, 'listBreakpoints').mockReturnValue([{
         id: '12345678-aaaa-bbbb-cccc-1234567890ab',
         pattern: longPattern,
         pattern_type: 'output',
@@ -99,7 +99,7 @@ describe('handler:adv-debugger', () => {
 
   describe('handleClearBreakpoint', () => {
     it('returns RESOURCE_NOT_FOUND when breakpoint does not exist', () => {
-      vi.spyOn(db, 'getBreakpoint').mockReturnValue(null);
+      vi.spyOn(taskDebugger, 'getBreakpoint').mockReturnValue(null);
       const result = handlers.handleClearBreakpoint({ breakpoint_id: 'missing-bp' });
 
       expect(result.isError).toBe(true);
@@ -108,8 +108,8 @@ describe('handler:adv-debugger', () => {
     });
 
     it('deletes existing breakpoint', () => {
-      vi.spyOn(db, 'getBreakpoint').mockReturnValue({ id: 'bp-1', pattern: 'warn' });
-      const deleteSpy = vi.spyOn(db, 'deleteBreakpoint').mockReturnValue(true);
+      vi.spyOn(taskDebugger, 'getBreakpoint').mockReturnValue({ id: 'bp-1', pattern: 'warn' });
+      const deleteSpy = vi.spyOn(taskDebugger, 'deleteBreakpoint').mockReturnValue(true);
 
       const result = handlers.handleClearBreakpoint({ breakpoint_id: 'bp-1' });
       expect(deleteSpy).toHaveBeenCalledWith('bp-1');
@@ -119,7 +119,7 @@ describe('handler:adv-debugger', () => {
 
   describe('handleStepExecution', () => {
     it('returns error when no debug session exists', () => {
-      vi.spyOn(db, 'getDebugSessionByTask').mockReturnValue(null);
+      vi.spyOn(taskDebugger, 'getDebugSessionByTask').mockReturnValue(null);
       const result = handlers.handleStepExecution({ task_id: 'task-no-session' });
 
       expect(result.isError).toBe(true);
@@ -127,7 +127,7 @@ describe('handler:adv-debugger', () => {
     });
 
     it('returns error when session is not paused', () => {
-      vi.spyOn(db, 'getDebugSessionByTask').mockReturnValue({
+      vi.spyOn(taskDebugger, 'getDebugSessionByTask').mockReturnValue({
         id: 'sess-1',
         status: 'active'
       });
@@ -139,11 +139,11 @@ describe('handler:adv-debugger', () => {
     });
 
     it('resumes paused session and reports stepping output', () => {
-      vi.spyOn(db, 'getDebugSessionByTask').mockReturnValue({
+      vi.spyOn(taskDebugger, 'getDebugSessionByTask').mockReturnValue({
         id: 'sess-2',
         status: 'paused'
       });
-      const updateSpy = vi.spyOn(db, 'updateDebugSession').mockReturnValue(true);
+      const updateSpy = vi.spyOn(taskDebugger, 'updateDebugSession').mockReturnValue(true);
       vi.spyOn(taskManager, 'resumeTask').mockReturnValue(true);
 
       const result = handlers.handleStepExecution({
@@ -161,11 +161,11 @@ describe('handler:adv-debugger', () => {
     });
 
     it('rolls session back to paused when resumeTask throws', () => {
-      vi.spyOn(db, 'getDebugSessionByTask').mockReturnValue({
+      vi.spyOn(taskDebugger, 'getDebugSessionByTask').mockReturnValue({
         id: 'sess-3',
         status: 'paused'
       });
-      const updateSpy = vi.spyOn(db, 'updateDebugSession').mockReturnValue(true);
+      const updateSpy = vi.spyOn(taskDebugger, 'updateDebugSession').mockReturnValue(true);
       vi.spyOn(taskManager, 'resumeTask').mockImplementation(() => {
         throw new Error('resume failed');
       });
@@ -186,7 +186,7 @@ describe('handler:adv-debugger', () => {
 
     it('renders debug captures, output snapshot, error snapshot, and breakpoint details', () => {
       const outputSnapshot = 'x'.repeat(2105);
-      vi.spyOn(db, 'getDebugState').mockReturnValue({
+      vi.spyOn(taskDebugger, 'getDebugState').mockReturnValue({
         session: {
           id: 'sess-4',
           status: 'paused',
@@ -202,7 +202,7 @@ describe('handler:adv-debugger', () => {
         }],
         breakpoints: [{ enabled: true }, { enabled: false }]
       });
-      vi.spyOn(db, 'getBreakpoint').mockReturnValue({
+      vi.spyOn(taskDebugger, 'getBreakpoint').mockReturnValue({
         id: 'bp-current',
         pattern: 'fatal error'
       });
@@ -234,14 +234,14 @@ describe('handler:adv-debugger', () => {
     });
 
     it('renders session status, capture count, enabled breakpoints, and overflow line', () => {
-      vi.spyOn(db, 'getDebugSessionByTask').mockReturnValue({
+      vi.spyOn(taskDebugger, 'getDebugSessionByTask').mockReturnValue({
         id: 'sess-5',
         status: 'paused',
         step_mode: 'continue',
         current_breakpoint_id: 'bp-12345678'
       });
-      vi.spyOn(db, 'getDebugCaptures').mockReturnValue([{}, {}, {}]);
-      vi.spyOn(db, 'listBreakpoints').mockReturnValue([
+      vi.spyOn(taskDebugger, 'getDebugCaptures').mockReturnValue([{}, {}, {}]);
+      vi.spyOn(taskDebugger, 'listBreakpoints').mockReturnValue([
         { pattern: 'p1', pattern_type: 'output', hit_count: 1, enabled: true },
         { pattern: 'p2', pattern_type: 'output', hit_count: 2, enabled: true },
         { pattern: 'p3', pattern_type: 'output', hit_count: 3, enabled: true },

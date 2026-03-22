@@ -5,7 +5,9 @@ vi.mock('../hooks/event-dispatch', () => {
   return { taskEvents: new EventEmitter() };
 });
 
-const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
+const taskCore = require('../db/task-core');
+const fileTracking = require('../db/file-tracking');
 const handlers = require('../handlers/workflow/await');
 const shellPolicy = require('../utils/shell-policy');
 const childProcess = require('child_process');
@@ -59,7 +61,7 @@ describe('workflow-await handlers', () => {
 
   describe('handleAwaitWorkflow', () => {
     it('returns WORKFLOW_NOT_FOUND when workflow does not exist', async () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue(null);
 
       const result = await handlers.handleAwaitWorkflow({ workflow_id: 'wf-missing' });
 
@@ -69,17 +71,17 @@ describe('workflow-await handlers', () => {
     });
 
     it('yields first unacknowledged terminal task and updates context', async () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'Yield WF',
         context: { acknowledged_tasks: ['done-0'] }
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 'done-0', status: 'completed', workflow_node_id: 'done-0' },
         { id: 'done-1', status: 'failed', workflow_node_id: 'done-1', error_output: 'boom' },
         { id: 'running-1', status: 'running', workflow_node_id: 'run-1' }
       ]);
-      const updateWorkflowSpy = vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
 
       const result = await handlers.handleAwaitWorkflow({
         workflow_id: 'wf-1',
@@ -96,16 +98,16 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns final summary when yielding the last unacknowledged terminal task', async () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'Final Yield WF',
         context: { acknowledged_tasks: ['task-a'] }
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 'task-a', status: 'completed', workflow_node_id: 'A' },
         { id: 'task-b', status: 'completed', workflow_node_id: 'B' }
       ]);
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
 
       const result = await handlers.handleAwaitWorkflow({
         workflow_id: 'wf-1',
@@ -118,16 +120,16 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns re-entrant final summary when all tasks are already acknowledged', async () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'Reentry WF',
         context: { acknowledged_tasks: ['task-a', 'task-b'] }
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 'task-a', status: 'completed', workflow_node_id: 'A' },
         { id: 'task-b', status: 'skipped', workflow_node_id: 'B' }
       ]);
-      const updateWorkflowSpy = vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
 
       const result = await handlers.handleAwaitWorkflow({
         workflow_id: 'wf-1',
@@ -142,15 +144,15 @@ describe('workflow-await handlers', () => {
 
     it('times out when no terminal tasks arrive before timeout', async () => {
       vi.useFakeTimers();
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'Timeout WF',
         context: {}
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
         { id: 'pending-1', status: 'running', workflow_node_id: 'P1' }
       ]);
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
 
       const promise = handlers.handleAwaitWorkflow({
         workflow_id: 'wf-1',
@@ -166,12 +168,12 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns WORKFLOW_NOT_FOUND when workflow disappears during polling', async () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'Disappear WF',
         context: {}
       });
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(null);
 
       const result = await handlers.handleAwaitWorkflow({
         workflow_id: 'wf-1',
@@ -185,7 +187,7 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns INTERNAL_ERROR when an unexpected exception is thrown', async () => {
-      vi.spyOn(db, 'getWorkflow').mockImplementation(() => {
+      vi.spyOn(workflowEngine, 'getWorkflow').mockImplementation(() => {
         throw new Error('db crash');
       });
 
@@ -199,20 +201,20 @@ describe('workflow-await handlers', () => {
     });
 
     it('wakes polling loop immediately on task event notifications', async () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1',
         name: 'Event WF',
         context: {}
       });
       let pollCount = 0;
-      vi.spyOn(db, 'getWorkflowTasks').mockImplementation(() => {
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockImplementation(() => {
         pollCount += 1;
         if (pollCount === 1) {
           return [{ id: 'task-1', status: 'running', workflow_node_id: 'evt' }];
         }
         return [{ id: 'task-1', status: 'completed', workflow_node_id: 'evt' }];
       });
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
 
       const promise = handlers.handleAwaitWorkflow({
         workflow_id: 'wf-1',
@@ -301,8 +303,8 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns "No changes to commit" when git diff and untracked checks are empty', async () => {
-      vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([]);
-      vi.spyOn(db, 'getTask').mockReturnValue({ files_modified: [] });
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([]);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ files_modified: [] });
       vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
         if (bin !== 'git') throw new Error('unexpected binary');
         if (args[0] === 'diff' && args[1] === '--name-only') return '';
@@ -322,10 +324,10 @@ describe('workflow-await handlers', () => {
     });
 
     it('stages only tracked workflow files and commits them when auto_commit and auto_push are enabled', async () => {
-      vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([
         { relative_path: 'src/allowed.js', is_outside_workdir: 0 }
       ]);
-      vi.spyOn(db, 'getTask').mockReturnValue({ files_modified: [] });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ files_modified: [] });
       const execSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
         if (bin !== 'git') throw new Error('unexpected binary');
         if (args[0] === 'add') return '';
@@ -359,10 +361,10 @@ describe('workflow-await handlers', () => {
     });
 
     it('blocks auto-push unless auto_push is explicitly true', async () => {
-      vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([
         { relative_path: 'src/allowed.js', is_outside_workdir: 0 }
       ]);
-      vi.spyOn(db, 'getTask').mockReturnValue({ files_modified: [] });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ files_modified: [] });
       const execSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
         if (bin !== 'git') throw new Error('unexpected binary');
         if (args[0] === 'add') return '';
@@ -387,10 +389,10 @@ describe('workflow-await handlers', () => {
     });
 
     it('reports commit failure when git commit throws', async () => {
-      vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([
         { relative_path: 'src/allowed.js', is_outside_workdir: 0 }
       ]);
-      vi.spyOn(db, 'getTask').mockReturnValue({ files_modified: [] });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ files_modified: [] });
       vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
         if (bin !== 'git') throw new Error('unexpected binary');
         if (args[0] === 'add') return '';
@@ -413,7 +415,7 @@ describe('workflow-await handlers', () => {
 
   describe('handleAwaitTask', () => {
     it('returns TASK_NOT_FOUND when task does not exist', async () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
 
       const result = await handlers.handleAwaitTask({ task_id: 'missing-task' });
 
@@ -423,7 +425,7 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns immediately when task is already completed', async () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({
         id: 'task-done',
         status: 'completed',
         exit_code: 0,
@@ -446,7 +448,7 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns immediately when task is already failed', async () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({
         id: 'task-fail',
         status: 'failed',
         exit_code: 1,
@@ -462,7 +464,7 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns immediately when task is already cancelled', async () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({
         id: 'task-cancel',
         status: 'cancelled',
         exit_code: null
@@ -477,7 +479,7 @@ describe('workflow-await handlers', () => {
 
     it('waits and returns when task transitions to terminal state', async () => {
       let callCount = 0;
-      vi.spyOn(db, 'getTask').mockImplementation(() => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation(() => {
         callCount += 1;
         if (callCount <= 2) {
           return { id: 'task-wait', status: 'running' };
@@ -504,7 +506,7 @@ describe('workflow-await handlers', () => {
 
     it('wakes polling loop immediately on task event notification', async () => {
       let callCount = 0;
-      vi.spyOn(db, 'getTask').mockImplementation(() => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation(() => {
         callCount += 1;
         if (callCount <= 1) {
           return { id: 'task-event', status: 'running' };
@@ -533,7 +535,7 @@ describe('workflow-await handlers', () => {
 
     it('ignores events for other task IDs', async () => {
       let callCount = 0;
-      vi.spyOn(db, 'getTask').mockImplementation(() => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation(() => {
         callCount += 1;
         if (callCount <= 2) {
           return { id: 'task-mine', status: 'running' };
@@ -562,7 +564,7 @@ describe('workflow-await handlers', () => {
 
     it('times out when task stays running beyond timeout', async () => {
       vi.useFakeTimers();
-      vi.spyOn(db, 'getTask').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({
         id: 'task-stuck',
         status: 'running'
       });
@@ -583,7 +585,7 @@ describe('workflow-await handlers', () => {
 
     it('returns TASK_NOT_FOUND when task disappears during polling', async () => {
       let callCount = 0;
-      vi.spyOn(db, 'getTask').mockImplementation(() => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation(() => {
         callCount += 1;
         if (callCount <= 1) {
           return { id: 'task-vanish', status: 'running' };
@@ -603,7 +605,7 @@ describe('workflow-await handlers', () => {
     });
 
     it('returns INTERNAL_ERROR when an unexpected exception is thrown', async () => {
-      vi.spyOn(db, 'getTask').mockImplementation(() => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation(() => {
         throw new Error('db exploded');
       });
 
@@ -615,7 +617,7 @@ describe('workflow-await handlers', () => {
     });
 
     it('truncates long output and shows tail end', async () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({
         id: 'task-big',
         status: 'completed',
         exit_code: 0,
@@ -630,7 +632,7 @@ describe('workflow-await handlers', () => {
     });
 
     it('truncates long task description', async () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({
         id: 'task-desc',
         status: 'completed',
         exit_code: 0,

@@ -1,4 +1,9 @@
 const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
+const taskCore = require('../db/task-core');
+const providerRoutingCore = require('../db/provider-routing-core');
+const schedulingAutomation = require('../db/scheduling-automation');
+const eventTracking = require('../db/event-tracking');
 const taskManager = require('../task-manager');
 const workflowRuntime = require('../execution/workflow-runtime');
 const handlers = require('../handlers/workflow/advanced');
@@ -49,7 +54,7 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('returns WORKFLOW_NOT_FOUND when workflow does not exist', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue(null);
 
       const result = handlers.handleForkWorkflow({
         workflow_id: 'wf-missing',
@@ -62,13 +67,13 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('creates branch tasks, tracks branch_count, and defaults merge strategy to all', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'Workflow 1' });
-      const createForkSpy = vi.spyOn(db, 'createWorkflowFork').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'Workflow 1' });
+      const createForkSpy = vi.spyOn(providerRoutingCore, 'createWorkflowFork').mockReturnValue({
         id: 'fork-1',
         workflow_id: 'wf-1',
         merge_strategy: 'all'
       });
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       const runtimeSpy = vi.spyOn(workflowRuntime, 'evaluateWorkflowDependencies');
 
       const result = handlers.handleForkWorkflow({
@@ -111,7 +116,7 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('returns RESOURCE_NOT_FOUND when fork does not exist', () => {
-      vi.spyOn(db, 'getWorkflowFork').mockReturnValue(null);
+      vi.spyOn(providerRoutingCore, 'getWorkflowFork').mockReturnValue(null);
 
       const result = handlers.handleMergeWorkflows({ fork_id: 'fork-404' });
 
@@ -121,12 +126,12 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('marks fork as merged and supports combine_outputs=false', () => {
-      vi.spyOn(db, 'getWorkflowFork').mockReturnValue({
+      vi.spyOn(providerRoutingCore, 'getWorkflowFork').mockReturnValue({
         id: 'fork-1',
         workflow_id: 'wf-1',
         merge_strategy: 'any'
       });
-      const updateStatusSpy = vi.spyOn(db, 'updateWorkflowForkStatus').mockReturnValue(undefined);
+      const updateStatusSpy = vi.spyOn(providerRoutingCore, 'updateWorkflowForkStatus').mockReturnValue(undefined);
 
       const result = handlers.handleMergeWorkflows({
         fork_id: 'fork-1',
@@ -147,7 +152,7 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('returns TASK_NOT_FOUND when original task is missing', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
 
       const result = handlers.handleReplayTask({ task_id: 'missing-task' });
 
@@ -157,7 +162,7 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('creates replay task and replay record with modified inputs', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({
         id: 'orig-1',
         task_description: 'original task',
         working_directory: '/repo',
@@ -166,8 +171,8 @@ describe('workflow-advanced handlers', () => {
         priority: 3,
         template_name: 'tmpl-A'
       });
-      const createTaskSpy = vi.spyOn(db, 'createTask').mockReturnValue(undefined);
-      const replaySpy = vi.spyOn(db, 'createTaskReplay').mockReturnValue(undefined);
+      const createTaskSpy = vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
+      const replaySpy = vi.spyOn(providerRoutingCore, 'createTaskReplay').mockReturnValue(undefined);
 
       const result = handlers.handleReplayTask({
         task_id: 'orig-1',
@@ -203,21 +208,21 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('returns TASK_NOT_FOUND when task A is missing', () => {
-      vi.spyOn(db, 'getTask').mockImplementation((id) => (id === 'b' ? { id: 'b' } : null));
+      vi.spyOn(taskCore, 'getTask').mockImplementation((id) => (id === 'b' ? { id: 'b' } : null));
       const result = handlers.handleDiffTaskRuns({ task_id_a: 'a', task_id_b: 'b' });
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain('Task not found');
     });
 
     it('returns TASK_NOT_FOUND when task B is missing', () => {
-      vi.spyOn(db, 'getTask').mockImplementation((id) => (id === 'a' ? { id: 'a' } : null));
+      vi.spyOn(taskCore, 'getTask').mockImplementation((id) => (id === 'a' ? { id: 'a' } : null));
       const result = handlers.handleDiffTaskRuns({ task_id_a: 'a', task_id_b: 'b' });
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain('Task not found');
     });
 
     it('computes duration deltas and same/different markers', () => {
-      vi.spyOn(db, 'getTask').mockImplementation((id) => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation((id) => {
         if (id === 'a') {
           return {
             id: 'a',
@@ -249,7 +254,7 @@ describe('workflow-advanced handlers', () => {
 
   describe('handleDuplicatePipeline', () => {
     it('returns PIPELINE_NOT_FOUND when duplicatePipeline fails', () => {
-      vi.spyOn(db, 'duplicatePipeline').mockReturnValue(null);
+      vi.spyOn(schedulingAutomation, 'duplicatePipeline').mockReturnValue(null);
 
       const result = handlers.handleDuplicatePipeline({
         pipeline_id: 'pipe-404',
@@ -261,13 +266,13 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('renders cloned pipeline with truncated step tasks', () => {
-      vi.spyOn(db, 'duplicatePipeline').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'duplicatePipeline').mockReturnValue({
         id: 'pipe-2',
         name: 'Clone',
         description: 'Cloned pipeline',
         definition: '[{"task":"placeholder"}]'
       });
-      vi.spyOn(db, 'safeJsonParse').mockReturnValue([
+      vi.spyOn(eventTracking, 'safeJsonParse').mockReturnValue([
         { task: 'short task' },
         { task: 'This is a very long task description that should be truncated at fifty characters for display' }
       ]);
@@ -286,7 +291,7 @@ describe('workflow-advanced handlers', () => {
 
   describe('handleExportReport', () => {
     it('returns empty report message when no tasks match', () => {
-      vi.spyOn(db, 'exportTasksReport').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'exportTasksReport').mockReturnValue({
         tasks: [],
         summary: { total: 0, by_status: {}, by_project: {} }
       });
@@ -296,7 +301,7 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('renders csv output and splits comma-separated status filter', () => {
-      const exportSpy = vi.spyOn(db, 'exportTasksReport').mockReturnValue({
+      const exportSpy = vi.spyOn(schedulingAutomation, 'exportTasksReport').mockReturnValue({
         tasks: [
           {
             id: 'task-1',
@@ -329,7 +334,7 @@ describe('workflow-advanced handlers', () => {
         id: `task-${i + 1}`,
         status: 'completed'
       }));
-      vi.spyOn(db, 'exportTasksReport').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'exportTasksReport').mockReturnValue({
         tasks: manyTasks,
         summary: { total: 22, by_status: { completed: 22 }, by_project: {} }
       });
@@ -348,7 +353,7 @@ describe('workflow-advanced handlers', () => {
         created_at: '2026-01-01T00:00:00.000Z'
       }));
 
-      vi.spyOn(db, 'exportTasksReport').mockReturnValue({
+      vi.spyOn(schedulingAutomation, 'exportTasksReport').mockReturnValue({
         tasks: manyTasks,
         summary: {
           total: 51,
@@ -368,7 +373,7 @@ describe('workflow-advanced handlers', () => {
 
   describe('handleRetryWorkflowFrom', () => {
     it('returns WORKFLOW_NOT_FOUND when workflow is missing', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue(null);
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue(null);
 
       const result = handlers.handleRetryWorkflowFrom({
         workflow_id: 'wf-missing',
@@ -380,8 +385,8 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('returns TASK_NOT_FOUND when from_task_id is not in workflow', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1' });
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', workflow_id: 'wf-other' });
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', workflow_id: 'wf-other' });
 
       const result = handlers.handleRetryWorkflowFrom({
         workflow_id: 'wf-1',
@@ -400,23 +405,23 @@ describe('workflow-advanced handlers', () => {
         'task-c': { id: 'task-c', workflow_id: 'wf-1', workflow_node_id: 'C', status: 'failed' }
       };
 
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'Retry Workflow' });
-      vi.spyOn(db, 'getTask').mockImplementation((id) => taskState[id] || null);
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'Retry Workflow' });
+      vi.spyOn(taskCore, 'getTask').mockImplementation((id) => taskState[id] || null);
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'Retry Workflow',
         status: 'failed',
         tasks: taskState
       });
-      vi.spyOn(db, 'getWorkflowDependencies').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([
         { task_id: 'task-b', depends_on_task_id: 'task-a' },
         { task_id: 'task-c', depends_on_task_id: 'task-b' }
       ]);
-      const updateStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((id, status) => {
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation((id, status) => {
         if (taskState[id]) taskState[id].status = status;
       });
-      const updateWorkflowSpy = vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
-      vi.spyOn(db, 'getWorkflowTasks').mockImplementation(() => Object.values(taskState));
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockImplementation(() => Object.values(taskState));
       const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockImplementation((taskId) => {
         if (taskId === 'task-a') {
           throw new Error('queued elsewhere');
@@ -441,9 +446,9 @@ describe('workflow-advanced handlers', () => {
     });
 
     it('returns INVALID_STATUS_TRANSITION when workflow still has live runnable work', () => {
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'Retry Workflow' });
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-a', workflow_id: 'wf-1', workflow_node_id: 'A', status: 'failed' });
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'Retry Workflow' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-a', workflow_id: 'wf-1', workflow_node_id: 'A', status: 'failed' });
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'Retry Workflow',
         status: 'running',
@@ -453,8 +458,8 @@ describe('workflow-advanced handlers', () => {
           'task-c': { id: 'task-c', status: 'queued' }
         }
       });
-      const updateStatusSpy = vi.spyOn(db, 'updateTaskStatus');
-      const updateWorkflowSpy = vi.spyOn(db, 'updateWorkflow');
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus');
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow');
       const startTaskSpy = vi.spyOn(taskManager, 'startTask');
 
       const result = handlers.handleRetryWorkflowFrom({
@@ -477,22 +482,22 @@ describe('workflow-advanced handlers', () => {
         'task-b': { id: 'task-b', workflow_id: 'wf-1', workflow_node_id: 'B', status: 'blocked' }
       };
 
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'Retry Workflow' });
-      vi.spyOn(db, 'getTask').mockImplementation((id) => taskState[id] || null);
-      vi.spyOn(db, 'getWorkflowStatus').mockReturnValue({
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'Retry Workflow' });
+      vi.spyOn(taskCore, 'getTask').mockImplementation((id) => taskState[id] || null);
+      vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue({
         id: 'wf-1',
         name: 'Retry Workflow',
         status: 'paused',
         tasks: taskState
       });
-      vi.spyOn(db, 'getWorkflowDependencies').mockReturnValue([
+      vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([
         { task_id: 'task-b', depends_on_task_id: 'task-a' }
       ]);
-      const updateStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((id, status) => {
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation((id, status) => {
         if (taskState[id]) taskState[id].status = status;
       });
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
-      vi.spyOn(db, 'getWorkflowTasks').mockImplementation(() => Object.values(taskState));
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockImplementation(() => Object.values(taskState));
       const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockImplementation(() => undefined);
 
       const result = handlers.handleRetryWorkflowFrom({
@@ -509,14 +514,14 @@ describe('workflow-advanced handlers', () => {
 
   describe('handleSkipTask', () => {
     it('returns TASK_NOT_FOUND for unknown task', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
       const result = handlers.handleSkipTask({ task_id: 'missing' });
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('TASK_NOT_FOUND');
     });
 
     it('returns INVALID_STATUS_TRANSITION when task is not blocked', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'running' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'running' });
       const result = handlers.handleSkipTask({ task_id: 'task-1' });
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('INVALID_STATUS_TRANSITION');
@@ -541,29 +546,29 @@ describe('workflow-advanced handlers', () => {
         }
       };
 
-      vi.spyOn(db, 'getTask').mockImplementation((id) => taskState[id] ? { ...taskState[id] } : null);
-      const updateStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((id, status, extra = {}) => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation((id) => taskState[id] ? { ...taskState[id] } : null);
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation((id, status, extra = {}) => {
         if (taskState[id]) {
           taskState[id].status = status;
           Object.assign(taskState[id], extra);
         }
       });
-      const workflowCountSpy = vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', status: 'running' });
-      vi.spyOn(db, 'getTaskDependents').mockReturnValue([{
+      const workflowCountSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', status: 'running' });
+      vi.spyOn(workflowEngine, 'getTaskDependents').mockReturnValue([{
         task_id: 'dep',
         condition_expr: 'exit_code == 0',
         on_fail: 'skip'
       }]);
-      vi.spyOn(db, 'getTaskDependencies').mockReturnValue([{
+      vi.spyOn(workflowEngine, 'getTaskDependencies').mockReturnValue([{
         task_id: 'dep',
         depends_on_task_id: 'root',
         condition_expr: 'exit_code == 0',
         on_fail: 'skip'
       }]);
-      vi.spyOn(db, 'evaluateCondition').mockReturnValue(true);
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue(Object.values(taskState));
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'evaluateCondition').mockReturnValue(true);
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(Object.values(taskState));
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       // Initialize workflow-runtime with the spied db so handleWorkflowTermination works
       workflowRuntime.init({ db });
 
@@ -601,23 +606,23 @@ describe('workflow-advanced handlers', () => {
         }
       };
 
-      vi.spyOn(db, 'getTask').mockImplementation((id) => taskState[id] ? { ...taskState[id] } : null);
-      const updateStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((id, status, extra) => {
+      vi.spyOn(taskCore, 'getTask').mockImplementation((id) => taskState[id] ? { ...taskState[id] } : null);
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation((id, status, extra) => {
         if (taskState[id]) {
           taskState[id].status = status;
           if (extra) Object.assign(taskState[id], extra);
         }
       });
-      vi.spyOn(db, 'updateWorkflowCounts').mockReturnValue(undefined);
-      vi.spyOn(db, 'getWorkflow').mockReturnValue({ id: 'wf-1', status: 'running' });
-      vi.spyOn(db, 'getTaskDependents').mockReturnValue([{
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', status: 'running' });
+      vi.spyOn(workflowEngine, 'getTaskDependents').mockReturnValue([{
         task_id: 'dep',
         condition_expr: 'exit_code == 0',
         on_fail: 'skip'
       }]);
-      vi.spyOn(db, 'evaluateCondition').mockReturnValue(false);
-      vi.spyOn(db, 'getWorkflowTasks').mockReturnValue(Object.values(taskState));
-      vi.spyOn(db, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'evaluateCondition').mockReturnValue(false);
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(Object.values(taskState));
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
       // Initialize workflow-runtime with the spied db so handleWorkflowTermination works
       workflowRuntime.init({ db });

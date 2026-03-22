@@ -7,25 +7,30 @@ const { gitSync } = require('./git-test-utils');
 
 const handlers = require('../handlers/automation-batch-orchestration');
 const automationHandlers = require('../handlers/automation-handlers');
-const mockDb = require('../database');
+const configCore = require('../db/config-core');
+const schedulingAutomation = require('../db/scheduling-automation');
+const taskCore = require('../db/task-core');
+const fileTracking = require('../db/file-tracking');
+const workflowEngine = require('../db/workflow-engine');
+const projectConfigCore = require('../db/project-config-core');
 const mockTaskManager = require('../task-manager');
 const { ErrorCodes: _ErrorCodes } = require('../handlers/shared');
 const { createConfigMock } = require('./test-helpers');
 
 function setDbDefaults() {
-  vi.spyOn(mockDb, 'getConfig').mockImplementation(createConfigMock());
-  vi.spyOn(mockDb, 'setConfig').mockImplementation(() => undefined);
-  vi.spyOn(mockDb, 'listScheduledTasks').mockReturnValue([]);
-  vi.spyOn(mockDb, 'createCronScheduledTask').mockImplementation((name) => ({ id: 'sched-1', name }));
-  vi.spyOn(mockDb, 'getTask').mockReturnValue(null);
-  vi.spyOn(mockDb, 'getTaskFileChanges').mockReturnValue([]);
-  vi.spyOn(mockDb, 'getWorkflowTasks').mockReturnValue([]);
-  vi.spyOn(mockDb, 'listTasks').mockReturnValue({ tasks: [], pagination: {} });
-  vi.spyOn(mockDb, 'getWorkflow').mockReturnValue(null);
-  vi.spyOn(mockDb, 'getWorkflowStatus').mockReturnValue(null);
-  vi.spyOn(mockDb, 'getProjectFromPath').mockReturnValue('project-1');
-  vi.spyOn(mockDb, 'getProjectMetadata').mockReturnValue(null);
-  vi.spyOn(mockDb, 'createTask').mockImplementation((task) => ({ ...task, id: task.id }));
+  vi.spyOn(configCore, 'getConfig').mockImplementation(createConfigMock());
+  vi.spyOn(configCore, 'setConfig').mockImplementation(() => undefined);
+  vi.spyOn(schedulingAutomation, 'listScheduledTasks').mockReturnValue([]);
+  vi.spyOn(schedulingAutomation, 'createCronScheduledTask').mockImplementation((name) => ({ id: 'sched-1', name }));
+  vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
+  vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([]);
+  vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([]);
+  vi.spyOn(taskCore, 'listTasks').mockReturnValue({ tasks: [], pagination: {} });
+  vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue(null);
+  vi.spyOn(workflowEngine, 'getWorkflowStatus').mockReturnValue(null);
+  vi.spyOn(projectConfigCore, 'getProjectFromPath').mockReturnValue('project-1');
+  vi.spyOn(projectConfigCore, 'getProjectMetadata').mockReturnValue(null);
+  vi.spyOn(taskCore, 'createTask').mockImplementation((task) => ({ ...task, id: task.id }));
 
   vi.spyOn(mockTaskManager, 'startTask').mockImplementation(() => undefined);
 }
@@ -337,12 +342,12 @@ describe('automation-batch-orchestration handlers', () => {
       const workingDir = createTempDir();
       const workflowId = 'workflow-conflict-1';
 
-      mockDb.getWorkflow.mockReturnValue({
+      workflowEngine.getWorkflow.mockReturnValue({
         id: workflowId,
         working_directory: workingDir,
       });
 
-      mockDb.getWorkflowStatus.mockReturnValue({
+      workflowEngine.getWorkflowStatus.mockReturnValue({
         name: 'Feature Workflow',
         tasks: {
           t1: {
@@ -358,7 +363,7 @@ describe('automation-batch-orchestration handlers', () => {
         },
       });
 
-      mockDb.getTask.mockImplementation((id) => {
+      taskCore.getTask.mockImplementation((id) => {
         if (id === 'task-11111111') {
           return { files_modified: JSON.stringify(['src/systems/Shared.ts']) };
         }
@@ -382,12 +387,12 @@ describe('automation-batch-orchestration handlers', () => {
       const workingDir = createTempDir();
       const workflowId = 'workflow-clean-1';
 
-      mockDb.getWorkflow.mockReturnValue({
+      workflowEngine.getWorkflow.mockReturnValue({
         id: workflowId,
         working_directory: workingDir,
       });
 
-      mockDb.getWorkflowStatus.mockReturnValue({
+      workflowEngine.getWorkflowStatus.mockReturnValue({
         name: 'Feature Workflow',
         tasks: {
           t1: {
@@ -408,7 +413,7 @@ describe('automation-batch-orchestration handlers', () => {
         },
       });
 
-      mockDb.getTask.mockImplementation((id) => {
+      taskCore.getTask.mockImplementation((id) => {
         if (id === 'task-11111111') {
           return { files_modified: JSON.stringify(['src/systems/Flow.ts']) };
         }
@@ -431,12 +436,12 @@ describe('automation-batch-orchestration handlers', () => {
       const workingDir = createTempDir();
       const workflowId = 'workflow-summary-1';
 
-      mockDb.getWorkflow.mockReturnValue({
+      workflowEngine.getWorkflow.mockReturnValue({
         id: workflowId,
         working_directory: workingDir,
       });
 
-      mockDb.getWorkflowStatus.mockReturnValue({
+      workflowEngine.getWorkflowStatus.mockReturnValue({
         name: 'Feature Workflow',
         tasks: {
           t1: { id: 'task-aaaa1111', status: 'completed', node_id: 'node-a' },
@@ -444,7 +449,7 @@ describe('automation-batch-orchestration handlers', () => {
         },
       });
 
-      mockDb.getTask.mockReturnValue({ files_modified: JSON.stringify(['src/data/shared.ts']) });
+      taskCore.getTask.mockReturnValue({ files_modified: JSON.stringify(['src/data/shared.ts']) });
 
       const result = handlers.handleDetectFileConflicts({ workflow_id: workflowId });
       const text = result.content[0].text;
@@ -549,12 +554,12 @@ describe('automation-batch-orchestration handlers', () => {
 
       fs.writeFileSync(intendedPath, 'export const intended = 2;');
       fs.writeFileSync(unrelatedPath, 'export const unrelated = 2;');
-      mockDb.getTaskFileChanges.mockImplementation((taskId) => (
+      fileTracking.getTaskFileChanges.mockImplementation((taskId) => (
         taskId === 'task-commit-1'
           ? [{ relative_path: 'src/intended.ts', is_outside_workdir: 0 }]
           : []
       ));
-      mockDb.getTask.mockReturnValue({ files_modified: [] });
+      taskCore.getTask.mockReturnValue({ files_modified: [] });
 
       const result = await handlers.handleAutoCommitBatch({
         working_directory: workingDir,
@@ -753,7 +758,7 @@ describe('automation-batch-orchestration handlers', () => {
       const workingDir = createTempDir();
       createJsSource(workingDir, 'core/submit-me.js', 25);
 
-      mockDb.createTask.mockImplementation((task) => ({ ...task, id: 'test-task-1' }));
+      taskCore.createTask.mockImplementation((task) => ({ ...task, id: 'test-task-1' }));
       const result = automationHandlers.handleGenerateTestTasks({
         working_directory: workingDir,
         auto_submit: true,
@@ -762,7 +767,7 @@ describe('automation-batch-orchestration handlers', () => {
       });
 
       expect(result.isError).toBeFalsy();
-      expect(mockDb.createTask).toHaveBeenCalled();
+      expect(taskCore.createTask).toHaveBeenCalled();
       expect(mockTaskManager.startTask).toHaveBeenCalled();
       const startedTaskId = mockTaskManager.startTask.mock.calls[0]?.[0];
       expect(startedTaskId).toBe('test-task-1');

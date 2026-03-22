@@ -2,7 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const { createConfigMock } = require('./test-helpers');
 
-const db = require('../database');
+const configCore = require('../db/config-core');
+const costTracking = require('../db/cost-tracking');
+const taskCore = require('../db/task-core');
+const hostManagement = require('../db/host-management');
+const projectConfigCore = require('../db/project-config-core');
+const providerRoutingCore = require('../db/provider-routing-core');
+const webhooksStreaming = require('../db/webhooks-streaming');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/task/core');
 
@@ -11,16 +17,16 @@ function getText(result) {
 }
 
 function mockSubmissionDefaults() {
-  vi.spyOn(db, 'getConfig').mockImplementation(createConfigMock({
+  vi.spyOn(configCore, 'getConfig').mockImplementation(createConfigMock({
     default_timeout: '45',
     budget_check_enabled: '1',
   }));
-  vi.spyOn(db, 'getDefaultProvider').mockReturnValue('codex');
-  vi.spyOn(db, 'isCodexExhausted').mockReturnValue(false);
-  vi.spyOn(db, 'hasHealthyOllamaHost').mockReturnValue(true);
-  vi.spyOn(db, 'estimateCost').mockReturnValue({ estimated_cost_usd: 0.5 });
-  vi.spyOn(db, 'checkBudgetBeforeSubmission').mockReturnValue({ allowed: true });
-  vi.spyOn(db, 'createTask').mockImplementation((task) => task);
+  vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
+  vi.spyOn(providerRoutingCore, 'isCodexExhausted').mockReturnValue(false);
+  vi.spyOn(hostManagement, 'hasHealthyOllamaHost').mockReturnValue(true);
+  vi.spyOn(costTracking, 'estimateCost').mockReturnValue({ estimated_cost_usd: 0.5 });
+  vi.spyOn(costTracking, 'checkBudgetBeforeSubmission').mockReturnValue({ allowed: true });
+  vi.spyOn(taskCore, 'createTask').mockImplementation((task) => task);
   vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
 }
 
@@ -33,7 +39,7 @@ describe('handler:task-core (extended)', () => {
 
   it('handleSubmitTask rejects explicitly disabled providers', () => {
     mockSubmissionDefaults();
-    vi.spyOn(db, 'getProvider').mockReturnValue({ enabled: false });
+    vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue({ enabled: false });
 
     const result = handlers.handleSubmitTask({ task: 'Run checks', provider: 'ollama' });
 
@@ -43,8 +49,8 @@ describe('handler:task-core (extended)', () => {
 
   it('handleSubmitTask blocks when no providers are available', () => {
     mockSubmissionDefaults();
-    vi.spyOn(db, 'isCodexExhausted').mockReturnValue(true);
-    vi.spyOn(db, 'hasHealthyOllamaHost').mockReturnValue(false);
+    vi.spyOn(providerRoutingCore, 'isCodexExhausted').mockReturnValue(true);
+    vi.spyOn(hostManagement, 'hasHealthyOllamaHost').mockReturnValue(false);
 
     const result = handlers.handleSubmitTask({ task: 'Run checks', auto_route: false });
 
@@ -54,7 +60,7 @@ describe('handler:task-core (extended)', () => {
 
   it('handleSubmitTask returns budget exceeded when projected spend is disallowed', () => {
     mockSubmissionDefaults();
-    vi.spyOn(db, 'checkBudgetBeforeSubmission').mockReturnValue({
+    vi.spyOn(costTracking, 'checkBudgetBeforeSubmission').mockReturnValue({
       allowed: false,
       budget: 'daily',
       current: 9.5,
@@ -70,12 +76,12 @@ describe('handler:task-core (extended)', () => {
 
   it('handleSubmitTask uses provider default timeout when no explicit timeout is set', () => {
     mockSubmissionDefaults();
-    vi.spyOn(db, 'getDefaultProvider').mockReturnValue('ollama');
-    vi.spyOn(db, 'getConfig').mockImplementation(createConfigMock({
+    vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('ollama');
+    vi.spyOn(configCore, 'getConfig').mockImplementation(createConfigMock({
       default_timeout: '90',
       budget_check_enabled: '0',
     }));
-    const createSpy = vi.spyOn(db, 'createTask');
+    const createSpy = vi.spyOn(taskCore, 'createTask');
 
     handlers.handleSubmitTask({ task: 'Use provider timeout', auto_route: false });
 
@@ -88,7 +94,7 @@ describe('handler:task-core (extended)', () => {
 
   it('handleQueueTask respects budget gate and rejects when over budget', () => {
     mockSubmissionDefaults();
-    vi.spyOn(db, 'checkBudgetBeforeSubmission').mockReturnValue({
+    vi.spyOn(costTracking, 'checkBudgetBeforeSubmission').mockReturnValue({
       allowed: false,
       budget: 'weekly',
       current: 101,
@@ -102,7 +108,7 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleCheckStatus summary includes stalled activity markers', () => {
-    vi.spyOn(db, 'listTasks').mockImplementation((query = {}) => {
+    vi.spyOn(taskCore, 'listTasks').mockImplementation((query = {}) => {
       if (query.status === 'running') {
         return [{ id: 'run-1-00000000', model: 'codex', task_description: 'Running task' }];
       }
@@ -124,7 +130,7 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleGetResult shows requested model override when metadata differs', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-r1',
       status: 'completed',
       model: 'codex',
@@ -144,7 +150,7 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleGetResult tolerates malformed metadata JSON', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-r2',
       status: 'completed',
       model: 'codex',
@@ -165,7 +171,7 @@ describe('handler:task-core (extended)', () => {
 
   it('handleWaitForTask returns timeout payload when task stays non-terminal', async () => {
     vi.useFakeTimers();
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-w1',
       status: 'running',
       progress_percent: 33,
@@ -181,7 +187,7 @@ describe('handler:task-core (extended)', () => {
 
   it('handleWaitForTask returns TASK_NOT_FOUND when task disappears while polling', async () => {
     vi.useFakeTimers();
-    const getTaskSpy = vi.spyOn(db, 'getTask');
+    const getTaskSpy = vi.spyOn(taskCore, 'getTask');
     getTaskSpy
       .mockReturnValueOnce({ id: 'task-w2', status: 'running', progress_percent: 10 })
       .mockReturnValueOnce(null);
@@ -195,8 +201,8 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleListTasks includes project tip when no results and all_projects is false', () => {
-    vi.spyOn(db, 'getCurrentProject').mockReturnValue('alpha');
-    vi.spyOn(db, 'listTasks').mockReturnValue([]);
+    vi.spyOn(projectConfigCore, 'getCurrentProject').mockReturnValue('alpha');
+    vi.spyOn(taskCore, 'listTasks').mockReturnValue([]);
 
     const result = handlers.handleListTasks({});
 
@@ -205,8 +211,8 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleListTasks renders host fallback and truncated model names', () => {
-    vi.spyOn(db, 'getCurrentProject').mockReturnValue('alpha');
-    vi.spyOn(db, 'listTasks').mockReturnValue([
+    vi.spyOn(projectConfigCore, 'getCurrentProject').mockReturnValue('alpha');
+    vi.spyOn(taskCore, 'listTasks').mockReturnValue([
       {
         id: 'task-l1-12345678',
         status: 'running',
@@ -216,7 +222,7 @@ describe('handler:task-core (extended)', () => {
         created_at: '2026-03-02T10:00:00.000Z',
       },
     ]);
-    vi.spyOn(db, 'getOllamaHost').mockReturnValue(null);
+    vi.spyOn(hostManagement, 'getOllamaHost').mockReturnValue(null);
 
     const result = handlers.handleListTasks({});
     const text = getText(result);
@@ -234,7 +240,7 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleCancelTask returns safety check for running tasks without confirm', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-c1',
       status: 'running',
       created_at: '2026-03-02T10:00:00.000Z',
@@ -251,7 +257,7 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleCancelTask maps thrown cancel errors to INVALID_STATUS_TRANSITION for known tasks', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-c2',
       status: 'completed',
       description: 'Already done',
@@ -274,8 +280,8 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleConfigure updates values and triggers queue processing', () => {
-    const setSpy = vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
-    vi.spyOn(db, 'getAllConfig').mockReturnValue({
+    const setSpy = vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
+    vi.spyOn(configCore, 'getAllConfig').mockReturnValue({
       max_concurrent: 5,
       default_timeout: 60,
     });
@@ -297,7 +303,7 @@ describe('handler:task-core (extended)', () => {
       elapsedSeconds: 12,
       output: '[Streaming: waiting]',
     });
-    const chunkSpy = vi.spyOn(db, 'getLatestStreamChunks').mockReturnValue([
+    const chunkSpy = vi.spyOn(webhooksStreaming, 'getLatestStreamChunks').mockReturnValue([
       { chunk_data: 'line-1\n' },
       { chunk_data: 'line-2\n' },
     ]);
@@ -315,7 +321,7 @@ describe('handler:task-core (extended)', () => {
     const workDir = '/repo';
     const sanitizedFile = path.join(workDir, '.codex-context', 'build_report.md');
 
-    const getTaskSpy = vi.spyOn(db, 'getTask');
+    const getTaskSpy = vi.spyOn(taskCore, 'getTask');
     getTaskSpy
       .mockReturnValueOnce({ id: 'task-s1', status: 'running', working_directory: workDir })
       .mockReturnValueOnce({
@@ -331,7 +337,7 @@ describe('handler:task-core (extended)', () => {
     vi.spyOn(fs, 'existsSync').mockReturnValue(false);
     vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
     const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
-    const updateSpy = vi.spyOn(db, 'updateTaskStatus').mockReturnValue(undefined);
+    const updateSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockReturnValue(undefined);
 
     const result = handlers.handleShareContext({
       task_id: 'task-s1',
@@ -350,7 +356,7 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleShareContext returns INVALID_PARAM when working directory does not exist', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-s2', working_directory: '/missing/path' });
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-s2', working_directory: '/missing/path' });
     vi.spyOn(fs, 'lstatSync').mockImplementation(() => {
       const err = new Error('missing');
       err.code = 'ENOENT';
@@ -378,7 +384,7 @@ describe('handler:task-core (extended)', () => {
   });
 
   it('handleSyncFiles push mode copies basename and reports blocked/missing paths', () => {
-    vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-sync', working_directory: '/task/workdir' });
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-sync', working_directory: '/task/workdir' });
     vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => filePath === '/source/a.txt');
     const copySpy = vi.spyOn(fs, 'copyFileSync').mockReturnValue(undefined);
 
