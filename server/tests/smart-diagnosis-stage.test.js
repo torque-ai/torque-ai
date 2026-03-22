@@ -56,7 +56,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
 
     it('diagnoses ETIMEDOUT → retry action', () => {
       const ctx = makeCtx({
-        errorOutput: 'Error: connect ETIMEDOUT 192.168.1.100:11434',
+        errorOutput: 'Error: connect ETIMEDOUT 192.0.2.100:11434',
       });
       smartDiagnosisStage(ctx);
       const metadata = parseMeta(ctx.task.metadata);
@@ -91,7 +91,7 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
   describe('connection failure detection', () => {
     it('diagnoses ECONNREFUSED → switch_provider', () => {
       const ctx = makeCtx({
-        errorOutput: 'Error: connect ECONNREFUSED 192.168.1.100:11434',
+        errorOutput: 'Error: connect ECONNREFUSED 192.0.2.100:11434',
       });
       smartDiagnosisStage(ctx);
       const metadata = parseMeta(ctx.task.metadata);

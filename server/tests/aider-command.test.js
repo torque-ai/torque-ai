@@ -338,19 +338,19 @@ describe('configureAiderHost', () => {
   it('single-host mode: sets OLLAMA_API_BASE from config', () => {
     initModule({
       hosts: [],
-      config: { ollama_host: 'http://192.168.1.50:11434' },
+      config: { ollama_host: 'http://192.0.2.50:11434' },
     });
     const task = createTask();
     const envVars = {};
     const result = mod.configureAiderHost(task, 'task-001', envVars);
 
-    expect(envVars.OLLAMA_API_BASE).toBe('http://192.168.1.50:11434');
+    expect(envVars.OLLAMA_API_BASE).toBe('http://192.0.2.50:11434');
     expect(result.selectedHostId).toBeNull();
     expect(result.requeued).toBeUndefined();
   });
 
   it('multi-host mode: selects best host and reserves slot', () => {
-    const host = { id: 'host-1', url: 'http://192.168.1.100:11434', name: 'remote-gpu-host' };
+    const host = { id: 'host-1', url: 'http://192.0.2.100:11434', name: 'remote-gpu-host' };
     const { db } = initModule({
       hosts: [host],
       selectResult: { host, reason: 'least loaded' },
@@ -359,7 +359,7 @@ describe('configureAiderHost', () => {
     const envVars = {};
     const result = mod.configureAiderHost(task, 'task-001', envVars);
 
-    expect(envVars.OLLAMA_API_BASE).toBe('http://192.168.1.100:11434');
+    expect(envVars.OLLAMA_API_BASE).toBe('http://192.0.2.100:11434');
     expect(result.selectedHostId).toBe('host-1');
     expect(result.requeued).toBeUndefined();
     expect(db.recordHostModelUsage).toHaveBeenCalledWith('host-1', 'qwen2.5-coder:7b');
@@ -462,7 +462,7 @@ describe('configureAiderHost', () => {
   });
 
   it('applies per-host settings (num_ctx, num_gpu)', () => {
-    const host = { id: 'host-1', url: 'http://192.168.1.100:11434', name: 'remote-gpu-host' };
+    const host = { id: 'host-1', url: 'http://192.0.2.100:11434', name: 'remote-gpu-host' };
     initModule({
       hosts: [host],
       selectResult: { host, reason: 'selected' },

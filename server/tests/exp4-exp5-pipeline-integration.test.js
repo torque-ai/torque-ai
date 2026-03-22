@@ -93,7 +93,7 @@ describe('Experiment 4+5 pipeline integration', () => {
 
       const result = await finalizeTask('test-001', {
         exitCode: 1,
-        errorOutput: 'Error: connect ECONNREFUSED 192.168.1.100:11434',
+        errorOutput: 'Error: connect ECONNREFUSED 192.0.2.100:11434',
       });
 
       expect(result.finalized).toBe(true);

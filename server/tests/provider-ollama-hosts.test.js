@@ -58,7 +58,7 @@ describe('provider-ollama-hosts handlers', () => {
     it('adds host with valid params', () => {
       const result = handlers.handleAddOllamaHost({
         name: 'TestHost1',
-        url: 'http://192.168.1.50:11434',
+        url: 'http://192.0.2.50:11434',
       });
       expect(result.isError).toBeFalsy();
       expect(result.content[0].text).toContain('TestHost1');

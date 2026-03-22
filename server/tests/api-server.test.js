@@ -2735,7 +2735,7 @@ describe('API Server endpoints', () => {
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
         url: '/api/shutdown',
-        remoteAddress: '192.168.1.50',
+        remoteAddress: '192.0.2.50',
       });
 
       expect(response.statusCode).toBe(403);

@@ -626,7 +626,7 @@ describe('Provider Handlers', () => {
     const seedHost = await safeTool('add_ollama_host', {
       id: 'test-host-1',
       name: 'Test Host',
-      url: 'http://192.168.1.99:11434'
+      url: 'http://192.0.2.99:11434'
     });
     if (seedHost.isError && !getText(seedHost).includes('already exists')) {
       throw new Error(getText(seedHost));

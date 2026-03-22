@@ -246,7 +246,7 @@ describe('orchestrator integration', () => {
         model: 'qwen2.5-coder:32b',
       });
 
-      global.fetch.mockRejectedValue(new Error('connect ECONNREFUSED 192.168.1.100:11434'));
+      global.fetch.mockRejectedValue(new Error('connect ECONNREFUSED 192.0.2.100:11434'));
 
       const result = await brain.decompose({
         feature_name: 'FallbackFeature',

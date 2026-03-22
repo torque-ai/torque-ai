@@ -14,7 +14,7 @@ describe('Provider Handlers', () => {
       const result = await safeTool('add_ollama_host', {
         id: 'test-host-1',
         name: 'Test Host',
-        url: 'http://192.168.1.99:11434'
+        url: 'http://192.0.2.99:11434'
       });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
@@ -36,7 +36,7 @@ describe('Provider Handlers', () => {
       const result = await safeTool('add_ollama_host', {
         id: 'test-host-1',
         name: 'Duplicate Host',
-        url: 'http://192.168.1.100:11434'
+        url: 'http://192.0.2.100:11434'
       });
       expect(result.isError).toBe(true);
       expect(getText(result)).toContain('already exists');
@@ -160,7 +160,7 @@ describe('Provider Handlers', () => {
       await safeTool('add_ollama_host', {
         id: 'disposable-host',
         name: 'Disposable',
-        url: 'http://192.168.1.200:11434'
+        url: 'http://192.0.2.200:11434'
       });
       const result = await safeTool('remove_ollama_host', { host_id: 'disposable-host' });
       expect(result.isError).toBeFalsy();
@@ -177,7 +177,7 @@ describe('Provider Handlers', () => {
       await safeTool('add_ollama_host', {
         id: 'named-disposable',
         name: 'Named Disposable',
-        url: 'http://192.168.1.201:11434'
+        url: 'http://192.0.2.201:11434'
       });
       const result = await safeTool('remove_ollama_host', { host_id: 'named-disposable' });
       expect(result.isError).toBeFalsy();

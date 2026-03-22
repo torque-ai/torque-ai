@@ -107,6 +107,6 @@ describe('peek/browser-capture scaffold', () => {
 
   it('uses custom CDP host and port values when provided', () => {
     expect(buildCdpUrl({ host: 'localhost', port: 9333 })).toBe('http://localhost:9333/json');
-    expect(buildCdpUrl({ host: ' 192.168.1.10 ', port: '9229' })).toBe('http://192.168.1.10:9229/json');
+    expect(buildCdpUrl({ host: ' 192.0.2.10 ', port: '9229' })).toBe('http://192.0.2.10:9229/json');
   });
 });

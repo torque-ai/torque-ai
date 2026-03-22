@@ -222,14 +222,14 @@ describe('provider-tuning handlers', () => {
       vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetLlmTuning({
-        host: 'http://192.168.1.100:11434',
+        host: 'http://192.0.2.100:11434',
         auto_start_enabled: true
       });
       const text = result.content[0].text;
 
       expect(text).toContain('host');
       expect(text).toContain('auto_start_enabled');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_host', 'http://192.168.1.100:11434');
+      expect(db.setConfig).toHaveBeenCalledWith('ollama_host', 'http://192.0.2.100:11434');
       expect(db.setConfig).toHaveBeenCalledWith('ollama_auto_start_enabled', '1');
     });
 

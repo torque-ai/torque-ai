@@ -44,7 +44,7 @@ describe('RemoteAgentRegistry', () => {
       const result = registry.register({
         id: 'agent-1',
         name: 'Test Agent',
-        host: '192.168.1.100',
+        host: '192.0.2.100',
         port: 3460,
         secret: 'test-secret',
         max_concurrent: 5,
@@ -53,7 +53,7 @@ describe('RemoteAgentRegistry', () => {
       expect(result).toEqual({
         id: 'agent-1',
         name: 'Test Agent',
-        host: '192.168.1.100',
+        host: '192.0.2.100',
         port: 3460,
       });
 
@@ -61,7 +61,7 @@ describe('RemoteAgentRegistry', () => {
       expect(agent).toBeDefined();
       expect(agent.id).toBe('agent-1');
       expect(agent.name).toBe('Test Agent');
-      expect(agent.host).toBe('192.168.1.100');
+      expect(agent.host).toBe('192.0.2.100');
       expect(agent.port).toBe(3460);
       // Secrets are stored hashed (scrypt:salt:hash) in the DB; verify it is
       // not stored as plaintext and matches the scrypt format.

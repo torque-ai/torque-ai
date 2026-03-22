@@ -118,10 +118,10 @@ describe('proxy-agent', () => {
 
     it('includes NO_PROXY in the result when set', () => {
       process.env.HTTPS_PROXY = 'http://proxy:8080';
-      process.env.NO_PROXY = 'localhost,192.168.1.0/24';
+      process.env.NO_PROXY = 'localhost,192.0.2.0/24';
       const result = installProxyAgent();
       expect(result.installed).toBe(true);
-      expect(result.noProxy).toBe('localhost,192.168.1.0/24');
+      expect(result.noProxy).toBe('localhost,192.0.2.0/24');
     });
   });
 

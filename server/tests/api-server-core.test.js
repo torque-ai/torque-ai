@@ -878,7 +878,7 @@ describe('captured request handler dispatch', () => {
         url: '/api/tools/check_status',
         headers: { 'content-type': 'application/json' },
         body: {},
-        remoteAddress: '192.168.1.100',
+        remoteAddress: '192.0.2.100',
       });
 
       // Should fail auth (no valid identity)

@@ -107,7 +107,7 @@ describe('benchmark.js', () => {
     it('returns enabled hosts from sqlite query', async () => {
       const hosts = [
         { id: 1, name: 'local', url: 'http://127.0.0.1:11434', enabled: 1, status: 'healthy', models_cache: '[]' },
-        { id: 2, name: 'desktop', url: 'http://192.168.1.20:11434', enabled: 1, status: 'healthy', models_cache: '[]' },
+        { id: 2, name: 'desktop', url: 'http://192.0.2.20:11434', enabled: 1, status: 'healthy', models_cache: '[]' },
       ];
       const loaded = await loadBenchmarkWithHome((db) => {
         db.exec(`

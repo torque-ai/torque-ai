@@ -1259,7 +1259,7 @@ describe('ensureLocalHostEnabled', () => {
     mod2.addOllamaHost({
       id: 'remote-host',
       name: 'RemoteHost',
-      url: 'http://192.168.1.100:11434',
+      url: 'http://192.0.2.100:11434',
       max_concurrent: 2,
       memory_limit_mb: 24576,
     });

@@ -146,7 +146,7 @@ describe('workstation integration', () => {
     it('addOllamaHost writes parseable fields to workstation table', () => {
       const created = adapters.addOllamaHost({
         name: 'compat-host',
-        url: '192.168.55.66:11555',
+        url: '192.0.2.66:11555',
         models: ['qwen3:8b', 'codellama'],
         secret: 'compat-secret',
       });
@@ -154,7 +154,7 @@ describe('workstation integration', () => {
       const ws = model.getWorkstation(created.id);
       expect(ws).toBeTruthy();
       expect(ws.name).toBe('compat-host');
-      expect(ws.host).toBe('192.168.55.66');
+      expect(ws.host).toBe('192.0.2.66');
       expect(ws.ollama_port).toBe(11555);
       expect(ws.agent_port).toBe(3460);
       expect(ws._capabilities).toMatchObject({

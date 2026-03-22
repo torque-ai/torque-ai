@@ -85,7 +85,7 @@ describe('remote agent handlers', () => {
     it('registers an agent with explicit host, port, and max_concurrent', () => {
       const result = registerRemoteAgent({
         name: 'BuildServer-01',
-        host: '192.168.1.50',
+        host: '192.0.2.50',
         port: 3461,
         secret: 'test-secret',
         max_concurrent: 8,
@@ -94,12 +94,12 @@ describe('remote agent handlers', () => {
       expect(result.isError).toBeFalsy();
       const text = getText(result);
       expect(text).toContain('Registered agent "BuildServer-01"');
-      expect(text).toContain('192.168.1.50:3461');
+      expect(text).toContain('192.0.2.50:3461');
       expect(mockRegistry.register).toHaveBeenCalledTimes(1);
       expect(mockRegistry.register).toHaveBeenCalledWith({
         id: 'buildserver-01',
         name: 'BuildServer-01',
-        host: '192.168.1.50',
+        host: '192.0.2.50',
         port: 3461,
         secret: 'test-secret',
         max_concurrent: 8,
@@ -221,7 +221,7 @@ describe('remote agent handlers', () => {
 
     it('returns an error when name is missing', () => {
       const result = registerRemoteAgent({
-        host: '192.168.1.50',
+        host: '192.0.2.50',
         secret: 'test-secret',
       });
 
@@ -244,7 +244,7 @@ describe('remote agent handlers', () => {
     it('returns an error when secret is missing', () => {
       const result = registerRemoteAgent({
         name: 'Agent',
-        host: '192.168.1.50',
+        host: '192.0.2.50',
       });
 
       expect(result.isError).toBe(true);
@@ -294,7 +294,7 @@ describe('remote agent handlers', () => {
         {
           id: 'buildserver-01',
           name: 'BuildServer-01',
-          host: '192.168.1.50',
+          host: '192.0.2.50',
           port: 3461,
           secret: 'old-secret',
           max_concurrent: 4,
@@ -305,7 +305,7 @@ describe('remote agent handlers', () => {
 
       const result = registerRemoteAgent({
         name: 'BuildServer-01',
-        host: '192.168.1.51',
+        host: '192.0.2.51',
         port: 3462,
         secret: 'new-secret',
       });
@@ -314,7 +314,7 @@ describe('remote agent handlers', () => {
       expect(mockRegistry.register).toHaveBeenCalledWith({
         id: 'buildserver-01',
         name: 'BuildServer-01',
-        host: '192.168.1.51',
+        host: '192.0.2.51',
         port: 3462,
         secret: 'new-secret',
         max_concurrent: 3,
@@ -325,7 +325,7 @@ describe('remote agent handlers', () => {
         {
           id: 'buildserver-01',
           name: 'BuildServer-01',
-          host: '192.168.1.51',
+          host: '192.0.2.51',
           port: 3462,
           secret: 'new-secret',
           max_concurrent: 3,
@@ -333,17 +333,17 @@ describe('remote agent handlers', () => {
           rejectUnauthorized: false,
         },
       ]);
-      expect(getText(result)).toContain('https://192.168.1.51:3462');
+      expect(getText(result)).toContain('https://192.0.2.51:3462');
       expect(getText(result)).toContain('rejectUnauthorized: false');
 
       const listText = getText(listRemoteAgents());
-      expect(listText).toContain('https://192.168.1.51:3462');
+      expect(listText).toContain('https://192.0.2.51:3462');
       expect(listText).toContain('tls: enabled');
       expect(listText).toContain('rejectUnauthorized: false');
       expect(listText).not.toContain('new-secret');
 
       const detailText = getText(getRemoteAgent({ agent_id: 'buildserver-01' }));
-      expect(detailText).toContain('https://192.168.1.51:3462');
+      expect(detailText).toContain('https://192.0.2.51:3462');
       expect(detailText).toContain('tls: enabled');
       expect(detailText).toContain('rejectUnauthorized: false');
       expect(detailText).not.toContain('new-secret');
@@ -500,7 +500,7 @@ describe('remote agent handlers', () => {
         {
           id: 'agent-01',
           name: 'Build One',
-          host: '192.168.1.10',
+          host: '192.0.2.10',
           port: 3460,
           tls: 1,
           rejectUnauthorized: 0,
@@ -516,7 +516,7 @@ describe('remote agent handlers', () => {
       expect(result.isError).toBeFalsy();
       expect(text).toContain('Build One');
       expect(text).toContain('agent-01');
-      expect(text).toContain('https://192.168.1.10:3460');
+      expect(text).toContain('https://192.0.2.10:3460');
       expect(text).toContain('tls: enabled');
       expect(text).toContain('rejectUnauthorized: false');
       expect(text).toContain('healthy');

@@ -191,7 +191,7 @@ describe('per-API-key rate limiting', () => {
 
   it('falls back to IP-based rate limiting when no API key is present', () => {
     const limiter = middleware.createRateLimiter(1, 60_000);
-    const ip = '192.168.1.100';
+    const ip = '192.0.2.100';
     const req = createMockRequest({
       socket: { remoteAddress: ip },
       connection: { remoteAddress: ip },

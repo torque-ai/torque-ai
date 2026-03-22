@@ -132,7 +132,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       process.env.TORQUE_OLLAMA_REQUIRE_HTTPS = 'true';
 
       try {
-        const fakeExternalUrl = 'http://192.168.1.200:11434';
+        const fakeExternalUrl = 'http://192.0.2.200:11434';
         addHost({ url: fakeExternalUrl, model: 'codellama:latest' });
 
         const safeUpdate = vi.fn();

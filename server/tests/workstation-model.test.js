@@ -348,7 +348,7 @@ describe('workstation/model', () => {
     it('adds an ollama host from a URL and persists parsed fields', () => {
       const record = adapters.addOllamaHost({
         name: 'host-from-url',
-        url: '192.168.5.15:11436',
+        url: '192.0.2.15:11436',
         agent_port: 3450,
         secret: 'agent-secret',
         models: ['m1', 'm2'],
@@ -359,7 +359,7 @@ describe('workstation/model', () => {
       const reloaded = model.getWorkstation(record.id);
       expect(reloaded).toMatchObject({
         name: 'host-from-url',
-        host: '192.168.5.15',
+        host: '192.0.2.15',
         ollama_port: 11436,
         agent_port: 3450,
       });
@@ -372,7 +372,7 @@ describe('workstation/model', () => {
     it('adds ollama host with fallback port when omitted', () => {
       const record = adapters.addOllamaHost({
         name: 'host-without-port',
-        url: '192.168.5.99',
+        url: '192.0.2.99',
         secret: 'agent-secret-2',
       });
 

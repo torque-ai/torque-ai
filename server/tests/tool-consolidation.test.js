@@ -49,7 +49,7 @@ describe('manage_host', () => {
     const result = await safeTool('manage_host', {
       action: 'add',
       name: 'TestHost',
-      url: 'http://192.168.99.99:11434',
+      url: 'http://192.0.2.99:11434',
       id: 'test-consolidation-host',
     });
     expect(result.isError).toBeFalsy();

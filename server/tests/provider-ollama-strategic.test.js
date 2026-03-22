@@ -98,31 +98,31 @@ describe('OllamaStrategicProvider', () => {
 
     it('uses an apiKey that looks like a URL as the host', () => {
       const hostFromApiKey = new OllamaStrategicProvider({
-        apiKey: 'http://192.168.1.200:11434/',
+        apiKey: 'http://192.0.2.200:11434/',
       });
 
-      expect(hostFromApiKey.host).toBe('http://192.168.1.200:11434');
-      expect(hostFromApiKey.baseUrl).toBe('http://192.168.1.200:11434/v1');
+      expect(hostFromApiKey.host).toBe('http://192.0.2.200:11434');
+      expect(hostFromApiKey.baseUrl).toBe('http://192.0.2.200:11434/v1');
     });
 
     it('prefers explicit host over apiKey host and environment values', () => {
-      process.env.OLLAMA_STRATEGIC_HOST = 'http://192.168.1.201:11434';
+      process.env.OLLAMA_STRATEGIC_HOST = 'http://192.0.2.201:11434';
 
       const customProvider = new OllamaStrategicProvider({
-        host: 'http://192.168.1.202:11434/',
-        apiKey: 'http://192.168.1.203:11434/',
+        host: 'http://192.0.2.202:11434/',
+        apiKey: 'http://192.0.2.203:11434/',
       });
 
-      expect(customProvider.host).toBe('http://192.168.1.202:11434');
+      expect(customProvider.host).toBe('http://192.0.2.202:11434');
     });
 
     it('uses the environment host when config does not provide one', () => {
-      process.env.OLLAMA_STRATEGIC_HOST = 'http://192.168.1.150:11434/';
+      process.env.OLLAMA_STRATEGIC_HOST = 'http://192.0.2.150:11434/';
 
       const envProvider = new OllamaStrategicProvider();
 
-      expect(envProvider.host).toBe('http://192.168.1.150:11434');
-      expect(envProvider.baseUrl).toBe('http://192.168.1.150:11434/v1');
+      expect(envProvider.host).toBe('http://192.0.2.150:11434');
+      expect(envProvider.baseUrl).toBe('http://192.0.2.150:11434/v1');
     });
 
     it('accepts custom default model, zero default temperature, and maxConcurrent', () => {
@@ -413,7 +413,7 @@ describe('OllamaStrategicProvider', () => {
     });
 
     it('propagates non-abort network errors', async () => {
-      fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED 192.168.1.100:11434'));
+      fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED 192.0.2.100:11434'));
 
       await expect(provider.submit('Task')).rejects.toThrow(/ECONNREFUSED/);
     });
