@@ -700,12 +700,12 @@ describe('handleProviderFailover', () => {
   });
 
   it('caps failover attempts at 3', () => {
-    const task = createTask({ retry_count: 3 });
+    const task = createTask({ provider: 'codex', retry_count: 3 });
     const proc = makeProc({ errorOutput: 'rate limit exceeded' });
     const c = makeCtx(task, proc, { status: 'failed', code: 1, filesModified: [] });
 
     tm.handleProviderFailover(c);
-    // Should not attempt failover (capped at 3)
+    // Should not attempt failover (capped at 3) — codex provider avoids local LLM fallback path
     expect(c.earlyExit).toBe(false);
   });
 });

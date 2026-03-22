@@ -545,7 +545,7 @@ describe('handlers/task/pipeline', () => {
             id: 'verify-step',
             step_order: 1,
             name: 'Verify',
-            task_template: 'npm run ${target.path} && echo ${attempt(1)}',
+            task_template: 'npm run {target.path} && echo {attempt(1)}',
             timeout_minutes: 11,
           }),
           makeStep({

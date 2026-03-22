@@ -114,7 +114,7 @@ const EXPECTED_DOMAINS = [
 ];
 
 // Passthrough tools that are built-in MCP-SSE handlers, not registered in tool-defs files
-const BUILTIN_PASSTHROUGH_TOOLS = new Set(['check_notifications']);
+const BUILTIN_PASSTHROUGH_TOOLS = new Set(['check_notifications', 'subscribe_task_events']);
 
 // Passthrough routes intentionally duplicated in v2CpRoutes (routing layer handles priority)
 const KNOWN_PASSTHROUGH_CP_OVERLAPS = new Set(['GET string:/api/v2/routing/categories']);

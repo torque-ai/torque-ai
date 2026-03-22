@@ -9,6 +9,8 @@ const INTERNAL_ONLY_ROUTES = new Set([
   'set_api_key', 'clear_api_key',
   // Handler names differ from tool-def names (handleConfigGet → config_get vs tool-def strategic_config_get)
   'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
+  // Built-in MCP-SSE handler, not registered in tool-defs
+  'subscribe_task_events',
 ]);
 
 function loadToolDefinitionNames() {
