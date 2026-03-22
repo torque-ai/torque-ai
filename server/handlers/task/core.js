@@ -31,6 +31,14 @@ const { resolveContextFiles } = require('../../utils/smart-scan');
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../../constants');
 const logger = require('../../logger');
 
+// DI shim: shared helpers (checkProviderAvailability, requireTask) accept a db facade.
+// Build one from the direct imports already at the top of this file.
+const db = {
+  isCodexExhausted: providerRoutingCore.isCodexExhausted,
+  hasHealthyOllamaHost: hostManagement.hasHealthyOllamaHost,
+  getTask: taskCore.getTask,
+};
+
 /**
  * Validate that an object does not exceed a maximum nesting depth.
  * Prevents stack-overflow DoS from deeply nested metadata payloads.
