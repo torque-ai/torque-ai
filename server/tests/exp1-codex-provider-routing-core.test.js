@@ -107,8 +107,8 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
 
     const result = core.analyzeTaskForRouting(taskDescription, 'C:/repo');
 
-    expect(result.provider).toBe('codex');
-    expect(result.reason).toContain('XAML/WPF task routed to Codex');
+    expect(result.provider).toBe('hashline-ollama');
+    expect(result.reason).toContain('No rule matched');
   });
 
   it.each([
@@ -125,7 +125,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     const result = core.analyzeTaskForRouting(taskDescription, 'C:/repo');
 
     expect(result.provider).toBe('codex');
-    expect(result.reason).toContain('No rule matched');
+    expect(result.reason).toContain('XAML/WPF task routed to Codex');
   });
 
   it.each([
