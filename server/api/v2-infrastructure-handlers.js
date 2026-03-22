@@ -421,7 +421,7 @@ function _getRegistry() {
 }
 
 function _getAgentDb() {
-  if (!db || typeof database.getDbInstance !== 'function') return null;
+  if (!database || typeof database.getDbInstance !== 'function') return null;
   const inst = database.getDbInstance();
   return inst && inst.prepare ? inst : null;
 }
