@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const { createTestContainer } = require('./test-container');
 
 describe('createTestContainer', () => {
