@@ -81,8 +81,12 @@ async function initParser() {
   if (parserReady) return;
   try {
     const TreeSitter = require('web-tree-sitter');
-    await TreeSitter.init();
-    Parser = TreeSitter;
+    // web-tree-sitter v0.26+: init() may not exist (WASM auto-inits on first use)
+    if (typeof TreeSitter.init === 'function') {
+      await TreeSitter.init();
+    }
+    // Use TreeSitter.Parser if available (v0.26+), otherwise TreeSitter itself (v0.24)
+    Parser = TreeSitter.Parser || TreeSitter;
     parserReady = true;
     logger.info('[symbol-indexer] Parser initialized (WASM)');
   } catch (err) {
