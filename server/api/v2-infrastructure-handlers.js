@@ -9,8 +9,9 @@
  */
 const logger = require('../logger').child({ component: 'v2-infrastructure-handlers' });
 
-const db = require('../database');
-const hostCredentials = require('../db/host-management');
+const database = require('../database');
+const hostManagement = require('../db/host-management');
+const coordination = require('../db/coordination');
 const {
   sendSuccess,
   sendError,
@@ -28,8 +29,8 @@ function init(taskManager) {
 const VALID_CREDENTIAL_TYPES = new Set(['ssh', 'http_auth', 'windows']);
 
 function resolveHostType(hostName) {
-  if (db.getPeekHost && db.getPeekHost(hostName)) return 'peek';
-  if (db.getOllamaHost && db.getOllamaHost(hostName)) return 'ollama';
+  if (database.getPeekHost && database.getPeekHost(hostName)) return 'peek';
+  if (hostManagement.getOllamaHost && hostManagement.getOllamaHost(hostName)) return 'ollama';
   return null;
 }
 
@@ -177,7 +178,7 @@ async function handleDeleteWorkstation(req, res) {
 
 async function handleListHosts(req, res) {
   const requestId = resolveRequestId(req);
-  const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];
+  const hosts = hostManagement.listOllamaHosts ? hostManagement.listOllamaHosts() : [];
   sendList(res, requestId, hosts, hosts.length, req);
 }
 
@@ -185,12 +186,12 @@ async function handleGetHost(req, res) {
   const requestId = resolveRequestId(req);
   const hostId = req.params?.host_id;
 
-  const host = db.getOllamaHost ? db.getOllamaHost(hostId) : null;
+  const host = hostManagement.getOllamaHost ? hostManagement.getOllamaHost(hostId) : null;
   if (!host) {
     return sendError(res, requestId, 'host_not_found', `Host not found: ${hostId}`, 404, {}, req);
   }
 
-  const settings = db.getHostSettings ? db.getHostSettings(hostId) : {};
+  const settings = hostManagement.getHostSettings ? hostManagement.getHostSettings(hostId) : {};
   sendSuccess(res, requestId, { ...host, settings }, 200, req);
 }
 
@@ -199,7 +200,7 @@ async function handleToggleHost(req, res) {
   const hostId = req.params?.host_id;
   const body = req.body || await parseBody(req);
 
-  const host = db.getOllamaHost ? db.getOllamaHost(hostId) : null;
+  const host = hostManagement.getOllamaHost ? hostManagement.getOllamaHost(hostId) : null;
   if (!host) {
     return sendError(res, requestId, 'host_not_found', `Host not found: ${hostId}`, 404, {}, req);
   }
@@ -208,7 +209,7 @@ async function handleToggleHost(req, res) {
   const updates = { enabled, status: 'unknown', consecutive_failures: 0 };
 
   try {
-    db.updateOllamaHost(hostId, updates);
+    hostManagement.updateOllamaHost(hostId, updates);
 
     // When enabling, probe immediately
     if (enabled) {
@@ -234,13 +235,13 @@ async function handleToggleHost(req, res) {
           request.on('error', () => resolve({ healthy: false, models: null }));
           request.on('timeout', () => { request.destroy(); resolve({ healthy: false, models: null }); });
         });
-        if (db.recordHostHealthCheck) {
-          db.recordHostHealthCheck(hostId, probeResult.healthy, probeResult.models);
+        if (hostManagement.recordHostHealthCheck) {
+          hostManagement.recordHostHealthCheck(hostId, probeResult.healthy, probeResult.models);
         }
       } catch (err) { logger.debug("task handler error", { err: err.message }); /* probe failed — status stays unknown */ }
     }
 
-    const updated = db.getOllamaHost(hostId);
+    const updated = hostManagement.getOllamaHost(hostId);
     sendSuccess(res, requestId, updated, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -251,7 +252,7 @@ async function handleDeleteHost(req, res) {
   const requestId = resolveRequestId(req);
   const hostId = req.params?.host_id;
 
-  const host = db.getOllamaHost ? db.getOllamaHost(hostId) : null;
+  const host = hostManagement.getOllamaHost ? hostManagement.getOllamaHost(hostId) : null;
   if (!host) {
     return sendError(res, requestId, 'host_not_found', `Host not found: ${hostId}`, 404, {}, req);
   }
@@ -261,7 +262,7 @@ async function handleDeleteHost(req, res) {
   }
 
   try {
-    db.removeOllamaHost(hostId);
+    hostManagement.removeOllamaHost(hostId);
     sendSuccess(res, requestId, { removed: true, id: hostId, name: host.name }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -283,9 +284,9 @@ async function handleHostScan(req, res) {
 
 async function handleListPeekHosts(req, res) {
   const requestId = resolveRequestId(req);
-  const hosts = (db.listPeekHosts ? db.listPeekHosts() : []).map(host => ({
+  const hosts = (database.listPeekHosts ? database.listPeekHosts() : []).map(host => ({
     ...host,
-    credentials: hostCredentials.listCredentials ? hostCredentials.listCredentials(host.name, 'peek') : [],
+    credentials: hostManagement.listCredentials ? hostManagement.listCredentials(host.name, 'peek') : [],
   }));
   sendList(res, requestId, hosts, hosts.length, req);
 }
@@ -304,8 +305,8 @@ async function handleCreatePeekHost(req, res) {
   }
 
   try {
-    db.registerPeekHost(body.name, body.url, body.ssh, Boolean(body.default), body.platform);
-    const created = db.getPeekHost(body.name);
+    database.registerPeekHost(body.name, body.url, body.ssh, Boolean(body.default), body.platform);
+    const created = database.getPeekHost(body.name);
     sendSuccess(res, requestId, created, 201, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -316,13 +317,13 @@ async function handleDeletePeekHost(req, res) {
   const requestId = resolveRequestId(req);
   const hostName = req.params?.host_name;
 
-  const removed = db.unregisterPeekHost ? db.unregisterPeekHost(hostName) : false;
+  const removed = database.unregisterPeekHost ? database.unregisterPeekHost(hostName) : false;
   if (!removed) {
     return sendError(res, requestId, 'host_not_found', `Peek host not found: ${hostName}`, 404, {}, req);
   }
 
-  if (hostCredentials.deleteAllHostCredentials) {
-    hostCredentials.deleteAllHostCredentials(hostName, 'peek');
+  if (hostManagement.deleteAllHostCredentials) {
+    hostManagement.deleteAllHostCredentials(hostName, 'peek');
   }
 
   sendSuccess(res, requestId, { removed: true, name: hostName }, 200, req);
@@ -333,15 +334,15 @@ async function handleTogglePeekHost(req, res) {
   const hostName = req.params?.host_name;
   const body = req.body || await parseBody(req);
 
-  const host = db.getPeekHost ? db.getPeekHost(hostName) : null;
+  const host = database.getPeekHost ? database.getPeekHost(hostName) : null;
   if (!host) {
     return sendError(res, requestId, 'host_not_found', `Peek host not found: ${hostName}`, 404, {}, req);
   }
 
   const enabled = body.enabled !== undefined ? (body.enabled ? 1 : 0) : (host.enabled ? 0 : 1);
-  if (db.updatePeekHost) db.updatePeekHost(hostName, { enabled });
+  if (database.updatePeekHost) database.updatePeekHost(hostName, { enabled });
 
-  const updated = db.getPeekHost(hostName);
+  const updated = database.getPeekHost(hostName);
   sendSuccess(res, requestId, updated, 200, req);
 }
 
@@ -356,7 +357,7 @@ async function handleListCredentials(req, res) {
     return sendError(res, requestId, 'host_not_found', `Host not found: ${hostName}`, 404, {}, req);
   }
 
-  const creds = hostCredentials.listCredentials ? hostCredentials.listCredentials(hostName, hostType) : [];
+  const creds = hostManagement.listCredentials ? hostManagement.listCredentials(hostName, hostType) : [];
   sendList(res, requestId, creds, creds.length, req);
 }
 
@@ -380,7 +381,7 @@ async function handleSaveCredential(req, res) {
   }
 
   try {
-    hostCredentials.saveCredential(hostName, hostType, credType, body.label, body.value);
+    hostManagement.saveCredential(hostName, hostType, credType, body.label, body.value);
     sendSuccess(res, requestId, { saved: true }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -401,8 +402,8 @@ async function handleDeleteCredential(req, res) {
     return sendError(res, requestId, 'validation_error', 'Unsupported credential type', 400);
   }
 
-  const removed = hostCredentials.deleteCredential
-    ? hostCredentials.deleteCredential(hostName, hostType, credType) : false;
+  const removed = hostManagement.deleteCredential
+    ? hostManagement.deleteCredential(hostName, hostType, credType) : false;
   if (!removed) {
     return sendError(res, requestId, 'credential_not_found', 'Credential not found', 404, {}, req);
   }
@@ -420,8 +421,8 @@ function _getRegistry() {
 }
 
 function _getAgentDb() {
-  if (!db || typeof db.getDbInstance !== 'function') return null;
-  const inst = db.getDbInstance();
+  if (!db || typeof database.getDbInstance !== 'function') return null;
+  const inst = database.getDbInstance();
   return inst && inst.prepare ? inst : null;
 }
 
@@ -645,8 +646,8 @@ async function handleProviderPercentiles(req, res) {
   }
 
   try {
-    const percentiles = typeof db.getProviderPercentiles === 'function'
-      ? db.getProviderPercentiles(providerId, days) : {};
+    const percentiles = typeof database.getProviderPercentiles === 'function'
+      ? database.getProviderPercentiles(providerId, days) : {};
     sendSuccess(res, requestId, { provider: providerId, days, percentiles }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -661,8 +662,8 @@ async function handleCoordinationDashboard(req, res) {
   const hours = Math.max(1, Math.min(168, parseInt(query.hours, 10) || 24));
 
   try {
-    const coordination = typeof db.getCoordinationDashboard === 'function'
-      ? db.getCoordinationDashboard(hours) : { agents: [], rules: [], claims: [] };
+    const coordination = typeof coordination.getCoordinationDashboard === 'function'
+      ? coordination.getCoordinationDashboard(hours) : { agents: [], rules: [], claims: [] };
     sendSuccess(res, requestId, coordination, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);

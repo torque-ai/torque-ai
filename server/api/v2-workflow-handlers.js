@@ -7,7 +7,7 @@
  * These return { data, meta } envelopes — not MCP text blobs.
  */
 
-const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
 const {
   sendSuccess,
   sendError,
@@ -65,8 +65,8 @@ async function handleCreateWorkflow(req, res) {
     const workflowId = idMatch ? idMatch[1] : null;
 
     if (workflowId) {
-      const workflow = db.getWorkflow(workflowId);
-      const status = db.getWorkflowStatus(workflowId);
+      const workflow = workflowEngine.getWorkflow(workflowId);
+      const status = workflowEngine.getWorkflowStatus(workflowId);
       sendSuccess(res, requestId, buildWorkflowDetailResponse(
         workflow || { id: workflowId, name, status: 'pending' },
         status?.tasks || {}
@@ -88,12 +88,12 @@ async function handleListWorkflows(req, res) {
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 100);
 
   try {
-    if (typeof db.reconcileStaleWorkflows === 'function') {
-      db.reconcileStaleWorkflows();
+    if (typeof workflowEngine.reconcileStaleWorkflows === 'function') {
+      workflowEngine.reconcileStaleWorkflows();
     }
   } catch { /* non-critical */ }
 
-  const workflows = db.listWorkflows({
+  const workflows = workflowEngine.listWorkflows({
     status: query.status || undefined,
     limit,
   });
@@ -109,17 +109,17 @@ async function handleGetWorkflow(req, res) {
   const workflowId = req.params?.workflow_id;
 
   try {
-    if (typeof db.reconcileStaleWorkflows === 'function') {
-      db.reconcileStaleWorkflows(workflowId);
+    if (typeof workflowEngine.reconcileStaleWorkflows === 'function') {
+      workflowEngine.reconcileStaleWorkflows(workflowId);
     }
   } catch { /* non-critical */ }
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
 
-  const status = db.getWorkflowStatus(workflowId);
+  const status = workflowEngine.getWorkflowStatus(workflowId);
   sendSuccess(res, requestId, buildWorkflowDetailResponse(
     workflow,
     status?.tasks || {}
@@ -132,7 +132,7 @@ async function handleRunWorkflow(req, res) {
   const requestId = resolveRequestId(req);
   const workflowId = req.params?.workflow_id;
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
@@ -150,8 +150,8 @@ async function handleRunWorkflow(req, res) {
       return sendError(res, requestId, 'operation_failed', msg, 400, {}, req);
     }
 
-    const updated = db.getWorkflow(workflowId);
-    const status = db.getWorkflowStatus(workflowId);
+    const updated = workflowEngine.getWorkflow(workflowId);
+    const status = workflowEngine.getWorkflowStatus(workflowId);
     sendSuccess(res, requestId, buildWorkflowDetailResponse(
       updated || workflow,
       status?.tasks || {}
@@ -167,7 +167,7 @@ async function handleCancelWorkflow(req, res) {
   const requestId = resolveRequestId(req);
   const workflowId = req.params?.workflow_id;
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
@@ -186,7 +186,7 @@ async function handleCancelWorkflow(req, res) {
     const workflowHandler = require('../handlers/workflow/index');
     workflowHandler.handleCancelWorkflow({ workflow_id: workflowId });
 
-    const updated = db.getWorkflow(workflowId);
+    const updated = workflowEngine.getWorkflow(workflowId);
     sendSuccess(res, requestId, {
       workflow_id: workflowId,
       cancelled: true,
@@ -204,7 +204,7 @@ async function handleAddWorkflowTask(req, res) {
   const workflowId = req.params?.workflow_id;
   const body = req.body || await parseBody(req);
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
@@ -254,13 +254,13 @@ async function handleWorkflowHistory(req, res) {
   const requestId = resolveRequestId(req);
   const workflowId = req.params?.workflow_id;
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
 
   try {
-    const history = db.getWorkflowHistory ? db.getWorkflowHistory(workflowId) : [];
+    const history = workflowEngine.getWorkflowHistory ? workflowEngine.getWorkflowHistory(workflowId) : [];
     const events = Array.isArray(history) ? history : [];
 
     sendSuccess(res, requestId, {
@@ -308,8 +308,8 @@ async function handleCreateFeatureWorkflow(req, res) {
     const workflowId = idMatch ? idMatch[1] : null;
 
     if (workflowId) {
-      const workflow = db.getWorkflow(workflowId);
-      const status = db.getWorkflowStatus(workflowId);
+      const workflow = workflowEngine.getWorkflow(workflowId);
+      const status = workflowEngine.getWorkflowStatus(workflowId);
       sendSuccess(res, requestId, buildWorkflowDetailResponse(
         workflow || { id: workflowId, name: body.feature_name || body.name, status: 'pending' },
         status?.tasks || {}
@@ -328,7 +328,7 @@ async function handlePauseWorkflow(req, res) {
   const requestId = resolveRequestId(req);
   const workflowId = req.params?.workflow_id;
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
@@ -342,10 +342,10 @@ async function handlePauseWorkflow(req, res) {
     if (typeof workflowHandler.handlePauseWorkflow === 'function') {
       workflowHandler.handlePauseWorkflow({ workflow_id: workflowId });
     } else {
-      db.updateWorkflow(workflowId, { status: 'paused' });
+      workflowEngine.updateWorkflow(workflowId, { status: 'paused' });
     }
 
-    const updated = db.getWorkflow(workflowId);
+    const updated = workflowEngine.getWorkflow(workflowId);
     sendSuccess(res, requestId, {
       workflow_id: workflowId,
       paused: true,
@@ -362,7 +362,7 @@ async function handleResumeWorkflow(req, res) {
   const requestId = resolveRequestId(req);
   const workflowId = req.params?.workflow_id;
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
@@ -376,11 +376,11 @@ async function handleResumeWorkflow(req, res) {
     if (typeof workflowHandler.handleResumeWorkflow === 'function') {
       workflowHandler.handleResumeWorkflow({ workflow_id: workflowId });
     } else {
-      db.updateWorkflow(workflowId, { status: 'running' });
+      workflowEngine.updateWorkflow(workflowId, { status: 'running' });
     }
 
-    const updated = db.getWorkflow(workflowId);
-    const status = db.getWorkflowStatus(workflowId);
+    const updated = workflowEngine.getWorkflow(workflowId);
+    const status = workflowEngine.getWorkflowStatus(workflowId);
     sendSuccess(res, requestId, buildWorkflowDetailResponse(
       updated || workflow,
       status?.tasks || {}
@@ -396,13 +396,13 @@ async function handleGetWorkflowTasks(req, res) {
   const requestId = resolveRequestId(req);
   const workflowId = req.params?.workflow_id;
 
-  const workflow = db.getWorkflow(workflowId);
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
 
   try {
-    const status = db.getWorkflowStatus(workflowId);
+    const status = workflowEngine.getWorkflowStatus(workflowId);
     const tasks = status?.tasks || {};
     const taskList = Array.isArray(tasks) ? tasks : Object.values(tasks);
 

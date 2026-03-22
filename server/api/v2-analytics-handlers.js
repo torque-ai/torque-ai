@@ -8,7 +8,12 @@
  * These return { data, meta } envelopes via v2-control-plane helpers.
  */
 
-const db = require('../database');
+const database = require('../database');
+const costTracking = require('../db/cost-tracking');
+const eventTracking = require('../db/event-tracking');
+const fileTracking = require('../db/file-tracking');
+const providerRoutingCore = require('../db/provider-routing-core');
+const webhooksStreaming = require('../db/webhooks-streaming');
 const serverConfig = require('../config');
 const {
   sendSuccess,
@@ -46,8 +51,8 @@ function buildTimeSeries(days, provider) {
     const filters = { completed_from: dateStr, completed_to: nextDateStr, includeArchived: true };
     if (provider) filters.provider = provider;
 
-    const completed = db.countTasks ? db.countTasks({ ...filters, status: 'completed' }) : 0;
-    const failed = db.countTasks ? db.countTasks({ ...filters, status: 'failed' }) : 0;
+    const completed = database.countTasks ? database.countTasks({ ...filters, status: 'completed' }) : 0;
+    const failed = database.countTasks ? database.countTasks({ ...filters, status: 'failed' }) : 0;
     const total = completed + failed;
 
     series.push({
@@ -73,13 +78,13 @@ async function handleStatsOverview(req, res) {
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
   // Use calendar-day boundaries for all "today" counts (midnight to midnight UTC)
-  const todayCompleted = db.countTasks ? db.countTasks({ completed_from: today, completed_to: tomorrow, status: 'completed' }) : 0;
-  const todayFailed = db.countTasks ? db.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' }) : 0;
-  const todayRunning = db.countTasks ? db.countTasks({ from_date: today, to_date: tomorrow, status: 'running' }) : 0;
+  const todayCompleted = database.countTasks ? database.countTasks({ completed_from: today, completed_to: tomorrow, status: 'completed' }) : 0;
+  const todayFailed = database.countTasks ? database.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' }) : 0;
+  const todayRunning = database.countTasks ? database.countTasks({ from_date: today, to_date: tomorrow, status: 'running' }) : 0;
   const todayTotal = todayCompleted + todayFailed + todayRunning;
 
   // Batch all status counts into a single grouped query to avoid 5 separate DB round-trips
-  const statusCounts = db.countTasksByStatus ? db.countTasksByStatus() : {};
+  const statusCounts = database.countTasksByStatus ? database.countTasksByStatus() : {};
   const runningCount = statusCounts.running ?? 0;
   const queuedCount = statusCounts.queued ?? 0;
   const completedCount = statusCounts.completed ?? 0;
@@ -129,9 +134,9 @@ async function handleQualityStats(req, res) {
   const since = new Date(Date.now() - hours * 3600000).toISOString();
 
   try {
-    const overall = db.getOverallQualityStats ? db.getOverallQualityStats(since) : {};
-    const byProvider = db.getQualityStatsByProvider ? db.getQualityStatsByProvider(since) : [];
-    const validation = db.getValidationFailureRate ? db.getValidationFailureRate(since) : {};
+    const overall = fileTracking.getOverallQualityStats ? fileTracking.getOverallQualityStats(since) : {};
+    const byProvider = fileTracking.getQualityStatsByProvider ? fileTracking.getQualityStatsByProvider(since) : [];
+    const validation = fileTracking.getValidationFailureRate ? fileTracking.getValidationFailureRate(since) : {};
 
     sendSuccess(res, requestId, {
       period: { hours, since },
@@ -153,19 +158,19 @@ async function handleStuckTasks(req, res) {
   const pendingApprovalThreshold = 15 * 60 * 1000;
   const longRunningThreshold = 30 * 60 * 1000;
 
-  const pendingApproval = (db.listTasks
-    ? db.listTasks({ status: 'pending_approval', limit: 50 })
+  const pendingApproval = (database.listTasks
+    ? database.listTasks({ status: 'pending_approval', limit: 50 })
     : []).filter(t => (now - new Date(t.created_at).getTime()) > pendingApprovalThreshold);
 
-  const pendingSwitch = (db.listTasks
-    ? db.listTasks({ status: 'pending_provider_switch', limit: 50 })
+  const pendingSwitch = (database.listTasks
+    ? database.listTasks({ status: 'pending_provider_switch', limit: 50 })
     : []).filter(t => (now - new Date(t.provider_switched_at || t.created_at).getTime()) > pendingApprovalThreshold);
 
-  const longRunning = (db.listTasks
-    ? db.listTasks({ status: 'running', limit: 50 })
+  const longRunning = (database.listTasks
+    ? database.listTasks({ status: 'running', limit: 50 })
     : []).filter(t => (now - new Date(t.started_at).getTime()) > longRunningThreshold);
 
-  const waiting = db.listTasks ? db.listTasks({ status: 'waiting', limit: 50 }) : [];
+  const waiting = database.listTasks ? database.listTasks({ status: 'waiting', limit: 50 }) : [];
 
   sendSuccess(res, requestId, {
     pending_approval: { count: pendingApproval.length, tasks: pendingApproval.slice(0, 10) },
@@ -185,7 +190,7 @@ async function handleModelStats(req, res) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    const sqlDb = db.getDbInstance ? db.getDbInstance() : null;
+    const sqlDb = database.getDbInstance ? database.getDbInstance() : null;
     if (!sqlDb || !sqlDb.prepare) {
       return sendSuccess(res, requestId, { models: [], days }, 200, req);
     }
@@ -257,7 +262,7 @@ async function handleModelStats(req, res) {
 async function handleFormatSuccess(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    const summary = db.getFormatSuccessRatesSummary ? db.getFormatSuccessRatesSummary() : [];
+    const summary = eventTracking.getFormatSuccessRatesSummary ? eventTracking.getFormatSuccessRatesSummary() : [];
     sendSuccess(res, requestId, { formats: summary }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -295,11 +300,11 @@ async function handleEventHistory(req, res) {
 async function handleWebhookStats(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    const stats = db.getWebhookStats ? db.getWebhookStats() : {
+    const stats = webhooksStreaming.getWebhookStats ? webhooksStreaming.getWebhookStats() : {
       webhooks: { total: 0, active: 0 },
       deliveries_24h: { total: 0, successful: 0, failed: 0 },
     };
-    const webhooks = db.listWebhooks ? db.listWebhooks() : [];
+    const webhooks = webhooksStreaming.listWebhooks ? webhooksStreaming.listWebhooks() : [];
 
     sendSuccess(res, requestId, { stats, webhooks }, 200, req);
   } catch (err) {
@@ -362,7 +367,7 @@ async function handleBudgetSummary(req, res) {
   const days = clampInt(query.days, 1, 365, 30);
 
   try {
-    const providerRows = db.getCostSummary ? db.getCostSummary(null, days) : [];
+    const providerRows = costTracking.getCostSummary ? costTracking.getCostSummary(null, days) : [];
     let totalCost = 0;
     let taskCount = 0;
     const byProvider = {};
@@ -373,7 +378,7 @@ async function handleBudgetSummary(req, res) {
     }
 
     let daily = [];
-    const dailyRows = db.getCostByPeriod ? db.getCostByPeriod('day', days) : [];
+    const dailyRows = costTracking.getCostByPeriod ? costTracking.getCostByPeriod('day', days) : [];
     if (dailyRows && dailyRows.length > 0) {
       daily = dailyRows.map(r => ({ date: r.period, cost: r.cost || 0 })).reverse();
     }
@@ -393,7 +398,7 @@ async function handleBudgetSummary(req, res) {
 async function handleBudgetStatus(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    const budgets = db.getBudgetStatus ? db.getBudgetStatus() : [];
+    const budgets = costTracking.getBudgetStatus ? costTracking.getBudgetStatus() : [];
     const arr = Array.isArray(budgets) ? budgets : budgets ? [budgets] : [];
     const primary = arr[0];
 
@@ -418,7 +423,7 @@ async function handleSetBudget(req, res) {
   }
 
   try {
-    const result = db.setBudget(
+    const result = costTracking.setBudget(
       body.name || 'Monthly Budget',
       budgetUsd,
       body.provider || null,
@@ -449,7 +454,7 @@ async function handleRoutingDecisions(req, res) {
   const query = req.query || {};
   const limit = clampInt(query.limit, 1, 200, 50);
 
-  const rawTasks = db.listTasks ? db.listTasks({ limit: limit * 3, order: 'desc' }) : [];
+  const rawTasks = database.listTasks ? database.listTasks({ limit: limit * 3, order: 'desc' }) : [];
   const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
 
   const decisions = [];
@@ -482,13 +487,13 @@ async function handleRoutingDecisions(req, res) {
 async function handleProviderHealth(req, res) {
   const requestId = resolveRequestId(req);
 
-  const providers = db.listProviders ? db.listProviders() : [];
+  const providers = providerRoutingCore.listProviders ? providerRoutingCore.listProviders() : [];
   const healthCards = [];
 
   for (const p of providers) {
-    const dayStats = db.getProviderStats ? db.getProviderStats(p.provider, 1) : {};
-    const health = db.getProviderHealth ? db.getProviderHealth(p.provider) : { successes: 0, failures: 0, failureRate: 0 };
-    const isHealthy = db.isProviderHealthy ? db.isProviderHealthy(p.provider) : true;
+    const dayStats = fileTracking.getProviderStats ? fileTracking.getProviderStats(p.provider, 1) : {};
+    const health = providerRoutingCore.getProviderHealth ? providerRoutingCore.getProviderHealth(p.provider) : { successes: 0, failures: 0, failureRate: 0 };
+    const isHealthy = providerRoutingCore.isProviderHealthy ? providerRoutingCore.isProviderHealthy(p.provider) : true;
 
     let healthStatus = 'healthy';
     if (!p.enabled) healthStatus = 'disabled';
@@ -533,7 +538,7 @@ async function handleFreeTierHistory(req, res) {
   const query = req.query || {};
   const days = Math.max(1, Math.min(90, parseInt(query.days, 10) || 7));
   try {
-    const history = typeof db.getUsageHistory === 'function' ? db.getUsageHistory(days) : [];
+    const history = typeof costTracking.getUsageHistory === 'function' ? costTracking.getUsageHistory(days) : [];
     sendSuccess(res, requestId, { history, days }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -551,7 +556,7 @@ async function handleFreeTierAutoScale(req, res) {
 
     let codexQueueDepth = 0;
     try {
-      const queued = db.listTasks({ status: 'queued', limit: 1000 });
+      const queued = database.listTasks({ status: 'queued', limit: 1000 });
       const queuedArr = Array.isArray(queued) ? queued : (queued.tasks || []);
       codexQueueDepth = queuedArr.filter(t => {
         if (t.provider === 'codex') return true;
@@ -594,8 +599,8 @@ async function handleStrategicOperations(req, res) {
   const query = req.query || {};
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 100);
   try {
-    const operations = typeof db.getRecentStrategicOperations === 'function'
-      ? db.getRecentStrategicOperations(limit) : [];
+    const operations = typeof database.getRecentStrategicOperations === 'function'
+      ? database.getRecentStrategicOperations(limit) : [];
     sendList(res, requestId, operations, operations.length, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);

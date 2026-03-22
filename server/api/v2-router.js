@@ -2,7 +2,8 @@
 const logger = require('../logger').child({ component: 'v2-router' });
 
 const { randomUUID } = require('crypto');
-const db = require('../database');
+const database = require('../database');
+const providerRoutingCore = require('../db/provider-routing-core');
 const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('../constants');
 const adapterRegistry = require('../providers/adapter-registry');
 const { buildV2Middleware, validateDecodedParamField } = require('./routes');
@@ -164,7 +165,7 @@ function getV2ProviderDefaultTimeoutMs(providerId) {
 
 function getV2ProviderQueueDepth(providerId) {
   try {
-    return Number(db.countTasks?.({ provider: providerId, status: 'queued' })) || 0;
+    return Number(database.countTasks?.({ provider: providerId, status: 'queued' })) || 0;
   } catch (err) {
     logger.debug("health metric error", { err: err.message });
     return 0;
@@ -173,7 +174,7 @@ function getV2ProviderQueueDepth(providerId) {
 
 function getV2ProviderDefaultProvider() {
   try {
-    return db.getDefaultProvider?.() || null;
+    return providerRoutingCore.getDefaultProvider?.() || null;
   } catch (err) {
     logger.debug("health metric error", { err: err.message });
     return null;
@@ -182,7 +183,7 @@ function getV2ProviderDefaultProvider() {
 
 function getV2ProviderHealth(providerId) {
   try {
-    return db.getProviderHealth?.(providerId) || {};
+    return providerRoutingCore.getProviderHealth?.(providerId) || {};
   } catch (err) {
     logger.debug("health metric error", { err: err.message });
     return {};
@@ -191,7 +192,7 @@ function getV2ProviderHealth(providerId) {
 
 function isV2ProviderHealthy(providerId) {
   try {
-    return db.isProviderHealthy?.(providerId);
+    return providerRoutingCore.isProviderHealthy?.(providerId);
   } catch (err) {
     logger.debug("health metric error", { err: err.message });
     return true;
@@ -249,8 +250,8 @@ function getV2ProviderMaxContext(providerId) {
 
   try {
     return (
-      parseConfiguredPositiveInt(db.getConfig?.('ollama_max_ctx'))
-      || parseConfiguredPositiveInt(db.getConfig?.('ollama_num_ctx'))
+      parseConfiguredPositiveInt(database.getConfig?.('ollama_max_ctx'))
+      || parseConfiguredPositiveInt(database.getConfig?.('ollama_num_ctx'))
       || PROVIDER_DEFAULTS.OLLAMA_MAX_CONTEXT
     );
   } catch (err) {
@@ -374,7 +375,7 @@ function createListProvidersHandler(resolveRequestId) {
     const { request, requestId } = resolveHandlerRequest(req, rawReq, context, resolveRequestId);
 
     try {
-      const providers = Array.isArray(db.listProviders?.()) ? db.listProviders() : [];
+      const providers = Array.isArray(providerRoutingCore.listProviders?.()) ? providerRoutingCore.listProviders() : [];
       const defaultProviderId = getV2ProviderDefaultProvider();
       const descriptors = providers
         .map((provider) => buildV2ProviderDescriptor(provider, defaultProviderId))
@@ -417,7 +418,7 @@ function createProviderDetailHandler(resolveRequestId) {
     }
 
     try {
-      const provider = db.getProvider?.(decodedProviderId);
+      const provider = providerRoutingCore.getProvider?.(decodedProviderId);
       if (!provider) {
         sendV2DiscoveryError(
           res,
@@ -473,7 +474,7 @@ function createProviderCapabilitiesHandler(resolveRequestId) {
     }
 
     try {
-      const provider = db.getProvider?.(decodedProviderId);
+      const provider = providerRoutingCore.getProvider?.(decodedProviderId);
       if (!provider) {
         sendV2DiscoveryError(
           res,

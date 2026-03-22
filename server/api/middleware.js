@@ -1,7 +1,7 @@
 'use strict';
 const logger = require('../logger').child({ component: 'middleware' });
 
-const db = require('../database');
+const database = require('../database');
 const serverConfig = require('../config');
 const { RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS, RATE_LIMIT_CLEANUP_MS } = require('../constants');
 
@@ -122,7 +122,7 @@ function createRateLimiter(maxRequests, windowMs) {
 
 function getRateLimit(configDb) {
   try {
-    const sourceDb = configDb || db;
+    const sourceDb = configDb || database;
     const limit = sourceDb?.getConfig ? sourceDb.getConfig('api_rate_limit') : null;
     return limit ? parseInt(limit, 10) : DEFAULT_RATE_LIMIT;
   } catch (err) {

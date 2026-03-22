@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const db = require('../database');
+const inboundWebhooks = require('../db/inbound-webhooks');
 const { handleToolCall } = require('../tools');
 const { sendJson } = require('./middleware');
 
@@ -99,7 +99,7 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
   // Look up webhook by name
   let webhook;
   try {
-    webhook = db.getInboundWebhook(webhookName);
+    webhook = inboundWebhooks.getInboundWebhook(webhookName);
   } catch (_err) {
     void _err;
     sendJson(res, { error: 'Internal error' }, 500, req);
@@ -162,7 +162,7 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
   // Extract delivery ID from standard webhook headers
   const deliveryId = req.headers['x-webhook-delivery'] || req.headers['x-hub-delivery'] || req.headers['x-github-delivery'];
   if (deliveryId) {
-    const existing = db.checkDeliveryExists(deliveryId);
+    const existing = inboundWebhooks.checkDeliveryExists(deliveryId);
     if (existing) {
       sendJson(res, { success: true, message: 'Duplicate delivery ignored', task_id: existing.task_id, delivery_id: deliveryId }, 200, req);
       return;
@@ -239,12 +239,12 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
   const taskId = result.__subscribe_task_id || null;
 
   if (deliveryId) {
-    db.recordDelivery(deliveryId, webhookName, taskId);
+    inboundWebhooks.recordDelivery(deliveryId, webhookName, taskId);
   }
 
   // Record trigger
   try {
-    db.recordWebhookTrigger(webhookName);
+    inboundWebhooks.recordWebhookTrigger(webhookName);
   } catch {
     // Non-fatal — task was already created
   }

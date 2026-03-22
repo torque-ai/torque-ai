@@ -1,6 +1,6 @@
 'use strict';
 
-const db = require('../database');
+const database = require('../database');
 const { handleToolCall } = require('../tools');
 const { sendJson } = require('./middleware');
 
@@ -13,8 +13,8 @@ const serverStartTime = Date.now();
  * @returns {{ initialized: boolean, accessible: boolean, status: string, reason?: string }}
  */
 function probeDatabase() {
-  const hasDbInstance = typeof db.getDbInstance === 'function' && Boolean(db.getDbInstance());
-  const isDbClosed = typeof db.isDbClosed === 'function' ? db.isDbClosed() : false;
+  const hasDbInstance = typeof database.getDbInstance === 'function' && Boolean(database.getDbInstance());
+  const isDbClosed = typeof database.isDbClosed === 'function' ? database.isDbClosed() : false;
   const initialized = hasDbInstance && !isDbClosed;
 
   if (!initialized) {
@@ -28,7 +28,7 @@ function probeDatabase() {
 
   try {
     // Simple query to prove DB is reachable.
-    db.countTasks({ status: 'running' });
+    database.countTasks({ status: 'running' });
     return { initialized: true, accessible: true, status: 'connected' };
   } catch (err) {
     return {
@@ -71,7 +71,7 @@ async function handleHealthz(req, res, _context = {}) {
   if (databaseState.accessible) {
     try {
       // Batch both counts into a single grouped query to avoid two DB round-trips
-      const counts = db.countTasksByStatus();
+      const counts = database.countTasksByStatus();
       queueDepth = counts.queued;
       runningCount = counts.running;
     } catch {

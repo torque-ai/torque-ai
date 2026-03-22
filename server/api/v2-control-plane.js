@@ -8,7 +8,7 @@
  */
 
 const { randomUUID } = require('crypto');
-const db = require('../database');
+const costTracking = require('../db/cost-tracking');
 const { sendJson } = require('./middleware');
 const { safeJsonParse } = require('../utils/json');
 
@@ -122,8 +122,8 @@ function buildWorkflowDetailResponse(workflow, tasks) {
   if (!base) return null;
 
   const taskList = Array.isArray(tasks) ? tasks : Object.values(tasks || {});
-  const cost = typeof db.getWorkflowCostSummary === 'function'
-    ? (db.getWorkflowCostSummary(base.id) || {
+  const cost = typeof costTracking.getWorkflowCostSummary === 'function'
+    ? (costTracking.getWorkflowCostSummary(base.id) || {
       total_cost_usd: 0,
       total_input_tokens: 0,
       total_output_tokens: 0,

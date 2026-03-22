@@ -1,7 +1,7 @@
 'use strict';
 const logger = require('../logger').child({ component: 'routes' });
 
-const db = require('../database');
+const providerRoutingCore = require('../db/provider-routing-core');
 const { validateInferenceRequest } = require('./v2-schemas');
 const { requestId, validateRequest } = require('./v2-middleware');
 
@@ -109,7 +109,7 @@ const routes = [
     middleware: buildV2Middleware({
       body: {
         validator: validateInferenceRequest,
-        options: () => ({ defaultProvider: db.getDefaultProvider?.() || null }),
+        options: () => ({ defaultProvider: providerRoutingCore.getDefaultProvider?.() || null }),
       },
     }),
   },

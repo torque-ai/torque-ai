@@ -10,7 +10,14 @@
 const logger = require('../logger').child({ component: 'v2-governance-handlers' });
 
 const crypto = require('crypto');
-const db = require('../database');
+const database = require('../database');
+const fileTracking = require('../db/file-tracking');
+const hostManagement = require('../db/host-management');
+const projectConfigCore = require('../db/project-config-core');
+const providerRoutingCore = require('../db/provider-routing-core');
+const schedulingAutomation = require('../db/scheduling-automation');
+const validationRules = require('../db/validation-rules');
+const webhooksStreaming = require('../db/webhooks-streaming');
 const { VALID_CONFIG_KEYS } = require('../db/config-keys');
 const { isSensitiveKey, redactValue, redactConfigObject } = require('../utils/sensitive-keys');
 const {
@@ -84,12 +91,12 @@ async function handleListApprovals(req, res) {
   const requestId = resolveRequestId(req);
   const query = req.query || {};
 
-  const pending = db.listPendingApprovals ? db.listPendingApprovals() : [];
+  const pending = schedulingAutomation.listPendingApprovals ? schedulingAutomation.listPendingApprovals() : [];
   const items = Array.isArray(pending) ? pending : [];
 
   if (query.include_history === 'true') {
     const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 200);
-    const history = db.getApprovalHistory ? db.getApprovalHistory(limit) : [];
+    const history = schedulingAutomation.getApprovalHistory ? schedulingAutomation.getApprovalHistory(limit) : [];
     return sendSuccess(res, requestId, {
       pending: items,
       history: Array.isArray(history) ? history : [],
@@ -114,13 +121,13 @@ async function handleApprovalDecision(req, res) {
     return sendError(res, requestId, 'validation_error', 'decision must be "approved" or "rejected"', 400, undefined, req);
   }
 
-  if (!db.decideApproval) {
+  if (!validationRules.decideApproval) {
     return sendError(res, requestId, 'not_implemented', 'Approval system not available', 501, {}, req);
   }
 
   const decidedBy = String(body.decided_by || 'v2-api').slice(0, 100).replace(/[^a-zA-Z0-9_\-@. ]/g, '');
 
-  const result = db.decideApproval(approvalId, decision, decidedBy);
+  const result = validationRules.decideApproval(approvalId, decision, decidedBy);
   if (!result) {
     return sendError(res, requestId, 'approval_not_found', `Approval not found: ${approvalId}`, 404, {}, req);
   }
@@ -136,7 +143,7 @@ async function handleApprovalDecision(req, res) {
 
 async function handleListSchedules(req, res) {
   const requestId = resolveRequestId(req);
-  const schedules = db.listScheduledTasks ? db.listScheduledTasks() : [];
+  const schedules = schedulingAutomation.listScheduledTasks ? schedulingAutomation.listScheduledTasks() : [];
   const items = Array.isArray(schedules) ? schedules : [];
   sendList(res, requestId, items, items.length, req);
 }
@@ -157,7 +164,7 @@ async function handleCreateSchedule(req, res) {
   }
 
   try {
-    const schedule = db.createCronScheduledTask(
+    const schedule = schedulingAutomation.createCronScheduledTask(
       name,
       body.cron_expression,
       body.task_description,
@@ -177,9 +184,9 @@ async function handleGetSchedule(req, res) {
   const requestId = resolveRequestId(req);
   const scheduleId = req.params?.schedule_id;
 
-  const schedule = db.getScheduledTask
-    ? db.getScheduledTask(scheduleId)
-    : (db.listScheduledTasks ? (db.listScheduledTasks() || []).find(s => String(s.id) === String(scheduleId)) : null);
+  const schedule = schedulingAutomation.getScheduledTask
+    ? schedulingAutomation.getScheduledTask(scheduleId)
+    : (schedulingAutomation.listScheduledTasks ? (schedulingAutomation.listScheduledTasks() || []).find(s => String(s.id) === String(scheduleId)) : null);
   if (!schedule) {
     return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
   }
@@ -195,7 +202,7 @@ async function handleToggleSchedule(req, res) {
   const enabled = body.enabled !== undefined ? body.enabled : true;
 
   try {
-    const result = db.toggleScheduledTask(scheduleId, enabled);
+    const result = schedulingAutomation.toggleScheduledTask(scheduleId, enabled);
     if (!result) {
       return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
     }
@@ -210,7 +217,7 @@ async function handleDeleteSchedule(req, res) {
   const scheduleId = req.params?.schedule_id;
 
   try {
-    const result = db.deleteScheduledTask(scheduleId);
+    const result = schedulingAutomation.deleteScheduledTask(scheduleId);
     if (!result) {
       return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
     }
@@ -367,8 +374,8 @@ async function handleListPlanProjects(req, res) {
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 100);
 
   try {
-    const projects = db.listPlanProjects
-      ? db.listPlanProjects({ status: query.status, limit })
+    const projects = projectConfigCore.listPlanProjects
+      ? projectConfigCore.listPlanProjects({ status: query.status, limit })
       : [];
 
     const items = (Array.isArray(projects) ? projects : []).map(p => ({
@@ -388,12 +395,12 @@ async function handleGetPlanProject(req, res) {
   const requestId = resolveRequestId(req);
   const projectId = req.params?.project_id;
 
-  const project = db.getPlanProject ? db.getPlanProject(projectId) : null;
+  const project = projectConfigCore.getPlanProject ? projectConfigCore.getPlanProject(projectId) : null;
   if (!project) {
     return sendError(res, requestId, 'project_not_found', `Plan project not found: ${projectId}`, 404, {}, req);
   }
 
-  const tasks = db.getPlanProjectTasks ? db.getPlanProjectTasks(projectId) : [];
+  const tasks = projectConfigCore.getPlanProjectTasks ? projectConfigCore.getPlanProjectTasks(projectId) : [];
 
   sendSuccess(res, requestId, {
     ...project,
@@ -413,7 +420,7 @@ async function handlePlanProjectAction(req, res) {
     return sendError(res, requestId, 'validation_error', `Invalid action: ${action}. Must be one of: pause, resume, retry`, 400, undefined, req);
   }
 
-  const project = db.getPlanProject ? db.getPlanProject(projectId) : null;
+  const project = projectConfigCore.getPlanProject ? projectConfigCore.getPlanProject(projectId) : null;
   if (!project) {
     return sendError(res, requestId, 'project_not_found', `Plan project not found: ${projectId}`, 404, {}, req);
   }
@@ -437,7 +444,7 @@ async function handleDeletePlanProject(req, res) {
   const requestId = resolveRequestId(req);
   const projectId = req.params?.project_id;
 
-  const project = db.getPlanProject ? db.getPlanProject(projectId) : null;
+  const project = projectConfigCore.getPlanProject ? projectConfigCore.getPlanProject(projectId) : null;
   if (!project) {
     return sendError(res, requestId, 'project_not_found', `Plan project not found: ${projectId}`, 404, {}, req);
   }
@@ -445,14 +452,14 @@ async function handleDeletePlanProject(req, res) {
   try {
     // Cancel running tasks
     if (_taskManager) {
-      const tasks = db.getPlanProjectTasks ? db.getPlanProjectTasks(projectId) : [];
+      const tasks = projectConfigCore.getPlanProjectTasks ? projectConfigCore.getPlanProjectTasks(projectId) : [];
       for (const task of tasks) {
         if (['queued', 'running', 'waiting'].includes(task.status)) {
           try {
             _taskManager.cancelTask(task.task_id, 'Plan project deleted via v2 API');
           } catch (err) {
             logger.debug("task handler error", { err: err.message });
-            db.updateTaskStatus(task.task_id, 'cancelled', {
+            database.updateTaskStatus(task.task_id, 'cancelled', {
               error_output: 'Plan project deleted',
             });
           }
@@ -460,8 +467,8 @@ async function handleDeletePlanProject(req, res) {
       }
     }
 
-    if (db.deletePlanProject) {
-      db.deletePlanProject(projectId);
+    if (projectConfigCore.deletePlanProject) {
+      projectConfigCore.deletePlanProject(projectId);
     }
 
     sendSuccess(res, requestId, {
@@ -528,8 +535,8 @@ async function handleListBenchmarks(req, res) {
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 10, 1), 1000);
 
   try {
-    const results = db.getBenchmarkResults ? db.getBenchmarkResults(hostId, limit) : [];
-    const stats = db.getBenchmarkStats ? db.getBenchmarkStats(hostId) : {};
+    const results = hostManagement.getBenchmarkResults ? hostManagement.getBenchmarkResults(hostId, limit) : [];
+    const stats = hostManagement.getBenchmarkStats ? hostManagement.getBenchmarkStats(hostId) : {};
 
     sendSuccess(res, requestId, {
       host_id: hostId,
@@ -551,8 +558,8 @@ async function handleApplyBenchmark(req, res) {
   }
 
   try {
-    const result = db.applyBenchmarkResults
-      ? db.applyBenchmarkResults(hostId, body.model)
+    const result = hostManagement.applyBenchmarkResults
+      ? hostManagement.applyBenchmarkResults(hostId, body.model)
       : {};
     sendSuccess(res, requestId, result || {}, 200, req);
   } catch (err) {
@@ -564,7 +571,7 @@ async function handleListProjectTuning(req, res) {
   const requestId = resolveRequestId(req);
 
   try {
-    const tunings = db.listProjectTuning ? db.listProjectTuning() : [];
+    const tunings = hostManagement.listProjectTuning ? hostManagement.listProjectTuning() : [];
     const items = Array.isArray(tunings) ? tunings : [];
     sendList(res, requestId, items, items.length, req);
   } catch (err) {
@@ -585,7 +592,7 @@ async function handleCreateProjectTuning(req, res) {
   }
 
   try {
-    db.setProjectTuning(projectPath, body.settings, body.description);
+    hostManagement.setProjectTuning(projectPath, body.settings, body.description);
     sendSuccess(res, requestId, {
       project_path: projectPath,
       saved: true,
@@ -605,7 +612,7 @@ async function handleDeleteProjectTuning(req, res) {
 
   try {
     const decoded = decodeURIComponent(projectPath);
-    db.deleteProjectTuning(decoded);
+    hostManagement.deleteProjectTuning(decoded);
     sendSuccess(res, requestId, { deleted: true, project_path: decoded }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -632,9 +639,9 @@ function getProviderTimeSeries(providerId, days) {
       to_date: nextDateStr,
     };
 
-    const total = db.countTasks ? db.countTasks(baseFilters) : 0;
-    const completed = db.countTasks ? db.countTasks({ ...baseFilters, status: 'completed' }) : 0;
-    const failed = db.countTasks ? db.countTasks({ ...baseFilters, status: 'failed' }) : 0;
+    const total = database.countTasks ? database.countTasks(baseFilters) : 0;
+    const completed = database.countTasks ? database.countTasks({ ...baseFilters, status: 'completed' }) : 0;
+    const failed = database.countTasks ? database.countTasks({ ...baseFilters, status: 'failed' }) : 0;
 
     series.push({ date: dateStr, total, completed, failed });
   }
@@ -645,10 +652,10 @@ function getProviderTimeSeries(providerId, days) {
 async function handleListProviders(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    const providers = db.listProviders ? db.listProviders() : [];
+    const providers = providerRoutingCore.listProviders ? providerRoutingCore.listProviders() : [];
     // Enrich each provider with aggregated stats
     const enriched = providers.map(p => {
-      const rawStats = db.getProviderStats ? db.getProviderStats(p.provider) : [];
+      const rawStats = fileTracking.getProviderStats ? fileTracking.getProviderStats(p.provider) : [];
       const statsList = Array.isArray(rawStats) ? rawStats : [];
       // Aggregate per-task-type stats into totals
       const total_tasks = statsList.reduce((s, r) => s + (r.total_tasks ?? 0), 0);
@@ -683,7 +690,7 @@ async function handleListProviders(req, res) {
       if (!p.enabled) {
         status = 'disabled';
       } else {
-        const isHealthy = db.isProviderHealthy ? db.isProviderHealthy(p.provider) : true;
+        const isHealthy = providerRoutingCore.isProviderHealthy ? providerRoutingCore.isProviderHealthy(p.provider) : true;
         if (total_tasks >= 3 && !isHealthy) {
           status = 'unavailable';
         } else if (failed_tasks > 0) {
@@ -712,7 +719,7 @@ async function handleProviderStats(req, res) {
   const days = Math.min(Math.max(parseInt(query.days, 10) || 7, 1), 90);
 
   try {
-    const stats = db.getProviderStats ? db.getProviderStats(providerId, days) : {};
+    const stats = fileTracking.getProviderStats ? fileTracking.getProviderStats(providerId, days) : {};
     const timeSeries = getProviderTimeSeries(providerId, days);
 
     sendSuccess(res, requestId, {
@@ -731,7 +738,7 @@ async function handleProviderToggle(req, res) {
   const providerId = req.params?.provider_id;
   const body = req.body || await parseBody(req);
 
-  const provider = db.getProvider ? db.getProvider(providerId) : null;
+  const provider = providerRoutingCore.getProvider ? providerRoutingCore.getProvider(providerId) : null;
   if (!provider) {
     return sendError(res, requestId, 'provider_not_found', `Provider not found: ${providerId}`, 404, {}, req);
   }
@@ -741,7 +748,7 @@ async function handleProviderToggle(req, res) {
     : !provider.enabled;
 
   try {
-    db.updateProvider(providerId, { enabled: enabled ? 1 : 0 });
+    providerRoutingCore.updateProvider(providerId, { enabled: enabled ? 1 : 0 });
     sendSuccess(res, requestId, {
       provider: providerId,
       enabled,
@@ -757,7 +764,7 @@ async function handleProviderTrends(req, res) {
   const days = Math.min(Math.max(parseInt(query.days, 10) || 7, 1), 90);
 
   try {
-    const providers = db.listProviders ? db.listProviders() : [];
+    const providers = providerRoutingCore.listProviders ? providerRoutingCore.listProviders() : [];
     const providerNames = providers.map(p => p.provider);
 
     const dates = [];
@@ -808,8 +815,8 @@ async function handleSystemStatus(req, res) {
                        heapPercent >= 80 ? 'warning' :
                        heapPercent >= 70 ? 'elevated' : 'healthy';
 
-  const runningTasks = db.countTasks ? db.countTasks({ status: 'running' }) : 0;
-  const queuedTasks = db.countTasks ? db.countTasks({ status: 'queued' }) : 0;
+  const runningTasks = database.countTasks ? database.countTasks({ status: 'running' }) : 0;
+  const queuedTasks = database.countTasks ? database.countTasks({ status: 'queued' }) : 0;
 
   let instanceId = null;
   if (_taskManager && _taskManager.getMcpInstanceId) {
@@ -819,7 +826,7 @@ async function handleSystemStatus(req, res) {
   // TDA-14: Surface resource gating state so callers see pressure and gating status
   let resourceGating = { enabled: false, pressure_level: 'unknown' };
   try {
-    const gatingEnabled = db.getConfig ? db.getConfig('resource_gating_enabled') === '1' : false;
+    const gatingEnabled = database.getConfig ? database.getConfig('resource_gating_enabled') === '1' : false;
     let pressureLevel = 'unknown';
     if (_taskManager && typeof _taskManager.getResourcePressureInfo === 'function') {
       const info = _taskManager.getResourcePressureInfo();
@@ -864,7 +871,7 @@ async function handleConfigureProvider(req, res) {
     return sendError(res, requestId, 'validation_error', 'provider_id is required', 400, {}, req);
   }
 
-  const provider = db.getProvider(providerId);
+  const provider = providerRoutingCore.getProvider(providerId);
   if (!provider) {
     return sendError(res, requestId, 'provider_not_found', `Provider not found: ${providerId}`, 404, {}, req);
   }
@@ -876,8 +883,8 @@ async function handleConfigureProvider(req, res) {
     if (body.max_concurrent !== undefined) updates.max_concurrent = body.max_concurrent;
     if (body.timeout_minutes !== undefined) updates.timeout_minutes = body.timeout_minutes;
 
-    db.updateProvider(providerId, updates);
-    const updated = db.getProvider(providerId);
+    providerRoutingCore.updateProvider(providerId, updates);
+    const updated = providerRoutingCore.getProvider(providerId);
 
     sendSuccess(res, requestId, {
       provider: providerId,
@@ -898,13 +905,13 @@ async function handleSetDefaultProvider(req, res) {
     return sendError(res, requestId, 'validation_error', 'provider is required', 400, {}, req);
   }
 
-  const providerConfig = db.getProvider(provider);
+  const providerConfig = providerRoutingCore.getProvider(provider);
   if (!providerConfig) {
     return sendError(res, requestId, 'provider_not_found', `Unknown provider: ${provider}`, 404, {}, req);
   }
 
   try {
-    db.setDefaultProvider(provider);
+    providerRoutingCore.setDefaultProvider(provider);
     sendSuccess(res, requestId, {
       provider,
       default: true,
@@ -990,13 +997,13 @@ async function handleGetConfig(req, res) {
     if (!VALID_CONFIG_KEYS.has(key)) {
       return sendError(res, requestId, 'validation_error', `Unknown config key: ${key}`, 400, {}, req);
     }
-    const value = db.getConfig(key);
+    const value = database.getConfig(key);
     // SECURITY: redact sensitive values in API response
     const safeValue = isSensitiveKey(key) ? redactValue(value) : value;
     return sendSuccess(res, requestId, { key, value: safeValue }, 200, req);
   }
 
-  const config = db.getAllConfig ? db.getAllConfig() : {};
+  const config = database.getAllConfig ? database.getAllConfig() : {};
   // SECURITY: redact all sensitive keys in full config response
   sendSuccess(res, requestId, redactConfigObject(config), 200, req);
 }
@@ -1021,8 +1028,8 @@ async function handleSetConfig(req, res) {
   }
 
   try {
-    db.setConfig(key, String(value));
-    const current = db.getConfig(key);
+    database.setConfig(key, String(value));
+    const current = database.getConfig(key);
     sendSuccess(res, requestId, { key, value: current }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -1066,7 +1073,7 @@ async function handleListWebhooks(req, res) {
       return sendError(res, requestId, 'operation_failed', msg, 400, {}, req);
     }
 
-    const webhooks = db.listWebhooks ? db.listWebhooks() : [];
+    const webhooks = webhooksStreaming.listWebhooks ? webhooksStreaming.listWebhooks() : [];
     sendList(res, requestId, webhooks, webhooks.length, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
