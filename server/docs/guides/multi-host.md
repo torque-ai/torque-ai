@@ -9,9 +9,9 @@ TORQUE MCP Server
     │
     ├── Local Ollama (localhost:11434)
     │
-    ├── Remote Host A (192.168.1.50:11434)
+    ├── Remote Host A (192.0.2.50:11434)
     │
-    └── Remote Host B (192.168.1.51:11434)
+    └── Remote Host B (192.0.2.51:11434)
 ```
 
 Each host runs its own Ollama instance with its own GPU and models. TORQUE selects the best host based on availability, model affinity, and capacity.
@@ -62,7 +62,7 @@ Ensure TCP port `11434` is open for inbound connections from your LAN.
 
 **Linux (ufw):**
 ```bash
-sudo ufw allow from 192.168.1.0/24 to any port 11434
+sudo ufw allow from 192.0.2.0/24 to any port 11434
 ```
 
 **Windows:**
@@ -83,13 +83,13 @@ ollama pull deepseek-coder-v2:16b
 ### 5. Register the Host in TORQUE
 
 ```
-add_ollama_host { name: "WorkStation", url: "http://192.168.1.50:11434" }
+add_ollama_host { name: "WorkStation", url: "http://192.0.2.50:11434" }
 ```
 
 Or via slash command:
 
 ```
-/torque-submit add host name=WorkStation url=http://192.168.1.50:11434
+/torque-submit add host name=WorkStation url=http://192.0.2.50:11434
 ```
 
 ## Host Management
@@ -259,7 +259,7 @@ get_discovery_status {}
 Scan your network for Ollama instances:
 
 ```
-scan_network_for_ollama { subnet: "192.168.1" }
+scan_network_for_ollama { subnet: "192.0.2" }
 ```
 
 ### Auto-Scan Configuration
@@ -270,7 +270,7 @@ Schedule periodic network scans:
 configure_auto_scan {
   enabled: true,
   interval_minutes: 30,
-  subnet: "192.168.1"
+  subnet: "192.0.2"
 }
 ```
 

@@ -138,7 +138,7 @@ Common issues and solutions for TORQUE.
 **Solutions:**
 
 1. Ensure the remote Ollama binds to `0.0.0.0` (not `127.0.0.1`)
-2. Verify the correct subnet: `scan_network_for_ollama { subnet: "192.168.1" }`
+2. Verify the correct subnet: `scan_network_for_ollama { subnet: "192.0.2" }`
 3. Check firewall on remote machines (TCP 11434 must be open)
 4. Try adding the host manually: `add_ollama_host { name: "Host", url: "http://IP:11434" }`
 
