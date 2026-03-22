@@ -255,10 +255,31 @@ function cleanupOldBackups(options = {}) {
   return deleted;
 }
 
+/**
+ * Factory function for DI container.
+ * @param {{ db: object, internals?: object }} deps
+ */
+function createBackupCore({ db: dbInstance, internals }) {
+  setDb(dbInstance);
+  if (internals) {
+    setInternals(internals);
+  }
+  return {
+    getDbInstance,
+    backupDatabase,
+    startBackupScheduler,
+    stopBackupScheduler,
+    restoreDatabase,
+    listBackups,
+    cleanupOldBackups,
+  };
+}
+
 module.exports = {
   setDb,
   getDbInstance,
   setInternals,
+  createBackupCore,
   backupDatabase,
   startBackupScheduler,
   stopBackupScheduler,

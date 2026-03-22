@@ -1190,8 +1190,59 @@ function listPausedTasks(options = {}) {
   return stmt.all(...params);
 }
 
+/**
+ * Factory function for DI container.
+ * @param {{ db: object }} deps
+ */
+function createWebhooksStreaming({ db: dbInstance }) {
+  setDb(dbInstance);
+  return {
+    createWebhook,
+    getWebhook,
+    setWebhookDeliveryExecutor,
+    listWebhooks,
+    updateWebhook,
+    deleteWebhook,
+    getWebhooksForEvent,
+    logWebhookDelivery,
+    getWebhookLogs,
+    getWebhookStats,
+    cleanupWebhookLogs,
+    enforceWebhookLogLimits,
+    cleanupStaleWebhookRetries,
+    createTaskStream,
+    getOrCreateTaskStream,
+    getStreamTaskId,
+    getPartialOutputBuffer,
+    clearPartialOutputBuffer,
+    addStreamChunk,
+    getStreamChunks,
+    getLatestStreamChunks,
+    getTaskLogs,
+    cleanupStreamData,
+    createEventSubscription,
+    pollSubscription,
+    pollSubscriptionAfterCursor,
+    recordTaskEvent,
+    getTaskEvents,
+    deleteEventSubscription,
+    cleanupEventData,
+    cleanupAnalytics,
+    cleanupCoordinationEvents,
+    enforceEventTableLimits,
+    saveTaskCheckpoint,
+    getTaskCheckpoint,
+    getTaskCheckpoints,
+    deleteTaskCheckpoints,
+    pauseTask,
+    clearPauseState,
+    listPausedTasks,
+  };
+}
+
 module.exports = {
   setDb,
+  createWebhooksStreaming,
   // Webhooks
   createWebhook,
   getWebhook,

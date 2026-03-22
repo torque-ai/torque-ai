@@ -758,9 +758,42 @@ function _mapFreeTierRow(row) {
   };
 }
 
+/**
+ * Factory function for DI container.
+ * @param {{ db: object, taskCore?: object }} deps
+ */
+function createCostTracking({ db: dbInstance, taskCore }) {
+  setDb(dbInstance);
+  setGetTask(taskCore?.getTask || (() => null));
+  return {
+    COST_PER_1K_TOKENS,
+    getModelPricing,
+    recordTokenUsage,
+    getTaskTokenUsage,
+    getTokenUsageSummary,
+    getCostByPeriod,
+    estimateCost,
+    recordCost,
+    checkBudgetBeforeSubmission,
+    updateBudgetSpend,
+    resetExpiredBudgets,
+    deleteBudget,
+    getCostSummary,
+    getBudgetStatus,
+    isBudgetExceeded,
+    setBudget,
+    getWorkflowCostSummary,
+    getCostForecast,
+    recordDailySnapshot,
+    getUsageHistory,
+    getProviderHistory,
+  };
+}
+
 module.exports = {
   setDb,
   setGetTask,
+  createCostTracking,
   COST_PER_1K_TOKENS,
   getModelPricing,
   // Token Usage

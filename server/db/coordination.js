@@ -1369,9 +1369,64 @@ function cleanupExpiredLocks() {
 // Exports
 // ============================================
 
+/**
+ * Factory function for DI container.
+ * @param {{ db: object, taskCore?: object }} deps
+ */
+function createCoordination({ db: dbInstance, taskCore }) {
+  setDb(dbInstance);
+  setGetTask(taskCore?.getTask || (() => null));
+  return {
+    registerAgent,
+    unregisterAgent,
+    updateAgentHeartbeat,
+    getAgent,
+    listAgents,
+    updateAgent,
+    checkOfflineAgents,
+    recordCoordinationEvent,
+    claimTask,
+    renewLease,
+    releaseTaskClaim,
+    getClaim,
+    listClaims,
+    expireStaleLeases,
+    getClaimableTasksForAgent,
+    createAgentGroup,
+    getAgentGroup,
+    listAgentGroups,
+    addAgentToGroup,
+    removeAgentFromGroup,
+    createRoutingRule,
+    listRoutingRules,
+    deleteRoutingRule,
+    matchRoutingRule,
+    routeTaskToAgent,
+    getAgentsByTarget,
+    getAgentsWithCapabilities,
+    selectAgentByStrategy,
+    stealTask,
+    triggerFailover,
+    getStealingHistory,
+    getFailoverConfig,
+    updateFailoverConfig,
+    recordAgentMetric,
+    getCoordinationDashboard,
+    acquireLock,
+    updateLockHeartbeat,
+    isLockHeartbeatStale,
+    forceReleaseStaleLock,
+    releaseLock,
+    checkLock,
+    getActiveInstances,
+    cleanupExpiredLocks,
+  };
+}
+
 module.exports = {
   setDb,
   setGetTask,
+  createCoordination,
 
   // Phase 1: Agent Lifecycle
   registerAgent,
