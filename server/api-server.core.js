@@ -3038,6 +3038,7 @@ async function handleRequest(req, res, context = {}) {
         }, 200, req);
       }
     } catch (err) {
+      const isV2Route = typeof route.path === 'string' ? route.path.startsWith('/api/v2/') : false;
       if (isV2Route) {
         const normalized = normalizeError(err, req);
         sendJson(res, normalized.body, normalized.status, req);
