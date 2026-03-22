@@ -20,7 +20,7 @@ The full tool list is available after calling `mcp__torque__unlock_all_tools` or
 
 ## Agents
 
-Codex reads agent definitions from `AGENTS.md` in the project root. TORQUE provides an `AGENTS.md` at `C:/Users/Werem/Projects/torque-public/AGENTS.md` with three agents:
+Codex reads agent definitions from `AGENTS.md` in the project root. TORQUE provides an `AGENTS.md` at the repository root with three agents:
 
 | Agent | Purpose | When to invoke |
 |-------|---------|---------------|
