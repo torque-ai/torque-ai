@@ -159,6 +159,22 @@ function getProviderRateLimits() {
   }
 }
 
+/**
+ * Factory: create a config-core instance with injected db.
+ * @param {{ db: object }} deps
+ */
+function createConfigCore({ db: dbInstance }) {
+  setDb(dbInstance);
+  return {
+    clearConfigCache,
+    getConfig,
+    setConfig,
+    setConfigDefault,
+    getAllConfig,
+    getProviderRateLimits,
+  };
+}
+
 module.exports = {
   setDb,
   clearConfigCache,
@@ -167,4 +183,5 @@ module.exports = {
   setConfigDefault,
   getAllConfig,
   getProviderRateLimits,
+  createConfigCore,
 };

@@ -149,6 +149,24 @@ function cleanupOldDeliveries(maxAgeDays = 7) {
   return db.prepare("DELETE FROM webhook_deliveries WHERE received_at < datetime('now', '-' || ? || ' days')").run(maxAgeDays);
 }
 
+/**
+ * Factory: create an inbound-webhooks instance with injected db.
+ * @param {{ db: object }} deps
+ */
+function createInboundWebhooks({ db: dbInstance }) {
+  setDb(dbInstance);
+  return {
+    createInboundWebhook,
+    getInboundWebhook,
+    listInboundWebhooks,
+    deleteInboundWebhook,
+    recordWebhookTrigger,
+    checkDeliveryExists,
+    recordDelivery,
+    cleanupOldDeliveries,
+  };
+}
+
 module.exports = {
   setDb,
   createInboundWebhook,
@@ -159,4 +177,5 @@ module.exports = {
   checkDeliveryExists,
   recordDelivery,
   cleanupOldDeliveries,
+  createInboundWebhooks,
 };

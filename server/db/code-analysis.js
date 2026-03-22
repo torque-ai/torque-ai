@@ -624,6 +624,32 @@ function getBuildErrorAnalysis(taskId) {
   return db.prepare('SELECT * FROM build_error_analysis WHERE task_id = ?').all(taskId);
 }
 
+/**
+ * Factory: create a code-analysis instance with injected db.
+ * @param {{ db: object }} deps
+ */
+function createCodeAnalysis({ db: dbInstance }) {
+  setDb(dbInstance);
+  return {
+    analyzeCodeComplexity,
+    getComplexityMetrics,
+    detectDeadCode,
+    getDeadCodeResults,
+    checkDocCoverage,
+    getDocCoverageResults,
+    estimateResourceUsage,
+    getResourceEstimates,
+    checkI18n,
+    getI18nResults,
+    checkAccessibility,
+    getAccessibilityResults,
+    verifyTypeReferences,
+    getTypeVerificationResults,
+    analyzeBuildOutput,
+    getBuildErrorAnalysis,
+  };
+}
+
 module.exports = {
   setDb,
   // Code Complexity
@@ -650,4 +676,5 @@ module.exports = {
   // Build Error Analysis
   analyzeBuildOutput,
   getBuildErrorAnalysis,
+  createCodeAnalysis,
 };

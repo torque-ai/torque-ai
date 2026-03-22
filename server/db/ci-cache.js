@@ -154,6 +154,24 @@ function listActiveCiWatches() {
   return _db.prepare('SELECT * FROM ci_watches WHERE active = 1 ORDER BY created_at DESC').all();
 }
 
+/**
+ * Factory: create a ci-cache instance with injected db.
+ * @param {{ db: object }} deps
+ */
+function createCiCache({ db: dbInstance }) {
+  setDb(dbInstance);
+  return {
+    upsertCiRunCache,
+    getCiRunCache,
+    listCiRunCache,
+    pruneCiRunCache,
+    upsertCiWatch,
+    getCiWatch,
+    deactivateCiWatch,
+    listActiveCiWatches,
+  };
+}
+
 module.exports = {
   setDb,
   upsertCiRunCache,
@@ -164,4 +182,5 @@ module.exports = {
   getCiWatch,
   deactivateCiWatch,
   listActiveCiWatches,
+  createCiCache,
 };
