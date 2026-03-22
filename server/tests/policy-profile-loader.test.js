@@ -237,7 +237,7 @@ describe('policy-engine/profile-loader', () => {
     );
   });
 
-  it('loadProfileSeed propagates JSON parse errors for malformed seed files', () => {
+  it('loadProfileSeed returns null and logs error for malformed seed files', () => {
     const seedPath = path.join(process.cwd(), 'fixtures', 'invalid.seed.json');
     const { loadProfileSeed, __mocks } = loadSubject({
       files: {
@@ -245,9 +245,12 @@ describe('policy-engine/profile-loader', () => {
       },
     });
 
-    expect(() => loadProfileSeed(seedPath)).toThrow(SyntaxError);
+    expect(loadProfileSeed(seedPath)).toBeNull();
     expect(__mocks.fs.existsSync).toHaveBeenCalledWith(seedPath);
     expect(__mocks.fs.readFileSync).toHaveBeenCalledWith(seedPath, 'utf8');
+    expect(__mocks.loggerInstance.error).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to parse profile seed'),
+    );
   });
 
   it('applyProfileSeed throws when the seed is missing a profile section', () => {

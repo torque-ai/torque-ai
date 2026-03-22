@@ -320,7 +320,7 @@ describe('db/migrations', () => {
 
       const count = subject.runMigrations(db);
 
-      expect(count).toBe(3);
+      expect(count).toBe(4);
       expect(getAppliedVersions(db)).toEqual(subject.MIGRATIONS.map((migration) => migration.version));
       expect(tableExists(db, 'project_tuning')).toBe(true);
       expect(tableExists(db, 'benchmark_results')).toBe(true);

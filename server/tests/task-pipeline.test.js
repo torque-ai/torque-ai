@@ -591,10 +591,10 @@ describe('handlers/task/pipeline', () => {
         timeout_minutes: 11,
         context: { pipeline_id: pipelineId, step_id: 'verify-step' },
       });
-      expect(mocks.taskManager.startTask).toHaveBeenCalledWith(taskId);
       expect(mocks.db.updatePipelineStatus).toHaveBeenNthCalledWith(2, pipelineId, 'running', {
         current_step: 1,
       });
+      expect(mocks.taskManager.startTask).toHaveBeenCalledWith(taskId);
       expect(mocks.db.updatePipelineStep).toHaveBeenCalledTimes(1);
       expect(mocks.db.updatePipelineStep).toHaveBeenCalledWith('verify-step', {
         task_id: taskId,

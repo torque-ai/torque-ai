@@ -631,6 +631,7 @@ describe('task-intelligence handlers', () => {
         'create',
         'alice',
         null,
+        null,
         JSON.stringify({
           task_id: 'task-12345678',
           comment_type: 'blocker',

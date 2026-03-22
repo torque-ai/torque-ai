@@ -322,7 +322,7 @@ describe('policy profile/hooks coverage suite', () => {
       );
     });
 
-    it('loadProfileSeed propagates malformed JSON parse errors', () => {
+    it('loadProfileSeed returns null and logs error for malformed JSON', () => {
       const seedPath = path.join(process.cwd(), 'fixtures', 'bad.seed.json');
       const { subject, mocks } = loadProfileLoader({
         files: {
@@ -330,8 +330,11 @@ describe('policy profile/hooks coverage suite', () => {
         },
       });
 
-      expect(() => subject.loadProfileSeed(seedPath)).toThrow(SyntaxError);
+      expect(subject.loadProfileSeed(seedPath)).toBeNull();
       expect(mocks.fs.readFileSync).toHaveBeenCalledWith(seedPath, 'utf8');
+      expect(mocks.logger.__child.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse profile seed'),
+      );
     });
 
     it('applyProfileSeed throws when the profile section is missing', () => {

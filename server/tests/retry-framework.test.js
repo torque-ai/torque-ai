@@ -249,7 +249,7 @@ describe('retry-framework', () => {
     );
   });
 
-  it('sets earlyExit when the task disappears before retry scheduling completes', () => {
+  it('falls through without earlyExit when the task disappears before retry scheduling completes', () => {
     scenario = createScenario({
       task: null,
       db: {
@@ -263,7 +263,7 @@ describe('retry-framework', () => {
 
     retryFramework.handleRetryLogic(scenario.ctx);
 
-    expect(scenario.ctx.earlyExit).toBe(true);
+    expect(scenario.ctx.earlyExit).toBeUndefined();
     expect(scenario.deps.db.updateTaskStatus).not.toHaveBeenCalled();
     expect(scenario.deps.processQueue).not.toHaveBeenCalled();
   });
