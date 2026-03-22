@@ -1397,7 +1397,7 @@ describe('api/v2-analytics-handlers', () => {
           created_at: '2026-03-10T01:00:00.000Z',
           provider: 'codex',
           status: 'completed',
-          description: 'wrapped',
+          task_description: 'wrapped',
           metadata: { smart_routing: true },
         }],
       });
