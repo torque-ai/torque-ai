@@ -836,9 +836,11 @@ function probeOllamaEndpoint(hostUrl, timeoutMs) {
  * @param {boolean} [options.hasExplicitProvider] - true if user specified a provider override
  * @returns {{ error: Object } | null}
  */
-function checkProviderAvailability(db, options = {}) {
+function checkProviderAvailability(_db, options = {}) {
   if (options.hasExplicitProvider) return null;
-  if (!db.isCodexExhausted() || db.hasHealthyOllamaHost()) return null;
+  const providerRoutingCore = require('../db/provider-routing-core');
+  const hostManagement = require('../db/host-management');
+  if (!providerRoutingCore.isCodexExhausted() || hostManagement.hasHealthyOllamaHost()) return null;
   return {
     error: makeError(ErrorCodes.NO_HOSTS_AVAILABLE,
       'No providers available: Codex quota exhausted and local LLM offline. ' +
@@ -852,11 +854,12 @@ function checkProviderAvailability(db, options = {}) {
  * @param {string} taskId - Task ID to look up
  * @returns {{ task: object }|{ error: object }} task object or error response
  */
-function requireTask(db, taskId) {
+function requireTask(_db, taskId) {
   if (!taskId) {
     return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required') };
   }
-  const task = db.getTask(taskId);
+  const taskCore = require('../db/task-core');
+  const task = taskCore.getTask(taskId);
   if (!task) {
     return { error: makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${taskId}`) };
   }
@@ -869,11 +872,12 @@ function requireTask(db, taskId) {
  * @param {string} workflowId - Workflow ID to look up
  * @returns {{ workflow: object }|{ error: object }} workflow object or error response
  */
-function requireWorkflow(db, workflowId) {
+function requireWorkflow(_db, workflowId) {
   if (!workflowId) {
     return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required') };
   }
-  const workflow = db.getWorkflow(workflowId);
+  const workflowEngine = require('../db/workflow-engine');
+  const workflow = workflowEngine.getWorkflow(workflowId);
   if (!workflow) {
     return { error: makeError(ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow not found: ${workflowId}`) };
   }
