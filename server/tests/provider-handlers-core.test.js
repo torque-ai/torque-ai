@@ -93,8 +93,8 @@ describe('Provider Handlers', () => {
       expect(getText(result)).toContain('claude-cli');
     });
 
-    it('returns stats for aider-ollama provider', async () => {
-      const result = await safeTool('provider_stats', { provider: 'aider-ollama' });
+    it('returns stats for hashline-ollama provider', async () => {
+      const result = await safeTool('provider_stats', { provider: 'hashline-ollama' });
       expect(result.isError).toBeFalsy();
     });
   });

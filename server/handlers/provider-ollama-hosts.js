@@ -95,9 +95,9 @@ async function handleListOllamaModels(args) {
 
           output += `\n**Total:** ${models.length} model(s)\n\n`;
           output += `### Usage\n`;
-          output += `Use these models with the \`ollama\` or \`aider-ollama\` providers:\n`;
+          output += `Use these models with the \`ollama\` or \`hashline-ollama\` providers:\n`;
           output += `- \`submit_task\` with \`provider: "ollama"\` and \`model: "<model_name>"\`\n`;
-          output += `- \`submit_task\` with \`provider: "aider-ollama"\` and \`model: "<model_name>"\``;
+          output += `- \`submit_task\` with \`provider: "hashline-ollama"\` and \`model: "<model_name>"\``;
 
           resolve({ content: [{ type: 'text', text: output }] });
         } catch (e) {
@@ -255,7 +255,7 @@ async function handleCheckOllamaHealth(args) {
 
   if (healthy) {
     output += `### Routing Behavior\n`;
-    output += `- Local LLM tasks will be routed to Ollama (\`ollama\` and \`aider-ollama\` providers)\n`;
+    output += `- Local LLM tasks will be routed to Ollama (\`ollama\` and \`hashline-ollama\` providers)\n`;
     output += `- Use \`smart_submit_task\` for automatic provider selection\n`;
   } else {
     output += `### Fallback Active\n`;

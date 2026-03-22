@@ -455,7 +455,7 @@ async function handleSmartSubmitTask(args) {
       // Determine model for subtasks - use balanced tier (14B) since subtasks are simpler
       const subtaskTier = hostManagement.getModelTierForComplexity('normal');
       const subtaskModel = model || subtaskTier.modelConfig;
-      const subtaskProvider = 'aider-ollama';
+      const subtaskProvider = 'hashline-ollama';
 
       let _prevNodeId = null;
       let prevTaskId = null;
@@ -616,7 +616,7 @@ async function handleSmartSubmitTask(args) {
           workflowEngine.createWorkflow({ id: workflowId, name: `JS Auto: ${task.substring(0, 55)}${task.length > 55 ? '...' : ''}`, description: `Auto-decomposed: ${largestFile} (${largestLineCount} lines, ${boundaries.length} fns, ${batches.length} batches)`, status: 'pending' });
 
           const subtaskModel = 'qwen2.5-coder:32b';
-          const subtaskProvider = 'aider-ollama';
+          const subtaskProvider = 'hashline-ollama';
           let prevTaskId = null;
           const createdTasks = [];
 
@@ -722,10 +722,10 @@ async function handleSmartSubmitTask(args) {
     }
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (local LLMs unreliable for tests)`);
   }
-  // Skip legacy modification routing for hashline-ollama — it uses hashline annotation
+  // Skip modification routing for hashline-ollama — it uses hashline annotation
   // (line-number-based edits) which handles any file size safely. The 250-line limit
-  // only applies to aider-ollama and raw ollama which use SEARCH/REPLACE or whole-file.
-  if (!taskModel && (selectedProvider === 'aider-ollama' || selectedProvider === 'ollama')) {
+  // only applies to raw ollama which uses whole-file output.
+  if (!taskModel && selectedProvider === 'ollama') {
     // Detect modification tasks for routing decisions.
     // R54/P75: codestral:22b best for greenfield (deepseek-r1 over-engineers).
     // P83/R67: codestral:22b CANNOT modify existing files — route modifications to Codex.
@@ -1217,7 +1217,7 @@ function handleAddRoutingRule(args) {
   // Validate provider exists
   const provider = providerRoutingCore.getProvider(target_provider);
   if (!provider) {
-    return makeError(ErrorCodes.INVALID_PARAM, `Unknown provider: ${target_provider}. Available: codex, claude-cli, ollama, aider-ollama`);
+    return makeError(ErrorCodes.INVALID_PARAM, `Unknown provider: ${target_provider}. Available: codex, claude-cli, ollama, hashline-ollama`);
   }
 
   // Validate rule_type

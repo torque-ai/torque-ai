@@ -89,7 +89,7 @@ function handleConfigureStallDetection(args) {
     if (provider === 'all') {
       database().setConfig('stall_threshold_codex', String(thresholdSec));
       database().setConfig('stall_threshold_ollama', String(thresholdSec));
-      database().setConfig('stall_threshold_aider', String(thresholdSec));
+      database().setConfig('stall_threshold_hashline', String(thresholdSec));
       database().setConfig('stall_threshold_claude', String(thresholdSec));
       changes.push(`Set stall threshold to ${thresholdSec}s for all providers`);
     } else {
@@ -119,7 +119,7 @@ function handleConfigureStallDetection(args) {
   const config = {
     codex: database().getConfig('stall_threshold_codex') || 'null (excluded)',
     ollama: database().getConfig('stall_threshold_ollama') || '120',
-    aider: database().getConfig('stall_threshold_aider') || '120',
+    hashline: database().getConfig('stall_threshold_hashline') || '120',
     claude: database().getConfig('stall_threshold_claude') || 'null (excluded)',
     auto_resubmit: database().getConfig('stall_auto_resubmit') === '1',
     max_attempts: database().getConfig('stall_recovery_max_attempts') || '3',
@@ -138,7 +138,7 @@ function handleConfigureStallDetection(args) {
   output += `| Provider | Threshold (s) |\n|----------|---------------|\n`;
   output += `| codex | ${config.codex} |\n`;
   output += `| ollama | ${config.ollama} |\n`;
-  output += `| aider-ollama | ${config.aider} |\n`;
+  output += `| hashline-ollama | ${config.hashline} |\n`;
   output += `| claude-cli | ${config.claude} |\n`;
   output += `\n**Auto-resubmit:** ${config.auto_resubmit ? 'Yes' : 'No'}\n`;
   output += `**Max attempts:** ${config.max_attempts}\n`;
@@ -563,7 +563,7 @@ function handleSetProjectDefaults(args) {
   const configUpdate = {};
 
   if (args.provider) {
-    const validProviders = ['codex', 'codex-spark', 'claude-cli', 'ollama', 'aider-ollama', 'hashline-ollama', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'anthropic', 'ollama-cloud'];
+    const validProviders = ['codex', 'codex-spark', 'claude-cli', 'ollama', 'hashline-ollama', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'anthropic', 'ollama-cloud'];
     if (!validProviders.includes(args.provider)) {
       return makeError(ErrorCodes.INVALID_PARAM, `Invalid provider "${args.provider}". Valid: ${validProviders.join(', ')}`);
     }

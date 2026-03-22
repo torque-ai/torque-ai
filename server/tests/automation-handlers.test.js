@@ -244,7 +244,7 @@ describe('automation-handlers', () => {
 
       expect(mocks.db.__stores.configStore.get('stall_threshold_codex')).toBe('180');
       expect(mocks.db.__stores.configStore.get('stall_threshold_ollama')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_threshold_aider')).toBe('180');
+      expect(mocks.db.__stores.configStore.get('stall_threshold_hashline')).toBe('180');
       expect(mocks.db.__stores.configStore.get('stall_threshold_claude')).toBe('180');
       expect(mocks.db.__stores.configStore.get('stall_auto_resubmit')).toBe('1');
       expect(mocks.db.__stores.configStore.get('stall_recovery_max_attempts')).toBe('4');

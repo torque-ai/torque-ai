@@ -484,7 +484,7 @@ describe('automation-handlers main unit suite', () => {
 
       expect(mocks.db.__stores.configStore.get('stall_threshold_codex')).toBe('180');
       expect(mocks.db.__stores.configStore.get('stall_threshold_ollama')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_threshold_aider')).toBe('180');
+      expect(mocks.db.__stores.configStore.get('stall_threshold_hashline')).toBe('180');
       expect(mocks.db.__stores.configStore.get('stall_threshold_claude')).toBe('180');
       expect(mocks.db.__stores.configStore.get('stall_auto_resubmit')).toBe('1');
       expect(mocks.db.__stores.configStore.get('stall_recovery_max_attempts')).toBe('4');
@@ -501,7 +501,7 @@ describe('automation-handlers main unit suite', () => {
         config: {
           stall_threshold_codex: '240',
           stall_threshold_ollama: '120',
-          stall_threshold_aider: '90',
+          stall_threshold_hashline: '90',
           stall_threshold_claude: 'null (excluded)',
           stall_auto_resubmit: '0',
           stall_recovery_max_attempts: '2',

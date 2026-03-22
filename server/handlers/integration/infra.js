@@ -833,7 +833,7 @@ function handleFullProjectAudit(args) {
     try {
       const config = providerRoutingCore.getProvider(name);
       if (config && config.enabled) {
-        const isLocal = ['ollama', 'hashline-ollama', 'aider-ollama'].includes(name);
+        const isLocal = ['ollama', 'hashline-ollama'].includes(name);
         const budget = isLocal ? Infinity : (PROVIDER_CONTEXT_BUDGETS[name] || 96000);
         enabledProviders.push({ name, budget, isLocal, tasks: [] });
       }

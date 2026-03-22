@@ -518,23 +518,6 @@ const tools = [
           type: 'number',
           description: 'Random seed for reproducibility. -1 for random.'
         },
-        aider_edit_format: {
-          type: 'string',
-          enum: ['whole', 'diff', 'udiff'],
-          description: 'Aider edit format. whole=reliable, diff=efficient for large files'
-        },
-        aider_map_tokens: {
-          type: 'number',
-          description: 'Aider repo context tokens (512-4096). Higher = better repo understanding.'
-        },
-        aider_auto_commits: {
-          type: 'boolean',
-          description: 'Whether Aider should auto-commit changes'
-        },
-        aider_subtree_only: {
-          type: 'boolean',
-          description: 'Only scan current directory (faster for large repos). Default: true'
-        },
         host: {
           type: 'string',
           description: 'Ollama host URL (e.g., http://localhost:11434 or http://172.26.176.1:11434 for WSL2)'
@@ -675,7 +658,7 @@ const tools = [
       properties: {
         provider: {
           type: 'string',
-          description: 'Provider to view template for (aider-ollama, claude-cli, codex). Omit to see all.'
+          description: 'Provider to view template for (hashline-ollama, claude-cli, codex). Omit to see all.'
         }
       }
     }
@@ -688,7 +671,7 @@ const tools = [
       properties: {
         provider: {
           type: 'string',
-          description: 'Provider (aider-ollama, claude-cli, codex)'
+          description: 'Provider (hashline-ollama, claude-cli, codex)'
         },
         model: {
           type: 'string',
@@ -972,11 +955,6 @@ const tools = [
         mirostat_tau: { type: 'number', description: 'Mirostat target entropy' },
         mirostat_eta: { type: 'number', description: 'Mirostat learning rate' },
         seed: { type: 'number', description: 'Random seed (-1=random)' },
-        // Aider params
-        aider_edit_format: { type: 'string', enum: ['whole', 'diff', 'udiff'], description: 'Aider edit format' },
-        aider_map_tokens: { type: 'number', description: 'Aider repo context tokens' },
-        aider_auto_commits: { type: 'boolean', description: 'Aider auto-commit' },
-        aider_subtree_only: { type: 'boolean', description: 'Aider subtree-only scan' },
         // Ollama host params
         host: { type: 'string', description: 'Ollama host URL' },
         auto_start_enabled: { type: 'boolean', description: 'Auto-start Ollama' },

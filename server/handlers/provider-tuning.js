@@ -28,12 +28,6 @@ function handleGetLlmTuning(_args) {
     ollama_mirostat_eta: serverConfig.get('ollama_mirostat_eta') || '0.1',
     ollama_seed: serverConfig.get('ollama_seed') || '-1',
     ollama_preset: serverConfig.get('ollama_preset') || 'code',
-    // Aider parameters
-    aider_edit_format: serverConfig.get('aider_edit_format') || 'diff',
-    aider_map_tokens: serverConfig.get('aider_map_tokens') || '1024',
-    aider_auto_commits: serverConfig.get('aider_auto_commits') || '1',
-    aider_subtree_only: serverConfig.get('aider_subtree_only') || '1',
-    aider_auto_switch_format: serverConfig.get('aider_auto_switch_format') || '1',
   };
 
   let output = `## LLM Tuning Parameters\n\n`;
@@ -52,15 +46,6 @@ function handleGetLlmTuning(_args) {
   output += `| mirostat_tau | ${tuning.ollama_mirostat_tau} | Target entropy |\n`;
   output += `| mirostat_eta | ${tuning.ollama_mirostat_eta} | Learning rate |\n`;
   output += `| seed | ${tuning.ollama_seed} | Random seed (-1=random) |\n\n`;
-
-  output += `### Aider (Code Editing)\n`;
-  output += `| Parameter | Value | Description |\n`;
-  output += `|-----------|-------|-------------|\n`;
-  output += `| edit_format | ${tuning.aider_edit_format} | diff=structured with self-correction, whole=full file |\n`;
-  output += `| map_tokens | ${tuning.aider_map_tokens} | Repo context tokens |\n`;
-  output += `| auto_commits | ${tuning.aider_auto_commits === '1' ? 'Yes' : 'No'} | Auto-commit changes |\n`;
-  output += `| subtree_only | ${tuning.aider_subtree_only === '1' ? 'Yes' : 'No'} | Scan only current dir |\n`;
-  output += `| auto_switch_format | ${tuning.aider_auto_switch_format !== '0' ? 'Yes' : 'No'} | Auto diff→whole on retry/small files |\n\n`;
 
   output += `### Available Presets\n`;
   output += `| Preset | Temp | Top-K | Mirostat | Context | Use Case |\n`;
@@ -192,29 +177,6 @@ function handleSetLlmTuning(args) {
   if (args.seed !== undefined) {
     database.setConfig('ollama_seed', args.seed.toString());
     updates.push(`seed → ${args.seed === -1 ? 'random' : args.seed}`);
-  }
-
-  if (args.aider_edit_format !== undefined) {
-    database.setConfig('aider_edit_format', args.aider_edit_format);
-    updates.push(`aider_edit_format → ${args.aider_edit_format}`);
-  }
-
-  if (args.aider_map_tokens !== undefined) {
-    if (args.aider_map_tokens < 512 || args.aider_map_tokens > 4096) {
-      return makeError(ErrorCodes.INVALID_PARAM, 'aider_map_tokens must be between 512 and 4096');
-    }
-    database.setConfig('aider_map_tokens', args.aider_map_tokens.toString());
-    updates.push(`aider_map_tokens → ${args.aider_map_tokens}`);
-  }
-
-  if (args.aider_auto_commits !== undefined) {
-    database.setConfig('aider_auto_commits', args.aider_auto_commits ? '1' : '0');
-    updates.push(`aider_auto_commits → ${args.aider_auto_commits ? 'Yes' : 'No'}`);
-  }
-
-  if (args.aider_subtree_only !== undefined) {
-    database.setConfig('aider_subtree_only', args.aider_subtree_only ? '1' : '0');
-    updates.push(`aider_subtree_only → ${args.aider_subtree_only ? 'Yes' : 'No'}`);
   }
 
   // Ollama host and auto-start settings
@@ -624,7 +586,7 @@ function handleSetModelPrompt(args) {
  */
 function handleGetInstructionTemplates(args) {
   const taskManager = require('../task-manager');
-  const providers = ['aider-ollama', 'claude-cli', 'codex'];
+  const providers = ['hashline-ollama', 'claude-cli', 'codex'];
 
   if (args.provider) {
     // Get template for specific provider
@@ -677,7 +639,7 @@ function handleSetInstructionTemplate(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider and template are required');
   }
 
-  const validProviders = ['aider-ollama', 'claude-cli', 'codex'];
+  const validProviders = ['hashline-ollama', 'claude-cli', 'codex'];
   if (!validProviders.includes(provider)) {
     return makeError(ErrorCodes.INVALID_PARAM, `Invalid provider. Must be one of: ${validProviders.join(', ')}`);
   }

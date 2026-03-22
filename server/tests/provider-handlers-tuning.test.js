@@ -146,17 +146,6 @@ describe('Provider Handlers', () => {
       expect(result.isError).toBe(true);
     });
 
-    it('updates aider_edit_format', async () => {
-      const result = await safeTool('set_llm_tuning', { aider_edit_format: 'whole' });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('aider_edit_format');
-    });
-
-    it('rejects aider_map_tokens below minimum', async () => {
-      const result = await safeTool('set_llm_tuning', { aider_map_tokens: 100 });
-      expect(result.isError).toBe(true);
-    });
-
     it('updates host setting', async () => {
       const result = await safeTool('set_llm_tuning', { host: 'http://localhost:11434' });
       expect(result.isError).toBeFalsy();
@@ -401,8 +390,8 @@ describe('Provider Handlers', () => {
       expect(getText(result)).toContain('codex');
     });
 
-    it('returns template for aider-ollama', async () => {
-      const result = await safeTool('get_instruction_templates', { provider: 'aider-ollama' });
+    it('returns template for hashline-ollama', async () => {
+      const result = await safeTool('get_instruction_templates', { provider: 'hashline-ollama' });
       expect(result.isError).toBeFalsy();
     });
 
@@ -459,10 +448,10 @@ describe('Provider Handlers', () => {
       expect(getText(result)).toContain('placeholder');
     });
 
-    it('sets template for aider-ollama', async () => {
+    it('sets template for hashline-ollama', async () => {
       const result = await safeTool('set_instruction_template', {
-        provider: 'aider-ollama',
-        template: 'Aider: {TASK_DESCRIPTION}'
+        provider: 'hashline-ollama',
+        template: 'Hashline: {TASK_DESCRIPTION}'
       });
       expect(result.isError).toBeFalsy();
     });

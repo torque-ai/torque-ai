@@ -1633,7 +1633,7 @@ const tools = [
       properties: {
         provider: {
           type: 'string',
-          description: 'Filter by provider (e.g., aider-ollama, claude-cli)'
+          description: 'Filter by provider (e.g., hashline-ollama, claude-cli)'
         },
         enabled_only: {
           type: 'boolean',

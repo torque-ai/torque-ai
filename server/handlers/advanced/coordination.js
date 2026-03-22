@@ -508,7 +508,7 @@ function handleListRoutingRules(args) {
 
   // Show smart routing config
   const smartEnabled = serverConfig.isOptIn('smart_routing_enabled');
-  const defaultProvider = serverConfig.get('smart_routing_default_provider') || 'aider-ollama';
+  const defaultProvider = serverConfig.get('smart_routing_default_provider') || 'hashline-ollama';
   output += `**Smart Routing:** ${smartEnabled ? 'Enabled' : 'Disabled'}\n`;
   output += `**Default Provider:** ${defaultProvider}\n\n`;
 
