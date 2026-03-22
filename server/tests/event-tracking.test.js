@@ -28,23 +28,25 @@ function setup() {
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
 
+  const schedulingAutomation = require('../db/scheduling-automation');
+
   mod = require('../db/event-tracking');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
   mod.setGetTask((id) => db.getTask(id));
   mod.setDbFunctions({
     getConfig: db.getConfig,
-    getPipelineSteps: db.getPipelineSteps,
+    getPipelineSteps: schedulingAutomation.getPipelineSteps,
     getAllConfig: db.getAllConfig,
     createTask: db.createTask,
-    getTemplate: db.getTemplate,
-    saveTemplate: db.saveTemplate,
-    deleteTemplate: db.deleteTemplate,
-    getPipeline: db.getPipeline,
-    createPipeline: db.createPipeline,
-    addPipelineStep: db.addPipelineStep,
-    getScheduledTask: db.getScheduledTask,
-    deleteScheduledTask: db.deleteScheduledTask,
-    createScheduledTask: db.createScheduledTask,
+    getTemplate: schedulingAutomation.getTemplate,
+    saveTemplate: schedulingAutomation.saveTemplate,
+    deleteTemplate: schedulingAutomation.deleteTemplate,
+    getPipeline: schedulingAutomation.getPipeline,
+    createPipeline: schedulingAutomation.createPipeline,
+    addPipelineStep: schedulingAutomation.addPipelineStep,
+    getScheduledTask: schedulingAutomation.getScheduledTask,
+    deleteScheduledTask: schedulingAutomation.deleteScheduledTask,
+    createScheduledTask: schedulingAutomation.createScheduledTask,
   });
 }
 

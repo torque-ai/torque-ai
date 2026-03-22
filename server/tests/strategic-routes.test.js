@@ -9,6 +9,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const db = require('../database');
+const providerRoutingCore = require('../db/provider-routing-core');
+const fileTracking = require('../db/file-tracking');
 const strategic = require('../dashboard/routes/analytics');
 
 // ============================================
@@ -285,8 +287,8 @@ describe('strategic dashboard routes', () => {
     let isProviderHealthySpy;
 
     beforeEach(() => {
-      listProvidersSpy = vi.spyOn(db, 'listProviders').mockReturnValue(mockProviders);
-      getProviderStatsSpy = vi.spyOn(db, 'getProviderStats').mockImplementation((provider) => {
+      listProvidersSpy = vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue(mockProviders);
+      getProviderStatsSpy = vi.spyOn(fileTracking, 'getProviderStats').mockImplementation((provider) => {
         const statsMap = {
           codex: { total_tasks: 20, successful_tasks: 18, failed_tasks: 2, success_rate: 90, avg_duration_seconds: 45 },
           ollama: { total_tasks: 10, successful_tasks: 8, failed_tasks: 2, success_rate: 80, avg_duration_seconds: 120 },
@@ -295,7 +297,7 @@ describe('strategic dashboard routes', () => {
         };
         return statsMap[provider] || { total_tasks: 0, successful_tasks: 0, failed_tasks: 0, success_rate: 0, avg_duration_seconds: 0 };
       });
-      getProviderHealthSpy = vi.spyOn(db, 'getProviderHealth').mockImplementation((provider) => {
+      getProviderHealthSpy = vi.spyOn(providerRoutingCore, 'getProviderHealth').mockImplementation((provider) => {
         const healthMap = {
           codex: { successes: 18, failures: 1, failureRate: 0.05 },
           ollama: { successes: 6, failures: 4, failureRate: 0.4 },
@@ -304,7 +306,7 @@ describe('strategic dashboard routes', () => {
         };
         return healthMap[provider] || { successes: 0, failures: 0, failureRate: 0 };
       });
-      isProviderHealthySpy = vi.spyOn(db, 'isProviderHealthy').mockImplementation((provider) => {
+      isProviderHealthySpy = vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockImplementation((provider) => {
         const healthyMap = { codex: true, ollama: false, deepinfra: true, groq: true };
         return healthyMap[provider] !== undefined ? healthyMap[provider] : true;
       });
@@ -394,8 +396,8 @@ describe('strategic dashboard routes', () => {
 
     it('handles missing listProviders gracefully', () => {
       listProvidersSpy.mockRestore();
-      const origFn = db.listProviders;
-      db.listProviders = undefined;
+      const origFn = providerRoutingCore.listProviders;
+      providerRoutingCore.listProviders = undefined;
 
       const { res } = createMockRes();
       strategic.handleGetProviderHealth({}, res);
@@ -403,13 +405,13 @@ describe('strategic dashboard routes', () => {
 
       expect(data.providers).toEqual([]);
 
-      db.listProviders = origFn;
+      providerRoutingCore.listProviders = origFn;
     });
 
     it('handles missing getProviderStats gracefully', () => {
       getProviderStatsSpy.mockRestore();
-      const origFn = db.getProviderStats;
-      db.getProviderStats = undefined;
+      const origFn = fileTracking.getProviderStats;
+      fileTracking.getProviderStats = undefined;
 
       const { res } = createMockRes();
       strategic.handleGetProviderHealth({}, res);
@@ -420,13 +422,13 @@ describe('strategic dashboard routes', () => {
         expect(p.tasks_today).toBe(0);
       }
 
-      db.getProviderStats = origFn;
+      fileTracking.getProviderStats = origFn;
     });
 
     it('handles missing getProviderHealth gracefully', () => {
       getProviderHealthSpy.mockRestore();
-      const origFn = db.getProviderHealth;
-      db.getProviderHealth = undefined;
+      const origFn = providerRoutingCore.getProviderHealth;
+      providerRoutingCore.getProviderHealth = undefined;
 
       const { res } = createMockRes();
       strategic.handleGetProviderHealth({}, res);
@@ -434,7 +436,7 @@ describe('strategic dashboard routes', () => {
 
       expect(data.providers.length).toBe(4);
 
-      db.getProviderHealth = origFn;
+      providerRoutingCore.getProviderHealth = origFn;
     });
 
     it('includes successes and failures from 1h window', () => {

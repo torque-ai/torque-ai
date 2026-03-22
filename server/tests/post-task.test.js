@@ -7,6 +7,8 @@ const childProcess = require('child_process');
 let testDir;
 let origDataDir;
 let db;
+let projectConfigCore;
+let fileTracking;
 let mod;
 let mockExecFileSync;
 let mockSpawnSync;
@@ -31,17 +33,19 @@ function setup() {
   db = require('../database');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
+  projectConfigCore = require('../db/project-config-core');
+  fileTracking = require('../db/file-tracking');
 
-  saveBuildResultSpy = vi.fn((...args) => db.saveBuildResult(...args));
+  saveBuildResultSpy = vi.fn((...args) => fileTracking.saveBuildResult(...args));
 
   mod = require('../validation/post-task');
   mod.init({
     db: {
-      getProjectFromPath: (...args) => db.getProjectFromPath(...args),
-      getProjectConfig: (...args) => db.getProjectConfig(...args),
+      getProjectFromPath: (...args) => projectConfigCore.getProjectFromPath(...args),
+      getProjectConfig: (...args) => projectConfigCore.getProjectConfig(...args),
       saveBuildResult: (...args) => saveBuildResultSpy(...args),
       getTask: (...args) => db.getTask(...args),
-      getTaskFileChanges: (...args) => db.getTaskFileChanges(...args),
+      getTaskFileChanges: (...args) => fileTracking.getTaskFileChanges(...args),
     },
     getModifiedFiles: () => [],
     parseGitStatusLine: (line) => ({ file: line.trim(), status: 'M' }),
@@ -83,7 +87,7 @@ function writeFile(workingDir, relativePath, content) {
 
 function setProjectConfig(workingDir, config) {
   const project = path.basename(workingDir);
-  db.setProjectConfig(project, config);
+  projectConfigCore.setProjectConfig(project, config);
   return project;
 }
 
@@ -652,7 +656,7 @@ module.exports = { add, sub };
       const workingDir = makeWorkDir('rollback-dirty');
       const taskId = createTaskForDir(workingDir);
       writeFile(workingDir, 'src/a.js', 'console.log("a");\n');
-      db.recordFileChange(taskId, path.join(workingDir, 'src/a.js'), 'modified', {
+      fileTracking.recordFileChange(taskId, path.join(workingDir, 'src/a.js'), 'modified', {
         workingDirectory: workingDir,
       });
 
@@ -724,7 +728,7 @@ module.exports = { add, sub };
       const workingDir = makeWorkDir('scoped-rollback-untracked');
       const taskId = createTaskForDir(workingDir);
       writeFile(workingDir, 'src/new-file.js', 'module.exports = "keep";\n');
-      db.recordFileChange(taskId, path.join(workingDir, 'src/new-file.js'), 'created', {
+      fileTracking.recordFileChange(taskId, path.join(workingDir, 'src/new-file.js'), 'created', {
         workingDirectory: workingDir,
       });
 

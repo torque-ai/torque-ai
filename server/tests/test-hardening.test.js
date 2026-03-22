@@ -5,6 +5,8 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const db = require('../database');
+const eventTracking = require('../db/event-tracking');
+const projectConfigCore = require('../db/project-config-core');
 const { getPeekFirstSliceCanonicalEntry } = require('../contracts/peek');
 const peekHandlers = require('../handlers/peek-handlers');
 const tools = require('../tools');
@@ -177,17 +179,17 @@ function listTasksWithRetry(query) {
 describe('test-hardening parity', () => {
   describe('JSON parsing', () => {
     it('safeJsonParse handles null', () => {
-      const result = db.safeJsonParse(null, 'default');
+      const result = eventTracking.safeJsonParse(null, 'default');
       expect(result).toBe('default');
     });
 
     it('safeJsonParse handles invalid JSON', () => {
-      const result = db.safeJsonParse('not valid json', []);
+      const result = eventTracking.safeJsonParse('not valid json', []);
       expect(Array.isArray(result)).toBe(true);
     });
 
     it('safeJsonParse parses valid JSON', () => {
-      const result = db.safeJsonParse('{"key":"value"}', null);
+      const result = eventTracking.safeJsonParse('{"key":"value"}', null);
       expect(result.key).toBe('value');
     });
   });
@@ -375,7 +377,7 @@ describe('test-hardening parity', () => {
     });
 
     it('cleanupHealthHistory accepts valid day value', async () => {
-      const result = await runWithDbRetry(() => db.cleanupHealthHistory(7));
+      const result = await runWithDbRetry(() => projectConfigCore.cleanupHealthHistory(7));
       expect(typeof result).toBe('number');
     });
 

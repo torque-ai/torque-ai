@@ -12,6 +12,7 @@
 const mcpSse = require('../mcp-sse');
 const eventDispatch = require('../hooks/event-dispatch');
 const db = require('../database');
+const webhooksStreaming = require('../db/webhooks-streaming');
 
 // Stop the retention policy timer started at module load
 eventDispatch.stopRetentionPolicy();
@@ -1052,8 +1053,7 @@ describe('quick_setup_notifications handler', () => {
     vi.spyOn(db, 'getDbInstance').mockReturnValue(null);
 
     // Mock createWebhook to prevent actual DB writes
-    if (!db.createWebhook) db.createWebhook = vi.fn();
-    vi.spyOn(db, 'createWebhook').mockImplementation((args) => ({
+    vi.spyOn(webhooksStreaming, 'createWebhook').mockImplementation((args) => ({
       id: args.id || 'wh-test-1',
       name: args.name,
       url: args.url,

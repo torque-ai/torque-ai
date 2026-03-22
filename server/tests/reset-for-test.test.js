@@ -10,6 +10,8 @@ const os = require('os');
 const fs = require('fs');
 
 let db;
+let hostManagement;
+let workflowEngine;
 let templateBuffer;
 
 beforeAll(() => {
@@ -21,12 +23,14 @@ beforeAll(() => {
   // Clear module cache for fresh init
   db = require('../database');
   db.init();
+  hostManagement = require('../db/host-management');
+  workflowEngine = require('../db/workflow-engine');
 
   // Remove seeded hosts
   try {
-    const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];
+    const hosts = hostManagement.listOllamaHosts ? hostManagement.listOllamaHosts() : [];
     for (const host of hosts) {
-      if (db.removeOllamaHost) db.removeOllamaHost(host.id);
+      if (hostManagement.removeOllamaHost) hostManagement.removeOllamaHost(host.id);
     }
   } catch { /* ok */ }
 
@@ -80,7 +84,7 @@ describe('db.resetForTest(buffer)', () => {
     db.resetForTest(templateBuffer);
 
     // Sub-module functions should work through the re-injected DB
-    const hosts = db.listOllamaHosts();
+    const hosts = hostManagement.listOllamaHosts();
     expect(Array.isArray(hosts)).toBe(true);
   });
 
@@ -147,7 +151,7 @@ describe('db.resetForTest(buffer)', () => {
     db.resetForTest(templateBuffer);
 
     // Workflow functions should work through the re-injected DB
-    const workflows = db.listWorkflows({ limit: 10 });
+    const workflows = workflowEngine.listWorkflows({ limit: 10 });
     expect(workflows).toBeTruthy();
   });
 });

@@ -4,6 +4,9 @@
 const { EventEmitter } = require('events');
 
 const db = require('../database');
+const taskCore = require('../db/task-core');
+const hostManagement = require('../db/host-management');
+const coordination = require('../db/coordination');
 const taskManager = require('../task-manager');
 const utils = require('../dashboard/utils');
 const benchmarks = require('../dashboard/routes/admin');
@@ -191,40 +194,40 @@ describe('dashboard/routes/benchmarks', () => {
   });
 
   it('handleListBenchmarks trims query limit values above upper bound', () => {
-    vi.spyOn(db, 'getBenchmarkResults').mockReturnValue([]);
-    vi.spyOn(db, 'getBenchmarkStats').mockReturnValue({});
+    vi.spyOn(hostManagement, 'getBenchmarkResults').mockReturnValue([]);
+    vi.spyOn(hostManagement, 'getBenchmarkStats').mockReturnValue({});
     const res = createMockRes();
     benchmarks.handleListBenchmarks(null, res, { hostId: 'h1', limit: '50000' });
-    expect(db.getBenchmarkResults).toHaveBeenCalledWith('h1', 1000);
+    expect(hostManagement.getBenchmarkResults).toHaveBeenCalledWith('h1', 1000);
   });
 
   it('handleListBenchmarks clamps query limit below one to one', () => {
-    vi.spyOn(db, 'getBenchmarkResults').mockReturnValue([]);
-    vi.spyOn(db, 'getBenchmarkStats').mockReturnValue({});
+    vi.spyOn(hostManagement, 'getBenchmarkResults').mockReturnValue([]);
+    vi.spyOn(hostManagement, 'getBenchmarkStats').mockReturnValue({});
     const res = createMockRes();
     benchmarks.handleListBenchmarks(null, res, { hostId: 'h1', limit: '0' });
-    expect(db.getBenchmarkResults).toHaveBeenCalledWith('h1', 1);
+    expect(hostManagement.getBenchmarkResults).toHaveBeenCalledWith('h1', 1);
   });
 
   it('handleListBenchmarks defaults non-numeric limit to 10', () => {
-    vi.spyOn(db, 'getBenchmarkResults').mockReturnValue([]);
-    vi.spyOn(db, 'getBenchmarkStats').mockReturnValue({});
+    vi.spyOn(hostManagement, 'getBenchmarkResults').mockReturnValue([]);
+    vi.spyOn(hostManagement, 'getBenchmarkStats').mockReturnValue({});
     const res = createMockRes();
     benchmarks.handleListBenchmarks(null, res, { hostId: 'h1', limit: 'abc' });
-    expect(db.getBenchmarkResults).toHaveBeenCalledWith('h1', 10);
+    expect(hostManagement.getBenchmarkResults).toHaveBeenCalledWith('h1', 10);
   });
 
   it('handleListBenchmarks accepts integer-like and rounded float query values', () => {
-    vi.spyOn(db, 'getBenchmarkResults').mockReturnValue([]);
-    vi.spyOn(db, 'getBenchmarkStats').mockReturnValue({});
+    vi.spyOn(hostManagement, 'getBenchmarkResults').mockReturnValue([]);
+    vi.spyOn(hostManagement, 'getBenchmarkStats').mockReturnValue({});
     const res = createMockRes();
     benchmarks.handleListBenchmarks(null, res, { hostId: 'h1', limit: '10.9' });
-    expect(db.getBenchmarkResults).toHaveBeenCalledWith('h1', 10);
+    expect(hostManagement.getBenchmarkResults).toHaveBeenCalledWith('h1', 10);
   });
 
   it('handleListBenchmarks responds with results and stats objects', () => {
-    vi.spyOn(db, 'getBenchmarkResults').mockReturnValue([{ id: 'b1' }]);
-    vi.spyOn(db, 'getBenchmarkStats').mockReturnValue({ total: 1 });
+    vi.spyOn(hostManagement, 'getBenchmarkResults').mockReturnValue([{ id: 'b1' }]);
+    vi.spyOn(hostManagement, 'getBenchmarkStats').mockReturnValue({ total: 1 });
     const res = createMockRes();
     benchmarks.handleListBenchmarks(null, res, { hostId: 'h1', limit: '1' });
     const body = parseJson(res.body);
@@ -241,20 +244,20 @@ describe('dashboard/routes/benchmarks', () => {
   });
 
   it('handleApplyBenchmark forwards hostId and model to db', async () => {
-    vi.spyOn(db, 'applyBenchmarkResults').mockReturnValue({ ok: true });
+    vi.spyOn(hostManagement, 'applyBenchmarkResults').mockReturnValue({ ok: true });
     const req = createMockReq({ body: { hostId: 'h1', model: 'llama' } });
     const res = createMockRes();
     await benchmarks.handleApplyBenchmark(req, res);
-    expect(db.applyBenchmarkResults).toHaveBeenCalledWith('h1', 'llama');
+    expect(hostManagement.applyBenchmarkResults).toHaveBeenCalledWith('h1', 'llama');
     expect(parseJson(res.body)).toEqual({ ok: true });
   });
 
   it('handleApplyBenchmark accepts optional model field as undefined', async () => {
-    vi.spyOn(db, 'applyBenchmarkResults').mockReturnValue({ applied: true });
+    vi.spyOn(hostManagement, 'applyBenchmarkResults').mockReturnValue({ applied: true });
     const req = createMockReq({ body: { hostId: 'h1' } });
     const res = createMockRes();
     await benchmarks.handleApplyBenchmark(req, res);
-    expect(db.applyBenchmarkResults).toHaveBeenCalledWith('h1', undefined);
+    expect(hostManagement.applyBenchmarkResults).toHaveBeenCalledWith('h1', undefined);
     expect(parseJson(res.body)).toEqual({ applied: true });
   });
 
@@ -279,7 +282,7 @@ describe('dashboard/routes/system', () => {
     });
     vi.spyOn(process, 'uptime').mockReturnValue(uptimeSeconds);
     vi.spyOn(process, 'version', 'get').mockReturnValue('v99.0');
-    vi.spyOn(db, 'countTasks').mockImplementation(({ status }) => {
+    vi.spyOn(taskCore, 'countTasks').mockImplementation(({ status }) => {
       if (status === 'running') return running;
       if (status === 'queued') return queued;
       return 0;
@@ -354,7 +357,7 @@ describe('dashboard/routes/system', () => {
     vi.spyOn(process, 'uptime').mockReturnValue(100);
     vi.spyOn(process, 'version', 'get').mockReturnValue('v99.0');
     vi.spyOn(taskManager, 'getMcpInstanceId').mockReturnValue('instance-err');
-    vi.spyOn(db, 'countTasks').mockImplementation(() => {
+    vi.spyOn(taskCore, 'countTasks').mockImplementation(() => {
       throw new Error('count failed');
     });
     const res = createMockRes();
@@ -366,7 +369,7 @@ describe('dashboard/routes/system', () => {
     const now = new Date('2026-01-01T00:00:00.000Z').getTime();
     vi.spyOn(Date, 'now').mockReturnValue(now);
     vi.spyOn(taskManager, 'getMcpInstanceId').mockReturnValue('instance-current-abcdef');
-    vi.spyOn(db, 'getActiveInstances').mockReturnValue([
+    vi.spyOn(coordination, 'getActiveInstances').mockReturnValue([
       { instanceId: 'instance-current-abcdef', pid: 12, port: 1111, startedAt: new Date(now - 90 * 1000).toISOString() },
       { instanceId: 'instance-other', pid: 22, port: 2222, startedAt: new Date(now - 120 * 1000).toISOString() },
     ]);
@@ -385,7 +388,7 @@ describe('dashboard/routes/system', () => {
 
   it('handleInstances returns null uptime when current instance not in active list', () => {
     vi.spyOn(taskManager, 'getMcpInstanceId').mockReturnValue('instance-missing');
-    vi.spyOn(db, 'getActiveInstances').mockReturnValue([
+    vi.spyOn(coordination, 'getActiveInstances').mockReturnValue([
       { instanceId: 'instance-other', pid: 22, port: 2222, startedAt: new Date(Date.now()).toISOString() },
     ]);
     const res = createMockRes();
@@ -404,26 +407,26 @@ describe('dashboard/routes/project-tuning', () => {
   });
 
   it('handleListProjectTuning returns whatever db provides', () => {
-    vi.spyOn(db, 'listProjectTuning').mockReturnValue([{ projectPath: '/a', settings: {} }]);
+    vi.spyOn(hostManagement, 'listProjectTuning').mockReturnValue([{ projectPath: '/a', settings: {} }]);
     const res = createMockRes();
     tuningRoutes.handleListProjectTuning(null, res);
     expect(parseJson(res.body)).toEqual([{ projectPath: '/a', settings: {} }]);
   });
 
   it('handleGetProjectTuning returns decoded path match and 404 when missing', () => {
-    vi.spyOn(db, 'getProjectTuning').mockReturnValue(null);
+    vi.spyOn(hostManagement, 'getProjectTuning').mockReturnValue(null);
     const res = createMockRes();
     tuningRoutes.handleGetProjectTuning(null, res, {}, '%2Ftmp%2Fproj%20one');
-    expect(db.getProjectTuning).toHaveBeenCalledWith('/tmp/proj one');
+    expect(hostManagement.getProjectTuning).toHaveBeenCalledWith('/tmp/proj one');
     expect(res.statusCode).toBe(404);
     expect(parseJson(res.body)).toEqual({ error: 'Project tuning not found' });
   });
 
   it('handleGetProjectTuning returns tuning payload when found', () => {
-    vi.spyOn(db, 'getProjectTuning').mockReturnValue({ projectPath: '/tmp/proj', settings: { a: 1 } });
+    vi.spyOn(hostManagement, 'getProjectTuning').mockReturnValue({ projectPath: '/tmp/proj', settings: { a: 1 } });
     const res = createMockRes();
     tuningRoutes.handleGetProjectTuning(null, res, {}, '/tmp%2Fproj');
-    expect(db.getProjectTuning).toHaveBeenCalledWith('/tmp/proj');
+    expect(hostManagement.getProjectTuning).toHaveBeenCalledWith('/tmp/proj');
     expect(parseJson(res.body)).toEqual({ projectPath: '/tmp/proj', settings: { a: 1 } });
   });
 
@@ -452,20 +455,20 @@ describe('dashboard/routes/project-tuning', () => {
   });
 
   it('handleCreateProjectTuning accepts non-object settings for now (validation gap guard)', async () => {
-    vi.spyOn(db, 'setProjectTuning').mockReturnValue(true);
+    vi.spyOn(hostManagement, 'setProjectTuning').mockReturnValue(true);
     const req = createMockReq({ body: { projectPath: '/tmp/proj', settings: 'not-an-object' } });
     const res = createMockRes();
     await tuningRoutes.handleCreateProjectTuning(req, res);
-    expect(db.setProjectTuning).toHaveBeenCalledWith('/tmp/proj', 'not-an-object', undefined);
+    expect(hostManagement.setProjectTuning).toHaveBeenCalledWith('/tmp/proj', 'not-an-object', undefined);
     expect(parseJson(res.body)).toEqual({ success: true });
   });
 
   it('handleCreateProjectTuning supports optional description field', async () => {
-    vi.spyOn(db, 'setProjectTuning').mockReturnValue(true);
+    vi.spyOn(hostManagement, 'setProjectTuning').mockReturnValue(true);
     const req = createMockReq({ body: { projectPath: '/tmp/proj', settings: { a: 1 }, description: 'baseline' } });
     const res = createMockRes();
     await tuningRoutes.handleCreateProjectTuning(req, res);
-    expect(db.setProjectTuning).toHaveBeenCalledWith('/tmp/proj', { a: 1 }, 'baseline');
+    expect(hostManagement.setProjectTuning).toHaveBeenCalledWith('/tmp/proj', { a: 1 }, 'baseline');
     expect(parseJson(res.body)).toEqual({ success: true });
   });
 
@@ -476,10 +479,10 @@ describe('dashboard/routes/project-tuning', () => {
   });
 
   it('handleDeleteProjectTuning decodes path and returns success', () => {
-    vi.spyOn(db, 'deleteProjectTuning').mockReturnValue(true);
+    vi.spyOn(hostManagement, 'deleteProjectTuning').mockReturnValue(true);
     const res = createMockRes();
     tuningRoutes.handleDeleteProjectTuning(null, res, {}, '%2Ftmp%2Fproj%20one');
-    expect(db.deleteProjectTuning).toHaveBeenCalledWith('/tmp/proj one');
+    expect(hostManagement.deleteProjectTuning).toHaveBeenCalledWith('/tmp/proj one');
     expect(parseJson(res.body)).toEqual({ success: true });
   });
 });

@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 let testDir;
 let origDataDir;
 let db;
+let workflowEngine;
 let mod;
 
 let startCalls;
@@ -22,6 +23,7 @@ function setup() {
   db = require('../database');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
+  workflowEngine = require('../db/workflow-engine');
   mod = require('../execution/workflow-runtime');
   initRuntime();
 }
@@ -90,7 +92,7 @@ function createTask(overrides = {}) {
 
 function createWorkflow(overrides = {}) {
   const id = overrides.id || randomUUID();
-  db.createWorkflow({
+  workflowEngine.createWorkflow({
     id,
     name: overrides.name || `wf-${id.slice(0, 8)}`,
     status: overrides.status || 'running',
@@ -377,7 +379,7 @@ describe('workflow-output-injection', () => {
       });
 
       // Add dependency: step2 depends on step1
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: step2Id,
         depends_on_task_id: step1Id,
@@ -410,7 +412,7 @@ describe('workflow-output-injection', () => {
         metadata: JSON.stringify({ context_from: ['build'] }),
       });
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: testId,
         depends_on_task_id: buildId,
@@ -441,7 +443,7 @@ describe('workflow-output-injection', () => {
         metadata: JSON.stringify({ context_from: ['generate'] }),
       });
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: fixId,
         depends_on_task_id: genId,
@@ -473,7 +475,7 @@ describe('workflow-output-injection', () => {
         task_description: originalDesc,
       });
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: bId,
         depends_on_task_id: aId,
@@ -501,7 +503,7 @@ describe('workflow-output-injection', () => {
         task_description: 'Got: {{big.output}}',
       });
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumerId,
         depends_on_task_id: bigId,
@@ -538,13 +540,13 @@ describe('workflow-output-injection', () => {
         task_description: 'Build system using {{types.output}} and {{data.output}}',
       });
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: systemId,
         depends_on_task_id: typeId,
         on_fail: 'skip',
       });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: systemId,
         depends_on_task_id: dataId,
@@ -577,7 +579,7 @@ describe('workflow-output-injection', () => {
         task_description: 'Use {{a.output}} and {{nonexistent.output}}',
       });
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: cId,
         depends_on_task_id: aId,
@@ -601,7 +603,7 @@ describe('workflow-output-injection', () => {
       db.updateTaskStatus(s1, 'completed', { output: 'src-out', exit_code: 0 });
 
       const s2 = createWorkflowTask(wfId, 'dst', 'blocked');
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: s2,
         depends_on_task_id: s1,
