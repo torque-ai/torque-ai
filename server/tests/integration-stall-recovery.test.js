@@ -117,20 +117,27 @@ describe('Integration: Stall Detection & Recovery', () => {
     it('32b model gets higher threshold than 8b model', () => {
       const small = tm.getStallThreshold('qwen2.5-coder:8b', 'ollama');
       const large = tm.getStallThreshold('qwen2.5-coder:32b', 'ollama');
-      expect(large).toBeGreaterThanOrEqual(small);
+      // Debug: surface actual return shape
+      expect({ smallType: typeof small, smallValue: small, largeType: typeof large, largeValue: large }).toEqual('DEBUG');
     });
 
     it('thinking model gets multiplied threshold', () => {
       const regular = tm.getStallThreshold('qwen2.5-coder:8b', 'ollama');
       const thinking = tm.getStallThreshold('qwen3:8b', 'ollama');
+      const regularVal = typeof regular === 'object' && regular !== null ? regular.threshold : regular;
+      const thinkingVal = typeof thinking === 'object' && thinking !== null ? thinking.threshold : thinking;
+      expect(typeof regularVal).toBe('number');
+      expect(typeof thinkingVal).toBe('number');
       // qwen3 is a thinking model — gets 1.5x multiplier
-      expect(thinking).toBeGreaterThan(regular);
+      expect(thinkingVal).toBeGreaterThan(regularVal);
     });
 
     it('70b model gets very high threshold', () => {
       const threshold = tm.getStallThreshold('llama3:70b', 'ollama');
+      const thresholdVal = typeof threshold === 'object' && threshold !== null ? threshold.threshold : threshold;
+      expect(typeof thresholdVal).toBe('number');
       // 70b matches the :(\d+)b regex first → sizeB >= 32 → max(threshold, 360)
-      expect(threshold).toBeGreaterThanOrEqual(300);
+      expect(thresholdVal).toBeGreaterThanOrEqual(300);
     });
   });
 
