@@ -3,7 +3,13 @@
  *
  * Merged from: stats.js, strategic.js, finance.js, workflows.js
  */
-const db = require('../../database');
+const database = require('../../database');
+const costTracking = require('../../db/cost-tracking');
+const eventTracking = require('../../db/event-tracking');
+const fileTracking = require('../../db/file-tracking');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const webhooksStreaming = require('../../db/webhooks-streaming');
+const workflowEngine = require('../../db/workflow-engine');
 const serverConfig = require('../../config');
 const { sendJson, sendError, parseBody, enrichTaskWithHostName } = require('../utils');
 const { getStrategicStatus } = require('../../handlers/orchestrator-handlers');
@@ -48,27 +54,27 @@ function handleStatsOverview(req, res) {
 
   // Use calendar-day boundaries (midnight to midnight UTC) for "today" counts
   // Count only completed + failed + running — not cancelled/pending/blocked
-  const todayCompleted = db.countTasks({ completed_from: today, completed_to: tomorrow, status: 'completed' });
-  const todayFailed = db.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' });
-  const todayRunning = db.countTasks({ from_date: today, to_date: tomorrow, status: 'running' });
+  const todayCompleted = database.countTasks({ completed_from: today, completed_to: tomorrow, status: 'completed' });
+  const todayFailed = database.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' });
+  const todayRunning = database.countTasks({ from_date: today, to_date: tomorrow, status: 'running' });
   const todayTotal = todayCompleted + todayFailed + todayRunning;
   const todaySuccessRate = (todayCompleted + todayFailed) > 0
     ? Math.round((todayCompleted / ((todayCompleted + todayFailed) || 1)) * 100)
     : 0;
 
   // Yesterday's stats — same methodology: completed + failed only
-  const yesterdayCompleted = db.countTasks({ completed_from: yesterday, completed_to: today, status: 'completed' });
-  const yesterdayFailed = db.countTasks({ completed_from: yesterday, completed_to: today, status: 'failed' });
+  const yesterdayCompleted = database.countTasks({ completed_from: yesterday, completed_to: today, status: 'completed' });
+  const yesterdayFailed = database.countTasks({ completed_from: yesterday, completed_to: today, status: 'failed' });
   const yesterdayTotal = yesterdayCompleted + yesterdayFailed;
 
   // Current active tasks using COUNT queries
-  const runningCount = db.countTasks({ status: 'running' });
-  const queuedCount = db.countTasks({ status: 'queued' });
-  const pendingSwitchCount = db.countTasks({ status: 'pending_provider_switch' });
+  const runningCount = database.countTasks({ status: 'running' });
+  const queuedCount = database.countTasks({ status: 'queued' });
+  const pendingSwitchCount = database.countTasks({ status: 'pending_provider_switch' });
 
   // Provider breakdown
-  const codexStats = db.getProviderStats('codex', 1);
-  const claudeStats = db.getProviderStats('claude-cli', 1);
+  const codexStats = fileTracking.getProviderStats('codex', 1);
+  const claudeStats = fileTracking.getProviderStats('claude-cli', 1);
 
   // MCP SSE notification stats
   let sseSubscribers = 0;
@@ -82,9 +88,9 @@ function handleStatsOverview(req, res) {
   } catch (e) { /* mcp-sse not loaded */ }
 
   // Total counts by status (for kanban column badges)
-  const completedCount = db.countTasks({ status: 'completed' });
-  const failedCount = db.countTasks({ status: 'failed' });
-  const cancelledCount = db.countTasks({ status: 'cancelled' });
+  const completedCount = database.countTasks({ status: 'completed' });
+  const failedCount = database.countTasks({ status: 'failed' });
+  const cancelledCount = database.countTasks({ status: 'cancelled' });
 
   sendJson(res, {
     today: {
@@ -147,8 +153,8 @@ function handleTimeSeries(req, res, query) {
     };
     if (provider) baseFilters.provider = provider;
 
-    const completed = db.countTasks({ ...baseFilters, status: 'completed' });
-    const failed = db.countTasks({ ...baseFilters, status: 'failed' });
+    const completed = database.countTasks({ ...baseFilters, status: 'completed' });
+    const failed = database.countTasks({ ...baseFilters, status: 'failed' });
     const total = completed + failed;
 
     series.push({
@@ -174,13 +180,13 @@ function handleQualityStats(req, res, query) {
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
   // Get overall quality stats
-  const overallStats = db.getOverallQualityStats(since);
+  const overallStats = fileTracking.getOverallQualityStats(since);
 
   // Get quality by provider
-  const providerStats = db.getQualityStatsByProvider(since);
+  const providerStats = fileTracking.getQualityStatsByProvider(since);
 
   // Get validation failure rate
-  const validationStats = db.getValidationFailureRate(since);
+  const validationStats = fileTracking.getValidationFailureRate(since);
 
   sendJson(res, {
     period: { hours, since },
@@ -199,7 +205,7 @@ function handleStuckTasks(req, res, query) {
 
   // Tasks pending approval for >15 minutes
   const pendingApprovalThreshold = 15 * 60 * 1000;
-  const pendingApproval = db.listTasks({
+  const pendingApproval = database.listTasks({
     status: 'pending_approval',
     limit: 50,
   }).filter(t => {
@@ -208,7 +214,7 @@ function handleStuckTasks(req, res, query) {
   }).map(enrichTaskWithHostName);
 
   // Tasks pending provider switch for >15 minutes
-  const pendingSwitch = db.listTasks({
+  const pendingSwitch = database.listTasks({
     status: 'pending_provider_switch',
     limit: 50,
   }).filter(t => {
@@ -218,7 +224,7 @@ function handleStuckTasks(req, res, query) {
 
   // Tasks running for >30 minutes (potential stalls)
   const longRunningThreshold = 30 * 60 * 1000;
-  const longRunning = db.listTasks({
+  const longRunning = database.listTasks({
     status: 'running',
     limit: 50,
   }).filter(t => {
@@ -227,7 +233,7 @@ function handleStuckTasks(req, res, query) {
   }).map(enrichTaskWithHostName);
 
   // Tasks in waiting status with failed dependencies
-  const waitingTasks = db.listTasks({
+  const waitingTasks = database.listTasks({
     status: 'waiting',
     limit: 50,
   }).map(enrichTaskWithHostName);
@@ -265,7 +271,7 @@ function handleModelStats(req, res, query) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    const sqlDb = db.getDbInstance();
+    const sqlDb = database.getDbInstance();
     const models = sqlDb.prepare(`
       SELECT
         model,
@@ -353,7 +359,7 @@ function handleModelStats(req, res, query) {
  */
 function handleFormatSuccess(req, res) {
   try {
-    const summary = db.getFormatSuccessRatesSummary();
+    const summary = eventTracking.getFormatSuccessRatesSummary();
     return sendJson(res, summary);
   } catch (err) {
     return sendJson(res, []);
@@ -422,9 +428,8 @@ function handleEventHistory(req, res, query) {
  */
 function handleWebhookStats(req, res) {
   try {
-    const dbMod = require('../../database');
-    const stats = dbMod.getWebhookStats ? dbMod.getWebhookStats() : { webhooks: { total: 0, active: 0 }, deliveries_24h: { total: 0, successful: 0, failed: 0 } };
-    const webhooks = dbMod.listWebhooks ? dbMod.listWebhooks() : [];
+    const stats = webhooksStreaming.getWebhookStats ? webhooksStreaming.getWebhookStats() : { webhooks: { total: 0, active: 0 }, deliveries_24h: { total: 0, successful: 0, failed: 0 } };
+    const webhooks = webhooksStreaming.listWebhooks ? webhooksStreaming.listWebhooks() : [];
     sendJson(res, { stats, webhooks });
   } catch (err) {
     sendJson(res, { stats: { webhooks: { total: 0, active: 0 }, deliveries_24h: { total: 0, successful: 0, failed: 0 } }, webhooks: [], error: err.message });
@@ -454,8 +459,8 @@ function getProviderTimeSeries(providerId, days) {
       includeArchived: true,
     };
 
-    const completed = db.countTasks({ ...baseFilters, status: 'completed' });
-    const failed = db.countTasks({ ...baseFilters, status: 'failed' });
+    const completed = database.countTasks({ ...baseFilters, status: 'completed' });
+    const failed = database.countTasks({ ...baseFilters, status: 'failed' });
     const total = completed + failed;
 
     series.push({
@@ -479,7 +484,7 @@ function handleGetStrategicStatus(_req, res) {
 function handleGetRecentOperations(_req, res, query) {
   const limit = parseInt(query.limit, 10) || 20;
   // Strategic operations are tasks that used strategic_decompose, strategic_diagnose, or strategic_review
-  const tasks = db.listTasks ? db.listTasks({
+  const tasks = database.listTasks ? database.listTasks({
     limit,
     order: 'desc',
   }) : [];
@@ -503,7 +508,7 @@ function handleGetRoutingDecisions(_req, res, query) {
   const limit = parseInt(query.limit, 10) || 50;
 
   // Fetch recent tasks — smart-routed tasks have metadata.smart_routing=true or metadata.auto_routed=true
-  const rawTasks = db.listTasks ? db.listTasks({
+  const rawTasks = database.listTasks ? database.listTasks({
     limit: limit * 3, // Over-fetch since we filter client-side
     order: 'desc',
   }) : [];
@@ -547,22 +552,22 @@ function handleGetRoutingDecisions(_req, res, query) {
  * Returns health status for each provider: success rate, task counts, latency, and enabled status.
  */
 function handleGetProviderHealth(_req, res) {
-  const providers = (typeof db.listProviders === 'function') ? db.listProviders() : [];
+  const providers = (typeof providerRoutingCore.listProviders === 'function') ? providerRoutingCore.listProviders() : [];
   const healthCards = [];
 
   for (const p of providers) {
     // Get stats for the last 1 day (24h)
-    const dayStats = (typeof db.getProviderStats === 'function')
-      ? db.getProviderStats(p.provider, 1)
+    const dayStats = (typeof fileTracking.getProviderStats === 'function')
+      ? fileTracking.getProviderStats(p.provider, 1)
       : { total_tasks: 0, successful_tasks: 0, failed_tasks: 0, success_rate: 0, avg_duration_seconds: 0 };
 
     // Get in-memory health scoring
-    const health = (typeof db.getProviderHealth === 'function')
-      ? db.getProviderHealth(p.provider)
+    const health = (typeof providerRoutingCore.getProviderHealth === 'function')
+      ? providerRoutingCore.getProviderHealth(p.provider)
       : { successes: 0, failures: 0, failureRate: 0 };
 
-    const isHealthy = (typeof db.isProviderHealthy === 'function')
-      ? db.isProviderHealthy(p.provider)
+    const isHealthy = (typeof providerRoutingCore.isProviderHealthy === 'function')
+      ? providerRoutingCore.isProviderHealthy(p.provider)
       : true;
 
     // Determine health status
@@ -599,7 +604,7 @@ function handleGetProviderHealth(_req, res) {
 function handleBudgetSummary(req, res, query) {
   const days = parseInt(query.days, 10) || 30;
 
-  const providerRows = db.getCostSummary(null, days);
+  const providerRows = costTracking.getCostSummary(null, days);
 
   let totalCost = 0;
   let taskCount = 0;
@@ -611,12 +616,12 @@ function handleBudgetSummary(req, res, query) {
   }
 
   let daily = [];
-  const dailyRows = db.getCostByPeriod('day', days);
+  const dailyRows = costTracking.getCostByPeriod('day', days);
   if (dailyRows && dailyRows.length > 0) {
     daily = dailyRows.map(r => ({ date: r.period, cost: r.cost || 0 })).reverse();
   } else {
     try {
-      const sqlDb = db.getDbInstance();
+      const sqlDb = database.getDbInstance();
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
       const rows = sqlDb.prepare(`
         SELECT strftime('%Y-%m-%d', tracked_at) as date,
@@ -633,7 +638,7 @@ function handleBudgetSummary(req, res, query) {
 }
 
 function handleBudgetStatus(req, res) {
-  const budgets = db.getBudgetStatus();
+  const budgets = costTracking.getBudgetStatus();
   const arr = Array.isArray(budgets) ? budgets : budgets ? [budgets] : [];
 
   const primary = arr[0];
@@ -654,7 +659,7 @@ async function handleSetBudget(req, res) {
   const period = body.period || 'monthly';
   const alertThreshold = parseInt(body.alert_threshold, 10) || 80;
 
-  const result = db.setBudget(name, budgetUsd, provider, period, alertThreshold);
+  const result = costTracking.setBudget(name, budgetUsd, provider, period, alertThreshold);
   return sendJson(res, result, 201);
 }
 
@@ -680,7 +685,7 @@ function handleFreeTierStatus(req, res) {
 function handleFreeTierHistory(req, res, query) {
   try {
     const days = Math.max(1, Math.min(90, parseInt(query.days, 10) || 7));
-    const history = db.getUsageHistory(days);
+    const history = costTracking.getUsageHistory(days);
     sendJson(res, { status: 'ok', history });
   } catch (err) {
     sendJson(res, { error: err.message }, 500);
@@ -695,7 +700,7 @@ function handleFreeTierAutoScale(req, res) {
 
     let codexQueueDepth = 0;
     try {
-      const queued = db.listTasks({ status: 'queued', limit: 1000 });
+      const queued = database.listTasks({ status: 'queued', limit: 1000 });
       const queuedArr = Array.isArray(queued) ? queued : (queued.tasks || []);
       codexQueueDepth = queuedArr.filter(t => {
         if (t.provider === 'codex') return true;
@@ -747,9 +752,9 @@ function handleListWorkflows(req, res, query) {
   if (query.status) options.status = query.status;
   if (query.limit) options.limit = parseInt(query.limit, 10);
   if (query.since) options.since = query.since;
-  const workflows = db.listWorkflows(options);
+  const workflows = workflowEngine.listWorkflows(options);
   const enriched = workflows.map((workflow) => {
-    const detailed = db.getWorkflowStatus(workflow.id) || workflow;
+    const detailed = workflowEngine.getWorkflowStatus(workflow.id) || workflow;
     return enrichWorkflowVisibility(detailed);
   });
   return sendJson(res, enriched);
@@ -759,10 +764,10 @@ function handleListWorkflows(req, res, query) {
  * GET /api/workflows/:id - Get workflow details with cost
  */
 function handleGetWorkflow(req, res, query, workflowId) {
-  const status = db.getWorkflowStatus(workflowId);
+  const status = workflowEngine.getWorkflowStatus(workflowId);
   if (!status) return sendError(res, 'Workflow not found', 404);
   // Merge cost summary
-  const cost = db.getWorkflowCostSummary(workflowId);
+  const cost = costTracking.getWorkflowCostSummary(workflowId);
   return sendJson(res, { ...enrichWorkflowVisibility(status), cost });
 }
 
@@ -770,7 +775,7 @@ function handleGetWorkflow(req, res, query, workflowId) {
  * GET /api/workflows/:id/tasks - Get workflow tasks
  */
 function handleGetWorkflowTasks(req, res, query, workflowId) {
-  const tasks = db.getWorkflowTasks(workflowId);
+  const tasks = workflowEngine.getWorkflowTasks(workflowId);
   return sendJson(res, tasks);
 }
 
@@ -778,7 +783,7 @@ function handleGetWorkflowTasks(req, res, query, workflowId) {
  * GET /api/workflows/:id/history - Get workflow history
  */
 function handleGetWorkflowHistory(req, res, query, workflowId) {
-  const history = db.getWorkflowHistory(workflowId);
+  const history = workflowEngine.getWorkflowHistory(workflowId);
   return sendJson(res, history);
 }
 

@@ -4,7 +4,7 @@
  * Provides request parsing, response helpers, and task enrichment
  * used across all route modules.
  */
-const db = require('../database');
+const hostManagement = require('../db/host-management');
 
 /**
  * Standard security headers applied to all responses
@@ -159,7 +159,7 @@ function errorResponse(message, code) {
 function enrichTaskWithHostName(task) {
   if (task && task.ollama_host_id) {
     try {
-      const host = db.getOllamaHost(task.ollama_host_id);
+      const host = hostManagement.getOllamaHost(task.ollama_host_id);
       task.ollama_host_name = host ? host.name : task.ollama_host_id;
     } catch {
       task.ollama_host_name = task.ollama_host_id;

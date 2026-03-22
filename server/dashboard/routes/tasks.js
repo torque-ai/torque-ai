@@ -4,7 +4,10 @@
  * All handlers follow the signature: (req, res, query, ...captures, context)
  * where context = { broadcastTaskUpdate, clients, serverPort }.
  */
-const db = require('../../database');
+const database = require('../../database');
+const fileTracking = require('../../db/file-tracking');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const webhooksStreaming = require('../../db/webhooks-streaming');
 const { sendJson, sendError, parseBody, enrichTaskWithHostName } = require('../utils');
 
 /**
@@ -34,8 +37,8 @@ function handleListTasks(req, res, query) {
   filters.orderBy = orderBy;
   filters.orderDir = orderDir;
 
-  const tasks = db.listTasks({ ...filters, limit, offset }).map(enrichTaskWithHostName);
-  const total = db.countTasks(filters);
+  const tasks = database.listTasks({ ...filters, limit, offset }).map(enrichTaskWithHostName);
+  const total = database.countTasks(filters);
 
   sendJson(res, {
     tasks,
@@ -52,7 +55,7 @@ function handleListTasks(req, res, query) {
  * GET /api/tasks/:id - Get task details
  */
 function handleGetTask(req, res, query, taskId) {
-  const task = db.getTask(taskId);
+  const task = database.getTask(taskId);
   if (!task) {
     sendError(res, 'Task not found', 404);
     return;
@@ -60,7 +63,7 @@ function handleGetTask(req, res, query, taskId) {
 
   // Include streamed output chunks
   try {
-    task.output_chunks = db.getStreamChunks(taskId);
+    task.output_chunks = webhooksStreaming.getStreamChunks(taskId);
   } catch { task.output_chunks = []; }
 
   enrichTaskWithHostName(task);
@@ -72,7 +75,7 @@ function handleGetTask(req, res, query, taskId) {
  */
 async function handleTaskAction(req, res, query, taskId, action, context) {
   const { broadcastTaskUpdate } = context;
-  const task = db.getTask(taskId);
+  const task = database.getTask(taskId);
   if (!task) {
     sendError(res, 'Task not found', 404);
     return;
@@ -84,7 +87,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         sendError(res, 'Can only retry failed tasks');
         return;
       }
-      db.updateTaskStatus(taskId, 'queued', {
+      database.updateTaskStatus(taskId, 'queued', {
         retry_count: (task.retry_count || 0) + 1,
         error_output: null,
         started_at: null,
@@ -106,7 +109,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         broadcastTaskUpdate(taskId);
         sendJson(res, { success: true, message: 'Task cancelled' });
       } catch (cancelErr) {
-        db.updateTaskStatus(taskId, 'failed', {
+        database.updateTaskStatus(taskId, 'failed', {
           error_output: 'Cancelled by user via dashboard',
         });
         broadcastTaskUpdate(taskId);
@@ -126,7 +129,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         const targetProvider = metadata.provider_switch_target
           || metadata.target_provider
           || metadata.fallback_provider;
-        db.approveProviderSwitch(taskId, targetProvider || undefined);
+        providerRoutingCore.approveProviderSwitch(taskId, targetProvider || undefined);
       }
       broadcastTaskUpdate(taskId);
       sendJson(res, { success: true, message: 'Provider switch approved' });
@@ -137,7 +140,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         sendError(res, 'Task is not pending provider switch');
         return;
       }
-      db.rejectProviderSwitch(taskId, 'Rejected via dashboard');
+      providerRoutingCore.rejectProviderSwitch(taskId, 'Rejected via dashboard');
       broadcastTaskUpdate(taskId);
       sendJson(res, { success: true, message: 'Provider switch rejected' });
       break;
@@ -148,7 +151,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         return;
       }
       try {
-        db.deleteTask(taskId);
+        database.deleteTask(taskId);
         try {
           const dashboard = require('../../dashboard-server');
           dashboard.notifyTaskDeleted(taskId);
@@ -221,7 +224,7 @@ async function handleSubmitTask(req, res, query, context) {
  * GET /api/tasks/:id/diff - Get diff preview for a task
  */
 function handleTaskDiff(req, res, query, taskId) {
-  const diff = db.getDiffPreview(taskId);
+  const diff = fileTracking.getDiffPreview(taskId);
   return sendJson(res, diff || { diff_content: null, files_changed: 0, lines_added: 0, lines_removed: 0 });
 }
 
@@ -229,7 +232,7 @@ function handleTaskDiff(req, res, query, taskId) {
  * GET /api/tasks/:id/logs - Get task logs
  */
 function handleTaskLogs(req, res, query, taskId) {
-  const logs = db.getTaskLogs(taskId);
+  const logs = webhooksStreaming.getTaskLogs(taskId);
   return sendJson(res, logs);
 }
 

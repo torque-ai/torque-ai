@@ -3,7 +3,12 @@
  *
  * Merged from: coordination.js, approvals.js, schedules.js, benchmarks.js, project-tuning.js, plan-projects.js
  */
-const db = require('../../database');
+const database = require('../../database');
+const coordination = require('../../db/coordination');
+const hostManagement = require('../../db/host-management');
+const projectConfigCore = require('../../db/project-config-core');
+const schedulingAutomation = require('../../db/scheduling-automation');
+const validationRules = require('../../db/validation-rules');
 const logger = require('../../logger');
 const { sendJson, sendError, parseBody, safeDecodeParam } = require('../utils');
 
@@ -11,48 +16,48 @@ const { sendJson, sendError, parseBody, safeDecodeParam } = require('../utils');
 
 function handleGetDashboard(req, res, query) {
   const hours = parseInt(query.hours, 10) || 24;
-  const dashboard = db.getCoordinationDashboard ? db.getCoordinationDashboard(hours) : {};
+  const dashboard = coordination.getCoordinationDashboard ? coordination.getCoordinationDashboard(hours) : {};
   sendJson(res, dashboard);
 }
 
 function handleListAgents(req, res) {
-  const agents = db.listAgents ? db.listAgents() : [];
+  const agents = coordination.listAgents ? coordination.listAgents() : [];
   sendJson(res, { agents });
 }
 
 function handleListRoutingRules(req, res) {
-  const rules = db.listRoutingRules ? db.listRoutingRules() : [];
+  const rules = coordination.listRoutingRules ? coordination.listRoutingRules() : [];
   sendJson(res, { rules });
 }
 
 function handleListClaims(req, res) {
-  const claims = db.listClaims ? db.listClaims({ active_only: true }) : [];
+  const claims = coordination.listClaims ? coordination.listClaims({ active_only: true }) : [];
   sendJson(res, { claims });
 }
 
 // ── Approvals ───────────────────────────────────────────────────────────
 
 function handleListPendingApprovals(req, res, query) {
-  const approvals = db.listPendingApprovals ? db.listPendingApprovals() : [];
+  const approvals = schedulingAutomation.listPendingApprovals ? schedulingAutomation.listPendingApprovals() : [];
   sendJson(res, { approvals });
 }
 
 function handleGetApprovalHistory(req, res, query) {
   const limit = parseInt(query.limit, 10) || 50;
-  const history = db.getApprovalHistory ? db.getApprovalHistory(limit) : [];
+  const history = schedulingAutomation.getApprovalHistory ? schedulingAutomation.getApprovalHistory(limit) : [];
   sendJson(res, { history });
 }
 
 function handleApproveTask(req, res, query, approvalId) {
   if (!approvalId) { sendError(res, 'approval_id required', 400); return; }
-  const result = db.decideApproval ? db.decideApproval(approvalId, 'approved', 'dashboard') : null;
+  const result = validationRules.decideApproval ? validationRules.decideApproval(approvalId, 'approved', 'dashboard') : null;
   if (!result) { sendError(res, 'Approval not found', 404); return; }
   sendJson(res, { status: 'approved', approval_id: approvalId });
 }
 
 function handleRejectApproval(req, res, query, approvalId) {
   if (!approvalId) { sendError(res, 'approval_id required', 400); return; }
-  const result = db.decideApproval ? db.decideApproval(approvalId, 'rejected', 'dashboard') : null;
+  const result = validationRules.decideApproval ? validationRules.decideApproval(approvalId, 'rejected', 'dashboard') : null;
   if (!result) { sendError(res, 'Approval not found', 404); return; }
   sendJson(res, { status: 'rejected', approval_id: approvalId });
 }
@@ -60,7 +65,7 @@ function handleRejectApproval(req, res, query, approvalId) {
 // ── Schedules ───────────────────────────────────────────────────────────
 
 function handleListSchedules(req, res) {
-  const schedules = db.listScheduledTasks();
+  const schedules = schedulingAutomation.listScheduledTasks();
   return sendJson(res, { schedules });
 }
 
@@ -69,7 +74,7 @@ async function handleCreateSchedule(req, res) {
   if (!body.name || !body.cron_expression || !body.task_description) {
     return sendError(res, 'name, cron_expression, and task_description are required', 400);
   }
-  const schedule = db.createCronScheduledTask(
+  const schedule = schedulingAutomation.createCronScheduledTask(
     body.name,
     body.cron_expression,
     body.task_description,
@@ -85,13 +90,13 @@ async function handleCreateSchedule(req, res) {
 async function handleToggleSchedule(req, res, query, id) {
   const body = await parseBody(req);
   const enabled = body.enabled !== undefined ? body.enabled : true;
-  const result = db.toggleScheduledTask(id, enabled);
+  const result = schedulingAutomation.toggleScheduledTask(id, enabled);
   if (!result) return sendError(res, 'Schedule not found', 404);
   return sendJson(res, result);
 }
 
 function handleDeleteSchedule(req, res, query, id) {
-  const result = db.deleteScheduledTask(id);
+  const result = schedulingAutomation.deleteScheduledTask(id);
   if (!result) return sendError(res, 'Schedule not found', 404);
   return sendJson(res, { deleted: true });
 }
@@ -113,20 +118,20 @@ function parseLimit(limit, fallback = 10) {
 function handleListBenchmarks(req, res, query) {
   const hostId = query.hostId;
   if (!hostId) return sendError(res, 'hostId is required', 400);
-  const results = db.getBenchmarkResults(hostId, parseLimit(query?.limit, 10));
-  const stats = db.getBenchmarkStats(hostId);
+  const results = hostManagement.getBenchmarkResults(hostId, parseLimit(query?.limit, 10));
+  const stats = hostManagement.getBenchmarkStats(hostId);
   return sendJson(res, { results, stats });
 }
 
 async function handleApplyBenchmark(req, res) {
   const body = await parseBody(req);
   if (!body.hostId) return sendError(res, 'hostId is required', 400);
-  const result = db.applyBenchmarkResults(body.hostId, body.model);
+  const result = hostManagement.applyBenchmarkResults(body.hostId, body.model);
   return sendJson(res, result);
 }
 
 function handleListProjectTuning(req, res) {
-  const tunings = db.listProjectTuning();
+  const tunings = hostManagement.listProjectTuning();
   return sendJson(res, tunings);
 }
 
@@ -134,14 +139,14 @@ async function handleCreateProjectTuning(req, res) {
   const body = await parseBody(req);
   if (!body.projectPath) return sendError(res, 'projectPath is required', 400);
   if (!body.settings) return sendError(res, 'settings is required', 400);
-  db.setProjectTuning(body.projectPath, body.settings, body.description);
+  hostManagement.setProjectTuning(body.projectPath, body.settings, body.description);
   return sendJson(res, { success: true });
 }
 
 function handleGetProjectTuning(req, res, query, projectPath) {
   const decodedPath = safeDecodeParam(projectPath, res);
   if (decodedPath === null) return;
-  const tuning = db.getProjectTuning(decodedPath);
+  const tuning = hostManagement.getProjectTuning(decodedPath);
   if (!tuning) return sendError(res, 'Project tuning not found', 404);
   return sendJson(res, tuning);
 }
@@ -149,7 +154,7 @@ function handleGetProjectTuning(req, res, query, projectPath) {
 function handleDeleteProjectTuning(req, res, query, projectPath) {
   const decodedPath = safeDecodeParam(projectPath, res);
   if (decodedPath === null) return;
-  db.deleteProjectTuning(decodedPath);
+  hostManagement.deleteProjectTuning(decodedPath);
   return sendJson(res, { success: true });
 }
 
@@ -159,7 +164,7 @@ function handleDeleteProjectTuning(req, res, query, projectPath) {
  * GET /api/plan-projects - List plan projects
  */
 function handleListPlanProjects(req, res, query) {
-  const projects = db.listPlanProjects({
+  const projects = projectConfigCore.listPlanProjects({
     status: query.status,
     limit: parseInt(query.limit, 10) || 20
   });
@@ -178,13 +183,13 @@ function handleListPlanProjects(req, res, query) {
  * GET /api/plan-projects/:id - Get plan project details
  */
 function handleGetPlanProject(req, res, query, projectId) {
-  const project = db.getPlanProject(projectId);
+  const project = projectConfigCore.getPlanProject(projectId);
   if (!project) {
     sendError(res, 'Project not found', 404);
     return;
   }
 
-  const tasks = db.getPlanProjectTasks(projectId);
+  const tasks = projectConfigCore.getPlanProjectTasks(projectId);
 
   sendJson(res, {
     ...project,
@@ -263,7 +268,7 @@ async function handleImportPlanApi(req, res) {
  * POST /api/plan-projects/:id/:action - Plan project actions (pause, resume, retry)
  */
 async function handlePlanProjectAction(req, res, query, projectId, action) {
-  const project = db.getPlanProject(projectId);
+  const project = projectConfigCore.getPlanProject(projectId);
   if (!project) {
     sendError(res, 'Project not found', 404);
     return;
@@ -294,7 +299,7 @@ async function handlePlanProjectAction(req, res, query, projectId, action) {
  * DELETE /api/plan-projects/:id - Delete plan project
  */
 function handleDeletePlanProject(req, res, query, projectId) {
-  const project = db.getPlanProject(projectId);
+  const project = projectConfigCore.getPlanProject(projectId);
   if (!project) {
     sendError(res, 'Project not found', 404);
     return;
@@ -302,13 +307,13 @@ function handleDeletePlanProject(req, res, query, projectId) {
 
   // Cancel running tasks via task-manager (kills processes properly)
   const taskManager = require('../../task-manager');
-  const tasks = db.getPlanProjectTasks(projectId);
+  const tasks = projectConfigCore.getPlanProjectTasks(projectId);
   for (const task of tasks) {
     if (['queued', 'running', 'waiting'].includes(task.status)) {
       try {
         taskManager.cancelTask(task.task_id, 'Plan project deleted');
       } catch {
-        db.updateTaskStatus(task.task_id, 'cancelled', {
+        database.updateTaskStatus(task.task_id, 'cancelled', {
           error_output: 'Plan project deleted',
         });
       }
@@ -316,7 +321,7 @@ function handleDeletePlanProject(req, res, query, projectId) {
   }
 
   // Delete project and task associations
-  db.deletePlanProject(projectId);
+  projectConfigCore.deletePlanProject(projectId);
 
   sendJson(res, { success: true, message: 'Project deleted' });
 }

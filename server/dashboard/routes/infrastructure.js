@@ -4,8 +4,11 @@
  * Merged from: hosts.js, providers.js, agents.js, system.js
  * All handlers follow the signature: (req, res, query, ...captures, context)
  */
-const db = require('../../database');
-const hostCredentials = require('../../db/host-management');
+const database = require('../../database');
+const coordination = require('../../db/coordination');
+const fileTracking = require('../../db/file-tracking');
+const hostManagement = require('../../db/host-management');
+const providerRoutingCore = require('../../db/provider-routing-core');
 const { sendJson, sendError, parseBody, safeDecodeParam, formatUptime } = require('../utils');
 
 // ── Hosts ──────────────────────────────────────────────────────────────────────
@@ -15,8 +18,8 @@ const VALID_CREDENTIAL_TYPES = new Set(['ssh', 'http_auth', 'windows']);
 
 // (from hosts.js) Determine whether a host name belongs to peek or ollama
 function resolveHostType(hostName) {
-  if (db.getPeekHost(hostName)) return 'peek';
-  if (db.getOllamaHost(hostName)) return 'ollama';
+  if (hostManagement.getPeekHost(hostName)) return 'peek';
+  if (hostManagement.getOllamaHost(hostName)) return 'ollama';
   return null;
 }
 
@@ -24,7 +27,7 @@ function resolveHostType(hostName) {
  * GET /api/hosts - List all Ollama hosts
  */
 function handleListHosts(req, res) {
-  const hosts = db.listOllamaHosts();
+  const hosts = hostManagement.listOllamaHosts();
   return sendJson(res, hosts);
 }
 
@@ -32,9 +35,9 @@ function handleListHosts(req, res) {
  * GET /api/peek-hosts - List all registered peek hosts with credential metadata
  */
 function handleListPeekHosts(req, res) {
-  const hosts = db.listPeekHosts().map((host) => ({
+  const hosts = hostManagement.listPeekHosts().map((host) => ({
     ...host,
-    credentials: hostCredentials.listCredentials(host.name, 'peek'),
+    credentials: hostManagement.listCredentials(host.name, 'peek'),
   }));
   return sendJson(res, hosts);
 }
@@ -54,15 +57,15 @@ async function handleCreatePeekHost(req, res) {
     return sendError(res, 'Invalid peek host URL', 400);
   }
 
-  db.registerPeekHost(body.name, body.url, body.ssh, Boolean(body.default), body.platform);
-  return sendJson(res, db.getPeekHost(body.name), 201);
+  hostManagement.registerPeekHost(body.name, body.url, body.ssh, Boolean(body.default), body.platform);
+  return sendJson(res, hostManagement.getPeekHost(body.name), 201);
 }
 
 /**
  * PUT /api/peek-hosts/:name - Update an existing peek host
  */
 async function handleUpdatePeekHost(req, res, query, hostName) {
-  const existing = db.getPeekHost(hostName);
+  const existing = hostManagement.getPeekHost(hostName);
   if (!existing) return sendError(res, 'Peek host not found', 404);
 
   const body = await parseBody(req);
@@ -85,18 +88,18 @@ async function handleUpdatePeekHost(req, res, query, hostName) {
     return sendError(res, 'Invalid peek host URL', 400);
   }
 
-  if (next.name !== existing.name && db.getPeekHost(next.name)) {
+  if (next.name !== existing.name && hostManagement.getPeekHost(next.name)) {
     return sendError(res, 'Peek host already exists', 409);
   }
 
-  db.registerPeekHost(next.name, next.url, next.ssh, Boolean(next.default), next.platform);
+  hostManagement.registerPeekHost(next.name, next.url, next.ssh, Boolean(next.default), next.platform);
 
   if (next.name !== existing.name) {
-    const credentials = hostCredentials.listCredentials(existing.name, 'peek');
+    const credentials = hostManagement.listCredentials(existing.name, 'peek');
     for (const credential of credentials) {
-      const value = hostCredentials.getCredential(existing.name, 'peek', credential.credential_type);
+      const value = hostManagement.getCredential(existing.name, 'peek', credential.credential_type);
       if (value) {
-        hostCredentials.saveCredential(
+        hostManagement.saveCredential(
           next.name,
           'peek',
           credential.credential_type,
@@ -105,21 +108,21 @@ async function handleUpdatePeekHost(req, res, query, hostName) {
         );
       }
     }
-    hostCredentials.deleteAllHostCredentials(existing.name, 'peek');
-    db.unregisterPeekHost(existing.name);
+    hostManagement.deleteAllHostCredentials(existing.name, 'peek');
+    hostManagement.unregisterPeekHost(existing.name);
   }
 
-  return sendJson(res, db.getPeekHost(next.name));
+  return sendJson(res, hostManagement.getPeekHost(next.name));
 }
 
 /**
  * DELETE /api/peek-hosts/:name - Remove a peek host and its stored credentials
  */
 function handleDeletePeekHost(req, res, query, hostName) {
-  const removed = db.unregisterPeekHost(hostName);
+  const removed = hostManagement.unregisterPeekHost(hostName);
   if (!removed) return sendError(res, 'Peek host not found', 404);
 
-  hostCredentials.deleteAllHostCredentials(hostName, 'peek');
+  hostManagement.deleteAllHostCredentials(hostName, 'peek');
   return sendJson(res, { removed: true, name: hostName });
 }
 
@@ -130,7 +133,7 @@ function handleListCredentials(req, res, query, hostName) {
   const hostType = resolveHostType(hostName);
   if (!hostType) return sendError(res, 'Host not found', 404);
 
-  return sendJson(res, hostCredentials.listCredentials(hostName, hostType));
+  return sendJson(res, hostManagement.listCredentials(hostName, hostType));
 }
 
 /**
@@ -148,7 +151,7 @@ async function handleSaveCredential(req, res, query, hostName, credType) {
     return sendError(res, 'Credential value object is required', 400);
   }
 
-  hostCredentials.saveCredential(hostName, hostType, credType, body.label, body.value);
+  hostManagement.saveCredential(hostName, hostType, credType, body.label, body.value);
   return sendJson(res, { saved: true });
 }
 
@@ -162,7 +165,7 @@ function handleDeleteCredential(req, res, query, hostName, credType) {
     return sendError(res, 'Unsupported credential type', 400);
   }
 
-  const removed = hostCredentials.deleteCredential(hostName, hostType, credType);
+  const removed = hostManagement.deleteCredential(hostName, hostType, credType);
   if (!removed) return sendError(res, 'Credential not found', 404);
   return sendJson(res, { removed: true, host: hostName, credential_type: credType });
 }
@@ -177,14 +180,14 @@ async function handleTestCredential(req, res, query, hostName, credType) {
     return sendError(res, 'Unsupported credential type', 400);
   }
 
-  const credential = hostCredentials.getCredential(hostName, hostType, credType);
+  const credential = hostManagement.getCredential(hostName, hostType, credType);
   if (!credential) return sendError(res, 'Credential not found', 404);
 
   if (hostType !== 'peek') {
     return sendJson(res, { test: 'not_implemented_for_type' });
   }
 
-  const host = db.getPeekHost(hostName);
+  const host = hostManagement.getPeekHost(hostName);
   const http = require('http');
   const https = require('https');
   const healthUrl = new URL('/health', host.url).href;
@@ -228,7 +231,7 @@ async function handleTestCredential(req, res, query, hostName, credType) {
  * POST /api/peek-hosts/:name/test - Test connection to a peek host (no credentials required)
  */
 async function handleTestPeekHost(req, res, query, hostName) {
-  const host = db.getPeekHost(hostName);
+  const host = hostManagement.getPeekHost(hostName);
   if (!host) return sendError(res, 'Peek host not found', 404);
 
   const http = require('http');
@@ -281,13 +284,13 @@ async function handleTestPeekHost(req, res, query, hostName) {
  * POST /api/peek-hosts/:name/toggle - Enable/disable a peek host for remote testing
  */
 async function handlePeekHostToggle(req, res, query, hostName) {
-  const host = db.getPeekHost(hostName);
+  const host = hostManagement.getPeekHost(hostName);
   if (!host) return sendError(res, 'Peek host not found', 404);
 
   const body = await parseBody(req);
   const enabled = body.enabled !== undefined ? (body.enabled ? 1 : 0) : (host.enabled ? 0 : 1);
-  db.updatePeekHost(hostName, { enabled });
-  return sendJson(res, db.getPeekHost(hostName));
+  hostManagement.updatePeekHost(hostName, { enabled });
+  return sendJson(res, hostManagement.getPeekHost(hostName));
 }
 
 /**
@@ -297,7 +300,7 @@ async function handleHostActivity(req, res) {
   const taskManager = require('../../task-manager');
 
   // Probe GPU metrics on-demand (nvidia-smi for local hosts)
-  const allHosts = db.listOllamaHosts({ enabled: true });
+  const allHosts = hostManagement.listOllamaHosts({ enabled: true });
   try {
     const reachableHosts = (allHosts || []).filter(h => h.status !== 'down');
     if (reachableHosts.length > 0) {
@@ -315,7 +318,7 @@ async function handleHostActivity(req, res) {
     }
   }
 
-  const runningTasks = db.listTasks({ status: 'running', limit: 100 });
+  const runningTasks = database.listTasks({ status: 'running', limit: 100 });
   const taskList = runningTasks.tasks || runningTasks;
   const taskGpuStatus = {};
   for (const t of (Array.isArray(taskList) ? taskList : [])) {
@@ -347,14 +350,14 @@ async function handleHostScan(req, res) {
  */
 async function handleHostToggle(req, res, query, hostId) {
   const body = await parseBody(req);
-  const host = db.getOllamaHost(hostId);
+  const host = hostManagement.getOllamaHost(hostId);
   if (!host) return sendError(res, 'Host not found', 404);
   const enabled = body.enabled !== undefined ? (body.enabled ? 1 : 0) : (host.enabled ? 0 : 1);
   // Always reset to 'unknown' on toggle — prevents stale status in both directions.
   // When enabling: avoids showing stale 'down' or 'healthy'; probe below will set real status.
   // When disabling: avoids showing stale 'healthy' badge.
   const updates = { enabled, status: 'unknown', consecutive_failures: 0 };
-  db.updateOllamaHost(hostId, updates);
+  hostManagement.updateOllamaHost(hostId, updates);
 
   // When enabling, probe the host immediately so the dashboard shows real status
   if (enabled) {
@@ -384,14 +387,14 @@ async function handleHostToggle(req, res, query, hostId) {
         req.on('error', () => resolve({ healthy: false, models: null }));
         req.on('timeout', () => { req.destroy(); resolve({ healthy: false, models: null }); });
       });
-      db.recordHostHealthCheck(hostId, probeResult.healthy, probeResult.models);
+      hostManagement.recordHostHealthCheck(hostId, probeResult.healthy, probeResult.models);
     } catch {
       // Probe failed — status stays 'unknown', periodic checks will pick it up
     }
   }
 
   // Re-fetch after update to return current state
-  const updated = db.getOllamaHost(hostId);
+  const updated = hostManagement.getOllamaHost(hostId);
   return sendJson(res, updated);
 }
 
@@ -399,9 +402,9 @@ async function handleHostToggle(req, res, query, hostId) {
  * GET /api/hosts/:id - Get single host with settings
  */
 function handleGetHost(req, res, query, hostId) {
-  const host = db.getOllamaHost(hostId);
+  const host = hostManagement.getOllamaHost(hostId);
   if (!host) return sendError(res, 'Host not found', 404);
-  const settings = db.getHostSettings(hostId);
+  const settings = hostManagement.getHostSettings(hostId);
   return sendJson(res, { ...host, settings });
 }
 
@@ -409,12 +412,12 @@ function handleGetHost(req, res, query, hostId) {
  * DELETE /api/hosts/:id - Remove a host
  */
 function handleDeleteHost(req, res, query, hostId) {
-  const host = db.getOllamaHost(hostId);
+  const host = hostManagement.getOllamaHost(hostId);
   if (!host) return sendError(res, 'Host not found', 404);
   if (host.running_tasks > 0) {
     return sendError(res, 'Cannot remove host with running tasks', 400);
   }
-  db.removeOllamaHost(hostId);
+  hostManagement.removeOllamaHost(hostId);
   return sendJson(res, { removed: true, id: hostId, name: host.name });
 }
 
@@ -442,9 +445,9 @@ function getProviderTimeSeries(providerId, days) {
       to_date: nextDateStr,
     };
 
-    const total = db.countTasks(baseFilters);
-    const completed = db.countTasks({ ...baseFilters, status: 'completed' });
-    const failed = db.countTasks({ ...baseFilters, status: 'failed' });
+    const total = database.countTasks(baseFilters);
+    const completed = database.countTasks({ ...baseFilters, status: 'completed' });
+    const failed = database.countTasks({ ...baseFilters, status: 'failed' });
 
     series.push({
       date: dateStr,
@@ -461,12 +464,12 @@ function getProviderTimeSeries(providerId, days) {
  * GET /api/providers - List all providers with stats
  */
 function handleListProviders(req, res, query) {
-  const providers = db.listProviders();
+  const providers = providerRoutingCore.listProviders();
 
   // Add current stats to each provider
   const enriched = providers.map(p => ({
     ...p,
-    stats: db.getProviderStats(p.provider, 7),
+    stats: fileTracking.getProviderStats(p.provider, 7),
   }));
 
   sendJson(res, enriched);
@@ -489,7 +492,7 @@ function handleProviderQuotas(req, res) {
  */
 function handleProviderStats(req, res, query, providerId) {
   const days = parseInt(query.days, 10) || 7;
-  const stats = db.getProviderStats(providerId, days);
+  const stats = fileTracking.getProviderStats(providerId, days);
 
   // Get time series data
   const timeSeries = getProviderTimeSeries(providerId, days);
@@ -507,7 +510,7 @@ function handleProviderPercentiles(req, res, query, providerId) {
   const days = parseInt(query.days, 10) || 7;
   const since = new Date(Date.now() - days * 86400000).toISOString();
   try {
-    const tasks = db.listTasks({ provider: providerId, since, limit: 1000 });
+    const tasks = database.listTasks({ provider: providerId, since, limit: 1000 });
     const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
     const durations = taskList
       .filter(t => t.completed_at && t.started_at)
@@ -539,7 +542,7 @@ function handleProviderPercentiles(req, res, query, providerId) {
  */
 function handleProviderTrends(req, res, query) {
   const days = parseInt(query.days, 10) || 7;
-  const providers = db.listProviders();
+  const providers = providerRoutingCore.listProviders();
 
   // Build a date range
   const dates = [];
@@ -584,10 +587,10 @@ async function handleProviderToggle(req, res, query, providerId) {
   const body = await parseBody(req);
   const decodedId = safeDecodeParam(providerId, res);
   if (decodedId === null) return;
-  const provider = db.getProvider(decodedId);
+  const provider = providerRoutingCore.getProvider(decodedId);
   if (!provider) return sendError(res, 'Provider not found', 404);
   const enabled = body.enabled !== undefined ? (body.enabled ? 1 : 0) : (provider.enabled ? 0 : 1);
-  db.updateProvider(decodedId, { enabled });
+  providerRoutingCore.updateProvider(decodedId, { enabled });
   return sendJson(res, { ...provider, enabled: Boolean(enabled) });
 }
 
@@ -601,8 +604,8 @@ function _getRegistry() {
 
 // (from agents.js) Get raw DB instance for agent queries
 function _getAgentDb() {
-  if (!db || typeof db.getDbInstance !== 'function') return null;
-  const dbInstance = db.getDbInstance();
+  if (!database || typeof database.getDbInstance !== 'function') return null;
+  const dbInstance = database.getDbInstance();
   return dbInstance && dbInstance.prepare ? dbInstance : null;
 }
 
@@ -876,8 +879,8 @@ function handleSystemStatus(req, res, query, context) {
   const activeConnections = clients.size;
 
   // Get running task count
-  const runningTasks = db.countTasks({ status: 'running' });
-  const queuedTasks = db.countTasks({ status: 'queued' });
+  const runningTasks = database.countTasks({ status: 'running' });
+  const queuedTasks = database.countTasks({ status: 'queued' });
 
   // Instance identity
   const taskManager = require('../../task-manager');
@@ -924,7 +927,7 @@ function handleInstances(req, res, query, context) {
   const taskManager = require('../../task-manager');
   const currentId = taskManager.getMcpInstanceId();
   const shortId = currentId.slice(-6);
-  const instances = db.getActiveInstances(30000);
+  const instances = coordination.getActiveInstances(30000);
 
   const enriched = instances.map(inst => ({
     ...inst,
