@@ -1083,6 +1083,20 @@ function initAutoScanFromConfig() {
   return false;
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createDiscovery(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return {
+    initDiscovery, shutdownDiscovery,
+    startAdvertising, stopAdvertising,
+    startBrowsing, stopBrowsing,
+    getDiscoveryStatus,
+    scanNetworkForOllama, getLastScanResults, isScanInProgress, getLocalSubnets,
+    startAutoScan, stopAutoScan, isAutoScanRunning, getAutoScanStatus, initAutoScanFromConfig
+  };
+}
+
 module.exports = {
   initDiscovery,
   shutdownDiscovery,
@@ -1101,5 +1115,6 @@ module.exports = {
   stopAutoScan,
   isAutoScanRunning,
   getAutoScanStatus,
-  initAutoScanFromConfig
+  initAutoScanFromConfig,
+  createDiscovery,
 };

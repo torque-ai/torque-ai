@@ -445,4 +445,14 @@ FreeQuotaTracker.DEFAULT_LATENCY_MS = DEFAULT_LATENCY_MS;
 FreeQuotaTracker.LATENCY_RING_SIZE = LATENCY_RING_SIZE;
 FreeQuotaTracker.FREE_PROVIDER_SCAN_ONLY_TYPES = FREE_PROVIDER_SCAN_ONLY_TYPES;
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createFreeQuotaTracker(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return FreeQuotaTracker;
+}
+
+FreeQuotaTracker.createFreeQuotaTracker = createFreeQuotaTracker;
+
 module.exports = FreeQuotaTracker;
+module.exports.createFreeQuotaTracker = createFreeQuotaTracker;

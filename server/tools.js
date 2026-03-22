@@ -508,6 +508,13 @@ async function handleToolCall(name, args) {
   throw err;
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createTools(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return { TOOLS, routeMap, schemaMap, handleToolCall, validateArgsAgainstSchema, INTERNAL_HANDLER_EXPORTS };
+}
+
 module.exports = {
   TOOLS,
   routeMap,
@@ -515,4 +522,5 @@ module.exports = {
   handleToolCall,
   validateArgsAgainstSchema,
   INTERNAL_HANDLER_EXPORTS,
+  createTools,
 };

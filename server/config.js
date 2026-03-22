@@ -265,6 +265,13 @@ function init(deps) {
   if (deps.db !== undefined) db = deps.db;
 }
 
+// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
+
+function createConfig(deps) {
+  // deps reserved for Phase 5 when database.js facade is removed
+  return { init, get, getInt, getFloat, getBool, isOptIn, getJson, getApiKey, hasApiKey, getPort, REGISTRY, API_KEY_ENV_VARS };
+}
+
 // ── Exports ──────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -280,4 +287,5 @@ module.exports = {
   getPort,
   REGISTRY,
   API_KEY_ENV_VARS,
+  createConfig,
 };
