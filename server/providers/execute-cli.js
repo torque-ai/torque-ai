@@ -276,7 +276,8 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
     cwd: effectiveCwd,
     env: envVars,
     shell: false,
-    stdio: ['pipe', 'pipe', 'pipe']
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,  // Prevent visible console windows on Windows
   };
 
   // Capture baseline HEAD SHA before spawning
