@@ -422,7 +422,7 @@ async function executeApiProvider(task, provider) {
     }
 
     db.updateTaskStatus(taskId, 'completed', {
-      output: result.output,
+      output: result.output || '',
       completed_at: new Date().toISOString(),
     });
 

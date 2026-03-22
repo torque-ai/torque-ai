@@ -938,7 +938,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
 
     // Store result + metadata in a single status update (avoid double-complete race)
     safeUpdateTaskStatus(taskId, 'completed', {
-      output: result.output,
+      output: result.output || '',
       exit_code: 0,
       progress_percent: 100,
       completed_at: new Date().toISOString(),

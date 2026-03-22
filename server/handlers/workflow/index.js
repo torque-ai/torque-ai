@@ -100,6 +100,7 @@ function buildWorkflowTaskMetadata(taskLike) {
   }
   if (taskLike.provider) {
     metaObj.user_provider_override = true;
+    metaObj.intended_provider = taskLike.provider;
   }
   if (taskLike.routing_template) {
     metaObj._routing_template = taskLike.routing_template;

@@ -967,6 +967,15 @@ function getWorkflowStatus(workflowId) {
   const tasks = getWorkflowTasks(workflowId);
   const dependencies = getWorkflowDependencies(workflowId);
 
+  // Build dependency lookup: task_id → [depends_on_node_ids]
+  const depsByTaskId = {};
+  for (const dep of dependencies) {
+    if (!depsByTaskId[dep.task_id]) depsByTaskId[dep.task_id] = [];
+    // Resolve task_id → node_id for the dependency
+    const depTask = tasks.find(t => t.id === dep.depends_on_task_id);
+    if (depTask) depsByTaskId[dep.task_id].push(depTask.workflow_node_id);
+  }
+
   // Build task status map
   const taskStatuses = {};
   for (const task of tasks) {
@@ -976,7 +985,9 @@ function getWorkflowStatus(workflowId) {
       status: task.status,
       description: task.task_description,
       exit_code: task.exit_code,
-      progress: task.progress_percent
+      progress: task.progress_percent,
+      provider: task.provider || null,
+      depends_on: depsByTaskId[task.id] || []
     };
   }
 

@@ -939,9 +939,9 @@ function handleCancelTask(args) {
   const { task, error: taskErr } = requireTask(db, args.task_id);
   if (taskErr) return taskErr;
 
-  // For running or queued tasks, require explicit confirm=true
+  // For running, queued, or retry_scheduled tasks, require explicit confirm=true
   // This gives the caller a chance to see what they're cancelling
-  if ((task.status === 'running' || task.status === 'queued') && !args.confirm) {
+  if ((task.status === 'running' || task.status === 'queued' || task.status === 'retry_scheduled') && !args.confirm) {
     const desc = (task.description || '').substring(0, 300);
     const age = task.created_at ? Math.round((Date.now() - new Date(task.created_at).getTime()) / 60000) : '?';
     const project = task.project || 'unknown';

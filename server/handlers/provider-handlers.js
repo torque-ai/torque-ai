@@ -7,6 +7,7 @@ const db = require('../database');
 const taskManager = require('../task-manager');
 const dashboard = require('../dashboard-server');
 const { ErrorCodes, makeError } = require('./error-codes');
+const providerRegistry = require('../providers/registry');
 
 // ============================================
 // PROVIDER MANAGEMENT HANDLERS
@@ -105,6 +106,30 @@ function handleListProviders() {
     }
   }
 
+  // Check API key availability for cloud API providers
+  const apiKeyStatus = {};
+  for (const p of providers) {
+    if (providerRegistry.isApiProvider(p.provider)) {
+      try {
+        const serverConfig = require('../config');
+        apiKeyStatus[p.provider] = !!serverConfig.getApiKey(p.provider);
+      } catch {
+        apiKeyStatus[p.provider] = false;
+      }
+    }
+  }
+
+  // Warn about enabled providers missing API keys
+  const misconfigured = providers.filter(p => p.enabled && apiKeyStatus[p.provider] === false);
+  if (misconfigured.length > 0) {
+    output += `\n### ⚠ Enabled But Unconfigured\n\n`;
+    output += `The following providers are enabled but have no API key set:\n`;
+    for (const p of misconfigured) {
+      const envVar = `${p.provider.toUpperCase().replace(/-/g, '_')}_API_KEY`;
+      output += `- **${p.provider}** — set \`${envVar}\` to configure\n`;
+    }
+  }
+
   const structuredData = {
     default_provider: defaultProvider,
     count: providers.length,
@@ -113,6 +138,7 @@ function handleListProviders() {
       enabled: !!p.enabled,
       priority: p.priority,
       max_concurrent: p.max_concurrent,
+      api_key_configured: apiKeyStatus[p.provider] !== undefined ? apiKeyStatus[p.provider] : null,
     })),
   };
 

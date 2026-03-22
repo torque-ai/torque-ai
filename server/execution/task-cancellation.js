@@ -110,6 +110,18 @@ function createCancellationHandler({
       return true;
     }
 
+    if (task && task.status === 'retry_scheduled') {
+      stallRecoveryAttempts.delete(fullId);
+      // pendingRetryTimeouts already cleared above (lines 46-51)
+      db.updateTaskStatus(fullId, 'cancelled', {
+        error_output: reason
+      });
+      triggerCancellationWebhook(fullId, webhookEvent);
+      dispatchCancelEvent(fullId, webhookEvent);
+      handleWorkflowTermination(fullId);
+      return true;
+    }
+
     if (task && task.status === 'running') {
       stallRecoveryAttempts.delete(fullId);
       safeDecrementHostSlot({ ollamaHostId: task.ollama_host_id });

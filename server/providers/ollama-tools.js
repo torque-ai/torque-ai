@@ -12,7 +12,8 @@
  *
  * Path jail: write_file and edit_file hard-refuse paths that resolve outside
  * the working directory. read_file, list_directory, and search_files allow
- * external paths (read-only operations are safe).
+ * external absolute paths (read-only operations are safe) but block relative
+ * paths that escape the working directory via ../ traversal.
  */
 
 const fs = require('fs');
@@ -411,7 +412,14 @@ function createToolExecutor(workingDir, options = {}) {
     try {
       switch (toolName) {
         case 'read_file': {
-          const { resolvedPath } = resolveSafePath(args.path, workingDir);
+          const { resolvedPath, allowed } = resolveSafePath(args.path, workingDir);
+          // Block relative paths that escape the working directory via ../
+          if (!path.isAbsolute(args.path) && !allowed) {
+            return {
+              result: `Error: path traversal detected — relative path resolves outside working directory: ${args.path}`,
+              error: true,
+            };
+          }
           if (!fs.existsSync(resolvedPath)) {
             return { result: `Error: File not found: ${args.path}`, error: true };
           }
@@ -630,7 +638,15 @@ function createToolExecutor(workingDir, options = {}) {
         }
 
         case 'list_directory': {
-          const { resolvedPath } = resolveSafePath(args.path || '.', workingDir);
+          const dirPath = args.path || '.';
+          const { resolvedPath, allowed } = resolveSafePath(dirPath, workingDir);
+          // Block relative paths that escape the working directory via ../
+          if (!path.isAbsolute(dirPath) && !allowed) {
+            return {
+              result: `Error: path traversal detected — relative path resolves outside working directory: ${dirPath}`,
+              error: true,
+            };
+          }
           if (!fs.existsSync(resolvedPath)) {
             return { result: `Error: Directory not found: ${args.path}`, error: true };
           }
@@ -656,7 +672,15 @@ function createToolExecutor(workingDir, options = {}) {
         }
 
         case 'search_files': {
-          const { resolvedPath } = resolveSafePath(args.path || '.', workingDir);
+          const searchPath = args.path || '.';
+          const { resolvedPath, allowed } = resolveSafePath(searchPath, workingDir);
+          // Block relative paths that escape the working directory via ../
+          if (!path.isAbsolute(searchPath) && !allowed) {
+            return {
+              result: `Error: path traversal detected — relative path resolves outside working directory: ${searchPath}`,
+              error: true,
+            };
+          }
           const globFilter = args.glob || '*';
 
           if (!isSafeRegex(args.pattern)) {

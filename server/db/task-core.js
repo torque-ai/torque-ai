@@ -486,8 +486,21 @@ function updateTaskStatus(id, status, additionalFields = {}) {
   }
 
   // When requeuing a task, clear the provider so routing can re-evaluate.
+  // BUG-001 fix: preserve the provider when the user (or workflow node) explicitly
+  // requested it — clearing it would discard the user_provider_override intent and
+  // let smart-routing reassign the task to a different provider.
   if (status === 'queued' && !Object.prototype.hasOwnProperty.call(additionalFields, 'provider') && !additionalFields._preserveProvider) {
-    additionalFields.provider = null;
+    let hasUserOverride = false;
+    try {
+      const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(id);
+      if (row && row.metadata) {
+        const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
+        hasUserOverride = !!meta.user_provider_override;
+      }
+    } catch (_e) { /* non-fatal — fall through to clear */ }
+    if (!hasUserOverride) {
+      additionalFields.provider = null;
+    }
   }
   delete additionalFields._preserveProvider;
 
