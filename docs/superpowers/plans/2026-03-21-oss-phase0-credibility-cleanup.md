@@ -28,7 +28,7 @@ Replace the hardcoded `TORQUE_DATA_DIR` and working directory:
 
 ```js
 // Line 3: Replace hardcoded path with env var
-// OLD: process.env.TORQUE_DATA_DIR = 'C:/Users/Werem/Projects/torque/server';
+// OLD: process.env.TORQUE_DATA_DIR = '/path/to/torque-data';
 // NEW:
 process.env.TORQUE_DATA_DIR = process.env.TORQUE_DATA_DIR || path.join(os.tmpdir(), 'torque-baseline-test');
 ```
@@ -41,21 +41,21 @@ const os = require('os');
 
 ```js
 // Line 16: Replace hardcoded working directory
-// OLD: const WD = 'C:/Users/Werem/Projects/SpudgetBooks';
+// OLD: const WD = '/path/to/project';
 // NEW:
 const WD = process.env.BASELINE_WORKING_DIR || process.cwd();
 ```
 
 ```js
 // Line 96: Replace hardcoded Ollama host
-// OLD: host: 'http://192.168.1.183:11434', model: 'qwen2.5-coder:32b',
+// OLD: host: 'http://192.0.2.100:11434', model: 'qwen2.5-coder:32b',
 // NEW:
 host: process.env.OLLAMA_HOST || 'http://localhost:11434', model: process.env.OLLAMA_MODEL || 'qwen2.5-coder:32b',
 ```
 
 ```js
 // Line 114: Replace hardcoded fallback host
-// OLD: options: { host: 'http://192.168.1.183:11434', model: 'codestral:22b' },
+// OLD: options: { host: 'http://192.0.2.100:11434', model: 'codestral:22b' },
 // NEW:
 options: { host: process.env.OLLAMA_HOST || 'http://localhost:11434', model: 'codestral:22b' },
 ```
@@ -66,7 +66,7 @@ Same pattern — replace hardcoded paths and IPs:
 
 ```js
 // Line 3: Replace hardcoded path
-// OLD: process.env.TORQUE_DATA_DIR = 'C:/Users/Werem/Projects/torque/server';
+// OLD: process.env.TORQUE_DATA_DIR = '/path/to/torque-data';
 // NEW:
 process.env.TORQUE_DATA_DIR = process.env.TORQUE_DATA_DIR || path.join(os.tmpdir(), 'torque-baseline-test');
 ```
@@ -75,26 +75,26 @@ Add `path` and `os` requires at top if not present.
 
 ```js
 // Line 15: Replace hardcoded working directory
-// OLD: const WD = 'C:/Users/Werem/Projects/SpudgetBooks';
+// OLD: const WD = '/path/to/project';
 // NEW:
 const WD = process.env.BASELINE_WORKING_DIR || process.cwd();
 ```
 
 ```js
 // Lines 131-132: Replace hardcoded Ollama hosts
-// OLD: await test('local / qwen2.5-coder:32b', ollamaAdapter, { host: 'http://192.168.1.183:11434', model: 'qwen2.5-coder:32b' });
+// OLD: await test('local / qwen2.5-coder:32b', ollamaAdapter, { host: 'http://192.0.2.100:11434', model: 'qwen2.5-coder:32b' });
 // NEW:
 const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
 await test('local / qwen2.5-coder:32b', ollamaAdapter, { host: ollamaHost, model: 'qwen2.5-coder:32b' });
 
-// OLD: await test('local / codestral:22b (prompt-inj)', ollamaAdapter, { host: 'http://192.168.1.183:11434', model: 'codestral:22b' }, { promptInjected: true });
+// OLD: await test('local / codestral:22b (prompt-inj)', ollamaAdapter, { host: 'http://192.0.2.100:11434', model: 'codestral:22b' }, { promptInjected: true });
 // NEW:
 await test('local / codestral:22b (prompt-inj)', ollamaAdapter, { host: ollamaHost, model: 'codestral:22b' }, { promptInjected: true });
 ```
 
 - [ ] **Step 3: Verify no remaining personal paths**
 
-Run: `grep -rn "Werem\|C:/Users" server/tests/baseline-runner.js server/tests/baseline-all-models.js`
+Run: `grep -rn "C:/Users" server/tests/baseline-runner.js server/tests/baseline-all-models.js`
 Expected: No matches
 
 - [ ] **Step 4: Commit**
@@ -117,7 +117,7 @@ This test file defaults to a personal Ollama host IP and references a personal m
 
 ```js
 // Line 5: Remove machine name reference
-// OLD: *   1. Live Ollama Integration — skipped if BahumutsOmen is unreachable
+// OLD: *   1. Live Ollama Integration — skipped if remote-gpu-host is unreachable
 // NEW:
 //   1. Live Ollama Integration — skipped if the configured Ollama host is unreachable
 ```
@@ -126,12 +126,12 @@ This test file defaults to a personal Ollama host IP and references a personal m
 
 ```js
 // Line 26: Fix JSDoc example
-// OLD: * Handles bare IPs/hostnames (e.g. "0.0.0.0", "192.168.1.183") by prepending "http://".
+// OLD: * Handles bare IPs/hostnames (e.g. "0.0.0.0", "192.0.2.100") by prepending "http://".
 // NEW:
 // * Handles bare IPs/hostnames (e.g. "0.0.0.0", "10.0.0.5") by prepending "http://".
 
 // Line 33: Fix default fallback
-// OLD: if (!raw) return 'http://192.168.1.183:11434';
+// OLD: if (!raw) return 'http://192.0.2.100:11434';
 // NEW:
 if (!raw) return 'http://localhost:11434';
 ```
@@ -140,19 +140,19 @@ if (!raw) return 'http://localhost:11434';
 
 ```js
 // Line 92: Fix comment
-// OLD: // Use AGENTIC_TEST_OLLAMA_HOST to target BahumutsOmen specifically.
+// OLD: // Use AGENTIC_TEST_OLLAMA_HOST to target remote-gpu-host specifically.
 // NEW:
 // Use AGENTIC_TEST_OLLAMA_HOST to target a specific Ollama host.
 
 // Line 97: Fix default
-// OLD: || 'http://192.168.1.183:11434';
+// OLD: || 'http://192.0.2.100:11434';
 // NEW:
 || 'http://localhost:11434';
 ```
 
 - [ ] **Step 4: Verify no remaining personal references**
 
-Run: `grep -rn "192.168.1.183\|BahumutsOmen" server/tests/agentic-integration.test.js`
+Run: `grep -rn "192.0.2.100\|remote-gpu-host" server/tests/agentic-integration.test.js`
 Expected: No matches
 
 - [ ] **Step 5: Commit**
@@ -175,14 +175,14 @@ One test fixture hardcodes a developer's username in a simulated `wmic` output.
 
 ```js
 // Line 155:
-// OLD: if (cmd === 'wmic') return 'CommandLine=node C:/Users/kenten/projects/torque-public/server/index.js';
+// OLD: if (cmd === 'wmic') return 'CommandLine=node /path/to/torque/server/index.js';
 // NEW:
 if (cmd === 'wmic') return 'CommandLine=node /opt/torque/server/index.js';
 ```
 
 - [ ] **Step 2: Verify no remaining personal references**
 
-Run: `grep -rn "kenten\|Werem" server/tests/pid-heartbeat.test.js`
+Run: `grep -rn "personal-data" server/tests/pid-heartbeat.test.js`
 Expected: No matches
 
 - [ ] **Step 3: Run the specific test to confirm it still passes**
@@ -427,9 +427,9 @@ git commit -m "chore: remove orphaned directories and stale artifacts"
 
 ### Task 8: Scrub personal paths from documentation files
 
-34 files in `docs/superpowers/` contain `C:/Users/Werem` paths from development specs and plans. Replace with generic paths so the docs read as proper OSS documentation.
+34 files in `docs/superpowers/` contain personal paths from development specs and plans. Replace with generic paths so the docs read as proper OSS documentation.
 
-**Files:** All 34 files listed by `grep -rn "Werem\|kenten\|BahumutsOmen" docs/superpowers/`
+**Files:** All 34 files listed by `grep -rn "personal-data\|C:/Users" docs/superpowers/`
 
 - [ ] **Step 1: Bulk replace personal paths**
 
@@ -437,17 +437,17 @@ For each file in `docs/superpowers/`, apply these replacements:
 
 | Pattern | Replacement |
 |---------|------------|
-| `C:/Users/Werem/Projects/torque-public` | `/path/to/torque` |
-| `C:/Users/Werem/Projects/torque/server` | `/path/to/torque-data` |
-| `C:/Users/Werem/Projects/torque` | `/path/to/torque` |
-| `C:/Users/Werem/Projects/SpudgetBooks` | `/path/to/project` |
-| `C:/Users/Werem/Projects/Deluge` | `/path/to/deluge` |
-| `C:/Users/Werem/Projects/Headwaters` | `/path/to/headwaters` |
-| `C:/Users/Werem/Projects/` | `/path/to/` |
-| `C:\\Users\\Werem\\Projects\\` | `/path/to/` |
-| `BahumutsOmen` | `remote-gpu-host` |
-| `kenten@192.168.1.183` | `user@remote-gpu-host` |
-| `192.168.1.183` | `192.0.2.100` |
+| `/path/to/torque` | `/path/to/torque` |
+| `/path/to/torque-data` | `/path/to/torque-data` |
+| `/path/to/torque` | `/path/to/torque` |
+| `/path/to/project` | `/path/to/project` |
+| `/path/to/deluge` | `/path/to/deluge` |
+| `/path/to/headwaters` | `/path/to/headwaters` |
+| `/path/to/` | `/path/to/` |
+| `C:\\Users\\<user>\\Projects\\` | `/path/to/` |
+| `remote-gpu-host` | `remote-gpu-host` |
+| `user@remote-gpu-host` | `user@remote-gpu-host` |
+| `192.0.2.100` | `192.0.2.100` |
 
 Use `sed` or the Edit tool with replace_all for each file.
 
@@ -455,7 +455,7 @@ Use `sed` or the Edit tool with replace_all for each file.
 
 - [ ] **Step 2: Verify no remaining personal references in docs**
 
-Run: `grep -rn "Werem\|kenten\|BahumutsOmen" docs/superpowers/`
+Run: `grep -rn "personal-data\|C:/Users" docs/superpowers/`
 Expected: No matches (the newly created OSS spec may reference these patterns in tables — verify those are in the "fix" column, not as live values)
 
 - [ ] **Step 3: Commit**
@@ -473,10 +473,10 @@ git commit -m "docs: scrub personal paths and machine names from specs and plans
 
 ```bash
 # Check for personal username
-grep -rn "Werem" --include="*.js" --include="*.md" --include="*.json" . | grep -v node_modules | grep -v .git/ | grep -v CLAUDE.md | grep -v MEMORY.md | grep -v memory/
+grep -rn "personal-username" --include="*.js" --include="*.md" --include="*.json" . | grep -v node_modules | grep -v .git/ | grep -v CLAUDE.md | grep -v MEMORY.md | grep -v memory/
 
 # Check for personal machine names
-grep -rn "kenten\|BahumutsOmen" --include="*.js" --include="*.md" . | grep -v node_modules | grep -v .git/ | grep -v CLAUDE.md | grep -v MEMORY.md | grep -v memory/
+grep -rn "user\|remote-gpu-host" --include="*.js" --include="*.md" . | grep -v node_modules | grep -v .git/ | grep -v CLAUDE.md | grep -v MEMORY.md | grep -v memory/
 
 # Check for personal infrastructure IP
 grep -rn "192\.168\.1\.183" --include="*.js" --include="*.md" . | grep -v node_modules | grep -v .git/

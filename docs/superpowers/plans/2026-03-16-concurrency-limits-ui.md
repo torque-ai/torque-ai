@@ -754,7 +754,7 @@ git commit -m "feat: VRAM slider, host max_concurrent inputs, and workstation se
 **Key behaviors after implementation:**
 - `get_concurrency_limits` → unified view of all 4 scopes
 - `set_concurrency_limit scope=vram_factor vram_factor=0.90` → persists to config table, affects all VRAM gating
-- `set_concurrency_limit scope=workstation target=BahumutsOmen max_concurrent=2` → persists, gates all providers
+- `set_concurrency_limit scope=workstation target=remote-gpu-host max_concurrent=2` → persists, gates all providers
 - Dashboard Hosts page shows VRAM slider + workstation cards with editable limits
 - Dashboard Providers page shows editable max_concurrent per provider
 - All values persist between sessions (database-backed)

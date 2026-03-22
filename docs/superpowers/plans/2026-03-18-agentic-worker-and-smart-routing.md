@@ -59,7 +59,7 @@ Mock approach: the worker script should accept a `workerData._testMode` flag tha
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-worker.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-worker.test.js`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement agentic-worker.js**
@@ -94,12 +94,12 @@ Create `server/providers/agentic-worker.js`:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-worker.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-worker.test.js`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/agentic-worker.js server/tests/agentic-worker.test.js
 git commit -m "feat(agentic): worker thread script with message protocol and abort support"
 ```
@@ -223,21 +223,21 @@ adapterType: provider === 'ollama-cloud' ? 'ollama' : provider === 'google-ai' ?
 
 - [ ] **Step 4: Run all agentic tests to verify no regressions**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-*.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-*.test.js`
 Expected: 129+ tests pass. The existing tests call `runAgenticLoop` directly (not through workers), so they should be unaffected.
 
 - [ ] **Step 5: Integration test — run agentic task via TORQUE MCP**
 
 Restart TORQUE and submit a task via MCP:
 ```
-submit_task({ task: "Use list_directory to list tests/", working_directory: "C:/Users/Werem/Projects/SpudgetBooks", provider: "groq" })
+submit_task({ task: "Use list_directory to list tests/", working_directory: "/path/to/project", provider: "groq" })
 ```
 Verify: task completes with real directory listing (no hang on iteration 2+).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/execution.js
 git commit -m "feat(agentic): spawn worker threads for agentic tasks — fixes runtime hang"
 ```
@@ -274,7 +274,7 @@ Tests:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-routing.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-routing.test.js`
 
 - [ ] **Step 3: Implement chain support in template-store.js**
 
@@ -301,12 +301,12 @@ Modify `server/routing/template-store.js`:
 
 - [ ] **Step 5: Run existing routing template tests to verify no regressions**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/routing-templates.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/routing-templates.test.js`
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/routing/template-store.js server/tests/agentic-routing.test.js
 git commit -m "feat(routing): resolveProvider returns chain-aware objects with backward-compat toString"
 ```
@@ -326,14 +326,14 @@ Create `server/routing/templates/free-agentic.json` with the exact content from 
 
 - [ ] **Step 2: Verify template loads**
 
-Run: `cd C:/Users/Werem/Projects/torque-public/server && node -e "const ts = require('./routing/template-store'); const db = require('./database'); db.init(); ts.setDb(db.getDbInstance()); ts.ensureTable(); ts.seedPresets(); console.log(ts.listTemplates().map(t => t.name))"`
+Run: `cd /path/to/torque/server && node -e "const ts = require('./routing/template-store'); const db = require('./database'); db.init(); ts.setDb(db.getDbInstance()); ts.ensureTable(); ts.seedPresets(); console.log(ts.listTemplates().map(t => t.name))"`
 
 Expected: output includes "Free Agentic" alongside the 5 existing presets.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/routing/templates/free-agentic.json
 git commit -m "feat(routing): add Free Agentic preset template with fallback chains across 5 free providers"
 ```
@@ -395,7 +395,7 @@ Add to `server/providers/execution.js`:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/execution.js server/tests/agentic-routing.test.js
 git commit -m "feat(routing): fallback retry loop with worker cleanup and git revert between attempts"
 ```
@@ -459,13 +459,13 @@ This may require adding `model` and `chain` to the routing result in `resolvePro
 
 - [ ] **Step 3: Run existing routing tests**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/routing-templates.test.js server/tests/provider-routing.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/routing-templates.test.js server/tests/provider-routing.test.js`
 Expected: all pass (backward compat via toString/valueOf).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/db/provider-routing-core.js
 git commit -m "feat(routing): propagate fallback chains from template resolution to task execution"
 ```
@@ -489,19 +489,19 @@ Append to `server/tests/agentic-routing.test.js`:
 
 - [ ] **Step 2: Run full test suite**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run`
+Run: `cd /path/to/torque && npx vitest run`
 Expected: all existing tests pass, all new tests pass.
 
 - [ ] **Step 3: Live verification via TORQUE**
 
 Restart TORQUE with "Free Agentic" template activated:
 ```bash
-sqlite3 "C:/Users/Werem/Projects/torque/server/tasks.db" "INSERT OR REPLACE INTO config (key, value) VALUES ('active_routing_template', 'preset-free-agentic');"
+sqlite3 "/path/to/torque-data/tasks.db" "INSERT OR REPLACE INTO config (key, value) VALUES ('active_routing_template', 'preset-free-agentic');"
 ```
 
 Submit a task via MCP without specifying a provider:
 ```
-submit_task({ task: "Use list_directory to list tests/", working_directory: "C:/Users/Werem/Projects/SpudgetBooks" })
+submit_task({ task: "Use list_directory to list tests/", working_directory: "/path/to/project" })
 ```
 
 Verify: task is routed to cerebras (first in default chain), uses the agentic pipeline, completes with real results.
@@ -509,7 +509,7 @@ Verify: task is routed to cerebras (first in default chain), uses the agentic pi
 - [ ] **Step 4: Final commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/tests/agentic-routing.test.js
 git commit -m "test(routing): integration tests for full agentic fallback chain pipeline"
 ```

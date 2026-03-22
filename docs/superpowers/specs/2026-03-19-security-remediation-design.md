@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-19
 **Scope:** 71 security issues from Bug Hunt Round 2
-**Deployment model:** Single-user with remote agents (localhost TORQUE + BahumutsOmen)
+**Deployment model:** Single-user with remote agents (localhost TORQUE + remote-gpu-host)
 **Approach:** Secure-by-default with zero friction — auto-generated API key, protocol-layer enforcement
 
 ---
@@ -15,7 +15,7 @@ The architecture track (Track B) created `mcp-protocol.js` — a single protocol
 
 ## Deployment Model
 
-TORQUE runs on the developer's local machine. Remote agents (BahumutsOmen) execute heavy commands via SSH/HTTP. The security model assumes:
+TORQUE runs on the developer's local machine. Remote agents (remote-gpu-host) execute heavy commands via SSH/HTTP. The security model assumes:
 - **Trusted:** stdio pipe (same process), localhost dashboard (same machine)
 - **Semi-trusted:** LAN agent connections (same network, but need auth)
 - **Untrusted:** any non-localhost network access, browser-based attacks from other tabs

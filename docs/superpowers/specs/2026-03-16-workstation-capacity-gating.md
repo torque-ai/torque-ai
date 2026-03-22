@@ -7,7 +7,7 @@
 
 Multiple Ollama-based providers (hashline-ollama, aider-ollama, ollama) independently select hosts and reserve slots on the `ollama_hosts` table. When a host's `max_concurrent` allows 3+ tasks but the physical GPU only has enough VRAM for 1-2 models simultaneously, providers load competing models that thrash the GPU via model eviction.
 
-Example: BahumutsOmen (RTX 3090, 24GB VRAM) with `max_concurrent=3`:
+Example: remote-gpu-host (RTX 3090, 24GB VRAM) with `max_concurrent=3`:
 - hashline-ollama reserves slot → loads qwen2.5-coder:32b (18GB)
 - aider-ollama reserves slot → loads deepseek-r1:14b (8GB)
 - Total: 26GB > 24GB VRAM → model eviction → thrashing

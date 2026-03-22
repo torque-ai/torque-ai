@@ -6,7 +6,7 @@ We just completed a massive session implementing 18 competitive features for TOR
 
 ## Objective
 
-Use the SpudgetBooks project (`C:/Users/Werem/Projects/SpudgetBooks` — C#/.NET WPF budgeting app) as a test bed to:
+Use the SpudgetBooks project (`/path/to/project` — C#/.NET WPF budgeting app) as a test bed to:
 
 1. **Exercise every LLM provider TORQUE supports** — submit real tasks to each and compare output quality, speed, and reliability
 2. **Validate every new competitive feature under load** — provider scoring populates, circuit breakers trip/recover, budget watcher fires, resume context helps retries succeed, commit mutex serializes, symbol indexer provides compact context, templates inject C# agent context, etc.
@@ -15,7 +15,7 @@ Use the SpudgetBooks project (`C:/Users/Werem/Projects/SpudgetBooks` — C#/.NET
 ## SpudgetBooks Overview
 
 - **Stack:** C#/.NET 9, WPF (XAML), SQLite, MVVM architecture
-- **Location:** `C:/Users/Werem/Projects/SpudgetBooks`
+- **Location:** `/path/to/project`
 - **Solution:** `SpudgetBooks.sln`
 - **Projects:** Domain, Application, Infrastructure, App (WPF), Cli, Telemetry
 - **Build:** `dotnet build SpudgetBooks.sln`
@@ -135,7 +135,7 @@ node bin/torque-top
 # Use get_circuit_breaker_status MCP tool
 
 # Symbol index for SpudgetBooks
-# Use index_project MCP tool with working_directory=C:/Users/Werem/Projects/SpudgetBooks
+# Use index_project MCP tool with working_directory=/path/to/project
 ```
 
 ## Success Criteria

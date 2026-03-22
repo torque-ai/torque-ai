@@ -51,7 +51,7 @@ test('tasks table has partial_output column', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/schema-tables.test.js -t "partial_output"`
+Run: `cd /path/to/torque && npx vitest run server/tests/schema-tables.test.js -t "partial_output"`
 Expected: FAIL — column does not exist yet
 
 - [ ] **Step 3: Add migration**
@@ -76,7 +76,7 @@ This goes after the `provider_switched_at TEXT` line (line 265).
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/schema-tables.test.js -t "partial_output"`
+Run: `cd /path/to/torque && npx vitest run server/tests/schema-tables.test.js -t "partial_output"`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -131,7 +131,7 @@ describe('event classification exports', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/event-dispatch-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/event-dispatch-heartbeat.test.js`
 Expected: FAIL — exports don't exist
 
 - [ ] **Step 3: Add event classification exports**
@@ -150,7 +150,7 @@ Then in the `module.exports` block at the bottom, add `TERMINAL_EVENTS` and `NOT
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/event-dispatch-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/event-dispatch-heartbeat.test.js`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -215,7 +215,7 @@ Note: Adapt the import/mock pattern from existing tests in `server/tests/test-he
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/event-dispatch-heartbeat.test.js -t "task:started"`
+Run: `cd /path/to/torque && npx vitest run server/tests/event-dispatch-heartbeat.test.js -t "task:started"`
 Expected: FAIL — event not emitted
 
 - [ ] **Step 3: Add task:started emission**
@@ -241,7 +241,7 @@ Important: Use `require()` inside the function to avoid circular dependency issu
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/event-dispatch-heartbeat.test.js -t "task:started"`
+Run: `cd /path/to/torque && npx vitest run server/tests/event-dispatch-heartbeat.test.js -t "task:started"`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -294,7 +294,7 @@ describe('task:stall_warning event', () => {
 
 - [ ] **Step 2: Run test to verify it passes (direct emit test)**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/event-dispatch-heartbeat.test.js -t "stall_warning"`
+Run: `cd /path/to/torque && npx vitest run server/tests/event-dispatch-heartbeat.test.js -t "stall_warning"`
 Expected: PASS — this validates the event contract shape
 
 - [ ] **Step 3: Add stall warning emission to checkStalledTasks**
@@ -339,7 +339,7 @@ Also add cleanup: find where `runningProcesses.delete(taskId)` is called in `orp
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/event-dispatch-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/event-dispatch-heartbeat.test.js`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -391,7 +391,7 @@ describe('task:fallback event', () => {
 
 - [ ] **Step 2: Run test to verify it passes (dispatchTaskEvent handles arbitrary event names)**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/event-dispatch-heartbeat.test.js -t "task:fallback"`
+Run: `cd /path/to/torque && npx vitest run server/tests/event-dispatch-heartbeat.test.js -t "task:fallback"`
 Expected: PASS
 
 - [ ] **Step 3: Add task:fallback emission to fallback functions**
@@ -419,7 +419,7 @@ Find the exact insertion point by looking for where the provider is changed (e.g
 
 - [ ] **Step 4: Run full event dispatch test suite**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/event-dispatch-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/event-dispatch-heartbeat.test.js`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -479,7 +479,7 @@ Note: Adapt the import pattern based on how `workflow-defs.js` exports. Check `s
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js -t "heartbeat_minutes"`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js -t "heartbeat_minutes"`
 Expected: FAIL — parameter doesn't exist
 
 - [ ] **Step 3: Add heartbeat_minutes to both tool schemas**
@@ -501,7 +501,7 @@ Update both tool descriptions to mention heartbeats:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -631,7 +631,7 @@ describe('formatHeartbeat', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js -t "formatHeartbeat"`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js -t "formatHeartbeat"`
 Expected: FAIL — function not exported
 
 - [ ] **Step 3: Implement formatHeartbeat**
@@ -733,7 +733,7 @@ Export `formatHeartbeat` from the module.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js -t "formatHeartbeat"`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js -t "formatHeartbeat"`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -830,7 +830,7 @@ describe('handleAwaitTask heartbeat', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js -t "handleAwaitTask heartbeat"`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js -t "handleAwaitTask heartbeat"`
 Expected: FAIL
 
 - [ ] **Step 3: Implement heartbeat in handleAwaitTask**
@@ -980,12 +980,12 @@ The existing terminal-event handling code stays unchanged after this block.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js -t "handleAwaitTask heartbeat"`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js -t "handleAwaitTask heartbeat"`
 Expected: PASS
 
 - [ ] **Step 5: Run existing await tests for regression**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/workflow-await.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/workflow-await.test.js`
 Expected: ALL PASS
 
 - [ ] **Step 6: Commit**
@@ -1049,7 +1049,7 @@ describe('handleAwaitWorkflow heartbeat', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js -t "handleAwaitWorkflow heartbeat"`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js -t "handleAwaitWorkflow heartbeat"`
 Expected: FAIL
 
 - [ ] **Step 3: Implement heartbeat in handleAwaitWorkflow**
@@ -1200,12 +1200,12 @@ Build heartbeat with full workflow state:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js -t "handleAwaitWorkflow heartbeat"`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js -t "handleAwaitWorkflow heartbeat"`
 Expected: PASS
 
 - [ ] **Step 5: Run existing workflow await tests for regression**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-workflow-yield.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-workflow-yield.test.js`
 Expected: ALL PASS
 
 - [ ] **Step 6: Commit**
@@ -1259,12 +1259,12 @@ Follow patterns from existing test files. Use `vi.useFakeTimers()` for timer con
 
 - [ ] **Step 3: Run all heartbeat tests**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js`
 Expected: ALL PASS
 
 - [ ] **Step 4: Run full regression suite**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/workflow-await.test.js server/tests/await-workflow-yield.test.js server/tests/await-heartbeat.test.js server/tests/event-dispatch-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/workflow-await.test.js server/tests/await-workflow-yield.test.js server/tests/await-heartbeat.test.js server/tests/event-dispatch-heartbeat.test.js`
 Expected: ALL PASS
 
 - [ ] **Step 5: Commit**

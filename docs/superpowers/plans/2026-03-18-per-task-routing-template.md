@@ -72,12 +72,12 @@ Add to `module.exports`: `resolveTemplateByNameOrId`.
 
 - [ ] **Step 3: Run tests**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-routing.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-routing.test.js`
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/routing/template-store.js server/tests/agentic-routing.test.js
 git commit -m "feat(routing): add resolveTemplateByNameOrId for per-task template lookup"
 ```
@@ -131,7 +131,7 @@ routing_template: {
 - [ ] **Step 5: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/tool-defs/task-submission-defs.js server/tool-defs/integration-defs.js server/tool-defs/workflow-defs.js
 git commit -m "feat(routing): add routing_template parameter to submit_task, smart_submit_task, create_workflow, add_workflow_task"
 ```
@@ -205,7 +205,7 @@ For `add_workflow_task` handler: if `args.routing_template` is set, store in tas
 - [ ] **Step 4: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/handlers/task/core.js server/handlers/integration/routing.js server/handlers/workflow/index.js
 git commit -m "feat(routing): wire routing_template through task and workflow handlers"
 ```
@@ -285,12 +285,12 @@ if (taskTemplateName && categoryClassifier && templateStore) {
 
 - [ ] **Step 3: Run tests**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-routing.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-routing.test.js`
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/db/provider-routing-core.js server/tests/agentic-routing.test.js
 git commit -m "feat(routing): per-task template resolution in analyzeTaskForRouting"
 ```
@@ -300,7 +300,7 @@ git commit -m "feat(routing): per-task template resolution in analyzeTaskForRout
 ### Task 5: LLM-Facing Documentation
 
 **Files:**
-- Modify: `C:/Users/Werem/Projects/SpudgetBooks/CLAUDE.md`
+- Modify: `/path/to/project/CLAUDE.md`
 
 - [ ] **Step 1: Add routing template section to CLAUDE.md**
 
@@ -344,7 +344,7 @@ add_workflow_task({ workflow_id: "...", task: "...", routing_template: "Quality 
 - [ ] **Step 2: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/SpudgetBooks
+cd /path/to/project
 git add CLAUDE.md
 git commit -m "docs: add TORQUE routing template guidance to CLAUDE.md"
 ```
@@ -355,7 +355,7 @@ git commit -m "docs: add TORQUE routing template guidance to CLAUDE.md"
 
 - [ ] **Step 1: Run all agentic tests**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-routing.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-routing.test.js`
 Expected: all tests pass including new per-task template tests.
 
 - [ ] **Step 2: Restart TORQUE and verify live**
@@ -365,7 +365,7 @@ Restart TORQUE, then submit a task with `routing_template`:
 ```
 submit_task({
   task: "Use list_directory to list tests/",
-  working_directory: "C:/Users/Werem/Projects/SpudgetBooks",
+  working_directory: "/path/to/project",
   routing_template: "Free Speed"
 })
 ```
@@ -378,7 +378,7 @@ Verify: routing decision says "Task template 'Free Speed'" (not global template)
 create_workflow({
   name: "test-routing",
   routing_template: "Cost Saver",
-  tasks: [{ task: "list tests/", working_directory: "C:/Users/Werem/Projects/SpudgetBooks" }]
+  tasks: [{ task: "list tests/", working_directory: "/path/to/project" }]
 })
 ```
 
@@ -387,5 +387,5 @@ Verify: task inherits "Cost Saver" routing.
 - [ ] **Step 4: Push**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public && git push
+cd /path/to/torque && git push
 ```

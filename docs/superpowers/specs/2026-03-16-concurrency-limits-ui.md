@@ -40,10 +40,10 @@ Returns a unified view of all concurrency settings:
     { "provider": "hashline-ollama", "max_concurrent": 2, "enabled": true }
   ],
   "workstations": [
-    { "name": "BahumutsOmen", "max_concurrent": 3, "gpu_vram_mb": 24576, "effective_vram_budget_mb": 23347, "running_tasks": 1 }
+    { "name": "remote-gpu-host", "max_concurrent": 3, "gpu_vram_mb": 24576, "effective_vram_budget_mb": 23347, "running_tasks": 1 }
   ],
   "ollama_hosts": [
-    { "name": "BahumutsOmen", "max_concurrent": 3, "running_tasks": 1 }
+    { "name": "remote-gpu-host", "max_concurrent": 3, "running_tasks": 1 }
   ]
 }
 ```
@@ -58,7 +58,7 @@ Input:
 ```json
 {
   "scope": "provider | workstation | host | vram_factor",
-  "target": "codex | BahumutsOmen | host-id",
+  "target": "codex | remote-gpu-host | host-id",
   "max_concurrent": 5,
   "vram_factor": 0.95
 }

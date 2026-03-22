@@ -83,7 +83,7 @@ Factory call with options: `createToolExecutor(tmpDir, { commandMode: 'allowlist
 
 - [ ] **Step 5: Run tests to verify they fail**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-tools.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-tools.test.js`
 Expected: FAIL — `createToolExecutor` does not exist yet.
 
 - [ ] **Step 6: Rewrite ollama-tools.js with all hardening**
@@ -102,13 +102,13 @@ Rewrite `server/providers/ollama-tools.js`:
 
 - [ ] **Step 7: Run tests to verify they pass**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-tools.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-tools.test.js`
 Expected: PASS
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/ollama-tools.js server/tests/agentic-tools.test.js
 git commit -m "feat(agentic): rewrite tool executor — enforced path jail, pure-JS search, replace_all, command sandbox"
 ```
@@ -126,7 +126,7 @@ Extract Ollama `/api/chat` HTTP logic from POC into standalone adapter.
 - [ ] **Step 1: Create adapters directory**
 
 ```bash
-mkdir -p C:/Users/Werem/Projects/torque-public/server/providers/adapters
+mkdir -p /path/to/torque/server/providers/adapters
 ```
 
 - [ ] **Step 2: Write failing tests for Ollama adapter**
@@ -139,7 +139,7 @@ Mock server: on POST, write two NDJSON lines — one with `done: false` (streami
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-adapters.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-adapters.test.js`
 Expected: FAIL — module not found.
 
 - [ ] **Step 4: Implement ollama-chat.js adapter**
@@ -154,13 +154,13 @@ Create `server/providers/adapters/ollama-chat.js`:
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-adapters.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-adapters.test.js`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/adapters/ollama-chat.js server/tests/agentic-adapters.test.js
 git commit -m "feat(agentic): Ollama chat adapter with NDJSON streaming and token normalization"
 ```
@@ -186,7 +186,7 @@ Mock server: check `Authorization: Bearer` header, respond with SSE events endin
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run server/tests/agentic-adapters.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/agentic-adapters.test.js`
 
 - [ ] **Step 3: Implement openai-chat.js adapter**
 
@@ -203,7 +203,7 @@ Create `server/providers/adapters/openai-chat.js`:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/adapters/openai-chat.js server/tests/agentic-adapters.test.js
 git commit -m "feat(agentic): OpenAI-compatible chat adapter with SSE streaming"
 ```
@@ -243,7 +243,7 @@ Create `server/providers/adapters/google-chat.js`:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/adapters/google-chat.js server/tests/agentic-adapters.test.js
 git commit -m "feat(agentic): Google AI Gemini adapter with function calling"
 ```
@@ -317,7 +317,7 @@ Create `server/providers/agentic-capability.js` (~100 lines):
 - [ ] **Step 7: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/agentic-capability.js server/tests/agentic-capability.test.js server/db/config-keys.js server/db/schema-migrations.js
 git commit -m "feat(agentic): 3-layer capability detection (config > probe > whitelist)"
 ```
@@ -361,7 +361,7 @@ Create `server/providers/agentic-git-safety.js` (~80 lines):
 - [ ] **Step 5: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/agentic-git-safety.js server/tests/agentic-git-safety.test.js
 git commit -m "feat(agentic): git safety net with snapshot/revert/authorize"
 ```
@@ -411,7 +411,7 @@ Rewrite `server/providers/ollama-agentic.js`:
 - [ ] **Step 5: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/ollama-agentic.js server/tests/agentic-loop.test.js
 git commit -m "feat(agentic): adapter-agnostic loop with context management and stuck detection"
 ```
@@ -499,7 +499,7 @@ This prevents breaking existing users who set `ollama_agentic_enabled=0`.
 - [ ] **Step 9: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/execution.js server/db/schema-seeds.js server/providers/execute-ollama.js
 git commit -m "feat(agentic): wire production pipeline with cloud provider routing into execution.js"
 ```
@@ -540,13 +540,13 @@ Append to `server/tests/agentic-integration.test.js`:
 
 - [ ] **Step 4: Run integration tests**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && OLLAMA_HOST=http://192.168.1.183:11434 npx vitest run server/tests/agentic-integration.test.js`
+Run: `cd /path/to/torque && OLLAMA_HOST=http://192.0.2.100:11434 npx vitest run server/tests/agentic-integration.test.js`
 Note: OLLAMA_HOST env var syntax is Git Bash compatible. For PowerShell use `$env:OLLAMA_HOST="..." ; npx vitest run ...`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/tests/agentic-integration.test.js
 git commit -m "test(agentic): integration test with live Ollama"
 ```
@@ -559,7 +559,7 @@ git commit -m "test(agentic): integration test with live Ollama"
 
 - [ ] **Step 1: Run full test suite**
 
-Run: `cd C:/Users/Werem/Projects/torque-public && npx vitest run`
+Run: `cd /path/to/torque && npx vitest run`
 Expected: All existing + new tests pass.
 
 - [ ] **Step 2: Verify end-to-end via TORQUE MCP**
@@ -577,7 +577,7 @@ Set `agentic_enabled=0` in DB, submit task, verify legacy `/api/generate` runs. 
 - [ ] **Step 5: Final commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add server/providers/adapters/ server/providers/ollama-tools.js server/providers/ollama-agentic.js server/providers/agentic-capability.js server/providers/agentic-git-safety.js server/providers/execution.js server/providers/execute-ollama.js server/db/schema-migrations.js server/db/config-keys.js server/db/schema-seeds.js server/tests/agentic-*.test.js docs/superpowers/specs/2026-03-17-universal-agentic-tool-calling-design.md
 git commit -m "feat(agentic): universal agentic tool calling for all API-based providers"
 ```

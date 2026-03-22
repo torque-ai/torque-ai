@@ -78,7 +78,7 @@ Fill in:
 
 - [x] **Run personal data grep** — ran 2026-03-16. Results:
   - **Production code:** CLEAN — zero matches in `server/*.js`, `skills/`, `.claude-plugin/`, `CLAUDE.md`, `README.md`
-  - **Test files (4 files):** SANITIZED — `werem` → `testuser`, `bahumut` → `test-host`/`remote-gpu-host`
+  - **Test files (4 files):** SANITIZED — personal usernames → `testuser`, machine names → `test-host`/`remote-gpu-host`
   - **Plan docs:** SANITIZED — SSH commands genericized to local `npx` commands
 
 ### Quality (VERIFY)

@@ -105,7 +105,7 @@ function getOllamaHost(hostId) {
 - [ ] **Step 3: Run existing tests on the Omen**
 
 ```bash
-ssh kenten@192.168.1.183 "cd C:\Users\kenten\Projects\torque-public && git pull && npx vitest run server/tests/db-host-selection.test.js server/tests/host-management.test.js --reporter verbose"
+ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run server/tests/db-host-selection.test.js server/tests/host-management.test.js --reporter verbose"
 ```
 Expected: PASS
 
@@ -177,7 +177,7 @@ In `updateOllamaHost()` (around line 180), after the existing UPDATE, add workst
 - [ ] **Step 4: Run existing tests on the Omen**
 
 ```bash
-ssh kenten@192.168.1.183 "cd C:\Users\kenten\Projects\torque-public && git pull && npx vitest run server/tests/host-management.test.js --reporter verbose"
+ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run server/tests/host-management.test.js --reporter verbose"
 ```
 Expected: PASS
 
@@ -226,7 +226,7 @@ function resolvePeekHost(args) {
 - [ ] **Step 2: Run peek tests**
 
 ```bash
-ssh kenten@192.168.1.183 "cd C:\Users\kenten\Projects\torque-public && git pull && npx vitest run server/tests/contracts-peek.test.js --reporter verbose"
+ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run server/tests/contracts-peek.test.js --reporter verbose"
 ```
 Expected: PASS
 
@@ -314,7 +314,7 @@ git commit -m "feat(workstations): phase 3 — workstation fallback for task hos
 - [ ] **Step 1: Run full suite on the Omen**
 
 ```bash
-ssh kenten@192.168.1.183 "cd C:\Users\kenten\Projects\torque-public && git pull && npx vitest run"
+ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run"
 ```
 Expected: 0 failures, 15,893+ passing
 
@@ -356,7 +356,7 @@ Add a comment block in `server/db/schema-migrations.js`:
 - [ ] **Step 5: Run full suite on the Omen**
 
 ```bash
-ssh kenten@192.168.1.183 "cd C:\Users\kenten\Projects\torque-public && git pull && npx vitest run"
+ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run"
 ```
 Expected: 0 failures
 
@@ -507,7 +507,7 @@ In `server/api/v2-dispatch.js`, add handler wrappers that call the workstation h
 - [ ] **Step 3: Run meta-tests to verify no regressions**
 
 ```bash
-ssh kenten@192.168.1.183 "cd C:\Users\kenten\Projects\torque-public && git pull && npx vitest run server/tests/rest-control-plane-parity.test.js server/tests/v2-middleware.test.js server/tests/core-tools.test.js"
+ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run server/tests/rest-control-plane-parity.test.js server/tests/v2-middleware.test.js server/tests/core-tools.test.js"
 ```
 
 - [ ] **Step 4: Commit**

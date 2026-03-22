@@ -252,7 +252,7 @@ Event types and their display:
 - `rate_limit` → yellow warning + "groq hit 429 — cooldown 60s"
 - `workflow_complete` → blue flag + "workflow Z finished (5/5)"
 - `stall_warning` → orange clock + "task X stalled (180s)"
-- `host_down` → red dot + "BahumutsOmen went offline"
+- `host_down` → red dot + "remote-gpu-host went offline"
 
 - [ ] **Step 2: Wire SSE events into Kanban**
 

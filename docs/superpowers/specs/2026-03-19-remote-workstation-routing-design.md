@@ -83,7 +83,7 @@ Called with no arguments, the script prints usage help and exits non-zero.
 SSH to Windows machines drops into CMD by default. The script handles this by sending the command as a single string to SSH, which CMD interprets directly. The `&&` chaining (`cd path && git fetch && command`) works in CMD.
 
 All interpolated values (project paths, branch names, commands) are escaped for CMD safety. Specifically:
-- Project paths are wrapped in double quotes: `cd "C:\Users\kenten\Projects\SpudgetBooks"`
+- Project paths are wrapped in double quotes: `cd "/path/to\SpudgetBooks"`
 - Branch names are validated to contain only `[a-zA-Z0-9_./-]` characters before interpolation. Invalid branch names abort the sync step with an error.
 - The user's command is passed as-is to SSH (it's already a shell command string).
 
@@ -101,7 +101,7 @@ If the branch does not exist on the remote (`git checkout` fails), the script wa
 
 ### Remote project path derivation
 
-The global config has `default_project_path` (e.g., `C:\Users\kenten\Projects`). The script derives the remote path: if CWD project root is `~/Projects/SpudgetBooks`, the remote path is `<default_project_path>\SpudgetBooks`.
+The global config has `default_project_path` (e.g., `/path/to`). The script derives the remote path: if CWD project root is `~/Projects/SpudgetBooks`, the remote path is `<default_project_path>\SpudgetBooks`.
 
 Per-project `.torque-remote.local.json` can override with `remote_project_path` for non-standard locations.
 

@@ -128,5 +128,5 @@ Impact: 4 of 5 B+ models upgraded to Grade A. The explicit directory count elimi
 Zero. All models tested are free tier. No API credits spent.
 
 The only costs are:
-- Electricity for BahumutsOmen running local Ollama (2 models, consumer GPU)
+- Electricity for remote-gpu-host running local Ollama (2 models, consumer GPU)
 - Internet bandwidth for API calls (minimal — text only, no images)

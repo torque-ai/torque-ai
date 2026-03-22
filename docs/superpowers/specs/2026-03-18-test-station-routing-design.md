@@ -52,9 +52,9 @@ Three changes that converge all test execution paths onto the configured test st
 
 ```json
 {
-  "host": "192.168.1.183",
-  "user": "kenten",
-  "project_path": "/c/Users/kenten/Projects/torque-public",
+  "host": "192.0.2.100",
+  "user": "user",
+  "project_path": "/c/Users/user/Projects/torque-public",
   "key_path": null
 }
 ```

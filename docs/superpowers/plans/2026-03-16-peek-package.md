@@ -420,7 +420,7 @@ node bin/torque-peek.js stop
 - [ ] **Step 4: Verify no personal data**
 
 ```bash
-grep -ri "192\.168\.1\.\|bahumut\|werem\|kenten" packages/peek/
+grep -ri "192\.168\.1\.\|personal-data" packages/peek/
 ```
 
 Expected: No matches.

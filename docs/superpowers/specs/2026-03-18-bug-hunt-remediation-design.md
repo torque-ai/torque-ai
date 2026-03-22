@@ -6,7 +6,7 @@
 
 ---
 
-## Test Results (BahumutsOmen)
+## Test Results (remote-gpu-host)
 
 | Suite | Pass | Fail | Total |
 |-------|------|------|-------|

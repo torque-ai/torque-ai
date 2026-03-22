@@ -264,15 +264,15 @@ git commit -m "test(auth): remove legacy checkAuth tests"
 - [ ] **Step 1: Restart TORQUE server**
 
 ```bash
-bash C:/Users/Werem/Projects/torque/stop-torque.sh
-TORQUE_DATA_DIR="C:/Users/Werem/Projects/torque/server" nohup node C:/Users/Werem/Projects/torque-public/server/index.js > /dev/null 2>&1 &
+bash /path/to/torque/stop-torque.sh
+TORQUE_DATA_DIR="/path/to/torque-data" nohup node /path/to/torque/server/index.js > /dev/null 2>&1 &
 sleep 5
 ```
 
 - [ ] **Step 2: Verify legacy key is cleaned up**
 
 ```bash
-sqlite3 "C:/Users/Werem/Projects/torque/server/tasks.db" "SELECT value FROM config WHERE key = 'api_key';"
+sqlite3 "/path/to/torque-data/tasks.db" "SELECT value FROM config WHERE key = 'api_key';"
 ```
 Expected: No output (legacy key deleted)
 

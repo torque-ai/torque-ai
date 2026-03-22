@@ -166,7 +166,7 @@ const model = task.model || selectBestApprovedModel(provider, taskComplexity);
 1. Health check detects model gone → mark `removed` in registry
 2. Query queued tasks with that model assigned
 3. For each: call `selectBestApprovedModel` → update task's model + host
-4. Push MCP notification: `"Model qwen3:8b removed from BahumutsOmen. 2 tasks re-routed to codestral:22b."`
+4. Push MCP notification: `"Model qwen3:8b removed from remote-gpu-host. 2 tasks re-routed to codestral:22b."`
 
 ### Auto-recovery when provider removed:
 1. All models for that provider marked `removed`

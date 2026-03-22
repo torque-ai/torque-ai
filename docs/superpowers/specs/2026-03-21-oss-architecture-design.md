@@ -260,9 +260,9 @@ No architecture changes. Pure cleanup for open-source presentation.
 
 | File | Issue | Fix |
 |------|-------|-----|
-| `server/tests/baseline-runner.js` | Hardcoded `C:/Users/Werem/...` paths, IP `192.168.1.183` | Replace with env vars and `os.tmpdir()` |
+| `server/tests/baseline-runner.js` | Hardcoded personal paths, IP `192.0.2.100` | Replace with env vars and `os.tmpdir()` |
 | `server/tests/baseline-all-models.js` | Same paths and IPs | Same fix |
-| `server/tests/agentic-integration.test.js` | Default fallback to `192.168.1.183`, `BahumutsOmen` references | Use env var with `localhost` default |
+| `server/tests/agentic-integration.test.js` | Default fallback to `192.0.2.100`, `remote-gpu-host` references | Use env var with `localhost` default |
 | `server/tests/pid-heartbeat.test.js` | Personal username references | Use generic test values |
 | `server/handlers/provider-ollama-hosts.js` | Example IPs in help text | Use RFC 5737 `192.0.2.x` range |
 | 30+ `docs/superpowers/` files | Personal paths in specs/plans | Scrub personal data from committed docs |

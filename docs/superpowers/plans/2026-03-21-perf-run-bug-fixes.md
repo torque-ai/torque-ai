@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js, better-sqlite3, vitest
 
-**Verify command:** `torque-remote "cd C:/Users/Werem/Projects/torque-public/server && npx vitest run"`
+**Verify command:** `torque-remote "cd /path/to/torque/server && npx vitest run"`
 
 ---
 

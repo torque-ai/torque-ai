@@ -4,7 +4,7 @@
 
 **Goal:** Fix ~498 server test failures across ~124 test files caused by architectural changes from the bug hunt remediation session.
 
-**Architecture:** Tests need updating to match code changes — NOT code bugs. The production code is correct. Each test file needs individual diagnosis via SSH to Omen (`ssh kenten@192.168.1.183`).
+**Architecture:** Tests need updating to match code changes — NOT code bugs. The production code is correct. Each test file needs individual diagnosis via SSH to Omen (`ssh user@remote-gpu-host`).
 
 **Tech Stack:** Node.js (CJS), Vitest, better-sqlite3
 
@@ -252,8 +252,8 @@ Mixed root causes.
 ## Execution Strategy
 
 **For each batch:**
-1. SSH to Omen: `ssh kenten@192.168.1.183`
-2. Run the batch: `cd C:\Users\kenten\Projects\torque-public\server && npx vitest run tests/<file> --reporter=verbose`
+1. SSH to Omen: `ssh user@remote-gpu-host`
+2. Run the batch: `cd /path/to\torque-public\server && npx vitest run tests/<file> --reporter=verbose`
 3. Read the error for each failing test
 4. Apply the fix from the appropriate root cause (RC1-RC12)
 5. Verify the file passes
@@ -263,7 +263,7 @@ Mixed root causes.
 
 **Verification:** After all batches, run full suite on Omen:
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run 2>&1\""
 ```
 
 Target: < 50 failures (pre-existing from concurrent sessions).

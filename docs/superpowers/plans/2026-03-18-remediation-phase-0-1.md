@@ -10,10 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-18-bug-hunt-remediation-design.md`
 
-**Verification target:** Run on BahumutsOmen via SSH:
+**Verification target:** Run on remote-gpu-host via SSH:
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run 2>&1\""
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\dashboard && npx vitest run 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\dashboard && npx vitest run 2>&1\""
 ```
 
 ---
@@ -33,7 +33,7 @@ The error `TypeError: db.onClose is not a function` appears at `task-manager.js:
 
 SSH to Omen and run a failing test that uses `vi.mock('../database')` (not `starttask-helpers.test.js` which uses a real DB). Pick a test file that failed with the `db.onClose` error:
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run tests/rest-control-plane-parity.test.js --reporter=verbose 2>&1\"" | head -40
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run tests/rest-control-plane-parity.test.js --reporter=verbose 2>&1\"" | head -40
 ```
 Look for which module provides the `db` mock. Check `server/tests/mocks/` for a shared database mock. The error cascades from `task-manager.js:2615` calling `db.onClose(...)` at require-time — so any test that `require`s task-manager with a mocked db will fail if the mock lacks `onClose`.
 
@@ -49,7 +49,7 @@ onClose: vi.fn(),
 
 The test output may show additional missing methods once `onClose` is fixed. Run the full suite again after the fix:
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run --reporter=verbose 2>&1\"" | tail -30
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run --reporter=verbose 2>&1\"" | tail -30
 ```
 If new failures appear from other missing mock methods, add those too.
 
@@ -57,7 +57,7 @@ If new failures appear from other missing mock methods, add those too.
 
 Run the complete server test suite. Target: ≤5 failures (some may be genuine bugs from Phase 2).
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
 ```
 
 - [ ] **Step 5: Commit**
@@ -81,7 +81,7 @@ The `MockWebSocket` class (websocket.test.js:4-45) looks correct — it pushes t
 
 Run a single failing reconnect test with verbose output:
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\dashboard && npx vitest run src/websocket.test.js --reporter=verbose 2>&1\"" | tail -60
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\dashboard && npx vitest run src/websocket.test.js --reporter=verbose 2>&1\"" | tail -60
 ```
 Check which tests pass (basic connection) vs fail (reconnect). If basic tests pass but reconnect tests fail, the issue is fake timers or `connectRef` timing.
 
@@ -106,7 +106,7 @@ afterEach(() => {
 - [ ] **Step 3: Verify on Omen**
 
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\dashboard && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\dashboard && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
 ```
 Target: 0 failures.
 
@@ -163,7 +163,7 @@ describe('agent-server security', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run tests/agent-server-security.test.js --reporter=verbose 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run tests/agent-server-security.test.js --reporter=verbose 2>&1\""
 ```
 
 - [ ] **Step 3: Fix `validateRunRequest` — add CWD allowlist**
@@ -242,13 +242,13 @@ function prepareShellArgs(args) {
 - [ ] **Step 6: Run tests to verify they pass**
 
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run tests/agent-server-security.test.js --reporter=verbose 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run tests/agent-server-security.test.js --reporter=verbose 2>&1\""
 ```
 
 - [ ] **Step 7: Run full server suite to check for regressions**
 
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
 ```
 
 - [ ] **Step 8: Commit**
@@ -760,9 +760,9 @@ git commit -m "security: remove prompt injection artifact from .codex-context"
 - [ ] **Pull latest on Omen and run both suites**
 
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public && git pull origin main 2>&1\""
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\dashboard && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public && git pull origin main 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\dashboard && npx vitest run 2>&1\"" | grep "Test Files\|Tests "
 ```
 
 Target: 0 failures in both suites. All new security tests green.

@@ -101,13 +101,13 @@ function ModelInput({ provider, value, onChange }) {
 
 - [ ] **Step 3: Verify build**
 
-Run: `cd C:/Users/Werem/Projects/torque-public/dashboard && npm run build`
+Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add dashboard/src/views/RoutingTemplates.jsx
 git commit -m "feat(dashboard): add MODEL_SUGGESTIONS and ModelInput component for chain editing"
 ```
@@ -236,13 +236,13 @@ function ChainEditor({ chain, onChange, readOnly = false }) {
 
 - [ ] **Step 3: Verify build**
 
-Run: `cd C:/Users/Werem/Projects/torque-public/dashboard && npm run build`
+Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add dashboard/src/views/RoutingTemplates.jsx
 git commit -m "feat(dashboard): add ChainSummary and ChainEditor components"
 ```
@@ -392,7 +392,7 @@ Replace lines 392-405 (the complexity overrides section) with a full expanded pa
 
 - [ ] **Step 4: Build and verify**
 
-Run: `cd C:/Users/Werem/Projects/torque-public/dashboard && npm run build`
+Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
 - [ ] **Step 5: Visual verification**
@@ -406,7 +406,7 @@ Open `http://localhost:3456` in a browser. Navigate to Routing Templates:
 - [ ] **Step 6: Commit**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add dashboard/src/views/RoutingTemplates.jsx
 git commit -m "feat(dashboard): auto-detecting chain editor in routing templates — display and edit fallback chains"
 ```
@@ -417,19 +417,19 @@ git commit -m "feat(dashboard): auto-detecting chain editor in routing templates
 
 - [ ] **Step 1: Full dashboard build**
 
-Run: `cd C:/Users/Werem/Projects/torque-public/dashboard && npm run build`
+Run: `cd /path/to/torque/dashboard && npm run build`
 
 - [ ] **Step 2: Push**
 
 ```bash
-cd C:/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git push
 ```
 
 - [ ] **Step 3: Restart TORQUE**
 
 ```bash
-bash C:/Users/Werem/Projects/torque/stop-torque.sh
+bash /path/to/torque/stop-torque.sh
 sleep 2
-TORQUE_DATA_DIR="C:/Users/Werem/Projects/torque/server" nohup bash -c 'export TORQUE_DATA_DIR="C:/Users/Werem/Projects/torque/server" && tail -f /dev/null | node C:/Users/Werem/Projects/torque-public/server/index.js' > /dev/null 2>&1 &
+TORQUE_DATA_DIR="/path/to/torque-data" nohup bash -c 'export TORQUE_DATA_DIR="/path/to/torque-data" && tail -f /dev/null | node /path/to/torque/server/index.js' > /dev/null 2>&1 &
 ```

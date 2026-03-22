@@ -68,7 +68,7 @@ Note: The test requires a working DB. Check how other tests in `server/tests/` s
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/partial-output-streaming.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/partial-output-streaming.test.js`
 Expected: FAIL — `getStreamTaskId` not exported
 
 - [ ] **Step 3: Implement the cache**
@@ -106,7 +106,7 @@ Add `getStreamTaskId` and `_streamToTask` to `module.exports` (line 1057).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/partial-output-streaming.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/partial-output-streaming.test.js`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -270,7 +270,7 @@ The implementation uses `Date.now()` for flush timing. Vitest's `vi.useFakeTimer
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/partial-output-streaming.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/partial-output-streaming.test.js`
 Expected: FAIL — `getPartialOutputBuffer` not exported, accumulator not implemented
 
 - [ ] **Step 3: Implement the accumulator**
@@ -353,7 +353,7 @@ Add `getPartialOutputBuffer` to `module.exports`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/partial-output-streaming.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/partial-output-streaming.test.js`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -446,7 +446,7 @@ describe('clearPartialOutputBuffer', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/partial-output-streaming.test.js -t "clearPartialOutputBuffer"`
+Run: `cd /path/to/torque && npx vitest run server/tests/partial-output-streaming.test.js -t "clearPartialOutputBuffer"`
 Expected: FAIL — function not exported
 
 - [ ] **Step 3: Implement clearPartialOutputBuffer**
@@ -503,7 +503,7 @@ Note: The `clearPartialOutputBuffer` function handles both the in-memory cleanup
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/partial-output-streaming.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/partial-output-streaming.test.js`
 Expected: PASS
 
 - [ ] **Step 6: Commit**
@@ -560,12 +560,12 @@ Follow the DB setup patterns from existing test files. Key assertions:
 
 - [ ] **Step 3: Run all partial output tests**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/partial-output-streaming.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/partial-output-streaming.test.js`
 Expected: ALL PASS
 
 - [ ] **Step 4: Run heartbeat tests to verify no regression**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/await-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/await-heartbeat.test.js`
 Expected: ALL PASS
 
 - [ ] **Step 5: Commit**

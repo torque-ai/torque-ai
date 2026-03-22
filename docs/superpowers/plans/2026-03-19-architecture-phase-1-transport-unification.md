@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-19-architecture-remediation-design.md` (Phase 1)
 
-**Verification:** Run on BahumutsOmen via `torque-remote`:
+**Verification:** Run on remote-gpu-host via `torque-remote`:
 ```bash
 torque-remote npx vitest run
 ```
@@ -99,7 +99,7 @@ describe('mcp-protocol', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd /c/Users/Werem/Projects/torque-public/server && npx vitest run tests/mcp-protocol.test.js --reporter=verbose
+cd /path/to/torque/server && npx vitest run tests/mcp-protocol.test.js --reporter=verbose
 ```
 
 - [ ] **Step 3: Implement mcp-protocol.js with initialize + tools/list**
@@ -379,7 +379,7 @@ async function handleMcpRequest(request, session) {
 - [ ] **Step 4: Run full SSE-related tests**
 
 ```bash
-cd /c/Users/Werem/Projects/torque-public/server && npx vitest run tests/mcp-protocol.test.js tests/mcp-sse*.test.js tests/mcp-index.test.js --reporter=verbose
+cd /path/to/torque/server && npx vitest run tests/mcp-protocol.test.js tests/mcp-sse*.test.js tests/mcp-index.test.js --reporter=verbose
 ```
 
 - [ ] **Step 5: Commit**
@@ -448,7 +448,7 @@ Find `let toolMode = 'core';` near the top of index.js and remove it — the mod
 - [ ] **Step 5: Run tests**
 
 ```bash
-cd /c/Users/Werem/Projects/torque-public/server && npx vitest run --reporter=verbose 2>&1 | tail -5
+cd /path/to/torque/server && npx vitest run --reporter=verbose 2>&1 | tail -5
 ```
 
 - [ ] **Step 6: Commit**
@@ -513,7 +513,7 @@ torque-remote npx vitest run
 - [ ] **Step 3: Run dashboard suite on Omen**
 
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\dashboard && npx vitest run 2>&1\"" | tail -5
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\dashboard && npx vitest run 2>&1\"" | tail -5
 ```
 
 - [ ] **Step 4: Manual verification — test MCP tools via both transports**

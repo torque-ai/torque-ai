@@ -465,7 +465,7 @@ Note: The implementer should read the actual `handleSetProjectDefaults` function
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/test-station-routing.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/test-station-routing.test.js`
 Expected: FAIL
 
 - [ ] **Step 3: Add config-writing logic to `set_project_defaults`**
@@ -578,7 +578,7 @@ Add `const fs = require('fs');` and `const path = require('path');` to the file 
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/test-station-routing.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/test-station-routing.test.js`
 Expected: PASS
 
 - [ ] **Step 5: Add `.torque-test.local.json` to project `.gitignore` now**
@@ -630,7 +630,7 @@ The implementer should read `server/handlers/workflow/await.js:900-922` to under
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/test-station-routing.test.js -t "await_task verify"`
+Run: `cd /path/to/torque && npx vitest run server/tests/test-station-routing.test.js -t "await_task verify"`
 Expected: FAIL
 
 - [ ] **Step 3: Modify `await_task` verify to check for test runner script**
@@ -678,12 +678,12 @@ Also apply the same pattern in `handleAwaitWorkflow`'s verify section (around li
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/test-station-routing.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/test-station-routing.test.js`
 Expected: PASS
 
 - [ ] **Step 5: Run existing await tests for regression**
 
-Run: `cd /c/Users/Werem/Projects/torque-public && npx vitest run server/tests/workflow-await.test.js server/tests/await-heartbeat.test.js`
+Run: `cd /path/to/torque && npx vitest run server/tests/workflow-await.test.js server/tests/await-heartbeat.test.js`
 Expected: ALL PASS
 
 - [ ] **Step 6: Commit**

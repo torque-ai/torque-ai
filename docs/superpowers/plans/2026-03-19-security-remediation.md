@@ -10,9 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-19-security-remediation-design.md`
 
-**Verification:** All tests on BahumutsOmen:
+**Verification:** All tests on remote-gpu-host:
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run tests/mcp-protocol.test.js tests/agent-server-security.test.js 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run tests/mcp-protocol.test.js tests/agent-server-security.test.js 2>&1\""
 ```
 
 ---
@@ -335,7 +335,7 @@ if (stdout.length > MAX_CAPTURE_BYTES) {
 - [ ] **Step 5: Verify on Omen**
 
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\server && npx vitest run tests/agent-server-security.test.js 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run tests/agent-server-security.test.js 2>&1\""
 ```
 
 - [ ] **Step 6: Commit**
@@ -632,7 +632,7 @@ git push origin main
 - [ ] **Run full test suite on Omen**
 
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public && git pull origin main && cd server && npx vitest run tests/mcp-protocol.test.js tests/agent-server-security.test.js tests/backup-integrity.test.js tests/auth-key-generation.test.js 2>&1\""
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public && git pull origin main && cd server && npx vitest run tests/mcp-protocol.test.js tests/agent-server-security.test.js tests/backup-integrity.test.js tests/auth-key-generation.test.js 2>&1\""
 ```
 
 - [ ] **Manual verification: test MCP auth flow**

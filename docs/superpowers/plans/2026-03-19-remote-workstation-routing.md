@@ -423,7 +423,7 @@ which torque-remote
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /c/Users/Werem/Projects/torque-public
+cd /path/to/torque
 git add -f ~/bin/torque-remote ~/tests/torque-remote.test.sh
 ```
 
@@ -724,9 +724,9 @@ Create `~/.torque-remote.local.json` with the Omen details:
 
 ```json
 {
-  "host": "192.168.1.183",
-  "user": "kenten",
-  "default_project_path": "C:\\Users\\kenten\\Projects",
+  "host": "192.0.2.100",
+  "user": "user",
+  "default_project_path": "C:\\Users\\user\\Projects",
   "key_path": null
 }
 ```
@@ -754,7 +754,7 @@ Be careful to merge with existing hooks — don't overwrite.
 - [ ] **Step 4: Verify end-to-end on torque-public**
 
 ```bash
-cd /c/Users/Werem/Projects/torque-public
+cd /path/to/torque
 torque-remote npx vitest run server/tests/schema-tables.test.js
 ```
 Expected: Routes to Omen, 11 tests pass
@@ -762,7 +762,7 @@ Expected: Routes to Omen, 11 tests pass
 - [ ] **Step 5: Verify end-to-end on SpudgetBooks**
 
 ```bash
-cd /c/Users/Werem/Projects/SpudgetBooks
+cd /path/to/SpudgetBooks
 torque-remote dotnet build SpudgetBooks.sln --nologo -v:q
 ```
 Expected: Routes to Omen, builds successfully
@@ -829,7 +829,7 @@ In `server/tests/test-station-routing.test.js`, update the `await verify routing
 - [ ] **Step 3: Run tests**
 
 ```bash
-cd /c/Users/Werem/Projects/torque-public
+cd /path/to/torque
 npx vitest run server/tests/test-station-routing.test.js server/tests/workflow-await.test.js server/tests/await-heartbeat.test.js
 ```
 Expected: ALL PASS

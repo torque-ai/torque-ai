@@ -38,7 +38,7 @@ New `api_keys` table:
 |--------|------|-------------|
 | `id` | TEXT PRIMARY KEY | UUID |
 | `key_hash` | TEXT NOT NULL | HMAC-SHA-256 of plaintext key (using server secret) |
-| `name` | TEXT NOT NULL | Human label ("Werem's laptop") |
+| `name` | TEXT NOT NULL | Human label ("My laptop") |
 | `role` | TEXT NOT NULL | `admin` or `operator` |
 | `created_at` | TEXT NOT NULL | ISO timestamp |
 | `last_used_at` | TEXT | Updated at most once per minute (batched) |
@@ -101,7 +101,7 @@ Each transport is responsible for extracting the right credential type. The reso
 
 **Identity object:**
 ```javascript
-{ id: 'key-uuid', name: 'Werem laptop', role: 'admin' }
+{ id: 'key-uuid', name: 'My laptop', role: 'admin' }
 ```
 
 **Audit:** Successful auth updates `last_used_at` (batched — at most once per minute per key to avoid DB write storms). Failed auth attempts logged with IP address.

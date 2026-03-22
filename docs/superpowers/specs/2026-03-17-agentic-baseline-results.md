@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-17
 **Test:** "Use list_directory to list tests/. Report folder names and count."
-**Ground truth:** 13 test project folders + 2 files in `C:/Users/Werem/Projects/SpudgetBooks/tests/`
+**Ground truth:** 13 test project folders + 2 files in `/path/to/project/tests/`
 **Methodology:** Standalone agentic loop via `runAgenticLoop()` with `createToolExecutor()` and real provider APIs. Not routed through TORQUE task manager (avoids runtime event loop contention — see Known Issues).
 
 ## Results

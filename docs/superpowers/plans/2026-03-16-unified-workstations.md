@@ -585,14 +585,14 @@ Append to `server/tests/workstation-model.test.js`:
     it('resolvePeekHost returns workstation with ui_capture capability', () => {
       model.createWorkstation({
         name: 'peek-ws',
-        host: '192.168.1.183',
+        host: '192.0.2.100',
         secret: 's',
         capabilities: JSON.stringify({ ui_capture: { detected: true, has_display: true, peek_server: 'running' } }),
       });
 
       const host = adapters.resolvePeekHost();
       expect(host).toBeTruthy();
-      expect(host.host).toBe('192.168.1.183');
+      expect(host.host).toBe('192.0.2.100');
     });
 
     it('getAvailableAgents returns workstations with command_exec capability and capacity', () => {

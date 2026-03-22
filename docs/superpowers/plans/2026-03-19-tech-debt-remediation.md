@@ -10,10 +10,10 @@
 
 **Registry:** `docs/tech-debt-registry.md`
 
-**Verification:** Run on BahumutsOmen after each wave:
+**Verification:** Run on remote-gpu-host after each wave:
 ```bash
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public && git pull origin main 2>&1 && cd server && npx vitest run 2>&1\"" | tail -5
-ssh kenten@192.168.1.183 "cmd /c \"cd C:\Users\kenten\Projects\torque-public\dashboard && npx vitest run 2>&1\"" | tail -5
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public && git pull origin main 2>&1 && cd server && npx vitest run 2>&1\"" | tail -5
+ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\dashboard && npx vitest run 2>&1\"" | tail -5
 ```
 
 ---
@@ -47,7 +47,7 @@ The canonical implementation is at `server/utils/json.js:5`. 16 other files have
 - [ ] **Step 1:** Read `server/utils/json.js` to confirm the canonical signature: `safeJsonParse(value, fallback = null)`
 - [ ] **Step 2:** For each file above, replace the local `function safeJsonParse(...)` with `const { safeJsonParse } = require('../utils/json');` (adjust relative path per file). Remove the local function body.
 - [ ] **Step 3:** For files with non-standard defaults (e.g., `fallback = {}` in provider-crud-handlers), update call sites to pass the explicit default: `safeJsonParse(val, {})`
-- [ ] **Step 4:** Run `cd /c/Users/Werem/Projects/torque-public/server && npx vitest run 2>&1 | tail -5`
+- [ ] **Step 4:** Run `cd /path/to/torque/server && npx vitest run 2>&1 | tail -5`
 - [ ] **Step 5:** Commit: `refactor: deduplicate safeJsonParse — 16 local copies replaced with utils/json import`
 
 Also covers: registry §2 items about naming inconsistency in safeJsonParse signatures, §5 all 17 duplication items, §9 `server/db/scheduling-automation.js:91`

@@ -1234,7 +1234,7 @@ Expected: File exists with template content.
 - [ ] **Step 5: Verify no personal data shipped**
 
 ```bash
-grep -ri "192\.168\.1\.183\|192\.168\.1\.17\|BahumutsOmen\|Werem\|Kenten\|bahumut" server/guidance/ CLAUDE.md
+grep -ri "192\.168\.1\.\|remote-gpu-host\|personal-data" server/guidance/ CLAUDE.md
 ```
 
 Expected: No matches.

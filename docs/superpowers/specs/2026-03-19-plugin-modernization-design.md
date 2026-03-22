@@ -115,7 +115,7 @@ Matcher rationale: `startup` = new session, `clear` = conversation cleared, `com
 
 ```
 TORQUE is available. Status: 3 tasks running, 2 queued, 0 failed.
-Providers: ollama (BahumutsOmen, healthy), codex (ready).
+Providers: ollama (remote-gpu-host, healthy), codex (ready).
 Project: torque-public | Verify: npx vitest run
 
 Use /torque-submit to submit tasks, /torque-status to check progress.
