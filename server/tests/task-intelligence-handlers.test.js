@@ -16,8 +16,24 @@ const { loggerMock } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('../database', () => ({
+vi.mock('../db/task-core', () => ({
   getTask() { return null; },
+  updateTaskStatus() {},
+  deleteTasks(status) {
+    return {
+      deleted: 0,
+      status,
+    };
+  },
+  deleteTask(taskId) {
+    return {
+      id: taskId,
+      status: 'completed',
+    };
+  },
+}));
+
+vi.mock('../db/webhooks-streaming', () => ({
   getLatestStreamChunks() { return []; },
   getTaskLogs() { return []; },
   createEventSubscription() { return 'sub-123'; },
@@ -28,6 +44,9 @@ vi.mock('../database', () => ({
   clearPauseState() {},
   recordTaskEvent() {},
   listPausedTasks() { return []; },
+}));
+
+vi.mock('../db/task-metadata', () => ({
   generateTaskSuggestions() { return []; },
   findSimilarTasks() { return []; },
   learnFromRecentTasks() {
@@ -47,7 +66,6 @@ vi.mock('../database', () => ({
     };
   },
   addTaskComment() { return 'comment-1'; },
-  recordAuditLog() {},
   getTaskComments() { return []; },
   getTaskTimeline() { return []; },
   dryRunBulkOperation() {
@@ -58,6 +76,13 @@ vi.mock('../database', () => ({
   },
   getBulkOperation() { return null; },
   listBulkOperations() { return []; },
+}));
+
+vi.mock('../db/scheduling-automation', () => ({
+  recordAuditLog() {},
+}));
+
+vi.mock('../db/analytics', () => ({
   predictDuration() {
     return {
       predicted_minutes: 30,
@@ -82,7 +107,9 @@ vi.mock('../database', () => ({
       samples_processed: 0,
     };
   },
-  updateTaskStatus() {},
+}));
+
+vi.mock('../db/host-management', () => ({
   setTaskReviewStatus() {},
   getTasksPendingReview() { return []; },
   getTasksNeedingCorrection() { return []; },
@@ -90,18 +117,6 @@ vi.mock('../database', () => ({
     return {
       provider: 'desktop',
       rule: 'Default',
-    };
-  },
-  deleteTasks(status) {
-    return {
-      deleted: 0,
-      status,
-    };
-  },
-  deleteTask(taskId) {
-    return {
-      id: taskId,
-      status: 'completed',
     };
   },
 }));
@@ -117,7 +132,12 @@ vi.mock('../logger', () => ({
   child: vi.fn(() => loggerMock),
 }));
 
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const webhooksStreaming = require('../db/webhooks-streaming');
+const taskMetadata = require('../db/task-metadata');
+const schedulingAutomation = require('../db/scheduling-automation');
+const analytics = require('../db/analytics');
+const hostManagement = require('../db/host-management');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/task/intelligence');
 const shared = require('../handlers/shared');
@@ -165,8 +185,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('combines chunks and sanitizes sequence and limit values', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'running' }));
-      const getLatestStreamChunks = vi.spyOn(db, 'getLatestStreamChunks').mockReturnValue([
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'running' }));
+      const getLatestStreamChunks = vi.spyOn(webhooksStreaming, 'getLatestStreamChunks').mockReturnValue([
         { sequence_num: 4, chunk_data: 'hello ' },
         { sequence_num: 6, chunk_data: 'world' },
       ]);
@@ -191,8 +211,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('uses the requested since_sequence when no new chunks exist', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'queued' }));
-      vi.spyOn(db, 'getLatestStreamChunks').mockReturnValue([]);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'queued' }));
+      vi.spyOn(webhooksStreaming, 'getLatestStreamChunks').mockReturnValue([]);
 
       const result = handlers.handleStreamTaskOutput({
         task_id: 'task-12345678',
@@ -215,8 +235,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('formats stdout and stderr log entries and forwards filters', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'failed' }));
-      const getTaskLogs = vi.spyOn(db, 'getTaskLogs').mockReturnValue([
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'failed' }));
+      const getTaskLogs = vi.spyOn(webhooksStreaming, 'getTaskLogs').mockReturnValue([
         { timestamp: '2026-03-12T10:00:00.000Z', type: 'stdout', content: 'first line\n' },
         { timestamp: '2026-03-12T10:01:00.000Z', type: 'stderr', content: 'second line' },
       ]);
@@ -260,7 +280,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('creates a subscription for all tasks with default values', () => {
-      const createEventSubscription = vi.spyOn(db, 'createEventSubscription').mockReturnValue('sub-789');
+      const createEventSubscription = vi.spyOn(webhooksStreaming, 'createEventSubscription').mockReturnValue('sub-789');
 
       const result = handlers.handleSubscribeTaskEvents({});
 
@@ -272,7 +292,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handlePollTaskEvents', () => {
     it('returns SUBSCRIPTION_NOT_FOUND when the subscription is missing', () => {
-      vi.spyOn(db, 'pollSubscription').mockReturnValue(null);
+      vi.spyOn(webhooksStreaming, 'pollSubscription').mockReturnValue(null);
 
       const result = handlers.handlePollTaskEvents({ subscription_id: 'sub-missing' });
 
@@ -280,7 +300,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('reports expired subscriptions', () => {
-      vi.spyOn(db, 'pollSubscription').mockReturnValue({ expired: true, events: [] });
+      vi.spyOn(webhooksStreaming, 'pollSubscription').mockReturnValue({ expired: true, events: [] });
 
       const result = handlers.handlePollTaskEvents({ subscription_id: 'sub-123' });
 
@@ -289,7 +309,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('reports empty event queues', () => {
-      vi.spyOn(db, 'pollSubscription').mockReturnValue({ expired: false, events: [] });
+      vi.spyOn(webhooksStreaming, 'pollSubscription').mockReturnValue({ expired: false, events: [] });
 
       const result = handlers.handlePollTaskEvents({ subscription_id: 'sub-123' });
 
@@ -297,7 +317,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('formats returned task events with changes and data', () => {
-      vi.spyOn(db, 'pollSubscription').mockReturnValue({
+      vi.spyOn(webhooksStreaming, 'pollSubscription').mockReturnValue({
         expired: false,
         events: [
           {
@@ -321,7 +341,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handlePauseTask', () => {
     it('rejects non-running tasks', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'queued' }));
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'queued' }));
 
       const result = handlers.handlePauseTask({ task_id: 'task-12345678' });
 
@@ -329,7 +349,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('returns OPERATION_FAILED when task-manager pause fails', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'running' }));
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'running' }));
       vi.spyOn(taskManager, 'pauseTask').mockReturnValue(false);
 
       const result = handlers.handlePauseTask({ task_id: 'task-12345678' });
@@ -338,11 +358,11 @@ describe('task-intelligence handlers', () => {
     });
 
     it('pauses the task and saves a checkpoint when progress is available', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'running' }));
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'running' }));
       vi.spyOn(taskManager, 'pauseTask').mockReturnValue(true);
       vi.spyOn(taskManager, 'getTaskProgress').mockReturnValue({ step: 3, percent: 50 });
-      const saveTaskCheckpoint = vi.spyOn(db, 'saveTaskCheckpoint').mockImplementation(() => {});
-      const pauseTask = vi.spyOn(db, 'pauseTask').mockImplementation(() => {});
+      const saveTaskCheckpoint = vi.spyOn(webhooksStreaming, 'saveTaskCheckpoint').mockImplementation(() => {});
+      const pauseTask = vi.spyOn(webhooksStreaming, 'pauseTask').mockImplementation(() => {});
 
       const result = handlers.handlePauseTask({
         task_id: 'task-12345678',
@@ -358,7 +378,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleResumeTask', () => {
     it('rejects non-paused tasks', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'running' }));
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'running' }));
 
       const result = handlers.handleResumeTask({ task_id: 'task-12345678' });
 
@@ -366,8 +386,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('returns OPERATION_FAILED when task-manager resume fails', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'paused' }));
-      vi.spyOn(db, 'getTaskCheckpoint').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'paused' }));
+      vi.spyOn(webhooksStreaming, 'getTaskCheckpoint').mockReturnValue(null);
       vi.spyOn(taskManager, 'resumeTask').mockReturnValue(false);
 
       const result = handlers.handleResumeTask({ task_id: 'task-12345678' });
@@ -379,14 +399,14 @@ describe('task-intelligence handlers', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-03-12T12:00:00.000Z'));
 
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({
         status: 'paused',
         paused_at: '2026-03-12T11:45:00.000Z',
       }));
-      vi.spyOn(db, 'getTaskCheckpoint').mockReturnValue({ step: 7 });
+      vi.spyOn(webhooksStreaming, 'getTaskCheckpoint').mockReturnValue({ step: 7 });
       vi.spyOn(taskManager, 'resumeTask').mockReturnValue(true);
-      const clearPauseState = vi.spyOn(db, 'clearPauseState').mockImplementation(() => {});
-      const recordTaskEvent = vi.spyOn(db, 'recordTaskEvent').mockImplementation(() => {});
+      const clearPauseState = vi.spyOn(webhooksStreaming, 'clearPauseState').mockImplementation(() => {});
+      const recordTaskEvent = vi.spyOn(webhooksStreaming, 'recordTaskEvent').mockImplementation(() => {});
 
       const result = handlers.handleResumeTask({ task_id: 'task-12345678' });
 
@@ -399,7 +419,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleListPausedTasks', () => {
     it('shows an empty state when no paused tasks exist', () => {
-      vi.spyOn(db, 'listPausedTasks').mockReturnValue([]);
+      vi.spyOn(webhooksStreaming, 'listPausedTasks').mockReturnValue([]);
 
       const result = handlers.handleListPausedTasks({ project: 'torque' });
 
@@ -407,7 +427,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders a table of paused tasks with truncated descriptions', () => {
-      vi.spyOn(db, 'listPausedTasks').mockReturnValue([
+      vi.spyOn(webhooksStreaming, 'listPausedTasks').mockReturnValue([
         {
           id: 'task-12345678',
           task_description: 'A'.repeat(45),
@@ -432,7 +452,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleSuggestImprovements', () => {
     it('rejects non-failed tasks', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'completed' }));
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'completed' }));
 
       const result = handlers.handleSuggestImprovements({ task_id: 'task-12345678' });
 
@@ -440,11 +460,11 @@ describe('task-intelligence handlers', () => {
     });
 
     it('shows a no-suggestions message when no improvements are found', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({
         status: 'failed',
         error_output: 'connection refused',
       }));
-      vi.spyOn(db, 'generateTaskSuggestions').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'generateTaskSuggestions').mockReturnValue([]);
 
       const result = handlers.handleSuggestImprovements({ task_id: 'task-12345678' });
 
@@ -453,11 +473,11 @@ describe('task-intelligence handlers', () => {
     });
 
     it('sorts improvement suggestions by confidence and includes truncated error output', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({
         status: 'failed',
         error_output: 'E'.repeat(320),
       }));
-      vi.spyOn(db, 'generateTaskSuggestions').mockReturnValue([
+      vi.spyOn(taskMetadata, 'generateTaskSuggestions').mockReturnValue([
         { type: 'retry', confidence: 0.45, suggestion: 'Add retry logic.' },
         { type: 'timeout', confidence: 0.9, suggestion: 'Increase timeout.' },
       ]);
@@ -473,8 +493,8 @@ describe('task-intelligence handlers', () => {
 
   describe('handleFindSimilarTasks', () => {
     it('shows an empty state when no similar tasks are found', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask());
-      vi.spyOn(db, 'findSimilarTasks').mockReturnValue([]);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask());
+      vi.spyOn(taskMetadata, 'findSimilarTasks').mockReturnValue([]);
 
       const result = handlers.handleFindSimilarTasks({
         task_id: 'task-12345678',
@@ -486,8 +506,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('forwards similarity filters and renders matched tasks', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask());
-      const findSimilarTasks = vi.spyOn(db, 'findSimilarTasks').mockReturnValue([
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask());
+      const findSimilarTasks = vi.spyOn(taskMetadata, 'findSimilarTasks').mockReturnValue([
         {
           similarity: 0.87,
           task: {
@@ -517,11 +537,11 @@ describe('task-intelligence handlers', () => {
 
   describe('handleLearnDefaults', () => {
     it('reports when no patterns have been learned yet', () => {
-      vi.spyOn(db, 'learnFromRecentTasks').mockReturnValue({
+      vi.spyOn(taskMetadata, 'learnFromRecentTasks').mockReturnValue({
         tasksProcessed: 4,
         patternsLearned: 0,
       });
-      vi.spyOn(db, 'getTaskPatterns').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'getTaskPatterns').mockReturnValue([]);
 
       const result = handlers.handleLearnDefaults({ task_limit: 4 });
 
@@ -530,11 +550,11 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders learned pattern rows after processing recent tasks', () => {
-      vi.spyOn(db, 'learnFromRecentTasks').mockReturnValue({
+      vi.spyOn(taskMetadata, 'learnFromRecentTasks').mockReturnValue({
         tasksProcessed: 12,
         patternsLearned: 3,
       });
-      vi.spyOn(db, 'getTaskPatterns').mockReturnValue([
+      vi.spyOn(taskMetadata, 'getTaskPatterns').mockReturnValue([
         {
           pattern_type: 'project',
           pattern_value: 'Torque',
@@ -555,7 +575,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleApplySmartDefaults', () => {
     it('shows default values when no patterns match', () => {
-      vi.spyOn(db, 'getSmartDefaults').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getSmartDefaults').mockReturnValue({
         timeout_minutes: 30,
         auto_approve: false,
         priority: 5,
@@ -572,7 +592,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders matched patterns and project-specific suggestions', () => {
-      vi.spyOn(db, 'getSmartDefaults').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getSmartDefaults').mockReturnValue({
         timeout_minutes: 45,
         auto_approve: true,
         priority: 9,
@@ -610,9 +630,9 @@ describe('task-intelligence handlers', () => {
     });
 
     it('adds a comment and writes an audit entry', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask());
-      const addTaskComment = vi.spyOn(db, 'addTaskComment').mockReturnValue('comment-77');
-      const recordAuditLog = vi.spyOn(db, 'recordAuditLog');
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask());
+      const addTaskComment = vi.spyOn(taskMetadata, 'addTaskComment').mockReturnValue('comment-77');
+      const recordAuditLog = vi.spyOn(schedulingAutomation, 'recordAuditLog');
 
       const result = handlers.handleAddComment({
         task_id: 'task-12345678',
@@ -643,9 +663,9 @@ describe('task-intelligence handlers', () => {
     });
 
     it('swallows audit-log failures and still returns success', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask());
-      vi.spyOn(db, 'addTaskComment').mockReturnValue('comment-78');
-      const recordAuditLog = vi.spyOn(db, 'recordAuditLog').mockImplementation(() => {
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask());
+      vi.spyOn(taskMetadata, 'addTaskComment').mockReturnValue('comment-78');
+      const recordAuditLog = vi.spyOn(schedulingAutomation, 'recordAuditLog').mockImplementation(() => {
         throw new Error('audit offline');
       });
 
@@ -669,8 +689,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('shows an empty state when no comments match the filter', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask());
-      vi.spyOn(db, 'getTaskComments').mockReturnValue([]);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask());
+      vi.spyOn(taskMetadata, 'getTaskComments').mockReturnValue([]);
 
       const result = handlers.handleListComments({
         task_id: 'task-12345678',
@@ -681,8 +701,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders comment entries and forwards the comment type filter', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask());
-      const getTaskComments = vi.spyOn(db, 'getTaskComments').mockReturnValue([
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask());
+      const getTaskComments = vi.spyOn(taskMetadata, 'getTaskComments').mockReturnValue([
         {
           comment_type: 'resolution',
           author: 'alice',
@@ -711,8 +731,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('shows an empty state when no timeline events exist', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask());
-      vi.spyOn(db, 'getTaskTimeline').mockReturnValue([]);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask());
+      vi.spyOn(taskMetadata, 'getTaskTimeline').mockReturnValue([]);
 
       const result = handlers.handleTaskTimeline({ task_id: 'task-12345678' });
 
@@ -720,8 +740,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders timeline entries using event_type and fallback type fields', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'failed' }));
-      vi.spyOn(db, 'getTaskTimeline').mockReturnValue([
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'failed' }));
+      vi.spyOn(taskMetadata, 'getTaskTimeline').mockReturnValue([
         {
           event_type: 'status_change',
           timestamp: '2026-03-12T10:00:00.000Z',
@@ -745,7 +765,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleDryRunBulk', () => {
     it('shows an empty state when no tasks match the filters', () => {
-      vi.spyOn(db, 'dryRunBulkOperation').mockReturnValue({
+      vi.spyOn(taskMetadata, 'dryRunBulkOperation').mockReturnValue({
         total_tasks: 0,
         preview: [],
       });
@@ -760,7 +780,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('normalizes filter criteria and renders preview rows', () => {
-      const dryRunBulkOperation = vi.spyOn(db, 'dryRunBulkOperation').mockReturnValue({
+      const dryRunBulkOperation = vi.spyOn(taskMetadata, 'dryRunBulkOperation').mockReturnValue({
         total_tasks: 12,
         preview: [
           { id: 'task-12345678', status: 'queued', description: 'First task' },
@@ -790,7 +810,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleBulkOperationStatus', () => {
     it('returns RESOURCE_NOT_FOUND when the bulk operation does not exist', () => {
-      vi.spyOn(db, 'getBulkOperation').mockReturnValue(null);
+      vi.spyOn(taskMetadata, 'getBulkOperation').mockReturnValue(null);
 
       const result = handlers.handleBulkOperationStatus({ operation_id: 'bulk-missing' });
 
@@ -798,7 +818,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders bulk operation progress, error text, and results', () => {
-      vi.spyOn(db, 'getBulkOperation').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getBulkOperation').mockReturnValue({
         id: 'bulk-12345678',
         operation_type: 'cancel',
         status: 'completed',
@@ -822,7 +842,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleListBulkOperations', () => {
     it('shows an empty state when no bulk operations exist', () => {
-      vi.spyOn(db, 'listBulkOperations').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'listBulkOperations').mockReturnValue([]);
 
       const result = handlers.handleListBulkOperations({});
 
@@ -830,7 +850,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('forwards filters and applies the default limit for invalid values', () => {
-      const listBulkOperations = vi.spyOn(db, 'listBulkOperations').mockReturnValue([
+      const listBulkOperations = vi.spyOn(taskMetadata, 'listBulkOperations').mockReturnValue([
         {
           id: 'bulk-12345678',
           operation_type: 'retry',
@@ -858,7 +878,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handlePredictDuration', () => {
     it('renders duration factors for confident predictions', () => {
-      vi.spyOn(db, 'predictDuration').mockReturnValue({
+      vi.spyOn(analytics, 'predictDuration').mockReturnValue({
         predicted_minutes: 18,
         confidence: 0.8,
         factors: [
@@ -879,7 +899,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('shows a note for low-confidence predictions', () => {
-      vi.spyOn(db, 'predictDuration').mockReturnValue({
+      vi.spyOn(analytics, 'predictDuration').mockReturnValue({
         predicted_minutes: 5,
         confidence: 0.2,
         factors: [],
@@ -895,7 +915,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleDurationInsights', () => {
     it('renders accuracy metrics when no models or recent predictions are available', () => {
-      vi.spyOn(db, 'getDurationInsights').mockReturnValue({
+      vi.spyOn(analytics, 'getDurationInsights').mockReturnValue({
         accuracy: {
           total_predictions: 0,
           avg_error_percent: null,
@@ -913,7 +933,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders models and recent predictions while clamping invalid limits', () => {
-      const getDurationInsights = vi.spyOn(db, 'getDurationInsights').mockReturnValue({
+      const getDurationInsights = vi.spyOn(analytics, 'getDurationInsights').mockReturnValue({
         accuracy: {
           total_predictions: 12,
           avg_error_percent: 14,
@@ -948,7 +968,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleCalibratePredictions', () => {
     it('reports when no models were updated', () => {
-      vi.spyOn(db, 'calibratePredictionModels').mockReturnValue({
+      vi.spyOn(analytics, 'calibratePredictionModels').mockReturnValue({
         models_updated: 0,
         samples_processed: 1,
       });
@@ -960,7 +980,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('reports updated calibration results when models are recalculated', () => {
-      vi.spyOn(db, 'calibratePredictionModels').mockReturnValue({
+      vi.spyOn(analytics, 'calibratePredictionModels').mockReturnValue({
         models_updated: 3,
         samples_processed: 22,
       });
@@ -980,7 +1000,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('rejects tasks that are not pending', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'queued' }));
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'queued' }));
 
       const result = handlers.handleStartPendingTask({ task_id: 'task-12345678' });
 
@@ -988,7 +1008,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('queues pending tasks and renders aggregation metadata when present', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({
         status: 'pending',
         metadata: {
           is_aggregation: true,
@@ -996,7 +1016,7 @@ describe('task-intelligence handlers', () => {
           file_path: 'server/handlers/task/intelligence.js',
         },
       }));
-      const updateTaskStatus = vi.spyOn(db, 'updateTaskStatus');
+      const updateTaskStatus = vi.spyOn(taskCore, 'updateTaskStatus');
       const processQueue = vi.spyOn(taskManager, 'processQueue');
 
       const result = handlers.handleStartPendingTask({ task_id: 'task-12345678' });
@@ -1027,7 +1047,7 @@ describe('task-intelligence handlers', () => {
     it('updates review status and includes notes and reviewed timestamp', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-03-12T12:34:56.000Z'));
-      const setTaskReviewStatus = vi.spyOn(db, 'setTaskReviewStatus').mockImplementation(() => {});
+      const setTaskReviewStatus = vi.spyOn(hostManagement, 'setTaskReviewStatus').mockImplementation(() => {});
 
       const result = handlers.handleSetTaskReviewStatus({
         task_id: 'task-12345678',
@@ -1043,7 +1063,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleListPendingReviews', () => {
     it('shows an empty state when there are no pending reviews', () => {
-      vi.spyOn(db, 'getTasksPendingReview').mockReturnValue([]);
+      vi.spyOn(hostManagement, 'getTasksPendingReview').mockReturnValue([]);
 
       const result = handlers.handleListPendingReviews({});
 
@@ -1051,7 +1071,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders pending review rows and clamps oversized limits', () => {
-      const getTasksPendingReview = vi.spyOn(db, 'getTasksPendingReview').mockReturnValue([
+      const getTasksPendingReview = vi.spyOn(hostManagement, 'getTasksPendingReview').mockReturnValue([
         {
           id: 'task-12345678',
           task_description: 'Review nightly regression report for the routing dashboard',
@@ -1071,7 +1091,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleListTasksNeedingCorrection', () => {
     it('shows an empty state when no tasks need correction', () => {
-      vi.spyOn(db, 'getTasksNeedingCorrection').mockReturnValue([]);
+      vi.spyOn(hostManagement, 'getTasksNeedingCorrection').mockReturnValue([]);
 
       const result = handlers.handleListTasksNeedingCorrection({});
 
@@ -1079,7 +1099,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders tasks needing correction with notes and next steps', () => {
-      vi.spyOn(db, 'getTasksNeedingCorrection').mockReturnValue([
+      vi.spyOn(hostManagement, 'getTasksNeedingCorrection').mockReturnValue([
         {
           id: 'task-12345678',
           task_description: 'Update routing docs after API changes',
@@ -1114,8 +1134,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('updates the task complexity while preserving the existing status', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(makeTask({ status: 'completed' }));
-      const updateTaskStatus = vi.spyOn(db, 'updateTaskStatus');
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(makeTask({ status: 'completed' }));
+      const updateTaskStatus = vi.spyOn(taskCore, 'updateTaskStatus');
 
       const result = handlers.handleSetTaskComplexity({
         task_id: 'task-12345678',
@@ -1135,7 +1155,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders routing details including host and model when provided', () => {
-      vi.spyOn(db, 'routeTask').mockReturnValue({
+      vi.spyOn(hostManagement, 'routeTask').mockReturnValue({
         provider: 'ollama',
         host: 'desktop-01',
         model: 'qwen2.5-coder:32b',
@@ -1158,7 +1178,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('bulk-deletes tasks by status', () => {
-      const deleteTasks = vi.spyOn(db, 'deleteTasks').mockReturnValue({
+      const deleteTasks = vi.spyOn(taskCore, 'deleteTasks').mockReturnValue({
         deleted: 2,
         status: 'cancelled',
       });
@@ -1170,7 +1190,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('returns INTERNAL_ERROR when bulk deletion throws', () => {
-      vi.spyOn(db, 'deleteTasks').mockImplementation(() => {
+      vi.spyOn(taskCore, 'deleteTasks').mockImplementation(() => {
         throw new Error('sqlite busy');
       });
 
@@ -1180,7 +1200,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('deletes a single task by id', () => {
-      const deleteTask = vi.spyOn(db, 'deleteTask').mockReturnValue({
+      const deleteTask = vi.spyOn(taskCore, 'deleteTask').mockReturnValue({
         id: 'task-12345678',
         status: 'completed',
       });
@@ -1192,7 +1212,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('returns TASK_NOT_FOUND when deleting a single task throws', () => {
-      vi.spyOn(db, 'deleteTask').mockImplementation(() => {
+      vi.spyOn(taskCore, 'deleteTask').mockImplementation(() => {
         throw new Error('missing row');
       });
 

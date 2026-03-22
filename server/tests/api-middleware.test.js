@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { EventEmitter } = require('events');
 
-const db = require('../database');
 const configCore = require('../db/config-core');
 const serverConfig = require('../config');
 const middleware = require('../api/middleware');

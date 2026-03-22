@@ -1,4 +1,3 @@
-const db = require('../database');
 const workflowEngine = require('../db/workflow-engine');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');

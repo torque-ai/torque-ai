@@ -1,4 +1,5 @@
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const configCore = require('../db/config-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const adapterRegistry = require('../providers/adapter-registry');
 const { createV2Router } = require('../api/v2-router');
@@ -72,10 +73,10 @@ describe('v2 provider discovery routes', () => {
     listProvidersSpy = vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
     getDefaultProviderSpy = vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
     getProviderSpy = vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue(null);
-    countTasksSpy = vi.spyOn(db, 'countTasks').mockReturnValue(0);
+    countTasksSpy = vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
     getProviderHealthSpy = vi.spyOn(providerRoutingCore, 'getProviderHealth').mockReturnValue({ successes: 0, failures: 0 });
     isProviderHealthySpy = vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
-    getConfigSpy = vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    getConfigSpy = vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     getProviderCapabilityMatrixSpy = vi.spyOn(adapterRegistry, 'getProviderCapabilityMatrix').mockReturnValue({});
   });
 

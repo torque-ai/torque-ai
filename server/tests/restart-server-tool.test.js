@@ -1,5 +1,5 @@
 const tools = require('../tools');
-const db = require('../database');
+const taskCore = require('../db/task-core');
 const taskManager = require('../task-manager');
 const logger = require('../logger');
 const eventBus = require('../event-bus');
@@ -24,7 +24,7 @@ describe('restart_server tool', () => {
 
   it('returns a standard response and delays shutdown long enough for the caller to receive it', async () => {
     vi.spyOn(taskManager, 'getRunningTaskCount').mockReturnValue(0);
-    vi.spyOn(db, 'listTasks').mockReturnValue([]);
+    vi.spyOn(taskCore, 'listTasks').mockReturnValue([]);
     vi.spyOn(logger, 'info').mockImplementation(() => {});
 
     const shutdownEvents = [];
@@ -49,7 +49,7 @@ describe('restart_server tool', () => {
 
   it('refuses restart while tasks are still running', async () => {
     vi.spyOn(taskManager, 'getRunningTaskCount').mockReturnValue(1);
-    vi.spyOn(db, 'listTasks').mockReturnValue([{ id: 'task-a' }, { id: 'task-b' }]);
+    vi.spyOn(taskCore, 'listTasks').mockReturnValue([{ id: 'task-a' }, { id: 'task-b' }]);
     vi.spyOn(logger, 'info').mockImplementation(() => {});
 
     const shutdownEvents = [];

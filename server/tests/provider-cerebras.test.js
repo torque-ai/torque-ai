@@ -10,13 +10,13 @@ vi.mock('https', () => ({
   get: vi.fn(),
 }));
 
-vi.mock('../database', () => ({
+vi.mock('../db/config-core', () => ({
   getConfig: vi.fn(),
 }));
 
 const http = require('http');
 const https = require('https');
-const db = require('../database');
+const configCore = require('../db/config-core');
 const CerebrasProvider = require('../providers/cerebras.js');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
 
@@ -187,7 +187,7 @@ describe('CerebrasProvider', () => {
     it('returns completed result on success and sends expected request body', async () => {
       const httpRequestSpy = vi.spyOn(http, 'request');
       const httpsRequestSpy = vi.spyOn(https, 'request');
-      const dbGetConfigSpy = vi.spyOn(db, 'getConfig');
+      const dbGetConfigSpy = vi.spyOn(configCore, 'getConfig');
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -616,7 +616,7 @@ describe('CerebrasProvider', () => {
     it('removes external abort listener and decrements activeTasks after streaming settles', async () => {
       const httpGetSpy = vi.spyOn(http, 'get');
       const httpsGetSpy = vi.spyOn(https, 'get');
-      const dbGetConfigSpy = vi.spyOn(db, 'getConfig');
+      const dbGetConfigSpy = vi.spyOn(configCore, 'getConfig');
       const signal = {
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
