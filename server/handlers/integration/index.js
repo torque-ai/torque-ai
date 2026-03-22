@@ -950,6 +950,31 @@ const routingHandlers = require('./routing');
 const planHandlers = require('./plans');
 const infraHandlers = require('./infra');
 
+function createIntegrationHandlers(deps) {
+  return {
+    handleExportReportCSV,
+    handleExportReportJSON,
+    handleListIntegrations,
+    handleIntegrationHealth,
+    handleTestIntegration,
+    handleDisableIntegration,
+    handleEnableIntegration,
+    handleListReportExports,
+    handleTaskChanges,
+    handleRollbackFile,
+    handleStashChanges,
+    handleListRollbackPoints,
+    handleSuccessRates,
+    handleComparePerformance,
+    handleViewDependencies,
+    handleGetFileChunks,
+    handleSubmitChunkedReview,
+    ...routingHandlers,
+    ...planHandlers,
+    ...infraHandlers,
+  };
+}
+
 module.exports = {
   handleExportReportCSV,
   handleExportReportJSON,
@@ -971,4 +996,5 @@ module.exports = {
   ...routingHandlers,
   ...planHandlers,
   ...infraHandlers,
+  createIntegrationHandlers,
 };

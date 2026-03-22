@@ -342,6 +342,17 @@ function handleRetryPlanProject(args) {
 }
 
 
+function createIntegrationPlansHandlers(deps) {
+  return {
+    handleImportPlan,
+    handleListPlanProjects,
+    handleGetPlanProject,
+    handlePausePlanProject,
+    handleResumePlanProject,
+    handleRetryPlanProject,
+  };
+}
+
 module.exports = {
   handleImportPlan,
   handleListPlanProjects,
@@ -349,4 +360,5 @@ module.exports = {
   handlePausePlanProject,
   handleResumePlanProject,
   handleRetryPlanProject,
+  createIntegrationPlansHandlers,
 };
