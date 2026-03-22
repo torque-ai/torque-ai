@@ -71,7 +71,7 @@ function createScenario(options = {}) {
   const deps = {
     db,
     classifyError: vi.fn(() => ({ retryable: true, reason: 'timeout' })),
-    sanitizeAiderOutput: vi.fn((output) => `sanitized:${output}`),
+    sanitizeTaskOutput: vi.fn((output) => `sanitized:${output}`),
     taskCleanupGuard: new Map(),
     pendingRetryTimeouts: new Map(),
     startTask: vi.fn(),

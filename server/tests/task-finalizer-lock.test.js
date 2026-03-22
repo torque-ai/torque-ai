@@ -38,7 +38,7 @@ describe('acquireTaskLock — absolute timeout', () => {
     finalizer.init({
       db: stubDb,
       safeUpdateTaskStatus: stubDb.updateTaskStatus,
-      sanitizeAiderOutput: (v) => v || '',
+      sanitizeTaskOutput: (v) => v || '',
       extractModifiedFiles: vi.fn(() => []),
       handleRetryLogic: vi.fn(),
       handleSafeguardChecks: vi.fn(),

@@ -410,8 +410,8 @@ async function finalizeTask(taskId, options = {}) {
     }
 
     const metadata = buildValidationMetadata(task, ctx, rawExitCode);
-    const sanitizedOutput = typeof deps.sanitizeAiderOutput === 'function'
-      ? deps.sanitizeAiderOutput(ctx.output)
+    const sanitizedOutput = typeof deps.sanitizeTaskOutput === 'function'
+      ? deps.sanitizeTaskOutput(ctx.output)
       : ctx.output;
     const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
     updateTaskStatus(taskId, ctx.status, {
@@ -546,8 +546,8 @@ async function finalizeTask(taskId, options = {}) {
     const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
     updateTaskStatus(taskId, 'failed', {
       exit_code: fallbackCtx.code,
-      output: typeof deps.sanitizeAiderOutput === 'function'
-        ? deps.sanitizeAiderOutput(fallbackCtx.output)
+      output: typeof deps.sanitizeTaskOutput === 'function'
+        ? deps.sanitizeTaskOutput(fallbackCtx.output)
         : fallbackCtx.output,
       error_output: fallbackCtx.errorOutput,
       files_modified: fallbackCtx.filesModified || [],

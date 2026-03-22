@@ -11,7 +11,7 @@ function createCancellationHandler({
   pendingRetryTimeouts,
   stallRecoveryAttempts,
   logger,
-  sanitizeAiderOutput,
+  sanitizeTaskOutput,
   safeTriggerWebhook,
   killProcessGraceful,
   cleanupChildProcessListeners,
@@ -55,7 +55,7 @@ function createCancellationHandler({
 
       try {
         db.updateTaskStatus(fullId, 'cancelled', {
-          output: sanitizeAiderOutput(proc.output),
+          output: sanitizeTaskOutput(proc.output),
           error_output: proc.errorOutput + `\n${reason}`
         });
       } catch (dbErr) {

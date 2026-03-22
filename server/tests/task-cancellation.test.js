@@ -35,7 +35,7 @@ describe('task-cancellation', () => {
       pendingRetryTimeouts: new Map(),
       stallRecoveryAttempts: new Map(),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      sanitizeAiderOutput: vi.fn((x) => x),
+      sanitizeTaskOutput: vi.fn((x) => x),
       safeTriggerWebhook: vi.fn(),
       killProcessGraceful: vi.fn(),
       cleanupChildProcessListeners: vi.fn(),
@@ -106,7 +106,7 @@ describe('task-cancellation', () => {
         errorOutput: 'some error',
       };
       deps.runningProcesses.set(fullId, fakeProc);
-      deps.sanitizeAiderOutput.mockReturnValue('sanitized output');
+      deps.sanitizeTaskOutput.mockReturnValue('sanitized output');
       deps.db.getTask.mockReturnValue({ id: fullId, status: 'running' });
 
       const result = handler.cancelTask('full-task-id');

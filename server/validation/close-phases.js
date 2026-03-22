@@ -34,7 +34,7 @@ let _tryCreateAutoPR = null;
 let _extractModifiedFiles = null;
 let _isValidFilePath = null;
 let _isShellSafe = null;
-let _sanitizeAiderOutput = null;
+let _sanitizeTaskOutput = null;
 let _safeUpdateTaskStatus = null;
 let _tryLocalFirstFallback = null;
 let _tryHashlineTieredFallback = null;
@@ -57,7 +57,7 @@ function init(deps) {
   if (deps.extractModifiedFiles) _extractModifiedFiles = deps.extractModifiedFiles;
   if (deps.isValidFilePath) _isValidFilePath = deps.isValidFilePath;
   if (deps.isShellSafe) _isShellSafe = deps.isShellSafe;
-  if (deps.sanitizeAiderOutput) _sanitizeAiderOutput = deps.sanitizeAiderOutput;
+  if (deps.sanitizeTaskOutput) _sanitizeTaskOutput = deps.sanitizeTaskOutput;
   if (deps.safeUpdateTaskStatus) _safeUpdateTaskStatus = deps.safeUpdateTaskStatus;
   if (deps.tryLocalFirstFallback) _tryLocalFirstFallback = deps.tryLocalFirstFallback;
   if (deps.tryHashlineTieredFallback) _tryHashlineTieredFallback = deps.tryHashlineTieredFallback;
@@ -361,7 +361,7 @@ function handleProviderFailover(ctx) {
 
       db.updateTaskStatus(taskId, 'pending_provider_switch', {
         exit_code: code,
-        output: _sanitizeAiderOutput(proc.output),
+        output: _sanitizeTaskOutput(proc.output),
         error_output: errorOutput + `\n[Auto-Failover] Switching from ${currentProvider} to ${fallbackProvider}`,
         files_modified: filesModified,
         progress_percent: 0

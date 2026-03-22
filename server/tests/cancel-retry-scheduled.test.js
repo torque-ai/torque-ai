@@ -33,7 +33,7 @@ describe('cancel retry_scheduled tasks (Bug #7)', () => {
       pendingRetryTimeouts: new Map(),
       stallRecoveryAttempts: new Map(),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-      sanitizeAiderOutput: vi.fn((x) => x),
+      sanitizeTaskOutput: vi.fn((x) => x),
       safeTriggerWebhook: vi.fn(),
       killProcessGraceful: vi.fn(),
       cleanupChildProcessListeners: vi.fn(),

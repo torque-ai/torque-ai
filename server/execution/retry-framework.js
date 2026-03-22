@@ -69,7 +69,7 @@ function handleRetryLogic(ctx) {
   if (deps.taskCleanupGuard) deps.taskCleanupGuard.delete(taskId);
   deps.db.updateTaskStatus(taskId, 'retry_scheduled', {
     exit_code: code,
-    output: deps.sanitizeAiderOutput(proc.output),
+    output: deps.sanitizeTaskOutput(proc.output),
     error_output: `[Retry ${retryInfo.retryCount}/${retryInfo.maxRetries} - ${errorClassification.reason}] ${proc.errorOutput}`
   });
 

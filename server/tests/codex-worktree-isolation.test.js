@@ -70,7 +70,7 @@ function defaultHelpers(overrides = {}) {
     checkBreakpoints: () => null,
     pauseTaskForDebug: vi.fn(),
     pauseTask: vi.fn(),
-    sanitizeAiderOutput: (o) => o || '',
+    sanitizeTaskOutput: (o) => o || '',
     getActualModifiedFiles: () => [],
     runLLMSafeguards: () => ({ passed: true, issues: [] }),
     rollbackTaskChanges: () => true,

@@ -84,7 +84,7 @@ describe('Close Phases', () => {
       extractModifiedFiles: vi.fn().mockReturnValue([]),
       isValidFilePath: vi.fn().mockReturnValue(true),
       isShellSafe: vi.fn().mockReturnValue(true),
-      sanitizeAiderOutput: vi.fn((s) => s || ''),
+      sanitizeTaskOutput: vi.fn((s) => s || ''),
       safeUpdateTaskStatus: vi.fn(),
       tryLocalFirstFallback: vi.fn().mockReturnValue(false),
       tryHashlineTieredFallback: vi.fn().mockReturnValue(false),

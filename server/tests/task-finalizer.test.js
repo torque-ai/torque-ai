@@ -64,7 +64,7 @@ function initFinalizer(overrides = {}) {
   finalizer.init({
     db,
     safeUpdateTaskStatus,
-    sanitizeAiderOutput: overrides.sanitizeAiderOutput || ((value) => value || ''),
+    sanitizeTaskOutput: overrides.sanitizeTaskOutput || ((value) => value || ''),
     extractModifiedFiles: overrides.extractModifiedFiles || vi.fn(() => []),
     handleRetryLogic: overrides.handleRetryLogic || vi.fn(),
     handleSafeguardChecks: overrides.handleSafeguardChecks || vi.fn(),
@@ -90,7 +90,7 @@ function defaultCliHelpers(overrides = {}) {
     pauseTaskForDebug: vi.fn(),
     pauseTask: vi.fn(),
     classifyError: () => ({ retryable: false, reason: 'not used' }),
-    sanitizeAiderOutput: (value) => value || '',
+    sanitizeTaskOutput: (value) => value || '',
     getActualModifiedFiles: () => [],
     runLLMSafeguards: () => ({ passed: true, issues: [] }),
     scopedRollback: vi.fn(),

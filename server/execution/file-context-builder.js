@@ -241,7 +241,8 @@ function extractJsFunctionBoundaries(filePath) {
 
 /**
  * Ensure target files exist on disk (create stubs if needed).
- * This prevents Aider from requesting interactive file approval (P2/P21 fix).
+ * Creates empty files so that edit-based providers can target them
+ * without interactive approval prompts.
  * @param {string} workingDir - The working directory
  * @param {string[]} filePaths - Relative file paths to ensure exist
  * @returns {string[]} Array of absolute paths that were created or already existed
@@ -289,42 +290,9 @@ function ensureTargetFilesExist(workingDir, filePaths) {
   return resolvedPaths;
 }
 
-/**
- * Parse aider output to detect real edits vs conversational text.
- * @param {string} output - The raw stdout from aider
- * @returns {{ editsApplied: number, hasErrors: boolean, isConversational: boolean, score: number }}
- */
-function parseAiderOutput(output) {
-  if (!output || typeof output !== 'string') {
-    return { editsApplied: 0, hasErrors: false, isConversational: true, score: 0 };
-  }
-
-  const editMatches = output.match(/Applied edit to /g);
-  const editsApplied = editMatches ? editMatches.length : 0;
-  // Match Aider-specific error messages, not "Error" in generated code (e.g., ValueError, FileNotFoundError)
-  const hasErrors = /Can't edit|No changes made|UnifiedDiffFencedBlockCoder|aider: error|FAILED to apply/i.test(output);
-  const isConversational = editsApplied === 0 && !hasErrors;
-
-  let score;
-  if (editsApplied > 0) {
-    // Edits applied — scale: 1 edit = 60, 2 = 80, 3+ = 100 (penalize if errors also present)
-    score = Math.min(100, 40 + editsApplied * 20);
-    if (hasErrors) score = Math.max(30, score - 20);
-  } else if (hasErrors) {
-    score = 10;
-  } else if (isConversational) {
-    score = 30;
-  } else {
-    score = 0;
-  }
-
-  return { editsApplied, hasErrors, isConversational, score };
-}
-
 module.exports = {
   init,
   buildFileContext,
   extractJsFunctionBoundaries,
   ensureTargetFilesExist,
-  parseAiderOutput,
 };

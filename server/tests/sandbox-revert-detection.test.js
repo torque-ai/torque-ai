@@ -532,7 +532,7 @@ describe('integration: detectSandboxReverts in finalizer pipeline', () => {
     finalizer.init({
       db: mockDb,
       safeUpdateTaskStatus: vi.fn((...args) => mockDb.updateTaskStatus(...args)),
-      sanitizeAiderOutput: (v) => v || '',
+      sanitizeTaskOutput: (v) => v || '',
       extractModifiedFiles: vi.fn(() => []),
       handleRetryLogic: trackStage('retry_logic'),
       handleSafeguardChecks: trackStage('safeguard_checks'),

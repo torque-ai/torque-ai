@@ -76,13 +76,13 @@ function shellEscape(arg) {
 }
 
 /**
- * Strip aider CLI boilerplate noise from task output.
- * Removes the "Detected dumb terminal" + OllamaError + version banner
- * that aider prints before the actual model response.
- * @param {string} output - Raw aider stdout
+ * Strip CLI boilerplate noise from task output.
+ * Removes thinking-model blocks, "Detected dumb terminal" banners,
+ * OllamaError lines, and Repo-map preamble.
+ * @param {string} output - Raw task stdout
  * @returns {string}
  */
-function sanitizeAiderOutput(output) {
+function sanitizeTaskOutput(output) {
   if (!output) return output;
   // Strip thinking model <think>...</think> blocks (visible when streaming is enabled)
   output = output.replace(/<think>[\s\S]*?<\/think>\s*/g, '');
@@ -108,5 +108,5 @@ module.exports = {
   parseTaskMetadata,
   getTaskContextTokenEstimate,
   shellEscape,
-  sanitizeAiderOutput,
+  sanitizeTaskOutput,
 };

@@ -1586,8 +1586,7 @@ function rollbackTaskChanges(taskId, workingDir) {
       windowsHide: true,
     }).trim();
 
-    const isTorqueCommit = lastCommitMessage.includes('[Torque') ||
-                           lastCommitMessage.includes('Co-authored-by: aider');
+    const isTorqueCommit = lastCommitMessage.includes('[Torque');
 
     if (isTorqueCommit) {
       logger.info(`[Rollback] Task ${taskId}: Reverting last auto-generated commit`);

@@ -324,8 +324,8 @@ function shellEscape(...args) { return _taskUtils.shellEscape(...args); }
 
 // TASK_TIMEOUTS and PROVIDER_DEFAULT_TIMEOUTS imported from ./constants.js
 
-// Aider output sanitization — delegated to execution/task-utils.js
-function sanitizeAiderOutput(...args) { return _taskUtils.sanitizeAiderOutput(...args); }
+// Task output sanitization — delegated to execution/task-utils.js
+function sanitizeTaskOutput(...args) { return _taskUtils.sanitizeTaskOutput(...args); }
 
 /**
  * Safely update task status with automatic recovery from state conflicts
@@ -383,7 +383,6 @@ function extractJsFunctionBoundaries(...args) { return _fileContextBuilder.extra
  */
 function ensureTargetFilesExist(...args) { return _fileContextBuilder.ensureTargetFilesExist(...args); }
 
-// Dead code: parseAiderOutput removed (aider provider removed)
 
 // ============================================================
 // Pre-Execution File Resolution (delegated to utils/file-resolution.js)
@@ -1105,7 +1104,7 @@ const { cancelTask, triggerCancellationWebhook } = createCancellationHandler({
   pendingRetryTimeouts,
   stallRecoveryAttempts,
   logger,
-  sanitizeAiderOutput,
+  sanitizeTaskOutput,
   safeTriggerWebhook,
   killProcessGraceful,
   cleanupChildProcessListeners,
@@ -1330,7 +1329,7 @@ function getTaskProgress(taskId) {
   if (proc) {
     return {
       running: true,
-      output: sanitizeAiderOutput(proc.output),
+      output: sanitizeTaskOutput(proc.output),
       errorOutput: proc.errorOutput,
       elapsedSeconds: Math.round((Date.now() - proc.startTime) / 1000),
       progress: estimateProgress(proc.output, proc.provider)
@@ -1602,7 +1601,7 @@ _executionModule.init({
     pauseTaskForDebug,
     pauseTask,
     classifyError,
-    sanitizeAiderOutput,
+    sanitizeTaskOutput,
     startTask,
     getActualModifiedFiles,
     runLLMSafeguards,
@@ -1718,7 +1717,7 @@ _closePhases.init({
   extractModifiedFiles,
   isValidFilePath,
   isShellSafe,
-  sanitizeAiderOutput,
+  sanitizeTaskOutput,
   safeUpdateTaskStatus,
   tryLocalFirstFallback,
   tryHashlineTieredFallback,
@@ -1727,7 +1726,7 @@ _closePhases.init({
 _retryFramework.init({
   db,
   classifyError,
-  sanitizeAiderOutput,
+  sanitizeTaskOutput,
   taskCleanupGuard,
   pendingRetryTimeouts,
   startTask,
@@ -1759,7 +1758,7 @@ _completionPipeline.init({
 _taskFinalizer.init({
   db,
   safeUpdateTaskStatus,
-  sanitizeAiderOutput,
+  sanitizeTaskOutput,
   extractModifiedFiles,
   handleRetryLogic,
   handleSafeguardChecks,
