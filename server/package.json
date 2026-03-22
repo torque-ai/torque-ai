@@ -26,7 +26,8 @@
     "test:smoke": "vitest run --reporter=verbose tests/db-core.test.js tests/task-operations.test.js tests/api-server.test.js",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "lint:di": "node scripts/check-no-direct-db-import.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
