@@ -269,6 +269,11 @@ function collectEvidence(taskData = {}, changedFiles) {
   };
 }
 
+function createFeatureFlagAdapter() {
+  return { collectEvidence };
+}
+
 module.exports = {
   collectEvidence,
+  createFeatureFlagAdapter,
 };

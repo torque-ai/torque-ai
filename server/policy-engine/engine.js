@@ -1003,7 +1003,12 @@ function evaluatePolicies(input = {}) {
   };
 }
 
+function createPolicyEngine() {
+  return { evaluatePolicies, summarizePolicyResults };
+}
+
 module.exports = {
   evaluatePolicies,
   summarizePolicyResults,
+  createPolicyEngine,
 };

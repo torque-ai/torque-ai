@@ -1219,6 +1219,30 @@ async function handleManageWebhook(args) {
   }
 }
 
+function createWebhookHandlers() {
+  return {
+    triggerWebhooks,
+    sendWebhook,
+    handleAddWebhook,
+    handleListWebhooks,
+    handleRemoveWebhook,
+    handleTestWebhook,
+    handleWebhookLogs,
+    handleWebhookStats,
+    handleConfigureRetries,
+    handleGetRetryHistory,
+    handleAddBudgetAlert,
+    handleListBudgetAlerts,
+    handleRemoveBudgetAlert,
+    handleConfigureAutoCleanup,
+    handleRunMaintenance,
+    handleNotifySlack,
+    handleNotifyDiscord,
+    handleQuickSetupNotifications,
+    handleManageWebhook,
+  };
+}
+
 module.exports = {
   triggerWebhooks,
   sendWebhook,
@@ -1238,5 +1262,6 @@ module.exports = {
   handleNotifySlack,
   handleNotifyDiscord,
   handleQuickSetupNotifications,
-  handleManageWebhook
+  handleManageWebhook,
+  createWebhookHandlers,
 };

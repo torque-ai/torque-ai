@@ -236,6 +236,11 @@ function collectEvidence(taskData = {}, changedFiles) {
   return evidence;
 }
 
+function createRefactorDebtAdapter() {
+  return { collectEvidence };
+}
+
 module.exports = {
   collectEvidence,
+  createRefactorDebtAdapter,
 };

@@ -260,6 +260,11 @@ function evaluateGates(releaseId, project) {
   };
 }
 
+function createReleaseGateAdapter() {
+  return { evaluateGates };
+}
+
 module.exports = {
   evaluateGates,
+  createReleaseGateAdapter,
 };

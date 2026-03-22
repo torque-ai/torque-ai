@@ -169,6 +169,18 @@ const toolHandlers = {
   strategic_config_apply_template: (args) => handleConfigApplyTemplate(args),
 };
 
+function createStrategicConfigHandlers() {
+  return {
+    toolDefs: require('../tool-defs/strategic-config-defs'),
+    toolHandlers,
+    handleConfigGet,
+    handleConfigSet,
+    handleConfigReset,
+    handleConfigTemplates,
+    handleConfigApplyTemplate,
+  };
+}
+
 module.exports = {
   toolDefs: require('../tool-defs/strategic-config-defs'),
   toolHandlers,
@@ -177,4 +189,5 @@ module.exports = {
   handleConfigReset,
   handleConfigTemplates,
   handleConfigApplyTemplate,
+  createStrategicConfigHandlers,
 };

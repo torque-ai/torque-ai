@@ -1110,6 +1110,28 @@ async function handleManageTuning(args) {
   }
 }
 
+function createProviderTuningHandlers() {
+  return {
+    handleGetLlmTuning,
+    handleSetLlmTuning,
+    handleApplyLlmPreset,
+    handleListLlmPresets,
+    handleGetModelSettings,
+    handleSetModelSettings,
+    handleGetModelPrompts,
+    handleSetModelPrompt,
+    handleGetInstructionTemplates,
+    handleSetInstructionTemplate,
+    handleToggleInstructionWrapping,
+    handleGetHardwareTuning,
+    handleSetHardwareTuning,
+    handleGetAutoTuning,
+    handleSetAutoTuning,
+    handleRunBenchmark,
+    handleManageTuning,
+  };
+}
+
 module.exports = {
   handleGetLlmTuning,
   handleSetLlmTuning,
@@ -1128,4 +1150,5 @@ module.exports = {
   handleSetAutoTuning,
   handleRunBenchmark,
   handleManageTuning,
+  createProviderTuningHandlers,
 };

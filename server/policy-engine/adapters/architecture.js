@@ -369,8 +369,13 @@ function collectEvidence(taskData = {}, changedFiles, project) {
   return evidence;
 }
 
+function createArchitectureAdapter() {
+  return { scanImports, checkBoundaries, collectEvidence };
+}
+
 module.exports = {
   scanImports,
   checkBoundaries,
   collectEvidence,
+  createArchitectureAdapter,
 };

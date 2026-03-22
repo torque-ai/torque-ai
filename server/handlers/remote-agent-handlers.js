@@ -831,6 +831,28 @@ const listRemoteAgents = handleListRemoteAgents;
 const deleteRemoteAgent = handleRemoveRemoteAgent;
 const runAgentHealthCheck = handleCheckRemoteAgentHealth;
 
+function createRemoteAgentHandlers() {
+  return {
+    _getRegistry,
+    handleRegisterRemoteAgent,
+    handleListRemoteAgents,
+    handleRemoveRemoteAgent,
+    handleCheckRemoteAgentHealth,
+    handleGetRemoteAgent,
+    runRemoteCommandCore,
+    runTestsCore,
+    handleRunRemoteCommand,
+    handleRunTests,
+    registerRemoteAgent,
+    listRemoteAgents,
+    getRemoteAgent: handleGetRemoteAgent,
+    deleteRemoteAgent,
+    claimTaskOnAgent: handleClaimTaskOnAgent,
+    recordAgentHeartbeat: handleRecordAgentHeartbeat,
+    runAgentHealthCheck,
+  };
+}
+
 module.exports = {
   _getRegistry,
   handleRegisterRemoteAgent,
@@ -850,4 +872,5 @@ module.exports = {
   claimTaskOnAgent: handleClaimTaskOnAgent,
   recordAgentHeartbeat: handleRecordAgentHeartbeat,
   runAgentHealthCheck,
+  createRemoteAgentHandlers,
 };

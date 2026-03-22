@@ -130,7 +130,12 @@ function handleReviewTaskOutput(args = {}) {
   }
 }
 
+function createReviewHandler() {
+  return { handleReviewTaskOutput, formatReviewPrompt };
+}
+
 module.exports = {
   handleReviewTaskOutput,
   formatReviewPrompt,
+  createReviewHandler,
 };
