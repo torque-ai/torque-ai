@@ -13,6 +13,7 @@ let db;
 let projectCache;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
+const costTracking = require('../db/cost-tracking');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-injection-${Date.now()}`);
@@ -84,19 +85,19 @@ describe('P0 SQL injection hardening', () => {
     it('rejects negative and NaN token values', () => {
       const task = createTask();
 
-      const negativeResult = db.recordTokenUsage(task.id, { input_tokens: -10, output_tokens: 20, model: 'codex' });
+      const negativeResult = costTracking.recordTokenUsage(task.id, { input_tokens: -10, output_tokens: 20, model: 'codex' });
       const afterNegative = db.getDb().prepare('SELECT COUNT(*) AS cnt FROM token_usage WHERE task_id = ?').get(task.id);
       expect(negativeResult).toBe(0);
       expect(afterNegative.cnt).toBe(0);
 
-      const nanResult = db.recordTokenUsage(task.id, { input_tokens: Number.NaN, output_tokens: 30, model: 'codex' });
+      const nanResult = costTracking.recordTokenUsage(task.id, { input_tokens: Number.NaN, output_tokens: 30, model: 'codex' });
       const afterNaN = db.getDb().prepare('SELECT COUNT(*) AS cnt FROM token_usage WHERE task_id = ?').get(task.id);
       expect(nanResult).toBe(0);
       expect(afterNaN.cnt).toBe(0);
 
       const costTask = createTask();
-      const negativeCostResult = db.recordCost('codex', costTask.id, -10, 20, 'gpt-5.3-codex-spark');
-      const nanCostResult = db.recordCost('codex', costTask.id, 10, Number.NaN, 'gpt-5.3-codex-spark');
+      const negativeCostResult = costTracking.recordCost('codex', costTask.id, -10, 20, 'gpt-5.3-codex-spark');
+      const nanCostResult = costTracking.recordCost('codex', costTask.id, 10, Number.NaN, 'gpt-5.3-codex-spark');
       const afterInvalidCost = db.getDb().prepare('SELECT COUNT(*) AS cnt FROM cost_tracking WHERE task_id = ?').get(costTask.id);
 
       expect(negativeCostResult).toBe(0);

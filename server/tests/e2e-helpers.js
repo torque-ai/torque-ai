@@ -14,6 +14,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const hostManagement = require('../db/host-management');
 
 const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
 const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
@@ -138,7 +139,7 @@ function registerMockHost(db, url, modelNames = ['codellama:latest'], opts = {})
   const maxConcurrent = opts.maxConcurrent || 4;
   const hostId = opts.id || `mock-${name}-${Date.now()}`;
 
-  const host = db.addOllamaHost({
+  const host = hostManagement.addOllamaHost({
     id: hostId,
     name,
     url,
@@ -154,7 +155,7 @@ function registerMockHost(db, url, modelNames = ['codellama:latest'], opts = {})
       digest: 'mock_' + m.replace(/[^a-z0-9]/g, ''),
       modified_at: new Date().toISOString(),
     }));
-    db.updateOllamaHost(host.id, {
+    hostManagement.updateOllamaHost(host.id, {
       models_cache: JSON.stringify(models),
       models_updated_at: new Date().toISOString(),
       status: 'healthy',

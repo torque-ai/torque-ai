@@ -172,6 +172,7 @@ describe('formatHeartbeat', () => {
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
 const hostMonitoring = require('../utils/host-monitoring');
 
 let handlers;
@@ -472,7 +473,7 @@ describe('handleAwaitTask heartbeat integration', () => {
 
 function createWorkflowWithTasks(taskDefs) {
   const workflowId = randomUUID();
-  db.createWorkflow({
+  workflowEngine.createWorkflow({
     id: workflowId,
     name: 'heartbeat-wf-test',
   });
@@ -556,8 +557,8 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
     });
 
     // Acknowledge the completed task so yield doesn't fire
-    const wf = db.getWorkflow(workflowId);
-    db.updateWorkflow(workflowId, {
+    const wf = workflowEngine.getWorkflow(workflowId);
+    workflowEngine.updateWorkflow(workflowId, {
       context: { ...wf.context, acknowledged_tasks: [taskIds.done] },
     });
 
@@ -690,7 +691,7 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
     ]);
 
     db.updateTaskStatus(
-      db.getWorkflowTasks(workflowId)[0].id,
+      workflowEngine.getWorkflowTasks(workflowId)[0].id,
       'running',
       { started_at: new Date(Date.now()).toISOString() }
     );

@@ -7,6 +7,7 @@ let templateBuffer;
 let testDir;
 let origDataDir;
 let db;
+const costTracking = require('../db/cost-tracking');
 
 function setupDb() {
   testDir = path.join(os.tmpdir(), `torque-vtest-budget-completeness-${Date.now()}`);
@@ -50,42 +51,42 @@ describe('Budget completeness checks', () => {
   afterEach(() => teardownDb());
 
   it('deleteBudget deletes by ID', () => {
-    const budget = db.setBudget('Budget Delete By ID', 100, null, 'monthly', 80);
-    const deleted = db.deleteBudget(budget.id);
+    const budget = costTracking.setBudget('Budget Delete By ID', 100, null, 'monthly', 80);
+    const deleted = costTracking.deleteBudget(budget.id);
 
     expect(deleted).toEqual({ deleted: true, id: budget.id });
-    expect(db.getBudgetStatus(budget.id)).toBeUndefined();
+    expect(costTracking.getBudgetStatus(budget.id)).toBeUndefined();
   });
 
   it('deleteBudget deletes by name', () => {
     const budgetName = 'Budget Delete By Name';
-    db.setBudget(budgetName, 100, null, 'monthly', 80);
+    costTracking.setBudget(budgetName, 100, null, 'monthly', 80);
 
-    const deleted = db.deleteBudget(budgetName);
+    const deleted = costTracking.deleteBudget(budgetName);
     const budgetId = budgetIdForName(budgetName);
 
     expect(deleted).toEqual({ deleted: true, id: budgetName });
-    expect(db.getBudgetStatus(budgetId)).toBeUndefined();
+    expect(costTracking.getBudgetStatus(budgetId)).toBeUndefined();
   });
 
   it('deleteBudget returns deleted:false for nonexistent budget', () => {
     const missing = 'does-not-exist';
 
-    const deleted = db.deleteBudget(missing);
+    const deleted = costTracking.deleteBudget(missing);
     expect(deleted).toEqual({ deleted: false, id: missing });
   });
 
   it('does not reset total-period budgets in resetExpiredBudgets', () => {
     const budgetName = 'Total Budget Example';
-    const budget = db.setBudget(budgetName, 100, null, 'total', 80);
+    const budget = costTracking.setBudget(budgetName, 100, null, 'total', 80);
 
     const past = new Date(Date.now() - (365 * 24 * 60 * 60 * 1000)).toISOString();
     db.getDbInstance().prepare('UPDATE cost_budgets SET reset_at = ?, current_spend = ? WHERE id = ?')
       .run(past, 75, budget.id);
 
-    const before = db.getBudgetStatus(budget.id);
-    db.resetExpiredBudgets();
-    const after = db.getBudgetStatus(budget.id);
+    const before = costTracking.getBudgetStatus(budget.id);
+    costTracking.resetExpiredBudgets();
+    const after = costTracking.getBudgetStatus(budget.id);
 
     expect(before).toBeTruthy();
     expect(after.current_spend).toBe(before.current_spend);

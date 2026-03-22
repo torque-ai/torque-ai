@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 let testDir, origDataDir, db, mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
+const projectConfigCore = require('../db/project-config-core');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-schedauto-${Date.now()}`);
@@ -20,8 +21,8 @@ function setup() {
   // Inject cross-module dependencies
   mod.setGetTask((id) => db.getTask(id));
   mod.setRecordTaskEvent((..._args) => { /* no-op for tests */ });
-  mod.setGetPipeline((id) => db.getPipeline ? db.getPipeline(id) : null);
-  mod.setCreatePipeline((...args) => db.createPipeline ? db.createPipeline(...args) : null);
+  mod.setGetPipeline((id) => projectConfigCore.getPipeline(id));
+  mod.setCreatePipeline((...args) => projectConfigCore.createPipeline(...args));
 }
 
 function teardown() {

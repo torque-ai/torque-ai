@@ -20,6 +20,8 @@ let executeOllama;
 let executeApi;
 let executeCli;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const hostManagement = require('../db/host-management');
+const webhooksStreaming = require('../db/webhooks-streaming');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-p1-streaming-${Date.now()}`);
@@ -172,14 +174,14 @@ async function startStreamServer(handlers = { responsePayloads: ['{}'] }) {
 
 function addHost({ url, model = 'codellama:latest', maxConcurrent = 4, runningTasks = 0 }) {
   const hostId = randomUUID();
-  db.addOllamaHost({
+  hostManagement.addOllamaHost({
     id: hostId,
     name: `host-${hostId}`,
     url,
     max_concurrent: maxConcurrent,
     memory_limit_mb: 8192,
   });
-  db.updateOllamaHost(hostId, {
+  hostManagement.updateOllamaHost(hostId, {
     enabled: 1,
     status: 'healthy',
     running_tasks: runningTasks,
@@ -217,7 +219,7 @@ describe('P1 streaming fixes', () => {
         working_directory: testDir,
       });
 
-      const streamId = db.getOrCreateTaskStream(taskId, 'output');
+      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
       const result = await executeHashline.runOllamaGenerate({
         ollamaHost: streamServer.url,
         ollamaModel: 'codellama:latest',
@@ -286,7 +288,7 @@ describe('P1 streaming fixes', () => {
         working_directory: testDir,
       });
 
-      const streamId = db.getOrCreateTaskStream(taskId, 'output');
+      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
       const result = await executeHashline.runOllamaGenerate({
         ollamaHost: streamServer.url,
         ollamaModel: 'codellama:latest',
@@ -426,7 +428,7 @@ describe('P1 streaming fixes', () => {
       const processQueue = vi.fn();
       const dashboard = { broadcast: vi.fn(), broadcastTaskUpdate: vi.fn(), notifyTaskUpdated: vi.fn(), notifyTaskOutput: vi.fn() };
       const atCapacityHost = addHost({ url: 'http://127.0.0.1:11434', model: 'qwen2.5-coder:7b', maxConcurrent: 1, runningTasks: 1 });
-      db.updateOllamaHost(atCapacityHost, {
+      hostManagement.updateOllamaHost(atCapacityHost, {
         enabled: 1,
         status: 'healthy',
         running_tasks: 1,

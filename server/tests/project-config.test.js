@@ -9,6 +9,7 @@ let db;
 let mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
+const costTracking = require('../db/cost-tracking');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-projconfig-${Date.now()}`);
@@ -118,7 +119,7 @@ describe('project-config module', () => {
   beforeEach(() => {
     resetTables();
     mod.setDbFunctions({
-      getTokenUsageSummary: db.getTokenUsageSummary
+      getTokenUsageSummary: costTracking.getTokenUsageSummary
     });
     delete global.SLOW_QUERY_THRESHOLD_MS;
     delete global.MAX_SLOW_QUERY_LOG;
@@ -648,7 +649,7 @@ describe('project-config module', () => {
       createTask({ project: 'proj-a', status: 'failed' });
       createTask({ project: 'proj-b', status: 'queued' });
 
-      db.recordTokenUsage(t1.id, { input_tokens: 1000, output_tokens: 500, model: 'codex' });
+      costTracking.recordTokenUsage(t1.id, { input_tokens: 1000, output_tokens: 500, model: 'codex' });
 
       const projects = mod.listProjects();
       const projA = projects.find(p => p.project === 'proj-a');
@@ -672,8 +673,8 @@ describe('project-config module', () => {
       const t2 = createTask({ project: 'proj-stats', status: 'failed', tags: ['api'] });
       createTask({ project: 'proj-stats', status: 'queued', tags: ['ui'] });
 
-      db.recordTokenUsage(t1.id, { input_tokens: 400, output_tokens: 600, model: 'codex' });
-      db.recordTokenUsage(t2.id, { input_tokens: 300, output_tokens: 200, model: 'codex' });
+      costTracking.recordTokenUsage(t1.id, { input_tokens: 400, output_tokens: 600, model: 'codex' });
+      costTracking.recordTokenUsage(t2.id, { input_tokens: 300, output_tokens: 200, model: 'codex' });
 
       const stats = mod.getProjectStats('proj-stats');
       const apiTag = stats.top_tags.find(t => t.tag === 'api');

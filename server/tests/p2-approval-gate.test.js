@@ -4,6 +4,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const schedulingAutomation = require('../db/scheduling-automation');
 
 vi.mock('../providers/registry', () => ({
   getProviderInstance: vi.fn().mockReturnValue({}),
@@ -175,7 +176,7 @@ describe('Approval gate enforcement in processQueue', () => {
   });
 
   it('does NOT start queued task when matching approval rule is pending', () => {
-    const ruleId = db.createApprovalRule(
+    const ruleId = schedulingAutomation.createApprovalRule(
       'priority 5 gate',
       'priority',
       { minPriority: 5 },
@@ -197,14 +198,14 @@ describe('Approval gate enforcement in processQueue', () => {
   });
 
   it('starts queued task once approval request is approved', () => {
-    const ruleId = db.createApprovalRule(
+    const ruleId = schedulingAutomation.createApprovalRule(
       'priority 5 gate',
       'priority',
       { minPriority: 5 },
       { project: 'rule-proj' }
     );
     const task = createQueuedTaskForRule({ project: 'rule-proj', priority: 10 });
-    const requestId = db.createApprovalRequest(task.id, ruleId);
+    const requestId = schedulingAutomation.createApprovalRequest(task.id, ruleId);
 
     db.getDbInstance().prepare(`
       UPDATE approval_requests

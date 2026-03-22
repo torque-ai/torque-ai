@@ -5,6 +5,7 @@ const os = require('os');
 const fs = require('fs');
 
 const { getOutputSchema, OUTPUT_SCHEMAS } = require('../tool-output-schemas');
+const workflowEngine = require('../db/workflow-engine');
 
 describe('tool-output-schemas', () => {
   describe('getOutputSchema', () => {
@@ -337,7 +338,7 @@ describe('tool-output-schemas', () => {
     it('workflow_status returns structuredData with counts and tasks', () => {
       const { randomUUID } = require('crypto');
       const wfId = randomUUID();
-      db.createWorkflow({ id: wfId, name: 'test-wf', status: 'pending' });
+      workflowEngine.createWorkflow({ id: wfId, name: 'test-wf', status: 'pending' });
       const { handleWorkflowStatus } = require('../handlers/workflow');
       const result = handleWorkflowStatus({ workflow_id: wfId });
 
@@ -648,7 +649,7 @@ describe('tool-output-schemas', () => {
     it('workflow_history returns structuredData with events for valid workflow', () => {
       const { randomUUID } = require('crypto');
       const wfId = randomUUID();
-      db.createWorkflow({ id: wfId, name: 'history-test-wf', status: 'pending' });
+      workflowEngine.createWorkflow({ id: wfId, name: 'history-test-wf', status: 'pending' });
       const { handleWorkflowHistory } = require('../handlers/workflow');
       const result = handleWorkflowHistory({ workflow_id: wfId });
 

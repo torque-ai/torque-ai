@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 let testDir, origDataDir, db, mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
+const schedulingAutomation = require('../db/scheduling-automation');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-duration-prediction-${Date.now()}`);
@@ -20,7 +21,7 @@ function setup() {
   mod = require('../db/analytics');
   mod.setDb(db.getDb());
   mod.setDbFunctions({
-    getTemplate: db.getTemplate
+    getTemplate: schedulingAutomation.getTemplate
   });
 }
 
@@ -221,7 +222,7 @@ describe('duration-prediction module', () => {
     });
 
     it('includes template factor when template_name provided', () => {
-      db.saveTemplate({
+      schedulingAutomation.saveTemplate({
         name: 'tpl-pred',
         task_template: 'echo test',
         description: 'test template',
@@ -321,7 +322,7 @@ describe('duration-prediction module', () => {
 
   describe('calibratePredictionModels', () => {
     it('derives global, pattern, and template models from task history', () => {
-      db.saveTemplate({
+      schedulingAutomation.saveTemplate({
         name: 'tpl-cal',
         task_template: 'echo calibrate',
         description: 'template for calibration'

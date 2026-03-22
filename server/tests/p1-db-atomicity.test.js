@@ -10,6 +10,7 @@ let hostMod;
 
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
+const projectConfigCore = require('../db/project-config-core');
 
 function setup() {
   testDir = path.join(os.tmpdir(), `torque-vtest-p1-atomicity-${Date.now()}`);
@@ -25,8 +26,8 @@ function setup() {
   schedulingMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
   schedulingMod.setGetTask((id) => db.getTask(id));
   schedulingMod.setRecordTaskEvent((_name, _taskId, _payload) => {});
-  schedulingMod.setGetPipeline((id) => db.getPipeline ? db.getPipeline(id) : null);
-  schedulingMod.setCreatePipeline((...args) => (db.createPipeline ? db.createPipeline(...args) : null));
+  schedulingMod.setGetPipeline((id) => projectConfigCore.getPipeline(id));
+  schedulingMod.setCreatePipeline((...args) => projectConfigCore.createPipeline(...args));
 
   hostMod = require('../db/host-management');
   hostMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
