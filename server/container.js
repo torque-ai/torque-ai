@@ -306,6 +306,35 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('policyEvaluationStore', policyEvaluationStore);
   }
 
+  // Domain services
+  if (!_defaultContainer.has('config')) {
+    _defaultContainer.registerValue('config', require('./config'));
+    _defaultContainer.registerValue('discovery', require('./discovery'));
+    _defaultContainer.registerValue('tools', require('./tools'));
+    _defaultContainer.registerValue('freeQuotaTracker', require('./free-quota-tracker'));
+    _defaultContainer.registerValue('taskManager', require('./task-manager'));
+  }
+
+  // Provider modules
+  if (!_defaultContainer.has('v2LocalProviders')) {
+    _defaultContainer.registerValue('v2LocalProviders', require('./providers/v2-local-providers'));
+    _defaultContainer.registerValue('v2CliProviders', require('./providers/v2-cli-providers'));
+  }
+
+  // Execution modules
+  if (!_defaultContainer.has('processLifecycle')) {
+    _defaultContainer.registerValue('processLifecycle', require('./execution/process-lifecycle'));
+    _defaultContainer.registerValue('taskFinalizer', require('./execution/task-finalizer'));
+    _defaultContainer.registerValue('conflictResolver', require('./execution/conflict-resolver'));
+    _defaultContainer.registerValue('debugLifecycle', require('./execution/debug-lifecycle'));
+    _defaultContainer.registerValue('strategicHooks', require('./execution/strategic-hooks'));
+    _defaultContainer.registerValue('workflowRuntime', require('./execution/workflow-runtime'));
+    _defaultContainer.registerValue('queueScheduler', require('./execution/queue-scheduler'));
+    _defaultContainer.registerValue('fallbackRetry', require('./execution/fallback-retry'));
+    _defaultContainer.registerValue('providerRouter', require('./execution/provider-router'));
+    _defaultContainer.registerValue('slotPullScheduler', require('./execution/slot-pull-scheduler'));
+  }
+
   logger.info('Container: core modules initialized (legacy path)');
 }
 
