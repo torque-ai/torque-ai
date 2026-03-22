@@ -999,7 +999,7 @@ function getNextFallbackProvider(taskId) {
   let ollamaIsAgentic = false;
   try {
     const { isAgenticCapable } = require('../providers/agentic-capability');
-    const ollamaModel = task.model || (typeof getConfig === 'function' ? getConfig('ollama_model') : null) || 'qwen3-coder:30b-a3b';
+    const ollamaModel = task.model || (typeof getConfig === 'function' ? getConfig('ollama_model') : null) || 'qwen3-coder:30b';
     ollamaIsAgentic = isAgenticCapable('ollama', ollamaModel).capable;
   } catch { /* non-fatal — default to skipping */ }
 

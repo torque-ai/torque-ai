@@ -983,6 +983,23 @@ function handleFullProjectAudit(args) {
   return { content: [{ type: 'text', text: output }] };
 }
 
+function createIntegrationInfraHandlers(deps) {
+  return {
+    handleConfigureIntegration,
+    handleSetHostPriority,
+    handleConfigureReviewWorkflow,
+    handleGetReviewWorkflowConfig,
+    handleBackupDatabase,
+    handleRestoreDatabase,
+    handleListDatabaseBackups,
+    handleSendEmailNotification,
+    handleListEmailNotifications,
+    handleGetEmailNotification,
+    handleScanProject,
+    handleFullProjectAudit,
+  };
+}
+
 module.exports = {
   handleConfigureIntegration,
   handleSetHostPriority,
@@ -996,4 +1013,5 @@ module.exports = {
   handleGetEmailNotification,
   handleScanProject,
   handleFullProjectAudit,
+  createIntegrationInfraHandlers,
 };

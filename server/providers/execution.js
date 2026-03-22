@@ -498,7 +498,7 @@ async function executeOllamaTaskWithAgentic(task) {
     const best = ollamaShared.findBestAvailableModel();
     if (best) resolvedModel = best;
   }
-  if (!resolvedModel) resolvedModel = 'qwen3-coder:30b-a3b';
+  if (!resolvedModel) resolvedModel = 'qwen3-coder:30b';
 
   // Resolve host
   const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];

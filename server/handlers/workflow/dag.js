@@ -372,9 +372,19 @@ function handleBlockedTasks(args) {
   };
 }
 
+function createWorkflowDagHandlers(deps) {
+  return {
+    handleDependencyGraph,
+    handleCriticalPath,
+    handleWhatIf,
+    handleBlockedTasks,
+  };
+}
+
 module.exports = {
   handleDependencyGraph,
   handleCriticalPath,
   handleWhatIf,
-  handleBlockedTasks
+  handleBlockedTasks,
+  createWorkflowDagHandlers,
 };

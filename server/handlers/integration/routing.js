@@ -1341,10 +1341,21 @@ function handleDeleteRoutingRule(args) {
 }
 
 
+function createIntegrationRoutingHandlers(deps) {
+  return {
+    handleSmartSubmitTask,
+    handleTestRouting,
+    handleAddRoutingRule,
+    handleUpdateRoutingRule,
+    handleDeleteRoutingRule,
+  };
+}
+
 module.exports = {
   handleSmartSubmitTask,
   handleTestRouting,
   handleAddRoutingRule,
   handleUpdateRoutingRule,
   handleDeleteRoutingRule,
+  createIntegrationRoutingHandlers,
 };

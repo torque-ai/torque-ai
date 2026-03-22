@@ -1295,6 +1295,24 @@ function handleTaskInfo(args) {
   return result;
 }
 
+function createTaskCoreHandlers(deps) {
+  return {
+    handleSubmitTask,
+    handleQueueTask,
+    handleCheckStatus,
+    handleGetResult,
+    handleWaitForTask,
+    handleListTasks,
+    handleCancelTask,
+    handleConfigure,
+    handleGetProgress,
+    handleShareContext,
+    handleSyncFiles,
+    handleTaskInfo,
+    getTaskInfoPressureLevel,
+  };
+}
+
 module.exports = {
   handleSubmitTask,
   handleQueueTask,
@@ -1309,4 +1327,5 @@ module.exports = {
   handleSyncFiles,
   handleTaskInfo,
   getTaskInfoPressureLevel,  // exported for context-handler.js
+  createTaskCoreHandlers,
 };

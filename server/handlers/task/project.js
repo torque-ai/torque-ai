@@ -933,6 +933,30 @@ function handleSetDefaultLimits(args) {
 }
 
 
+function createTaskProjectHandlers(deps) {
+  return {
+    handleRecordUsage,
+    handleGetTaskUsage,
+    handleCostSummary,
+    handleEstimateCost,
+    handleListProjects,
+    handleProjectStats,
+    handleCurrentProject,
+    handleConfigureProject,
+    handleGetProjectConfig,
+    handleListProjectConfigs,
+    handleCloneTask,
+    handleBulkImportTasks,
+    handleValidateImport,
+    handleCreateGroup,
+    handleListGroups,
+    handleGroupAction,
+    handleForecastCosts,
+    handleDeleteBudget,
+    handleSetDefaultLimits,
+  };
+}
+
 module.exports = {
   handleRecordUsage,
   handleGetTaskUsage,
@@ -953,4 +977,5 @@ module.exports = {
   handleForecastCosts,
   handleDeleteBudget,
   handleSetDefaultLimits,
+  createTaskProjectHandlers,
 };

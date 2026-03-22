@@ -1359,6 +1359,34 @@ function handleGetArchiveStats(_args) {
 }
 
 
+function createTaskOperationsHandlers(deps) {
+  return {
+    handleTagTask,
+    handleUntagTask,
+    handleListTags,
+    handleCheckTaskProgress,
+    handleHealthCheck,
+    handleHealthStatus,
+    handleCheckStalledTasks,
+    handleScheduleTask,
+    handleListScheduled,
+    handleCancelScheduled,
+    handlePauseScheduled,
+    handleBatchCancel,
+    handleBatchRetry,
+    handleBatchTag,
+    handleSearchOutputs,
+    handleOutputStats,
+    handleExportData,
+    handleImportData,
+    handleArchiveTask,
+    handleArchiveTasks,
+    handleListArchived,
+    handleRestoreTask,
+    handleGetArchiveStats,
+  };
+}
+
 module.exports = {
   handleTagTask,
   handleUntagTask,
@@ -1383,4 +1411,5 @@ module.exports = {
   handleListArchived,
   handleRestoreTask,
   handleGetArchiveStats,
+  createTaskOperationsHandlers,
 };

@@ -480,6 +480,19 @@ function handleSkipTask(args) {
   };
 }
 
+function createWorkflowAdvancedHandlers(deps) {
+  return {
+    handleForkWorkflow,
+    handleMergeWorkflows,
+    handleReplayTask,
+    handleDiffTaskRuns,
+    handleDuplicatePipeline,
+    handleExportReport,
+    handleRetryWorkflowFrom,
+    handleSkipTask,
+  };
+}
+
 module.exports = {
   handleForkWorkflow,
   handleMergeWorkflows,
@@ -488,5 +501,6 @@ module.exports = {
   handleDuplicatePipeline,
   handleExportReport,
   handleRetryWorkflowFrom,
-  handleSkipTask
+  handleSkipTask,
+  createWorkflowAdvancedHandlers,
 };

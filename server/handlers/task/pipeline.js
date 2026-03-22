@@ -869,6 +869,25 @@ function handleAnalyzeTask(args) {
 }
 
 
+function createTaskPipelineHandlers(deps) {
+  return {
+    handleSaveTemplate,
+    handleListTemplates,
+    handleUseTemplate,
+    handleGetAnalytics,
+    handleRetryTask,
+    handleCreatePipeline,
+    handleRunPipeline,
+    handleGetPipelineStatus,
+    handleListPipelines,
+    handlePreviewDiff,
+    handleCommitTask,
+    handleRollbackTask,
+    handleListCommits,
+    handleAnalyzeTask,
+  };
+}
+
 module.exports = {
   handleSaveTemplate,
   handleListTemplates,
@@ -884,4 +903,5 @@ module.exports = {
   handleRollbackTask,
   handleListCommits,
   handleAnalyzeTask,
+  createTaskPipelineHandlers,
 };

@@ -1282,11 +1282,23 @@ async function handleAwaitTask(args) {
   }
 }
 
+function createWorkflowAwaitHandlers(deps) {
+  return {
+    formatDuration,
+    formatHeartbeat,
+    formatTaskYield,
+    handleAwaitWorkflow,
+    handleAwaitTask,
+    formatFinalSummary,
+  };
+}
+
 module.exports = {
   formatDuration,
   formatHeartbeat,
   formatTaskYield,
   handleAwaitWorkflow,
   handleAwaitTask,
-  formatFinalSummary
+  formatFinalSummary,
+  createWorkflowAwaitHandlers,
 };

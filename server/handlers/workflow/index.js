@@ -1737,6 +1737,26 @@ function handleImportWorkflow(args) {
   return createResult;
 }
 
+function createWorkflowHandlers(deps) {
+  return {
+    ...workflowTemplates,
+    ...workflowDag,
+    ...workflowAwait,
+    ...workflowAdvanced,
+    handleCreateWorkflow,
+    handleAddWorkflowTask,
+    handleRunWorkflow,
+    handleWorkflowStatus,
+    handleCancelWorkflow,
+    handlePauseWorkflow,
+    handleListWorkflows,
+    handleWorkflowHistory,
+    handleCreateFeatureWorkflow,
+    handleExportWorkflow,
+    handleImportWorkflow,
+  };
+}
+
 module.exports = {
   ...workflowTemplates,
   ...workflowDag,
@@ -1752,5 +1772,6 @@ module.exports = {
   handleWorkflowHistory,
   handleCreateFeatureWorkflow,
   handleExportWorkflow,
-  handleImportWorkflow
+  handleImportWorkflow,
+  createWorkflowHandlers,
 };

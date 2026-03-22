@@ -1087,6 +1087,38 @@ function handleDeleteTask(args) {
 }
 
 
+function createTaskIntelligenceHandlers(deps) {
+  return {
+    handleStreamTaskOutput,
+    handleGetTaskLogs,
+    handleSubscribeTaskEvents,
+    handlePollTaskEvents,
+    handlePauseTask,
+    handleResumeTask,
+    handleListPausedTasks,
+    handleSuggestImprovements,
+    handleFindSimilarTasks,
+    handleLearnDefaults,
+    handleApplySmartDefaults,
+    handleAddComment,
+    handleListComments,
+    handleTaskTimeline,
+    handleDryRunBulk,
+    handleBulkOperationStatus,
+    handleListBulkOperations,
+    handlePredictDuration,
+    handleDurationInsights,
+    handleCalibratePredictions,
+    handleStartPendingTask,
+    handleSetTaskReviewStatus,
+    handleListPendingReviews,
+    handleListTasksNeedingCorrection,
+    handleSetTaskComplexity,
+    handleGetComplexityRouting,
+    handleDeleteTask,
+  };
+}
+
 module.exports = {
   handleStreamTaskOutput,
   handleGetTaskLogs,
@@ -1115,4 +1147,5 @@ module.exports = {
   handleSetTaskComplexity,
   handleGetComplexityRouting,
   handleDeleteTask,
+  createTaskIntelligenceHandlers,
 };

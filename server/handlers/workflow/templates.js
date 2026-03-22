@@ -314,11 +314,23 @@ function handleTemplateLoop(args) {
   return { content: [{ type: 'text', text: output }] };
 }
 
+function createWorkflowTemplatesHandlers(deps) {
+  return {
+    handleCreateWorkflowTemplate,
+    handleListWorkflowTemplates,
+    handleInstantiateTemplate,
+    handleDeleteWorkflowTemplate,
+    handleCreateConditionalTemplate,
+    handleTemplateLoop,
+  };
+}
+
 module.exports = {
   handleCreateWorkflowTemplate,
   handleListWorkflowTemplates,
   handleInstantiateTemplate,
   handleDeleteWorkflowTemplate,
   handleCreateConditionalTemplate,
-  handleTemplateLoop
+  handleTemplateLoop,
+  createWorkflowTemplatesHandlers,
 };
