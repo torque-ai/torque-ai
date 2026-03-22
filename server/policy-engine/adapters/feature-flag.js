@@ -4,14 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 
-const database = require('../../database');
+const { getDbInstance } = require('../../db/backup-core');
 const matchers = require('../matchers');
 
 const USER_VISIBLE_SEGMENTS = new Set(['routes', 'api', 'pages', 'views', 'components', 'dashboard']);
 const MAX_FILE_BYTES = 1024 * 1024;
 
 function getDbHandle() {
-  return typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+  return typeof getDbInstance === 'function' ? getDbInstance() : null;
 }
 
 function normalizeString(value) {

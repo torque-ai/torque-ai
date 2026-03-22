@@ -1,10 +1,10 @@
 'use strict';
 
-const database = require('../../database');
+const { getDbInstance } = require('../../db/backup-core');
 const { safeJsonParse } = require('../../utils/json');
 
 function getDbHandle() {
-  return typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+  return typeof getDbInstance === 'function' ? getDbInstance() : null;
 }
 
 function normalizeString(value) {

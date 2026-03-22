@@ -2,7 +2,7 @@
 
 const { createHash, randomUUID } = require('crypto');
 const logger = require('../logger').child({ component: 'policy-engine' });
-const database = require('../database');
+const { getDbInstance } = require('../db/backup-core');
 const matchers = require('./matchers');
 const profileStore = require('./profile-store');
 const evaluationStore = require('./evaluation-store');
@@ -120,11 +120,8 @@ function normalizeBoundaryPatternList(value) {
 }
 
 function resolvePolicyDbHandle() {
-  if (typeof database.getDbInstance === 'function') {
-    return database.getDbInstance();
-  }
-  if (typeof database.getDb === 'function') {
-    return database.getDb();
+  if (typeof getDbInstance === 'function') {
+    return getDbInstance();
   }
   return null;
 }
