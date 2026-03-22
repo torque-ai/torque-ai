@@ -1,6 +1,8 @@
 'use strict';
 
-process.env.TORQUE_DATA_DIR = 'C:/Users/Werem/Projects/torque/server';
+const path = require('path');
+const os = require('os');
+process.env.TORQUE_DATA_DIR = process.env.TORQUE_DATA_DIR || path.join(os.tmpdir(), 'torque-baseline-test');
 const db = require('../database');
 db.init();
 const config = require('../config');
@@ -12,7 +14,8 @@ const openaiAdapter = require('../providers/adapters/openai-chat');
 const ollamaAdapter = require('../providers/adapters/ollama-chat');
 const googleAdapter = require('../providers/adapters/google-chat');
 
-const WD = 'C:/Users/Werem/Projects/SpudgetBooks';
+const WD = process.env.BASELINE_WORKING_DIR || process.cwd();
+const ollamaHost = process.env.OLLAMA_HOST || 'http://localhost:11434';
 const platformRule = process.platform === 'win32'
   ? '8. This is a Windows environment. Use PowerShell or cmd syntax, not Unix.'
   : '8. This is a Linux/macOS environment. Use bash commands.';
@@ -128,8 +131,8 @@ async function test(name, adapter, opts, extra = {}) {
   await test('openrouter / llama-3.3-70b:free', openaiAdapter, openrouterOpts('meta-llama/llama-3.3-70b-instruct:free'));
 
   // --- LOCAL OLLAMA ---
-  await test('local / qwen2.5-coder:32b', ollamaAdapter, { host: 'http://192.168.1.183:11434', model: 'qwen2.5-coder:32b' });
-  await test('local / codestral:22b (prompt-inj)', ollamaAdapter, { host: 'http://192.168.1.183:11434', model: 'codestral:22b' }, { promptInjected: true });
+  await test('local / qwen2.5-coder:32b', ollamaAdapter, { host: ollamaHost, model: 'qwen2.5-coder:32b' });
+  await test('local / codestral:22b (prompt-inj)', ollamaAdapter, { host: ollamaHost, model: 'codestral:22b' }, { promptInjected: true });
 
   // --- SUMMARY ---
   console.log('\n' + '='.repeat(160));
