@@ -520,7 +520,7 @@ function resolveWindowsCmdToNode(cmdPath) {
     if (!path.isAbsolute(cmdPath)) {
       // Search PATH for the .cmd file using execFileSync (no shell injection)
       try {
-        fullCmdPath = execFileSync('where.exe', [cmdPath], { encoding: 'utf-8' }).trim().split('\n')[0].trim();
+        fullCmdPath = execFileSync('where.exe', [cmdPath], { encoding: 'utf-8', windowsHide: true }).trim().split('\n')[0].trim();
       } catch {
         return null; // Not found in PATH
       }

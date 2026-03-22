@@ -390,6 +390,7 @@ async function gracefulShutdown(signal) {
         const child = spawnChild(process.execPath, [serverScript], {
           detached: true,
           stdio: 'ignore',
+          windowsHide: true,
           env: process.env, // same env — TORQUE_DATA_DIR etc. preserved
         });
         child.unref();
@@ -467,7 +468,7 @@ function killStaleInstance() {
         // execFileSync avoids shell injection risk (args passed as array).
         commandLine = childProcess.execFileSync('wmic', [
           'process', 'where', `ProcessId=${oldPid}`, 'get', 'CommandLine', '/format:list',
-        ], { encoding: 'utf-8', timeout: 5000 });
+        ], { encoding: 'utf-8', timeout: 5000, windowsHide: true });
       } else {
         commandLine = String(childProcess.execSync(`ps -p ${oldPid} -o args=`, { encoding: 'utf8' }));
       }
@@ -491,6 +492,7 @@ function killStaleInstance() {
         childProcess.execFileSync('taskkill', ['/PID', String(oldPid), '/F'], {
           timeout: TASK_TIMEOUTS.HEALTH_CHECK,
           stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
         });
       } else {
         process.kill(oldPid, 'SIGTERM');

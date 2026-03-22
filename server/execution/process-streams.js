@@ -113,7 +113,7 @@ function setupStdoutHandler(child, taskId, streamId) {
           if (process.platform === 'win32' && pid) {
             logger.info(`[Completion] Task ${taskId} using taskkill /F /T /PID ${pid}`);
             const { execFile } = require('child_process');
-            execFile('taskkill', ['/F', '/T', '/PID', String(pid)], (err) => {
+            execFile('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true }, (err) => {
               if (err) {
                 logger.info(`[Completion] taskkill failed for task ${taskId}: ${err.message}`);
               }

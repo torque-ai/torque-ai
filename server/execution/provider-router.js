@@ -95,7 +95,8 @@ function tryCreateAutoPR(taskId, task, workingDir, projectConfig) {
     // Check if we're on a feature branch (not main/master)
     const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
       cwd: workingDir,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      windowsHide: true,
     }).trim();
 
     if (currentBranch === 'main' || currentBranch === 'master' || currentBranch === baseBranch) {
@@ -106,7 +107,8 @@ function tryCreateAutoPR(taskId, task, workingDir, projectConfig) {
     // Check if there are commits to push
     const unpushed = execFileSync('git', ['log', `origin/${baseBranch}..HEAD`, '--oneline'], {
       cwd: workingDir,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      windowsHide: true,
     }).trim();
 
     if (!unpushed) {
@@ -118,7 +120,8 @@ function tryCreateAutoPR(taskId, task, workingDir, projectConfig) {
     logger.info(`[Auto-PR] Task ${taskId}: Pushing branch ${currentBranch}`);
     execFileSync('git', ['push', '-u', 'origin', currentBranch], {
       cwd: workingDir,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      windowsHide: true,
     });
 
     // Create PR using gh CLI
@@ -129,7 +132,8 @@ function tryCreateAutoPR(taskId, task, workingDir, projectConfig) {
     logger.info(`[Auto-PR] Task ${taskId}: Creating PR`);
     const prResult = execFileSync('gh', ['pr', 'create', '--title', prTitle, '--body', prBody, '--base', baseBranch], {
       cwd: workingDir,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      windowsHide: true,
     }).trim();
 
     logger.info(`[Auto-PR] Task ${taskId}: PR created - ${prResult}`);

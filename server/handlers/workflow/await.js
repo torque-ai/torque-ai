@@ -723,7 +723,7 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
       const cwd = args.working_directory || workflow.working_directory || process.cwd();
       let hasTorqueRemote = false;
       try {
-        require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore' });
+        require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore', windowsHide: true });
         hasTorqueRemote = true;
       } catch {}
       const effectiveCommand = hasTorqueRemote
@@ -1001,7 +1001,7 @@ async function handleAwaitTask(args) {
             try {
               let hasTorqueRemote = false;
               try {
-                require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore' });
+                require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore', windowsHide: true });
                 hasTorqueRemote = true;
               } catch {}
 

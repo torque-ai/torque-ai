@@ -118,7 +118,7 @@ function cleanupOrphanedAiderProcesses() {
       try {
         const result = execFileSync('wmic', [
           'process', 'where', 'name like \'%aider%\'', 'get', 'processid', '/format:list'
-        ], { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY });
+        ], { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true });
         aiderPids = result.match(/ProcessId=(\d+)/g)?.map(m => parseInt(m.split('=')[1], 10)) || [];
       } catch {
         // WMIC might not be available or no matches
@@ -175,7 +175,7 @@ function cleanupOrphanedDotnetProcesses() {
       try {
         const result = execFileSync('wmic', [
           'process', 'where', 'name like \'%dotnet%\'', 'get', 'processid,commandline', '/format:list'
-        ], { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY });
+        ], { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true });
         // Parse PIDs from WMIC output, filtering for test/build processes
         const lines = result.split('\n');
         let currentPid = null;

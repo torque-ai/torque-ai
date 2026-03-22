@@ -144,6 +144,7 @@ function safeExecChain(commandStr, options = {}) {
 
     try {
       const result = spawnSync(cmd, args, {
+        windowsHide: true,
         ...options,
         shell: false,
       });

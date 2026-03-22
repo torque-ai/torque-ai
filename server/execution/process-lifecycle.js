@@ -127,7 +127,7 @@ function killOrphanByPid(pid, taskId, killDelayMs = 5000, label = '') {
   if (process.platform === 'win32') {
     try {
       const { execFileSync } = require('child_process');
-      execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000 });
+      execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true });
       logger.info(`${prefix}Killed orphan PID ${pid} (task ${taskId}) via taskkill`);
     } catch (err) {
       if (!err.message.includes('not found')) {
@@ -174,7 +174,7 @@ function pauseProcess(proc, taskId, label = '') {
     // Windows: SIGSTOP not supported. Kill process tree — resumeTask will restart from DB.
     try {
       const { execFileSync } = require('child_process');
-      execFileSync('taskkill', ['/F', '/T', '/PID', String(proc.process.pid)], { timeout: 5000 });
+      execFileSync('taskkill', ['/F', '/T', '/PID', String(proc.process.pid)], { timeout: 5000, windowsHide: true });
     } catch {
       try {
         proc.process.kill('SIGTERM');
