@@ -125,9 +125,21 @@
   var cache = {};
   var refreshTimer = null;
 
-  // --- MCP Tool Calling via postMessage ---
+  // --- Data Fetching ---
+  // Detect environment: MCP App iframe (postMessage) vs standalone browser (REST API)
+  var isIframe = (window !== window.parent);
+  var apiPort = new URLSearchParams(window.location.search).get('apiPort') || '3457';
+  var apiBase = 'http://localhost:' + apiPort;
+
   function callTool(name, args) {
     if (args === undefined) args = {};
+    if (isIframe) {
+      return callToolViaMcp(name, args);
+    }
+    return callToolViaRest(name, args);
+  }
+
+  function callToolViaMcp(name, args) {
     return new Promise(function(resolve, reject) {
       var id = 'req-' + Date.now() + '-' + Math.random().toString(36).slice(2);
       var timeout = setTimeout(function() {
@@ -148,6 +160,46 @@
         params: { name: name, arguments: args }
       }, '*');
     });
+  }
+
+  function callToolViaRest(name, args) {
+    return fetch(apiBase + '/api/v2/tools/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, arguments: args }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(envelope) {
+      // v2 API returns { ok, data } envelope
+      if (envelope && envelope.ok && envelope.data) return envelope.data;
+      if (envelope && envelope.data) return envelope.data;
+      return envelope;
+    })
+    .catch(function(err) {
+      // Fallback: try dashboard API endpoints directly
+      return callDashboardApi(name, args);
+    });
+  }
+
+  function callDashboardApi(name, args) {
+    // Map tool names to dashboard REST endpoints
+    var dashboardPort = new URLSearchParams(window.location.search).get('port') || '3456';
+    var dashBase = 'http://localhost:' + dashboardPort;
+    var endpoints = {
+      check_status: '/api/tasks?limit=20',
+      list_ollama_hosts: '/api/hosts',
+      list_workflows: '/api/workflows?limit=10',
+      get_cost_summary: '/api/budget/summary',
+      get_budget_status: '/api/budget/status',
+    };
+    var endpoint = endpoints[name];
+    if (!endpoint) return Promise.resolve({ structuredContent: null });
+    return fetch(dashBase + endpoint)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        return { structuredContent: data };
+      })
+      .catch(function() { return { structuredContent: null }; });
   }
 
   // --- Helpers ---

@@ -9,7 +9,7 @@ describe('mcp-apps', () => {
       expect(result.resources.length).toBeGreaterThan(0);
       const dashboard = result.resources.find(r => r.uri === 'ui://torque/dashboard');
       expect(dashboard).toBeDefined();
-      expect(dashboard.mimeType).toBe('text/html');
+      expect(dashboard.mimeType).toBe('text/html;profile=mcp-app');
       expect(dashboard.name).toBe('TORQUE Dashboard');
     });
 
@@ -18,7 +18,7 @@ describe('mcp-apps', () => {
       const result = readResource({ uri: 'ui://torque/dashboard' });
       expect(result.contents).toBeDefined();
       expect(result.contents.length).toBe(1);
-      expect(result.contents[0].mimeType).toBe('text/html');
+      expect(result.contents[0].mimeType).toBe('text/html;profile=mcp-app');
       expect(result.contents[0].text).toContain('<!DOCTYPE html>');
       expect(result.contents[0].text).toContain('tab-tasks');
       expect(result.contents[0].text).toContain('tab-providers');

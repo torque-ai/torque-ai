@@ -466,6 +466,18 @@ const MIME_TYPES = {
  * @returns {void}
  */
 function serveStatic(req, res) {
+  // Serve MCP Apps dashboard HTML from server/mcp-apps/
+  const urlPath = req.url.split('?')[0];
+  if (urlPath === '/mcp-app/dashboard.html') {
+    const mcpAppPath = path.join(__dirname, 'mcp-apps', 'dashboard.html');
+    if (fs.existsSync(mcpAppPath)) {
+      const html = fs.readFileSync(mcpAppPath, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
+      res.end(html);
+      return;
+    }
+  }
+
   // Try React build first, fall back to lightweight static dashboard
   const reactDir = path.join(__dirname, '..', 'dashboard', 'dist');
   const staticDir = path.join(__dirname, 'dashboard');

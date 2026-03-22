@@ -10,7 +10,7 @@ const RESOURCES = [
     uri: 'ui://torque/dashboard',
     name: 'TORQUE Dashboard',
     description: 'Interactive task status, provider health, workflow progress, and cost tracking',
-    mimeType: 'text/html',
+    mimeType: 'text/html;profile=mcp-app',
   },
 ];
 
@@ -27,7 +27,7 @@ function readResource(params) {
       return {
         contents: [{
           uri,
-          mimeType: 'text/html',
+          mimeType: 'text/html;profile=mcp-app',
           text: html,
         }],
       };
