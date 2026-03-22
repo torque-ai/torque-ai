@@ -18,6 +18,9 @@ const { mocks } = vi.hoisted(() => {
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const db = require('../database');
+const workflowEngine = require('../db/workflow-engine');
+const taskMetadata = require('../db/task-metadata');
+const fileTracking = require('../db/file-tracking');
 const hostMonitoring = require('../utils/host-monitoring');
 let handlers;
 
@@ -42,7 +45,7 @@ function textOf(result) {
 
 function createWorkflow(overrides = {}) {
   const id = overrides.id || randomUUID();
-  return db.createWorkflow({
+  return workflowEngine.createWorkflow({
     id,
     name: 'Workflow Await Test',
     status: 'running',
@@ -104,7 +107,7 @@ function storePeekArtifact(taskId, name, contractVersion = 1) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-peek-artifact-'));
   const filePath = path.join(dir, name);
   fs.writeFileSync(filePath, '{}', 'utf8');
-  return db.storeArtifact({
+  return taskMetadata.storeArtifact({
     id: randomUUID(),
     task_id: taskId,
     name,
@@ -337,7 +340,7 @@ describe('workflow-await handlers with DB-backed state', () => {
 
     it('auto-commits tracked task files and pushes when requested', async () => {
       const taskId = createTask({ status: 'running' });
-      vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([
         { relative_path: 'src/one.js', is_outside_workdir: 0 },
         { relative_path: 'src/two.js', is_outside_workdir: 0 },
       ]);
@@ -384,7 +387,7 @@ describe('workflow-await handlers with DB-backed state', () => {
 
     it('falls back to git diff paths when tracked task files are unavailable', async () => {
       const taskId = createTask({ status: 'running' });
-      vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([]);
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([]);
 
       mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
         if (command !== 'git') return '';
@@ -420,7 +423,7 @@ describe('workflow-await handlers with DB-backed state', () => {
 
     it('reports when there are no changed files to commit', async () => {
       const taskId = createTask({ status: 'running' });
-      vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([]);
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([]);
       mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
         if (command === 'git' && args[0] === 'diff') return '';
         return '';
@@ -486,7 +489,7 @@ describe('workflow-await handlers with DB-backed state', () => {
       expect(textOf(result)).toContain('Workflow Progress: Incremental Workflow');
       expect(textOf(result)).not.toContain('Workflow Completed');
 
-      const updatedWorkflow = db.getWorkflow(workflow.id);
+      const updatedWorkflow = workflowEngine.getWorkflow(workflow.id);
       expect(updatedWorkflow.context.acknowledged_tasks).toEqual([buildId]);
       expect(updatedWorkflow.context.acknowledged_tasks).not.toContain(testId);
     });
@@ -554,7 +557,7 @@ describe('workflow-await handlers with DB-backed state', () => {
         gpuMetrics: { cpuPercent: 92, ramPercent: 87 },
       });
 
-      const taskId = db.getWorkflowTasks(workflow.id)[0].id;
+      const taskId = workflowEngine.getWorkflowTasks(workflow.id)[0].id;
       finalizeTask(taskId, 'completed', { output: 'build output' });
 
       const result = await handlers.handleAwaitWorkflow({
@@ -601,7 +604,7 @@ describe('workflow-await handlers with DB-backed state', () => {
         working_directory: process.cwd(),
       });
 
-      vi.spyOn(db, 'getTaskFileChanges').mockImplementation((taskId) => {
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockImplementation((taskId) => {
         if (taskId === taskA) {
           return [{ relative_path: 'src/workflow-a.js', is_outside_workdir: 0 }];
         }
@@ -702,7 +705,7 @@ describe('workflow-await handlers with DB-backed state', () => {
     it('returns WORKFLOW_NOT_FOUND if the workflow task list disappears during polling', async () => {
       const workflow = createWorkflow({ name: 'Vanishing Workflow' });
       createWorkflowTask(workflow.id, 'step-1', { status: 'running' });
-      const getWorkflowTasksSpy = vi.spyOn(db, 'getWorkflowTasks');
+      const getWorkflowTasksSpy = vi.spyOn(workflowEngine, 'getWorkflowTasks');
       getWorkflowTasksSpy
         .mockReturnValueOnce([{ id: randomUUID(), status: 'running', workflow_node_id: 'step-1' }])
         .mockReturnValueOnce(null);

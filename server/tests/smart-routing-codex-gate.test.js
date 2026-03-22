@@ -137,13 +137,15 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
   // Mock checkOllamaHealth to avoid network calls
   let originalCheckOllamaHealth;
   beforeAll(() => {
-    originalCheckOllamaHealth = db.checkOllamaHealth;
+    const providerRouting = require('../db/provider-routing-core');
+    originalCheckOllamaHealth = providerRouting.checkOllamaHealth;
     // Replace with a no-op that returns true
-    db.checkOllamaHealth = async () => true;
+    providerRouting.checkOllamaHealth = async () => true;
   });
   afterAll(() => {
     if (originalCheckOllamaHealth) {
-      db.checkOllamaHealth = originalCheckOllamaHealth;
+      const providerRouting = require('../db/provider-routing-core');
+      providerRouting.checkOllamaHealth = originalCheckOllamaHealth;
     }
   });
 
