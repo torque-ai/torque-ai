@@ -13,8 +13,12 @@
  */
 
 const { spawn } = require('child_process');
-// Lazy-load db to survive test-time module cache resets (setupTestDb)
-function getDb() { return require('../database'); }
+// Lazy-load to survive test-time module cache resets (setupTestDb)
+function getTaskCore() { return require('../db/task-core'); }
+function getHostManagement() { return require('../db/host-management'); }
+function getTaskMetadata() { return require('../db/task-metadata'); }
+function getWebhooksStreaming() { return require('../db/webhooks-streaming'); }
+function getProviderRoutingCore() { return require('../db/provider-routing-core'); }
 const logger = require('../logger').child({ component: 'process-lifecycle' });
 const { redactCommandArgs } = require('../utils/sanitize');
 const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../validation/completion-detection');
@@ -64,7 +68,7 @@ function clearProcTimeouts(proc) {
 function safeDecrementHostSlot(proc) {
   if (proc && proc.ollamaHostId) {
     try {
-      getDb().decrementHostTasks(proc.ollamaHostId);
+      getHostManagement().decrementHostTasks(proc.ollamaHostId);
     } catch (e) {
       logger.info(`Failed to decrement host tasks for ${proc.ollamaHostId}: ${e.message}`);
     }
@@ -204,7 +208,7 @@ function pauseProcess(proc, taskId, label = '') {
  */
 function safeTriggerWebhook(taskId, eventName) {
   try {
-    const updatedTask = getDb().getTask(taskId);
+    const updatedTask = getTaskCore().getTask(taskId);
     const { triggerWebhooks } = require('../handlers/webhook-handlers');
     triggerWebhooks(eventName, updatedTask).catch(err => {
       logger.info('Webhook trigger error:', err.message);
@@ -336,7 +340,9 @@ function spawnAndTrackProcess(taskId, task, {
   selectedOllamaHostId, usedEditFormat, taskMetadata,
   taskType, contextTokenEstimate, baselineCommit
 }) {
-  const db = getDb();
+  const taskCoreDb = getTaskCore();
+  const taskMetaDb = getTaskMetadata();
+  const streamDb = getWebhooksStreaming();
 
   // Debug: log the actual command being executed (redact prompt-bearing args)
   logger.info(`[TaskManager] Spawning: ${cliPath} ${redactCommandArgs(finalArgs).join(' ')}`);
@@ -406,10 +412,10 @@ function spawnAndTrackProcess(taskId, task, {
   if (child.pid) {
     statusUpdate.pid = child.pid;
   }
-  db.updateTaskStatus(taskId, 'running', statusUpdate);
+  taskCoreDb.updateTaskStatus(taskId, 'running', statusUpdate);
   if (baselineCommit) {
     try {
-      db.updateTaskGitState(taskId, { before_sha: baselineCommit });
+      taskMetaDb.updateTaskGitState(taskId, { before_sha: baselineCommit });
     } catch (err) {
       logger.info(`[TaskManager] Failed to store baseline git SHA for task ${taskId}: ${err.message}`);
     }
@@ -424,7 +430,7 @@ function spawnAndTrackProcess(taskId, task, {
       const proc = deps.runningProcesses.get(taskId);
       if (!proc) {
         // Already cleaned up by close/error handler - check DB status
-        const currentTask = db.getTask(taskId);
+        const currentTask = taskCoreDb.getTask(taskId);
         if (currentTask && currentTask.status === 'running') {
           logger.info(`[TaskManager] Task ${taskId} process exited instantly but status is still 'running' - marking failed`);
           void deps.finalizeTask(taskId, {
@@ -453,7 +459,7 @@ function spawnAndTrackProcess(taskId, task, {
   deps.dashboard.notifyTaskUpdated(taskId);
 
   // Get or create stream for this task
-  const streamId = db.getOrCreateTaskStream(taskId, 'output');
+  const streamId = streamDb.getOrCreateTaskStream(taskId, 'output');
 
   // Attach stdout/stderr handlers (output buffering, progress, completion detection)
   deps.setupStdoutHandler(child, taskId, streamId, provider);
@@ -489,7 +495,7 @@ function spawnAndTrackProcess(taskId, task, {
     let handlerManagedQueue = false;
 
     try {
-      const currentTask = db.getTask(taskId);
+      const currentTask = taskCoreDb.getTask(taskId);
       if (currentTask && currentTask.status === 'cancelled') {
         logger.info(`[Completion] Task ${taskId} close handler skipped because task is already cancelled`);
         handlerManagedQueue = true;
@@ -570,7 +576,7 @@ function spawnAndTrackProcess(taskId, task, {
 
       // If this was an Ollama-based task, invalidate health cache
       if (provider === 'ollama') {
-        db.invalidateOllamaHealth();
+        getProviderRoutingCore().invalidateOllamaHealth();
         logger.info(`[${provider}] Invalidated health cache due to process error`);
       }
 
@@ -618,7 +624,7 @@ function spawnAndTrackProcess(taskId, task, {
   const procRef = deps.runningProcesses.get(taskId);
   if (!procRef) {
     logger.info(`[TaskManager] WARNING: procRef missing for task ${taskId} after spawn — error handler may have fired first`);
-    return { queued: false, task: db.getTask(taskId) };
+    return { queued: false, task: taskCoreDb.getTask(taskId) };
   }
 
   // Set up startup timeout - if no output within 60 seconds, process may be hung
@@ -657,7 +663,7 @@ function spawnAndTrackProcess(taskId, task, {
     }
   }, timeoutMs);
 
-  return { queued: false, task: db.getTask(taskId) };
+  return { queued: false, task: taskCoreDb.getTask(taskId) };
 }
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────

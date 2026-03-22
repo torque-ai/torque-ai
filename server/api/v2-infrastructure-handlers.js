@@ -9,7 +9,8 @@
  */
 const logger = require('../logger').child({ component: 'v2-infrastructure-handlers' });
 
-const database = require('../database');
+const database = require('../database');   // getDbInstance (raw SQL), getProviderPercentiles
+const emailPeek = require('../db/email-peek');
 const hostManagement = require('../db/host-management');
 const coordination = require('../db/coordination');
 const {
@@ -29,7 +30,7 @@ function init(taskManager) {
 const VALID_CREDENTIAL_TYPES = new Set(['ssh', 'http_auth', 'windows']);
 
 function resolveHostType(hostName) {
-  if (database.getPeekHost && database.getPeekHost(hostName)) return 'peek';
+  if (emailPeek.getPeekHost && emailPeek.getPeekHost(hostName)) return 'peek';
   if (hostManagement.getOllamaHost && hostManagement.getOllamaHost(hostName)) return 'ollama';
   return null;
 }
@@ -284,7 +285,7 @@ async function handleHostScan(req, res) {
 
 async function handleListPeekHosts(req, res) {
   const requestId = resolveRequestId(req);
-  const hosts = (database.listPeekHosts ? database.listPeekHosts() : []).map(host => ({
+  const hosts = (emailPeek.listPeekHosts ? emailPeek.listPeekHosts() : []).map(host => ({
     ...host,
     credentials: hostManagement.listCredentials ? hostManagement.listCredentials(host.name, 'peek') : [],
   }));
@@ -305,8 +306,8 @@ async function handleCreatePeekHost(req, res) {
   }
 
   try {
-    database.registerPeekHost(body.name, body.url, body.ssh, Boolean(body.default), body.platform);
-    const created = database.getPeekHost(body.name);
+    emailPeek.registerPeekHost(body.name, body.url, body.ssh, Boolean(body.default), body.platform);
+    const created = emailPeek.getPeekHost(body.name);
     sendSuccess(res, requestId, created, 201, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -317,7 +318,7 @@ async function handleDeletePeekHost(req, res) {
   const requestId = resolveRequestId(req);
   const hostName = req.params?.host_name;
 
-  const removed = database.unregisterPeekHost ? database.unregisterPeekHost(hostName) : false;
+  const removed = emailPeek.unregisterPeekHost ? emailPeek.unregisterPeekHost(hostName) : false;
   if (!removed) {
     return sendError(res, requestId, 'host_not_found', `Peek host not found: ${hostName}`, 404, {}, req);
   }
@@ -334,15 +335,15 @@ async function handleTogglePeekHost(req, res) {
   const hostName = req.params?.host_name;
   const body = req.body || await parseBody(req);
 
-  const host = database.getPeekHost ? database.getPeekHost(hostName) : null;
+  const host = emailPeek.getPeekHost ? emailPeek.getPeekHost(hostName) : null;
   if (!host) {
     return sendError(res, requestId, 'host_not_found', `Peek host not found: ${hostName}`, 404, {}, req);
   }
 
   const enabled = body.enabled !== undefined ? (body.enabled ? 1 : 0) : (host.enabled ? 0 : 1);
-  if (database.updatePeekHost) database.updatePeekHost(hostName, { enabled });
+  if (emailPeek.updatePeekHost) emailPeek.updatePeekHost(hostName, { enabled });
 
-  const updated = database.getPeekHost(hostName);
+  const updated = emailPeek.getPeekHost(hostName);
   sendSuccess(res, requestId, updated, 200, req);
 }
 

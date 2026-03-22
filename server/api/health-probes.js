@@ -1,6 +1,7 @@
 'use strict';
 
-const database = require('../database');
+const database = require('../database');   // getDbInstance, isDbClosed (raw DB access)
+const taskCore = require('../db/task-core');
 const { handleToolCall } = require('../tools');
 const { sendJson } = require('./middleware');
 
@@ -28,7 +29,7 @@ function probeDatabase() {
 
   try {
     // Simple query to prove DB is reachable.
-    database.countTasks({ status: 'running' });
+    taskCore.countTasks({ status: 'running' });
     return { initialized: true, accessible: true, status: 'connected' };
   } catch (err) {
     return {
@@ -71,7 +72,7 @@ async function handleHealthz(req, res, _context = {}) {
   if (databaseState.accessible) {
     try {
       // Batch both counts into a single grouped query to avoid two DB round-trips
-      const counts = database.countTasksByStatus();
+      const counts = taskCore.countTasksByStatus();
       queueDepth = counts.queued;
       runningCount = counts.running;
     } catch {

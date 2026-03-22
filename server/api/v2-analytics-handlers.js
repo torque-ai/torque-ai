@@ -8,7 +8,8 @@
  * These return { data, meta } envelopes via v2-control-plane helpers.
  */
 
-const database = require('../database');
+const database = require('../database');   // getDbInstance (raw SQL), getRecentStrategicOperations
+const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
 const eventTracking = require('../db/event-tracking');
 const fileTracking = require('../db/file-tracking');
@@ -51,8 +52,8 @@ function buildTimeSeries(days, provider) {
     const filters = { completed_from: dateStr, completed_to: nextDateStr, includeArchived: true };
     if (provider) filters.provider = provider;
 
-    const completed = database.countTasks ? database.countTasks({ ...filters, status: 'completed' }) : 0;
-    const failed = database.countTasks ? database.countTasks({ ...filters, status: 'failed' }) : 0;
+    const completed = taskCore.countTasks ? taskCore.countTasks({ ...filters, status: 'completed' }) : 0;
+    const failed = taskCore.countTasks ? taskCore.countTasks({ ...filters, status: 'failed' }) : 0;
     const total = completed + failed;
 
     series.push({
@@ -78,13 +79,13 @@ async function handleStatsOverview(req, res) {
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
   // Use calendar-day boundaries for all "today" counts (midnight to midnight UTC)
-  const todayCompleted = database.countTasks ? database.countTasks({ completed_from: today, completed_to: tomorrow, status: 'completed' }) : 0;
-  const todayFailed = database.countTasks ? database.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' }) : 0;
-  const todayRunning = database.countTasks ? database.countTasks({ from_date: today, to_date: tomorrow, status: 'running' }) : 0;
+  const todayCompleted = taskCore.countTasks ? taskCore.countTasks({ completed_from: today, completed_to: tomorrow, status: 'completed' }) : 0;
+  const todayFailed = taskCore.countTasks ? taskCore.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' }) : 0;
+  const todayRunning = taskCore.countTasks ? taskCore.countTasks({ from_date: today, to_date: tomorrow, status: 'running' }) : 0;
   const todayTotal = todayCompleted + todayFailed + todayRunning;
 
   // Batch all status counts into a single grouped query to avoid 5 separate DB round-trips
-  const statusCounts = database.countTasksByStatus ? database.countTasksByStatus() : {};
+  const statusCounts = taskCore.countTasksByStatus ? taskCore.countTasksByStatus() : {};
   const runningCount = statusCounts.running ?? 0;
   const queuedCount = statusCounts.queued ?? 0;
   const completedCount = statusCounts.completed ?? 0;
@@ -158,19 +159,19 @@ async function handleStuckTasks(req, res) {
   const pendingApprovalThreshold = 15 * 60 * 1000;
   const longRunningThreshold = 30 * 60 * 1000;
 
-  const pendingApproval = (database.listTasks
-    ? database.listTasks({ status: 'pending_approval', limit: 50 })
+  const pendingApproval = (taskCore.listTasks
+    ? taskCore.listTasks({ status: 'pending_approval', limit: 50 })
     : []).filter(t => (now - new Date(t.created_at).getTime()) > pendingApprovalThreshold);
 
-  const pendingSwitch = (database.listTasks
-    ? database.listTasks({ status: 'pending_provider_switch', limit: 50 })
+  const pendingSwitch = (taskCore.listTasks
+    ? taskCore.listTasks({ status: 'pending_provider_switch', limit: 50 })
     : []).filter(t => (now - new Date(t.provider_switched_at || t.created_at).getTime()) > pendingApprovalThreshold);
 
-  const longRunning = (database.listTasks
-    ? database.listTasks({ status: 'running', limit: 50 })
+  const longRunning = (taskCore.listTasks
+    ? taskCore.listTasks({ status: 'running', limit: 50 })
     : []).filter(t => (now - new Date(t.started_at).getTime()) > longRunningThreshold);
 
-  const waiting = database.listTasks ? database.listTasks({ status: 'waiting', limit: 50 }) : [];
+  const waiting = taskCore.listTasks ? taskCore.listTasks({ status: 'waiting', limit: 50 }) : [];
 
   sendSuccess(res, requestId, {
     pending_approval: { count: pendingApproval.length, tasks: pendingApproval.slice(0, 10) },
@@ -454,7 +455,7 @@ async function handleRoutingDecisions(req, res) {
   const query = req.query || {};
   const limit = clampInt(query.limit, 1, 200, 50);
 
-  const rawTasks = database.listTasks ? database.listTasks({ limit: limit * 3, order: 'desc' }) : [];
+  const rawTasks = taskCore.listTasks ? taskCore.listTasks({ limit: limit * 3, order: 'desc' }) : [];
   const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
 
   const decisions = [];
@@ -556,7 +557,7 @@ async function handleFreeTierAutoScale(req, res) {
 
     let codexQueueDepth = 0;
     try {
-      const queued = database.listTasks({ status: 'queued', limit: 1000 });
+      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 });
       const queuedArr = Array.isArray(queued) ? queued : (queued.tasks || []);
       codexQueueDepth = queuedArr.filter(t => {
         if (t.provider === 'codex') return true;

@@ -10,7 +10,8 @@
 const logger = require('../logger').child({ component: 'v2-governance-handlers' });
 
 const crypto = require('crypto');
-const database = require('../database');
+const taskCore = require('../db/task-core');
+const configCore = require('../db/config-core');
 const fileTracking = require('../db/file-tracking');
 const hostManagement = require('../db/host-management');
 const projectConfigCore = require('../db/project-config-core');
@@ -459,7 +460,7 @@ async function handleDeletePlanProject(req, res) {
             _taskManager.cancelTask(task.task_id, 'Plan project deleted via v2 API');
           } catch (err) {
             logger.debug("task handler error", { err: err.message });
-            database.updateTaskStatus(task.task_id, 'cancelled', {
+            taskCore.updateTaskStatus(task.task_id, 'cancelled', {
               error_output: 'Plan project deleted',
             });
           }
@@ -639,9 +640,9 @@ function getProviderTimeSeries(providerId, days) {
       to_date: nextDateStr,
     };
 
-    const total = database.countTasks ? database.countTasks(baseFilters) : 0;
-    const completed = database.countTasks ? database.countTasks({ ...baseFilters, status: 'completed' }) : 0;
-    const failed = database.countTasks ? database.countTasks({ ...baseFilters, status: 'failed' }) : 0;
+    const total = taskCore.countTasks ? taskCore.countTasks(baseFilters) : 0;
+    const completed = taskCore.countTasks ? taskCore.countTasks({ ...baseFilters, status: 'completed' }) : 0;
+    const failed = taskCore.countTasks ? taskCore.countTasks({ ...baseFilters, status: 'failed' }) : 0;
 
     series.push({ date: dateStr, total, completed, failed });
   }
@@ -815,8 +816,8 @@ async function handleSystemStatus(req, res) {
                        heapPercent >= 80 ? 'warning' :
                        heapPercent >= 70 ? 'elevated' : 'healthy';
 
-  const runningTasks = database.countTasks ? database.countTasks({ status: 'running' }) : 0;
-  const queuedTasks = database.countTasks ? database.countTasks({ status: 'queued' }) : 0;
+  const runningTasks = taskCore.countTasks ? taskCore.countTasks({ status: 'running' }) : 0;
+  const queuedTasks = taskCore.countTasks ? taskCore.countTasks({ status: 'queued' }) : 0;
 
   let instanceId = null;
   if (_taskManager && _taskManager.getMcpInstanceId) {
@@ -826,7 +827,7 @@ async function handleSystemStatus(req, res) {
   // TDA-14: Surface resource gating state so callers see pressure and gating status
   let resourceGating = { enabled: false, pressure_level: 'unknown' };
   try {
-    const gatingEnabled = database.getConfig ? database.getConfig('resource_gating_enabled') === '1' : false;
+    const gatingEnabled = configCore.getConfig ? configCore.getConfig('resource_gating_enabled') === '1' : false;
     let pressureLevel = 'unknown';
     if (_taskManager && typeof _taskManager.getResourcePressureInfo === 'function') {
       const info = _taskManager.getResourcePressureInfo();
@@ -997,13 +998,13 @@ async function handleGetConfig(req, res) {
     if (!VALID_CONFIG_KEYS.has(key)) {
       return sendError(res, requestId, 'validation_error', `Unknown config key: ${key}`, 400, {}, req);
     }
-    const value = database.getConfig(key);
+    const value = configCore.getConfig(key);
     // SECURITY: redact sensitive values in API response
     const safeValue = isSensitiveKey(key) ? redactValue(value) : value;
     return sendSuccess(res, requestId, { key, value: safeValue }, 200, req);
   }
 
-  const config = database.getAllConfig ? database.getAllConfig() : {};
+  const config = configCore.getAllConfig ? configCore.getAllConfig() : {};
   // SECURITY: redact all sensitive keys in full config response
   sendSuccess(res, requestId, redactConfigObject(config), 200, req);
 }
@@ -1028,8 +1029,8 @@ async function handleSetConfig(req, res) {
   }
 
   try {
-    database.setConfig(key, String(value));
-    const current = database.getConfig(key);
+    configCore.setConfig(key, String(value));
+    const current = configCore.getConfig(key);
     sendSuccess(res, requestId, { key, value: current }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);

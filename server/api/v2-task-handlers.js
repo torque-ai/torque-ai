@@ -8,7 +8,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const database = require('../database');
+const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const fileTracking = require('../db/file-tracking');
 const serverConfig = require('../config');
@@ -163,7 +163,7 @@ async function handleSubmitTask(req, res) {
   }
 
   try {
-    database.createTask({
+    taskCore.createTask({
       id: taskId,
       status: 'pending',
       task_description: description,
@@ -191,7 +191,7 @@ async function handleSubmitTask(req, res) {
         if (scanResult.contextFiles.length > 0) {
           metadata.context_files = scanResult.contextFiles;
           metadata.context_scan_reasons = Object.fromEntries(scanResult.reasons);
-          database.patchTaskMetadata(taskId, metadata);
+          taskCore.patchTaskMetadata(taskId, metadata);
           logger.info(`[v2] Context-stuffed ${scanResult.contextFiles.length} files for task ${taskId}`);
         }
       } catch (e) {
@@ -205,10 +205,10 @@ async function handleSubmitTask(req, res) {
     const result = _taskManager.startTask(taskId);
     if (result?.blocked) {
       // Clean up the task record that was created before the block was detected
-      try { database.deleteTask(taskId); } catch (err) { logger.debug("task handler error", { err: err.message }); }
+      try { taskCore.deleteTask(taskId); } catch (err) { logger.debug("task handler error", { err: err.message }); }
       return sendError(res, requestId, 'task_blocked', result.reason || 'Task blocked by policy', 403, {}, req);
     }
-    const task = database.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     const status = task?.status || (result.queued ? 'queued' : 'running');
     emitTaskUpdated(taskId, status);
 
@@ -262,13 +262,13 @@ async function handleListTasks(req, res) {
     if (tags.length > 0) filters.tags = tags;
   }
 
-  const tasks = database.listTasks({
+  const tasks = taskCore.listTasks({
     ...filters,
     limit,
     offset,
   });
   const items = tasks.map(buildTaskResponse).filter(Boolean);
-  const total = typeof database.countTasks === 'function' ? database.countTasks(filters) : items.length;
+  const total = typeof taskCore.countTasks === 'function' ? taskCore.countTasks(filters) : items.length;
 
   sendList(res, requestId, items, total, req);
 }
@@ -281,7 +281,7 @@ async function handleGetTask(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     if (String(err.message).includes('Ambiguous')) {
       return sendError(res, requestId, 'validation_error', err.message, 400, {}, req);
@@ -304,7 +304,7 @@ async function handleCancelTask(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -329,9 +329,9 @@ async function handleCancelTask(req, res) {
     if (_taskManager) {
       _taskManager.cancelTask(task.id, body.reason || 'Cancelled via REST API');
     } else {
-      database.updateTaskStatus(task.id, 'cancelled');
+      taskCore.updateTaskStatus(task.id, 'cancelled');
     }
-    const updated = database.getTask(task.id);
+    const updated = taskCore.getTask(task.id);
 
     sendSuccess(res, requestId, {
       task_id: task.id,
@@ -351,7 +351,7 @@ async function handleRetryTask(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -399,7 +399,7 @@ async function handleRetryTask(req, res) {
       return sendError(res, requestId, 'task_blocked', getBlockedPolicyMessage(retryPolicyResult), 403, {}, req);
     }
 
-    database.createTask({
+    taskCore.createTask({
       id: newTaskId,
       status: 'pending',
       task_description: task.task_description || task.description,
@@ -418,10 +418,10 @@ async function handleRetryTask(req, res) {
     const result = _taskManager.startTask(newTaskId);
     if (result?.blocked) {
       // Clean up the task record that was created before the block was detected
-      try { database.deleteTask(newTaskId); } catch (err) { logger.debug("task handler error", { err: err.message }); }
+      try { taskCore.deleteTask(newTaskId); } catch (err) { logger.debug("task handler error", { err: err.message }); }
       return sendError(res, requestId, 'task_blocked', result.reason || 'Task blocked by policy', 403, {}, req);
     }
-    const newTask = database.getTask(newTaskId);
+    const newTask = taskCore.getTask(newTaskId);
     const status = newTask?.status || (result.queued ? 'queued' : 'running');
     emitTaskUpdated(newTaskId, status);
 
@@ -450,7 +450,7 @@ async function handleReassignTaskProvider(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -495,7 +495,7 @@ async function handleReassignTaskProvider(req, res) {
       updateFields.ollama_host_id = null;
     }
 
-    const updatedTask = database.updateTask(taskId, updateFields);
+    const updatedTask = taskCore.updateTask(taskId, updateFields);
     eventBus.emitQueueChanged();
     emitTaskUpdated(taskId, updatedTask?.status || task.status);
 
@@ -517,7 +517,7 @@ async function handleCommitTask(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -564,7 +564,7 @@ async function handleTaskDiff(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -601,7 +601,7 @@ async function handleTaskLogs(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -653,7 +653,7 @@ async function handleDeleteTask(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -669,7 +669,7 @@ async function handleDeleteTask(req, res) {
   }
 
   try {
-    database.deleteTask(taskId);
+    taskCore.deleteTask(taskId);
     sendSuccess(res, requestId, { task_id: taskId, deleted: true }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -684,7 +684,7 @@ async function handleApproveSwitch(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -752,12 +752,12 @@ async function handleApproveSwitch(req, res) {
 
     let updatedTask;
     try {
-      updatedTask = database.updateTask(taskId, { status: 'queued', ...requeueFields });
+      updatedTask = taskCore.updateTask(taskId, { status: 'queued', ...requeueFields });
     } catch (err) {
-      if (!/Use updateTaskStatus\(\) to modify task status/.test(err?.message || '') || typeof database.updateTaskStatus !== 'function') {
+      if (!/Use updateTaskStatus\(\) to modify task status/.test(err?.message || '') || typeof taskCore.updateTaskStatus !== 'function') {
         throw err;
       }
-      updatedTask = database.updateTaskStatus(taskId, 'queued', requeueFields);
+      updatedTask = taskCore.updateTaskStatus(taskId, 'queued', requeueFields);
     }
 
     const responseTask = {
@@ -786,7 +786,7 @@ async function handleRejectSwitch(req, res) {
 
   let task;
   try {
-    task = database.getTask(taskId);
+    task = taskCore.getTask(taskId);
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
@@ -845,12 +845,12 @@ async function handleRejectSwitch(req, res) {
 
     let updatedTask;
     try {
-      updatedTask = database.updateTask(taskId, { status: 'queued', ...requeueFields });
+      updatedTask = taskCore.updateTask(taskId, { status: 'queued', ...requeueFields });
     } catch (err) {
-      if (!/Use updateTaskStatus\(\) to modify task status/.test(err?.message || '') || typeof database.updateTaskStatus !== 'function') {
+      if (!/Use updateTaskStatus\(\) to modify task status/.test(err?.message || '') || typeof taskCore.updateTaskStatus !== 'function') {
         throw err;
       }
-      updatedTask = database.updateTaskStatus(taskId, 'queued', requeueFields);
+      updatedTask = taskCore.updateTaskStatus(taskId, 'queued', requeueFields);
     }
 
     const responseTask = {

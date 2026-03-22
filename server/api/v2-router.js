@@ -2,7 +2,8 @@
 const logger = require('../logger').child({ component: 'v2-router' });
 
 const { randomUUID } = require('crypto');
-const database = require('../database');
+const taskCore = require('../db/task-core');
+const configCore = require('../db/config-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('../constants');
 const adapterRegistry = require('../providers/adapter-registry');
@@ -165,7 +166,7 @@ function getV2ProviderDefaultTimeoutMs(providerId) {
 
 function getV2ProviderQueueDepth(providerId) {
   try {
-    return Number(database.countTasks?.({ provider: providerId, status: 'queued' })) || 0;
+    return Number(taskCore.countTasks?.({ provider: providerId, status: 'queued' })) || 0;
   } catch (err) {
     logger.debug("health metric error", { err: err.message });
     return 0;
@@ -250,8 +251,8 @@ function getV2ProviderMaxContext(providerId) {
 
   try {
     return (
-      parseConfiguredPositiveInt(database.getConfig?.('ollama_max_ctx'))
-      || parseConfiguredPositiveInt(database.getConfig?.('ollama_num_ctx'))
+      parseConfiguredPositiveInt(configCore.getConfig?.('ollama_max_ctx'))
+      || parseConfiguredPositiveInt(configCore.getConfig?.('ollama_num_ctx'))
       || PROVIDER_DEFAULTS.OLLAMA_MAX_CONTEXT
     );
   } catch (err) {

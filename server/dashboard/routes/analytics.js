@@ -3,7 +3,8 @@
  *
  * Merged from: stats.js, strategic.js, finance.js, workflows.js
  */
-const database = require('../../database');
+const database = require('../../database');   // getDbInstance (raw SQL)
+const taskCore = require('../../db/task-core');
 const costTracking = require('../../db/cost-tracking');
 const eventTracking = require('../../db/event-tracking');
 const fileTracking = require('../../db/file-tracking');
@@ -54,23 +55,23 @@ function handleStatsOverview(req, res) {
 
   // Use calendar-day boundaries (midnight to midnight UTC) for "today" counts
   // Count only completed + failed + running — not cancelled/pending/blocked
-  const todayCompleted = database.countTasks({ completed_from: today, completed_to: tomorrow, status: 'completed' });
-  const todayFailed = database.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' });
-  const todayRunning = database.countTasks({ from_date: today, to_date: tomorrow, status: 'running' });
+  const todayCompleted = taskCore.countTasks({ completed_from: today, completed_to: tomorrow, status: 'completed' });
+  const todayFailed = taskCore.countTasks({ completed_from: today, completed_to: tomorrow, status: 'failed' });
+  const todayRunning = taskCore.countTasks({ from_date: today, to_date: tomorrow, status: 'running' });
   const todayTotal = todayCompleted + todayFailed + todayRunning;
   const todaySuccessRate = (todayCompleted + todayFailed) > 0
     ? Math.round((todayCompleted / ((todayCompleted + todayFailed) || 1)) * 100)
     : 0;
 
   // Yesterday's stats — same methodology: completed + failed only
-  const yesterdayCompleted = database.countTasks({ completed_from: yesterday, completed_to: today, status: 'completed' });
-  const yesterdayFailed = database.countTasks({ completed_from: yesterday, completed_to: today, status: 'failed' });
+  const yesterdayCompleted = taskCore.countTasks({ completed_from: yesterday, completed_to: today, status: 'completed' });
+  const yesterdayFailed = taskCore.countTasks({ completed_from: yesterday, completed_to: today, status: 'failed' });
   const yesterdayTotal = yesterdayCompleted + yesterdayFailed;
 
   // Current active tasks using COUNT queries
-  const runningCount = database.countTasks({ status: 'running' });
-  const queuedCount = database.countTasks({ status: 'queued' });
-  const pendingSwitchCount = database.countTasks({ status: 'pending_provider_switch' });
+  const runningCount = taskCore.countTasks({ status: 'running' });
+  const queuedCount = taskCore.countTasks({ status: 'queued' });
+  const pendingSwitchCount = taskCore.countTasks({ status: 'pending_provider_switch' });
 
   // Provider breakdown
   const codexStats = fileTracking.getProviderStats('codex', 1);
@@ -88,9 +89,9 @@ function handleStatsOverview(req, res) {
   } catch (e) { /* mcp-sse not loaded */ }
 
   // Total counts by status (for kanban column badges)
-  const completedCount = database.countTasks({ status: 'completed' });
-  const failedCount = database.countTasks({ status: 'failed' });
-  const cancelledCount = database.countTasks({ status: 'cancelled' });
+  const completedCount = taskCore.countTasks({ status: 'completed' });
+  const failedCount = taskCore.countTasks({ status: 'failed' });
+  const cancelledCount = taskCore.countTasks({ status: 'cancelled' });
 
   sendJson(res, {
     today: {
@@ -153,8 +154,8 @@ function handleTimeSeries(req, res, query) {
     };
     if (provider) baseFilters.provider = provider;
 
-    const completed = database.countTasks({ ...baseFilters, status: 'completed' });
-    const failed = database.countTasks({ ...baseFilters, status: 'failed' });
+    const completed = taskCore.countTasks({ ...baseFilters, status: 'completed' });
+    const failed = taskCore.countTasks({ ...baseFilters, status: 'failed' });
     const total = completed + failed;
 
     series.push({
@@ -205,7 +206,7 @@ function handleStuckTasks(req, res, query) {
 
   // Tasks pending approval for >15 minutes
   const pendingApprovalThreshold = 15 * 60 * 1000;
-  const pendingApproval = database.listTasks({
+  const pendingApproval = taskCore.listTasks({
     status: 'pending_approval',
     limit: 50,
   }).filter(t => {
@@ -214,7 +215,7 @@ function handleStuckTasks(req, res, query) {
   }).map(enrichTaskWithHostName);
 
   // Tasks pending provider switch for >15 minutes
-  const pendingSwitch = database.listTasks({
+  const pendingSwitch = taskCore.listTasks({
     status: 'pending_provider_switch',
     limit: 50,
   }).filter(t => {
@@ -224,7 +225,7 @@ function handleStuckTasks(req, res, query) {
 
   // Tasks running for >30 minutes (potential stalls)
   const longRunningThreshold = 30 * 60 * 1000;
-  const longRunning = database.listTasks({
+  const longRunning = taskCore.listTasks({
     status: 'running',
     limit: 50,
   }).filter(t => {
@@ -233,7 +234,7 @@ function handleStuckTasks(req, res, query) {
   }).map(enrichTaskWithHostName);
 
   // Tasks in waiting status with failed dependencies
-  const waitingTasks = database.listTasks({
+  const waitingTasks = taskCore.listTasks({
     status: 'waiting',
     limit: 50,
   }).map(enrichTaskWithHostName);
@@ -459,8 +460,8 @@ function getProviderTimeSeries(providerId, days) {
       includeArchived: true,
     };
 
-    const completed = database.countTasks({ ...baseFilters, status: 'completed' });
-    const failed = database.countTasks({ ...baseFilters, status: 'failed' });
+    const completed = taskCore.countTasks({ ...baseFilters, status: 'completed' });
+    const failed = taskCore.countTasks({ ...baseFilters, status: 'failed' });
     const total = completed + failed;
 
     series.push({
@@ -484,7 +485,7 @@ function handleGetStrategicStatus(_req, res) {
 function handleGetRecentOperations(_req, res, query) {
   const limit = parseInt(query.limit, 10) || 20;
   // Strategic operations are tasks that used strategic_decompose, strategic_diagnose, or strategic_review
-  const tasks = database.listTasks ? database.listTasks({
+  const tasks = taskCore.listTasks ? taskCore.listTasks({
     limit,
     order: 'desc',
   }) : [];
@@ -508,7 +509,7 @@ function handleGetRoutingDecisions(_req, res, query) {
   const limit = parseInt(query.limit, 10) || 50;
 
   // Fetch recent tasks — smart-routed tasks have metadata.smart_routing=true or metadata.auto_routed=true
-  const rawTasks = database.listTasks ? database.listTasks({
+  const rawTasks = taskCore.listTasks ? taskCore.listTasks({
     limit: limit * 3, // Over-fetch since we filter client-side
     order: 'desc',
   }) : [];
@@ -700,7 +701,7 @@ function handleFreeTierAutoScale(req, res) {
 
     let codexQueueDepth = 0;
     try {
-      const queued = database.listTasks({ status: 'queued', limit: 1000 });
+      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 });
       const queuedArr = Array.isArray(queued) ? queued : (queued.tasks || []);
       codexQueueDepth = queuedArr.filter(t => {
         if (t.provider === 'codex') return true;

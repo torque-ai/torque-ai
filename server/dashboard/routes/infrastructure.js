@@ -4,7 +4,8 @@
  * Merged from: hosts.js, providers.js, agents.js, system.js
  * All handlers follow the signature: (req, res, query, ...captures, context)
  */
-const database = require('../../database');
+const database = require('../../database');   // getDbInstance (raw SQL for agents)
+const taskCore = require('../../db/task-core');
 const coordination = require('../../db/coordination');
 const fileTracking = require('../../db/file-tracking');
 const hostManagement = require('../../db/host-management');
@@ -318,7 +319,7 @@ async function handleHostActivity(req, res) {
     }
   }
 
-  const runningTasks = database.listTasks({ status: 'running', limit: 100 });
+  const runningTasks = taskCore.listTasks({ status: 'running', limit: 100 });
   const taskList = runningTasks.tasks || runningTasks;
   const taskGpuStatus = {};
   for (const t of (Array.isArray(taskList) ? taskList : [])) {
@@ -445,9 +446,9 @@ function getProviderTimeSeries(providerId, days) {
       to_date: nextDateStr,
     };
 
-    const total = database.countTasks(baseFilters);
-    const completed = database.countTasks({ ...baseFilters, status: 'completed' });
-    const failed = database.countTasks({ ...baseFilters, status: 'failed' });
+    const total = taskCore.countTasks(baseFilters);
+    const completed = taskCore.countTasks({ ...baseFilters, status: 'completed' });
+    const failed = taskCore.countTasks({ ...baseFilters, status: 'failed' });
 
     series.push({
       date: dateStr,
@@ -510,7 +511,7 @@ function handleProviderPercentiles(req, res, query, providerId) {
   const days = parseInt(query.days, 10) || 7;
   const since = new Date(Date.now() - days * 86400000).toISOString();
   try {
-    const tasks = database.listTasks({ provider: providerId, since, limit: 1000 });
+    const tasks = taskCore.listTasks({ provider: providerId, since, limit: 1000 });
     const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
     const durations = taskList
       .filter(t => t.completed_at && t.started_at)
@@ -879,8 +880,8 @@ function handleSystemStatus(req, res, query, context) {
   const activeConnections = clients.size;
 
   // Get running task count
-  const runningTasks = database.countTasks({ status: 'running' });
-  const queuedTasks = database.countTasks({ status: 'queued' });
+  const runningTasks = taskCore.countTasks({ status: 'running' });
+  const queuedTasks = taskCore.countTasks({ status: 'queued' });
 
   // Instance identity
   const taskManager = require('../../task-manager');

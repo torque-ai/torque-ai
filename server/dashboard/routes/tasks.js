@@ -4,7 +4,7 @@
  * All handlers follow the signature: (req, res, query, ...captures, context)
  * where context = { broadcastTaskUpdate, clients, serverPort }.
  */
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const fileTracking = require('../../db/file-tracking');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const webhooksStreaming = require('../../db/webhooks-streaming');
@@ -37,8 +37,8 @@ function handleListTasks(req, res, query) {
   filters.orderBy = orderBy;
   filters.orderDir = orderDir;
 
-  const tasks = database.listTasks({ ...filters, limit, offset }).map(enrichTaskWithHostName);
-  const total = database.countTasks(filters);
+  const tasks = taskCore.listTasks({ ...filters, limit, offset }).map(enrichTaskWithHostName);
+  const total = taskCore.countTasks(filters);
 
   sendJson(res, {
     tasks,
@@ -55,7 +55,7 @@ function handleListTasks(req, res, query) {
  * GET /api/tasks/:id - Get task details
  */
 function handleGetTask(req, res, query, taskId) {
-  const task = database.getTask(taskId);
+  const task = taskCore.getTask(taskId);
   if (!task) {
     sendError(res, 'Task not found', 404);
     return;
@@ -75,7 +75,7 @@ function handleGetTask(req, res, query, taskId) {
  */
 async function handleTaskAction(req, res, query, taskId, action, context) {
   const { broadcastTaskUpdate } = context;
-  const task = database.getTask(taskId);
+  const task = taskCore.getTask(taskId);
   if (!task) {
     sendError(res, 'Task not found', 404);
     return;
@@ -87,7 +87,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         sendError(res, 'Can only retry failed tasks');
         return;
       }
-      database.updateTaskStatus(taskId, 'queued', {
+      taskCore.updateTaskStatus(taskId, 'queued', {
         retry_count: (task.retry_count || 0) + 1,
         error_output: null,
         started_at: null,
@@ -109,7 +109,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         broadcastTaskUpdate(taskId);
         sendJson(res, { success: true, message: 'Task cancelled' });
       } catch (cancelErr) {
-        database.updateTaskStatus(taskId, 'failed', {
+        taskCore.updateTaskStatus(taskId, 'failed', {
           error_output: 'Cancelled by user via dashboard',
         });
         broadcastTaskUpdate(taskId);
@@ -151,7 +151,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         return;
       }
       try {
-        database.deleteTask(taskId);
+        taskCore.deleteTask(taskId);
         try {
           const dashboard = require('../../dashboard-server');
           dashboard.notifyTaskDeleted(taskId);
