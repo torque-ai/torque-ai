@@ -5,22 +5,23 @@
  * - handleGetStrategicStatus
  * - handleGetRecentOperations
  */
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-const db = require('../database');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const fileTracking = require('../db/file-tracking');
 const strategic = require('../dashboard/routes/analytics');
 
-// ============================================
-// DB reset from global-setup template
-// ============================================
-
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+let db;
+function initDb() {
+  ({ db } = setupTestDb('strategic-routes'));
+}
 
 function resetDb() {
+  // Re-init from template buffer for per-test isolation
+  const path = require('path');
+  const os = require('os');
+  const fs = require('fs');
+  const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
   const buffer = fs.readFileSync(TEMPLATE_BUF);
   db.resetForTest(buffer);
 }
@@ -133,6 +134,8 @@ function parseJsonBody(raw) {
 // ============================================
 
 describe('strategic dashboard routes', () => {
+  beforeAll(() => { initDb(); });
+  afterAll(() => { teardownTestDb(); });
   beforeEach(() => {
     resetDb();
   });

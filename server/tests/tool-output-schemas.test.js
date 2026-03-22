@@ -1,9 +1,6 @@
 'use strict';
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const { getOutputSchema, OUTPUT_SCHEMAS } = require('../tool-output-schemas');
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
@@ -179,17 +176,14 @@ describe('tool-output-schemas', () => {
   describe('handler conformance — check_status', () => {
     // These tests call the real handlers and verify structuredData shape.
     // They require a running database, so we use the test DB from global setup.
-    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-    let db, templateBuffer;
+    let db;
 
     beforeAll(() => {
-      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-      db = require('../database');
-      db.resetForTest(templateBuffer);
+      ({ db } = setupTestDb('tool-output-schemas'));
     });
 
     afterAll(() => {
-      try { db.close(); } catch {}
+      teardownTestDb();
     });
 
     it('check_status with task_id returns structuredData with task object', () => {
@@ -238,17 +232,14 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — list/result/progress', () => {
-    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-    let db, templateBuffer;
+    let db;
 
     beforeAll(() => {
-      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-      db = require('../database');
-      db.resetForTest(templateBuffer);
+      ({ db } = setupTestDb('tool-output-schemas'));
     });
 
     afterAll(() => {
-      try { db.close(); } catch {}
+      teardownTestDb();
     });
 
     it('list_tasks returns structuredData with count and tasks array', () => {
@@ -323,17 +314,14 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — workflows', () => {
-    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-    let db, templateBuffer;
+    let db;
 
     beforeAll(() => {
-      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-      db = require('../database');
-      db.resetForTest(templateBuffer);
+      ({ db } = setupTestDb('tool-output-schemas'));
     });
 
     afterAll(() => {
-      try { db.close(); } catch {}
+      teardownTestDb();
     });
 
     it('workflow_status returns structuredData with counts and tasks', () => {
@@ -379,17 +367,14 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — list_ollama_hosts', () => {
-    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-    let db, templateBuffer;
+    let db;
 
     beforeAll(() => {
-      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-      db = require('../database');
-      db.resetForTest(templateBuffer);
+      ({ db } = setupTestDb('tool-output-schemas'));
     });
 
     afterAll(() => {
-      try { db.close(); } catch {}
+      teardownTestDb();
     });
 
     it('list_ollama_hosts returns structuredData with count and hosts array', () => {
@@ -403,17 +388,14 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — Phase 2', () => {
-    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-    let db, templateBuffer;
+    let db;
 
     beforeAll(() => {
-      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-      db = require('../database');
-      db.resetForTest(templateBuffer);
+      ({ db } = setupTestDb('tool-output-schemas'));
     });
 
     afterAll(() => {
-      try { db.close(); } catch {}
+      teardownTestDb();
     });
 
     // --- provider_stats ---
@@ -583,17 +565,14 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — Phase 3', () => {
-    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-    let db, templateBuffer;
+    let db;
 
     beforeAll(() => {
-      templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-      db = require('../database');
-      db.resetForTest(templateBuffer);
+      ({ db } = setupTestDb('tool-output-schemas'));
     });
 
     afterAll(() => {
-      try { db.close(); } catch {}
+      teardownTestDb();
     });
 
     // --- list_models ---

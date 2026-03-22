@@ -1,10 +1,9 @@
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
-let origDataDir;
 let db;
 let taskCore;
 let configCore;
@@ -16,22 +15,12 @@ let startCalls;
 let cancelCalls;
 let queueCalls;
 let dashboardCalls;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-workflow-runtime-${Date.now()}-${randomUUID().slice(0, 8)}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
+  ({ db, testDir } = setupTestDb('workflow-runtime'));
 
   taskCore = require('../db/task-core');
-
   configCore = require('../db/config-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
   workflowEngine = require('../db/workflow-engine');
   projectConfigCore = require('../db/project-config-core');
   mod = require('../execution/workflow-runtime');
@@ -68,27 +57,7 @@ function initRuntime(overrides = {}) {
 }
 
 function teardown() {
-  if (db) {
-    try {
-      db.close();
-    } catch {
-      // ignore
-    }
-  }
-
-  if (testDir) {
-    try {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
-  }
-
-  if (origDataDir !== undefined) {
-    process.env.TORQUE_DATA_DIR = origDataDir;
-  } else {
-    delete process.env.TORQUE_DATA_DIR;
-  }
+  teardownTestDb();
 }
 
 function makeWorkDir(prefix = 'wd') {

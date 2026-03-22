@@ -1,24 +1,12 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
-let testDir, origDataDir, db, mod;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+let db, mod;
 const projectConfigCore = require('../db/project-config-core');
 const taskCore = require('../db/task-core');
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-schedauto-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  mod = require('../db/scheduling-automation');
-  mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
+  ({ db, mod } = setupTestDbModule('../db/scheduling-automation', 'schedauto'));
   // Inject cross-module dependencies
   mod.setGetTask((id) => taskCore.getTask(id));
   mod.setRecordTaskEvent((..._args) => { /* no-op for tests */ });
@@ -26,17 +14,8 @@ function setup() {
   mod.setCreatePipeline((...args) => projectConfigCore.createPipeline(...args));
 }
 
-function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-    else delete process.env.TORQUE_DATA_DIR;
-  }
-}
-
 function rawDb() {
-  return db.getDb ? db.getDb() : db.getDbInstance();
+  return _rawDb();
 }
 
 function resetTables() {
@@ -75,7 +54,7 @@ function createTask(overrides = {}) {
 
 describe('scheduling-automation module', () => {
   beforeAll(() => { setup(); });
-  afterAll(() => { teardown(); });
+  afterAll(() => { teardownTestDb(); });
   beforeEach(() => { resetTables(); });
 
   describe('templates', () => {

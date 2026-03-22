@@ -1,39 +1,11 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 
-let testDir, origDataDir, db, taskCore, mod;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
+let db, mod;
+const taskCore = require('../db/task-core');
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-task-artifacts-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-  taskCore = require('../db/task-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
-  mod = require('../db/task-metadata');
-  mod.setDb(db.getDb());
-}
-
-function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-    else delete process.env.TORQUE_DATA_DIR;
-  }
-}
-
-function rawDb() {
-  if (db.getDb) return db.getDb();
-  return db.getDbInstance();
+  ({ db, mod } = setupTestDbModule('../db/task-metadata', 'task-artifacts'));
 }
 
 function resetState() {
@@ -47,7 +19,7 @@ function mkTask(overrides = {}) {
   const task = {
     id: overrides.id || randomUUID(),
     task_description: overrides.task_description || 'artifact test task',
-    working_directory: overrides.working_directory || testDir,
+    working_directory: overrides.working_directory || '/tmp/test',
     status: overrides.status || 'queued',
     timeout_minutes: overrides.timeout_minutes ?? 30,
     auto_approve: overrides.auto_approve ?? false,
@@ -62,7 +34,7 @@ function mkTask(overrides = {}) {
 
 describe('task-artifacts module', () => {
   beforeAll(() => { setup(); });
-  afterAll(() => { teardown(); });
+  afterAll(() => { teardownTestDb(); });
   beforeEach(() => { resetState(); });
 
   describe('storeArtifact + getArtifact', () => {

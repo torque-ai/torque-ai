@@ -5,6 +5,7 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
 function createMockResponse() {
@@ -90,14 +91,8 @@ describe('inbound webhook idempotency (RB-044)', () => {
   }
 
   beforeAll(async () => {
-    testDir = path.join(os.tmpdir(), `torque-vtest-webhook-idempotency-${Date.now()}`);
-    fs.mkdirSync(testDir, { recursive: true });
-    origDataDir = process.env.TORQUE_DATA_DIR;
-    process.env.TORQUE_DATA_DIR = testDir;
-
-    db = require('../database');
+    ({ db, testDir } = setupTestDb('webhook-idempotency'));
     templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-    db.resetForTest(templateBuffer);
     inboundWebhooks = require('../db/inbound-webhooks');
     inboundWebhooks.setDb(db.getDbInstance());
 
@@ -124,14 +119,7 @@ describe('inbound webhook idempotency (RB-044)', () => {
   afterAll(() => {
     if (apiServer) apiServer.stop();
     vi.restoreAllMocks();
-    if (db) {
-      try { db.close(); } catch {}
-    }
-    if (testDir) {
-      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    }
-    if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-    else delete process.env.TORQUE_DATA_DIR;
+    teardownTestDb();
   });
 
   beforeEach(() => {

@@ -1,45 +1,16 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
+const { setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 let testDir;
-let origDataDir;
 let db;
 let taskCore;
 let configCore;
 let mod;
 let seq = 0;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-provrouting-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  db = require('../database');
-
+  ({ db, mod, testDir } = setupTestDbModule('../db/provider-routing-core', 'provrouting'));
   taskCore = require('../db/task-core');
-
   configCore = require('../db/config-core');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
-  mod = require('../db/provider-routing-core');
-  mod.setDb(db.getDb());
-}
-
-function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
 }
 
 function id(prefix) {
@@ -48,7 +19,7 @@ function id(prefix) {
 }
 
 function rawDb() {
-  return db.getDb ? db.getDb() : db.getDbInstance();
+  return _rawDb();
 }
 
 function createTask(overrides = {}) {
@@ -108,7 +79,7 @@ async function startMockOllama(statusCode = 200) {
 
 describe('provider-routing module', () => {
   beforeAll(() => { setup(); });
-  afterAll(() => { teardown(); });
+  afterAll(() => { teardownTestDb(); });
 
   describe('provider CRUD and defaults', () => {
     it('getProvider returns seeded provider with parsed fields', () => {

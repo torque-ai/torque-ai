@@ -33,6 +33,7 @@ const _originalSpawn = childProcess.spawn;
 const spawnMock = vi.fn();
 childProcess.spawn = spawnMock;
 
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -134,15 +135,9 @@ describe('Codex worktree isolation integration', () => {
       process.env.OPENAI_API_KEY = 'test-key-for-worktree-e2e';
     }
 
-    testDir = path.join(os.tmpdir(), `torque-e2e-codex-worktree-${Date.now()}`);
-    fs.mkdirSync(testDir, { recursive: true });
+    // Load DB and reset using vitest-setup
+    ({ db, testDir } = setupTestDb('codex-worktree'));
     origDataDir = process.env.TORQUE_DATA_DIR;
-    process.env.TORQUE_DATA_DIR = testDir;
-
-    // Load DB and reset
-    db = require('../database');
-    if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-    db.resetForTest(templateBuffer);
 
     // Load execute-cli module (spawn is already patched at file top)
     mod = require('../providers/execute-cli');
@@ -204,12 +199,7 @@ describe('Codex worktree isolation integration', () => {
       delete process.env.OPENAI_API_KEY;
     }
 
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ok */ }
+    teardownTestDb();
   });
 
   afterAll(() => {

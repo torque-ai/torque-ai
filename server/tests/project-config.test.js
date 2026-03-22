@@ -1,32 +1,16 @@
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { setupTestDbModule, teardownTestDb, rawDb, resetTables: _resetTables } = require('./vitest-setup');
 
 let testDir;
-let origDataDir;
 let db;
 let mod;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 const costTracking = require('../db/cost-tracking');
 const taskCore = require('../db/task-core');
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-projconfig-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
-
-  // Clear cached modules
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-  if (typeof db.getDb !== 'function' && typeof db.getDbInstance === 'function') {
-    db.getDb = db.getDbInstance;
-  }
-  mod = require('../db/project-config-core');
-  mod.setDb(db.getDb());
+  ({ db, mod, testDir } = setupTestDbModule('../db/project-config-core', 'projconfig'));
   // Inject required cross-module dependencies
   mod.setGetTask((id) => taskCore.getTask(id));
   mod.setRecordEvent((...args) => {
@@ -38,21 +22,8 @@ function setup() {
   });
 }
 
-function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
-}
-
-function resetTables() {
-  const conn = db.getDb();
-  const tables = [
+function resetTablesLocal() {
+  _resetTables([
     'retry_history',
     'pipeline_steps',
     'pipelines',
@@ -66,13 +37,7 @@ function resetTables() {
     'webhooks',
     'audit_log',
     'tasks'
-  ];
-
-  for (const table of tables) {
-    try {
-      conn.prepare(`DELETE FROM ${table}`).run();
-    } catch {}
-  }
+  ]);
 }
 
 function createTask(overrides = {}) {
@@ -115,10 +80,10 @@ function insertHealthRow(checkType, status, responseTimeMs, errorMessage, detail
 
 describe('project-config module', () => {
   beforeAll(() => { setup(); });
-  afterAll(() => { teardown(); });
+  afterAll(() => { teardownTestDb(); });
 
   beforeEach(() => {
-    resetTables();
+    resetTablesLocal();
     mod.setDbFunctions({
       getTokenUsageSummary: costTracking.getTokenUsageSummary
     });
@@ -627,7 +592,7 @@ describe('project-config module', () => {
     });
 
     it('cleanupHealthHistory removes old rows and bounds invalid day input', () => {
-      const conn = db.getDb();
+      const conn = rawDb();
       const old = new Date(Date.now() - (3 * 24 * 60 * 60 * 1000)).toISOString();
       conn.prepare(`
         INSERT INTO health_status (check_type, status, response_time_ms, error_message, details, checked_at)

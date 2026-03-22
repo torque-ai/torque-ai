@@ -7,19 +7,14 @@
  * 3. All Codex routing paths are skipped when Codex is exhausted
  * 4. Test tasks avoid Codex when exhausted
  */
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const taskCore = require('../db/task-core');
 const configCore = require('../db/config-core');
+const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
 
 let testDir;
-let origDataDir;
 let db;
 let mod; // integration-routing module (handler)
 let taskManagerMock;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
 // Minimal mock for taskManager to prevent actual task execution
 function createTaskManagerMock() {
@@ -36,10 +31,7 @@ function createTaskManagerMock() {
 }
 
 function setup() {
-  testDir = path.join(os.tmpdir(), `torque-vtest-smart-routing-gate-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
-  origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = testDir;
+  ({ db, testDir } = setupTestDb('smart-routing-gate'));
 
   // Mock task-manager before requiring integration-routing
   taskManagerMock = createTaskManagerMock();
@@ -50,34 +42,18 @@ function setup() {
     exports: taskManagerMock,
   };
 
-  db = require('../database');
-  if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-  db.resetForTest(templateBuffer);
-
   // Wire host management for hasHealthyOllamaHost
   const providerRouting = require('../db/provider-routing-core');
   const hostManagement = require('../db/host-management');
-  const rawDb = db.getDb ? db.getDb() : db.getDbInstance();
-  hostManagement.setDb(rawDb);
+  const dbHandle = rawDb();
+  hostManagement.setDb(dbHandle);
   providerRouting.setHostManagement(hostManagement);
 
   mod = require('../handlers/integration/routing');
 }
 
 function teardown() {
-  if (db) try { db.close(); } catch {}
-  if (testDir) {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
-    if (origDataDir !== undefined) {
-      process.env.TORQUE_DATA_DIR = origDataDir;
-    } else {
-      delete process.env.TORQUE_DATA_DIR;
-    }
-  }
-}
-
-function rawDb() {
-  return db.getDb ? db.getDb() : db.getDbInstance();
+  teardownTestDb();
 }
 
 function clearHosts() {

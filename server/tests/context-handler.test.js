@@ -1,23 +1,17 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 describe('context-handler', () => {
-  let db, templateBuffer, workflowEngine;
+  let db, workflowEngine;
 
   beforeAll(() => {
-    templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
-    db = require('../database');
-    db.resetForTest(templateBuffer);
+    ({ db } = setupTestDb('context-handler'));
     workflowEngine = require('../db/workflow-engine');
   });
 
   afterAll(() => {
-    try { db.close(); } catch {}
+    teardownTestDb();
   });
 
   describe('queue scope', () => {
