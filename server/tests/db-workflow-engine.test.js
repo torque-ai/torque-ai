@@ -4,6 +4,7 @@ const os = require('os');
 const fs = require('fs');
 const workflowEngine = require('../db/workflow-engine');
 
+const taskCore = require('../db/task-core');
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer, db;
 
@@ -34,7 +35,7 @@ function createWorkflow(overrides = {}) {
 }
 
 function addWorkflowTask(workflowId, overrides = {}) {
-  return db.createTask({
+  return taskCore.createTask({
     id: overrides.id || randomUUID(),
     task_description: overrides.task_description || 'workflow task',
     status: overrides.status || 'pending',
@@ -52,7 +53,7 @@ function updateWorkflowStatus(workflowId, status, fromStatus = 'pending', additi
 }
 
 function updateWorkflowTaskStatus(taskId, status, additionalFields = {}) {
-  return db.updateTaskStatus(taskId, status, additionalFields);
+  return taskCore.updateTaskStatus(taskId, status, additionalFields);
 }
 
 function evaluateDependencies(taskId) {

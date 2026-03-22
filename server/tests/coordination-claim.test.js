@@ -30,6 +30,7 @@ const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'temp
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let mod;
 let templateBuffer;
 
@@ -40,12 +41,13 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   mod = require('../db/coordination');
   mod.setDb(db.getDb());
-  mod.setGetTask(db.getTask);
+  mod.setGetTask(taskCore.getTask);
 }
 
 function teardown() {
@@ -107,8 +109,8 @@ function makeTask(overrides = {}) {
     tags: overrides.tags,
     project: overrides.project || null,
   };
-  db.createTask(task);
-  return db.getTask(task.id);
+  taskCore.createTask(task);
+  return taskCore.getTask(task.id);
 }
 
 // ----------------------------------------------------------------

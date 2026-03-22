@@ -11,7 +11,7 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 
-let testDir, origDataDir, db, mod;
+let testDir, origDataDir, db, taskCore, mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -21,6 +21,7 @@ function setup() {
   origDataDir = process.env.TORQUE_DATA_DIR;
   process.env.TORQUE_DATA_DIR = testDir;
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   mod = require('../db/webhooks-streaming');
@@ -41,7 +42,7 @@ function teardown() {
  * are satisfied (task_id must exist in the tasks table).
  */
 function makeTask(id) {
-  db.createTask({
+  taskCore.createTask({
     id,
     task_description: 'partial-output-streaming test task',
     working_directory: testDir,

@@ -15,6 +15,7 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 
+const taskCore = require('../db/task-core');
 const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
 const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
 
@@ -131,9 +132,10 @@ function mkTask(db, overrides = {}) {
     metadata: overrides.metadata || null,
   };
 
-  if (typeof db.createTask === 'function') {
-    return db.createTask(defaults.task_description, {
+  if (typeof taskCore.createTask === 'function') {
+    return taskCore.createTask({
       id: defaults.id,
+      task_description: defaults.task_description,
       provider: defaults.provider,
       model: defaults.model,
       working_directory: defaults.working_directory,

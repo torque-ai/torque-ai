@@ -4,7 +4,7 @@ const fs = require('fs');
 const { randomUUID } = require('crypto');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer, db, handleToolCall, schedulingAutomation;
+let templateBuffer, db, taskCore, handleToolCall, schedulingAutomation;
 
 function getText(result) {
   return result?.content?.[0]?.text || '';
@@ -12,7 +12,7 @@ function getText(result) {
 
 function createTask(overrides = {}) {
   const id = randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id,
     task_description: overrides.task_description || 'resource usage test task',
     working_directory: overrides.working_directory || process.cwd(),
@@ -22,7 +22,7 @@ function createTask(overrides = {}) {
     priority: overrides.priority ?? 0,
     project: overrides.project ?? null,
   });
-  return db.getTask(id);
+  return taskCore.getTask(id);
 }
 
 function parseScheduleId(resultText) {
@@ -33,6 +33,7 @@ function parseScheduleId(resultText) {
 beforeAll(() => {
   templateBuffer = fs.readFileSync(TEMPLATE_BUF);
   db = require('../database');
+  taskCore = require('../db/task-core');
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   schedulingAutomation = require('../db/scheduling-automation');

@@ -5,6 +5,7 @@ const fs = require('fs');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let schedulingMod;
 let hostMod;
 
@@ -19,19 +20,20 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
 
   schedulingMod = require('../db/scheduling-automation');
   schedulingMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  schedulingMod.setGetTask((id) => db.getTask(id));
+  schedulingMod.setGetTask((id) => taskCore.getTask(id));
   schedulingMod.setRecordTaskEvent((_name, _taskId, _payload) => {});
   schedulingMod.setGetPipeline((id) => projectConfigCore.getPipeline(id));
   schedulingMod.setCreatePipeline((...args) => projectConfigCore.createPipeline(...args));
 
   hostMod = require('../db/host-management');
   hostMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
-  hostMod.setGetTask((id) => db.getTask(id));
+  hostMod.setGetTask((id) => taskCore.getTask(id));
   hostMod.setGetProjectRoot((dir) => dir); // identity for test environment
 }
 

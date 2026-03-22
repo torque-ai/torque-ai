@@ -4,6 +4,7 @@ const os = require('os');
 const fs = require('fs');
 const fileTracking = require('../db/file-tracking');
 
+const taskCore = require('../db/task-core');
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer, db;
 
@@ -46,7 +47,7 @@ function toForwardSlashes(value) {
 }
 
 function createTask(overrides = {}) {
-  return db.createTask({
+  return taskCore.createTask({
     id: overrides.id || randomUUID(),
     task_description: overrides.task_description || 'File-tracking module test',
     status: overrides.status || 'queued',

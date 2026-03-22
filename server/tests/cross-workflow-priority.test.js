@@ -8,6 +8,7 @@ const SCHEDULER_MODULE_PATH = require.resolve('../execution/slot-pull-scheduler'
 
 let templateBuffer;
 let db;
+let taskCore;
 let scheduler;
 let workflowEngine;
 
@@ -64,7 +65,7 @@ function createQueuedTask(overrides = {}) {
     ? overrides.provider
     : (overrides.seed_provider || 'codex');
 
-  db.createTask({
+  taskCore.createTask({
     id,
     status: 'queued',
     task_description: overrides.task_description || 'cross-workflow priority test task',
@@ -99,6 +100,7 @@ describe('cross-workflow priority', () => {
   beforeAll(() => {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF);
     db = require('../database');
+    taskCore = require('../db/task-core');
     workflowEngine = require('../db/workflow-engine');
   });
 

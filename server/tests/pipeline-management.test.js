@@ -13,6 +13,7 @@ const { randomUUID } = require('crypto');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
@@ -24,6 +25,7 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
@@ -57,8 +59,8 @@ function createTask(overrides = {}) {
     status: overrides.status || 'queued',
     ...overrides,
   };
-  db.createTask(payload);
-  return db.getTask(payload.id);
+  taskCore.createTask(payload);
+  return taskCore.getTask(payload.id);
 }
 
 function mkPipeline(overrides = {}) {

@@ -5,6 +5,8 @@ const { EventEmitter } = require('events');
 const http = require('http');
 
 const db = require('../database');
+const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
 const dbCoord = require('../db/coordination');
 const eventDispatch = require('../hooks/event-dispatch');
 const mcpSse = require('../mcp-sse');
@@ -94,7 +96,7 @@ describe('P1 infra fixes', () => {
         db.getDb = db.getDbInstance;
       }
       dbCoord.setDb(db.getDb());
-      dbCoord.setGetTask(db.getTask);
+      dbCoord.setGetTask(taskCore.getTask);
 
       rawDb().prepare('DELETE FROM distributed_locks').run();
     });
@@ -164,7 +166,7 @@ describe('P1 infra fixes', () => {
     };
 
     beforeAll(async () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
       vi.spyOn(http, 'createServer').mockImplementation((handler) => {
         handleHttpRequest = handler;
         return mockServer;

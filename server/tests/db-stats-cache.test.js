@@ -65,7 +65,7 @@ describe('db.countTasksByStatus', () => {
     createTaskWithStatus('failed');
     createTaskWithStatus('pending');
 
-    const counts = db.countTasksByStatus();
+    const counts = taskCore.countTasksByStatus();
 
     expect(counts).toEqual({
       running: 2,

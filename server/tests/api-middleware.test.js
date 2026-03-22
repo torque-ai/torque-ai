@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { EventEmitter } = require('events');
 
 const db = require('../database');
+const configCore = require('../db/config-core');
 const serverConfig = require('../config');
 const middleware = require('../api/middleware');
 const { RATE_LIMIT_CLEANUP_MS } = require('../constants');
@@ -83,7 +84,7 @@ function runMiddlewareChain({ helpers, req, res, handler = vi.fn() }) {
 
 beforeEach(() => {
   vi.useRealTimers();
-  getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation(() => null);
+  getConfigSpy = vi.spyOn(configCore, 'getConfig').mockImplementation(() => null);
   // serverConfig.get() delegates to db.getConfig internally, but holds its own db ref.
   // Spy on serverConfig.get so tests that check config reads still work.
   getConfigOriginal = serverConfig.get;

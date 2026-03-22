@@ -3,7 +3,7 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 
-let testDir, origDataDir, db, mod;
+let testDir, origDataDir, db, taskCore, mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -14,12 +14,13 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   mod = require('../db/analytics');
   mod.setDb(db.getDb());
-  mod.setGetTask((id) => db.getTask(id));
+  mod.setGetTask((id) => taskCore.getTask(id));
 }
 
 function teardown() {
@@ -56,8 +57,8 @@ function mkTask(overrides = {}) {
     retry_count: overrides.retry_count ?? 0,
     provider: overrides.provider || 'codex'
   };
-  db.createTask(task);
-  return db.getTask(task.id);
+  taskCore.createTask(task);
+  return taskCore.getTask(task.id);
 }
 
 function patchTask(taskId, fields) {

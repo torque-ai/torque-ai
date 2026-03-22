@@ -5,6 +5,7 @@ const fs = require('fs');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let mod;
 let seq = 0;
 
@@ -18,6 +19,7 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   }
@@ -59,7 +61,7 @@ function rawDb() {
 
 function createTask(overrides = {}) {
   const taskId = overrides.id || id('task');
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     task_description: overrides.task_description || `Task ${taskId}`,
     working_directory: overrides.working_directory || testDir,

@@ -12,6 +12,7 @@
 const mcpSse = require('../mcp-sse');
 const eventDispatch = require('../hooks/event-dispatch');
 const db = require('../database');
+const configCore = require('../db/config-core');
 const webhooksStreaming = require('../db/webhooks-streaming');
 
 // Stop the retention policy timer started at module load
@@ -165,7 +166,7 @@ describe('notifySubscribedSessions', () => {
 describe('dispatchTaskEvent', () => {
   beforeEach(() => {
     sessions.clear();
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -261,7 +262,7 @@ describe('dispatchTaskEvent', () => {
   });
 
   it('respects mcp_notifications_enabled = false (no-op)', () => {
-    db.getConfig.mockReturnValue('false');
+    configCore.getConfig.mockReturnValue('false');
 
     const session = makeSession();
     sessions.set('s1', session);
@@ -271,7 +272,7 @@ describe('dispatchTaskEvent', () => {
   });
 
   it('respects mcp_notifications_enabled = 0 (no-op)', () => {
-    db.getConfig.mockReturnValue('0');
+    configCore.getConfig.mockReturnValue('0');
 
     const session = makeSession();
     sessions.set('s1', session);
@@ -380,7 +381,7 @@ describe('taskEvents internal emitter', () => {
   beforeEach(() => {
     sessions.clear();
     taskEvents.removeAllListeners();
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -399,7 +400,7 @@ describe('taskEvents internal emitter', () => {
   });
 
   it('emits even when MCP notifications are disabled', () => {
-    db.getConfig.mockReturnValue('false');
+    configCore.getConfig.mockReturnValue('false');
 
     const received = [];
     taskEvents.on('task:failed', (task) => received.push(task));
@@ -425,7 +426,7 @@ describe('task event DB persistence', () => {
 
   beforeEach(() => {
     sessions.clear();
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
     // Mock getDbInstance to return a fake db with prepare().run()/all()
     insertedRows = [];
@@ -562,7 +563,7 @@ describe('check_notifications rate limiting', () => {
 describe('cancel and retry event dispatch', () => {
   beforeEach(() => {
     sessions.clear();
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     vi.spyOn(db, 'getDbInstance').mockReturnValue(null);
   });
 
@@ -620,7 +621,7 @@ describe('E2E notification lifecycle', () => {
   beforeEach(() => {
     sessions.clear();
     taskEvents.removeAllListeners();
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     vi.spyOn(db, 'getDbInstance').mockReturnValue(null);
   });
 
@@ -972,7 +973,7 @@ describe('event ID counter', () => {
 describe('dashboard event feed wiring', () => {
   beforeEach(() => {
     sessions.clear();
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     vi.spyOn(db, 'getDbInstance').mockReturnValue(null);
   });
 
@@ -1049,7 +1050,7 @@ describe('quick_setup_notifications handler', () => {
   let handleQuickSetupNotifications;
 
   beforeEach(() => {
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     vi.spyOn(db, 'getDbInstance').mockReturnValue(null);
 
     // Mock createWebhook to prevent actual DB writes

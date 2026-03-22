@@ -7,6 +7,7 @@ const childProcess = require('child_process');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let projectConfigCore;
 let fileTracking;
 let mod;
@@ -31,6 +32,7 @@ function setup() {
   childProcess.spawnSync = mockSpawnSync;
 
   db = require('../database');
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   projectConfigCore = require('../db/project-config-core');
@@ -44,7 +46,7 @@ function setup() {
       getProjectFromPath: (...args) => projectConfigCore.getProjectFromPath(...args),
       getProjectConfig: (...args) => projectConfigCore.getProjectConfig(...args),
       saveBuildResult: (...args) => saveBuildResultSpy(...args),
-      getTask: (...args) => db.getTask(...args),
+      getTask: (...args) => taskCore.getTask(...args),
       getTaskFileChanges: (...args) => fileTracking.getTaskFileChanges(...args),
     },
     getModifiedFiles: () => [],
@@ -93,7 +95,7 @@ function setProjectConfig(workingDir, config) {
 
 function createTaskForDir(workingDir, project = path.basename(workingDir)) {
   const taskId = randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     task_description: 'post-task test',
     status: 'queued',
