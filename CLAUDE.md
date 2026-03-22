@@ -436,6 +436,64 @@ Shadow enforcement mode (`shadow-enforcer.js`) evaluates policies but does not b
 3. At execution time, `task-execution-hooks.js` applies mid-run governance (e.g., output filtering, rate limiting).
 4. Results are stored in `evaluation-store.js` for audit.
 
+## Architecture — DI Container
+
+TORQUE uses a dependency injection container (`server/container.js`) as its composition root. Every module exports a `createXxx` factory function and is registered in the container.
+
+### For new code
+
+Use the container to access services instead of `require('./database')`:
+
+```js
+// OLD (legacy — do not use in new code):
+const db = require('./database');
+db.getTask(id);
+
+// NEW (preferred):
+const { defaultContainer } = require('./container');
+const taskCore = defaultContainer.get('taskCore');
+taskCore.getTask(id);
+```
+
+### Container API
+
+- `createContainer()` — create a new container instance
+- `container.register(name, deps, factory)` — register a factory with dependencies
+- `container.registerValue(name, value)` — register a pre-built value
+- `container.boot()` — resolve dependency graph via topological sort, instantiate all services
+- `container.get(name)` — retrieve an instantiated service
+- `container.resetForTest()` — reset to pre-boot state for test isolation
+
+### Module factory pattern
+
+Every module exports a `createXxx` factory alongside its existing API:
+
+```js
+// At the bottom of any module:
+function createMyModule(deps) {
+  return { fn1, fn2, fn3 };
+}
+module.exports = { ..., createMyModule };
+```
+
+### Migration status
+
+- **130+ services** registered in the container
+- **170 modules** export factory functions
+- **database.js** is a legacy facade that merges 47 sub-modules — new code should use the container
+- **DI lint rule:** `npm run lint:di` (in server/) reports files still importing database.js directly
+- **Test helper:** `server/tests/test-container.js` provides DI-based test isolation
+
+### Key files
+
+| File | Role |
+|------|------|
+| `server/container.js` | DI container — composition root |
+| `server/database.js` | Legacy facade — merges 47 db modules (being replaced) |
+| `server/event-bus.js` | Event bus with `createEventBus` factory |
+| `server/scripts/check-no-direct-db-import.js` | DI migration lint rule |
+| `server/tests/test-container.js` | Test helper for DI-based test isolation |
+
 ## File Safety
 
 **NEVER delete or clean untracked files you didn't create.** Untracked files in `server/docs/`, `server/docs/investigations/`, or any `docs/` directory are likely generated reports, audit results, or investigation outputs from other sessions. Treat them as valuable work products.
