@@ -578,17 +578,17 @@ function handleSafeguardChecks(ctx) {
 }
 
 /**
- * Phase 3: Fuzzy SEARCH/REPLACE repair (no-op — aider provider removed).
+ * Phase 3: Fuzzy SEARCH/REPLACE repair (no-op — legacy phase removed).
  */
 function handleFuzzyRepair(ctx) {
-  // Was aider-ollama specific; now a no-op
+  // No-op — legacy phase removed
 }
 
 /**
- * Phase 4: Detect no-file-change tasks (no-op — was aider-ollama specific).
+ * Phase 4: Detect no-file-change tasks (no-op — legacy phase removed).
  */
 function handleNoFileChangeDetection(ctx) {
-  // Was aider-ollama specific; now a no-op
+  // No-op — legacy phase removed
 }
 
 

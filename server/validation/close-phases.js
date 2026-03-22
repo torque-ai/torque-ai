@@ -94,7 +94,7 @@ function recoverModifiedFiles(ctx) {
  */
 function handleAutoValidation(ctx) {
   const { taskId, proc, task } = ctx;
-  // Auto-validation was aider-ollama specific; now a no-op (provider removed)
+  // No-op — legacy phase removed
   if (ctx.status !== 'completed' || !task) return;
   return;
 
