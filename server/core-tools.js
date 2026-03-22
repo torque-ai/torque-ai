@@ -32,8 +32,6 @@ const TIER_1 = [
   'configure_ci_provider',
   // Context (compact session resume)
   'get_context',
-  // MCP Apps
-  'show_dashboard',
 ];
 
 const TIER_2 = [
