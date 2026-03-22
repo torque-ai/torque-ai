@@ -13,7 +13,7 @@
 const http = require('http');
 const { randomUUID } = require('crypto');
 const { TOOLS, handleToolCall } = require('./tools');
-const db = require('./database'); // Phase 3: migrate to container.js init(deps) pattern
+const db = require('./database');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'mcp-sse' });
 const { validateJsonRpcRequest } = require('./utils/jsonrpc-validation');

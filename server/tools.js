@@ -379,7 +379,7 @@ function handleRestartServer(args) {
   const reason = args.reason || 'Manual restart requested';
   // Use module-level logger (not a re-require) to avoid shadowing the top-level binding.
   const taskManager = require('./task-manager');
-  const db = require('./database'); // Phase 3: migrate to container.js init(deps) pattern
+  const db = require('./database');
 
   logger.info(`[Restart] Server restart requested: ${reason}`);
 

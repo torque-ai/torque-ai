@@ -31,11 +31,10 @@ function isPrivateIP(address, allowAny192 = false) {
 let cachedLanIP = null;
 
 // Lazy-load database to avoid circular dependencies
-// Phase 3: migrate to container.js init(deps) pattern
 let db = null;
 function getDb() {
   if (!db) {
-    db = require('./database'); // Phase 3: migrate to container.js init(deps) pattern
+    db = require('./database');
   }
   return db;
 }

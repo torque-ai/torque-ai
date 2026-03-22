@@ -9,7 +9,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const db = require('./database'); // Phase 3: migrate to container.js init(deps) pattern
+const db = require('./database');
 const dashboard = require('./dashboard-server');
 const logger = require('./logger').child({ component: 'task-manager' });
 const providerRegistry = require('./providers/registry');
