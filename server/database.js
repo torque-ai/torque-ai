@@ -1,6 +1,25 @@
 /**
- * Database module for TORQUE task persistence
- * Uses better-sqlite3 for synchronous SQLite operations
+ * Database module for TORQUE task persistence — LEGACY FACADE
+ *
+ * STATUS: This module is a compatibility layer. All 47 sub-modules now have
+ * factory exports (createXxx) and are registered in the DI container
+ * (server/container.js). New code should use the container:
+ *
+ *   const { defaultContainer } = require('./container');
+ *   const hostMgmt = defaultContainer.get('hostManagement');
+ *
+ * This facade still merges all sub-module exports into a flat namespace
+ * for backward compatibility with ~87 source files and ~161 test files
+ * that import it directly. It will be removed incrementally as consumers
+ * migrate to the container.
+ *
+ * Migration guide:
+ *   1. Instead of: const db = require('./database'); db.getTask(id)
+ *      Use:        const taskCore = container.get('taskCore'); taskCore.getTask(id)
+ *   2. Instead of: const db = require('../database'); db.getConfig('key')
+ *      Use:        const configCore = container.get('configCore'); configCore.getConfig('key')
+ *
+ * Uses better-sqlite3 for synchronous SQLite operations.
  */
 
 const Database = require('better-sqlite3');
@@ -292,7 +311,8 @@ function notifyTaskStatusTransition(taskId, status, previousStatus, updatedTask)
  *   25. ciCache               (wired at end of _wireCrossModuleDI)
  *
  * Called by: init(), resetForTest(), and backupCore.restoreDatabase() (via setInternals).
- * Exported for Phase 3 container.js migration — do NOT remove the export.
+ * The DI container (container.js) now provides an alternative access path.
+ * This function is still called by init() and resetForTest() for backward compat.
  */
 function _injectDbAll() {
   hostManagement.setDb(db);
@@ -394,7 +414,8 @@ function _injectDbAll() {
  *     - setDb(db)  ← deferred until here because ciCache is not in _injectDbAll
  *
  * Called by: init(), resetForTest(), and backupCore.restoreDatabase() (via setInternals injectDbAll).
- * Exported for Phase 3 container.js migration — do NOT remove the export.
+ * The DI container (container.js) now provides an alternative access path.
+ * This function is still called by init() and resetForTest() for backward compat.
  */
 function _wireCrossModuleDI() {
   fileTracking.setGetTask(getTask);
@@ -730,7 +751,7 @@ const coreExports = {
   getDbInstance,
   isDbClosed: () => dbClosed,
   isReady: () => !!db && !dbClosed,
-  // DI wiring helpers — exported for Phase 3 container.js migration
+  // DI wiring helpers — retained for backward compat (container.js is the preferred path)
   _injectDbAll,
   _wireCrossModuleDI,
   // Core task operations
