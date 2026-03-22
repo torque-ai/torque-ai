@@ -4,6 +4,7 @@ const db = require('../database');
 const tools = require('../tools');
 const adapterRegistry = require('../providers/adapter-registry');
 const eventBus = require('../event-bus');
+const authMiddleware = require('../auth/middleware');
 
 function createMockResponse() {
   let resolve;
@@ -244,6 +245,10 @@ describe('API Server endpoints', () => {
   }
 
   beforeAll(() => {
+    // Bypass auth so test requests aren't rejected with 401
+    vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
+    vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
+
     // Spy on database and tools before loading api-server
     getConfigSpy = vi.spyOn(db, 'getConfig').mockReturnValue(null);
     countTasksSpy = vi.spyOn(db, 'countTasks').mockReturnValue(0);
@@ -2241,8 +2246,9 @@ describe('API Server endpoints', () => {
     expect(response.statusCode).toBe(204);
   });
 
-  it('returns 401 when API key is configured but not provided', async () => {
-    getConfigSpy.mockImplementation((key) => key === 'api_key' ? 'secret-key-123' : null);
+  it('returns 401 when authentication fails', async () => {
+    // Override the default auth mock to simulate missing/invalid credentials
+    authMiddleware.authenticate.mockReturnValueOnce(null);
 
     const response = await dispatchRequest(requestHandler, {
       method: 'GET',
@@ -2257,8 +2263,8 @@ describe('API Server endpoints', () => {
     expect(response.headers['WWW-Authenticate']).toBe('Bearer realm="Torque API", error="invalid_token"');
   });
 
-  it('returns contract-shaped 401 for v2 inference when API key is missing', async () => {
-    getConfigSpy.mockImplementation((key) => key === 'api_key' ? 'secret-key-123' : null);
+  it('returns contract-shaped 401 for v2 inference when not authenticated', async () => {
+    authMiddleware.authenticate.mockReturnValueOnce(null);
 
     const response = await dispatchRequest(requestHandler, {
       method: 'POST',
@@ -2273,7 +2279,8 @@ describe('API Server endpoints', () => {
     expect(response.headers['WWW-Authenticate']).toBe('Bearer realm="Torque API", error="invalid_token"');
   });
 
-  it('POST /api/v2/inference requires auth policy key presence when strict mode is enabled', async () => {
+  it('POST /api/v2/inference returns 401 when auth fails in strict mode', async () => {
+    authMiddleware.authenticate.mockReturnValueOnce(null);
     getConfigSpy.mockImplementation((key) => {
       if (key === 'v2_auth_mode') return 'strict';
       return null;
@@ -2292,7 +2299,8 @@ describe('API Server endpoints', () => {
     expect(response.headers['WWW-Authenticate']).toBe('Bearer realm="Torque API", error="invalid_token"');
   });
 
-  it('POST /api/v2/inference requires X-Torque-Key when strict mode is enabled', async () => {
+  it('POST /api/v2/inference returns 401 when auth fails even with strict mode and api_key config', async () => {
+    authMiddleware.authenticate.mockReturnValueOnce(null);
     getConfigSpy.mockImplementation((key) => {
       if (key === 'v2_auth_mode') return 'strict';
       if (key === 'api_key') return 'secret-key-123';

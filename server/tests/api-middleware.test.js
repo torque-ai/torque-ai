@@ -197,7 +197,7 @@ describe('sendJson', () => {
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': 'http://127.0.0.1:3456',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Torque-Key, X-Request-ID',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Torque-Key, X-Request-ID, Authorization',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       ...middleware.SECURITY_HEADERS,
     }));
