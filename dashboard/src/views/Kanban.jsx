@@ -25,7 +25,6 @@ const COMMON_PROVIDER_OPTIONS = [
   'codex',
   'claude-cli',
   'ollama',
-  'aider-ollama',
   'hashline-ollama',
   'anthropic',
   'groq',
