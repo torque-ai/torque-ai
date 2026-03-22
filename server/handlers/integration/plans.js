@@ -2,8 +2,8 @@
  * Integration plan project handlers.
  */
 
-const database = require('../../database');
 const projectConfigCore = require('../../db/project-config-core');
+const taskCore = require('../../db/task-core');
 const { isPathTraversalSafe, makeError, ErrorCodes } = require('../shared');
 
 // ============================================
@@ -132,7 +132,7 @@ ${planContent}`;
     const canStart = task.depends_on.length === 0;
     const initialStatus = canStart ? 'queued' : 'waiting';
 
-    database.createTask({
+    taskCore.createTask({
       id: task.id,
       task_description: task.description,
       working_directory: working_directory || process.cwd(),
@@ -233,7 +233,7 @@ function handlePausePlanProject(args) {
 
   for (const task of tasks) {
     if (['queued', 'waiting'].includes(task.status)) {
-      database.updateTaskStatus(task.task_id, 'paused');
+      taskCore.updateTaskStatus(task.task_id, 'paused');
       paused++;
     }
   }
@@ -266,11 +266,11 @@ function handleResumePlanProject(args) {
     if (task.status === 'paused') {
       // Check if dependencies are met
       if (projectConfigCore.areAllPlanDependenciesComplete(task.task_id)) {
-        database.updateTaskStatus(task.task_id, 'queued');
+        taskCore.updateTaskStatus(task.task_id, 'queued');
       } else if (projectConfigCore.hasFailedPlanDependency(task.task_id)) {
-        database.updateTaskStatus(task.task_id, 'blocked');
+        taskCore.updateTaskStatus(task.task_id, 'blocked');
       } else {
-        database.updateTaskStatus(task.task_id, 'waiting');
+        taskCore.updateTaskStatus(task.task_id, 'waiting');
       }
       resumed++;
     }
@@ -304,7 +304,7 @@ function handleRetryPlanProject(args) {
   // First, retry failed tasks
   for (const task of tasks) {
     if (task.status === 'failed') {
-      database.updateTaskStatus(task.task_id, 'queued', {
+      taskCore.updateTaskStatus(task.task_id, 'queued', {
         error_output: null,
         started_at: null,
         completed_at: null
@@ -319,9 +319,9 @@ function handleRetryPlanProject(args) {
       // Check if dependencies are now okay (retried tasks are queued, not failed)
       if (!projectConfigCore.hasFailedPlanDependency(task.task_id)) {
         if (projectConfigCore.areAllPlanDependenciesComplete(task.task_id)) {
-          database.updateTaskStatus(task.task_id, 'queued');
+          taskCore.updateTaskStatus(task.task_id, 'queued');
         } else {
-          database.updateTaskStatus(task.task_id, 'waiting');
+          taskCore.updateTaskStatus(task.task_id, 'waiting');
         }
         unblocked++;
       }

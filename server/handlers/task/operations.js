@@ -15,8 +15,9 @@
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const database = require('../../database');
+const configCore = require('../../db/config-core');
 const eventTracking = require('../../db/event-tracking');
+const taskCore = require('../../db/task-core');
 const projectConfigCore = require('../../db/project-config-core');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const taskMetadata = require('../../db/task-metadata');
@@ -131,7 +132,7 @@ async function handleCheckTaskProgress(args) {
   const waitSeconds = Math.min(args.wait_seconds ?? 5, 300);
 
   // Snapshot 1
-  const running1 = database.listTasks({ status: 'running', limit: 20 });
+  const running1 = taskCore.listTasks({ status: 'running', limit: 20 });
   
   if (running1.length === 0) {
     return {
@@ -146,7 +147,7 @@ async function handleCheckTaskProgress(args) {
   await new Promise(r => setTimeout(r, waitSeconds * 1000));
 
   // Snapshot 2
-  const running2 = database.listTasks({ status: 'running', limit: 20 });
+  const running2 = taskCore.listTasks({ status: 'running', limit: 20 });
 
   let result = `## Task Progress Check (${waitSeconds}s interval)\n\n`;
   result += '| Task | Host | Runtime | Output | Growth | Status |\n';
@@ -185,9 +186,9 @@ async function handleCheckTaskProgress(args) {
   }
 
   // Summary
-  const queued = database.countTasks({ status: 'queued' });
-  const completed = database.countTasks({ status: 'completed' });
-  const failed = database.countTasks({ status: 'failed' });
+  const queued = taskCore.countTasks({ status: 'queued' });
+  const completed = taskCore.countTasks({ status: 'completed' });
+  const failed = taskCore.countTasks({ status: 'failed' });
 
   result += `\n**Queue:** ${queued} waiting | ${running2.length} running | ${completed} done | ${failed} failed\n`;
 
@@ -265,7 +266,7 @@ function handleHealthCheck(args) {
     if ((checkType === 'full' || checkType === 'performance') && status === 'healthy') {
       // Check current running tasks
       const runningTasks = taskManager.getRunningTaskCount();
-      const config = database.getAllConfig();
+      const config = configCore.getAllConfig();
       const maxConcurrent = parseInt(config.max_concurrent || '3', 10);
 
       details.running_tasks = runningTasks;
@@ -644,7 +645,7 @@ function listTasksForBatchCancel(options = {}, statuses = []) {
     let offset = 0;
     const limit = 1000;
     while (true) {
-      const page = database.listTasks({ ...options, status, limit, offset });
+      const page = taskCore.listTasks({ ...options, status, limit, offset });
       results.push(...page);
       if (page.length < limit) {
         break;
@@ -824,7 +825,7 @@ function handleBatchRetry(args) {
   const affectedIds = [];
   for (const task of toRetry.slice(0, safeLimit(args.limit, 10))) {
     const newId = uuidv4();
-    database.createTask({
+    taskCore.createTask({
       id: newId,
       status: 'pending',
       task_description: task.task_description,

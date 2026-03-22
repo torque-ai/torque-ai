@@ -4,7 +4,9 @@
 
 const path = require('path');
 const fs = require('fs');
-const database = require('../../database');
+const backupCore = require('../../db/backup-core');
+const configCore = require('../../db/config-core');
+const emailPeek = require('../../db/email-peek');
 const hostManagement = require('../../db/host-management');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const serverConfig = require('../../config');
@@ -96,13 +98,13 @@ function handleSetHostPriority(args) {
  */
 function handleConfigureReviewWorkflow(args) {
   if (args.review_interval_minutes !== undefined) {
-    database.setConfig('review_interval_minutes', String(args.review_interval_minutes));
+    configCore.setConfig('review_interval_minutes', String(args.review_interval_minutes));
   }
   if (args.auto_approve_simple !== undefined) {
-    database.setConfig('auto_approve_simple', args.auto_approve_simple ? '1' : '0');
+    configCore.setConfig('auto_approve_simple', args.auto_approve_simple ? '1' : '0');
   }
   if (args.require_review_for_complex !== undefined) {
-    database.setConfig('require_review_for_complex', args.require_review_for_complex ? '1' : '0');
+    configCore.setConfig('require_review_for_complex', args.require_review_for_complex ? '1' : '0');
   }
 
   const config = {
@@ -178,7 +180,7 @@ function handleBackupDatabase(args) {
   );
 
   try {
-    const result = database.backupDatabase(destPath);
+    const result = backupCore.backupDatabase(destPath);
     let output = `## Database Backup Created\n\n`;
     output += `**Path:** ${result.path}\n`;
     output += `**Size:** ${(result.size / 1024).toFixed(1)} KB\n`;
@@ -200,7 +202,7 @@ async function handleRestoreDatabase(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Destructive operation requires confirm: true (boolean)');
   }
   try {
-    const result = await database.restoreDatabase(args.src_path, args.confirm);
+    const result = await backupCore.restoreDatabase(args.src_path, args.confirm);
     let output = `## Database Restored\n\n`;
     output += `**From:** ${result.restored_from}\n`;
     output += `**At:** ${result.restored_at}\n`;
@@ -215,7 +217,7 @@ async function handleRestoreDatabase(args) {
 
 function handleListDatabaseBackups(args) {
   try {
-    const backups = database.listBackups(args.directory);
+    const backups = backupCore.listBackups(args.directory);
     if (backups.length === 0) {
       return { content: [{ type: 'text', text: '## Database Backups\n\nNo backups found.' }] };
     }
@@ -267,7 +269,7 @@ async function handleSendEmailNotification(args) {
 
   if (!smtpHost || !smtpUser || !smtpPass || !smtpFrom) {
     // SMTP not configured — record as pending
-    database.recordEmailNotification({
+    emailPeek.recordEmailNotification({
       id: notificationId,
       task_id: task_id || null,
       recipient,
@@ -294,7 +296,7 @@ async function handleSendEmailNotification(args) {
     nodemailer = require('nodemailer');
   } catch {
     // nodemailer not installed — record as pending
-    database.recordEmailNotification({
+    emailPeek.recordEmailNotification({
       id: notificationId,
       task_id: task_id || null,
       recipient,
@@ -334,7 +336,7 @@ async function handleSendEmailNotification(args) {
       text: body
     });
 
-    database.recordEmailNotification({
+    emailPeek.recordEmailNotification({
       id: notificationId,
       task_id: task_id || null,
       recipient,
@@ -352,7 +354,7 @@ async function handleSendEmailNotification(args) {
 
     return { content: [{ type: 'text', text: output }] };
   } catch (err) {
-    database.recordEmailNotification({
+    emailPeek.recordEmailNotification({
       id: notificationId,
       task_id: task_id || null,
       recipient,
@@ -385,7 +387,7 @@ function handleListEmailNotifications(args) {
     limit: args.limit || 100
   };
 
-  const notifications = database.listEmailNotifications(options);
+  const notifications = emailPeek.listEmailNotifications(options);
 
   let output = `## Email Notifications\n\n`;
 
@@ -418,7 +420,7 @@ function handleGetEmailNotification(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'id is required');
   }
 
-  const notification = database.getEmailNotification(id);
+  const notification = emailPeek.getEmailNotification(id);
 
   if (!notification) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Email notification not found: ${id}`);

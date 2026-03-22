@@ -12,8 +12,9 @@
 
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
-const database = require('../../database');
+const configCore = require('../../db/config-core');
 const costTracking = require('../../db/cost-tracking');
+const taskCore = require('../../db/task-core');
 const eventTracking = require('../../db/event-tracking');
 const projectConfigCore = require('../../db/project-config-core');
 const taskMetadata = require('../../db/task-metadata');
@@ -30,7 +31,7 @@ const logger = require('../../logger').child({ component: 'task-project' });
  * Record token usage for a task
  */
 function handleRecordUsage(args) {
-  const task = database.getTask(args.task_id);
+  const task = taskCore.getTask(args.task_id);
 
   if (!task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
@@ -55,7 +56,7 @@ function handleRecordUsage(args) {
  * Get token usage for a specific task
  */
 function handleGetTaskUsage(args) {
-  const task = database.getTask(args.task_id);
+  const task = taskCore.getTask(args.task_id);
 
   if (!task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
@@ -508,13 +509,13 @@ function handleListProjectConfigs(_args) {
  * Clone a task
  */
 function handleCloneTask(args) {
-  const original = database.getTask(args.task_id);
+  const original = taskCore.getTask(args.task_id);
   if (!original) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
   }
 
   const newTaskId = uuidv4();
-  database.createTask({
+  taskCore.createTask({
     id: newTaskId,
     status: 'pending',
     task_description: args.task || original.task_description,
@@ -603,7 +604,7 @@ function handleBulkImportTasks(args) {
       });
     }
 
-    const task = database.createTask({
+    const task = taskCore.createTask({
       id: taskId,
       status: 'pending',
       task_description: t.task,
@@ -786,7 +787,7 @@ function handleGroupAction(args) {
         if (task.status === 'failed') {
           // Create new task with same description
           const newTaskId = uuidv4();
-          database.createTask({
+          taskCore.createTask({
             id: newTaskId,
             status: 'pending',
             task_description: task.task_description,
@@ -910,13 +911,13 @@ function handleDeleteBudget(args) {
  */
 function handleSetDefaultLimits(args) {
   if (args.max_concurrent !== undefined) {
-    database.setConfig('default_project_max_concurrent', String(args.max_concurrent));
+    configCore.setConfig('default_project_max_concurrent', String(args.max_concurrent));
   }
   if (args.max_daily_cost !== undefined) {
-    database.setConfig('default_project_max_daily_cost', String(args.max_daily_cost));
+    configCore.setConfig('default_project_max_daily_cost', String(args.max_daily_cost));
   }
   if (args.auto_create_config !== undefined) {
-    database.setConfig('auto_create_project_config', args.auto_create_config ? '1' : '0');
+    configCore.setConfig('auto_create_project_config', args.auto_create_config ? '1' : '0');
   }
 
   const config = {

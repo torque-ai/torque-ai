@@ -6,7 +6,8 @@
  * Extracted from advanced-handlers.js during Phase 7 handler decomposition.
  */
 
-const database = require('../../database');
+const configCore = require('../../db/config-core');
+const taskCore = require('../../db/task-core');
 const { cacheTaskResult, lookupCache, invalidateCache, getCacheStats, warmCache } = require('../../db/project-config-core');
 const { computePriorityScore, getPriorityQueue, boostPriority, predictFailureForTask, learnFailurePattern, deleteFailurePattern, suggestIntervention, analyzeRetryPatterns, getRetryRecommendation, updateIntelligenceOutcome, getIntelligenceDashboard, createExperiment, getExperiment, concludeExperiment } = require('../../db/analytics');
 const { getFailurePatterns } = require('../../db/validation-rules');
@@ -26,7 +27,7 @@ const { safeLimit, ErrorCodes, makeError, requireTask } = require('../shared');
 function handleCacheTaskResult(args) {
   const { task_id, ttl_hours } = args;
 
-  const { task, error: taskErr } = requireTask(database, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'completed') {
@@ -171,10 +172,10 @@ function handleConfigureCache(args) {
   if (enable_semantic !== undefined) config.enable_semantic = enable_semantic ? 1 : 0;
 
   // Persist cache config via setConfig
-  if (config.default_ttl_hours !== undefined) database.setConfig('cache_ttl_hours', String(config.default_ttl_hours));
-  if (config.max_entries !== undefined) database.setConfig('cache_max_entries', String(config.max_entries));
-  if (config.min_confidence_threshold !== undefined) database.setConfig('cache_min_confidence', String(config.min_confidence_threshold));
-  if (config.enable_semantic !== undefined) database.setConfig('cache_enable_semantic', String(config.enable_semantic));
+  if (config.default_ttl_hours !== undefined) configCore.setConfig('cache_ttl_hours', String(config.default_ttl_hours));
+  if (config.max_entries !== undefined) configCore.setConfig('cache_max_entries', String(config.max_entries));
+  if (config.min_confidence_threshold !== undefined) configCore.setConfig('cache_min_confidence', String(config.min_confidence_threshold));
+  if (config.enable_semantic !== undefined) configCore.setConfig('cache_enable_semantic', String(config.enable_semantic));
 
   const ttl = serverConfig.get('cache_ttl_hours', '24');
   const maxEnt = serverConfig.get('cache_max_entries', '1000');
@@ -227,7 +228,7 @@ function handleWarmCache(args) {
 function handleComputePriority(args) {
   const { task_id, recalculate } = args;
 
-  const { task: _task, error: taskErr } = requireTask(database, task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const score = computePriorityScore(task_id);
@@ -314,9 +315,9 @@ function handleConfigurePriorityWeights(args) {
   }
 
   // Persist priority weights via setConfig
-  if (config.resource_weight !== undefined) database.setConfig('priority_resource_weight', String(config.resource_weight));
-  if (config.success_weight !== undefined) database.setConfig('priority_success_weight', String(config.success_weight));
-  if (config.dependency_weight !== undefined) database.setConfig('priority_dependency_weight', String(config.dependency_weight));
+  if (config.resource_weight !== undefined) configCore.setConfig('priority_resource_weight', String(config.resource_weight));
+  if (config.success_weight !== undefined) configCore.setConfig('priority_success_weight', String(config.success_weight));
+  if (config.dependency_weight !== undefined) configCore.setConfig('priority_dependency_weight', String(config.dependency_weight));
 
   const rw = serverConfig.getFloat('priority_resource_weight', 0.3);
   const sw = serverConfig.getFloat('priority_success_weight', 0.3);
@@ -344,7 +345,7 @@ function handleConfigurePriorityWeights(args) {
 function handleExplainPriority(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(database, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   // Priority explanation using config weights and task data
@@ -378,7 +379,7 @@ function handleExplainPriority(args) {
 function handleBoostPriority(args) {
   const { task_id, boost_amount, reason } = args;
 
-  const { task: _task, error: taskErr } = requireTask(database, task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   boostPriority(task_id, boost_amount, reason || 'Manual boost');
@@ -410,7 +411,7 @@ function handlePredictFailure(args) {
 
   let prediction;
   if (task_id) {
-    const { task, error: taskErr } = requireTask(database, task_id);
+    const { task, error: taskErr } = requireTask(taskCore, task_id);
     if (taskErr) return taskErr;
     prediction = predictFailureForTask(task.task_description, task.working_directory);
   } else if (task_description) {
@@ -453,7 +454,7 @@ function handleLearnFailurePattern(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id, name, and description are required');
   }
 
-  const { task, error: taskErr } = requireTask(database, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   // Verify task has output to learn from
@@ -546,7 +547,7 @@ function handleDeleteFailurePattern(args) {
 function handleSuggestIntervention(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(database, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const result = suggestIntervention(task.task_description, task.working_directory);
@@ -584,20 +585,20 @@ function handleSuggestIntervention(args) {
 function handleApplyIntervention(args) {
   const { task_id, intervention_type, parameters } = args;
 
-  const { task, error: taskErr } = requireTask(database, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   // Apply intervention based on type
   let result = { success: false, message: 'Unknown intervention type' };
   try {
     if (intervention_type === 'cancel') {
-      database.updateTaskStatus(task_id, 'cancelled', { error_output: `Cancelled via intervention: ${JSON.stringify(parameters || {})}` });
+      taskCore.updateTaskStatus(task_id, 'cancelled', { error_output: `Cancelled via intervention: ${JSON.stringify(parameters || {})}` });
       result = { success: true, message: 'Task cancelled' };
     } else if (intervention_type === 'requeue') {
-      database.updateTaskStatus(task_id, 'queued', { pid: null, started_at: null });
+      taskCore.updateTaskStatus(task_id, 'queued', { pid: null, started_at: null });
       result = { success: true, message: 'Task requeued' };
     } else if (intervention_type === 'reprioritize' && parameters?.priority !== undefined) {
-      database.updateTaskStatus(task_id, task.status, { priority: parameters.priority });
+      taskCore.updateTaskStatus(task_id, task.status, { priority: parameters.priority });
       result = { success: true, message: `Priority set to ${parameters.priority}` };
     } else {
       result = { success: false, message: `Unsupported intervention type: ${intervention_type}` };
@@ -668,17 +669,17 @@ function handleConfigureAdaptiveRetry(args) {
   const updates = [];
 
   if (enabled !== undefined) {
-    database.setConfig('adaptive_retry_enabled', enabled ? '1' : '0');
+    configCore.setConfig('adaptive_retry_enabled', enabled ? '1' : '0');
     updates.push(`enabled \u2192 ${enabled}`);
   }
 
   if (default_fallback) {
-    database.setConfig('adaptive_retry_default_fallback', default_fallback);
+    configCore.setConfig('adaptive_retry_default_fallback', default_fallback);
     updates.push(`default_fallback \u2192 ${default_fallback}`);
   }
 
   if (max_retries_per_task !== undefined) {
-    database.setConfig('adaptive_retry_max_per_task', max_retries_per_task.toString());
+    configCore.setConfig('adaptive_retry_max_per_task', max_retries_per_task.toString());
     updates.push(`max_retries_per_task \u2192 ${max_retries_per_task}`);
   }
 
@@ -713,7 +714,7 @@ function handleConfigureAdaptiveRetry(args) {
 function handleGetRetryRecommendation(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(database, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'failed') {
@@ -765,7 +766,7 @@ function handleGetRetryRecommendation(args) {
 function handleRetryWithAdaptation(args) {
   const { task_id, apply_recommendations } = args;
 
-  const { task, error: taskErr2 } = requireTask(database, task_id);
+  const { task, error: taskErr2 } = requireTask(taskCore, task_id);
   if (taskErr2) return taskErr2;
 
   if (task.status !== 'failed') {
@@ -787,7 +788,7 @@ function handleRetryWithAdaptation(args) {
   const adaptations = recommendation.adaptations || {};
 
   // Reset task and update
-  database.updateTaskStatus(task_id, 'pending', {
+  taskCore.updateTaskStatus(task_id, 'pending', {
     output: null,
     error_output: null,
     exit_code: null

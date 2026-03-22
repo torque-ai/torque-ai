@@ -4,9 +4,10 @@
 
 const path = require('path');
 const fs = require('fs');
-const database = require('../../database');
+const configCore = require('../../db/config-core');
 const hostManagement = require('../../db/host-management');
 const providerRoutingCore = require('../../db/provider-routing-core');
+const taskCore = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
 const taskManager = require('../../task-manager');
 const { PROVIDER_DEFAULTS } = require('../../constants');
@@ -16,7 +17,7 @@ const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');
-serverConfig.init({ db: database });
+serverConfig.init({ db: configCore });
 
 /**
  * Format a routing rule (or result object) as a Markdown table.
@@ -466,7 +467,7 @@ async function handleSmartSubmitTask(args) {
         const subtaskId = require('uuid').v4();
 
         // Create the subtask — provider deferred until slot claim
-        database.createTask({
+        taskCore.createTask({
           id: subtaskId,
           task_description: subtasks[i],
           working_directory: workingDirectory,
@@ -629,7 +630,7 @@ async function handleSmartSubmitTask(args) {
             const subtaskId = require('uuid').v4();
             const subtaskDesc = `${action} for functions: ${fnNames} in file \`${largestFile}\` (lines ${startLine}-${endLine}). Only modify these specific functions. Do not change any code outside lines ${startLine}-${endLine}.`;
 
-            database.createTask({
+            taskCore.createTask({
               id: subtaskId,
               task_description: subtaskDesc,
               working_directory: jsWorkDir,
@@ -989,7 +990,7 @@ async function handleSmartSubmitTask(args) {
     }
   }
 
-  const schedulingMode = database.getConfig ? (database.getConfig('scheduling_mode') || 'legacy') : 'legacy';
+  const schedulingMode = configCore.getConfig ? (configCore.getConfig('scheduling_mode') || 'legacy') : 'legacy';
   const useTierList = schedulingMode === 'slot-pull';
   const tierRoutingResult = useTierList
     ? providerRoutingCore.analyzeTaskForRouting(task, workingDirectory, files, {
@@ -1028,7 +1029,7 @@ async function handleSmartSubmitTask(args) {
   };
 
   if (useTierList) {
-    database.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: task,
       working_directory: workingDirectory,
@@ -1043,7 +1044,7 @@ async function handleSmartSubmitTask(args) {
       metadata: JSON.stringify(slotPullMetadata)
     });
   } else {
-    database.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: task,
       working_directory: workingDirectory,
@@ -1076,9 +1077,9 @@ async function handleSmartSubmitTask(args) {
     });
   }
 
-  if (useTierList && !override_provider && typeof database.patchTaskSlotBinding === 'function') {
+  if (useTierList && !override_provider && typeof taskCore.patchTaskSlotBinding === 'function') {
     try {
-      database.patchTaskSlotBinding(taskId, slotPullMetadata);
+      taskCore.patchTaskSlotBinding(taskId, slotPullMetadata);
     } catch (err) {
       logger.debug(`[SmartRouting] Failed to persist slot-pull late binding for ${taskId}: ${err.message}`);
     }
@@ -1095,11 +1096,11 @@ async function handleSmartSubmitTask(args) {
         contextDepth: depth,
       });
       if (scanResult.contextFiles.length > 0) {
-        const taskRow = database.getTask(taskId);
+        const taskRow = taskCore.getTask(taskId);
         const existingMeta = (taskRow && typeof taskRow.metadata === 'object' && taskRow.metadata) ? { ...taskRow.metadata } : {};
         existingMeta.context_files = scanResult.contextFiles;
         existingMeta.context_scan_reasons = Object.fromEntries(scanResult.reasons);
-        database.patchTaskMetadata(taskId, existingMeta);
+        taskCore.patchTaskMetadata(taskId, existingMeta);
         logger.info(`Context-stuffed ${scanResult.contextFiles.length} files for task ${taskId}`);
       }
     } catch (e) {

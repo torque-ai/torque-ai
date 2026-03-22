@@ -1,7 +1,7 @@
 'use strict';
 
-const database = require('../../database');
 const fileTracking = require('../../db/file-tracking');
+const taskCore = require('../../db/task-core');
 const { ErrorCodes, makeError, requireTask } = require('../shared');
 
 /**
@@ -13,7 +13,7 @@ function handleSetExpectedOutputPath(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   if (!args.expected_directory) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'expected_directory is required');
 
-  const taskResult = requireTask(database, args.task_id);
+  const taskResult = requireTask(taskCore, args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const result = fileTracking.setExpectedOutputPath(args.task_id, args.expected_directory, {
@@ -42,7 +42,7 @@ function handleCheckFileLocations(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   if (!args.working_directory) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
 
-  const taskResult = requireTask(database, args.task_id);
+  const taskResult = requireTask(taskCore, args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const anomalies = fileTracking.checkFileLocationAnomalies(args.task_id, args.working_directory);
@@ -71,7 +71,7 @@ function handleCheckDuplicateFiles(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   if (!args.working_directory) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
 
-  const taskResult = requireTask(database, args.task_id);
+  const taskResult = requireTask(taskCore, args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const duplicates = fileTracking.checkDuplicateFiles(args.task_id, args.working_directory, {
@@ -101,7 +101,7 @@ function handleCheckDuplicateFiles(args) {
 function handleGetFileLocationIssues(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
 
-  const taskResult = requireTask(database, args.task_id);
+  const taskResult = requireTask(taskCore, args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const issues = fileTracking.getAllFileLocationIssues(args.task_id);
@@ -134,7 +134,7 @@ function handleRecordFileChange(args) {
     return makeError(ErrorCodes.INVALID_PARAM, `change_type must be one of: ${validTypes.join(', ')}`);
   }
 
-  const taskResult = requireTask(database, args.task_id);
+  const taskResult = requireTask(taskCore, args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const result = fileTracking.recordFileChange(args.task_id, args.file_path, args.change_type, {
@@ -194,7 +194,7 @@ function handleSearchSimilarFiles(args) {
   if (!args.search_term) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'search_term is required');
   if (!args.working_directory) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
 
-  const taskResult = requireTask(database, args.task_id);
+  const taskResult = requireTask(taskCore, args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const result = fileTracking.searchSimilarFiles(args.task_id, args.search_term, args.working_directory, args.search_type || 'filename');
@@ -216,7 +216,7 @@ function handleSearchSimilarFiles(args) {
 function handleGetSimilarFileResults(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
 
-  const taskResult = requireTask(database, args.task_id);
+  const taskResult = requireTask(taskCore, args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const results = fileTracking.getSimilarFileSearchResults(args.task_id);

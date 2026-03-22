@@ -43,8 +43,10 @@ function sanitizeTemplateVariable(value) {
 }
 
 // Lazy-load to avoid circular deps
-let _database, _taskManager, _projectConfigCore, _schedulingAutomation, _workflowEngine;
+let _database, _configCore, _taskCore, _taskManager, _projectConfigCore, _schedulingAutomation, _workflowEngine;
 function database() { return _database || (_database = require('../database')); }
+function configCore() { return _configCore || (_configCore = require('../db/config-core')); }
+function taskCore() { return _taskCore || (_taskCore = require('../db/task-core')); }
 function taskManager() { return _taskManager || (_taskManager = require('../task-manager')); }
 function projectConfigCore() { return _projectConfigCore || (_projectConfigCore = require('../db/project-config-core')); }
 function schedulingAutomation() { return _schedulingAutomation || (_schedulingAutomation = require('../db/scheduling-automation')); }
@@ -87,43 +89,43 @@ function handleConfigureStallDetection(args) {
 
   if (typeof thresholdSec === 'number') {
     if (provider === 'all') {
-      database().setConfig('stall_threshold_codex', String(thresholdSec));
-      database().setConfig('stall_threshold_ollama', String(thresholdSec));
-      database().setConfig('stall_threshold_hashline', String(thresholdSec));
-      database().setConfig('stall_threshold_claude', String(thresholdSec));
+      configCore().setConfig('stall_threshold_codex', String(thresholdSec));
+      configCore().setConfig('stall_threshold_ollama', String(thresholdSec));
+      configCore().setConfig('stall_threshold_hashline', String(thresholdSec));
+      configCore().setConfig('stall_threshold_claude', String(thresholdSec));
       changes.push(`Set stall threshold to ${thresholdSec}s for all providers`);
     } else {
-      database().setConfig(`stall_threshold_${provider}`, String(thresholdSec));
+      configCore().setConfig(`stall_threshold_${provider}`, String(thresholdSec));
       changes.push(`Set stall threshold to ${thresholdSec}s for ${provider}`);
     }
   }
 
   if (typeof autoResubmit === 'boolean') {
-    database().setConfig('stall_auto_resubmit', autoResubmit ? '1' : '0');
+    configCore().setConfig('stall_auto_resubmit', autoResubmit ? '1' : '0');
     changes.push(`Auto-resubmit on stall: ${autoResubmit ? 'enabled' : 'disabled'}`);
   }
 
   if (typeof maxAttempts === 'number') {
-    database().setConfig('stall_recovery_max_attempts', String(maxAttempts));
+    configCore().setConfig('stall_recovery_max_attempts', String(maxAttempts));
     changes.push(`Max resubmit attempts: ${maxAttempts}`);
   }
 
   // Enable stall detection if setting thresholds
   if (typeof thresholdSec === 'number') {
-    database().setConfig('auto_cancel_stalled', '1');
-    database().setConfig('stall_recovery_enabled', '1');
+    configCore().setConfig('auto_cancel_stalled', '1');
+    configCore().setConfig('stall_recovery_enabled', '1');
     changes.push('Stall detection and recovery: enabled');
   }
 
   // Read back current config
   const config = {
-    codex: database().getConfig('stall_threshold_codex') || 'null (excluded)',
-    ollama: database().getConfig('stall_threshold_ollama') || '120',
-    hashline: database().getConfig('stall_threshold_hashline') || '120',
-    claude: database().getConfig('stall_threshold_claude') || 'null (excluded)',
-    auto_resubmit: database().getConfig('stall_auto_resubmit') === '1',
-    max_attempts: database().getConfig('stall_recovery_max_attempts') || '3',
-    recovery_enabled: database().getConfig('stall_recovery_enabled') !== '0',
+    codex: configCore().getConfig('stall_threshold_codex') || 'null (excluded)',
+    ollama: configCore().getConfig('stall_threshold_ollama') || '120',
+    hashline: configCore().getConfig('stall_threshold_hashline') || '120',
+    claude: configCore().getConfig('stall_threshold_claude') || 'null (excluded)',
+    auto_resubmit: configCore().getConfig('stall_auto_resubmit') === '1',
+    max_attempts: configCore().getConfig('stall_recovery_max_attempts') || '3',
+    recovery_enabled: configCore().getConfig('stall_recovery_enabled') !== '0',
   };
 
   let output = '## Stall Detection Configuration\n\n';
@@ -153,27 +155,27 @@ function handleConfigureFreeTierAutoScale(args) {
   const changes = [];
 
   if (typeof args.enabled === 'boolean') {
-    database().setConfig('free_tier_auto_scale_enabled', args.enabled ? 'true' : 'false');
+    configCore().setConfig('free_tier_auto_scale_enabled', args.enabled ? 'true' : 'false');
     changes.push(`Free-tier auto-scale: ${args.enabled ? 'enabled' : 'disabled'}`);
   }
 
   if (typeof args.queue_depth_threshold === 'number') {
     const threshold = Math.max(1, Math.floor(args.queue_depth_threshold));
-    database().setConfig('free_tier_queue_depth_threshold', String(threshold));
+    configCore().setConfig('free_tier_queue_depth_threshold', String(threshold));
     changes.push(`Queue depth threshold: ${threshold}`);
   }
 
   if (typeof args.cooldown_seconds === 'number') {
     const cooldown = Math.max(0, Math.floor(args.cooldown_seconds));
-    database().setConfig('free_tier_cooldown_seconds', String(cooldown));
+    configCore().setConfig('free_tier_cooldown_seconds', String(cooldown));
     changes.push(`Cooldown: ${cooldown}s`);
   }
 
   // Read back current config
   const config = {
-    enabled: database().getConfig('free_tier_auto_scale_enabled') === 'true',
-    queue_depth_threshold: parseInt(database().getConfig('free_tier_queue_depth_threshold') || '3', 10),
-    cooldown_seconds: parseInt(database().getConfig('free_tier_cooldown_seconds') || '60', 10),
+    enabled: configCore().getConfig('free_tier_auto_scale_enabled') === 'true',
+    queue_depth_threshold: parseInt(configCore().getConfig('free_tier_queue_depth_threshold') || '3', 10),
+    cooldown_seconds: parseInt(configCore().getConfig('free_tier_cooldown_seconds') || '60', 10),
   };
 
   let output = '## Free-Tier Auto-Scale Configuration\n\n';
@@ -268,7 +270,7 @@ async function handleAutoVerifyAndFix(args) {
     // If source_task_id provided, retrieve original task context for error-feedback retry
     let sourceTask = null;
     if (sourceTaskId) {
-      try { sourceTask = database().getTask(sourceTaskId); } catch (err) {
+      try { sourceTask = taskCore().getTask(sourceTaskId); } catch (err) {
         logger.debug('[automation-handlers] non-critical error loading source task:', err.message || err);
       }
     }
@@ -289,7 +291,7 @@ async function handleAutoVerifyAndFix(args) {
 
       try {
         const fixId = require('uuid').v4();
-        const fixTask = database().createTask({
+        const fixTask = taskCore().createTask({
           id: fixId,
           task_description: fixTaskDesc,
           working_directory: workingDir,
@@ -429,7 +431,7 @@ function handleGenerateTestTasks(args) {
     if (autoSubmit) {
       try {
         const testId = require('uuid').v4();
-        const testTask = database().createTask({
+        const testTask = taskCore().createTask({
           id: testId,
           task_description: taskDesc,
           working_directory: workingDir,
@@ -897,7 +899,7 @@ function handleUpdateProjectStats(args) {
   let testCommand = args.test_command;
   if (!testCommand) {
     try {
-      const defaults = database().getConfig(`project_defaults_${workingDir}`);
+      const defaults = configCore().getConfig(`project_defaults_${workingDir}`);
       if (defaults) {
         const parsed = JSON.parse(defaults);
         testCommand = parsed.verify_command;

@@ -7,8 +7,10 @@ const { v4: uuidv4 } = require('uuid');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
-const database = require('../database');
+const database = require('../database'); // kept for database.upsertIntegration (legacy)
+const configCore = require('../db/config-core');
 const costTracking = require('../db/cost-tracking');
+const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
 const projectConfigCore = require('../db/project-config-core');
 const providerRoutingCore = require('../db/provider-routing-core');
@@ -397,7 +399,7 @@ function executeWebhookDelivery({ webhookId, event, taskId, attempt = 0, maxRetr
     return;
   }
 
-  const task = resolvedTaskId ? database.getTask(resolvedTaskId) : null;
+  const task = resolvedTaskId ? taskCore.getTask(resolvedTaskId) : null;
 
   sendWebhook(webhook, resolvedEvent, task, attempt, resolvedMaxRetries).catch((err) => {
     logger.debug('[webhook-handlers] async sendWebhook rejected during kickoff:', err.message || err);
@@ -739,13 +741,13 @@ function handleConfigureRetries(args) {
   } else {
     // Set defaults
     if (args.max_retries !== undefined) {
-      database.setConfig('default_max_retries', String(args.max_retries));
+      configCore.setConfig('default_max_retries', String(args.max_retries));
     }
     if (args.strategy) {
-      database.setConfig('default_retry_strategy', args.strategy);
+      configCore.setConfig('default_retry_strategy', args.strategy);
     }
     if (args.base_delay_seconds !== undefined) {
-      database.setConfig('default_retry_delay', String(args.base_delay_seconds));
+      configCore.setConfig('default_retry_delay', String(args.base_delay_seconds));
     }
 
     return {
@@ -911,13 +913,13 @@ function getAutoArchiveStatuses() {
 
 function handleConfigureAutoCleanup(args) {
   if (args.auto_archive_days !== undefined) {
-    database.setConfig('auto_archive_days', String(args.auto_archive_days));
+    configCore.setConfig('auto_archive_days', String(args.auto_archive_days));
   }
   if (args.auto_archive_status) {
-    database.setConfig('auto_archive_status', JSON.stringify(args.auto_archive_status));
+    configCore.setConfig('auto_archive_status', JSON.stringify(args.auto_archive_status));
   }
   if (args.cleanup_log_days !== undefined) {
-    database.setConfig('cleanup_log_days', String(args.cleanup_log_days));
+    configCore.setConfig('cleanup_log_days', String(args.cleanup_log_days));
   }
 
   const config = {
@@ -1031,7 +1033,7 @@ async function handleNotifySlack(args) {
   // Build message
   let text = message;
   if (task_id) {
-    const task = database.getTask(task_id);
+    const task = taskCore.getTask(task_id);
     if (task) {
       text += `\n\n*Task:* \`${task_id}\`\n*Status:* ${task.status}`;
     }
@@ -1096,7 +1098,7 @@ async function handleNotifyDiscord(args) {
   // Build message
   let content = message;
   if (task_id) {
-    const task = database.getTask(task_id);
+    const task = taskCore.getTask(task_id);
     if (task) {
       content += `\n\n**Task:** \`${task_id}\`\n**Status:** ${task.status}`;
     }
