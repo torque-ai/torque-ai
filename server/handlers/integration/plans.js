@@ -2,7 +2,8 @@
  * Integration plan project handlers.
  */
 
-const db = require('../../database');
+const database = require('../../database');
+const projectConfigCore = require('../../db/project-config-core');
 const { isPathTraversalSafe, makeError, ErrorCodes } = require('../shared');
 
 // ============================================
@@ -119,7 +120,7 @@ ${planContent}`;
   }
 
   // Create the project
-  const project = db.createPlanProject({
+  const project = projectConfigCore.createPlanProject({
     name,
     source_file: file_path,
     total_tasks: tasksToCreate.length
@@ -131,14 +132,14 @@ ${planContent}`;
     const canStart = task.depends_on.length === 0;
     const initialStatus = canStart ? 'queued' : 'waiting';
 
-    db.createTask({
+    database.createTask({
       id: task.id,
       task_description: task.description,
       working_directory: working_directory || process.cwd(),
       status: initialStatus
     });
 
-    db.addTaskToPlanProject(project.id, task.id, task.seq, task.depends_on);
+    projectConfigCore.addTaskToPlanProject(project.id, task.id, task.seq, task.depends_on);
   }
 
   return {
@@ -159,7 +160,7 @@ ${planContent}`;
  * List all plan projects
  */
 function handleListPlanProjects(args) {
-  const projects = db.listPlanProjects({
+  const projects = projectConfigCore.listPlanProjects({
     status: args.status,
     limit: args.limit || 20
   });
@@ -182,12 +183,12 @@ function handleListPlanProjects(args) {
 function handleGetPlanProject(args) {
   const { project_id } = args;
 
-  const project = db.getPlanProject(project_id);
+  const project = projectConfigCore.getPlanProject(project_id);
   if (!project) {
     return { error: 'Project not found' };
   }
 
-  const tasks = db.getPlanProjectTasks(project_id);
+  const tasks = projectConfigCore.getPlanProjectTasks(project_id);
 
   // Group by status
   const byStatus = {
@@ -222,22 +223,22 @@ function handleGetPlanProject(args) {
 function handlePausePlanProject(args) {
   const { project_id } = args;
 
-  const project = db.getPlanProject(project_id);
+  const project = projectConfigCore.getPlanProject(project_id);
   if (!project) {
     return { error: 'Project not found' };
   }
 
-  const tasks = db.getPlanProjectTasks(project_id);
+  const tasks = projectConfigCore.getPlanProjectTasks(project_id);
   let paused = 0;
 
   for (const task of tasks) {
     if (['queued', 'waiting'].includes(task.status)) {
-      db.updateTaskStatus(task.task_id, 'paused');
+      database.updateTaskStatus(task.task_id, 'paused');
       paused++;
     }
   }
 
-  db.updatePlanProject(project_id, { status: 'paused' });
+  projectConfigCore.updatePlanProject(project_id, { status: 'paused' });
 
   return {
     success: true,
@@ -253,29 +254,29 @@ function handlePausePlanProject(args) {
 function handleResumePlanProject(args) {
   const { project_id } = args;
 
-  const project = db.getPlanProject(project_id);
+  const project = projectConfigCore.getPlanProject(project_id);
   if (!project) {
     return { error: 'Project not found' };
   }
 
-  const tasks = db.getPlanProjectTasks(project_id);
+  const tasks = projectConfigCore.getPlanProjectTasks(project_id);
   let resumed = 0;
 
   for (const task of tasks) {
     if (task.status === 'paused') {
       // Check if dependencies are met
-      if (db.areAllPlanDependenciesComplete(task.task_id)) {
-        db.updateTaskStatus(task.task_id, 'queued');
-      } else if (db.hasFailedPlanDependency(task.task_id)) {
-        db.updateTaskStatus(task.task_id, 'blocked');
+      if (projectConfigCore.areAllPlanDependenciesComplete(task.task_id)) {
+        database.updateTaskStatus(task.task_id, 'queued');
+      } else if (projectConfigCore.hasFailedPlanDependency(task.task_id)) {
+        database.updateTaskStatus(task.task_id, 'blocked');
       } else {
-        db.updateTaskStatus(task.task_id, 'waiting');
+        database.updateTaskStatus(task.task_id, 'waiting');
       }
       resumed++;
     }
   }
 
-  db.updatePlanProject(project_id, { status: 'active' });
+  projectConfigCore.updatePlanProject(project_id, { status: 'active' });
 
   return {
     success: true,
@@ -291,19 +292,19 @@ function handleResumePlanProject(args) {
 function handleRetryPlanProject(args) {
   const { project_id } = args;
 
-  const project = db.getPlanProject(project_id);
+  const project = projectConfigCore.getPlanProject(project_id);
   if (!project) {
     return { error: 'Project not found' };
   }
 
-  const tasks = db.getPlanProjectTasks(project_id);
+  const tasks = projectConfigCore.getPlanProjectTasks(project_id);
   let retried = 0;
   let unblocked = 0;
 
   // First, retry failed tasks
   for (const task of tasks) {
     if (task.status === 'failed') {
-      db.updateTaskStatus(task.task_id, 'queued', {
+      database.updateTaskStatus(task.task_id, 'queued', {
         error_output: null,
         started_at: null,
         completed_at: null
@@ -316,11 +317,11 @@ function handleRetryPlanProject(args) {
   for (const task of tasks) {
     if (task.status === 'blocked') {
       // Check if dependencies are now okay (retried tasks are queued, not failed)
-      if (!db.hasFailedPlanDependency(task.task_id)) {
-        if (db.areAllPlanDependenciesComplete(task.task_id)) {
-          db.updateTaskStatus(task.task_id, 'queued');
+      if (!projectConfigCore.hasFailedPlanDependency(task.task_id)) {
+        if (projectConfigCore.areAllPlanDependenciesComplete(task.task_id)) {
+          database.updateTaskStatus(task.task_id, 'queued');
         } else {
-          db.updateTaskStatus(task.task_id, 'waiting');
+          database.updateTaskStatus(task.task_id, 'waiting');
         }
         unblocked++;
       }
@@ -328,7 +329,7 @@ function handleRetryPlanProject(args) {
   }
 
   // Update project status
-  db.updatePlanProject(project_id, {
+  projectConfigCore.updatePlanProject(project_id, {
     status: 'active',
     failed_tasks: 0
   });

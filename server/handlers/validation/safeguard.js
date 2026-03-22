@@ -4,7 +4,8 @@
  * Extracted from validation-handlers.js
  */
 
-const db = require('../../database');
+const database = require('../../database');
+const fileTracking = require('../../db/file-tracking');
 const { SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../../constants');
 const { ErrorCodes, makeError, requireTask } = require('../shared');
 
@@ -19,7 +20,7 @@ async function handleCaptureTestBaseline(args) {
   }
 
 
-  const baseline = await db.captureTestBaseline(args.task_id, args.working_directory);
+  const baseline = await fileTracking.captureTestBaseline(args.task_id, args.working_directory);
 
   return {
     content: [{
@@ -46,14 +47,14 @@ async function handleDetectRegressions(args) {
 
 
   const baselineKey = `test_baseline_${args.task_id}`;
-  const baselineJson = db.getConfig(baselineKey);
+  const baselineJson = database.getConfig(baselineKey);
   let baseline = baselineJson ? JSON.parse(baselineJson) : null;
 
   if (!baseline) {
-    baseline = await db.captureTestBaseline(args.task_id, args.working_directory);
+    baseline = await fileTracking.captureTestBaseline(args.task_id, args.working_directory);
   }
 
-  const result = await db.detectRegressions(args.task_id, args.working_directory, baseline);
+  const result = await fileTracking.detectRegressions(args.task_id, args.working_directory, baseline);
 
   return {
     content: [{
@@ -76,7 +77,7 @@ function handleCaptureConfigBaselines(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
   }
 
-  const result = db.captureConfigBaselines(args.working_directory);
+  const result = fileTracking.captureConfigBaselines(args.working_directory);
 
   return {
     content: [{
@@ -97,7 +98,7 @@ function handleDetectConfigDrift(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id and working_directory are required');
   }
 
-  const result = db.detectConfigDrift(args.task_id, args.working_directory);
+  const result = fileTracking.detectConfigDrift(args.task_id, args.working_directory);
 
   return {
     content: [{
@@ -115,17 +116,17 @@ function handleDetectConfigDrift(args) {
  * Estimate resource usage
  */
 function handleEstimateResources(args) {
-  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const results = [];
 
   for (const change of fileChanges) {
     if (change.new_content && change.file_path) {
       const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
       if (SOURCE_EXTENSIONS.has(ext.toLowerCase())) {
-        const estimate = db.estimateResourceUsage(args.task_id, change.file_path, change.new_content);
+        const estimate = fileTracking.estimateResourceUsage(args.task_id, change.file_path, change.new_content);
         results.push(estimate);
       }
     }
@@ -150,10 +151,10 @@ function handleEstimateResources(args) {
  * Check internationalization
  */
 function handleCheckI18n(args) {
-  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const results = [];
 
   for (const change of fileChanges) {
@@ -161,7 +162,7 @@ function handleCheckI18n(args) {
       const uiExtensions = ['.js', '.ts', '.jsx', '.tsx'];
       const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
       if (uiExtensions.includes(ext.toLowerCase())) {
-        const i18nResult = db.checkI18n(args.task_id, change.file_path, change.new_content);
+        const i18nResult = fileTracking.checkI18n(args.task_id, change.file_path, change.new_content);
         results.push(i18nResult);
       }
     }
@@ -186,17 +187,17 @@ function handleCheckI18n(args) {
  * Check accessibility
  */
 function handleCheckAccessibility(args) {
-  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const results = [];
 
   for (const change of fileChanges) {
     if (change.new_content && change.file_path) {
       const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
       if (UI_EXTENSIONS.has(ext.toLowerCase())) {
-        const a11yResult = db.checkAccessibility(args.task_id, change.file_path, change.new_content);
+        const a11yResult = fileTracking.checkAccessibility(args.task_id, change.file_path, change.new_content);
         results.push(a11yResult);
       }
     }
@@ -221,7 +222,7 @@ function handleCheckAccessibility(args) {
  * Get safeguard tool configurations
  */
 function handleGetSafeguardTools(args) {
-  const tools = db.getSafeguardToolConfigs(args.safeguard_type);
+  const tools = fileTracking.getSafeguardToolConfigs(args.safeguard_type);
 
   return {
     content: [{
@@ -244,7 +245,7 @@ function handleVerifyTypeReferences(args) {
   if (!args.content) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'content is required');
   if (!args.working_directory) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
 
-  const result = db.verifyTypeReferences(args.task_id, args.file_path, args.content, args.working_directory);
+  const result = fileTracking.verifyTypeReferences(args.task_id, args.file_path, args.content, args.working_directory);
 
   return {
     content: [{
@@ -260,7 +261,7 @@ function handleVerifyTypeReferences(args) {
 function handleGetTypeVerificationResults(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
 
-  const results = db.getTypeVerificationResults(args.task_id);
+  const results = fileTracking.getTypeVerificationResults(args.task_id);
   const missingTypes = results.filter(r => !r.exists_in_codebase);
 
   return {
@@ -284,7 +285,7 @@ function handleAnalyzeBuildOutput(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   if (!args.build_output) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'build_output is required');
 
-  const result = db.analyzeBuildOutput(args.task_id, args.build_output);
+  const result = fileTracking.analyzeBuildOutput(args.task_id, args.build_output);
 
   return {
     content: [{
@@ -300,7 +301,7 @@ function handleAnalyzeBuildOutput(args) {
 function handleGetBuildErrorAnalysis(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
 
-  const results = db.getBuildErrorAnalysis(args.task_id);
+  const results = fileTracking.getBuildErrorAnalysis(args.task_id);
 
   return {
     content: [{
@@ -323,7 +324,7 @@ function handleCalculateTaskComplexity(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   if (!args.task_description) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_description is required');
 
-  const result = db.calculateTaskComplexityScore(args.task_id, args.task_description);
+  const result = fileTracking.calculateTaskComplexityScore(args.task_id, args.task_description);
 
   return {
     content: [{
@@ -339,7 +340,7 @@ function handleCalculateTaskComplexity(args) {
 function handleGetTaskComplexityScore(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
 
-  const result = db.getTaskComplexityScore(args.task_id);
+  const result = fileTracking.getTaskComplexityScore(args.task_id);
 
   return {
     content: [{
@@ -357,7 +358,7 @@ function handlePerformAutoRollback(args) {
   if (!args.working_directory) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
   if (!args.trigger_reason) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'trigger_reason is required');
 
-  const result = db.performAutoRollback(args.task_id, args.working_directory, args.trigger_reason);
+  const result = fileTracking.performAutoRollback(args.task_id, args.working_directory, args.trigger_reason);
 
   return {
     content: [{
@@ -371,7 +372,7 @@ function handlePerformAutoRollback(args) {
  * Get auto-rollback history
  */
 function handleGetAutoRollbackHistory(args) {
-  const results = db.getAutoRollbackHistory(args.task_id);
+  const results = fileTracking.getAutoRollbackHistory(args.task_id);
 
   return {
     content: [{

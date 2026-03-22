@@ -1,6 +1,6 @@
 'use strict';
 
-const db = require('../../database');
+const fileTracking = require('../../db/file-tracking');
 const { requireString } = require('../shared');
 
 /**
@@ -14,7 +14,7 @@ function handleValidateXamlSemantics(args) {
   err = requireString(args, 'file_path'); if (err) return err;
   err = requireString(args, 'content'); if (err) return err;
 
-  const result = db.validateXamlSemantics(args.task_id, args.file_path, args.content);
+  const result = fileTracking.validateXamlSemantics(args.task_id, args.file_path, args.content);
 
   return {
     content: [{
@@ -40,7 +40,7 @@ function handleGetXamlValidationResults(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  const results = db.getXamlValidationResults(args.task_id);
+  const results = fileTracking.getXamlValidationResults(args.task_id);
 
   return {
     content: [{
@@ -67,7 +67,7 @@ function handleCheckXamlConsistency(args) {
   err = requireString(args, 'xaml_content'); if (err) return err;
   err = requireString(args, 'codebehind_content'); if (err) return err;
 
-  const result = db.checkXamlCodeBehindConsistency(
+  const result = fileTracking.checkXamlCodeBehindConsistency(
     args.task_id,
     args.xaml_path,
     args.xaml_content,
@@ -98,7 +98,7 @@ function handleGetXamlConsistencyResults(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  const results = db.getXamlConsistencyResults(args.task_id);
+  const results = fileTracking.getXamlConsistencyResults(args.task_id);
 
   return {
     content: [{
@@ -126,7 +126,7 @@ function handleRunAppSmokeTest(args) {
   const timeoutSeconds = args.timeout_seconds || 10;
 
   // Use the synchronous version for MCP tool handlers
-  const result = db.runAppSmokeTestSync(
+  const result = fileTracking.runAppSmokeTestSync(
     args.task_id,
     args.working_directory,
     {
@@ -159,7 +159,7 @@ function handleGetSmokeTestResults(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  const results = db.getSmokeTestResults(args.task_id);
+  const results = fileTracking.getSmokeTestResults(args.task_id);
 
   return {
     content: [{

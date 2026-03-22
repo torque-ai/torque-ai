@@ -3,7 +3,7 @@
  * Extracted from validation-handlers.js
  */
 
-const db = require('../../database');
+const validationRules = require('../../db/validation-rules');
 const { ErrorCodes, makeError } = require('../shared');
 
 /**
@@ -17,7 +17,7 @@ function handleAddFailurePattern(args) {
   }
 
   const id = `fp-${Date.now()}`;
-  db.saveFailurePattern({
+  validationRules.saveFailurePattern({
     id,
     name,
     description,
@@ -49,7 +49,7 @@ function handleGetFailureMatches(args) {
     };
   }
 
-  let matches = db.getFailureMatches(task_id);
+  let matches = validationRules.getFailureMatches(task_id);
 
   if (pattern_id) {
     matches = matches.filter(m => m.pattern_id === pattern_id);
@@ -82,7 +82,7 @@ function handleGetFailureMatches(args) {
  */
 function handleListRetryRules(args) {
   const { enabled_only = true } = args;
-  const rules = db.getRetryRules(enabled_only);
+  const rules = validationRules.getRetryRules(enabled_only);
 
   if (rules.length === 0) {
     return {
@@ -115,7 +115,7 @@ function handleAddRetryRule(args) {
   }
 
   const id = `retry-${Date.now()}`;
-  db.saveRetryRule({
+  validationRules.saveRetryRule({
     id,
     name,
     description,

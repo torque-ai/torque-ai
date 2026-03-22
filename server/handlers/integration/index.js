@@ -6,7 +6,12 @@
  */
 
 const path = require('path');
-const db = require('../../database');
+const database = require('../../database');
+const eventTracking = require('../../db/event-tracking');
+const fileTracking = require('../../db/file-tracking');
+const projectConfigCore = require('../../db/project-config-core');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const taskMetadata = require('../../db/task-metadata');
 const taskManager = require('../../task-manager');
 const chunkedReview = require('../../chunked-review');
 const shared = require('../shared');
@@ -28,11 +33,11 @@ function handleExportReportCSV(args) {
     limit: args.limit || 1000
   };
 
-  const result = db.exportTasksToCSV(filters);
+  const result = projectConfigCore.exportTasksToCSV(filters);
 
   // Create export record
-  const exportRecord = db.createReportExport('tasks', 'csv', filters);
-  db.updateReportExport(exportRecord.id, 'completed', null, result.csv.length, result.row_count);
+  const exportRecord = projectConfigCore.createReportExport('tasks', 'csv', filters);
+  projectConfigCore.updateReportExport(exportRecord.id, 'completed', null, result.csv.length, result.row_count);
 
   let output = `## CSV Export\n\n`;
   output += `- **Rows:** ${result.row_count}\n`;
@@ -62,11 +67,11 @@ function handleExportReportJSON(args) {
     limit: args.limit || 1000
   };
 
-  const result = db.exportTasksToJSON(filters);
+  const result = projectConfigCore.exportTasksToJSON(filters);
 
   // Create export record
-  const exportRecord = db.createReportExport('tasks', 'json', filters);
-  db.updateReportExport(exportRecord.id, 'completed', null, result.json.length, result.row_count);
+  const exportRecord = projectConfigCore.createReportExport('tasks', 'json', filters);
+  projectConfigCore.updateReportExport(exportRecord.id, 'completed', null, result.json.length, result.row_count);
 
   let output = `## JSON Export\n\n`;
   output += `- **Rows:** ${result.row_count}\n`;
@@ -119,7 +124,7 @@ function handleExportReportJSON(args) {
 function handleListIntegrations(args) {
   const { include_disabled = false } = args;
 
-  const integrations = db.listIntegrationConfigs();
+  const integrations = providerRoutingCore.listIntegrationConfigs();
   const filtered = include_disabled
     ? integrations
     : integrations.filter(i => i.enabled);
@@ -151,7 +156,7 @@ async function handleIntegrationHealth(args) {
   const { integration_type = 'all', include_history = false } = args;
   
 
-  const integrations = db.listIntegrationConfigs();
+  const integrations = providerRoutingCore.listIntegrationConfigs();
   const toCheck = integration_type === 'all'
     ? integrations.filter(i => i.enabled)
     : integrations.filter(i => i.integration_type === integration_type && i.enabled);
@@ -193,7 +198,7 @@ async function handleIntegrationHealth(args) {
       error = e.message;
     }
 
-    db.recordIntegrationHealth(integration.integration_type, integration.id, status, latency, error);
+    projectConfigCore.recordIntegrationHealth(integration.integration_type, integration.id, status, latency, error);
 
     const statusIcon = status === 'reachable' || status === 'configured' ? '✓' : '✗';
     output += `| ${integration.integration_type} | ${statusIcon} ${status} | ${latency !== null ? latency + 'ms' : 'N/A'} |\n`;
@@ -205,7 +210,7 @@ async function handleIntegrationHealth(args) {
   }
 
   if (include_history) {
-    const history = db.getIntegrationHealthHistory(integration_type === 'all' ? null : integration_type, 10);
+    const history = projectConfigCore.getIntegrationHealthHistory(integration_type === 'all' ? null : integration_type, 10);
     if (history.length > 0) {
       output += `\n### Recent Health Checks\n\n`;
       output += `| Type | Status | Latency | Time |\n`;
@@ -240,7 +245,7 @@ async function handleTestIntegration(args) {
   const err = requireEnum(args, 'integration_type', ['slack', 'discord']);
   if (err) return err;
 
-  const integration = db.getEnabledIntegration(integration_type);
+  const integration = providerRoutingCore.getEnabledIntegration(integration_type);
   if (!integration) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `${integration_type} integration not configured or not enabled`);
   }
@@ -298,7 +303,7 @@ async function handleTestIntegration(args) {
   }
 
   const latency = Date.now() - startTime;
-  db.recordIntegrationTest(integration_type, integration.id, 'message', status, message, responseData, error, latency);
+  projectConfigCore.recordIntegrationTest(integration_type, integration.id, 'message', status, message, responseData, error, latency);
 
   let output = `## Integration Test: ${integration_type}\n\n`;
   output += `- **Status:** ${status === 'success' ? '✓ Success' : '✗ Failed'}\n`;
@@ -323,7 +328,7 @@ function handleDisableIntegration(args) {
   const err = requireString(args, 'integration_type');
   if (err) return err;
 
-  const integration = db.getIntegrationConfig(`${integration_type}_config`);
+  const integration = providerRoutingCore.getIntegrationConfig(`${integration_type}_config`);
   if (!integration) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `${integration_type} integration not configured`);
   }
@@ -333,7 +338,7 @@ function handleDisableIntegration(args) {
     ? JSON.parse(integration.config)
     : integration.config;
 
-  db.saveIntegrationConfig({
+  providerRoutingCore.saveIntegrationConfig({
     id: integration.id,
     integration_type: integration.integration_type,
     config,
@@ -358,7 +363,7 @@ function handleEnableIntegration(args) {
   const err = requireString(args, 'integration_type');
   if (err) return err;
 
-  const integration = db.getIntegrationConfig(`${integration_type}_config`);
+  const integration = providerRoutingCore.getIntegrationConfig(`${integration_type}_config`);
   if (!integration) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `${integration_type} integration not configured. Use configure_integration first.`);
   }
@@ -368,7 +373,7 @@ function handleEnableIntegration(args) {
     ? JSON.parse(integration.config)
     : integration.config;
 
-  db.saveIntegrationConfig({
+  providerRoutingCore.saveIntegrationConfig({
     id: integration.id,
     integration_type: integration.integration_type,
     config,
@@ -389,7 +394,7 @@ function handleEnableIntegration(args) {
 function handleListReportExports(args) {
   const { limit = 50 } = args;
 
-  const exports = db.listReportExports(limit);
+  const exports = projectConfigCore.listReportExports(limit);
 
   let output = `## Report Exports\n\n`;
 
@@ -418,7 +423,7 @@ function handleTaskChanges(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'task_id is required and must be a non-empty string');
   }
 
-  const task = db.getTask(task_id);
+  const task = database.getTask(task_id);
   if (!task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${task_id}`);
   }
@@ -472,7 +477,7 @@ function handleRollbackFile(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'task_id is required and must be a non-empty string');
   }
 
-  const task = db.getTask(task_id);
+  const task = database.getTask(task_id);
   if (!task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${task_id}`);
   }
@@ -496,7 +501,7 @@ function handleRollbackFile(args) {
     safeGit(['checkout', task.git_before_sha, '--', args.file_path], { cwd: workDir, maxBuffer: 10 * 1024 * 1024, timeout: 10000 });
 
     // Record the file change
-    db.recordFileChange(task_id, {
+    fileTracking.recordFileChange(task_id, {
       file_path: args.file_path,
       change_type: 'rollback'
     });
@@ -519,7 +524,7 @@ function handleRollbackFile(args) {
 function handleStashChanges(args) {
   let workDir;
   if (args.task_id) {
-    const task = db.getTask(args.task_id);
+    const task = database.getTask(args.task_id);
     if (!task) {
       return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
     }
@@ -541,7 +546,7 @@ function handleStashChanges(args) {
     const stashRef = sgit(['stash', 'list', '-n', '1'], { cwd: workDir }).trim();
 
     if (args.task_id) {
-      db.recordFileChange(args.task_id, {
+      fileTracking.recordFileChange(args.task_id, {
         file_path: '*',
         change_type: 'stash',
         stash_ref: stashRef
@@ -564,7 +569,7 @@ function handleStashChanges(args) {
  * List rollback points for a task
  */
 function handleListRollbackPoints(args) {
-  const points = db.getRollbackPoints(args.task_id);
+  const points = taskMetadata.getRollbackPoints(args.task_id);
 
   if (!points.task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
@@ -594,7 +599,7 @@ function handleListRollbackPoints(args) {
  * Get success rates
  */
 function handleSuccessRates(args) {
-  const rates = db.getSuccessRates({
+  const rates = eventTracking.getSuccessRates({
     groupBy: args.group_by || 'project',
     project: args.project,
     template: args.template,
@@ -634,7 +639,7 @@ function handleSuccessRates(args) {
  * Compare performance between periods
  */
 function handleComparePerformance(args) {
-  const comparison = db.comparePerformance({
+  const comparison = eventTracking.comparePerformance({
     current_from: args.current_from,
     current_to: args.current_to,
     previous_from: args.previous_from,
@@ -665,16 +670,16 @@ function handleViewDependencies(args) {
   let tasks;
 
   if (args.task_id) {
-    const task = db.getTask(args.task_id);
+    const task = database.getTask(args.task_id);
     if (!task) {
       return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
     }
-    tasks = [task, ...db.getDependentTasks(args.task_id)];
+    tasks = [task, ...projectConfigCore.getDependentTasks(args.task_id)];
   } else {
     const statuses = args.include_completed
       ? ['pending', 'queued', 'running', 'completed']
       : ['pending', 'queued', 'running'];
-    tasks = db.listTasks({ project: args.project, statuses, limit: 100 });
+    tasks = database.listTasks({ project: args.project, statuses, limit: 100 });
   }
 
   // Build Mermaid diagram
@@ -686,7 +691,7 @@ function handleViewDependencies(args) {
     mermaid += `  ${shortId}["${label}..."]\n`;
 
     if (task.depends_on) {
-      const deps = typeof task.depends_on === 'string' ? db.safeJsonParse(task.depends_on, []) : (task.depends_on || []);
+      const deps = typeof task.depends_on === 'string' ? eventTracking.safeJsonParse(task.depends_on, []) : (task.depends_on || []);
       for (const dep of deps) {
         if (dep && typeof dep === 'string') {
           mermaid += `  ${dep.substring(0, 8)} --> ${shortId}\n`;
@@ -814,11 +819,11 @@ List each potential bug with line numbers and explanation.`
 
   // If no chunking needed, submit single task
   if (!chunkInfo.needsChunking) {
-    const routingResult = db.analyzeTaskForRouting(`Review ${fileName}`, process.cwd(), [file_path]);
+    const routingResult = providerRoutingCore.analyzeTaskForRouting(`Review ${fileName}`, process.cwd(), [file_path]);
     const taskId = require('uuid').v4();
 
     const singleReviewProvider = model ? 'ollama' : routingResult.provider;
-    db.createTask({
+    database.createTask({
       id: taskId,
       task_description: `${basePrompt}\n\nFile: ${fileName}\n\nReview the entire file.`,
       working_directory: process.cwd(),
@@ -861,10 +866,10 @@ List each potential bug with line numbers and explanation.`
 
     const fullTask = `${chunkTask.task}\n\n---\n\n\`\`\`\n${chunkContent}\n\`\`\``;
 
-    const routingResult = db.analyzeTaskForRouting(`Review ${fileName}`, process.cwd(), [file_path]);
+    const routingResult = providerRoutingCore.analyzeTaskForRouting(`Review ${fileName}`, process.cwd(), [file_path]);
 
     const chunkProvider = model ? 'ollama' : routingResult.provider;
-    db.createTask({
+    database.createTask({
       id: taskId,
       task_description: fullTask,
       working_directory: process.cwd(),
@@ -893,7 +898,7 @@ List each potential bug with line numbers and explanation.`
   const aggTask = chunkedReview.generateAggregationTask(file_path, chunkTasks.length, taskIds);
   const aggTaskId = require('uuid').v4();
 
-  db.createTask({
+  database.createTask({
     id: aggTaskId,
     task_description: aggTask.task,
     working_directory: process.cwd(),

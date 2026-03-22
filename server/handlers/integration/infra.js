@@ -4,7 +4,9 @@
 
 const path = require('path');
 const fs = require('fs');
-const db = require('../../database');
+const database = require('../../database');
+const hostManagement = require('../../db/host-management');
+const providerRoutingCore = require('../../db/provider-routing-core');
 const serverConfig = require('../../config');
 const { CODE_EXTENSIONS, SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../../constants');
 const { PROVIDER_CONTEXT_BUDGETS } = require('../../utils/context-stuffing');
@@ -46,7 +48,7 @@ function handleConfigureIntegration(args) {
     }
   }
 
-  db.saveIntegrationConfig({
+  providerRoutingCore.saveIntegrationConfig({
     id: `${integration_type}_config`,
     integration_type,
     config,
@@ -75,13 +77,13 @@ function handleSetHostPriority(args) {
   }
 
   // Before setting priority, verify host exists
-  const hosts = db.listOllamaHosts();
+  const hosts = hostManagement.listOllamaHosts();
   const host = hosts.find(h => h.name === args.host_id || h.id === args.host_id);
   if (!host) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Host not found: ${args.host_id}`);
   }
 
-  db.setHostPriority(args.host_id, args.priority);
+  hostManagement.setHostPriority(args.host_id, args.priority);
 
   return {
     content: [{ type: 'text', text: `## Host Priority Updated\n\nHost ${args.host_id} priority set to **${args.priority}**.\n\nLower numbers = higher priority.` }]
@@ -94,13 +96,13 @@ function handleSetHostPriority(args) {
  */
 function handleConfigureReviewWorkflow(args) {
   if (args.review_interval_minutes !== undefined) {
-    db.setConfig('review_interval_minutes', String(args.review_interval_minutes));
+    database.setConfig('review_interval_minutes', String(args.review_interval_minutes));
   }
   if (args.auto_approve_simple !== undefined) {
-    db.setConfig('auto_approve_simple', args.auto_approve_simple ? '1' : '0');
+    database.setConfig('auto_approve_simple', args.auto_approve_simple ? '1' : '0');
   }
   if (args.require_review_for_complex !== undefined) {
-    db.setConfig('require_review_for_complex', args.require_review_for_complex ? '1' : '0');
+    database.setConfig('require_review_for_complex', args.require_review_for_complex ? '1' : '0');
   }
 
   const config = {
@@ -133,7 +135,7 @@ function handleGetReviewWorkflowConfig(_args) {
   };
 
   // Get host priorities
-  const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];
+  const hosts = hostManagement.listOllamaHosts ? hostManagement.listOllamaHosts() : [];
 
   let output = `## Review Workflow Configuration\n\n`;
   output += `### Review Settings\n`;
@@ -154,7 +156,7 @@ function handleGetReviewWorkflowConfig(_args) {
   output += `| Complexity | Destination |\n`;
   output += `|------------|-------------|\n`;
   for (const level of ['simple', 'normal', 'complex']) {
-    const routing = db.routeTask(level);
+    const routing = hostManagement.routeTask(level);
     if (routing && routing.provider) {
       output += `| ${level} | ${routing.provider}${routing.hostId ? ' (' + routing.hostId + ')' : ''} |\n`;
     } else {
@@ -176,7 +178,7 @@ function handleBackupDatabase(args) {
   );
 
   try {
-    const result = db.backupDatabase(destPath);
+    const result = database.backupDatabase(destPath);
     let output = `## Database Backup Created\n\n`;
     output += `**Path:** ${result.path}\n`;
     output += `**Size:** ${(result.size / 1024).toFixed(1)} KB\n`;
@@ -198,7 +200,7 @@ async function handleRestoreDatabase(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Destructive operation requires confirm: true (boolean)');
   }
   try {
-    const result = await db.restoreDatabase(args.src_path, args.confirm);
+    const result = await database.restoreDatabase(args.src_path, args.confirm);
     let output = `## Database Restored\n\n`;
     output += `**From:** ${result.restored_from}\n`;
     output += `**At:** ${result.restored_at}\n`;
@@ -213,7 +215,7 @@ async function handleRestoreDatabase(args) {
 
 function handleListDatabaseBackups(args) {
   try {
-    const backups = db.listBackups(args.directory);
+    const backups = database.listBackups(args.directory);
     if (backups.length === 0) {
       return { content: [{ type: 'text', text: '## Database Backups\n\nNo backups found.' }] };
     }
@@ -265,7 +267,7 @@ async function handleSendEmailNotification(args) {
 
   if (!smtpHost || !smtpUser || !smtpPass || !smtpFrom) {
     // SMTP not configured — record as pending
-    db.recordEmailNotification({
+    database.recordEmailNotification({
       id: notificationId,
       task_id: task_id || null,
       recipient,
@@ -292,7 +294,7 @@ async function handleSendEmailNotification(args) {
     nodemailer = require('nodemailer');
   } catch {
     // nodemailer not installed — record as pending
-    db.recordEmailNotification({
+    database.recordEmailNotification({
       id: notificationId,
       task_id: task_id || null,
       recipient,
@@ -332,7 +334,7 @@ async function handleSendEmailNotification(args) {
       text: body
     });
 
-    db.recordEmailNotification({
+    database.recordEmailNotification({
       id: notificationId,
       task_id: task_id || null,
       recipient,
@@ -350,7 +352,7 @@ async function handleSendEmailNotification(args) {
 
     return { content: [{ type: 'text', text: output }] };
   } catch (err) {
-    db.recordEmailNotification({
+    database.recordEmailNotification({
       id: notificationId,
       task_id: task_id || null,
       recipient,
@@ -383,7 +385,7 @@ function handleListEmailNotifications(args) {
     limit: args.limit || 100
   };
 
-  const notifications = db.listEmailNotifications(options);
+  const notifications = database.listEmailNotifications(options);
 
   let output = `## Email Notifications\n\n`;
 
@@ -416,7 +418,7 @@ function handleGetEmailNotification(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'id is required');
   }
 
-  const notification = db.getEmailNotification(id);
+  const notification = database.getEmailNotification(id);
 
   if (!notification) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Email notification not found: ${id}`);
@@ -829,7 +831,7 @@ function handleFullProjectAudit(args) {
   const enabledProviders = [];
   for (const name of COST_FREE_PROVIDERS) {
     try {
-      const config = db.getProvider(name);
+      const config = providerRoutingCore.getProvider(name);
       if (config && config.enabled) {
         const isLocal = ['ollama', 'hashline-ollama', 'aider-ollama'].includes(name);
         const budget = isLocal ? Infinity : (PROVIDER_CONTEXT_BUDGETS[name] || 96000);

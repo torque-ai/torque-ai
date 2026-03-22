@@ -4,7 +4,10 @@
 
 const path = require('path');
 const fs = require('fs');
-const db = require('../../database');
+const database = require('../../database');
+const hostManagement = require('../../db/host-management');
+const providerRoutingCore = require('../../db/provider-routing-core');
+const workflowEngine = require('../../db/workflow-engine');
 const taskManager = require('../../task-manager');
 const { PROVIDER_DEFAULTS } = require('../../constants');
 const { ErrorCodes, makeError } = require('../error-codes');
@@ -13,7 +16,7 @@ const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');
-serverConfig.init({ db });
+serverConfig.init({ db: database });
 
 /**
  * Format a routing rule (or result object) as a Markdown table.
@@ -300,7 +303,7 @@ async function handleSmartSubmitTask(args) {
   // D2.2: Single source — getProviderHealthScore() now lives in provider-routing-core.js
   const getProviderHealthScore = (providerName) => {
     try {
-      return db.getProviderHealthScore(providerName);
+      return providerRoutingCore.getProviderHealthScore(providerName);
     } catch (e) {
       logger.debug('[smart-routing] getProviderHealthScore error:', e.message);
       return 0.5;
@@ -310,9 +313,9 @@ async function handleSmartSubmitTask(args) {
   // Single source of truth: provider-routing-core.js owns the fallback chain.
   // No inline fallback list — getProviderFallbackChain() always returns a default.
   const getFallbackProviderChain = (providerName) => {
-    if (typeof db.getProviderFallbackChain === 'function') {
+    if (typeof providerRoutingCore.getProviderFallbackChain === 'function') {
       try {
-        return db.getProviderFallbackChain(providerName);
+        return providerRoutingCore.getProviderFallbackChain(providerName);
       } catch (e) { logger.debug('[smart-routing] getProviderFallbackChain error:', e.message); }
     }
     // Defensive: should never reach here since db is always initialized,
@@ -326,10 +329,10 @@ async function handleSmartSubmitTask(args) {
     routingResult = { provider: override_provider, rule: null, reason: 'User override' };
   } else {
     // Run fresh health check before routing (force=true to avoid stale cache)
-    await db.checkOllamaHealth(true);
+    await providerRoutingCore.checkOllamaHealth(true);
 
     // Use smart routing (will use freshly updated health status for fallback decisions)
-    routingResult = db.analyzeTaskForRouting(task, working_directory, files, {
+    routingResult = providerRoutingCore.analyzeTaskForRouting(task, working_directory, files, {
       preferFree: !!prefer_free,
       taskMetadata: routing_template ? { _routing_template: routing_template } : undefined,
     });
@@ -346,7 +349,7 @@ async function handleSmartSubmitTask(args) {
   if (availCheck) return availCheck.error;
 
   // Validate provider
-  const providerConfig = db.getProvider(selectedProvider);
+  const providerConfig = providerRoutingCore.getProvider(selectedProvider);
   if (!providerConfig) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Selected provider not found: ${selectedProvider}`);
   }
@@ -357,14 +360,14 @@ async function handleSmartSubmitTask(args) {
       return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} is disabled. Enable it or choose a different provider.`);
     }
     // Auto-routed: fallback to default
-    selectedProvider = db.getDefaultProvider();
+    selectedProvider = providerRoutingCore.getDefaultProvider();
     routingResult.reason += ` (original provider disabled, falling back to ${selectedProvider})`;
   }
 
   // Determine task complexity for routing and review requirements
-  const complexity = routingResult.complexity || db.determineTaskComplexity(task, files);
-  const splitAdvisory = typeof db.getSplitAdvisory === 'function'
-    ? db.getSplitAdvisory(complexity, files)
+  const complexity = routingResult.complexity || hostManagement.determineTaskComplexity(task, files);
+  const splitAdvisory = typeof hostManagement.getSplitAdvisory === 'function'
+    ? hostManagement.getSplitAdvisory(complexity, files)
     : (complexity === 'complex' && files && files.length >= 3);
   const splitSuggestions = splitAdvisory ? buildSplitSuggestions(files) : [];
   const needsReview = complexity === 'complex';
@@ -416,7 +419,7 @@ async function handleSmartSubmitTask(args) {
   const isCSharpTask = /\.cs\b|c#|\.net|csproj|xaml|wpf|winui|maui|blazor|asp\.net|nuget/i.test(task) ||
     (files && files.some(f => /\.cs$|\.csproj$|\.xaml$|\.sln$/i.test(f)));
   if (complexity === 'complex' && !override_provider && isCSharpTask) {
-    const subtasks = db.decomposeTask(task, workingDirectory);
+    const subtasks = hostManagement.decomposeTask(task, workingDirectory);
 
     if (subtasks && subtasks.length > 1) {
       // Ensure working directory exists before creating workflow
@@ -442,7 +445,7 @@ async function handleSmartSubmitTask(args) {
       const workflowName = `Auto: ${task.substring(0, 60)}${task.length > 60 ? '...' : ''}`;
 
       // Create the workflow
-      db.createWorkflow({
+      workflowEngine.createWorkflow({
         id: workflowId,
         name: workflowName,
         description: `Auto-decomposed from: ${task}`,
@@ -450,7 +453,7 @@ async function handleSmartSubmitTask(args) {
       });
 
       // Determine model for subtasks - use balanced tier (14B) since subtasks are simpler
-      const subtaskTier = db.getModelTierForComplexity('normal');
+      const subtaskTier = hostManagement.getModelTierForComplexity('normal');
       const subtaskModel = model || subtaskTier.modelConfig;
       const subtaskProvider = 'aider-ollama';
 
@@ -463,7 +466,7 @@ async function handleSmartSubmitTask(args) {
         const subtaskId = require('uuid').v4();
 
         // Create the subtask — provider deferred until slot claim
-        db.createTask({
+        database.createTask({
           id: subtaskId,
           task_description: subtasks[i],
           working_directory: workingDirectory,
@@ -489,7 +492,7 @@ async function handleSmartSubmitTask(args) {
 
         // Add task dependency if not the first task
         if (prevTaskId) {
-          db.addTaskDependency({
+          workflowEngine.addTaskDependency({
             workflow_id: workflowId,
             task_id: subtaskId,
             depends_on_task_id: prevTaskId,
@@ -509,7 +512,7 @@ async function handleSmartSubmitTask(args) {
       }
 
       // Update workflow status to running and set task counts
-      db.updateWorkflow(workflowId, {
+      workflowEngine.updateWorkflow(workflowId, {
         status: 'running',
         total_tasks: subtasks.length,
         started_at: new Date().toISOString()
@@ -610,7 +613,7 @@ async function handleSmartSubmitTask(args) {
           const action = actionMatch ? actionMatch[1].trim() : task.split(/\s+/).slice(0, 3).join(' ');
           const workflowId = require('uuid').v4();
 
-          db.createWorkflow({ id: workflowId, name: `JS Auto: ${task.substring(0, 55)}${task.length > 55 ? '...' : ''}`, description: `Auto-decomposed: ${largestFile} (${largestLineCount} lines, ${boundaries.length} fns, ${batches.length} batches)`, status: 'pending' });
+          workflowEngine.createWorkflow({ id: workflowId, name: `JS Auto: ${task.substring(0, 55)}${task.length > 55 ? '...' : ''}`, description: `Auto-decomposed: ${largestFile} (${largestLineCount} lines, ${boundaries.length} fns, ${batches.length} batches)`, status: 'pending' });
 
           const subtaskModel = 'qwen2.5-coder:32b';
           const subtaskProvider = 'aider-ollama';
@@ -626,7 +629,7 @@ async function handleSmartSubmitTask(args) {
             const subtaskId = require('uuid').v4();
             const subtaskDesc = `${action} for functions: ${fnNames} in file \`${largestFile}\` (lines ${startLine}-${endLine}). Only modify these specific functions. Do not change any code outside lines ${startLine}-${endLine}.`;
 
-            db.createTask({
+            database.createTask({
               id: subtaskId,
               task_description: subtaskDesc,
               working_directory: jsWorkDir,
@@ -654,12 +657,12 @@ async function handleSmartSubmitTask(args) {
               })
             });
 
-            if (prevTaskId) { db.addTaskDependency({ workflow_id: workflowId, task_id: subtaskId, depends_on_task_id: prevTaskId, on_fail: 'continue' }); }
+            if (prevTaskId) { workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: subtaskId, depends_on_task_id: prevTaskId, on_fail: 'continue' }); }
             createdTasks.push({ taskId: subtaskId, step: i + 1, description: subtaskDesc, nodeId, functions: batch.map(fn => fn.name), lines: `${startLine}-${endLine}` });
             prevTaskId = subtaskId;
           }
 
-          db.updateWorkflow(workflowId, { status: 'running', total_tasks: batches.length, started_at: new Date().toISOString() });
+          workflowEngine.updateWorkflow(workflowId, { status: 'running', total_tasks: batches.length, started_at: new Date().toISOString() });
           taskManager.processQueue();
 
           let output = `## JS File Auto-Decomposed into Workflow\n\n`;
@@ -699,7 +702,7 @@ async function handleSmartSubmitTask(args) {
   let taskModel = model || null;
 
   // Codex exhaustion gate: when quota is exceeded, skip all Codex routing
-  const codexExhausted = db.isCodexExhausted();
+  const codexExhausted = providerRoutingCore.isCodexExhausted();
   if (codexExhausted) {
     logger.info(`[SmartRouting] Codex exhausted — all tasks route to local LLM`);
   }
@@ -849,11 +852,11 @@ async function handleSmartSubmitTask(args) {
       logger.info(`[SmartRouting] EXP1: ${modRoutingReason}`);
     } else {
       // Smart model selection: score models by task type, language, and complexity
-      const taskType = db.classifyTaskType(task);
-      const taskLanguage = db.detectTaskLanguage(task, files || []);
+      const taskType = hostManagement.classifyTaskType(task);
+      const taskLanguage = hostManagement.detectTaskLanguage(task, files || []);
 
       // Gather available models from healthy hosts
-      const hosts = db.listOllamaHosts().filter(h => h.enabled && h.status !== 'down');
+      const hosts = hostManagement.listOllamaHosts().filter(h => h.enabled && h.status !== 'down');
       const availableModels = [...new Set(
         hosts.flatMap(h => {
           try { return JSON.parse(h.models || '[]'); } catch { return []; }
@@ -861,19 +864,19 @@ async function handleSmartSubmitTask(args) {
       )];
 
       if (availableModels.length > 0) {
-        const ranked = db.selectBestModel(taskType, taskLanguage, complexity, availableModels, { estimatedTokens });
+        const ranked = hostManagement.selectBestModel(taskType, taskLanguage, complexity, availableModels, { estimatedTokens });
         if (ranked.length > 0) {
           taskModel = ranked[0].model;
           logger.info(`[SmartRouting] Smart selection: ${taskType}/${taskLanguage}/${complexity} → ${taskModel} (score=${ranked[0].score}, ${ranked[0].reason})`);
         } else {
           // All models filtered (e.g., context window too small) — fall back to tier
-          const modelTier = db.getModelTierForComplexity(complexity);
+          const modelTier = hostManagement.getModelTierForComplexity(complexity);
           taskModel = modelTier.modelConfig;
           logger.info(`[SmartRouting] Smart selection filtered all models, falling back to tier: ${modelTier.tier} → ${taskModel}`);
         }
       } else {
         // No hosts available — fall back to tier-based selection
-        const modelTier = db.getModelTierForComplexity(complexity);
+        const modelTier = hostManagement.getModelTierForComplexity(complexity);
         taskModel = modelTier.modelConfig;
         logger.info(`[SmartRouting] No healthy hosts with models, falling back to tier: ${modelTier.tier} → ${taskModel}`);
       }
@@ -884,7 +887,7 @@ async function handleSmartSubmitTask(args) {
     // selectBestModel on less-loaded hosts. Falls back to legacy tier-based
     // fallback for non-smart-routed code paths (Codex overrides etc.).
     if (taskModel && !model) { // Only when auto-selected, not user-specified
-      const hostCheck = db.selectOllamaHostForModel(taskModel);
+      const hostCheck = hostManagement.selectOllamaHostForModel(taskModel);
       if (hostCheck.host && hostCheck.host.running_tasks > 0) {
         // P77: Skip fallback for async-heavy tasks
         const asyncPattern = /\b(async|await|Promise\b|\.then\(|\.catch\()\b/i;
@@ -895,9 +898,9 @@ async function handleSmartSubmitTask(args) {
           let foundFallback = false;
 
           // If we have a ranked list from smart selection, iterate it
-          const taskType = db.classifyTaskType(task);
-          const taskLanguage = db.detectTaskLanguage(task, files || []);
-          const hosts = db.listOllamaHosts().filter(h => h.enabled && h.status !== 'down');
+          const taskType = hostManagement.classifyTaskType(task);
+          const taskLanguage = hostManagement.detectTaskLanguage(task, files || []);
+          const hosts = hostManagement.listOllamaHosts().filter(h => h.enabled && h.status !== 'down');
           const availableModels = [...new Set(
             hosts.flatMap(h => {
               try { return JSON.parse(h.models || '[]'); } catch { return []; }
@@ -905,10 +908,10 @@ async function handleSmartSubmitTask(args) {
           )];
 
           if (availableModels.length > 1) {
-            const ranked = db.selectBestModel(taskType, taskLanguage, complexity, availableModels, { estimatedTokens });
+            const ranked = hostManagement.selectBestModel(taskType, taskLanguage, complexity, availableModels, { estimatedTokens });
             for (const candidate of ranked) {
               if (candidate.model === taskModel) continue; // Skip current model
-              const candidateHost = db.selectOllamaHostForModel(candidate.model);
+              const candidateHost = hostManagement.selectOllamaHostForModel(candidate.model);
               if (candidateHost.host && candidateHost.host.running_tasks === 0) {
                 logger.info(`[SmartRouting] Smart fallback: Primary '${hostCheck.host.name}' busy → ${candidate.model} on '${candidateHost.host.name}' (score=${candidate.score})`);
                 taskModel = candidate.model;
@@ -923,7 +926,7 @@ async function handleSmartSubmitTask(args) {
             const tierName = complexity === 'simple' ? 'fast' : complexity === 'normal' ? 'balanced' : 'quality';
             const fallbackModel = serverConfig.get(`ollama_${tierName}_model_fallback`);
             if (fallbackModel && fallbackModel !== taskModel) {
-              const fallbackHost = db.selectOllamaHostForModel(fallbackModel);
+              const fallbackHost = hostManagement.selectOllamaHostForModel(fallbackModel);
               if (fallbackHost.host && fallbackHost.host.running_tasks === 0) {
                 logger.info(`[SmartRouting] P71 legacy fallback: ${taskModel} → ${fallbackModel} on '${fallbackHost.host.name}'`);
                 taskModel = fallbackModel;
@@ -937,7 +940,7 @@ async function handleSmartSubmitTask(args) {
 
   // Guard: redirect to codex when the selected provider is disabled in provider_config
   // Skip when user explicitly chose the provider — respect their decision
-  const selectedProviderConfig = db.getProvider(selectedProvider);
+  const selectedProviderConfig = providerRoutingCore.getProvider(selectedProvider);
   if (!override_provider && selectedProviderConfig && !selectedProviderConfig.enabled) {
     const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
     const prevProvider = selectedProvider;
@@ -952,7 +955,7 @@ async function handleSmartSubmitTask(args) {
   }
 
   // Guard: deprioritize unhealthy cloud providers (skip when user explicitly chose the provider)
-  if (!override_provider && typeof db.isProviderHealthy === 'function' && !db.isProviderHealthy(selectedProvider)) {
+  if (!override_provider && typeof providerRoutingCore.isProviderHealthy === 'function' && !providerRoutingCore.isProviderHealthy(selectedProvider)) {
     const chain = getFallbackProviderChain(selectedProvider);
     const healthyAlternatives = chain
       .map((providerName, idx) => ({ providerName, idx, score: getProviderHealthScore(providerName) }))
@@ -961,8 +964,8 @@ async function handleSmartSubmitTask(args) {
           return false;
         }
         try {
-          const providerConfig = db.getProvider(candidate.providerName);
-          return providerConfig && providerConfig.enabled && db.isProviderHealthy(candidate.providerName);
+          const providerConfig = providerRoutingCore.getProvider(candidate.providerName);
+          return providerConfig && providerConfig.enabled && providerRoutingCore.isProviderHealthy(candidate.providerName);
         } catch {
           return false;
         }
@@ -986,10 +989,10 @@ async function handleSmartSubmitTask(args) {
     }
   }
 
-  const schedulingMode = db.getConfig ? (db.getConfig('scheduling_mode') || 'legacy') : 'legacy';
+  const schedulingMode = database.getConfig ? (database.getConfig('scheduling_mode') || 'legacy') : 'legacy';
   const useTierList = schedulingMode === 'slot-pull';
   const tierRoutingResult = useTierList
-    ? db.analyzeTaskForRouting(task, workingDirectory, files, {
+    ? providerRoutingCore.analyzeTaskForRouting(task, workingDirectory, files, {
         tierList: true,
         isUserOverride: !!override_provider,
         overrideProvider: override_provider || null,
@@ -1017,7 +1020,7 @@ async function handleSmartSubmitTask(args) {
     routing_rule: routingResult.rule ? routingResult.rule.name : null,
     routing_reason: tierRoutingResult?.reason || routingResult.reason,
     complexity: complexity,
-    routing_mode: codexExhausted ? 'codex_exhausted' : (!db.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
+    routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
     _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
     _routing_template: routing_template || undefined,
@@ -1025,7 +1028,7 @@ async function handleSmartSubmitTask(args) {
   };
 
   if (useTierList) {
-    db.createTask({
+    database.createTask({
       id: taskId,
       task_description: task,
       working_directory: workingDirectory,
@@ -1040,7 +1043,7 @@ async function handleSmartSubmitTask(args) {
       metadata: JSON.stringify(slotPullMetadata)
     });
   } else {
-    db.createTask({
+    database.createTask({
       id: taskId,
       task_description: task,
       working_directory: workingDirectory,
@@ -1064,7 +1067,7 @@ async function handleSmartSubmitTask(args) {
         routing_rule: routingResult.rule ? routingResult.rule.name : null,
         routing_reason: routingResult.reason,
         complexity: complexity,
-        routing_mode: codexExhausted ? 'codex_exhausted' : (!db.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
+        routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
         _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
         _routing_template: routing_template || undefined,
@@ -1073,9 +1076,9 @@ async function handleSmartSubmitTask(args) {
     });
   }
 
-  if (useTierList && !override_provider && typeof db.patchTaskSlotBinding === 'function') {
+  if (useTierList && !override_provider && typeof database.patchTaskSlotBinding === 'function') {
     try {
-      db.patchTaskSlotBinding(taskId, slotPullMetadata);
+      database.patchTaskSlotBinding(taskId, slotPullMetadata);
     } catch (err) {
       logger.debug(`[SmartRouting] Failed to persist slot-pull late binding for ${taskId}: ${err.message}`);
     }
@@ -1092,11 +1095,11 @@ async function handleSmartSubmitTask(args) {
         contextDepth: depth,
       });
       if (scanResult.contextFiles.length > 0) {
-        const taskRow = db.getTask(taskId);
+        const taskRow = database.getTask(taskId);
         const existingMeta = (taskRow && typeof taskRow.metadata === 'object' && taskRow.metadata) ? { ...taskRow.metadata } : {};
         existingMeta.context_files = scanResult.contextFiles;
         existingMeta.context_scan_reasons = Object.fromEntries(scanResult.reasons);
-        db.patchTaskMetadata(taskId, existingMeta);
+        database.patchTaskMetadata(taskId, existingMeta);
         logger.info(`Context-stuffed ${scanResult.contextFiles.length} files for task ${taskId}`);
       }
     } catch (e) {
@@ -1170,7 +1173,7 @@ function handleTestRouting(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task must be a non-empty string');
   }
 
-  const result = db.analyzeTaskForRouting(task, null, safeFiles);
+  const result = providerRoutingCore.analyzeTaskForRouting(task, null, safeFiles);
 
   let text = `## Routing Test Result\n\n`;
   text += `**Task:** "${task.substring(0, 100)}${task.length > 100 ? '...' : ''}"\n\n`;
@@ -1212,7 +1215,7 @@ function handleAddRoutingRule(args) {
   }
 
   // Validate provider exists
-  const provider = db.getProvider(target_provider);
+  const provider = providerRoutingCore.getProvider(target_provider);
   if (!provider) {
     return makeError(ErrorCodes.INVALID_PARAM, `Unknown provider: ${target_provider}. Available: codex, claude-cli, ollama, aider-ollama`);
   }
@@ -1223,7 +1226,7 @@ function handleAddRoutingRule(args) {
     return makeError(ErrorCodes.INVALID_PARAM, `Invalid rule_type: ${rule_type}. Must be one of: ${validTypes.join(', ')}`);
   }
 
-  const rule = db.createRoutingRule({
+  const rule = providerRoutingCore.createRoutingRule({
     name,
     description,
     rule_type: rule_type || 'keyword',
@@ -1266,7 +1269,7 @@ function handleUpdateRoutingRule(args) {
 
   // Validate provider if updating
   if (updates.target_provider) {
-    const provider = db.getProvider(updates.target_provider);
+    const provider = providerRoutingCore.getProvider(updates.target_provider);
     if (!provider) {
       return makeError(ErrorCodes.INVALID_PARAM, `Unknown provider: ${updates.target_provider}`);
     }
@@ -1274,7 +1277,7 @@ function handleUpdateRoutingRule(args) {
 
   let rule;
   try {
-    rule = db.updateRoutingRule(ruleId, updates);
+    rule = providerRoutingCore.updateRoutingRule(ruleId, updates);
   } catch {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Routing rule not found: ${ruleId}`);
   }
@@ -1313,7 +1316,7 @@ function handleDeleteRoutingRule(args) {
   // Delete the rule — some DB implementations throw, others return {changes: 0}
   let result;
   try {
-    result = db.deleteRoutingRule(ruleId);
+    result = providerRoutingCore.deleteRoutingRule(ruleId);
   } catch {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Routing rule not found: ${ruleId}`);
   }

@@ -3,7 +3,8 @@
  * Extracted from validation-handlers.js
  */
 
-const db = require('../../database');
+const database = require('../../database');
+const fileTracking = require('../../db/file-tracking');
 const { CODE_EXTENSIONS, SOURCE_EXTENSIONS } = require('../../constants');
 const { ErrorCodes, makeError, requireTask } = require('../shared');
 
@@ -11,15 +12,15 @@ const { ErrorCodes, makeError, requireTask } = require('../shared');
  * Check test coverage for a task
  */
 function handleCheckTestCoverage(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const results = [];
 
   for (const change of fileChanges) {
     if (change.file_path) {
-      const coverage = db.checkTestCoverage(args.task_id, change.file_path, task.working_directory);
+      const coverage = fileTracking.checkTestCoverage(args.task_id, change.file_path, task.working_directory);
       results.push(coverage);
     }
   }
@@ -44,15 +45,15 @@ function handleCheckTestCoverage(args) {
  * Run code style check
  */
 function handleRunStyleCheck(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const results = [];
 
   for (const change of fileChanges) {
     if (change.file_path) {
-      const styleResult = db.runStyleCheck(args.task_id, change.file_path, task.working_directory, args.auto_fix || false);
+      const styleResult = fileTracking.runStyleCheck(args.task_id, change.file_path, task.working_directory, args.auto_fix || false);
       results.push(styleResult);
     }
   }
@@ -77,15 +78,15 @@ function handleRunStyleCheck(args) {
  * Analyze change impact for a task
  */
 function handleAnalyzeChangeImpact(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const impacts = [];
 
   for (const change of fileChanges) {
     if (change.file_path) {
-      const impact = db.analyzeChangeImpact(args.task_id, change.file_path, task.working_directory);
+      const impact = fileTracking.analyzeChangeImpact(args.task_id, change.file_path, task.working_directory);
       impacts.push(impact);
     }
   }
@@ -109,7 +110,7 @@ function handleAnalyzeChangeImpact(args) {
  * Get timeout alerts
  */
 function handleGetTimeoutAlerts(args) {
-  const alerts = db.getTimeoutAlerts(args.task_id, args.status);
+  const alerts = fileTracking.getTimeoutAlerts(args.task_id, args.status);
   return {
     content: [{
       type: 'text',
@@ -129,7 +130,7 @@ function handleConfigureOutputLimits(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider is required');
   }
 
-  db.setOutputLimit(
+  fileTracking.setOutputLimit(
     args.provider,
     args.max_output_bytes || 1048576,
     args.max_file_size_bytes || 524288,
@@ -149,7 +150,7 @@ function handleConfigureOutputLimits(args) {
  * Get audit trail events
  */
 function handleGetAuditTrail(args) {
-  const trail = db.getAuditTrail({
+  const trail = fileTracking.getAuditTrail({
     entity_type: args.entity_type,
     entity_id: args.entity_id,
     event_type: args.event_type,
@@ -176,7 +177,7 @@ function handleGetAuditTrail(args) {
  */
 function handleGetAuditSummary(args) {
   const days = args.days || 7;
-  const summary = db.getAuditSummary(days);
+  const summary = fileTracking.getAuditSummary(days);
   return {
     content: [{
       type: 'text',
@@ -200,7 +201,7 @@ async function handleScanVulnerabilities(args) {
 
 
   const taskId = args.task_id || `scan-${Date.now()}`;
-  const results = await db.runVulnerabilityScan(taskId, args.working_directory);
+  const results = await fileTracking.runVulnerabilityScan(taskId, args.working_directory);
 
   const totalVulns = results.reduce((sum, r) => sum + (r.vulnerabilities?.total || 0), 0);
 
@@ -228,7 +229,7 @@ function handleGetVulnerabilityResults(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const results = db.getVulnerabilityScanResults(args.task_id);
+  const results = fileTracking.getVulnerabilityScanResults(args.task_id);
   return {
     content: [{
       type: 'text',
@@ -241,17 +242,17 @@ function handleGetVulnerabilityResults(args) {
  * Analyze code complexity
  */
 function handleAnalyzeComplexity(args) {
-  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const results = [];
 
   for (const change of fileChanges) {
     if (change.new_content && change.file_path) {
       const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
       if (CODE_EXTENSIONS.has(ext.toLowerCase())) {
-        const metrics = db.analyzeCodeComplexity(args.task_id, change.file_path, change.new_content);
+        const metrics = fileTracking.analyzeCodeComplexity(args.task_id, change.file_path, change.new_content);
         results.push(metrics);
       }
     }
@@ -277,7 +278,7 @@ function handleGetComplexityMetrics(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const metrics = db.getComplexityMetrics(args.task_id);
+  const metrics = fileTracking.getComplexityMetrics(args.task_id);
   return {
     content: [{
       type: 'text',
@@ -290,17 +291,17 @@ function handleGetComplexityMetrics(args) {
  * Detect dead code
  */
 function handleDetectDeadCode(args) {
-  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const allDeadCode = [];
 
   for (const change of fileChanges) {
     if (change.new_content && change.file_path) {
       const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
       if (SOURCE_EXTENSIONS.has(ext.toLowerCase())) {
-        const deadCode = db.detectDeadCode(args.task_id, change.file_path, change.new_content);
+        const deadCode = fileTracking.detectDeadCode(args.task_id, change.file_path, change.new_content);
         allDeadCode.push(...deadCode.map(d => ({ ...d, file_path: change.file_path })));
       }
     }
@@ -326,7 +327,7 @@ function handleGetDeadCodeResults(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const results = db.getDeadCodeResults(args.task_id);
+  const results = fileTracking.getDeadCodeResults(args.task_id);
   return {
     content: [{
       type: 'text',
@@ -346,7 +347,7 @@ async function handleValidateApiContract(args) {
   }
 
 
-  const result = await db.validateApiContract(args.task_id, args.contract_file, args.working_directory);
+  const result = await fileTracking.validateApiContract(args.task_id, args.contract_file, args.working_directory);
 
   return {
     content: [{
@@ -365,17 +366,17 @@ async function handleValidateApiContract(args) {
  * Check documentation coverage
  */
 function handleCheckDocCoverage(args) {
-  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const results = [];
 
   for (const change of fileChanges) {
     if (change.new_content && change.file_path) {
       const ext = change.file_path.substring(change.file_path.lastIndexOf('.'));
       if (CODE_EXTENSIONS.has(ext.toLowerCase())) {
-        const coverage = db.checkDocCoverage(args.task_id, change.file_path, change.new_content);
+        const coverage = fileTracking.checkDocCoverage(args.task_id, change.file_path, change.new_content);
         results.push(coverage);
       }
     }
@@ -406,7 +407,7 @@ function handleGetDocCoverageResults(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const results = db.getDocCoverageResults(args.task_id);
+  const results = fileTracking.getDocCoverageResults(args.task_id);
   return {
     content: [{
       type: 'text',

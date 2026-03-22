@@ -9,7 +9,10 @@
  *   ./failure.js   — failure patterns, retry rules
  */
 
-const db = require('../../database');
+const database = require('../../database');
+const costTracking = require('../../db/cost-tracking');
+const fileTracking = require('../../db/file-tracking');
+const validationRules = require('../../db/validation-rules');
 const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -45,7 +48,7 @@ function normalizePrecommitChecks(checks) {
 
 function handleListValidationRules(args) {
   const { enabled_only = true, severity } = args;
-  const rules = db.getValidationRules(enabled_only);
+  const rules = validationRules.getValidationRules(enabled_only);
   const severityOrder = ['info', 'warning', 'error', 'critical'];
   const normalizeSeverity = (value) => {
     const idx = severityOrder.indexOf(`${value || ''}`.trim().toLowerCase());
@@ -96,7 +99,7 @@ function handleAddValidationRule(args) {
   }
 
   const id = `val-${Date.now()}`;
-  db.saveValidationRule({
+  validationRules.saveValidationRule({
     id, name, description, rule_type,
     pattern: pattern || null,
     condition: condition || null,
@@ -118,7 +121,7 @@ function handleUpdateValidationRule(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'rule_id is required');
   }
 
-  const existingRule = db.getValidationRule(rule_id);
+  const existingRule = validationRules.getValidationRule(rule_id);
   if (!existingRule) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Validation rule not found: ${rule_id}`);
   }
@@ -128,7 +131,7 @@ function handleUpdateValidationRule(args) {
   if (severity !== undefined) updates.severity = severity;
   if (auto_fail !== undefined) updates.auto_fail = auto_fail;
 
-  db.saveValidationRule({ ...existingRule, ...updates });
+  validationRules.saveValidationRule({ ...existingRule, ...updates });
 
   return {
     content: [{
@@ -144,7 +147,7 @@ function handleValidateTaskOutput(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = [];
@@ -180,7 +183,7 @@ function handleValidateTaskOutput(args) {
     }
   }
 
-  const results = db.validateTaskOutput(task.id, fileChanges);
+  const results = validationRules.validateTaskOutput(task.id, fileChanges);
 
   if (results.length === 0) {
     return {
@@ -232,7 +235,7 @@ function handleGetValidationResults(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'task_id is required and must be a non-empty string');
   }
 
-  const results = db.getValidationResults(task_id.trim(), min_severity);
+  const results = validationRules.getValidationResults(task_id.trim(), min_severity);
 
   if (results.length === 0) {
     return {
@@ -258,7 +261,7 @@ function handleRejectTask(args) {
   const err = requireString(args, 'approval_id');
   if (err) return err;
 
-  db.decideApproval(approval_id, false, 'user', notes || null);
+  validationRules.decideApproval(approval_id, false, 'user', notes || null);
 
   return {
     content: [{
@@ -281,7 +284,7 @@ function handleCaptureFileBaselines(args) {
   }
 
   const exts = extensions || ['.cs', '.xaml', '.ts', '.js', '.py'];
-  const captured = db.captureDirectoryBaselines(working_directory, exts);
+  const captured = fileTracking.captureDirectoryBaselines(working_directory, exts);
 
   return {
     content: [{
@@ -298,7 +301,7 @@ function handleCompareFileBaseline(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path and working_directory are required');
   }
 
-  const result = db.compareFileToBaseline(file_path, working_directory);
+  const result = fileTracking.compareFileToBaseline(file_path, working_directory);
 
   if (!result.hasBaseline) {
     return {
@@ -344,7 +347,7 @@ async function handleRunSyntaxCheck(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path and working_directory are required');
   }
 
-  const result = await db.runSyntaxValidation(file_path, working_directory);
+  const result = await fileTracking.runSyntaxValidation(file_path, working_directory);
 
   if (!result.validated) {
     return {
@@ -373,7 +376,7 @@ async function handleRunSyntaxCheck(args) {
 function handleListSyntaxValidators(_args) {
   let validators;
   try {
-    validators = db.listAllSyntaxValidators ? db.listAllSyntaxValidators() : [];
+    validators = fileTracking.listAllSyntaxValidators ? fileTracking.listAllSyntaxValidators() : [];
   } catch {
     return {
       content: [{
@@ -498,15 +501,15 @@ function handlePreviewTaskDiff(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(database, task_id);
   if (taskErr) return taskErr;
 
-  let preview = db.getDiffPreview(task_id);
+  let preview = fileTracking.getDiffPreview(task_id);
 
   if (!preview) {
     const diff = task.output || 'No diff available - task has no output';
-    db.createDiffPreview(task_id, diff, 0, 0, 0);
-    preview = db.getDiffPreview(task_id);
+    fileTracking.createDiffPreview(task_id, diff, 0, 0, 0);
+    preview = fileTracking.getDiffPreview(task_id);
   }
 
   return {
@@ -523,7 +526,7 @@ function handleApproveDiff(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  db.markDiffReviewed(task_id, 'user');
+  fileTracking.markDiffReviewed(task_id, 'user');
 
   return {
     content: [{
@@ -536,7 +539,7 @@ function handleApproveDiff(args) {
 function handleConfigureDiffPreview(args) {
   const { required } = args;
 
-  db.setConfig('diff_preview_required', required ? '1' : '0');
+  database.setConfig('diff_preview_required', required ? '1' : '0');
 
   return {
     content: [{
@@ -557,7 +560,7 @@ function handleGetQualityScore(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  const score = db.getQualityScore(task_id);
+  const score = fileTracking.getQualityScore(task_id);
 
   if (!score) {
     return {
@@ -582,7 +585,7 @@ function handleGetProviderQuality(args) {
   const err = requireString(args, 'provider');
   if (err) return err;
 
-  const stats = db.getProviderQualityStats(provider);
+  const stats = fileTracking.getProviderQualityStats(provider);
 
   if (!stats) {
     return {
@@ -604,7 +607,7 @@ function handleGetProviderQuality(args) {
 function handleGetProviderStats(args) {
   const { provider } = args;
 
-  const stats = db.getProviderStats(provider);
+  const stats = fileTracking.getProviderStats(provider);
 
   if (stats.length === 0) {
     return {
@@ -632,7 +635,7 @@ function handleGetBestProvider(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_type is required and must be a non-empty string');
   }
 
-  const best = db.getBestProviderForTaskType(task_type);
+  const best = fileTracking.getBestProviderForTaskType(task_type);
 
   if (!best) {
     return {
@@ -659,7 +662,7 @@ function handleGetBestProvider(args) {
 function handleListRollbacks(args) {
   const { status, limit = 50 } = args;
 
-  const rollbacks = db.listRollbacks(status, limit);
+  const rollbacks = fileTracking.listRollbacks(status, limit);
 
   if (rollbacks.length === 0) {
     return {
@@ -689,7 +692,7 @@ async function handleRunBuildCheck(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
   }
 
-  const result = await db.runBuildCheck(task_id || 'manual', working_directory);
+  const result = await fileTracking.runBuildCheck(task_id || 'manual', working_directory);
 
   if (!result.checked) {
     return {
@@ -720,7 +723,7 @@ function handleGetBuildResult(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const result = db.getBuildCheck(task_id);
+  const result = fileTracking.getBuildCheck(task_id);
 
   if (!result) {
     return {
@@ -744,7 +747,7 @@ function handleGetBuildResult(args) {
 function handleConfigureBuildCheck(args) {
   const { enabled } = args;
 
-  db.setConfig('build_check_enabled', enabled ? '1' : '0');
+  database.setConfig('build_check_enabled', enabled ? '1' : '0');
 
   return {
     content: [{
@@ -837,7 +840,7 @@ function handleSetupPrecommitHook(args) {
 function handleGetCostSummary(args) {
   const parsed = parseInt(args.days, 10);
   const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
-  const summary = db.getCostSummary(args.provider, days);
+  const summary = costTracking.getCostSummary(args.provider, days);
   const data = { days, costs: summary };
   return {
     content: [{
@@ -849,7 +852,7 @@ function handleGetCostSummary(args) {
 }
 
 function handleGetBudgetStatus(args) {
-  const status = db.getBudgetStatus(args.budget_id);
+  const status = costTracking.getBudgetStatus(args.budget_id);
   const data = { count: status.length, budgets: status };
   return {
     content: [{
@@ -868,7 +871,7 @@ function handleSetBudget(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'budget_usd must be a positive number');
   }
 
-  db.setBudget(
+  costTracking.setBudget(
     args.name,
     args.budget_usd,
     args.provider || null,
@@ -885,7 +888,7 @@ function handleSetBudget(args) {
 }
 
 function handleGetCostForecast(args) {
-  const forecast = db.getCostForecast(args.days || 30);
+  const forecast = costTracking.getCostForecast(args.days || 30);
   return {
     content: [{ type: 'text', text: JSON.stringify(forecast, null, 2) }],
     structuredData: { forecast },

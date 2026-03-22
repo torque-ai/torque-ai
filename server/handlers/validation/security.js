@@ -3,14 +3,15 @@
  * Extracted from validation-handlers.js
  */
 
-const db = require('../../database');
+const database = require('../../database');
+const fileTracking = require('../../db/file-tracking');
 const { requireTask, ErrorCodes, makeError } = require('../shared');
 
 /**
  * Get rate limits for all providers or a specific provider
  */
 function handleGetRateLimits(args) {
-  const limits = db.getRateLimits(args.provider);
+  const limits = fileTracking.getRateLimits(args.provider);
   return {
     content: [{
       type: 'text',
@@ -33,7 +34,7 @@ function handleSetRateLimit(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'max_value must be a positive number');
   }
 
-  db.setRateLimit(
+  fileTracking.setRateLimit(
     args.provider,
     args.limit_type || 'requests',
     args.max_value,
@@ -57,15 +58,15 @@ function handleRunSecurityScan(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const { task: _task, error: taskErr } = requireTask(db, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
   if (taskErr) return taskErr;
 
-  const fileChanges = db.getTaskFileChanges(args.task_id);
+  const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
   const results = [];
 
   for (const change of fileChanges) {
     if (change.new_content) {
-      const scanResults = db.runSecurityScan(args.task_id, change.file_path, change.new_content);
+      const scanResults = fileTracking.runSecurityScan(args.task_id, change.file_path, change.new_content);
       results.push(...scanResults);
     }
   }
@@ -90,7 +91,7 @@ function handleGetSecurityResults(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const results = db.getSecurityScanResults(args.task_id);
+  const results = fileTracking.getSecurityScanResults(args.task_id);
   return {
     content: [{
       type: 'text',
@@ -107,7 +108,7 @@ function handleGetSecurityResults(args) {
  * List security rules
  */
 function handleListSecurityRules(args) {
-  const rules = db.getSecurityRules(args.category, args.enabled);
+  const rules = fileTracking.getSecurityRules(args.category, args.enabled);
   return {
     content: [{
       type: 'text',
@@ -123,7 +124,7 @@ function handleListSecurityRules(args) {
  * Get active file locks
  */
 function handleGetFileLocks(args) {
-  const locks = db.getActiveFileLocks(args.working_directory);
+  const locks = fileTracking.getActiveFileLocks(args.working_directory);
   return {
     content: [{
       type: 'text',
@@ -143,7 +144,7 @@ function handleReleaseFileLocks(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const released = db.releaseAllFileLocks(args.task_id);
+  const released = fileTracking.releaseAllFileLocks(args.task_id);
   return {
     content: [{
       type: 'text',
@@ -160,7 +161,7 @@ function handleListBackups(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const backups = db.getTaskBackups(args.task_id);
+  const backups = fileTracking.getTaskBackups(args.task_id);
   return {
     content: [{
       type: 'text',
@@ -181,7 +182,7 @@ function handleRestoreBackup(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'backup_id is required');
   }
 
-  const result = db.restoreFileBackup(args.backup_id);
+  const result = fileTracking.restoreFileBackup(args.backup_id);
 
   if (result.success) {
     return {
