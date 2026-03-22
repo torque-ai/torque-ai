@@ -17,6 +17,9 @@ const { v4: uuidv4 } = require('uuid');
 let testDir;
 let origDataDir;
 let db;
+let hostManagement;
+let workflowEngine;
+let coordination;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -29,6 +32,9 @@ function setupDb() {
   db = require('../database');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
+  hostManagement = require('../db/host-management');
+  workflowEngine = require('../db/workflow-engine');
+  coordination = require('../db/coordination');
   return db;
 }
 
@@ -48,7 +54,7 @@ function teardownDb() {
 
 /** Add a test host to the DB */
 function addTestHost(name, maxConcurrent = 2) {
-  return db.addOllamaHost({
+  return hostManagement.addOllamaHost({
     id: name,
     name,
     url: `http://${name}.local:11434`,
@@ -107,7 +113,7 @@ describe('Chaos: Host Slot Reservation Races', () => {
     const results = [];
     for (let i = 0; i < 4; i++) {
       const taskId = createTestTask({ status: 'running' });
-      const reserved = db.tryReserveHostSlot(host.id, taskId);
+      const reserved = hostManagement.tryReserveHostSlot(host.id, taskId);
       results.push(reserved);
     }
 
@@ -125,21 +131,21 @@ describe('Chaos: Host Slot Reservation Races', () => {
     const task2 = createTestTask({ status: 'running' });
 
     // Fill the single slot
-    const r1 = db.tryReserveHostSlot(host.id, task1);
+    const r1 = hostManagement.tryReserveHostSlot(host.id, task1);
     expect(r1.acquired).toBe(true);
     // Second should fail
-    const r2 = db.tryReserveHostSlot(host.id, task2);
+    const r2 = hostManagement.tryReserveHostSlot(host.id, task2);
     expect(r2.acquired).toBe(false);
 
     // Release the first slot
-    db.releaseHostSlot(host.id, task1);
+    hostManagement.releaseHostSlot(host.id, task1);
 
     // Now the second should succeed
-    const r3 = db.tryReserveHostSlot(host.id, task2);
+    const r3 = hostManagement.tryReserveHostSlot(host.id, task2);
     expect(r3.acquired).toBe(true);
 
     // Verify only 1 slot is occupied
-    const hostInfo = db.getOllamaHost(host.id);
+    const hostInfo = hostManagement.getOllamaHost(host.id);
     expect(hostInfo.running_tasks).toBe(1);
   });
 
@@ -151,17 +157,17 @@ describe('Chaos: Host Slot Reservation Races', () => {
     for (let i = 0; i < 3; i++) {
       const tid = createTestTask({ status: 'running' });
       tasks.push(tid);
-      const r = db.tryReserveHostSlot(host.id, tid);
+      const r = hostManagement.tryReserveHostSlot(host.id, tid);
       expect(r.acquired).toBe(true);
     }
 
     // Next reservation should fail
     const overflow = createTestTask({ status: 'running' });
-    const rOverflow = db.tryReserveHostSlot(host.id, overflow);
+    const rOverflow = hostManagement.tryReserveHostSlot(host.id, overflow);
     expect(rOverflow.acquired).toBe(false);
 
     // Verify count
-    const hostInfo = db.getOllamaHost(host.id);
+    const hostInfo = hostManagement.getOllamaHost(host.id);
     expect(hostInfo.running_tasks).toBe(3);
   });
 
@@ -173,28 +179,28 @@ describe('Chaos: Host Slot Reservation Races', () => {
     const taskB = createTestTask({ status: 'running' });
 
     // Reserve on both — each has independent capacity
-    expect(db.tryReserveHostSlot(hostA.id, taskA).acquired).toBe(true);
-    expect(db.tryReserveHostSlot(hostB.id, taskB).acquired).toBe(true);
+    expect(hostManagement.tryReserveHostSlot(hostA.id, taskA).acquired).toBe(true);
+    expect(hostManagement.tryReserveHostSlot(hostB.id, taskB).acquired).toBe(true);
 
     // Both are at max, next on each should fail
     const taskA2 = createTestTask({ status: 'running' });
     const taskB2 = createTestTask({ status: 'running' });
-    expect(db.tryReserveHostSlot(hostA.id, taskA2).acquired).toBe(false);
-    expect(db.tryReserveHostSlot(hostB.id, taskB2).acquired).toBe(false);
+    expect(hostManagement.tryReserveHostSlot(hostA.id, taskA2).acquired).toBe(false);
+    expect(hostManagement.tryReserveHostSlot(hostB.id, taskB2).acquired).toBe(false);
   });
 
   test('slot count reconciliation corrects mismatches', () => {
     const host = addTestHost('reconcile-host', 4);
 
     // Manually set running_tasks to a wrong value
-    db.updateOllamaHost(host.id, { running_tasks: 10 });
-    let info = db.getOllamaHost(host.id);
+    hostManagement.updateOllamaHost(host.id, { running_tasks: 10 });
+    let info = hostManagement.getOllamaHost(host.id);
     expect(info.running_tasks).toBe(10);
 
     // Reconcile — should reset to 0 since no tasks are actually assigned
-    db.reconcileHostTaskCounts();
+    hostManagement.reconcileHostTaskCounts();
 
-    info = db.getOllamaHost(host.id);
+    info = hostManagement.getOllamaHost(host.id);
     expect(info.running_tasks).toBe(0);
   });
 });
@@ -283,10 +289,10 @@ describe('Chaos: Distributed Lock Contention', () => {
     const holder1 = 'holder-1';
     const holder2 = 'holder-2';
 
-    const r1 = db.acquireLock(lockName, holder1, 30);
+    const r1 = coordination.acquireLock(lockName, holder1, 30);
     expect(r1.acquired).toBe(true);
 
-    const r2 = db.acquireLock(lockName, holder2, 30);
+    const r2 = coordination.acquireLock(lockName, holder2, 30);
     expect(r2.acquired).toBe(false);
     expect(r2.holder).toBe(holder1);
   });
@@ -296,10 +302,10 @@ describe('Chaos: Distributed Lock Contention', () => {
     const holder1 = 'holder-A';
     const holder2 = 'holder-B';
 
-    db.acquireLock(lockName, holder1, 30);
-    db.releaseLock(lockName, holder1);
+    coordination.acquireLock(lockName, holder1, 30);
+    coordination.releaseLock(lockName, holder1);
 
-    const r2 = db.acquireLock(lockName, holder2, 30);
+    const r2 = coordination.acquireLock(lockName, holder2, 30);
     expect(r2.acquired).toBe(true);
   });
 
@@ -309,7 +315,7 @@ describe('Chaos: Distributed Lock Contention', () => {
     const holder2 = 'new-holder';
 
     // Acquire with very short lease
-    db.acquireLock(lockName, holder1, 1);
+    coordination.acquireLock(lockName, holder1, 1);
 
     // Manually set heartbeat to 20 seconds ago to simulate stale holder
     const staleTime = new Date(Date.now() - 20000).toISOString();
@@ -318,7 +324,7 @@ describe('Chaos: Distributed Lock Contention', () => {
     ).run(staleTime, staleTime, lockName);
 
     // New holder should be able to take over
-    const r2 = db.acquireLock(lockName, holder2, 30);
+    const r2 = coordination.acquireLock(lockName, holder2, 30);
     expect(r2.acquired).toBe(true);
   });
 
@@ -327,10 +333,10 @@ describe('Chaos: Distributed Lock Contention', () => {
     const holder1 = 'active-holder';
     const holder2 = 'challenger';
 
-    db.acquireLock(lockName, holder1, 60);
+    coordination.acquireLock(lockName, holder1, 60);
 
     // Heartbeat is fresh (just acquired), so challenger should fail
-    const r2 = db.acquireLock(lockName, holder2, 30);
+    const r2 = coordination.acquireLock(lockName, holder2, 30);
     expect(r2.acquired).toBe(false);
   });
 
@@ -338,11 +344,11 @@ describe('Chaos: Distributed Lock Contention', () => {
     const lockName = 'test-lock-reentrant';
     const holder = 'same-holder';
 
-    const r1 = db.acquireLock(lockName, holder, 30);
+    const r1 = coordination.acquireLock(lockName, holder, 30);
     expect(r1.acquired).toBe(true);
 
     // Same holder re-acquires — should succeed (extend lease)
-    const r2 = db.acquireLock(lockName, holder, 60);
+    const r2 = coordination.acquireLock(lockName, holder, 60);
     expect(r2.acquired).toBe(true);
     expect(r2.extended).toBe(true);
   });
@@ -359,7 +365,7 @@ describe('Chaos: Cascading Workflow Operations', () => {
   test('diamond DAG — B and C complete near-simultaneously, D unblocks once', () => {
     // A → (B, C) → D
     const wfId = uuidv4();
-    db.createWorkflow({ id: wfId, name: 'Diamond Test', status: 'running' });
+    workflowEngine.createWorkflow({ id: wfId, name: 'Diamond Test', status: 'running' });
 
     const taskA = createWorkflowTask(wfId, 'A', 'completed');
     const taskB = createWorkflowTask(wfId, 'B', 'blocked');
@@ -367,27 +373,27 @@ describe('Chaos: Cascading Workflow Operations', () => {
     const taskD = createWorkflowTask(wfId, 'D', 'blocked');
 
     // Set up dependencies: B depends on A, C depends on A, D depends on B and C
-    db.addTaskDependency({ task_id: taskB, depends_on_task_id: taskA, workflow_id: wfId });
-    db.addTaskDependency({ task_id: taskC, depends_on_task_id: taskA, workflow_id: wfId });
-    db.addTaskDependency({ task_id: taskD, depends_on_task_id: taskB, workflow_id: wfId });
-    db.addTaskDependency({ task_id: taskD, depends_on_task_id: taskC, workflow_id: wfId });
+    workflowEngine.addTaskDependency({ task_id: taskB, depends_on_task_id: taskA, workflow_id: wfId });
+    workflowEngine.addTaskDependency({ task_id: taskC, depends_on_task_id: taskA, workflow_id: wfId });
+    workflowEngine.addTaskDependency({ task_id: taskD, depends_on_task_id: taskB, workflow_id: wfId });
+    workflowEngine.addTaskDependency({ task_id: taskD, depends_on_task_id: taskC, workflow_id: wfId });
 
     // Complete B
     db.updateTaskStatus(taskB, 'completed');
     // D should still be blocked (C not done)
-    let dDeps = db.areTaskDependenciesSatisfied(taskD);
+    let dDeps = workflowEngine.areTaskDependenciesSatisfied(taskD);
     expect(dDeps.satisfied).toBe(false);
 
     // Complete C
     db.updateTaskStatus(taskC, 'completed');
     // Now D should be satisfied
-    dDeps = db.areTaskDependenciesSatisfied(taskD);
+    dDeps = workflowEngine.areTaskDependenciesSatisfied(taskD);
     expect(dDeps.satisfied).toBe(true);
   });
 
   test('workflow cancel marks all pending tasks cancelled', () => {
     const wfId = uuidv4();
-    db.createWorkflow({ id: wfId, name: 'Cancel Test', status: 'running' });
+    workflowEngine.createWorkflow({ id: wfId, name: 'Cancel Test', status: 'running' });
 
     const t1 = createWorkflowTask(wfId, 'node1', 'completed');
     const t2 = createWorkflowTask(wfId, 'node2', 'running');
@@ -395,7 +401,7 @@ describe('Chaos: Cascading Workflow Operations', () => {
     const t4 = createWorkflowTask(wfId, 'node4', 'pending');
 
     // Cancel the workflow
-    db.updateWorkflow(wfId, { status: 'cancelled' });
+    workflowEngine.updateWorkflow(wfId, { status: 'cancelled' });
 
     // Cancel all non-terminal tasks
     for (const tid of [t2, t3, t4]) {
@@ -410,40 +416,40 @@ describe('Chaos: Cascading Workflow Operations', () => {
     expect(db.getTask(t2).status).toBe('cancelled');
     expect(db.getTask(t3).status).toBe('cancelled');
     expect(db.getTask(t4).status).toBe('cancelled');
-    expect(db.getWorkflow(wfId).status).toBe('cancelled');
+    expect(workflowEngine.getWorkflow(wfId).status).toBe('cancelled');
   });
 
   test('concurrent workflow status transitions — no corruption', () => {
     const wfId = uuidv4();
-    db.createWorkflow({ id: wfId, name: 'Status Race', status: 'pending' });
+    workflowEngine.createWorkflow({ id: wfId, name: 'Status Race', status: 'pending' });
 
     // Transition to running, then immediately to completed
-    db.transitionWorkflowStatus(wfId, 'pending', 'running');
-    const wf1 = db.getWorkflow(wfId);
+    workflowEngine.transitionWorkflowStatus(wfId, 'pending', 'running');
+    const wf1 = workflowEngine.getWorkflow(wfId);
     expect(wf1.status).toBe('running');
 
-    db.transitionWorkflowStatus(wfId, 'running', 'completed', { completed_at: new Date().toISOString() });
-    const wf2 = db.getWorkflow(wfId);
+    workflowEngine.transitionWorkflowStatus(wfId, 'running', 'completed', { completed_at: new Date().toISOString() });
+    const wf2 = workflowEngine.getWorkflow(wfId);
     expect(wf2.status).toBe('completed');
   });
 
   test('dependency satisfaction check during completion', () => {
     const wfId = uuidv4();
-    db.createWorkflow({ id: wfId, name: 'DepCheck Race', status: 'running' });
+    workflowEngine.createWorkflow({ id: wfId, name: 'DepCheck Race', status: 'running' });
 
     const taskA = createWorkflowTask(wfId, 'A', 'running');
     const taskB = createWorkflowTask(wfId, 'B', 'blocked');
-    db.addTaskDependency({ task_id: taskB, depends_on_task_id: taskA, workflow_id: wfId });
+    workflowEngine.addTaskDependency({ task_id: taskB, depends_on_task_id: taskA, workflow_id: wfId });
 
     // Check before completion
-    let deps = db.areTaskDependenciesSatisfied(taskB);
+    let deps = workflowEngine.areTaskDependenciesSatisfied(taskB);
     expect(deps.satisfied).toBe(false);
 
     // Complete A
     db.updateTaskStatus(taskA, 'completed');
 
     // Check after completion
-    deps = db.areTaskDependenciesSatisfied(taskB);
+    deps = workflowEngine.areTaskDependenciesSatisfied(taskB);
     expect(deps.satisfied).toBe(true);
   });
 
@@ -452,17 +458,17 @@ describe('Chaos: Cascading Workflow Operations', () => {
     const task1 = createTestTask({ status: 'running' });
 
     // Assign task to host
-    db.tryReserveHostSlot(host.id, task1);
+    hostManagement.tryReserveHostSlot(host.id, task1);
     db.updateTaskStatus(task1, 'running');
 
     // Mark host as down — should trigger cleanup
-    db.updateOllamaHost(host.id, { status: 'down', running_tasks: 0 });
+    hostManagement.updateOllamaHost(host.id, { status: 'down', running_tasks: 0 });
 
     // Running the reconciliation twice should be safe
-    db.reconcileHostTaskCounts();
-    db.reconcileHostTaskCounts();
+    hostManagement.reconcileHostTaskCounts();
+    hostManagement.reconcileHostTaskCounts();
 
-    const hostInfo = db.getOllamaHost(host.id);
+    const hostInfo = hostManagement.getOllamaHost(host.id);
     expect(hostInfo.running_tasks).toBe(0);
   });
 });

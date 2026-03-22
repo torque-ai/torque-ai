@@ -1,12 +1,28 @@
 /**
  * Unit tests for task-intelligence.js handler functions.
  *
- * These tests mock the database, task manager, and logger dependencies at the
- * module boundary so the handler logic can be exercised directly.
+ * These tests mock the specific db modules that the handler imports,
+ * plus the task manager and logger, so handler logic can be exercised directly.
  */
 
-vi.mock('../database', () => ({
+vi.mock('../db/task-core', () => ({
   getTask() { return null; },
+  updateTaskStatus() {},
+  deleteTasks() {
+    return {
+      deleted: 0,
+      status: 'queued',
+    };
+  },
+  deleteTask() {
+    return {
+      id: 'deleted-task',
+      status: 'completed',
+    };
+  },
+}));
+
+vi.mock('../db/webhooks-streaming', () => ({
   getLatestStreamChunks() { return []; },
   getTaskLogs() { return []; },
   createEventSubscription() { return 'sub-123'; },
@@ -17,6 +33,9 @@ vi.mock('../database', () => ({
   clearPauseState() {},
   recordTaskEvent() {},
   listPausedTasks() { return []; },
+}));
+
+vi.mock('../db/task-metadata', () => ({
   generateTaskSuggestions() { return []; },
   findSimilarTasks() { return []; },
   learnFromRecentTasks() { return { tasksProcessed: 0, patternsLearned: 0 }; },
@@ -31,12 +50,21 @@ vi.mock('../database', () => ({
     };
   },
   addTaskComment() { return 42; },
-  recordAuditLog() {},
   getTaskComments() { return []; },
   getTaskTimeline() { return []; },
   dryRunBulkOperation() { return { total_tasks: 0, preview: [] }; },
   getBulkOperation() { return null; },
   listBulkOperations() { return []; },
+  setTaskReviewStatus() {},
+  getTasksPendingReview() { return []; },
+  getTasksNeedingCorrection() { return []; },
+}));
+
+vi.mock('../db/scheduling-automation', () => ({
+  recordAuditLog() {},
+}));
+
+vi.mock('../db/analytics', () => ({
   predictDuration() {
     return {
       predicted_minutes: 0,
@@ -61,26 +89,13 @@ vi.mock('../database', () => ({
       samples_processed: 0,
     };
   },
-  updateTaskStatus() {},
-  setTaskReviewStatus() {},
-  getTasksPendingReview() { return []; },
-  getTasksNeedingCorrection() { return []; },
+}));
+
+vi.mock('../db/host-management', () => ({
   routeTask() {
     return {
       provider: 'desktop',
       rule: 'Default',
-    };
-  },
-  deleteTasks() {
-    return {
-      deleted: 0,
-      status: 'queued',
-    };
-  },
-  deleteTask() {
-    return {
-      id: 'deleted-task',
-      status: 'completed',
     };
   },
 }));
@@ -105,7 +120,12 @@ vi.mock('../logger', () => {
   };
 });
 
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const webhooksStreaming = require('../db/webhooks-streaming');
+const taskMetadata = require('../db/task-metadata');
+const schedulingAutomation = require('../db/scheduling-automation');
+const analytics = require('../db/analytics');
+const hostManagement = require('../db/host-management');
 const taskManager = require('../task-manager');
 const logger = require('../logger');
 const handlers = require('../handlers/task/intelligence');
@@ -139,41 +159,41 @@ describe('task-intelligence handlers', () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
 
-    vi.spyOn(db, 'getTask').mockImplementation((taskId) => makeTask({ id: taskId }));
-    vi.spyOn(db, 'getLatestStreamChunks').mockReturnValue([]);
-    vi.spyOn(db, 'getTaskLogs').mockReturnValue([]);
-    vi.spyOn(db, 'createEventSubscription').mockReturnValue('sub-123');
-    vi.spyOn(db, 'pollSubscription').mockReturnValue({ expired: false, events: [] });
-    vi.spyOn(db, 'saveTaskCheckpoint').mockImplementation(() => {});
-    vi.spyOn(db, 'pauseTask').mockImplementation(() => {});
-    vi.spyOn(db, 'getTaskCheckpoint').mockReturnValue(null);
-    vi.spyOn(db, 'clearPauseState').mockImplementation(() => {});
-    vi.spyOn(db, 'recordTaskEvent').mockImplementation(() => {});
-    vi.spyOn(db, 'listPausedTasks').mockReturnValue([]);
-    vi.spyOn(db, 'generateTaskSuggestions').mockReturnValue([]);
-    vi.spyOn(db, 'findSimilarTasks').mockReturnValue([]);
-    vi.spyOn(db, 'learnFromRecentTasks').mockReturnValue({ tasksProcessed: 0, patternsLearned: 0 });
-    vi.spyOn(db, 'getTaskPatterns').mockReturnValue([]);
-    vi.spyOn(db, 'getSmartDefaults').mockReturnValue({
+    vi.spyOn(taskCore, 'getTask').mockImplementation((taskId) => makeTask({ id: taskId }));
+    vi.spyOn(webhooksStreaming, 'getLatestStreamChunks').mockReturnValue([]);
+    vi.spyOn(webhooksStreaming, 'getTaskLogs').mockReturnValue([]);
+    vi.spyOn(webhooksStreaming, 'createEventSubscription').mockReturnValue('sub-123');
+    vi.spyOn(webhooksStreaming, 'pollSubscription').mockReturnValue({ expired: false, events: [] });
+    vi.spyOn(webhooksStreaming, 'saveTaskCheckpoint').mockImplementation(() => {});
+    vi.spyOn(webhooksStreaming, 'pauseTask').mockImplementation(() => {});
+    vi.spyOn(webhooksStreaming, 'getTaskCheckpoint').mockReturnValue(null);
+    vi.spyOn(webhooksStreaming, 'clearPauseState').mockImplementation(() => {});
+    vi.spyOn(webhooksStreaming, 'recordTaskEvent').mockImplementation(() => {});
+    vi.spyOn(webhooksStreaming, 'listPausedTasks').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'generateTaskSuggestions').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'findSimilarTasks').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'learnFromRecentTasks').mockReturnValue({ tasksProcessed: 0, patternsLearned: 0 });
+    vi.spyOn(taskMetadata, 'getTaskPatterns').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'getSmartDefaults').mockReturnValue({
       timeout_minutes: 30,
       auto_approve: false,
       priority: 0,
       confidence: 0,
       matched_patterns: [],
     });
-    vi.spyOn(db, 'addTaskComment').mockReturnValue(42);
-    vi.spyOn(db, 'recordAuditLog').mockImplementation(() => {});
-    vi.spyOn(db, 'getTaskComments').mockReturnValue([]);
-    vi.spyOn(db, 'getTaskTimeline').mockReturnValue([]);
-    vi.spyOn(db, 'dryRunBulkOperation').mockReturnValue({ total_tasks: 0, preview: [] });
-    vi.spyOn(db, 'getBulkOperation').mockReturnValue(null);
-    vi.spyOn(db, 'listBulkOperations').mockReturnValue([]);
-    vi.spyOn(db, 'predictDuration').mockReturnValue({
+    vi.spyOn(taskMetadata, 'addTaskComment').mockReturnValue(42);
+    vi.spyOn(schedulingAutomation, 'recordAuditLog').mockImplementation(() => {});
+    vi.spyOn(taskMetadata, 'getTaskComments').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'getTaskTimeline').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'dryRunBulkOperation').mockReturnValue({ total_tasks: 0, preview: [] });
+    vi.spyOn(taskMetadata, 'getBulkOperation').mockReturnValue(null);
+    vi.spyOn(taskMetadata, 'listBulkOperations').mockReturnValue([]);
+    vi.spyOn(analytics, 'predictDuration').mockReturnValue({
       predicted_minutes: 0,
       confidence: 0,
       factors: [],
     });
-    vi.spyOn(db, 'getDurationInsights').mockReturnValue({
+    vi.spyOn(analytics, 'getDurationInsights').mockReturnValue({
       accuracy: {
         total_predictions: 0,
         avg_error_percent: null,
@@ -182,23 +202,23 @@ describe('task-intelligence handlers', () => {
       models: [],
       recent_predictions: [],
     });
-    vi.spyOn(db, 'calibratePredictionModels').mockReturnValue({
+    vi.spyOn(analytics, 'calibratePredictionModels').mockReturnValue({
       models_updated: 0,
       samples_processed: 0,
     });
-    vi.spyOn(db, 'updateTaskStatus').mockImplementation(() => {});
-    vi.spyOn(db, 'setTaskReviewStatus').mockImplementation(() => {});
-    vi.spyOn(db, 'getTasksPendingReview').mockReturnValue([]);
-    vi.spyOn(db, 'getTasksNeedingCorrection').mockReturnValue([]);
-    vi.spyOn(db, 'routeTask').mockReturnValue({
+    vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
+    vi.spyOn(taskMetadata, 'setTaskReviewStatus').mockImplementation(() => {});
+    vi.spyOn(taskMetadata, 'getTasksPendingReview').mockReturnValue([]);
+    vi.spyOn(taskMetadata, 'getTasksNeedingCorrection').mockReturnValue([]);
+    vi.spyOn(hostManagement, 'routeTask').mockReturnValue({
       provider: 'desktop',
       rule: 'Default',
     });
-    vi.spyOn(db, 'deleteTasks').mockReturnValue({
+    vi.spyOn(taskCore, 'deleteTasks').mockReturnValue({
       deleted: 0,
       status: 'queued',
     });
-    vi.spyOn(db, 'deleteTask').mockReturnValue({
+    vi.spyOn(taskCore, 'deleteTask').mockReturnValue({
       id: 'deleted-task',
       status: 'completed',
     });
@@ -221,7 +241,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleStreamTaskOutput', () => {
     it('returns a task-not-found error for missing tasks', () => {
-      db.getTask.mockReturnValue(null);
+      taskCore.getTask.mockReturnValue(null);
 
       const result = handlers.handleStreamTaskOutput({ task_id: 'missing-task' });
 
@@ -229,7 +249,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('sanitizes sequence and limit values and merges chunk output', () => {
-      db.getLatestStreamChunks.mockReturnValue([
+      webhooksStreaming.getLatestStreamChunks.mockReturnValue([
         { sequence_num: 2, chunk_data: 'hello ' },
         { sequence_num: 3, chunk_data: 'world' },
       ]);
@@ -240,7 +260,7 @@ describe('task-intelligence handlers', () => {
         limit: 999,
       });
 
-      expect(db.getLatestStreamChunks).toHaveBeenCalledWith('task-stream', 0, 500);
+      expect(webhooksStreaming.getLatestStreamChunks).toHaveBeenCalledWith('task-stream', 0, 500);
 
       const payload = JSON.parse(getText(result));
       expect(payload.task_id).toBe('task-stream');
@@ -268,7 +288,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleGetTaskLogs', () => {
     it('returns a task-not-found error for missing tasks', () => {
-      db.getTask.mockReturnValue(null);
+      taskCore.getTask.mockReturnValue(null);
 
       const result = handlers.handleGetTaskLogs({ task_id: 'missing-task' });
 
@@ -276,8 +296,8 @@ describe('task-intelligence handlers', () => {
     });
 
     it('passes filters through and formats stdout/stderr content', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-logs', status: 'failed' }));
-      db.getTaskLogs.mockReturnValue([
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-logs', status: 'failed' }));
+      webhooksStreaming.getTaskLogs.mockReturnValue([
         {
           timestamp: '2026-03-12T12:00:00.000Z',
           type: 'stdout',
@@ -297,7 +317,7 @@ describe('task-intelligence handlers', () => {
         limit: 3,
       });
 
-      expect(db.getTaskLogs).toHaveBeenCalledWith('task-logs', {
+      expect(webhooksStreaming.getTaskLogs).toHaveBeenCalledWith('task-logs', {
         level: 'error',
         search: 'line',
         limit: 3,
@@ -314,7 +334,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleSubscribeTaskEvents', () => {
     it('returns a task-not-found error when subscribing to a missing task', () => {
-      db.getTask.mockReturnValue(null);
+      taskCore.getTask.mockReturnValue(null);
 
       const result = handlers.handleSubscribeTaskEvents({ task_id: 'missing-task' });
 
@@ -349,11 +369,11 @@ describe('task-intelligence handlers', () => {
     });
 
     it('creates an all-task subscription with default values', () => {
-      db.createEventSubscription.mockReturnValue('sub-all');
+      webhooksStreaming.createEventSubscription.mockReturnValue('sub-all');
 
       const result = handlers.handleSubscribeTaskEvents({});
 
-      expect(db.createEventSubscription).toHaveBeenCalledWith(
+      expect(webhooksStreaming.createEventSubscription).toHaveBeenCalledWith(
         undefined,
         ['status_change'],
         60
@@ -366,7 +386,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handlePollTaskEvents', () => {
     it('returns an error for unknown subscriptions', () => {
-      db.pollSubscription.mockReturnValue(null);
+      webhooksStreaming.pollSubscription.mockReturnValue(null);
 
       const result = handlers.handlePollTaskEvents({ subscription_id: 'sub-missing' });
 
@@ -374,7 +394,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('reports expired subscriptions', () => {
-      db.pollSubscription.mockReturnValue({ expired: true, events: [] });
+      webhooksStreaming.pollSubscription.mockReturnValue({ expired: true, events: [] });
 
       const result = handlers.handlePollTaskEvents({ subscription_id: 'sub-expired' });
 
@@ -392,7 +412,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders event details including status changes and data payloads', () => {
-      db.pollSubscription.mockReturnValue({
+      webhooksStreaming.pollSubscription.mockReturnValue({
         expired: false,
         events: [
           {
@@ -428,7 +448,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handlePauseTask', () => {
     it('rejects pausing tasks that are not running', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-pause', status: 'queued' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-pause', status: 'queued' }));
 
       const result = handlers.handlePauseTask({ task_id: 'task-pause' });
 
@@ -436,7 +456,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('returns an operation error when the task manager cannot pause the task', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-pause', status: 'running' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-pause', status: 'running' }));
       taskManager.pauseTask.mockReturnValue(false);
 
       const result = handlers.handlePauseTask({
@@ -448,7 +468,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('saves a checkpoint and updates pause state for running tasks', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-pause', status: 'running' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-pause', status: 'running' }));
       taskManager.getTaskProgress.mockReturnValue({ step: 3, progress: 50 });
 
       const result = handlers.handlePauseTask({
@@ -457,12 +477,12 @@ describe('task-intelligence handlers', () => {
       });
 
       expect(taskManager.pauseTask).toHaveBeenCalledWith('task-pause', 'maintenance window');
-      expect(db.saveTaskCheckpoint).toHaveBeenCalledWith(
+      expect(webhooksStreaming.saveTaskCheckpoint).toHaveBeenCalledWith(
         'task-pause',
         { step: 3, progress: 50 },
         'pause'
       );
-      expect(db.pauseTask).toHaveBeenCalledWith('task-pause', 'maintenance window');
+      expect(webhooksStreaming.pauseTask).toHaveBeenCalledWith('task-pause', 'maintenance window');
       expect(getText(result)).toContain('## Task Paused');
       expect(getText(result)).toContain('maintenance window');
     });
@@ -470,7 +490,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleResumeTask', () => {
     it('rejects resuming tasks that are not paused', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-resume', status: 'running' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-resume', status: 'running' }));
 
       const result = handlers.handleResumeTask({ task_id: 'task-resume' });
 
@@ -478,7 +498,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('returns an operation error when the task manager cannot resume the task', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-resume', status: 'paused' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-resume', status: 'paused' }));
       taskManager.resumeTask.mockReturnValue(false);
 
       const result = handlers.handleResumeTask({ task_id: 'task-resume' });
@@ -489,19 +509,19 @@ describe('task-intelligence handlers', () => {
     it('clears pause state, records an event, and reports checkpoint restoration', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-03-12T12:30:00.000Z'));
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-resume',
         status: 'paused',
         paused_at: '2026-03-12T12:00:00.000Z',
       }));
-      db.getTaskCheckpoint.mockReturnValue({ step: 5 });
+      webhooksStreaming.getTaskCheckpoint.mockReturnValue({ step: 5 });
 
       const result = handlers.handleResumeTask({ task_id: 'task-resume' });
       const text = getText(result);
 
       expect(taskManager.resumeTask).toHaveBeenCalledWith('task-resume');
-      expect(db.clearPauseState).toHaveBeenCalledWith('task-resume');
-      expect(db.recordTaskEvent).toHaveBeenCalledWith(
+      expect(webhooksStreaming.clearPauseState).toHaveBeenCalledWith('task-resume');
+      expect(webhooksStreaming.recordTaskEvent).toHaveBeenCalledWith(
         'task-resume',
         'status_change',
         'paused',
@@ -518,12 +538,12 @@ describe('task-intelligence handlers', () => {
     it('reports when no paused tasks exist for a project', () => {
       const result = handlers.handleListPausedTasks({ project: 'alpha' });
 
-      expect(db.listPausedTasks).toHaveBeenCalledWith({ project: 'alpha', limit: 50 });
+      expect(webhooksStreaming.listPausedTasks).toHaveBeenCalledWith({ project: 'alpha', limit: 50 });
       expect(getText(result)).toContain('No paused tasks found for project: alpha.');
     });
 
     it('formats paused task rows with truncation and fallback duration text', () => {
-      db.listPausedTasks.mockReturnValue([
+      webhooksStreaming.listPausedTasks.mockReturnValue([
         {
           id: 'abcdef12-1234-1234-1234-1234567890ab',
           task_description: 'This is a deliberately long task description that should be truncated',
@@ -541,7 +561,7 @@ describe('task-intelligence handlers', () => {
       const result = handlers.handleListPausedTasks({ limit: 2 });
       const text = getText(result);
 
-      expect(db.listPausedTasks).toHaveBeenCalledWith({ project: undefined, limit: 2 });
+      expect(webhooksStreaming.listPausedTasks).toHaveBeenCalledWith({ project: undefined, limit: 2 });
       expect(text).toContain('| abcdef12 | This is a deliberately long task descrip...');
       expect(text).toContain('| 13 min | Awaiting approval |');
       expect(text).toContain('| fedcba98 | Short description | Unknown | - |');
@@ -551,7 +571,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleSuggestImprovements', () => {
     it('rejects tasks that are not failed', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-suggest', status: 'completed' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-suggest', status: 'completed' }));
 
       const result = handlers.handleSuggestImprovements({ task_id: 'task-suggest' });
 
@@ -559,7 +579,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('returns a no-suggestions message when analysis finds nothing actionable', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-suggest',
         status: 'failed',
         error_output: 'Compilation failed on line 12',
@@ -573,13 +593,13 @@ describe('task-intelligence handlers', () => {
     });
 
     it('sorts suggestions by confidence and truncates the error output section', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-suggest',
         status: 'failed',
         task_description: 'Investigate repeated timeout failures in the indexing worker',
         error_output: 'E'.repeat(320),
       }));
-      db.generateTaskSuggestions.mockReturnValue([
+      taskMetadata.generateTaskSuggestions.mockReturnValue([
         { type: 'retry', confidence: 0.35, suggestion: 'Retry after checking transient failures.' },
         { type: 'timeout', confidence: 0.92, suggestion: 'Increase timeout or break the task down.' },
       ]);
@@ -587,7 +607,7 @@ describe('task-intelligence handlers', () => {
       const result = handlers.handleSuggestImprovements({ task_id: 'task-suggest' });
       const text = getText(result);
 
-      expect(db.generateTaskSuggestions).toHaveBeenCalledWith('task-suggest');
+      expect(taskMetadata.generateTaskSuggestions).toHaveBeenCalledWith('task-suggest');
       expect(text.indexOf('**timeout**')).toBeLessThan(text.indexOf('**retry**'));
       expect(text).toContain('92%');
       expect(text).toContain('### Error Output (truncated):');
@@ -597,7 +617,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleFindSimilarTasks', () => {
     it('returns a no-results message when no similar tasks are found', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-similar',
         task_description: 'Build a routing diagnostic report',
       }));
@@ -607,7 +627,7 @@ describe('task-intelligence handlers', () => {
         min_similarity: 0.45,
       });
 
-      expect(db.findSimilarTasks).toHaveBeenCalledWith('task-similar', {
+      expect(taskMetadata.findSimilarTasks).toHaveBeenCalledWith('task-similar', {
         limit: 10,
         minSimilarity: 0.45,
         statusFilter: undefined,
@@ -616,11 +636,11 @@ describe('task-intelligence handlers', () => {
     });
 
     it('formats similar task results and forwards the status filter', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-similar',
         task_description: 'Write authentication unit tests with retries',
       }));
-      db.findSimilarTasks.mockReturnValue([
+      taskMetadata.findSimilarTasks.mockReturnValue([
         {
           similarity: 0.83,
           task: {
@@ -638,7 +658,7 @@ describe('task-intelligence handlers', () => {
         status_filter: 'completed',
       });
 
-      expect(db.findSimilarTasks).toHaveBeenCalledWith('task-similar', {
+      expect(taskMetadata.findSimilarTasks).toHaveBeenCalledWith('task-similar', {
         limit: 5,
         minSimilarity: 0.25,
         statusFilter: 'completed',
@@ -651,19 +671,19 @@ describe('task-intelligence handlers', () => {
 
   describe('handleLearnDefaults', () => {
     it('reports when no patterns have been learned yet', () => {
-      db.learnFromRecentTasks.mockReturnValue({ tasksProcessed: 4, patternsLearned: 0 });
+      taskMetadata.learnFromRecentTasks.mockReturnValue({ tasksProcessed: 4, patternsLearned: 0 });
 
       const result = handlers.handleLearnDefaults({ task_limit: 4 });
 
-      expect(db.learnFromRecentTasks).toHaveBeenCalledWith(4);
-      expect(db.getTaskPatterns).toHaveBeenCalledWith({ minHitCount: 1, limit: 20 });
+      expect(taskMetadata.learnFromRecentTasks).toHaveBeenCalledWith(4);
+      expect(taskMetadata.getTaskPatterns).toHaveBeenCalledWith({ minHitCount: 1, limit: 20 });
       expect(getText(result)).toContain('**Tasks analyzed:** 4');
       expect(getText(result)).toContain('No patterns learned yet');
     });
 
     it('renders learned pattern rows with suggested configuration values', () => {
-      db.learnFromRecentTasks.mockReturnValue({ tasksProcessed: 12, patternsLearned: 3 });
-      db.getTaskPatterns.mockReturnValue([
+      taskMetadata.learnFromRecentTasks.mockReturnValue({ tasksProcessed: 12, patternsLearned: 3 });
+      taskMetadata.getTaskPatterns.mockReturnValue([
         {
           pattern_type: 'keyword',
           pattern_value: 'test',
@@ -683,7 +703,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleApplySmartDefaults', () => {
     it('shows base defaults when no patterns match', () => {
-      db.getSmartDefaults.mockReturnValue({
+      taskMetadata.getSmartDefaults.mockReturnValue({
         timeout_minutes: 30,
         auto_approve: false,
         priority: 0,
@@ -696,7 +716,7 @@ describe('task-intelligence handlers', () => {
       });
 
       const text = getText(result);
-      expect(db.getSmartDefaults).toHaveBeenCalledWith(
+      expect(taskMetadata.getSmartDefaults).toHaveBeenCalledWith(
         'A brand new task description with no prior history',
         undefined
       );
@@ -706,7 +726,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders matched pattern details and confidence values', () => {
-      db.getSmartDefaults.mockReturnValue({
+      taskMetadata.getSmartDefaults.mockReturnValue({
         timeout_minutes: 90,
         auto_approve: true,
         priority: 3,
@@ -737,7 +757,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleAddComment', () => {
     it('returns a task-not-found error for missing tasks', () => {
-      db.getTask.mockReturnValue(null);
+      taskCore.getTask.mockReturnValue(null);
 
       const result = handlers.handleAddComment({
         task_id: 'missing-task',
@@ -748,7 +768,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('adds the comment and writes an audit entry', () => {
-      db.addTaskComment.mockReturnValue(77);
+      taskMetadata.addTaskComment.mockReturnValue(77);
 
       const result = handlers.handleAddComment({
         task_id: 'task-comment',
@@ -757,11 +777,11 @@ describe('task-intelligence handlers', () => {
         author: 'alice',
       });
 
-      expect(db.addTaskComment).toHaveBeenCalledWith('task-comment', 'Blocked on fixture refresh', {
+      expect(taskMetadata.addTaskComment).toHaveBeenCalledWith('task-comment', 'Blocked on fixture refresh', {
         author: 'alice',
         commentType: 'blocker',
       });
-      expect(db.recordAuditLog).toHaveBeenCalledWith(
+      expect(schedulingAutomation.recordAuditLog).toHaveBeenCalledWith(
         'comment',
         '77',
         'create',
@@ -779,7 +799,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('keeps succeeding when audit logging fails', () => {
-      db.recordAuditLog.mockImplementation(() => {
+      schedulingAutomation.recordAuditLog.mockImplementation(() => {
         throw new Error('disk full');
       });
 
@@ -803,12 +823,12 @@ describe('task-intelligence handlers', () => {
         comment_type: 'blocker',
       });
 
-      expect(db.getTaskComments).toHaveBeenCalledWith('task-comment', { commentType: 'blocker' });
+      expect(taskMetadata.getTaskComments).toHaveBeenCalledWith('task-comment', { commentType: 'blocker' });
       expect(getText(result)).toContain("No comments found of type 'blocker'.");
     });
 
     it('formats task comments with icons and totals', () => {
-      db.getTaskComments.mockReturnValue([
+      taskMetadata.getTaskComments.mockReturnValue([
         {
           comment_type: 'note',
           author: 'alice',
@@ -838,17 +858,17 @@ describe('task-intelligence handlers', () => {
     it('reports when a task has no timeline events', () => {
       const result = handlers.handleTaskTimeline({ task_id: 'task-timeline' });
 
-      expect(db.getTaskTimeline).toHaveBeenCalledWith('task-timeline');
+      expect(taskMetadata.getTaskTimeline).toHaveBeenCalledWith('task-timeline');
       expect(getText(result)).toContain('No timeline events found.');
     });
 
     it('renders known and unknown timeline event types with details', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-timeline',
         status: 'failed',
         task_description: 'Audit the route capture timeline',
       }));
-      db.getTaskTimeline.mockReturnValue([
+      taskMetadata.getTaskTimeline.mockReturnValue([
         {
           event_type: 'created',
           timestamp: '2026-03-12T11:00:00.000Z',
@@ -876,7 +896,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleDryRunBulk', () => {
     it('passes normalized filter criteria and reports zero matches', () => {
-      db.dryRunBulkOperation.mockReturnValue({ total_tasks: 0, preview: [] });
+      taskMetadata.dryRunBulkOperation.mockReturnValue({ total_tasks: 0, preview: [] });
 
       const result = handlers.handleDryRunBulk({
         operation: 'cancel',
@@ -886,7 +906,7 @@ describe('task-intelligence handlers', () => {
         project: 'alpha',
       });
 
-      expect(db.dryRunBulkOperation).toHaveBeenCalledWith('cancel', {
+      expect(taskMetadata.dryRunBulkOperation).toHaveBeenCalledWith('cancel', {
         status: ['queued'],
         tags: ['bug'],
         older_than_hours: 12,
@@ -903,7 +923,7 @@ describe('task-intelligence handlers', () => {
         status: 'failed',
         description: `Preview task ${index}`,
       }));
-      db.dryRunBulkOperation.mockReturnValue({
+      taskMetadata.dryRunBulkOperation.mockReturnValue({
         total_tasks: 12,
         preview,
       });
@@ -914,7 +934,7 @@ describe('task-intelligence handlers', () => {
       });
 
       const text = getText(result);
-      expect(db.dryRunBulkOperation).toHaveBeenCalledWith('retry', {
+      expect(taskMetadata.dryRunBulkOperation).toHaveBeenCalledWith('retry', {
         status: ['failed', 'timeout'],
       });
       expect(text).toContain('```json');
@@ -933,7 +953,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('formats progress, errors, and JSON results for existing operations', () => {
-      db.getBulkOperation.mockReturnValue({
+      taskMetadata.getBulkOperation.mockReturnValue({
         id: 'bulk-12345678',
         operation_type: 'retry',
         status: 'completed',
@@ -962,7 +982,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleListBulkOperations', () => {
     it('lists bulk operations with filter arguments', () => {
-      db.listBulkOperations.mockReturnValue([
+      taskMetadata.listBulkOperations.mockReturnValue([
         {
           id: 'bulk-12345678',
           operation_type: 'cancel',
@@ -979,7 +999,7 @@ describe('task-intelligence handlers', () => {
       });
       const text = getText(result);
 
-      expect(db.listBulkOperations).toHaveBeenCalledWith({
+      expect(taskMetadata.listBulkOperations).toHaveBeenCalledWith({
         operation_type: 'cancel',
         status: 'completed',
         limit: 3,
@@ -992,7 +1012,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handlePredictDuration', () => {
     it('formats prediction output and low-confidence guidance', () => {
-      db.predictDuration.mockReturnValue({
+      analytics.predictDuration.mockReturnValue({
         predicted_minutes: 42,
         confidence: 0.41,
         factors: [
@@ -1008,7 +1028,7 @@ describe('task-intelligence handlers', () => {
       });
       const text = getText(result);
 
-      expect(db.predictDuration).toHaveBeenCalledWith(
+      expect(analytics.predictDuration).toHaveBeenCalledWith(
         'Run integration verification for alpha services',
         {
           template_name: 'verify',
@@ -1025,7 +1045,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleDurationInsights', () => {
     it('renders accuracy metrics, models, and recent prediction rows', () => {
-      db.getDurationInsights.mockReturnValue({
+      analytics.getDurationInsights.mockReturnValue({
         accuracy: {
           total_predictions: 9,
           avg_error_percent: 18,
@@ -1052,7 +1072,7 @@ describe('task-intelligence handlers', () => {
       const result = handlers.handleDurationInsights({ project: 'alpha', limit: 5 });
       const text = getText(result);
 
-      expect(db.getDurationInsights).toHaveBeenCalledWith({
+      expect(analytics.getDurationInsights).toHaveBeenCalledWith({
         project: 'alpha',
         limit: 5,
       });
@@ -1065,7 +1085,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleCalibratePredictions', () => {
     it('reports when prediction models were updated', () => {
-      db.calibratePredictionModels.mockReturnValue({
+      analytics.calibratePredictionModels.mockReturnValue({
         models_updated: 3,
         samples_processed: 27,
       });
@@ -1079,7 +1099,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('reports when calibration has insufficient historical data', () => {
-      db.calibratePredictionModels.mockReturnValue({
+      analytics.calibratePredictionModels.mockReturnValue({
         models_updated: 0,
         samples_processed: 1,
       });
@@ -1098,7 +1118,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('rejects tasks that are not pending', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-start', status: 'queued' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-start', status: 'queued' }));
 
       const result = handlers.handleStartPendingTask({ task_id: 'task-start' });
 
@@ -1106,7 +1126,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('queues pending tasks and includes aggregation details from metadata', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-start',
         status: 'pending',
         metadata: JSON.stringify({
@@ -1119,7 +1139,7 @@ describe('task-intelligence handlers', () => {
       const result = handlers.handleStartPendingTask({ task_id: 'task-start' });
       const text = getText(result);
 
-      expect(db.updateTaskStatus).toHaveBeenCalledWith('task-start', 'queued');
+      expect(taskCore.updateTaskStatus).toHaveBeenCalledWith('task-start', 'queued');
       expect(taskManager.processQueue).toHaveBeenCalledTimes(1);
       expect(text).toContain('## Task Started');
       expect(text).toContain('| Previous Status | pending |');
@@ -1150,7 +1170,7 @@ describe('task-intelligence handlers', () => {
       });
       const text = getText(result);
 
-      expect(db.setTaskReviewStatus).toHaveBeenCalledWith(
+      expect(taskMetadata.setTaskReviewStatus).toHaveBeenCalledWith(
         'task-review',
         'needs_correction',
         'Retry with stricter verification output.'
@@ -1166,12 +1186,12 @@ describe('task-intelligence handlers', () => {
     it('reports when no completed tasks are awaiting review', () => {
       const result = handlers.handleListPendingReviews({});
 
-      expect(db.getTasksPendingReview).toHaveBeenCalledWith(20);
+      expect(taskMetadata.getTasksPendingReview).toHaveBeenCalledWith(20);
       expect(getText(result)).toContain('## No Tasks Pending Review');
     });
 
     it('formats pending review rows and next-step guidance', () => {
-      db.getTasksPendingReview.mockReturnValue([
+      taskMetadata.getTasksPendingReview.mockReturnValue([
         {
           id: 'task-review-1',
           task_description: 'Review the output bundle for the routing verification workflow',
@@ -1184,7 +1204,7 @@ describe('task-intelligence handlers', () => {
       const result = handlers.handleListPendingReviews({ limit: 1 });
       const text = getText(result);
 
-      expect(db.getTasksPendingReview).toHaveBeenCalledWith(1);
+      expect(taskMetadata.getTasksPendingReview).toHaveBeenCalledWith(1);
       expect(text).toContain('## Tasks Pending Review (1)');
       expect(text).toContain('| task-review-1 | Review the output bundle for the routing verificat...');
       expect(text).toContain('| complex | codex | 2026-03-12T12:00:00.000Z |');
@@ -1194,7 +1214,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleListTasksNeedingCorrection', () => {
     it('formats tasks requiring correction with fallback notes', () => {
-      db.getTasksNeedingCorrection.mockReturnValue([
+      taskMetadata.getTasksNeedingCorrection.mockReturnValue([
         {
           id: 'task-correct-1',
           task_description: 'Fix the validation step so routing bundles include every manifest artifact',
@@ -1226,14 +1246,14 @@ describe('task-intelligence handlers', () => {
     });
 
     it('updates task complexity while preserving the current status', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-complexity', status: 'running' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-complexity', status: 'running' }));
 
       const result = handlers.handleSetTaskComplexity({
         task_id: 'task-complexity',
         complexity: 'complex',
       });
 
-      expect(db.updateTaskStatus).toHaveBeenCalledWith(
+      expect(taskCore.updateTaskStatus).toHaveBeenCalledWith(
         'task-complexity',
         'running',
         { complexity: 'complex' }
@@ -1251,7 +1271,7 @@ describe('task-intelligence handlers', () => {
     });
 
     it('renders provider, host, model, and rule data', () => {
-      db.routeTask.mockReturnValue({
+      hostManagement.routeTask.mockReturnValue({
         provider: 'ollama',
         host: 'desktop-01',
         model: 'qwen2.5-coder:32b',
@@ -1261,7 +1281,7 @@ describe('task-intelligence handlers', () => {
       const result = handlers.handleGetComplexityRouting({ complexity: 'complex' });
       const text = getText(result);
 
-      expect(db.routeTask).toHaveBeenCalledWith('complex');
+      expect(hostManagement.routeTask).toHaveBeenCalledWith('complex');
       expect(text).toContain('## Complexity Routing for "complex"');
       expect(text).toContain('| Provider | ollama |');
       expect(text).toContain('| Host | desktop-01 |');
@@ -1278,19 +1298,19 @@ describe('task-intelligence handlers', () => {
     });
 
     it('deletes tasks in bulk by status', () => {
-      db.deleteTasks.mockReturnValue({
+      taskCore.deleteTasks.mockReturnValue({
         deleted: 4,
         status: 'failed',
       });
 
       const result = handlers.handleDeleteTask({ status: 'failed' });
 
-      expect(db.deleteTasks).toHaveBeenCalledWith('failed');
+      expect(taskCore.deleteTasks).toHaveBeenCalledWith('failed');
       expect(getText(result)).toContain("Deleted 4 task(s) with status 'failed'.");
     });
 
     it('maps single-task delete failures to task-not-found errors', () => {
-      db.deleteTask.mockImplementation(() => {
+      taskCore.deleteTask.mockImplementation(() => {
         throw new Error('task-delete missing');
       });
 

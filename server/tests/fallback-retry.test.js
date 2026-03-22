@@ -10,6 +10,9 @@ let testDir;
 let origDataDir;
 let origOpenAiKey;
 let db;
+let hostManagement;
+let providerRoutingCore;
+let eventTracking;
 let mod;
 
 let processQueueCalls;
@@ -39,18 +42,21 @@ function setup() {
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
+  hostManagement = require('../db/host-management');
+  providerRoutingCore = require('../db/provider-routing-core');
+  eventTracking = require('../db/event-tracking');
 
   // Remove auto-created 'default' host to prevent test contamination
   // (migrateToMultiHost creates it from the seeded ollama_host config)
   try {
-    const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];
+    const hosts = hostManagement.listOllamaHosts ? hostManagement.listOllamaHosts() : [];
     for (const host of hosts) {
-      if (db.removeOllamaHost) db.removeOllamaHost(host.id);
+      if (hostManagement.removeOllamaHost) hostManagement.removeOllamaHost(host.id);
     }
   } catch { /* ok */ }
 
   // Reset in-memory provider health state to prevent cross-test contamination
-  if (typeof db.resetProviderHealth === 'function') db.resetProviderHealth();
+  if (typeof providerRoutingCore.resetProviderHealth === 'function') providerRoutingCore.resetProviderHealth();
 
   processQueueCalls = 0;
   notifyCalls = [];
@@ -130,14 +136,14 @@ function createTask(overrides = {}) {
 
 function registerHealthyHost(name, modelNames, extraUpdates = {}) {
   const id = `host-${name}-${randomUUID().slice(0, 8)}`;
-  db.addOllamaHost({
+  hostManagement.addOllamaHost({
     id,
     name,
     url: `http://${name}.local:11434`,
     max_concurrent: 4
   });
 
-  db.updateOllamaHost(id, {
+  hostManagement.updateOllamaHost(id, {
     status: 'healthy',
     enabled: 1,
     running_tasks: 0,
@@ -297,7 +303,7 @@ describe('fallback-retry module', () => {
       db.setConfig('codex_enabled', '1');
       db.setConfig('claude_cli_enabled', '1');
       // Mark codex as unhealthy by recording many failures
-      for (let i = 0; i < 10; i++) db.recordProviderOutcome('codex', false);
+      for (let i = 0; i < 10; i++) providerRoutingCore.recordProviderOutcome('codex', false);
 
       const task = createTask({ provider: 'ollama' });
       const ok = mod.tryOllamaCloudFallback(task.id, task, 'OOM');
@@ -307,7 +313,7 @@ describe('fallback-retry module', () => {
       expect(db.getTask(task.id).provider).toBe('claude-cli');
 
       // Clean up in-memory health state to avoid leaking into other tests
-      if (typeof db.resetProviderHealth === 'function') db.resetProviderHealth();
+      if (typeof providerRoutingCore.resetProviderHealth === 'function') providerRoutingCore.resetProviderHealth();
     });
 
     it('uses configured fallback provider when it is healthy', () => {

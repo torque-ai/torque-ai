@@ -6,6 +6,8 @@ const { randomUUID } = require('crypto');
 let testDir;
 let origDataDir;
 let db;
+let workflowEngine;
+let projectConfigCore;
 let mod;
 
 let startCalls;
@@ -24,6 +26,8 @@ function setup() {
   db = require('../database');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
+  workflowEngine = require('../db/workflow-engine');
+  projectConfigCore = require('../db/project-config-core');
   mod = require('../execution/workflow-runtime');
   initRuntime();
 }
@@ -103,7 +107,7 @@ function createTask(overrides = {}) {
 
 function createWorkflow(overrides = {}) {
   const id = overrides.id || randomUUID();
-  db.createWorkflow({
+  workflowEngine.createWorkflow({
     id,
     name: overrides.name || `wf-${id.slice(0, 8)}`,
     status: overrides.status || 'running',
@@ -138,16 +142,16 @@ describe('workflow-runtime', () => {
   describe('handlePlanProjectTaskCompletion', () => {
     it('increments completed count and queues waiting dependents when dependencies are satisfied', () => {
       const projectId = randomUUID();
-      db.createPlanProject({ id: projectId, name: 'plan-completion-queue', total_tasks: 2 });
+      projectConfigCore.createPlanProject({ id: projectId, name: 'plan-completion-queue', total_tasks: 2 });
 
       const rootTaskId = createTask({ status: 'completed' });
       const depTaskId = createTask({ status: 'waiting' });
-      db.addTaskToPlanProject(projectId, rootTaskId, 1, []);
-      db.addTaskToPlanProject(projectId, depTaskId, 2, [rootTaskId]);
+      projectConfigCore.addTaskToPlanProject(projectId, rootTaskId, 1, []);
+      projectConfigCore.addTaskToPlanProject(projectId, depTaskId, 2, [rootTaskId]);
 
       mod.handlePlanProjectTaskCompletion(rootTaskId);
 
-      const updatedProject = db.getPlanProject(projectId);
+      const updatedProject = projectConfigCore.getPlanProject(projectId);
       const depTask = db.getTask(depTaskId);
       expect(updatedProject.completed_tasks).toBe(1);
       expect(updatedProject.status).toBe('active');
@@ -157,14 +161,14 @@ describe('workflow-runtime', () => {
 
     it('marks plan project as completed when all tasks are done', () => {
       const projectId = randomUUID();
-      db.createPlanProject({ id: projectId, name: 'plan-completion-final', total_tasks: 1 });
+      projectConfigCore.createPlanProject({ id: projectId, name: 'plan-completion-final', total_tasks: 1 });
 
       const onlyTaskId = createTask({ status: 'completed' });
-      db.addTaskToPlanProject(projectId, onlyTaskId, 1, []);
+      projectConfigCore.addTaskToPlanProject(projectId, onlyTaskId, 1, []);
 
       mod.handlePlanProjectTaskCompletion(onlyTaskId);
 
-      const updatedProject = db.getPlanProject(projectId);
+      const updatedProject = projectConfigCore.getPlanProject(projectId);
       expect(updatedProject.status).toBe('completed');
       expect(updatedProject.completed_tasks).toBe(1);
       expect(updatedProject.completed_at).toBeTruthy();
@@ -174,21 +178,21 @@ describe('workflow-runtime', () => {
   describe('handlePlanProjectTaskFailure', () => {
     it('increments failed count and blocks transitive waiting/queued dependents', () => {
       const projectId = randomUUID();
-      db.createPlanProject({ id: projectId, name: 'plan-failure-transitive', total_tasks: 4 });
+      projectConfigCore.createPlanProject({ id: projectId, name: 'plan-failure-transitive', total_tasks: 4 });
 
       const taskA = createTask({ status: 'failed' });
       const taskB = createTask({ status: 'waiting' });
       const taskC = createTask({ status: 'queued' });
       const taskD = createTask({ status: 'running' });
 
-      db.addTaskToPlanProject(projectId, taskA, 1, []);
-      db.addTaskToPlanProject(projectId, taskB, 2, [taskA]);
-      db.addTaskToPlanProject(projectId, taskC, 3, [taskB]);
-      db.addTaskToPlanProject(projectId, taskD, 4, [taskA]);
+      projectConfigCore.addTaskToPlanProject(projectId, taskA, 1, []);
+      projectConfigCore.addTaskToPlanProject(projectId, taskB, 2, [taskA]);
+      projectConfigCore.addTaskToPlanProject(projectId, taskC, 3, [taskB]);
+      projectConfigCore.addTaskToPlanProject(projectId, taskD, 4, [taskA]);
 
       mod.handlePlanProjectTaskFailure(taskA);
 
-      const project = db.getPlanProject(projectId);
+      const project = projectConfigCore.getPlanProject(projectId);
       expect(project.failed_tasks).toBe(1);
       expect(db.getTask(taskB).status).toBe('blocked');
       expect(db.getTask(taskC).status).toBe('blocked');
@@ -199,16 +203,16 @@ describe('workflow-runtime', () => {
 
     it('marks plan project failed when no tasks can proceed', () => {
       const projectId = randomUUID();
-      db.createPlanProject({ id: projectId, name: 'plan-failure-final', total_tasks: 2 });
+      projectConfigCore.createPlanProject({ id: projectId, name: 'plan-failure-final', total_tasks: 2 });
 
       const taskA = createTask({ status: 'failed' });
       const taskB = createTask({ status: 'waiting' });
-      db.addTaskToPlanProject(projectId, taskA, 1, []);
-      db.addTaskToPlanProject(projectId, taskB, 2, [taskA]);
+      projectConfigCore.addTaskToPlanProject(projectId, taskA, 1, []);
+      projectConfigCore.addTaskToPlanProject(projectId, taskB, 2, [taskA]);
 
       mod.handlePlanProjectTaskFailure(taskA);
 
-      const project = db.getPlanProject(projectId);
+      const project = projectConfigCore.getPlanProject(projectId);
       expect(project.status).toBe('failed');
       expect(db.getTask(taskB).status).toBe('blocked');
     });
@@ -218,22 +222,22 @@ describe('workflow-runtime', () => {
     it('writes a markdown report with step details and output snippets', () => {
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-doc');
-      db.createPipeline({
+      projectConfigCore.createPipeline({
         id: pipelineId,
         name: 'Doc Pipeline',
         description: 'Pipeline doc generation test',
         working_directory: workingDir,
       });
-      db.updatePipelineStatus(pipelineId, 'running', {
+      projectConfigCore.updatePipelineStatus(pipelineId, 'running', {
         started_at: new Date(Date.now() - 6000).toISOString(),
       });
 
-      db.addPipelineStep({
+      projectConfigCore.addPipelineStep({
         pipeline_id: pipelineId,
         name: 'build',
         task_template: 'run build',
       });
-      const [step] = db.getPipelineSteps(pipelineId);
+      const [step] = projectConfigCore.getPipelineSteps(pipelineId);
 
       const taskId = createTask({
         status: 'pending',
@@ -249,7 +253,7 @@ describe('workflow-runtime', () => {
         exit_code: 0,
         completed_at: new Date().toISOString(),
       });
-      db.updatePipelineStep(step.id, { status: 'completed', task_id: taskId });
+      projectConfigCore.updatePipelineStep(step.id, { status: 'completed', task_id: taskId });
 
       mod.generatePipelineDocumentation(pipelineId, 'completed');
 
@@ -267,22 +271,22 @@ describe('workflow-runtime', () => {
     it('writes a markdown report when files_modified JSON is malformed', () => {
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-doc-malformed');
-      db.createPipeline({
+      projectConfigCore.createPipeline({
         id: pipelineId,
         name: 'Doc Pipeline Malformed Files',
         description: 'Pipeline doc generation malformed files test',
         working_directory: workingDir,
       });
-      db.updatePipelineStatus(pipelineId, 'running', {
+      projectConfigCore.updatePipelineStatus(pipelineId, 'running', {
         started_at: new Date(Date.now() - 6000).toISOString(),
       });
 
-      db.addPipelineStep({
+      projectConfigCore.addPipelineStep({
         pipeline_id: pipelineId,
         name: 'build',
         task_template: 'run build',
       });
-      const [step] = db.getPipelineSteps(pipelineId);
+      const [step] = projectConfigCore.getPipelineSteps(pipelineId);
 
       const taskId = createTask({
         status: 'pending',
@@ -298,7 +302,7 @@ describe('workflow-runtime', () => {
         exit_code: 0,
         completed_at: new Date().toISOString(),
       });
-      db.updatePipelineStep(step.id, { status: 'completed', task_id: taskId });
+      projectConfigCore.updatePipelineStep(step.id, { status: 'completed', task_id: taskId });
 
       expect(() => {
         mod.generatePipelineDocumentation(pipelineId, 'completed');
@@ -331,16 +335,16 @@ describe('workflow-runtime', () => {
     it('advances to the next step, creating and starting the next task', () => {
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-next');
-      db.createPipeline({
+      projectConfigCore.createPipeline({
         id: pipelineId,
         name: 'Pipeline Advance',
         working_directory: workingDir,
       });
-      db.addPipelineStep({ pipeline_id: pipelineId, name: 'step-1', task_template: 'run first' });
-      db.addPipelineStep({ pipeline_id: pipelineId, name: 'step-2', task_template: 'second uses ${prev_output}' });
+      projectConfigCore.addPipelineStep({ pipeline_id: pipelineId, name: 'step-1', task_template: 'run first' });
+      projectConfigCore.addPipelineStep({ pipeline_id: pipelineId, name: 'step-2', task_template: 'second uses ${prev_output}' });
 
-      const [step1, step2] = db.getPipelineSteps(pipelineId);
-      db.updatePipelineStatus(pipelineId, 'running', { current_step: step1.step_order });
+      const [step1, step2] = projectConfigCore.getPipelineSteps(pipelineId);
+      projectConfigCore.updatePipelineStatus(pipelineId, 'running', { current_step: step1.step_order });
 
       const firstTaskId = createTask({
         status: 'pending',
@@ -348,15 +352,15 @@ describe('workflow-runtime', () => {
         context: { pipeline_id: pipelineId, step_id: step1.id },
       });
       db.updateTaskStatus(firstTaskId, 'completed', { output: 'first-step-output' });
-      db.updatePipelineStep(step1.id, { status: 'running', task_id: firstTaskId });
+      projectConfigCore.updatePipelineStep(step1.id, { status: 'running', task_id: firstTaskId });
 
       mod.handlePipelineStepCompletion(firstTaskId, 'completed');
 
-      const refreshedSteps = db.getPipelineSteps(pipelineId);
+      const refreshedSteps = projectConfigCore.getPipelineSteps(pipelineId);
       const refreshedStep1 = refreshedSteps.find(s => s.id === step1.id);
       const refreshedStep2 = refreshedSteps.find(s => s.id === step2.id);
       const nextTask = db.getTask(refreshedStep2.task_id);
-      const pipeline = db.getPipeline(pipelineId);
+      const pipeline = projectConfigCore.getPipeline(pipelineId);
 
       expect(refreshedStep1.status).toBe('completed');
       expect(refreshedStep2.status).toBe('running');
@@ -390,16 +394,16 @@ describe('workflow-runtime', () => {
 
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-next-queued');
-      db.createPipeline({
+      projectConfigCore.createPipeline({
         id: pipelineId,
         name: 'Pipeline Advance Queued',
         working_directory: workingDir,
       });
-      db.addPipelineStep({ pipeline_id: pipelineId, name: 'step-1', task_template: 'run first' });
-      db.addPipelineStep({ pipeline_id: pipelineId, name: 'step-2', task_template: 'run second' });
+      projectConfigCore.addPipelineStep({ pipeline_id: pipelineId, name: 'step-1', task_template: 'run first' });
+      projectConfigCore.addPipelineStep({ pipeline_id: pipelineId, name: 'step-2', task_template: 'run second' });
 
-      const [step1, step2] = db.getPipelineSteps(pipelineId);
-      db.updatePipelineStatus(pipelineId, 'running', { current_step: step1.step_order });
+      const [step1, step2] = projectConfigCore.getPipelineSteps(pipelineId);
+      projectConfigCore.updatePipelineStatus(pipelineId, 'running', { current_step: step1.step_order });
 
       const firstTaskId = createTask({
         status: 'pending',
@@ -407,11 +411,11 @@ describe('workflow-runtime', () => {
         context: { pipeline_id: pipelineId, step_id: step1.id },
       });
       db.updateTaskStatus(firstTaskId, 'completed', { output: 'first-step-output' });
-      db.updatePipelineStep(step1.id, { status: 'running', task_id: firstTaskId });
+      projectConfigCore.updatePipelineStep(step1.id, { status: 'running', task_id: firstTaskId });
 
       mod.handlePipelineStepCompletion(firstTaskId, 'completed');
 
-      const refreshedStep2 = db.getPipelineSteps(pipelineId).find(s => s.id === step2.id);
+      const refreshedStep2 = projectConfigCore.getPipelineSteps(pipelineId).find(s => s.id === step2.id);
 
       expect(refreshedStep2.status).toBe('queued');
       expect(startCalls).toContain(refreshedStep2.task_id);
@@ -420,25 +424,25 @@ describe('workflow-runtime', () => {
     it('marks pipeline completed when there is no next step', () => {
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-final');
-      db.createPipeline({
+      projectConfigCore.createPipeline({
         id: pipelineId,
         name: 'Pipeline Final',
         working_directory: workingDir,
       });
-      db.addPipelineStep({ pipeline_id: pipelineId, name: 'only-step', task_template: 'single' });
-      const [step] = db.getPipelineSteps(pipelineId);
-      db.updatePipelineStatus(pipelineId, 'running', { current_step: 1 });
+      projectConfigCore.addPipelineStep({ pipeline_id: pipelineId, name: 'only-step', task_template: 'single' });
+      const [step] = projectConfigCore.getPipelineSteps(pipelineId);
+      projectConfigCore.updatePipelineStatus(pipelineId, 'running', { current_step: 1 });
 
       const taskId = createTask({
         status: 'completed',
         working_directory: workingDir,
         context: { pipeline_id: pipelineId, step_id: step.id },
       });
-      db.updatePipelineStep(step.id, { status: 'running', task_id: taskId });
+      projectConfigCore.updatePipelineStep(step.id, { status: 'running', task_id: taskId });
 
       mod.handlePipelineStepCompletion(taskId, 'completed');
 
-      const pipeline = db.getPipeline(pipelineId);
+      const pipeline = projectConfigCore.getPipeline(pipelineId);
       expect(pipeline.status).toBe('completed');
       expect(pipeline.completed_at).toBeTruthy();
       expect(startCalls.length).toBe(0);
@@ -450,14 +454,14 @@ describe('workflow-runtime', () => {
     it('marks pipeline failed when a step fails', () => {
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-fail');
-      db.createPipeline({
+      projectConfigCore.createPipeline({
         id: pipelineId,
         name: 'Pipeline Failure',
         working_directory: workingDir,
       });
-      db.addPipelineStep({ pipeline_id: pipelineId, name: 'failing-step', task_template: 'explode' });
-      const [step] = db.getPipelineSteps(pipelineId);
-      db.updatePipelineStatus(pipelineId, 'running', { current_step: 1 });
+      projectConfigCore.addPipelineStep({ pipeline_id: pipelineId, name: 'failing-step', task_template: 'explode' });
+      const [step] = projectConfigCore.getPipelineSteps(pipelineId);
+      projectConfigCore.updatePipelineStatus(pipelineId, 'running', { current_step: 1 });
 
       const taskId = createTask({
         status: 'failed',
@@ -465,12 +469,12 @@ describe('workflow-runtime', () => {
         error_output: 'boom',
         context: { pipeline_id: pipelineId, step_id: step.id },
       });
-      db.updatePipelineStep(step.id, { status: 'running', task_id: taskId });
+      projectConfigCore.updatePipelineStep(step.id, { status: 'running', task_id: taskId });
 
       mod.handlePipelineStepCompletion(taskId, 'failed');
 
-      const pipeline = db.getPipeline(pipelineId);
-      const refreshedStep = db.getPipelineSteps(pipelineId)[0];
+      const pipeline = projectConfigCore.getPipeline(pipelineId);
+      const refreshedStep = projectConfigCore.getPipelineSteps(pipelineId)[0];
       expect(refreshedStep.status).toBe('failed');
       expect(pipeline.status).toBe('failed');
       expect(pipeline.error).toContain(`Step ${step.id} failed`);
@@ -483,7 +487,7 @@ describe('workflow-runtime', () => {
       const taskA = createWorkflowTask(workflowId, 'A', 'completed');
       const taskB = createWorkflowTask(workflowId, 'B', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: taskB,
         depends_on_task_id: taskA,
@@ -505,7 +509,7 @@ describe('workflow-runtime', () => {
       });
       const blockedTask = createWorkflowTask(workflowId, 'blocked-child', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: blockedTask,
         depends_on_task_id: failedTask,
@@ -513,8 +517,8 @@ describe('workflow-runtime', () => {
 
       mod.handleWorkflowTermination(failedTask);
 
-      const updatedWorkflow = db.getWorkflow(workflowId);
-      const workflowTaskStatuses = db.getWorkflowTasks(workflowId).map(task => task.status).sort();
+      const updatedWorkflow = workflowEngine.getWorkflow(workflowId);
+      const workflowTaskStatuses = workflowEngine.getWorkflowTasks(workflowId).map(task => task.status).sort();
 
       expect(db.getTask(blockedTask).status).toBe('skipped');
       expect(db.getTask(blockedTask).error_output).toContain('Skipped due to dependency condition not met');
@@ -533,13 +537,13 @@ describe('workflow-runtime', () => {
       const taskC = createWorkflowTask(workflowId, 'C', 'pending');
       const taskD = createWorkflowTask(workflowId, 'D', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: taskD,
         depends_on_task_id: taskA,
         on_fail: 'skip',
       });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: taskD,
         depends_on_task_id: taskC,
@@ -560,7 +564,7 @@ describe('workflow-runtime', () => {
       const taskA = createWorkflowTask(workflowId, 'A', 'failed');
       const taskB = createWorkflowTask(workflowId, 'B', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: taskB,
         depends_on_task_id: taskA,
@@ -570,7 +574,7 @@ describe('workflow-runtime', () => {
       mod.evaluateWorkflowDependencies(taskA, workflowId);
 
       const task = db.getTask(taskB);
-      const workflow = db.getWorkflow(workflowId);
+      const workflow = workflowEngine.getWorkflow(workflowId);
       expect(task.status).toBe('skipped');
       expect(task.error_output).toContain('Skipped due to dependency condition not met');
       expect(workflow.status).toBe('failed');
@@ -603,7 +607,7 @@ describe('workflow-runtime', () => {
       const workflowId = createWorkflow({ name: 'wf-cancel-action' });
       const taskA = createWorkflowTask(workflowId, 'A', 'blocked');
       const taskB = createWorkflowTask(workflowId, 'B', 'pending', { depends_on: [taskA] });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: taskB, depends_on_task_id: taskA });
 
       mod.applyFailureAction(taskA, 'cancel', null, workflowId);
 
@@ -618,13 +622,13 @@ describe('workflow-runtime', () => {
       const dep2 = createWorkflowTask(workflowId, 'dep-2', 'completed');
       const target = createWorkflowTask(workflowId, 'target', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: target,
         depends_on_task_id: dep1,
         on_fail: 'continue',
       });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: target,
         depends_on_task_id: dep2,
@@ -643,7 +647,7 @@ describe('workflow-runtime', () => {
       const alternate = createWorkflowTask(workflowId, 'alternate', 'blocked');
       const downstream = createWorkflowTask(workflowId, 'downstream', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: downstream,
         depends_on_task_id: original,
@@ -667,10 +671,10 @@ describe('workflow-runtime', () => {
       const d2 = createWorkflowTask(workflowId, 'd2', 'blocked', { depends_on: [d1] });
       const d3 = createWorkflowTask(workflowId, 'd3', 'queued', { depends_on: [d2] });
       const done = createWorkflowTask(workflowId, 'done', 'completed', { depends_on: [root] });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: d1, depends_on_task_id: root });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: d2, depends_on_task_id: d1 });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: d3, depends_on_task_id: d2 });
-      db.addTaskDependency({ workflow_id: workflowId, task_id: done, depends_on_task_id: root });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: d1, depends_on_task_id: root });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: d2, depends_on_task_id: d1 });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: d3, depends_on_task_id: d2 });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: done, depends_on_task_id: root });
 
       mod.cancelDependentTasks(root, workflowId, 'cascade cancel');
 
@@ -690,7 +694,7 @@ describe('workflow-runtime', () => {
 
       mod.checkWorkflowCompletion(workflowId);
 
-      const workflow = db.getWorkflow(workflowId);
+      const workflow = workflowEngine.getWorkflow(workflowId);
       expect(workflow.status).toBe('completed');
       expect(workflow.completed_at).toBeTruthy();
       expect(workflow.total_tasks).toBe(2);
@@ -706,7 +710,7 @@ describe('workflow-runtime', () => {
 
       mod.checkWorkflowCompletion(workflowId);
 
-      const workflow = db.getWorkflow(workflowId);
+      const workflow = workflowEngine.getWorkflow(workflowId);
       expect(workflow.status).toBe('failed');
       expect(workflow.completed_at).toBeTruthy();
     });
@@ -725,7 +729,7 @@ describe('workflow-runtime', () => {
 
       mod.checkWorkflowCompletion(workflowId);
 
-      const workflow = db.getWorkflow(workflowId);
+      const workflow = workflowEngine.getWorkflow(workflowId);
       expect(workflow.status).toBe('completed');
       await Promise.resolve();
       expect(handleContinuousBatchSubmission).toHaveBeenCalledWith(
@@ -747,7 +751,7 @@ describe('workflow-runtime', () => {
       createWorkflowTask(workflowId, 'B', 'skipped');
 
       expect(() => mod.checkWorkflowCompletion(workflowId)).not.toThrow();
-      expect(db.getWorkflow(workflowId).status).toBe('completed');
+      expect(workflowEngine.getWorkflow(workflowId).status).toBe('completed');
 
       await Promise.resolve();
       expect(handleContinuousBatchSubmission).toHaveBeenCalledTimes(1);
@@ -764,7 +768,7 @@ describe('workflow-runtime', () => {
       createWorkflowTask(workflowId, 'B', 'skipped');
 
       expect(() => mod.checkWorkflowCompletion(workflowId)).not.toThrow();
-      expect(db.getWorkflow(workflowId).status).toBe('completed');
+      expect(workflowEngine.getWorkflow(workflowId).status).toBe('completed');
 
       await Promise.resolve();
       expect(handleContinuousBatchSubmission).toHaveBeenCalledTimes(1);
@@ -982,7 +986,7 @@ describe('workflow-runtime', () => {
         error_output: 'src-error',
         exit_code: 0,
       });
-      db.addTaskDependency({ workflow_id: wfId, task_id: dst, depends_on_task_id: src, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: dst, depends_on_task_id: src, on_fail: 'skip' });
 
       const map = mod.buildDepTasksMap(wfId, dst);
       expect(map.src).toEqual({
@@ -1001,8 +1005,8 @@ describe('workflow-runtime', () => {
 
       db.updateTaskStatus(a, 'completed', { output: 'out-a', exit_code: 0, error_output: '' });
       db.updateTaskStatus(b, 'completed', { output: 'out-b', exit_code: 0, error_output: '' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
 
       const map = mod.buildDepTasksMap(wfId, c);
       expect(Object.keys(map).sort()).toEqual(['a', 'b']);
@@ -1019,8 +1023,8 @@ describe('workflow-runtime', () => {
       db.updateTaskStatus(src, 'completed', { output: 'standalone-output', exit_code: 0, error_output: '' });
       db.updateTaskStatus(named, 'completed', { output: 'named-output', exit_code: 0, error_output: '' });
 
-      db.addTaskDependency({ workflow_id: wfId, task_id: dst, depends_on_task_id: src, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: dst, depends_on_task_id: named, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: dst, depends_on_task_id: src, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: dst, depends_on_task_id: named, on_fail: 'skip' });
 
       const map = mod.buildDepTasksMap(wfId, dst);
       expect(map).toHaveProperty('named');
@@ -1056,7 +1060,7 @@ describe('workflow-runtime', () => {
         error_output: 'minor warning',
         exit_code: 7,
       });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
         depends_on_task_id: producer,
@@ -1078,7 +1082,7 @@ describe('workflow-runtime', () => {
       });
 
       db.updateTaskStatus(producer, 'completed', { output: 'build ok', exit_code: 0 });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
         depends_on_task_id: producer,
@@ -1103,7 +1107,7 @@ describe('workflow-runtime', () => {
       });
 
       db.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: validator,
         depends_on_task_id: producer,
@@ -1137,7 +1141,7 @@ describe('workflow-runtime', () => {
       });
 
       db.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
         depends_on_task_id: producer,
@@ -1156,7 +1160,7 @@ describe('workflow-runtime', () => {
       });
 
       db.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
         depends_on_task_id: producer,
@@ -1187,7 +1191,7 @@ describe('workflow-runtime', () => {
       const a = createWorkflowTask(wfId, 'A', 'completed');
       const b = createWorkflowTask(wfId, 'B', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: b,
         depends_on_task_id: a,
@@ -1205,8 +1209,8 @@ describe('workflow-runtime', () => {
       const b = createWorkflowTask(wfId, 'B', 'pending');
       const c = createWorkflowTask(wfId, 'C', 'blocked');
 
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
       expect(db.getTask(c).status).toBe('blocked');
@@ -1224,7 +1228,7 @@ describe('workflow-runtime', () => {
       });
 
       db.updateTaskStatus(producer, 'completed', { output: 'all good', exit_code: 0 });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
         depends_on_task_id: producer,
@@ -1247,14 +1251,14 @@ describe('workflow-runtime', () => {
       const downstream = createWorkflowTask(wfId, 'downstream', 'blocked');
 
       db.updateTaskStatus(producer, 'completed', { output: 'all bad', exit_code: 5 });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
         depends_on_task_id: producer,
         on_fail: 'skip',
         condition_expr: "output.contains('good')",
       });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: downstream,
         depends_on_task_id: consumer,
@@ -1280,7 +1284,7 @@ describe('workflow-runtime', () => {
         error_output: 'warn',
         exit_code: 13,
       });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: test,
         depends_on_task_id: build,
@@ -1299,13 +1303,13 @@ describe('workflow-runtime', () => {
       const a = createWorkflowTask(wfId, 'A', 'completed');
       const b = createWorkflowTask(wfId, 'B', 'blocked');
 
-      db.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'skip' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
       db.updateTaskStatus(b, 'completed', { output: 'final', exit_code: 0 });
       mod.handleWorkflowTermination(b);
 
-      const updated = db.getWorkflow(wfId);
+      const updated = workflowEngine.getWorkflow(wfId);
       expect(updated.total_tasks).toBe(2);
       expect(updated.status).toBe('completed');
       // checkWorkflowCompletion counts ALL completed tasks — both A and B are completed
@@ -1321,14 +1325,14 @@ describe('workflow-runtime', () => {
       const c = createWorkflowTask(wfId, 'C', 'blocked');
 
       db.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'bad', output: 'bad' });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: b,
         depends_on_task_id: a,
         on_fail: 'skip',
         condition_expr: 'exit_code == 0',
       });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: c,
         depends_on_task_id: b,
@@ -1348,8 +1352,8 @@ describe('workflow-runtime', () => {
       const c = createWorkflowTask(wfId, 'C', 'pending');
 
       db.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'err' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'cancel' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'cancel' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
@@ -1370,13 +1374,13 @@ describe('workflow-runtime', () => {
       db.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 3 });
       db.updateTaskStatus(b, 'completed', { output: 'b-ok', exit_code: 0 });
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: c,
         depends_on_task_id: a,
         on_fail: 'continue',
       });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: c,
         depends_on_task_id: b,
@@ -1395,8 +1399,8 @@ describe('workflow-runtime', () => {
       const b = createWorkflowTask(wfId, 'B', 'pending');
       const c = createWorkflowTask(wfId, 'C', 'blocked');
 
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'continue' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'continue' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'continue' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'continue' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
@@ -1417,8 +1421,8 @@ describe('workflow-runtime', () => {
       db.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 1 });
       db.updateTaskStatus(b, 'completed', { output: 'b-ok', exit_code: 0 });
 
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'continue' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'continue' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
 
       // Evaluate from B's completion — this enters conditionPassed=true path
       // and must check A (failed) with on_fail: continue → satisfied
@@ -1433,7 +1437,7 @@ describe('workflow-runtime', () => {
       const b = createWorkflowTask(wfId, 'B', 'blocked');
       const alt = createWorkflowTask(wfId, 'ALT', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: b,
         depends_on_task_id: a,
@@ -1454,7 +1458,7 @@ describe('workflow-runtime', () => {
 
       // A must have non-zero exit_code so condition_expr 'exit_code == 0' fails
       db.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'err' });
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: b,
         depends_on_task_id: a,
@@ -1476,9 +1480,9 @@ describe('workflow-runtime', () => {
       const d = createWorkflowTask(wfId, 'D', 'blocked');
 
       db.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 2 });
-      db.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'skip', condition_expr: 'exit_code == 0' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'continue' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: d, depends_on_task_id: b, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'skip', condition_expr: 'exit_code == 0' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'continue' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: d, depends_on_task_id: b, on_fail: 'skip' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
@@ -1492,7 +1496,7 @@ describe('workflow-runtime', () => {
       const a = createWorkflowTask(wfId, 'A', 'completed');
       const b = createWorkflowTask(wfId, 'B', 'blocked');
 
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: b,
         depends_on_task_id: a,
@@ -1500,7 +1504,7 @@ describe('workflow-runtime', () => {
       });
 
       // Pause the workflow before evaluating dependencies
-      db.updateWorkflow(wfId, { status: 'paused' });
+      workflowEngine.updateWorkflow(wfId, { status: 'paused' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
@@ -1515,7 +1519,7 @@ describe('workflow-runtime', () => {
       const selfTask = createWorkflowTask(wfId, 'self', 'blocked');
 
       expect(() => {
-        db.addTaskDependency({
+        workflowEngine.addTaskDependency({
           workflow_id: wfId,
           task_id: selfTask,
           depends_on_task_id: selfTask,
@@ -1530,11 +1534,11 @@ describe('workflow-runtime', () => {
       const b = createWorkflowTask(wfId, 'B', 'blocked');
       const c = createWorkflowTask(wfId, 'C', 'blocked');
 
-      db.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'skip' });
-      db.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
 
       expect(() => {
-        db.addTaskDependency({
+        workflowEngine.addTaskDependency({
           workflow_id: wfId,
           task_id: a,
           depends_on_task_id: c,
@@ -1550,7 +1554,7 @@ describe('workflow-runtime', () => {
       const root = createWorkflowTask(wfId, 'root', 'completed');
       const child = createWorkflowTask(wfId, 'child', 'blocked');
 
-      db.addTaskDependency({ workflow_id: wfId, task_id: child, depends_on_task_id: root, on_fail: 'skip' });
+      workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: child, depends_on_task_id: root, on_fail: 'skip' });
       mod.handleWorkflowTermination(root);
 
       expect(['pending', 'queued']).toContain(db.getTask(child).status);

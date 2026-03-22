@@ -13,6 +13,9 @@ const { v4: uuidv4 } = require('uuid');
 let testDir;
 let origDataDir;
 let db;
+let fileTracking;
+let codeAnalysis;
+let eventTracking;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 let emitQueueChangedSpy;
@@ -28,6 +31,9 @@ function setupDb() {
   db = require('../database');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
+  fileTracking = require('../db/file-tracking');
+  codeAnalysis = require('../db/code-analysis');
+  eventTracking = require('../db/event-tracking');
   return db;
 }
 
@@ -324,9 +330,9 @@ describe('Database Module', () => {
     });
 
     it('recordFileChange stores and getTaskFileChanges retrieves', () => {
-      db.recordFileChange(trackTaskId, 'src/foo.ts', 'modified', {});
-      db.recordFileChange(trackTaskId, 'src/bar.ts', 'created', {});
-      const changes = db.getTaskFileChanges(trackTaskId);
+      fileTracking.recordFileChange(trackTaskId, 'src/foo.ts', 'modified', {});
+      fileTracking.recordFileChange(trackTaskId, 'src/bar.ts', 'created', {});
+      const changes = fileTracking.getTaskFileChanges(trackTaskId);
       expect(Array.isArray(changes)).toBe(true);
       expect(changes.length).toBeGreaterThanOrEqual(2);
     });
@@ -334,7 +340,7 @@ describe('Database Module', () => {
     it('getTaskFileChanges returns empty array for task with no changes', () => {
       const noChangesId = uuidv4();
       db.createTask({ id: noChangesId, task_description: 'No changes', status: 'queued', working_directory: testDir });
-      const changes = db.getTaskFileChanges(noChangesId);
+      const changes = fileTracking.getTaskFileChanges(noChangesId);
       expect(changes).toEqual([]);
     });
   });
@@ -364,7 +370,7 @@ function fibonacci(n) {
   }
   return b;
 }`;
-      const result = db.analyzeCodeComplexity(analysisTaskId, 'fib.js', code);
+      const result = codeAnalysis.analyzeCodeComplexity(analysisTaskId, 'fib.js', code);
       expect(result.cyclomatic_complexity).toBeGreaterThan(1);
       expect(result.lines_of_code).toBeGreaterThan(0);
       expect(result.function_count).toBeGreaterThanOrEqual(1);
@@ -373,7 +379,7 @@ function fibonacci(n) {
     });
 
     it('returns base complexity for empty content', () => {
-      const result = db.analyzeCodeComplexity(analysisTaskId, 'empty.js', '');
+      const result = codeAnalysis.analyzeCodeComplexity(analysisTaskId, 'empty.js', '');
       expect(result.cyclomatic_complexity).toBe(1); // base complexity
       expect(result.lines_of_code).toBe(0);
     });
@@ -397,7 +403,7 @@ export function undocumented() {
 export function documented() {
   return 1;
 }`;
-      const result = db.checkDocCoverage(docTaskId, 'test.ts', code);
+      const result = codeAnalysis.checkDocCoverage(docTaskId, 'test.ts', code);
       expect(result.total_public_items).toBe(2);
       expect(result.documented_items).toBe(1);
       expect(result.coverage_percent).toBe(50);
@@ -406,7 +412,7 @@ export function documented() {
 
     it('returns 100% for file with no exports', () => {
       const code = `const x = 1;\nconst y = 2;`;
-      const result = db.checkDocCoverage(docTaskId, 'internal.ts', code);
+      const result = codeAnalysis.checkDocCoverage(docTaskId, 'internal.ts', code);
       expect(result.coverage_percent).toBe(100);
     });
   });
@@ -421,7 +427,7 @@ export function documented() {
 
     it('detects missing alt attrs in HTML', () => {
       const html = `<div><img src="photo.jpg"><img src="icon.png" alt="icon"></div>`;
-      const result = db.checkAccessibility(a11yTaskId, 'page.html', html);
+      const result = codeAnalysis.checkAccessibility(a11yTaskId, 'page.html', html);
       expect(result.violations_count).toBeGreaterThanOrEqual(1);
       const altViolation = result.violations.find(v => v.rule === 'img-alt');
       expect(altViolation).toEqual(expect.objectContaining({
@@ -434,7 +440,7 @@ export function documented() {
 
     it('returns zero violations for accessible HTML', () => {
       const html = `<div><img src="photo.jpg" alt="A photo"></div>`;
-      const result = db.checkAccessibility(a11yTaskId, 'good.html', html);
+      const result = codeAnalysis.checkAccessibility(a11yTaskId, 'good.html', html);
       const imgViolations = result.violations.filter(v => v.rule === 'img-alt');
       expect(imgViolations.length).toBe(0);
     });
@@ -450,12 +456,12 @@ export function documented() {
 
     it('detects hardcoded user-facing strings', () => {
       const code = `const msg = "Please enter your email address to continue";`;
-      const result = db.checkI18n(i18nTaskId, 'form.tsx', code);
+      const result = codeAnalysis.checkI18n(i18nTaskId, 'form.tsx', code);
       expect(result.hardcoded_strings_count).toBeGreaterThanOrEqual(1);
     });
 
     it('returns zero for non-source files', () => {
-      const result = db.checkI18n(i18nTaskId, 'data.json', '{"key": "value"}');
+      const result = codeAnalysis.checkI18n(i18nTaskId, 'data.json', '{"key": "value"}');
       expect(result.hardcoded_strings_count).toBe(0);
     });
   });
@@ -474,7 +480,7 @@ function usedFunction() { return 1; }
 function unusedHelper() { return 2; }
 const result = usedFunction();
 console.log(result);`;
-      const result = db.detectDeadCode(deadTaskId, 'test.js', code);
+      const result = codeAnalysis.detectDeadCode(deadTaskId, 'test.js', code);
       const unused = result.find(d => d.identifier === 'unusedHelper');
       expect(unused).toEqual(expect.objectContaining({
         type: 'unused_function',
@@ -489,7 +495,7 @@ console.log(result);`;
       const code = `
 function a() { return b(); }
 function b() { return a(); }`;
-      const result = db.detectDeadCode(deadTaskId, 'mutual.js', code);
+      const result = codeAnalysis.detectDeadCode(deadTaskId, 'mutual.js', code);
       const funcs = result.filter(d => d.type === 'unused_function');
       expect(funcs.length).toBe(0);
     });
@@ -505,20 +511,20 @@ function b() { return a(); }`;
 
     it('detects infinite loop risk', () => {
       const code = `while (true) { process(); }`;
-      const result = db.estimateResourceUsage(resTaskId, 'loop.js', code);
+      const result = codeAnalysis.estimateResourceUsage(resTaskId, 'loop.js', code);
       expect(result.risk_factors).toContain('potential_infinite_loop');
       expect(result.cpu_risk_score).toBeGreaterThan(0);
     });
 
     it('detects blocking IO', () => {
       const code = `const data = fs.readFileSync('file.txt', 'utf8');`;
-      const result = db.estimateResourceUsage(resTaskId, 'sync.js', code);
+      const result = codeAnalysis.estimateResourceUsage(resTaskId, 'sync.js', code);
       expect(result.risk_factors).toContain('blocking_io');
     });
 
     it('returns base memory for safe code', () => {
       const code = `const x = 1 + 2;`;
-      const result = db.estimateResourceUsage(resTaskId, 'safe.js', code);
+      const result = codeAnalysis.estimateResourceUsage(resTaskId, 'safe.js', code);
       expect(result.risk_factors.length).toBe(0);
       expect(result.estimated_memory_mb).toBe(50); // base only
     });
@@ -539,7 +545,7 @@ function b() { return a(); }`;
 
     it('finds type references in TypeScript', () => {
       const code = `class MyService implements ICustomType { }`;
-      const result = db.verifyTypeReferences(typeTaskId, 'service.ts', code, workDir);
+      const result = codeAnalysis.verifyTypeReferences(typeTaskId, 'service.ts', code, workDir);
       expect(result).toEqual(expect.objectContaining({
         status: 'types_missing',
         types_checked: expect.any(Number),
@@ -553,7 +559,7 @@ function b() { return a(); }`;
 
     it('returns verified for content with no type refs', () => {
       const code = `const x = 1;`;
-      const result = db.verifyTypeReferences(typeTaskId, 'simple.ts', code, workDir);
+      const result = codeAnalysis.verifyTypeReferences(typeTaskId, 'simple.ts', code, workDir);
       expect(result).toEqual(expect.objectContaining({
         status: 'verified',
         types_checked: expect.any(Number),
@@ -582,17 +588,17 @@ function b() { return a(); }`;
     });
 
     it('safeJsonParse handles malformed JSON', () => {
-      const result = db.safeJsonParse('not valid json', 'fallback');
+      const result = eventTracking.safeJsonParse('not valid json', 'fallback');
       expect(result).toBe('fallback');
     });
 
     it('safeJsonParse parses valid JSON', () => {
-      const result = db.safeJsonParse('{"a":1}', null);
+      const result = eventTracking.safeJsonParse('{"a":1}', null);
       expect(result).toEqual({ a: 1 });
     });
 
     it('escapeLikePattern escapes special characters', () => {
-      const result = db.escapeLikePattern('100% match_test');
+      const result = eventTracking.escapeLikePattern('100% match_test');
       expect(result).toContain('\\%');
       expect(result).toContain('\\_');
     });

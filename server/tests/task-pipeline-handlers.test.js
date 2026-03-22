@@ -10,13 +10,13 @@ const { loggerMock, uuidMock } = vi.hoisted(() => ({
   uuidMock: vi.fn(),
 }));
 
-vi.mock('../database', () => ({
-  saveTemplate() { return null; },
-  recordEvent() {},
-  listTemplates() { return []; },
-  getTemplate() { return null; },
+vi.mock('../db/task-core', () => ({
   createTask() {},
-  incrementTemplateUsage() {},
+  getTask() { return null; },
+}));
+
+vi.mock('../db/event-tracking', () => ({
+  recordEvent() {},
   getAnalytics() {
     return {
       tasksByStatus: {},
@@ -27,16 +27,31 @@ vi.mock('../database', () => ({
       recentEvents: [],
     };
   },
-  getTask() { return null; },
+}));
+
+vi.mock('../db/scheduling-automation', () => ({
+  saveTemplate() { return null; },
+  getTemplate() { return null; },
+  listTemplates() { return []; },
+  incrementTemplateUsage() {},
+}));
+
+vi.mock('../db/project-config-core', () => ({
   createPipeline() { return null; },
   addPipelineStep() {},
   getPipeline() { return null; },
   updatePipelineStatus() {},
   updatePipelineStep() {},
   listPipelines() { return []; },
+}));
+
+vi.mock('../db/task-metadata', () => ({
   updateTaskGitState() {},
-  createRollback() { return 'rollback-123'; },
   getTasksWithCommits() { return []; },
+}));
+
+vi.mock('../db/file-tracking', () => ({
+  createRollback() { return 'rollback-123'; },
 }));
 vi.mock('../task-manager', () => ({
   startTask() { return {}; },
@@ -49,7 +64,12 @@ vi.mock('uuid', () => ({
 }));
 
 const childProcess = require('child_process');
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const eventTracking = require('../db/event-tracking');
+const schedulingAutomation = require('../db/scheduling-automation');
+const projectConfigCore = require('../db/project-config-core');
+const taskMetadata = require('../db/task-metadata');
+const fileTracking = require('../db/file-tracking');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/task/pipeline');
 const shared = require('../handlers/shared');
@@ -136,7 +156,7 @@ function makePipeline(overrides = {}) {
 }
 
 function resetDefaults() {
-  vi.spyOn(db, 'saveTemplate').mockImplementation((template) => ({
+  vi.spyOn(schedulingAutomation, 'saveTemplate').mockImplementation((template) => ({
     name: template.name,
     description: template.description || null,
     task_template: template.task_template,
@@ -144,12 +164,12 @@ function resetDefaults() {
     default_priority: template.default_priority ?? 5,
     auto_approve: template.auto_approve ?? false,
   }));
-  vi.spyOn(db, 'recordEvent').mockImplementation(() => {});
-  vi.spyOn(db, 'listTemplates').mockReturnValue([]);
-  vi.spyOn(db, 'getTemplate').mockReturnValue(null);
-  vi.spyOn(db, 'createTask').mockImplementation(() => {});
-  vi.spyOn(db, 'incrementTemplateUsage').mockImplementation(() => {});
-  vi.spyOn(db, 'getAnalytics').mockReturnValue({
+  vi.spyOn(eventTracking, 'recordEvent').mockImplementation(() => {});
+  vi.spyOn(schedulingAutomation, 'listTemplates').mockReturnValue([]);
+  vi.spyOn(schedulingAutomation, 'getTemplate').mockReturnValue(null);
+  vi.spyOn(taskCore, 'createTask').mockImplementation(() => {});
+  vi.spyOn(schedulingAutomation, 'incrementTemplateUsage').mockImplementation(() => {});
+  vi.spyOn(eventTracking, 'getAnalytics').mockReturnValue({
     tasksByStatus: {},
     successRate: 0,
     avgDurationMinutes: 0,
@@ -157,19 +177,19 @@ function resetDefaults() {
     topTemplates: [],
     recentEvents: [],
   });
-  vi.spyOn(db, 'getTask').mockReturnValue(null);
-  vi.spyOn(db, 'createPipeline').mockImplementation((pipeline) => ({
+  vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
+  vi.spyOn(projectConfigCore, 'createPipeline').mockImplementation((pipeline) => ({
     ...pipeline,
     description: pipeline.description || null,
   }));
-  vi.spyOn(db, 'addPipelineStep').mockImplementation(() => {});
-  vi.spyOn(db, 'getPipeline').mockReturnValue(null);
-  vi.spyOn(db, 'updatePipelineStatus').mockImplementation(() => {});
-  vi.spyOn(db, 'updatePipelineStep').mockImplementation(() => {});
-  vi.spyOn(db, 'listPipelines').mockReturnValue([]);
-  vi.spyOn(db, 'updateTaskGitState').mockImplementation(() => {});
-  vi.spyOn(db, 'createRollback').mockReturnValue('rollback-123');
-  vi.spyOn(db, 'getTasksWithCommits').mockReturnValue([]);
+  vi.spyOn(projectConfigCore, 'addPipelineStep').mockImplementation(() => {});
+  vi.spyOn(projectConfigCore, 'getPipeline').mockReturnValue(null);
+  vi.spyOn(projectConfigCore, 'updatePipelineStatus').mockImplementation(() => {});
+  vi.spyOn(projectConfigCore, 'updatePipelineStep').mockImplementation(() => {});
+  vi.spyOn(projectConfigCore, 'listPipelines').mockReturnValue([]);
+  vi.spyOn(taskMetadata, 'updateTaskGitState').mockImplementation(() => {});
+  vi.spyOn(fileTracking, 'createRollback').mockReturnValue('rollback-123');
+  vi.spyOn(taskMetadata, 'getTasksWithCommits').mockReturnValue([]);
   vi.spyOn(taskManager, 'startTask').mockReturnValue({});
   queueUuids('11111111-1111-4111-8111-111111111111');
 }
@@ -204,7 +224,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('saves a template, trims the name, and records an event', () => {
-      const saveTemplate = db.saveTemplate.mockReturnValue(makeTemplate({
+      const saveTemplate = schedulingAutomation.saveTemplate.mockReturnValue(makeTemplate({
         name: 'lint-template',
         description: 'Checks lint output',
         default_timeout: 60,
@@ -228,7 +248,7 @@ describe('task-pipeline handlers', () => {
         default_priority: 7,
         auto_approve: true,
       });
-      expect(db.recordEvent).toHaveBeenCalledWith('template_saved', null, { name: '  lint-template  ' });
+      expect(eventTracking.recordEvent).toHaveBeenCalledWith('template_saved', null, { name: '  lint-template  ' });
       expect(getText(result)).toContain('## Template Saved: lint-template');
       expect(getText(result)).toContain('**Default Timeout:** 60 minutes');
       expect(getText(result)).toContain('`use_template({template_name: "lint-template"');
@@ -243,7 +263,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('formats saved templates into a markdown table', () => {
-      db.listTemplates.mockReturnValue([
+      schedulingAutomation.listTemplates.mockReturnValue([
         makeTemplate({ name: 'lint-template', description: 'Checks lint output', usage_count: 3, default_timeout: 45 }),
         makeTemplate({ name: 'test-template', description: null, usage_count: 1, default_timeout: 30 }),
       ]);
@@ -264,7 +284,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('rejects complex variable values', () => {
-      db.getTemplate.mockReturnValue(makeTemplate({
+      schedulingAutomation.getTemplate.mockReturnValue(makeTemplate({
         name: 'lint-template',
         task_template: 'Lint {file}',
       }));
@@ -278,7 +298,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('reports unsubstituted placeholders', () => {
-      db.getTemplate.mockReturnValue(makeTemplate({
+      schedulingAutomation.getTemplate.mockReturnValue(makeTemplate({
         name: 'lint-template',
         task_template: 'Lint {file} for {scope}',
       }));
@@ -292,7 +312,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('creates a task from the template, increments usage, and reports queued starts', () => {
-      db.getTemplate.mockReturnValue(makeTemplate({
+      schedulingAutomation.getTemplate.mockReturnValue(makeTemplate({
         name: 'lint-template',
         task_template: 'Lint {file} for build={build} dry_run={dry_run}',
         default_timeout: 20,
@@ -311,7 +331,7 @@ describe('task-pipeline handlers', () => {
         working_directory: 'C:/workspace',
       });
 
-      const createdTask = db.createTask.mock.calls[0][0];
+      const createdTask = taskCore.createTask.mock.calls[0][0];
 
       expect(createdTask).toMatchObject({
         status: 'pending',
@@ -323,7 +343,7 @@ describe('task-pipeline handlers', () => {
         template_name: 'lint-template',
       });
       expect(createdTask.id).toEqual(expect.any(String));
-      expect(db.incrementTemplateUsage).toHaveBeenCalledWith('lint-template');
+      expect(schedulingAutomation.incrementTemplateUsage).toHaveBeenCalledWith('lint-template');
       expect(taskManager.startTask).toHaveBeenCalledWith(createdTask.id);
       expect(getText(result)).toContain(`Task created from template "lint-template" and queued (ID: ${createdTask.id})`);
     });
@@ -331,7 +351,7 @@ describe('task-pipeline handlers', () => {
 
   describe('handleGetAnalytics', () => {
     it('formats task statistics and top templates', () => {
-      db.getAnalytics.mockReturnValue({
+      eventTracking.getAnalytics.mockReturnValue({
         tasksByStatus: { completed: 4, failed: 1 },
         successRate: 80,
         avgDurationMinutes: 17,
@@ -344,7 +364,7 @@ describe('task-pipeline handlers', () => {
 
       const result = handlers.handleGetAnalytics({});
 
-      expect(db.getAnalytics).toHaveBeenCalledWith({ includeEvents: undefined });
+      expect(eventTracking.getAnalytics).toHaveBeenCalledWith({ includeEvents: undefined });
       expect(getText(result)).toContain('## TORQUE Analytics');
       expect(getText(result)).toContain('| completed | 4 |');
       expect(getText(result)).toContain('**Success Rate:** 80%');
@@ -352,7 +372,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('includes recent events when requested', () => {
-      db.getAnalytics.mockReturnValue({
+      eventTracking.getAnalytics.mockReturnValue({
         tasksByStatus: { running: 2 },
         successRate: 50,
         avgDurationMinutes: 11,
@@ -365,7 +385,7 @@ describe('task-pipeline handlers', () => {
 
       const result = handlers.handleGetAnalytics({ include_events: true });
 
-      expect(db.getAnalytics).toHaveBeenCalledWith({ includeEvents: true });
+      expect(eventTracking.getAnalytics).toHaveBeenCalledWith({ includeEvents: true });
       expect(getText(result)).toContain('### Recent Events');
       expect(getText(result)).toContain('task_started');
       expect(getText(result)).toContain('(abcd1234...)');
@@ -389,7 +409,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('rejects retries for tasks that are not failed or cancelled', () => {
-      db.getTask.mockReturnValue(makeTask({ status: 'running' }));
+      taskCore.getTask.mockReturnValue(makeTask({ status: 'running' }));
 
       const result = handlers.handleRetryTask({ task_id: 'task-12345678' });
 
@@ -397,7 +417,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('creates a retry task with higher priority and queued status text', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-abcdef01',
         status: 'failed',
         task_description: 'Original task body',
@@ -414,7 +434,7 @@ describe('task-pipeline handlers', () => {
         modified_task: 'Retry with new instructions',
       });
 
-      const retryTask = db.createTask.mock.calls[0][0];
+      const retryTask = taskCore.createTask.mock.calls[0][0];
 
       expect(retryTask).toMatchObject({
         status: 'pending',
@@ -427,7 +447,7 @@ describe('task-pipeline handlers', () => {
         context: { retry_of: 'task-abcdef01' },
       });
       expect(retryTask.id).toEqual(expect.any(String));
-      expect(db.recordEvent).toHaveBeenCalledWith('task_retried', retryTask.id, {
+      expect(eventTracking.recordEvent).toHaveBeenCalledWith('task_retried', retryTask.id, {
         original_task: 'task-abcdef01',
       });
       expect(getText(result)).toContain(`Retry task queued (ID: ${retryTask.id}). Original: task-abc...`);
@@ -453,12 +473,12 @@ describe('task-pipeline handlers', () => {
     });
 
     it('creates a pipeline, adds steps, and reports the saved plan', () => {
-      db.createPipeline.mockReturnValue({
+      projectConfigCore.createPipeline.mockReturnValue({
         id: '44444444-4444-4444-8444-444444444444',
         name: 'Release',
         description: 'Ship the release',
       });
-      db.getPipeline.mockReturnValue({
+      projectConfigCore.getPipeline.mockReturnValue({
         id: '44444444-4444-4444-8444-444444444444',
         name: 'Release',
         description: 'Ship the release',
@@ -478,7 +498,7 @@ describe('task-pipeline handlers', () => {
         ],
       });
 
-      const createdPipeline = db.createPipeline.mock.calls[0][0];
+      const createdPipeline = projectConfigCore.createPipeline.mock.calls[0][0];
 
       expect(createdPipeline).toMatchObject({
         name: 'Release',
@@ -486,7 +506,7 @@ describe('task-pipeline handlers', () => {
         working_directory: 'C:/repo',
       });
       expect(createdPipeline.id).toEqual(expect.any(String));
-      expect(db.addPipelineStep).toHaveBeenNthCalledWith(1, {
+      expect(projectConfigCore.addPipelineStep).toHaveBeenNthCalledWith(1, {
         pipeline_id: createdPipeline.id,
         step_order: 1,
         name: 'Build',
@@ -494,7 +514,7 @@ describe('task-pipeline handlers', () => {
         condition: 'on_success',
         timeout_minutes: 30,
       });
-      expect(db.addPipelineStep).toHaveBeenNthCalledWith(2, {
+      expect(projectConfigCore.addPipelineStep).toHaveBeenNthCalledWith(2, {
         pipeline_id: createdPipeline.id,
         step_order: 2,
         name: 'Verify',
@@ -516,7 +536,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('rejects pipelines that are not pending', () => {
-      db.getPipeline.mockReturnValue(makePipeline({ status: 'completed' }));
+      projectConfigCore.getPipeline.mockReturnValue(makePipeline({ status: 'completed' }));
 
       const result = handlers.handleRunPipeline({ pipeline_id: 'pipeline-12345678' });
 
@@ -542,11 +562,11 @@ describe('task-pipeline handlers', () => {
         ],
       });
       let storedTask = null;
-      db.getPipeline.mockReturnValue(pipeline);
-      db.createTask.mockImplementation((task) => {
+      projectConfigCore.getPipeline.mockReturnValue(pipeline);
+      taskCore.createTask.mockImplementation((task) => {
         storedTask = task;
       });
-      db.getTask.mockImplementation((taskId) => (
+      taskCore.getTask.mockImplementation((taskId) => (
         storedTask && storedTask.id === taskId
           ? { ...storedTask }
           : null
@@ -558,9 +578,9 @@ describe('task-pipeline handlers', () => {
         variables: { target: 'prod' },
       });
 
-      expect(db.updatePipelineStatus).toHaveBeenNthCalledWith(1, 'pipeline-12345678', 'running');
-      expect(db.recordEvent).toHaveBeenCalledWith('pipeline_started', 'pipeline-12345678', { name: 'Release' });
-      const createdTask = db.createTask.mock.calls[0][0];
+      expect(projectConfigCore.updatePipelineStatus).toHaveBeenNthCalledWith(1, 'pipeline-12345678', 'running');
+      expect(eventTracking.recordEvent).toHaveBeenCalledWith('pipeline_started', 'pipeline-12345678', { name: 'Release' });
+      const createdTask = taskCore.createTask.mock.calls[0][0];
 
       expect(createdTask).toMatchObject({
         status: 'pending',
@@ -570,8 +590,8 @@ describe('task-pipeline handlers', () => {
         context: { pipeline_id: 'pipeline-12345678', step_id: 'step-1' },
       });
       expect(createdTask.id).toEqual(expect.any(String));
-      expect(db.updatePipelineStatus).toHaveBeenNthCalledWith(2, 'pipeline-12345678', 'running', { current_step: 1 });
-      expect(db.updatePipelineStep).toHaveBeenCalledWith('step-1', {
+      expect(projectConfigCore.updatePipelineStatus).toHaveBeenNthCalledWith(2, 'pipeline-12345678', 'running', { current_step: 1 });
+      expect(projectConfigCore.updatePipelineStep).toHaveBeenCalledWith('step-1', {
         task_id: createdTask.id,
         status: 'queued',
       });
@@ -580,7 +600,7 @@ describe('task-pipeline handlers', () => {
 
     it('marks the pipeline failed when starting the first task throws', () => {
       queueUuids('66666666-6666-4666-8666-666666666666');
-      db.getPipeline.mockReturnValue(makePipeline({
+      projectConfigCore.getPipeline.mockReturnValue(makePipeline({
         id: 'pipeline-12345678',
         steps: [
           {
@@ -594,7 +614,7 @@ describe('task-pipeline handlers', () => {
           },
         ],
       }));
-      db.getTask.mockReturnValue({
+      taskCore.getTask.mockReturnValue({
         context: { pipeline_id: 'pipeline-12345678', step_id: 'step-1' },
       });
       taskManager.startTask.mockImplementation(() => {
@@ -603,10 +623,10 @@ describe('task-pipeline handlers', () => {
 
       const result = handlers.handleRunPipeline({ pipeline_id: 'pipeline-12345678' });
 
-      expect(db.updatePipelineStatus).toHaveBeenCalledWith('pipeline-12345678', 'failed', {
+      expect(projectConfigCore.updatePipelineStatus).toHaveBeenCalledWith('pipeline-12345678', 'failed', {
         error: 'Failed to start first step: queue offline',
       });
-      expect(db.updatePipelineStep).toHaveBeenCalledWith('step-1', { status: 'failed' });
+      expect(projectConfigCore.updatePipelineStep).toHaveBeenCalledWith('step-1', { status: 'failed' });
       expectError(result, shared.ErrorCodes.OPERATION_FAILED.code, 'Pipeline start failed: queue offline');
     });
   });
@@ -619,7 +639,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('formats the pipeline summary and step table', () => {
-      db.getPipeline.mockReturnValue(makePipeline({
+      projectConfigCore.getPipeline.mockReturnValue(makePipeline({
         id: 'pipeline-12345678',
         name: 'Release',
         status: 'failed',
@@ -650,12 +670,12 @@ describe('task-pipeline handlers', () => {
     it('returns an empty-state message when no pipelines exist', () => {
       const result = handlers.handleListPipelines({});
 
-      expect(db.listPipelines).toHaveBeenCalledWith({ status: undefined, limit: 20 });
+      expect(projectConfigCore.listPipelines).toHaveBeenCalledWith({ status: undefined, limit: 20 });
       expect(getText(result)).toContain('No pipelines found');
     });
 
     it('formats pipelines and sanitizes the requested limit', () => {
-      db.listPipelines.mockReturnValue([
+      projectConfigCore.listPipelines.mockReturnValue([
         makePipeline({
           id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
           name: 'Release',
@@ -667,7 +687,7 @@ describe('task-pipeline handlers', () => {
 
       const result = handlers.handleListPipelines({ status: 'running', limit: 0 });
 
-      expect(db.listPipelines).toHaveBeenCalledWith({ status: 'running', limit: 20 });
+      expect(projectConfigCore.listPipelines).toHaveBeenCalledWith({ status: 'running', limit: 20 });
       expect(getText(result)).toContain('## Pipelines');
       expect(getText(result)).toContain('| aaaaaaaa... | Release | running | 2 |');
     });
@@ -681,7 +701,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('returns OPERATION_FAILED when git status fails', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-12345678', working_directory: 'C:/repo' }));
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-12345678', working_directory: 'C:/repo' }));
       vi.spyOn(childProcess, 'spawnSync').mockReturnValue(gitResult({
         status: 1,
         stderr: 'not a git repository',
@@ -693,7 +713,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('shows committed changes when there are no working tree diffs', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         working_directory: 'C:/repo',
         git_after_sha: 'deadbeef1234567890',
@@ -716,7 +736,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('shows staged and unstaged diffs when present', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         working_directory: 'C:/repo',
       }));
@@ -742,7 +762,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('returns OPERATION_FAILED when staging changes fails', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         working_directory: 'C:/repo',
       }));
@@ -756,7 +776,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('returns a no-op response when there is nothing staged to commit', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         working_directory: 'C:/repo',
       }));
@@ -768,11 +788,11 @@ describe('task-pipeline handlers', () => {
       const result = handlers.handleCommitTask({ task_id: 'task-12345678' });
 
       expect(getText(result)).toContain('No staged changes to commit.');
-      expect(db.updateTaskGitState).not.toHaveBeenCalled();
+      expect(taskMetadata.updateTaskGitState).not.toHaveBeenCalled();
     });
 
     it('commits staged changes, updates git state, and records an event', () => {
-      db.getTask.mockReturnValue(makeTask({
+      taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         task_description: 'Generate pipeline coverage for task handlers',
         working_directory: 'C:/repo',
@@ -793,11 +813,11 @@ describe('task-pipeline handlers', () => {
         cwd: 'C:/repo',
         encoding: 'utf8',
       }));
-      expect(db.updateTaskGitState).toHaveBeenCalledWith('task-12345678', {
+      expect(taskMetadata.updateTaskGitState).toHaveBeenCalledWith('task-12345678', {
         before_sha: 'before-sha',
         after_sha: 'after-sha',
       });
-      expect(db.recordEvent).toHaveBeenCalledWith('task_committed', 'task-12345678', { sha: 'after-sha' });
+      expect(eventTracking.recordEvent).toHaveBeenCalledWith('task_committed', 'task-12345678', { sha: 'after-sha' });
       expect(getText(result)).toContain('## Commit Created');
       expect(getText(result)).toContain('**SHA:** after-sha');
       expect(getText(result)).toContain('**Message:** Add pipeline handler coverage');
@@ -812,12 +832,12 @@ describe('task-pipeline handlers', () => {
     });
 
     it('creates a rollback record and reports the default reason', () => {
-      db.getTask.mockReturnValue(makeTask({ id: 'task-12345678' }));
-      db.createRollback.mockReturnValue('rollback-456');
+      taskCore.getTask.mockReturnValue(makeTask({ id: 'task-12345678' }));
+      fileTracking.createRollback.mockReturnValue('rollback-456');
 
       const result = handlers.handleRollbackTask({ task_id: 'task-12345678' });
 
-      expect(db.createRollback).toHaveBeenCalledWith(
+      expect(fileTracking.createRollback).toHaveBeenCalledWith(
         'task-12345678',
         'git',
         null,
@@ -835,7 +855,7 @@ describe('task-pipeline handlers', () => {
     it('returns an empty-state message when no committed tasks exist', () => {
       const result = handlers.handleListCommits({});
 
-      expect(db.getTasksWithCommits).toHaveBeenCalledWith({
+      expect(taskMetadata.getTasksWithCommits).toHaveBeenCalledWith({
         working_directory: undefined,
         limit: 10,
       });
@@ -843,7 +863,7 @@ describe('task-pipeline handlers', () => {
     });
 
     it('formats committed task rows and forwards filters', () => {
-      db.getTasksWithCommits.mockReturnValue([
+      taskMetadata.getTasksWithCommits.mockReturnValue([
         {
           id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
           git_after_sha: '1234567890abcdef',
@@ -857,7 +877,7 @@ describe('task-pipeline handlers', () => {
         limit: 3,
       });
 
-      expect(db.getTasksWithCommits).toHaveBeenCalledWith({
+      expect(taskMetadata.getTasksWithCommits).toHaveBeenCalledWith({
         working_directory: 'C:/repo',
         limit: 3,
       });
