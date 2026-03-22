@@ -122,13 +122,23 @@ describe('Codex worktree isolation integration', () => {
     const dir = workDir || path.join(ctx.testDir, 'project');
     fs.mkdirSync(dir, { recursive: true });
 
-    const startResult = ctx.tm.startTask(taskId);
+    let startResult;
+    try {
+      startResult = ctx.tm.startTask(taskId);
+    } catch (err) {
+      // Surface the error as a diagnostic
+      throw new Error(`startTask threw: ${err.message}`);
+    }
     if (startResult && startResult.queued) {
-      return null; // Concurrency limit — valid but can't test spawn args
+      // Surface why it was queued
+      const task = ctx.db.getTask(taskId);
+      throw new Error(`Task was queued instead of started. startResult: ${JSON.stringify(startResult)}, task status: ${task?.status}, task provider: ${task?.provider}`);
     }
 
     const child = spawnMock._lastChild;
-    if (!child) return null;
+    if (!child) {
+      throw new Error(`spawnMock._lastChild is null after startTask. startResult: ${JSON.stringify(startResult)}, spawnMock calls: ${spawnMock.mock.calls.length}`);
+    }
 
     return { taskId, child };
   }
