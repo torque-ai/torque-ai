@@ -585,6 +585,12 @@ function handleFuzzyRepair(ctx) {
 }
 
 /**
+ * Conversational refusal detection — LLM asks for info instead of doing work.
+ * Exported for testing.
+ */
+const CONVERSATIONAL_REFUSAL_PATTERN = /\b(I'm ready to|share the files|provide more information|which files you want)\b/i;
+
+/**
  * Phase 4: Detect no-file-change tasks (no-op — legacy phase removed).
  */
 function handleNoFileChangeDetection(ctx) {
