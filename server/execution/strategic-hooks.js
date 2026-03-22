@@ -2,7 +2,7 @@
 
 const StrategicBrain = require('../orchestrator/strategic-brain');
 const taskCore = require('../db/task-core');
-const database = require('../database');
+const database = require('../database'); // facade: getDbInstance
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'strategic-hooks' });
 

@@ -1,4 +1,4 @@
-const database = require('../../database');
+const emailPeek = require('../../db/email-peek');
 const { ErrorCodes, makeError } = require('../shared');
 const { normalizePeekHealthStatus } = require('../../contracts/peek');
 const { peekHttpGetUrl } = require('./shared');
@@ -31,7 +31,7 @@ async function handleRegisterPeekHost(args) {
       return makeError(ErrorCodes.INVALID_PARAM, `url must be a valid absolute URL: ${err.message}`);
     }
 
-    database.registerPeekHost(args.name, args.url, args.ssh, args.default, args.platform);
+    emailPeek.registerPeekHost(args.name, args.url, args.ssh, args.default, args.platform);
 
     const output = [
       '## Peek Host Registered',
@@ -55,7 +55,7 @@ async function handleUnregisterPeekHost(args) {
       return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'name is required');
     }
 
-    const removed = database.unregisterPeekHost(args.name);
+    const removed = emailPeek.unregisterPeekHost(args.name);
     if (!removed) {
       return makeError(ErrorCodes.INVALID_PARAM, `Peek host not found: ${args.name}`);
     }
@@ -73,7 +73,7 @@ async function handleUnregisterPeekHost(args) {
 
 async function handleListPeekHosts(_args) {
   try {
-    const hosts = database.listPeekHosts();
+    const hosts = emailPeek.listPeekHosts();
 
     if (!hosts.length) {
       return {
@@ -119,7 +119,7 @@ async function handleListPeekHosts(_args) {
 
 async function handlePeekHealthAll(_args) {
   try {
-    const hosts = database.listPeekHosts ? database.listPeekHosts() : [];
+    const hosts = emailPeek.listPeekHosts ? emailPeek.listPeekHosts() : [];
     if (hosts.length === 0) {
       return { content: [{ type: 'text', text: 'No peek hosts registered.' }] };
     }

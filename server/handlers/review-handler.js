@@ -2,7 +2,7 @@
 
 const childProcess = require('child_process');
 const { randomUUID } = require('crypto');
-const database = require('../database');
+const taskCore = require('../db/task-core');
 const taskManager = require('../task-manager');
 
 const DEFAULT_PROVIDER = 'codex';
@@ -99,7 +99,7 @@ function handleReviewTaskOutput(args = {}) {
     return { review: null, issues_found: null, summary: 'working_directory is required' };
   }
 
-  const task = database.getTask(taskId);
+  const task = taskCore.getTask(taskId);
   if (!task) {
     return { review: null, issues_found: null, summary: `Task not found: ${taskId}` };
   }
@@ -111,7 +111,7 @@ function handleReviewTaskOutput(args = {}) {
     );
     const reviewTask = buildReviewTaskPayload(prompt, provider, workingDirectory, taskId);
 
-    database.createTask(reviewTask);
+    taskCore.createTask(reviewTask);
 
     const startResult = taskManager.startTask(reviewTask.id);
     const taskState = startResult && startResult.queued ? 'queued' : 'started';

@@ -3,7 +3,7 @@
 const hostManagement = require('../db/host-management');
 
 function getDb() {
-  const database = require('../database');
+  const database = require('../database'); // facade: getDbInstance
   if (typeof database.getDb === 'function') {
     return database.getDb();
   }

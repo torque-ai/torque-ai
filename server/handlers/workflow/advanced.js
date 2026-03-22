@@ -3,7 +3,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const eventTracking = require('../../db/event-tracking');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const schedulingAutomation = require('../../db/scheduling-automation');
@@ -31,7 +31,7 @@ function handleForkWorkflow(args) {
   }
 
   // Verify workflow exists
-  const { workflow: _workflow, error: wfErr } = requireWorkflow(db, workflow_id);
+  const { workflow: _workflow, error: wfErr } = requireWorkflow(workflowEngine, workflow_id);
   if (wfErr) return wfErr;
 
   const fork = providerRoutingCore.createWorkflowFork({
@@ -53,7 +53,7 @@ function handleForkWorkflow(args) {
     branchTaskIds[branch.name] = [];
     for (const taskDesc of branch.tasks) {
       const taskId = uuidv4();
-      database.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: taskDesc,
         workflow_id,
@@ -118,7 +118,7 @@ function handleReplayTask(args) {
   }
 
   // Get original task
-  const { task: originalTask, error: taskErr } = requireTask(db, task_id);
+  const { task: originalTask, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   // Create new task based on original
@@ -126,7 +126,7 @@ function handleReplayTask(args) {
   const taskDescription = modified_inputs?.task || originalTask.task_description;
   const workingDir = new_working_directory || originalTask.working_directory;
 
-  database.createTask({
+  taskCore.createTask({
     id: replayTaskId,
     task_description: taskDescription,
     working_directory: workingDir,
@@ -168,9 +168,9 @@ function handleDiffTaskRuns(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Both task_id_a and task_id_b are required');
   }
 
-  const { task: taskA, error: errA } = requireTask(db, task_id_a);
+  const { task: taskA, error: errA } = requireTask(taskCore, task_id_a);
   if (errA) return errA;
-  const { task: taskB, error: errB } = requireTask(db, task_id_b);
+  const { task: taskB, error: errB } = requireTask(taskCore, task_id_b);
   if (errB) return errB;
 
   const diff = {};
@@ -364,10 +364,10 @@ function handleExportReport(args) {
  * Retry workflow from a specific task
  */
 function handleRetryWorkflowFrom(args) {
-  const { workflow, error: wfErr } = requireWorkflow(db, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, args.workflow_id);
   if (wfErr) return wfErr;
 
-  const task = database.getTask(args.from_task_id);
+  const task = taskCore.getTask(args.from_task_id);
   if (!task || task.workflow_id !== args.workflow_id) {
     return makeError(
       ErrorCodes.TASK_NOT_FOUND,
@@ -407,13 +407,13 @@ function handleRetryWorkflowFrom(args) {
   // Reset tasks
   let resetCount = 0;
   for (const taskId of toReset) {
-    const taskToReset = database.getTask(taskId);
+    const taskToReset = taskCore.getTask(taskId);
     if (taskToReset?.status === 'running') {
       continue;
     }
     if (taskToReset) {
       const hasDeps = deps.some(d => d.task_id === taskId);
-      database.updateTaskStatus(taskId, hasDeps ? 'blocked' : 'pending');
+      taskCore.updateTaskStatus(taskId, hasDeps ? 'blocked' : 'pending');
       resetCount++;
     }
   }
@@ -455,7 +455,7 @@ function handleRetryWorkflowFrom(args) {
  * Manually skip a blocked task
  */
 function handleSkipTask(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(taskCore, args.task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'blocked') {
@@ -465,7 +465,7 @@ function handleSkipTask(args) {
   }
 
   // Update task to skipped
-  database.updateTaskStatus(args.task_id, 'skipped', {
+  taskCore.updateTaskStatus(args.task_id, 'skipped', {
     error_output: args.reason || 'Manually skipped'
   });
 

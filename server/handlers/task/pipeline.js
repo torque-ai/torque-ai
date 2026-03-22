@@ -11,7 +11,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const childProcess = require('child_process');
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const eventTracking = require('../../db/event-tracking');
 const fileTracking = require('../../db/file-tracking');
 const projectConfigCore = require('../../db/project-config-core');
@@ -200,7 +200,7 @@ function handleUseTemplate(args) {
 
   const taskId = uuidv4();
 
-  database.createTask({
+  taskCore.createTask({
     id: taskId,
     status: 'pending',
     task_description: taskDescription,
@@ -307,7 +307,7 @@ function handleRetryTask(args) {
     }
   } catch { /* resume context injection is best-effort */ }
 
-  database.createTask({
+  taskCore.createTask({
     id: taskId,
     status: 'pending',
     task_description: taskDescription,
@@ -447,7 +447,7 @@ function handleRunPipeline(args) {
     const taskContext = { pipeline_id: args.pipeline_id, step_id: firstStep.id };
     logger.info(`[Pipeline] Creating first task ${taskId} with context: ${JSON.stringify(taskContext)}`);
 
-    database.createTask({
+    taskCore.createTask({
       id: taskId,
       status: 'pending',
       task_description: taskDescription,
@@ -457,7 +457,7 @@ function handleRunPipeline(args) {
     });
 
     // Verify context was stored
-    const verifyTask = database.getTask(taskId);
+    const verifyTask = taskCore.getTask(taskId);
     logger.info(`[Pipeline] Verified task context after create: ${JSON.stringify(verifyTask?.context)}`);
 
     projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running', { current_step: 1 });

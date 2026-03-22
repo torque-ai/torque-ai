@@ -17,9 +17,9 @@ function resolveWorkingDirectory(args) {
   if (args.working_directory) return args.working_directory;
   // Try to resolve from project defaults
   try {
-    const database = require('../database');
-    if (typeof database.getProjectDefaults === 'function') {
-      const defaults = database.getProjectDefaults();
+    const projectConfigCore = require('../db/project-config-core');
+    if (typeof projectConfigCore.getEffectiveProjectConfig === 'function') {
+      const defaults = projectConfigCore.getEffectiveProjectConfig();
       if (defaults && defaults.working_directory) return defaults.working_directory;
     }
   } catch (_e) { /* best effort — db may not be initialized */ }

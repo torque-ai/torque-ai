@@ -3,7 +3,7 @@
  */
 
 const path = require('path');
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const fileTracking = require('../../db/file-tracking');
 const taskMetadata = require('../../db/task-metadata');
 const workflowEngine = require('../../db/workflow-engine');
@@ -117,7 +117,7 @@ function collectTaskCommitPaths(taskId, workingDir) {
   }
 
   try {
-    const fullTask = database.getTask(taskId);
+    const fullTask = taskCore.getTask(taskId);
     const modifiedFiles = Array.isArray(fullTask?.files_modified) ? fullTask.files_modified : [];
     for (const file of modifiedFiles) {
       const candidate = typeof file === 'string'
@@ -604,7 +604,7 @@ async function handleAwaitWorkflow(args) {
 
         // Use longest-running task's partial output
         const primaryRunning = [...runningTasks].sort((a, b) => b.elapsedMs - a.elapsedMs)[0];
-        const primaryTask = primaryRunning ? database.getTask(primaryRunning.id) : null;
+        const primaryTask = primaryRunning ? taskCore.getTask(primaryRunning.id) : null;
 
         const reason = signalType === 'heartbeat'
           ? 'scheduled'
@@ -971,7 +971,7 @@ async function handleAwaitTask(args) {
 
     // Poll until terminal or heartbeat
     while (true) {
-      const task = database.getTask(taskId);
+      const task = taskCore.getTask(taskId);
       if (!task) {
         return makeError(ErrorCodes.TASK_NOT_FOUND, `Task disappeared: ${taskId}`);
       }
@@ -1234,7 +1234,7 @@ async function handleAwaitTask(args) {
       if ((signalType === 'heartbeat' || signalType.startsWith('notable:'))
           && (Date.now() - awaitStartTime) < timeoutMs) {
         // Read current task state from DB for heartbeat response
-        const currentTask = database.getTask(taskId);
+        const currentTask = taskCore.getTask(taskId);
         const reason = signalType === 'heartbeat'
           ? 'scheduled'
           : REASON_MAP[signalType.replace('notable:', '')] || signalType;

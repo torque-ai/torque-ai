@@ -3,7 +3,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const schedulingAutomation = require('../../db/scheduling-automation');
 const workflowEngine = require('../../db/workflow-engine');
@@ -142,7 +142,7 @@ function handleInstantiateTemplate(args) {
     const deps = (template.dependency_graph || {})[taskDef.node_id] || [];
     const hasDeps = deps.length > 0;
 
-    database.createTask({
+    taskCore.createTask({
       id: taskId,
       status: hasDeps ? 'blocked' : 'pending',
       task_description: substitute(taskDef.task_description),
@@ -292,7 +292,7 @@ function handleTemplateLoop(args) {
                              .replace(new RegExp(`\\$\\{index\\}`, 'g'), i.toString());
 
     const taskId = uuidv4();
-    database.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: task,
       template_name: template_id,

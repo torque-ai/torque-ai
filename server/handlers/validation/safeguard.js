@@ -4,7 +4,8 @@
  * Extracted from validation-handlers.js
  */
 
-const database = require('../../database');
+const configCore = require('../../db/config-core');
+const taskCore = require('../../db/task-core');
 const fileTracking = require('../../db/file-tracking');
 const { SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../../constants');
 const { ErrorCodes, makeError, requireTask } = require('../shared');
@@ -47,7 +48,7 @@ async function handleDetectRegressions(args) {
 
 
   const baselineKey = `test_baseline_${args.task_id}`;
-  const baselineJson = database.getConfig(baselineKey);
+  const baselineJson = configCore.getConfig(baselineKey);
   let baseline = baselineJson ? JSON.parse(baselineJson) : null;
 
   if (!baseline) {
@@ -116,7 +117,7 @@ function handleDetectConfigDrift(args) {
  * Estimate resource usage
  */
 function handleEstimateResources(args) {
-  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
@@ -151,7 +152,7 @@ function handleEstimateResources(args) {
  * Check internationalization
  */
 function handleCheckI18n(args) {
-  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
@@ -187,7 +188,7 @@ function handleCheckI18n(args) {
  * Check accessibility
  */
 function handleCheckAccessibility(args) {
-  const { task: _task, error: taskErr } = requireTask(database, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);

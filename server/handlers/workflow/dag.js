@@ -2,7 +2,7 @@
  * Workflow DAG and dependency analysis handlers
  */
 
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
 const {
   ErrorCodes,
@@ -54,7 +54,7 @@ function formatDuration(seconds) {
  * Get dependency graph visualization
  */
 function handleDependencyGraph(args) {
-  const workflowResult = requireWorkflow(db, args.workflow_id);
+  const workflowResult = requireWorkflow(workflowEngine, args.workflow_id);
   if (workflowResult.error) return workflowResult.error;
   const { workflow } = workflowResult;
 
@@ -150,7 +150,7 @@ function handleDependencyGraph(args) {
  * Find critical path through workflow
  */
 function handleCriticalPath(args) {
-  const workflowResult = requireWorkflow(db, args.workflow_id);
+  const workflowResult = requireWorkflow(workflowEngine, args.workflow_id);
   if (workflowResult.error) return workflowResult.error;
   const { workflow } = workflowResult;
 
@@ -256,10 +256,10 @@ function handleCriticalPath(args) {
  * What-if simulation
  */
 function handleWhatIf(args) {
-  const workflowResult = requireWorkflow(db, args.workflow_id);
+  const workflowResult = requireWorkflow(workflowEngine, args.workflow_id);
   if (workflowResult.error) return workflowResult.error;
 
-  const taskResult = requireTask(db, args.task_id);
+  const taskResult = requireTask(taskCore, args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const { task } = taskResult;
@@ -301,7 +301,7 @@ function handleWhatIf(args) {
   output += `|------|-----------|--------|--------|\n`;
 
   for (const dep of dependents) {
-    const depTask = database.getTask(dep.task_id);
+    const depTask = taskCore.getTask(dep.task_id);
     const nodeName = depTask?.workflow_node_id || dep.task_id.substring(0, 8);
     const condition = dep.condition_expr || '(none)';
 
@@ -337,7 +337,7 @@ function handleWhatIf(args) {
 function handleBlockedTasks(args) {
   let workflow = null;
   if (args.workflow_id) {
-    const workflowResult = requireWorkflow(db, args.workflow_id);
+    const workflowResult = requireWorkflow(workflowEngine, args.workflow_id);
     if (workflowResult.error) return workflowResult.error;
     workflow = workflowResult.workflow;
   }
@@ -360,7 +360,7 @@ function handleBlockedTasks(args) {
     const waitingOn = deps
       .filter(d => !['completed', 'failed', 'cancelled', 'skipped'].includes(d.depends_on_status))
       .map(d => {
-        const depTask = database.getTask(d.depends_on_task_id);
+        const depTask = taskCore.getTask(d.depends_on_task_id);
         return depTask?.workflow_node_id || d.depends_on_task_id.substring(0, 8);
       })
       .join(', ');

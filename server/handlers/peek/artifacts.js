@@ -1,7 +1,8 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
+const peekPolicyAudit = require('../../db/peek-policy-audit');
 const { storeArtifact } = require('../../db/task-metadata');
 const { getWorkflow, updateWorkflow } = require('../../db/workflow-engine');
 const {
@@ -166,9 +167,9 @@ function storePeekArtifactsForTask(taskId, refs, context = {}) {
 
   if (storedRefs.length > 0 && context?.policyProof) {
     try {
-      const recordPolicyProof = typeof database.formatPolicyProof === 'function'
-        ? database.formatPolicyProof
-        : database.recordPolicyProofAudit;
+      const recordPolicyProof = typeof peekPolicyAudit.formatPolicyProof === 'function'
+        ? peekPolicyAudit.formatPolicyProof
+        : peekPolicyAudit.recordPolicyProofAudit;
       if (typeof recordPolicyProof === 'function') {
         recordPolicyProof({
           surface: 'artifact_persistence',
@@ -210,7 +211,7 @@ function persistPeekResultReferences(context = {}, refs) {
     try {
       finalRefs = storePeekArtifactsForTask(context.taskId, normalizedRefs, context);
       if (finalRefs.length > 0) {
-        database.updateTask(context.taskId, {
+        taskCore.updateTask(context.taskId, {
           metadata: attachPeekArtifactReferences(context.task?.metadata, finalRefs),
         });
       }

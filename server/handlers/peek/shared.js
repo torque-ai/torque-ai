@@ -4,7 +4,8 @@ const os = require('os');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
+const emailPeek = require('../../db/email-peek');
 const { getWorkflow } = require('../../db/workflow-engine');
 const { getArtifactConfig } = require('../../db/task-metadata');
 const { ErrorCodes, makeError } = require('../shared');
@@ -31,7 +32,7 @@ function resolvePeekTaskContext(args) {
   const taskId = typeof args?.__taskId === 'string' && args.__taskId.trim()
     ? args.__taskId.trim()
     : (typeof args?.task_id === 'string' && args.task_id.trim() ? args.task_id.trim() : null);
-  const task = taskId ? database.getTask(taskId) : null;
+  const task = taskId ? taskCore.getTask(taskId) : null;
   if (taskId && !task) {
     throw new Error(`Task not found: ${taskId}`);
   }
@@ -116,7 +117,7 @@ function resolvePeekHost(args) {
   } catch { /* fall through to legacy */ }
 
   if (args.host) {
-    const host = database.getPeekHost(args.host);
+    const host = emailPeek.getPeekHost(args.host);
     if (!host) {
       return {
         error: makeError(ErrorCodes.INVALID_PARAM, `Peek host not found: ${args.host}`),
@@ -137,9 +138,9 @@ function resolvePeekHost(args) {
   }
 
   let hosts = [];
-  if (typeof database.listPeekHosts === 'function') {
+  if (typeof emailPeek.listPeekHosts === 'function') {
     try {
-      hosts = database.listPeekHosts() || [];
+      hosts = emailPeek.listPeekHosts() || [];
     } catch (_err) {
       hosts = [];
     }
@@ -164,9 +165,9 @@ function resolvePeekHost(args) {
   }
 
   let defaultHost = null;
-  if (typeof database.getDefaultPeekHost === 'function') {
+  if (typeof emailPeek.getDefaultPeekHost === 'function') {
     try {
-      defaultHost = database.getDefaultPeekHost();
+      defaultHost = emailPeek.getDefaultPeekHost();
     } catch (_err) {
       defaultHost = null;
     }

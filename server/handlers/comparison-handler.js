@@ -1,7 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const database = require('../database');
+const taskCore = require('../db/task-core');
 
 const DEFAULT_TIMEOUT_MINUTES = 5;
 const POLL_INTERVAL_MS = 2000;
@@ -196,7 +196,7 @@ async function handleCompareProviders(args) {
 
     let createdTask;
     try {
-      createdTask = database.createTask(task);
+      createdTask = taskCore.createTask(task);
     } catch (error) {
       throw new Error(`Failed to create comparison task for provider "${provider}": ${error.message}`);
     }
@@ -212,7 +212,7 @@ async function handleCompareProviders(args) {
   let finalTasks = new Map();
 
   while (true) {
-    finalTasks = new Map(tasks.map((taskRef) => [taskRef.taskId, database.getTask(taskRef.taskId)]));
+    finalTasks = new Map(tasks.map((taskRef) => [taskRef.taskId, taskCore.getTask(taskRef.taskId)]));
     if (tasks.every((taskRef) => isTerminalTask(finalTasks.get(taskRef.taskId)))) {
       break;
     }
@@ -225,7 +225,7 @@ async function handleCompareProviders(args) {
     await sleep(Math.min(POLL_INTERVAL_MS, remainingMs));
   }
 
-  finalTasks = new Map(tasks.map((taskRef) => [taskRef.taskId, database.getTask(taskRef.taskId)]));
+  finalTasks = new Map(tasks.map((taskRef) => [taskRef.taskId, taskCore.getTask(taskRef.taskId)]));
   const now = Date.now();
   const timedOut = tasks.some((taskRef) => !isTerminalTask(finalTasks.get(taskRef.taskId)));
   const results = tasks.map((taskRef) => (

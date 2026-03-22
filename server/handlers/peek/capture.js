@@ -420,10 +420,10 @@ async function handlePeekUi(args) {
 
     if (args?.policyProof) {
       try {
-        const database = require('../../database');
-        const recordPolicyProof = typeof database.formatPolicyProof === 'function'
-          ? database.formatPolicyProof
-          : database.recordPolicyProofAudit;
+        const peekPolicyAudit = require('../../db/peek-policy-audit');
+        const recordPolicyProof = typeof peekPolicyAudit.formatPolicyProof === 'function'
+          ? peekPolicyAudit.formatPolicyProof
+          : peekPolicyAudit.recordPolicyProofAudit;
         if (typeof recordPolicyProof === 'function') {
           recordPolicyProof({
             surface: 'capture_analysis',

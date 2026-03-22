@@ -22,8 +22,10 @@ const { ErrorCodes, makeError, isPathTraversalSafe } = require('./shared');
 const logger = require('../logger').child({ component: 'automation-batch' });
 
 // Lazy-load to avoid circular deps
-let _database;
-function database() { return _database || (_database = require('../database')); }
+let _taskCore;
+function taskCore() { return _taskCore || (_taskCore = require('../db/task-core')); }
+let _configCore;
+function configCore() { return _configCore || (_configCore = require('../db/config-core')); }
 let _fileTracking;
 function fileTracking() { return _fileTracking || (_fileTracking = require('../db/file-tracking')); }
 let _projectConfigCore;
@@ -88,7 +90,7 @@ function collectTrackedTaskFiles(taskId, workingDir) {
   }
 
   try {
-    const task = database().getTask(taskId);
+    const task = taskCore().getTask(taskId);
     const modifiedFiles = Array.isArray(task?.files_modified) ? task.files_modified : [];
     for (const file of modifiedFiles) {
       const candidate = typeof file === 'string'
@@ -806,7 +808,7 @@ function handleDetectFileConflicts(args) {
     const nodeId = task.node_id || taskId.substring(0, 8);
 
     // Check task result for files_modified
-    const fullTask = database().getTask(taskId);
+    const fullTask = taskCore().getTask(taskId);
     if (!fullTask) continue;
 
     const modifiedFiles = new Set();
@@ -949,7 +951,7 @@ async function handleAutoCommitBatch(args) {
   let verifyCmd = args.verify_command;
   if (!verifyCmd) {
     try {
-      const defaults = database().getConfig(`project_defaults_${workingDir}`);
+      const defaults = configCore().getConfig(`project_defaults_${workingDir}`);
       if (defaults) {
         const parsed = JSON.parse(defaults);
         verifyCmd = parsed.verify_command;

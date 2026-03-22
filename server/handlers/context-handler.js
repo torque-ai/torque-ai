@@ -1,6 +1,6 @@
 'use strict';
 
-const database = require('../database');
+const taskCore = require('../db/task-core');
 const hostManagement = require('../db/host-management');
 const workflowEngine = require('../db/workflow-engine');
 const taskManager = require('../task-manager');
@@ -23,7 +23,7 @@ function buildQueueContext(args) {
   const includeOutput = Boolean(args.include_output);
 
   // Running tasks (fetch all for accurate count, then slice for compact output)
-  const running = database.listTasks({ status: 'running', orderDir: 'desc' });
+  const running = taskCore.listTasks({ status: 'running', orderDir: 'desc' });
   const runningTasks = running.slice(0, MAX_RUNNING).map(task => {
     const progress = taskManager.getTaskProgress(task.id);
     const activity = taskManager.getTaskActivity(task.id, { skipGitCheck: true });
@@ -38,7 +38,7 @@ function buildQueueContext(args) {
   });
 
   // Queued tasks (fetch all for accurate count, slice for compact output)
-  const allQueued = database.listTasks({ status: 'queued', orderDir: 'desc' });
+  const allQueued = taskCore.listTasks({ status: 'queued', orderDir: 'desc' });
   const queued = allQueued.slice(0, MAX_QUEUED);
   const queuedNext = queued.map(task => ({
     id: task.id,
@@ -47,7 +47,7 @@ function buildQueueContext(args) {
   }));
 
   // Recent completed (most recent first)
-  const completed = database.listTasks({ status: 'completed', limit: MAX_RECENT_COMPLETED, orderDir: 'desc' });
+  const completed = taskCore.listTasks({ status: 'completed', limit: MAX_RECENT_COMPLETED, orderDir: 'desc' });
   const completedLast3 = completed.map(task => {
     const entry = {
       id: task.id,
@@ -63,11 +63,11 @@ function buildQueueContext(args) {
     }
     return entry;
   });
-  const completedAll = database.listTasks({ status: 'completed' });
+  const completedAll = taskCore.listTasks({ status: 'completed' });
   const completedCount = completedAll.length;
 
   // Recent failed (most recent first)
-  const failed = database.listTasks({ status: 'failed', limit: MAX_RECENT_FAILED, orderDir: 'desc' });
+  const failed = taskCore.listTasks({ status: 'failed', limit: MAX_RECENT_FAILED, orderDir: 'desc' });
   const failedTasks = failed.map(task => {
     const errorSource = task.error_output || task.output || '';
     const entry = {
@@ -82,7 +82,7 @@ function buildQueueContext(args) {
     }
     return entry;
   });
-  const failedAll = database.listTasks({ status: 'failed' });
+  const failedAll = taskCore.listTasks({ status: 'failed' });
   const failedCount = failedAll.length;
 
   // Active workflows

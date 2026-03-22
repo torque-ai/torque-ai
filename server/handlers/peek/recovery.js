@@ -91,8 +91,8 @@ function isTruthyConfigFlag(value) {
 
 function isLiveModeEnabled() {
   try {
-    const database = require('../../database');
-    return isTruthyConfigFlag(database?.getConfig?.('live_mode_enabled'));
+    const configCore = require('../../db/config-core');
+    return isTruthyConfigFlag(configCore?.getConfig?.('live_mode_enabled'));
   } catch {
     return false;
   }
@@ -424,23 +424,23 @@ async function resolveHighRiskApproval(action, args = {}, taskContext = null) {
   }
 
   try {
-    const database = require('../../database');
+    const peekRecoveryApprovals = require('../../db/peek-recovery-approvals');
     if (
-      typeof database.getApprovalForAction !== 'function'
-      || typeof database.requestApproval !== 'function'
+      typeof peekRecoveryApprovals.getApprovalForAction !== 'function'
+      || typeof peekRecoveryApprovals.requestApproval !== 'function'
     ) {
       return createApprovalAuditRecord(normalizedAction);
     }
 
     const taskId = taskContext?.taskId || null;
-    const latestApproval = database.getApprovalForAction(normalizedAction, taskId);
+    const latestApproval = peekRecoveryApprovals.getApprovalForAction(normalizedAction, taskId);
     if (normalizeApprovalStatus(latestApproval?.status) === 'approved') {
       return createApprovalAuditRecord(normalizedAction, latestApproval);
     }
 
     const approvalRow = normalizeApprovalStatus(latestApproval?.status) === 'pending'
       ? latestApproval
-      : database.requestApproval(
+      : peekRecoveryApprovals.requestApproval(
         normalizedAction,
         taskId,
         resolveApprovalRequester(args, taskContext),
@@ -667,7 +667,7 @@ async function handlePeekRecovery(args = {}) {
   let approvalRecord = null;
   const finalizeRecoveryResult = (result) => {
     try {
-      const { recordRecoveryMetric } = require('../../database');
+      const { recordRecoveryMetric } = require('../../db/recovery-metrics');
       recordRecoveryMetric({
         action,
         mode,

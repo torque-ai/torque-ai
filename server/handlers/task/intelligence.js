@@ -15,7 +15,7 @@
  *           handleSetTaskComplexity, handleGetComplexityRouting, handleDeleteTask
  */
 
-const database = require('../../database');
+const taskCore = require('../../db/task-core');
 const analytics = require('../../db/analytics');
 const hostManagement = require('../../db/host-management');
 const schedulingAutomation = require('../../db/scheduling-automation');
@@ -39,7 +39,7 @@ function handleStreamTaskOutput(args) {
   const safeSequence = safeOffset(since_sequence);
   const safeStreamLimit = safeLimit(limit, 50, 500);
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const chunks = webhooksStreaming.getLatestStreamChunks(task_id, safeSequence, safeStreamLimit);
@@ -72,7 +72,7 @@ function handleStreamTaskOutput(args) {
 function handleGetTaskLogs(args) {
   const { task_id, level, search, limit = 500 } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const logs = webhooksStreaming.getTaskLogs(task_id, { level, search, limit });
@@ -106,7 +106,7 @@ function handleSubscribeTaskEvents(args) {
 
   // Validate task exists if specified
   if (task_id) {
-    const { error: taskErr } = requireTask(db, task_id);
+    const { error: taskErr } = requireTask(taskCore, task_id);
     if (taskErr) return taskErr;
   }
 
@@ -200,7 +200,7 @@ function handlePollTaskEvents(args) {
 function handlePauseTask(args) {
   const { task_id, reason } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'running') {
@@ -241,7 +241,7 @@ function handlePauseTask(args) {
 function handleResumeTask(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'paused') {
@@ -323,7 +323,7 @@ function handleListPausedTasks(args) {
 function handleSuggestImprovements(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'failed') {
@@ -371,7 +371,7 @@ function handleSuggestImprovements(args) {
 function handleFindSimilarTasks(args) {
   const { task_id, limit = 10, min_similarity = 0.3, status_filter } = args;
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const results = taskMetadata.findSimilarTasks(task_id, {
@@ -502,7 +502,7 @@ function handleAddComment(args) {
   const { task_id, comment, comment_type = 'note', author = 'user' } = args;
 
   // Verify task exists
-  const { task: _task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const result = taskMetadata.addTaskComment(task_id, comment, {
@@ -540,7 +540,7 @@ function handleListComments(args) {
   const { task_id, comment_type } = args;
 
   // Verify task exists
-  const { task: _task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const comments = taskMetadata.getTaskComments(task_id, { commentType: comment_type });
@@ -585,7 +585,7 @@ function handleTaskTimeline(args) {
   const { task_id } = args;
 
   // Verify task exists
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   const timeline = taskMetadata.getTaskTimeline(task_id);
@@ -886,14 +886,14 @@ function handleStartPendingTask(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const { task, error: taskErr } = requireTask(db, task_id);
+  const { task, error: taskErr } = requireTask(taskCore, task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'pending') {
     return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Task ${task_id} is not pending (status: ${task.status})`);
   }
 
-  database.updateTaskStatus(task_id, 'queued');
+  taskCore.updateTaskStatus(task_id, 'queued');
   taskManager.processQueue();
 
   let output = `## Task Started\n\n`;
@@ -1028,10 +1028,10 @@ function handleSetTaskComplexity(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'complexity must be one of: simple, normal, complex');
   }
 
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(taskCore, args.task_id);
   if (taskErr) return taskErr;
 
-  database.updateTaskStatus(args.task_id, task.status, { complexity: args.complexity });
+  taskCore.updateTaskStatus(args.task_id, task.status, { complexity: args.complexity });
 
   return {
     content: [{ type: 'text', text: `## Task Complexity Set\n\nTask ${args.task_id} complexity set to **${args.complexity}**.\n\nRouting:\n- simple → Laptop WSL\n- normal → Desktop\n- complex → Codex` }]
@@ -1074,14 +1074,14 @@ function handleGetComplexityRouting(args) {
 function handleDeleteTask(args) {
   if (args.status) {
     try {
-      const result = database.deleteTasks(args.status);
+      const result = taskCore.deleteTasks(args.status);
       return { content: [{ type: 'text', text: `Deleted ${result.deleted} task(s) with status '${result.status}'.` }] };
     } catch (err) {
       return makeError(ErrorCodes.INTERNAL_ERROR, `Failed to delete tasks: ${err.message}`);
     }
   } else if (args.task_id) {
     try {
-      const result = database.deleteTask(args.task_id);
+      const result = taskCore.deleteTask(args.task_id);
       return { content: [{ type: 'text', text: `Deleted task ${result.id} (was '${result.status}').` }] };
     } catch (err) {
       return makeError(ErrorCodes.TASK_NOT_FOUND, `Failed to delete task: ${err.message}`);

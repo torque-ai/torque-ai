@@ -1,7 +1,8 @@
 'use strict';
 
 const crypto = require('crypto');
-const database = require('../../database');
+const database = require('../../database'); // facade: getDbInstance
+const peekPolicyAudit = require('../../db/peek-policy-audit');
 const { fireWebhookForEvent } = require('./webhook-outbound');
 const { classifyActionRisk } = require('./rollback');
 const logger = require('../../logger').child({ component: 'peek-compliance' });
@@ -456,9 +457,9 @@ function normalizeProofAuditRow(row) {
 }
 
 function readPolicyProofAudits(handle, since, until, project) {
-  if (database && typeof database.listPolicyProofAudits === 'function') {
+  if (peekPolicyAudit && typeof peekPolicyAudit.listPolicyProofAudits === 'function') {
     try {
-      return (database.listPolicyProofAudits({ since, limit: DEFAULT_PROOF_AUDIT_LIMIT }) || [])
+      return (peekPolicyAudit.listPolicyProofAudits({ since, limit: DEFAULT_PROOF_AUDIT_LIMIT }) || [])
         .map(normalizeProofAuditRow)
         .filter((row) => (row.created_at || '') <= until)
         .filter((row) => rowMatchesProject(row, project))

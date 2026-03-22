@@ -4,7 +4,7 @@
  */
 
 const os = require('os');
-const database = require('../database');
+const configCore = require('../db/config-core');
 const hostManagement = require('../db/host-management');
 const providerRoutingCore = require('../db/provider-routing-core');
 const taskManager = require('../task-manager');
@@ -804,17 +804,17 @@ function handleConfigureMemoryProtection(args) {
 
   if (args.default_memory_limit_mb !== undefined) {
     const limit = args.default_memory_limit_mb > 0 ? Math.round(args.default_memory_limit_mb) : 0;
-    database.setConfig('default_host_memory_limit_mb', String(limit));
+    configCore.setConfig('default_host_memory_limit_mb', String(limit));
     changes.push(`Default memory limit: ${limit > 0 ? `${limit} MB (${(limit/1024).toFixed(1)} GB)` : 'Disabled'}`);
   }
 
   if (args.strict_mode !== undefined) {
-    database.setConfig('strict_memory_mode', args.strict_mode ? '1' : '0');
+    configCore.setConfig('strict_memory_mode', args.strict_mode ? '1' : '0');
     changes.push(`Strict mode: ${args.strict_mode ? 'Enabled' : 'Disabled'}`);
   }
 
   if (args.reject_unknown_sizes !== undefined) {
-    database.setConfig('reject_unknown_model_sizes', args.reject_unknown_sizes ? '1' : '0');
+    configCore.setConfig('reject_unknown_model_sizes', args.reject_unknown_sizes ? '1' : '0');
     changes.push(`Reject unknown model sizes: ${args.reject_unknown_sizes ? 'Enabled' : 'Disabled'}`);
   }
 
@@ -970,17 +970,17 @@ function handleSetDiscoveryConfig(args) {
   const changes = [];
 
   if (discovery_enabled !== undefined) {
-    database.setConfig('discovery_enabled', discovery_enabled ? '1' : '0');
+    configCore.setConfig('discovery_enabled', discovery_enabled ? '1' : '0');
     changes.push(`discovery_enabled = ${discovery_enabled}`);
   }
 
   if (discovery_advertise !== undefined) {
-    database.setConfig('discovery_advertise', discovery_advertise ? '1' : '0');
+    configCore.setConfig('discovery_advertise', discovery_advertise ? '1' : '0');
     changes.push(`discovery_advertise = ${discovery_advertise}`);
   }
 
   if (discovery_browse !== undefined) {
-    database.setConfig('discovery_browse', discovery_browse ? '1' : '0');
+    configCore.setConfig('discovery_browse', discovery_browse ? '1' : '0');
     changes.push(`discovery_browse = ${discovery_browse}`);
   }
 
