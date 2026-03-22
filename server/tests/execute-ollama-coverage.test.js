@@ -230,7 +230,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       mod.init(deps);
 
       // Spy on db.decrementHostTasks to confirm it is called
-      const decrementSpy = vi.spyOn(db, 'decrementHostTasks');
+      const decrementSpy = vi.spyOn(hostManagement, 'decrementHostTasks');
 
       const taskId = randomUUID();
       db.createTask({
@@ -270,7 +270,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
       mod.init(deps);
 
-      const decrementSpy = vi.spyOn(db, 'decrementHostTasks');
+      const decrementSpy = vi.spyOn(hostManagement, 'decrementHostTasks');
 
       const taskId = randomUUID();
       db.createTask({
@@ -376,7 +376,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
       mod.init(deps);
 
-      const decrementSpy = vi.spyOn(db, 'decrementHostTasks');
+      const decrementSpy = vi.spyOn(hostManagement, 'decrementHostTasks');
 
       const longDescription = 'B'.repeat(500);
 

@@ -45,6 +45,7 @@ function textOfResult(result) {
 describeV('await verify routing', () => {
   const { setupTestDb, teardownTestDb } = require('./vitest-setup');
   const db = require('../database');
+  const workflowEngine = require('../db/workflow-engine');
   const hostMonitoring = require('../utils/host-monitoring');
   let tmpDir;
   let handlers;
@@ -203,7 +204,7 @@ describeV('await verify routing', () => {
     });
 
     const wfId = randomUUID();
-    db.createWorkflow({
+    workflowEngine.createWorkflow({
       id: wfId,
       name: 'Routing workflow test',
       status: 'completed',
@@ -256,7 +257,7 @@ describeV('await verify routing', () => {
     });
 
     const wfId = randomUUID();
-    db.createWorkflow({
+    workflowEngine.createWorkflow({
       id: wfId,
       name: 'Routing workflow fallback test',
       status: 'completed',

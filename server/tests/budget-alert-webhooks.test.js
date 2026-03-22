@@ -15,6 +15,8 @@ vi.mock('../logger', () => ({
 describe('RB-045: budget alert webhook targeting', () => {
   let index;
   let db;
+  let projectConfigCore;
+  let webhooksStreaming;
   let webhookHandlers;
   let _checkBudgetAlertsSpy;
   let _updateBudgetAlertSpy;
@@ -27,6 +29,8 @@ describe('RB-045: budget alert webhook targeting', () => {
     vi.resetModules();
     index = require('../index');
     db = require('../database');
+    projectConfigCore = require('../db/project-config-core');
+    webhooksStreaming = require('../db/webhooks-streaming');
     webhookHandlers = require('../handlers/webhook-handlers');
   }
 
@@ -34,9 +38,9 @@ describe('RB-045: budget alert webhook targeting', () => {
     vi.resetModules();
     vi.restoreAllMocks();
     loadIndex();
-    _checkBudgetAlertsSpy = vi.spyOn(db, 'checkBudgetAlerts').mockReturnValue([]);
-    _updateBudgetAlertSpy = vi.spyOn(db, 'updateBudgetAlert').mockReturnValue();
-    _getWebhookSpy = vi.spyOn(db, 'getWebhook').mockReturnValue();
+    _checkBudgetAlertsSpy = vi.spyOn(projectConfigCore, 'checkBudgetAlerts').mockReturnValue([]);
+    _updateBudgetAlertSpy = vi.spyOn(projectConfigCore, 'updateBudgetAlert').mockReturnValue();
+    _getWebhookSpy = vi.spyOn(webhooksStreaming, 'getWebhook').mockReturnValue();
     sendWebhookSpy = vi.spyOn(webhookHandlers, 'sendWebhook').mockResolvedValue();
     triggerWebhooksSpy = vi.spyOn(webhookHandlers, 'triggerWebhooks').mockResolvedValue();
     if (typeof db.getDataDir === 'function') {
@@ -63,18 +67,18 @@ describe('RB-045: budget alert webhook targeting', () => {
       retry_count: 3,
     };
 
-    db.checkBudgetAlerts.mockReturnValue([{
+    projectConfigCore.checkBudgetAlerts.mockReturnValue([{
       alert,
       currentValue: 120,
       thresholdValue: 100,
       percentUsed: 120,
     }]);
-    db.getWebhook.mockReturnValue(webhook);
+    webhooksStreaming.getWebhook.mockReturnValue(webhook);
 
     index._testing.checkBudgetAlerts();
 
-    expect(db.updateBudgetAlert).toHaveBeenCalledWith(alert.id, expect.any(Object));
-    expect(db.getWebhook).toHaveBeenCalledWith(webhookId);
+    expect(projectConfigCore.updateBudgetAlert).toHaveBeenCalledWith(alert.id, expect.any(Object));
+    expect(webhooksStreaming.getWebhook).toHaveBeenCalledWith(webhookId);
     expect(sendWebhookSpy).toHaveBeenCalledTimes(1);
     expect(sendWebhookSpy).toHaveBeenCalledWith(webhook, 'budget_alert', {
       alert,
@@ -92,7 +96,7 @@ describe('RB-045: budget alert webhook targeting', () => {
       webhook_id: null,
     };
 
-    db.checkBudgetAlerts.mockReturnValue([{
+    projectConfigCore.checkBudgetAlerts.mockReturnValue([{
       alert,
       currentValue: 120,
       thresholdValue: 100,
@@ -101,7 +105,7 @@ describe('RB-045: budget alert webhook targeting', () => {
 
     index._testing.checkBudgetAlerts();
 
-    expect(db.getWebhook).not.toHaveBeenCalled();
+    expect(webhooksStreaming.getWebhook).not.toHaveBeenCalled();
     expect(sendWebhookSpy).not.toHaveBeenCalled();
     expect(triggerWebhooksSpy).toHaveBeenCalledTimes(1);
     expect(triggerWebhooksSpy).toHaveBeenCalledWith('budget_alert', {

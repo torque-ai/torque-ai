@@ -846,7 +846,9 @@ const _subModules = [
   },
 ];
 
-// Build merged exports: core functions take precedence, DI wiring is excluded
+// Build merged exports: core functions take precedence, DI wiring is excluded.
+// Sub-module functions use live-binding getters so that vi.spyOn(subModule, 'fn')
+// is visible through db.fn() — enables test DI migration to sub-module targets.
 const mergedExports = { ...coreExports };
 for (const modOrSpec of _subModules) {
   const mod = modOrSpec.mod || modOrSpec;
@@ -856,7 +858,16 @@ for (const modOrSpec of _subModules) {
       continue;
     }
     if (!_DI_INTERNALS.has(key) && !(key in mergedExports)) {
-      mergedExports[key] = value;
+      // Use getter to create live binding: db.fn() delegates to subModule.fn()
+      // at call time, so vi.spyOn(subModule, 'fn') is visible through db.fn().
+      const sourceModule = mod;
+      const sourceKey = key;
+      Object.defineProperty(mergedExports, key, {
+        get() { return sourceModule[sourceKey]; },
+        set(v) { sourceModule[sourceKey] = v; },
+        enumerable: true,
+        configurable: true,
+      });
     }
   }
 }

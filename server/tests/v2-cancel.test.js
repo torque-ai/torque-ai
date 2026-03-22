@@ -11,6 +11,7 @@
  */
 
 const db = require('../database');
+const webhooksStreaming = require('../db/webhooks-streaming');
 const apiServer = require('../api-server.core');
 
 const { handleV2TaskCancel, setV2TaskManager } = apiServer._testing;
@@ -41,8 +42,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   // Reset taskManager to null before each test
   setV2TaskManager(null);
-  // Silence db.recordTaskEvent so recordV2TaskEvent never throws
-  vi.spyOn(db, 'recordTaskEvent').mockReturnValue(undefined);
+  // Silence recordTaskEvent so recordV2TaskEvent never throws
+  vi.spyOn(webhooksStreaming, 'recordTaskEvent').mockReturnValue(undefined);
 });
 
 // ─── Task not found ────────────────────────────────────────────────────────────

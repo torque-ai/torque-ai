@@ -5,6 +5,7 @@ const { randomUUID } = require('crypto');
 
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 const schedulingAutomation = require('../db/scheduling-automation');
+const hostManagement = require('../db/host-management');
 
 vi.mock('../providers/registry', () => ({
   getProviderInstance: vi.fn().mockReturnValue({}),
@@ -52,7 +53,7 @@ function setup() {
     cleanupOrphanedRetryTimeouts: vi.fn(),
   });
 
-  db.selectOllamaHostForModel = vi.fn().mockReturnValue({
+  hostManagement.selectOllamaHostForModel = vi.fn().mockReturnValue({
     host: { id: 'host-1', name: 'host-1', running_tasks: 0 },
     reason: 'available',
   });
