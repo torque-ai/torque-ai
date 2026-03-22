@@ -10,7 +10,6 @@
  * 4. cancelled: true is only returned on actual success
  */
 
-const db = require('../database');
 const taskCore = require('../db/task-core');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const apiServer = require('../api-server.core');

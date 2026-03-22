@@ -4,8 +4,8 @@
  * instruction templates, hardware tuning, auto-tuning, and benchmark.
  */
 
-const db = require('../database');
 const configCore = require('../db/config-core');
+const hostManagement = require('../db/host-management');
 const handlers = require('../handlers/provider-tuning');
 
 describe('provider-tuning handlers', () => {
@@ -885,7 +885,7 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleRunBenchmark', () => {
     it('returns error when no healthy hosts and no host_url or host_id', async () => {
-      vi.spyOn(db, 'listOllamaHosts').mockReturnValue([]);
+      vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([]);
 
       const result = await handlers.handleRunBenchmark({});
       const text = result.content[0].text;
@@ -897,7 +897,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error when host_id not found', async () => {
-      vi.spyOn(db, 'listOllamaHosts').mockReturnValue([
+      vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([
         { id: 1, name: 'TestHost', url: 'http://localhost:11434', enabled: true, status: 'healthy' }
       ]);
 
@@ -910,7 +910,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error when no healthy hosts and no host specified', async () => {
-      vi.spyOn(db, 'listOllamaHosts').mockReturnValue([]);
+      vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([]);
 
       const result = await handlers.handleRunBenchmark({});
       const _text = result.content[0].text;

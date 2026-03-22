@@ -21,7 +21,7 @@ const mockLogger = {
   })),
 };
 
-const databaseModule = require('../database');
+const configCore = require('../db/config-core');
 const sharedModule = require('../handlers/peek/shared');
 const shadowEnforcerModule = require('../policy-engine/shadow-enforcer');
 const taskHooksModule = require('../policy-engine/task-hooks');
@@ -36,7 +36,7 @@ const originalShared = {
 const originalEnforceMode = shadowEnforcerModule.enforceMode;
 const originalEvaluateAtStage = taskHooksModule.evaluateAtStage;
 const originalLoggerChild = loggerModule.child;
-const originalGetConfig = databaseModule.getConfig;
+const originalGetConfig = configCore.getConfig;
 
 let handlePeekRecovery;
 let resolveRecoveryMode;
@@ -56,7 +56,7 @@ describe('peek recovery risk-based mode resolution', () => {
     shadowEnforcerModule.enforceMode = mockShadowEnforcer.enforceMode;
     taskHooksModule.evaluateAtStage = mockTaskHooks.evaluateAtStage;
     loggerModule.child = mockLogger.child;
-    databaseModule.getConfig = vi.fn(() => null);
+    configCore.getConfig = vi.fn(() => null);
 
     delete require.cache[require.resolve('../handlers/peek/recovery')];
 
@@ -92,11 +92,11 @@ describe('peek recovery risk-based mode resolution', () => {
     shadowEnforcerModule.enforceMode = originalEnforceMode;
     taskHooksModule.evaluateAtStage = originalEvaluateAtStage;
     loggerModule.child = originalLoggerChild;
-    databaseModule.getConfig = originalGetConfig;
+    configCore.getConfig = originalGetConfig;
   });
 
   it('returns live for low risk when live mode is enabled', () => {
-    databaseModule.getConfig.mockReturnValue('1');
+    configCore.getConfig.mockReturnValue('1');
     expect(resolveRecoveryMode('low')).toBe('live');
     expect(resolveRecoveryMode('close_dialog')).toBe('live');
   });

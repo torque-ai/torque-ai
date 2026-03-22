@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const database = require('../database');
+const taskMetadata = require('../db/task-metadata');
 const { loadPeekContractFixture } = require('../contracts/peek');
 const {
   generateBundleChecksum,
@@ -77,7 +77,7 @@ describe('peek bundle signing helpers', () => {
     const bundlePath = path.join(tempDir, 'bundle.json');
     fs.writeFileSync(bundlePath, JSON.stringify(bundle, null, 2), 'utf8');
 
-    const storeSpy = vi.spyOn(database, 'storeArtifact').mockImplementation((artifact) => ({
+    const storeSpy = vi.spyOn(taskMetadata, 'storeArtifact').mockImplementation((artifact) => ({
       ...artifact,
       created_at: '2026-03-10T00:00:00.000Z',
       expires_at: '2026-04-09T00:00:00.000Z',

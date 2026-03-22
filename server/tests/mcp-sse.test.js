@@ -1,6 +1,6 @@
 const { EventEmitter } = require('events');
 const http = require('http');
-const db = require('../database');
+const configCore = require('../db/config-core');
 const tools = require('../tools');
 const authMiddleware = require('../auth/middleware');
 const sseTickets = require('../auth/sse-tickets');
@@ -97,7 +97,7 @@ describe('MCP SSE Transport', () => {
     vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
 
     // Spy on database and tools before loading mcp-sse
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
       content: [{ type: 'text', text: 'mock ok' }],
     });

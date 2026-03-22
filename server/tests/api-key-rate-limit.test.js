@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const db = require('../database');
+const configCore = require('../db/config-core');
 const serverConfig = require('../config');
 const middleware = require('../api/middleware');
 
@@ -44,7 +44,7 @@ function parseJson(bodyText) {
 
 beforeEach(() => {
   vi.useRealTimers();
-  getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation(() => null);
+  getConfigSpy = vi.spyOn(configCore, 'getConfig').mockImplementation(() => null);
   getConfigOriginal = serverConfig.get;
   serverConfig.get = vi.fn((key, fallback) => {
     const val = getConfigSpy(key);

@@ -21,7 +21,7 @@ const mockLogger = {
   })),
 };
 
-const databaseModule = require('../database');
+const configCore = require('../db/config-core');
 const { classifyActionRisk } = require('../handlers/peek/rollback');
 const { buildLiveEligibilityRecord, isLiveEligible } = require('../handlers/peek/live-autonomy');
 const sharedModule = require('../handlers/peek/shared');
@@ -38,7 +38,7 @@ const originalShared = {
 const originalEnforceMode = shadowEnforcerModule.enforceMode;
 const originalEvaluateAtStage = taskHooksModule.evaluateAtStage;
 const originalLoggerChild = loggerModule.child;
-const originalGetConfig = databaseModule.getConfig;
+const originalGetConfig = configCore.getConfig;
 
 let handlePeekRecovery;
 let resolveRecoveryMode;
@@ -65,7 +65,7 @@ describe('peek live autonomy', () => {
     shadowEnforcerModule.enforceMode = mockShadowEnforcer.enforceMode;
     taskHooksModule.evaluateAtStage = mockTaskHooks.evaluateAtStage;
     loggerModule.child = mockLogger.child;
-    databaseModule.getConfig = vi.fn(() => null);
+    configCore.getConfig = vi.fn(() => null);
 
     delete require.cache[require.resolve('../handlers/peek/recovery')];
 
@@ -101,11 +101,11 @@ describe('peek live autonomy', () => {
     shadowEnforcerModule.enforceMode = originalEnforceMode;
     taskHooksModule.evaluateAtStage = originalEvaluateAtStage;
     loggerModule.child = originalLoggerChild;
-    databaseModule.getConfig = originalGetConfig;
+    configCore.getConfig = originalGetConfig;
   });
 
   it('marks low-risk live mode actions as live eligible', () => {
-    databaseModule.getConfig.mockReturnValue('1');
+    configCore.getConfig.mockReturnValue('1');
     const mode = resolveRecoveryMode('low');
     const eligibility = buildLiveEligibilityRecord(
       'close_dialog',
@@ -195,7 +195,7 @@ describe('peek live autonomy', () => {
   });
 
   it('executes low-risk live mode directly without a shadow step', async () => {
-    databaseModule.getConfig.mockReturnValue('1');
+    configCore.getConfig.mockReturnValue('1');
     mockShared.peekHttpPostWithRetry
       .mockResolvedValueOnce({
         data: {

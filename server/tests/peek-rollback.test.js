@@ -27,7 +27,7 @@ const mockLogger = {
   })),
 };
 
-const databaseModule = require('../database');
+const configCore = require('../db/config-core');
 const sharedModule = require('../handlers/peek/shared');
 const shadowEnforcerModule = require('../policy-engine/shadow-enforcer');
 const taskHooksModule = require('../policy-engine/task-hooks');
@@ -42,7 +42,7 @@ const originalShared = {
 const originalEnforceMode = shadowEnforcerModule.enforceMode;
 const originalEvaluateAtStage = taskHooksModule.evaluateAtStage;
 const originalLoggerChild = loggerModule.child;
-const originalGetConfig = databaseModule.getConfig;
+const originalGetConfig = configCore.getConfig;
 
 let handlePeekRecovery;
 
@@ -57,7 +57,7 @@ describe('peek rollback helpers', () => {
     shadowEnforcerModule.enforceMode = mockShadowEnforcer.enforceMode;
     taskHooksModule.evaluateAtStage = mockTaskHooks.evaluateAtStage;
     loggerModule.child = mockLogger.child;
-    databaseModule.getConfig = vi.fn(() => null);
+    configCore.getConfig = vi.fn(() => null);
 
     delete require.cache[require.resolve('../handlers/peek/recovery')];
     ({ handlePeekRecovery } = require('../handlers/peek/recovery'));
@@ -83,7 +83,7 @@ describe('peek rollback helpers', () => {
     shadowEnforcerModule.enforceMode = originalEnforceMode;
     taskHooksModule.evaluateAtStage = originalEvaluateAtStage;
     loggerModule.child = originalLoggerChild;
-    databaseModule.getConfig = originalGetConfig;
+    configCore.getConfig = originalGetConfig;
   });
 
   it('createRollbackPlan generates valid plans for each supported action type', () => {
@@ -236,7 +236,7 @@ describe('peek rollback helpers', () => {
   });
 
   it('attaches policy proof and rollback plan throughout the recovery audit flow', async () => {
-    databaseModule.getConfig.mockReturnValue('1');
+    configCore.getConfig.mockReturnValue('1');
     const rawPolicyEvaluation = {
       shadow: false,
       blocked: false,

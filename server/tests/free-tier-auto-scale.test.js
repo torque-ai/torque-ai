@@ -471,18 +471,18 @@ describe('Free-tier auto-scale', () => {
 
   describe('configure_free_tier_auto_scale handler', () => {
     let handler;
-    let realDb;
+    let configCoreModule;
     let setConfigSpy;
     let getConfigSpy;
 
     beforeEach(() => {
-      realDb = require('../database');
+      configCoreModule = require('../db/config-core');
 
       const configStore = {};
-      setConfigSpy = vi.spyOn(realDb, 'setConfig').mockImplementation((key, value) => {
+      setConfigSpy = vi.spyOn(configCoreModule, 'setConfig').mockImplementation((key, value) => {
         configStore[key] = value;
       });
-      getConfigSpy = vi.spyOn(realDb, 'getConfig').mockImplementation((key) => configStore[key] || null);
+      getConfigSpy = vi.spyOn(configCoreModule, 'getConfig').mockImplementation((key) => configStore[key] || null);
 
       handler = require('../handlers/automation-handlers');
     });

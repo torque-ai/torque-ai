@@ -22,7 +22,8 @@ const mockLogger = {
   })),
 };
 
-const databaseModule = require('../database');
+const configCore = require('../db/config-core');
+const recoveryMetrics = require('../db/recovery-metrics');
 const sharedModule = require('../handlers/peek/shared');
 const shadowEnforcerModule = require('../policy-engine/shadow-enforcer');
 const taskHooksModule = require('../policy-engine/task-hooks');
@@ -37,7 +38,7 @@ const originalShared = {
 const originalEnforceMode = shadowEnforcerModule.enforceMode;
 const originalEvaluateAtStage = taskHooksModule.evaluateAtStage;
 const originalLoggerChild = loggerModule.child;
-const originalGetConfig = databaseModule.getConfig;
+const originalGetConfig = configCore.getConfig;
 
 let handlePeekRecovery;
 let handlePeekRecoveryStatus;
@@ -66,7 +67,7 @@ describe('peek recovery handlers', () => {
     shadowEnforcerModule.enforceMode = mockShadowEnforcer.enforceMode;
     taskHooksModule.evaluateAtStage = mockTaskHooks.evaluateAtStage;
     loggerModule.child = mockLogger.child;
-    databaseModule.getConfig = vi.fn(() => null);
+    configCore.getConfig = vi.fn(() => null);
 
     delete require.cache[require.resolve('../handlers/peek/recovery')];
 
@@ -109,7 +110,7 @@ describe('peek recovery handlers', () => {
     shadowEnforcerModule.enforceMode = originalEnforceMode;
     taskHooksModule.evaluateAtStage = originalEvaluateAtStage;
     loggerModule.child = originalLoggerChild;
-    databaseModule.getConfig = originalGetConfig;
+    configCore.getConfig = originalGetConfig;
   });
 
   it('handlePeekRecovery rejects unknown actions', async () => {
@@ -237,7 +238,7 @@ describe('peek recovery handlers', () => {
   });
 
   it('Policy proof is attached to recovery decisions', async () => {
-    databaseModule.getConfig.mockReturnValue('1');
+    configCore.getConfig.mockReturnValue('1');
     const rawPolicyProof = {
       shadow: false,
       blocked: false,
@@ -880,11 +881,10 @@ describe('peek recovery handlers', () => {
   });
 
   it('records a recovery metric when finalizing a recovery result', async () => {
-    const databaseModule = require('../database');
-    const originalRecordRecoveryMetric = databaseModule.recordRecoveryMetric;
-    const recordRecoveryMetric = vi.fn();
-    databaseModule.recordRecoveryMetric = recordRecoveryMetric;
-    databaseModule.getConfig.mockReturnValue('1');
+    const originalRecordRecoveryMetric = recoveryMetrics.recordRecoveryMetric;
+    const recordRecoveryMetricMock = vi.fn();
+    recoveryMetrics.recordRecoveryMetric = recordRecoveryMetricMock;
+    configCore.getConfig.mockReturnValue('1');
 
     try {
       mockShared.peekHttpPostWithRetry
@@ -904,7 +904,7 @@ describe('peek recovery handlers', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(recordRecoveryMetric).toHaveBeenCalledWith(expect.objectContaining({
+      expect(recordRecoveryMetricMock).toHaveBeenCalledWith(expect.objectContaining({
         action: 'close_dialog',
         mode: 'live',
         success: true,
@@ -918,7 +918,7 @@ describe('peek recovery handlers', () => {
         approval_granted: false,
       }));
     } finally {
-      databaseModule.recordRecoveryMetric = originalRecordRecoveryMetric;
+      recoveryMetrics.recordRecoveryMetric = originalRecordRecoveryMetric;
     }
   });
 });

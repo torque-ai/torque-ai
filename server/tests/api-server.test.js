@@ -1,6 +1,10 @@
 const { EventEmitter } = require('events');
 const http = require('http');
 const db = require('../database');
+const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
+const hostManagement = require('../db/host-management');
+const webhooksStreaming = require('../db/webhooks-streaming');
 const providerRoutingCore = require('../db/provider-routing-core');
 const tools = require('../tools');
 const adapterRegistry = require('../providers/adapter-registry');
@@ -250,8 +254,8 @@ describe('API Server endpoints', () => {
     vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
 
     // Spy on database and tools before loading api-server
-    getConfigSpy = vi.spyOn(db, 'getConfig').mockReturnValue(null);
-    countTasksSpy = vi.spyOn(db, 'countTasks').mockReturnValue(0);
+    getConfigSpy = vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
+    countTasksSpy = vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
     // Mock DB instance check for probeDatabase() — return truthy so probes see DB as initialized
     vi.spyOn(db, 'getDbInstance').mockReturnValue({});
     if (typeof db.isDbClosed === 'function') {
@@ -274,7 +278,7 @@ describe('API Server endpoints', () => {
       total_cost: 0,
     });
     isProviderHealthySpy = vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
-    getProviderStatsSpy = vi.spyOn(db, 'getProviderStats').mockReturnValue({
+    getProviderStatsSpy = vi.spyOn(providerRoutingCore, 'getProviderStats').mockReturnValue({
       provider: 'codex',
       total_tasks: 10,
       successful_tasks: 9,
@@ -284,7 +288,7 @@ describe('API Server endpoints', () => {
       total_cost: 0,
       avg_duration_seconds: 2.4,
     });
-    listOllamaHostsSpy = vi.spyOn(db, 'listOllamaHosts').mockReturnValue([]);
+    listOllamaHostsSpy = vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([]);
     getProviderAdapterDefaultSpy = vi.fn(() => null);
     vi.spyOn(adapterRegistry, 'getProviderAdapter').mockImplementation(
       getProviderAdapterDefaultSpy,
@@ -295,7 +299,7 @@ describe('API Server endpoints', () => {
     mockTaskStore = new Map();
     mockTaskEventsStore = new Map();
 
-    _createTaskSpy = vi.spyOn(db, 'createTask').mockImplementation((task) => {
+    _createTaskSpy = vi.spyOn(taskCore, 'createTask').mockImplementation((task) => {
       ensureTaskStore();
       const row = createTaskRow({
         ...task,
@@ -304,12 +308,12 @@ describe('API Server endpoints', () => {
       return row;
     });
 
-    _getTaskSpy = vi.spyOn(db, 'getTask').mockImplementation((taskId) => {
+    _getTaskSpy = vi.spyOn(taskCore, 'getTask').mockImplementation((taskId) => {
       ensureTaskStore();
       return mockTaskStore.get(taskId) || null;
     });
 
-    _updateTaskStatusSpy = vi.spyOn(db, 'updateTaskStatus').mockImplementation((taskId, status, additionalFields = {}) => {
+    _updateTaskStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation((taskId, status, additionalFields = {}) => {
       ensureTaskStore();
       const row = mockTaskStore.get(taskId);
       if (!row) {
@@ -338,7 +342,7 @@ describe('API Server endpoints', () => {
       return row;
     });
 
-    _getTaskEventsSpy = vi.spyOn(db, 'getTaskEvents').mockImplementation((taskId, options = {}) => {
+    _getTaskEventsSpy = vi.spyOn(webhooksStreaming, 'getTaskEvents').mockImplementation((taskId, options = {}) => {
       ensureTaskStore();
       const events = mockTaskEventsStore.get(taskId) || [];
       const filtered = events.filter((event) => {
@@ -358,11 +362,11 @@ describe('API Server endpoints', () => {
         .slice(0, options.limit || 100);
     });
 
-    _recordTaskEventSpy = vi.spyOn(db, 'recordTaskEvent').mockImplementation((...args) => {
+    _recordTaskEventSpy = vi.spyOn(webhooksStreaming, 'recordTaskEvent').mockImplementation((...args) => {
       const [taskId, eventType, oldValue, newValue, eventData] = args;
       emitTaskEvent(taskId, eventType, oldValue, newValue, eventData);
     });
-    recordProviderUsageSpy = vi.spyOn(db, 'recordProviderUsage').mockImplementation(() => {});
+    recordProviderUsageSpy = vi.spyOn(providerRoutingCore, 'recordProviderUsage').mockImplementation(() => {});
 
     // Capture the request handler when api-server creates the http server
     vi.spyOn(http, 'createServer').mockImplementation((handler) => {

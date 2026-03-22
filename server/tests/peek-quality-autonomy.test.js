@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { createRequire } = require('module');
 
-const database = require('../database');
+const configCore = require('../db/config-core');
 const { classifyActionRisk } = require('../handlers/peek/rollback');
 const { resolveRecoveryMode } = require('../handlers/peek/recovery');
 
@@ -463,7 +463,7 @@ describe('peek live-autonomy', () => {
   });
 
   it('allows low-risk actions onto the live path when live mode is enabled', () => {
-    vi.spyOn(database, 'getConfig').mockReturnValue('1');
+    vi.spyOn(configCore, 'getConfig').mockReturnValue('1');
 
     const riskClassification = classifyActionRisk('close_dialog');
     const resolvedMode = resolveRecoveryMode('close_dialog');
@@ -475,7 +475,7 @@ describe('peek live-autonomy', () => {
   });
 
   it('keeps low-risk actions shadowed when live mode is disabled', () => {
-    vi.spyOn(database, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
     const riskClassification = classifyActionRisk('clear_temp_cache');
     const resolvedMode = resolveRecoveryMode('clear_temp_cache');
@@ -487,7 +487,7 @@ describe('peek live-autonomy', () => {
   });
 
   it('keeps medium-risk actions on the canary path even with live mode enabled', () => {
-    vi.spyOn(database, 'getConfig').mockReturnValue('1');
+    vi.spyOn(configCore, 'getConfig').mockReturnValue('1');
 
     const riskClassification = classifyActionRisk('restart_process');
     const resolvedMode = resolveRecoveryMode('restart_process');
@@ -499,7 +499,7 @@ describe('peek live-autonomy', () => {
   });
 
   it('keeps high-risk actions shadowed even with live mode enabled', () => {
-    vi.spyOn(database, 'getConfig').mockReturnValue('1');
+    vi.spyOn(configCore, 'getConfig').mockReturnValue('1');
 
     const riskClassification = classifyActionRisk('kill_hung_thread');
     const resolvedMode = resolveRecoveryMode('kill_hung_thread');

@@ -6,7 +6,8 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 
-const database = require('../database');
+const emailPeek = require('../db/email-peek');
+const taskMetadata = require('../db/task-metadata');
 const { WPF_FIXTURE } = require('../contracts/peek-fixtures');
 const handlers = require('../handlers/peek-handlers');
 
@@ -61,14 +62,14 @@ describe('peek evidence sufficiency', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-peek-evidence-'));
     requestQueue = [];
 
-    vi.spyOn(database, 'getDefaultPeekHost').mockReturnValue({
+    vi.spyOn(emailPeek, 'getDefaultPeekHost').mockReturnValue({
       name: 'omen',
       url: 'http://omen:9876',
     });
-    vi.spyOn(database, 'getArtifactConfig').mockReturnValue({
+    vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
       storage_path: tempDir,
     });
-    vi.spyOn(database, 'storeArtifact').mockImplementation((artifact) => ({
+    vi.spyOn(taskMetadata, 'storeArtifact').mockImplementation((artifact) => ({
       ...artifact,
       created_at: '2026-03-10T00:00:00.000Z',
       expires_at: '2026-04-09T00:00:00.000Z',

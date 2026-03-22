@@ -1,6 +1,10 @@
 const { EventEmitter } = require('events');
 const http = require('http');
 const db = require('../database');
+const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
+const providerRoutingCore = require('../db/provider-routing-core');
+const hostManagement = require('../db/host-management');
 const authMiddleware = require('../auth/middleware');
 const { createConfigMock } = require('./test-helpers');
 
@@ -153,15 +157,15 @@ describe('v2 provider health and model inventory endpoints', () => {
       close: vi.fn(),
     };
 
-    getConfigSpy = vi.spyOn(db, 'getConfig').mockImplementation(createConfigMock(configValues));
-    vi.spyOn(db, 'getProvider').mockImplementation((providerId) => providerRows.get(providerId) || null);
-    getProviderHealthSpy = vi.spyOn(db, 'getProviderHealth').mockReturnValue({
+    getConfigSpy = vi.spyOn(configCore, 'getConfig').mockImplementation(createConfigMock(configValues));
+    vi.spyOn(providerRoutingCore, 'getProvider').mockImplementation((providerId) => providerRows.get(providerId) || null);
+    getProviderHealthSpy = vi.spyOn(providerRoutingCore, 'getProviderHealth').mockReturnValue({
       successes: 0,
       failures: 0,
       failureRate: 0,
     });
-    isProviderHealthySpy = vi.spyOn(db, 'isProviderHealthy').mockReturnValue(true);
-    getProviderStatsSpy = vi.spyOn(db, 'getProviderStats').mockReturnValue({
+    isProviderHealthySpy = vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
+    getProviderStatsSpy = vi.spyOn(providerRoutingCore, 'getProviderStats').mockReturnValue({
       provider: 'groq',
       total_tasks: 0,
       successful_tasks: 0,
@@ -169,11 +173,11 @@ describe('v2 provider health and model inventory endpoints', () => {
       avg_duration_seconds: 0,
       success_rate: 0,
     });
-    listOllamaHostsSpy = vi.spyOn(db, 'listOllamaHosts').mockReturnValue([]);
-    recordHostHealthCheckSpy = vi.spyOn(db, 'recordHostHealthCheck').mockImplementation(() => {});
-    countTasksSpy = vi.spyOn(db, 'countTasks').mockReturnValue(0);
-    vi.spyOn(db, 'getDefaultProvider').mockReturnValue('codex');
-    vi.spyOn(db, 'listProviders').mockReturnValue([]);
+    listOllamaHostsSpy = vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([]);
+    recordHostHealthCheckSpy = vi.spyOn(hostManagement, 'recordHostHealthCheck').mockImplementation(() => {});
+    countTasksSpy = vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
+    vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
+    vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
     vi.spyOn(db, 'getDbInstance').mockReturnValue({});
     if (typeof db.isDbClosed === 'function') {
       vi.spyOn(db, 'isDbClosed').mockReturnValue(false);

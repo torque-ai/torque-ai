@@ -9,7 +9,7 @@ const {
   handlePeekOnboard,
   handlePeekOnboardDetect,
 } = require('../handlers/peek/onboarding');
-const database = require('../database');
+const emailPeek = require('../db/email-peek');
 
 function createHttpGetMock(queue) {
   return (_url, _options, cb) => {
@@ -43,7 +43,7 @@ describe('peek onboarding', () => {
 
   beforeEach(() => {
     requestQueue = [];
-    vi.spyOn(database, 'getDefaultPeekHost').mockReturnValue({
+    vi.spyOn(emailPeek, 'getDefaultPeekHost').mockReturnValue({
       name: 'omen',
       url: 'http://omen:9876',
     });

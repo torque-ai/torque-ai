@@ -798,10 +798,10 @@ describe('dashboard router/utils helpers', () => {
   });
 
   it('enrichTaskWithHostName adds computed host name', () => {
-    const db = require('../database');
+    const hostMgmt = require('../db/host-management');
     const utils = require('../dashboard/utils');
 
-    vi.spyOn(db, 'getOllamaHost').mockReturnValue({ id: 'host-1', name: 'GPU Host 1' });
+    vi.spyOn(hostMgmt, 'getOllamaHost').mockReturnValue({ id: 'host-1', name: 'GPU Host 1' });
 
     const task = {
       id: 'task-8',
@@ -814,10 +814,10 @@ describe('dashboard router/utils helpers', () => {
   });
 
   it('enrichTaskWithHostName falls back to host id when lookup fails', () => {
-    const db = require('../database');
+    const hostMgmt = require('../db/host-management');
     const utils = require('../dashboard/utils');
 
-    vi.spyOn(db, 'getOllamaHost').mockImplementation(() => {
+    vi.spyOn(hostMgmt, 'getOllamaHost').mockImplementation(() => {
       throw new Error('lookup failed');
     });
 
