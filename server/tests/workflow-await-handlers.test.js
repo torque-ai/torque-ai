@@ -485,14 +485,14 @@ describe('workflow await handlers (module-mocked)', () => {
   });
 
   describe('formatFinalSummary', () => {
-    it('marks the workflow failed and lists failed tasks', () => {
+    it('marks the workflow failed and lists failed tasks', async () => {
       const workflow = createWorkflow({ id: 'wf-failed', name: 'Failed Workflow' });
       const tasks = [
         { id: 'task-a', status: 'completed', workflow_node_id: 'build' },
         { id: 'task-b', status: 'failed', workflow_node_id: 'test', error_output: 'unit tests failed' },
       ];
 
-      const text = handlers.formatFinalSummary({}, workflow, tasks, null, Date.now() - 5000);
+      const text = await handlers.formatFinalSummary({}, workflow, tasks, null, Date.now() - 5000);
 
       expect(text).toContain('Workflow Completed: Failed Workflow');
       expect(text).toContain('Status:** failed');
@@ -500,7 +500,7 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(text).toContain('**test**: unit tests failed');
     });
 
-    it('prepends the last yielded task before the final summary', () => {
+    it('prepends the last yielded task before the final summary', async () => {
       const workflow = createWorkflow({ id: 'wf-last', name: 'Last Task Workflow' });
       const lastTask = {
         id: 'task-last',
@@ -511,20 +511,20 @@ describe('workflow await handlers (module-mocked)', () => {
       };
       const tasks = [lastTask];
 
-      const text = handlers.formatFinalSummary({}, workflow, tasks, lastTask, Date.now() - 5000);
+      const text = await handlers.formatFinalSummary({}, workflow, tasks, lastTask, Date.now() - 5000);
 
       expect(text.indexOf('Task Completed: deploy')).toBeLessThan(text.indexOf('Workflow Completed: Last Task Workflow'));
       expect(text).toContain('---');
     });
 
-    it('includes aggregated workflow peek artifacts with task labels', () => {
+    it('includes aggregated workflow peek artifacts with task labels', async () => {
       const workflow = createWorkflow({ id: 'wf-peek', name: 'Peek Summary Workflow' });
       createTask({ id: 'task-build', workflow_id: workflow.id, workflow_node_id: 'build' });
       createTask({ id: 'task-test', workflow_id: workflow.id, workflow_node_id: 'test' });
       setArtifacts('task-build', [{ name: 'build.json', file_path: 'artifacts/build.json' }]);
       setArtifacts('task-test', [{ name: 'test.json', file_path: 'artifacts/test.json' }]);
 
-      const text = handlers.formatFinalSummary({}, workflow, [
+      const text = await handlers.formatFinalSummary({}, workflow, [
         { id: 'task-build', workflow_id: workflow.id, workflow_node_id: 'build', status: 'completed' },
         { id: 'task-test', workflow_id: workflow.id, workflow_node_id: 'test', status: 'completed' },
       ], null, Date.now() - 5000);
@@ -534,10 +534,10 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(text).toContain('- test: test.json: artifacts/test.json');
     });
 
-    it('skips verification and auto-commit when the workflow status is failed', () => {
+    it('skips verification and auto-commit when the workflow status is failed', async () => {
       const workflow = createWorkflow({ id: 'wf-no-verify', name: 'Failed Verify Workflow' });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { verify_command: 'npm test', auto_commit: true },
         workflow,
         [{ id: 'task-failed', status: 'failed', workflow_node_id: 'test', error_output: 'boom' }],
@@ -551,11 +551,11 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(mocks.executeValidatedCommandSync).not.toHaveBeenCalled();
     });
 
-    it('skips verification when the resource gate disallows it', () => {
+    it('skips verification when the resource gate disallows it', async () => {
       const workflow = createWorkflow({ id: 'wf-gated', name: 'Gated Workflow' });
       mocks.checkResourceGate.mockReturnValue({ allowed: false, reason: 'Host overloaded' });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { verify_command: 'npm test', auto_commit: true, host_id: 'busy-host' },
         workflow,
         [{ id: 'task-ok', status: 'completed', workflow_node_id: 'build' }],
@@ -570,11 +570,11 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(mocks.executeValidatedCommandSync).not.toHaveBeenCalled();
     });
 
-    it('rejects verification when shell policy validation fails', () => {
+    it('rejects verification when shell policy validation fails', async () => {
       const workflow = createWorkflow({ id: 'wf-reject', name: 'Rejected Workflow' });
       mocks.validateShellCommand.mockReturnValue({ ok: false, reason: 'Command not allowed' });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { verify_command: 'rm -rf .' },
         workflow,
         [{ id: 'task-ok', status: 'completed', workflow_node_id: 'build' }],
@@ -587,7 +587,7 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(mocks.safeExecChain).not.toHaveBeenCalled();
     });
 
-    it('runs the verify command with args.working_directory and formats a passing result', () => {
+    it('runs the verify command with args.working_directory and formats a passing result', async () => {
       const workflow = createWorkflow({
         id: 'wf-verify-pass',
         name: 'Verify Pass Workflow',
@@ -600,7 +600,7 @@ describe('workflow await handlers (module-mocked)', () => {
         error: '',
       });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { verify_command: 'npm test', working_directory: overrideCwd },
         workflow,
         [{ id: 'task-ok', status: 'completed', workflow_node_id: 'build' }],
@@ -618,7 +618,7 @@ describe('workflow await handlers (module-mocked)', () => {
       );
     });
 
-    it('stops before auto-commit when verify returns a non-zero exit code', () => {
+    it('stops before auto-commit when verify returns a non-zero exit code', async () => {
       const workflow = createWorkflow({ id: 'wf-verify-fail', name: 'Verify Fail Workflow' });
       mocks.safeExecChain.mockReturnValue({
         exitCode: 1,
@@ -626,7 +626,7 @@ describe('workflow await handlers (module-mocked)', () => {
         error: 'stderr text',
       });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { verify_command: 'npm test', auto_commit: true },
         workflow,
         [{ id: 'task-ok', status: 'completed', workflow_node_id: 'build' }],
@@ -640,13 +640,13 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(mocks.executeValidatedCommandSync).not.toHaveBeenCalled();
     });
 
-    it('stops before auto-commit when verify throws', () => {
+    it('stops before auto-commit when verify throws', async () => {
       const workflow = createWorkflow({ id: 'wf-verify-throw', name: 'Verify Throw Workflow' });
       mocks.safeExecChain.mockImplementation(() => {
         throw new Error('spawn failed');
       });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { verify_command: 'npm test', auto_commit: true },
         workflow,
         [{ id: 'task-ok', status: 'completed', workflow_node_id: 'build' }],
@@ -659,7 +659,7 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(mocks.executeValidatedCommandSync).not.toHaveBeenCalled();
     });
 
-    it('auto-commits normalized tracked workflow paths and pushes when requested', () => {
+    it('auto-commits normalized tracked workflow paths and pushes when requested', async () => {
       const cwd = path.join(DEFAULT_CWD, 'tracked');
       const workflow = createWorkflow({
         id: 'wf-commit',
@@ -685,7 +685,7 @@ describe('workflow await handlers (module-mocked)', () => {
         return '';
       });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         {
           auto_commit: true,
           auto_push: true,
@@ -715,7 +715,7 @@ describe('workflow await handlers (module-mocked)', () => {
       );
     });
 
-    it('falls back to files_modified when task_file_changes are empty', () => {
+    it('falls back to files_modified when task_file_changes are empty', async () => {
       const cwd = path.join(DEFAULT_CWD, 'files-modified-fallback');
       const workflow = createWorkflow({
         id: 'wf-files-modified',
@@ -735,7 +735,7 @@ describe('workflow await handlers (module-mocked)', () => {
         return '';
       });
 
-      handlers.formatFinalSummary(
+      await handlers.formatFinalSummary(
         { auto_commit: true },
         workflow,
         [{ id: 'task-files-modified', workflow_id: workflow.id, workflow_node_id: 'build', status: 'completed' }],
@@ -750,7 +750,7 @@ describe('workflow await handlers (module-mocked)', () => {
       );
     });
 
-    it('falls back to git diff when no tracked task paths are available', () => {
+    it('falls back to git diff when no tracked task paths are available', async () => {
       const cwd = path.join(DEFAULT_CWD, 'git-diff-fallback');
       const workflow = createWorkflow({
         id: 'wf-git-diff',
@@ -771,7 +771,7 @@ describe('workflow await handlers (module-mocked)', () => {
         return '';
       });
 
-      handlers.formatFinalSummary(
+      await handlers.formatFinalSummary(
         { auto_commit: true },
         workflow,
         [{ id: 'task-git-diff', workflow_id: workflow.id, workflow_node_id: 'build', status: 'completed' }],
@@ -786,7 +786,7 @@ describe('workflow await handlers (module-mocked)', () => {
       );
     });
 
-    it('reports no changes when nothing is staged after git add', () => {
+    it('reports no changes when nothing is staged after git add', async () => {
       const cwd = path.join(DEFAULT_CWD, 'no-staged-changes');
       const workflow = createWorkflow({
         id: 'wf-no-staged',
@@ -805,7 +805,7 @@ describe('workflow await handlers (module-mocked)', () => {
         return '';
       });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { auto_commit: true },
         workflow,
         [{ id: 'task-no-staged', workflow_id: workflow.id, workflow_node_id: 'build', status: 'completed' }],
@@ -817,7 +817,7 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(text).toContain('No changes to commit.');
     });
 
-    it('does not push unless auto_push is explicitly true', () => {
+    it('does not push unless auto_push is explicitly true', async () => {
       const cwd = path.join(DEFAULT_CWD, 'no-push');
       const workflow = createWorkflow({
         id: 'wf-no-push',
@@ -837,7 +837,7 @@ describe('workflow await handlers (module-mocked)', () => {
         return '';
       });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { auto_commit: true, commit_message: 'feat: commit only' },
         workflow,
         [{ id: 'task-no-push', workflow_id: workflow.id, workflow_node_id: 'build', status: 'completed' }],
@@ -850,7 +850,7 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(mocks.executeValidatedCommandSync.mock.calls.some(([command, args]) => command === 'git' && args[0] === 'push')).toBe(false);
     });
 
-    it('reports commit failures', () => {
+    it('reports commit failures', async () => {
       const cwd = path.join(DEFAULT_CWD, 'commit-failure');
       const workflow = createWorkflow({
         id: 'wf-commit-failure',
@@ -870,7 +870,7 @@ describe('workflow await handlers (module-mocked)', () => {
         return '';
       });
 
-      const text = handlers.formatFinalSummary(
+      const text = await handlers.formatFinalSummary(
         { auto_commit: true },
         workflow,
         [{ id: 'task-commit-failure', workflow_id: workflow.id, workflow_node_id: 'build', status: 'completed' }],

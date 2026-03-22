@@ -230,8 +230,8 @@ describe('workflow-await handlers', () => {
   });
 
   describe('formatFinalSummary', () => {
-    it('marks workflow failed when any task failed and lists failed tasks', () => {
-      const output = handlers.formatFinalSummary(
+    it('marks workflow failed when any task failed and lists failed tasks', async () => {
+      const output = await handlers.formatFinalSummary(
         {},
         { id: 'wf-1', name: 'Summary WF' },
         [
@@ -248,13 +248,13 @@ describe('workflow-await handlers', () => {
       expect(output).toContain('**B**: unit tests failed');
     });
 
-    it('rejects verify command when shell policy fails validation', () => {
+    it('rejects verify command when shell policy fails validation', async () => {
       vi.spyOn(shellPolicy, 'validateShellCommand').mockReturnValue({
         ok: false,
         reason: 'Command not allowed'
       });
 
-      const output = handlers.formatFinalSummary(
+      const output = await handlers.formatFinalSummary(
         { verify_command: 'rm -rf .' },
         { id: 'wf-1', name: 'Verify Reject WF' },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
@@ -266,9 +266,9 @@ describe('workflow-await handlers', () => {
       expect(output).toContain('**Rejected:** Command not allowed');
     });
 
-    it('reports verify command execution failure details when command cannot be spawned', () => {
+    it('reports verify command execution failure details when command cannot be spawned', async () => {
       vi.spyOn(shellPolicy, 'validateShellCommand').mockReturnValue({ ok: true });
-      const output = handlers.formatFinalSummary(
+      const output = await handlers.formatFinalSummary(
         { verify_command: 'python --version' },
         { id: 'wf-1', name: 'Verify Pass WF', working_directory: '/repo' },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
@@ -281,11 +281,11 @@ describe('workflow-await handlers', () => {
       expect(output).toContain('spawnSync python ENOENT');
     });
 
-    it('stops before auto-commit when verify command fails', () => {
+    it('stops before auto-commit when verify command fails', async () => {
       vi.spyOn(shellPolicy, 'validateShellCommand').mockReturnValue({ ok: true });
       const execSpy = vi.spyOn(childProcess, 'execFileSync');
 
-      const output = handlers.formatFinalSummary(
+      const output = await handlers.formatFinalSummary(
         { verify_command: 'node -e "process.exit(1)"', auto_commit: true },
         { id: 'wf-1', name: 'Verify Fail WF', working_directory: '/repo' },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
@@ -300,7 +300,7 @@ describe('workflow-await handlers', () => {
       expect(gitCalls).toHaveLength(0);
     });
 
-    it('returns "No changes to commit" when git diff and untracked checks are empty', () => {
+    it('returns "No changes to commit" when git diff and untracked checks are empty', async () => {
       vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([]);
       vi.spyOn(db, 'getTask').mockReturnValue({ files_modified: [] });
       vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
@@ -309,7 +309,7 @@ describe('workflow-await handlers', () => {
         return '';
       });
 
-      const output = handlers.formatFinalSummary(
+      const output = await handlers.formatFinalSummary(
         { auto_commit: true },
         { id: 'wf-1', name: 'No Changes WF', working_directory: '/repo' },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
@@ -321,7 +321,7 @@ describe('workflow-await handlers', () => {
       expect(output).toContain('No changes to commit');
     });
 
-    it('stages only tracked workflow files and commits them when auto_commit and auto_push are enabled', () => {
+    it('stages only tracked workflow files and commits them when auto_commit and auto_push are enabled', async () => {
       vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([
         { relative_path: 'src/allowed.js', is_outside_workdir: 0 }
       ]);
@@ -336,7 +336,7 @@ describe('workflow-await handlers', () => {
         return '';
       });
 
-      const output = handlers.formatFinalSummary(
+      const output = await handlers.formatFinalSummary(
         { auto_commit: true, auto_push: true, commit_message: 'feat: finish workflow' },
         { id: 'wf-1', name: 'Commit WF', working_directory: '/repo' },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
@@ -358,7 +358,7 @@ describe('workflow-await handlers', () => {
       );
     });
 
-    it('blocks auto-push unless auto_push is explicitly true', () => {
+    it('blocks auto-push unless auto_push is explicitly true', async () => {
       vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([
         { relative_path: 'src/allowed.js', is_outside_workdir: 0 }
       ]);
@@ -373,7 +373,7 @@ describe('workflow-await handlers', () => {
         return '';
       });
 
-      const output = handlers.formatFinalSummary(
+      const output = await handlers.formatFinalSummary(
         { auto_commit: true, commit_message: 'feat: finish workflow' },
         { id: 'wf-1', name: 'Commit WF', working_directory: '/repo' },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
@@ -386,7 +386,7 @@ describe('workflow-await handlers', () => {
       expect(execSpy.mock.calls.some(([, args]) => args[0] === 'push')).toBe(false);
     });
 
-    it('reports commit failure when git commit throws', () => {
+    it('reports commit failure when git commit throws', async () => {
       vi.spyOn(db, 'getTaskFileChanges').mockReturnValue([
         { relative_path: 'src/allowed.js', is_outside_workdir: 0 }
       ]);
@@ -399,7 +399,7 @@ describe('workflow-await handlers', () => {
         return '';
       });
 
-      const output = handlers.formatFinalSummary(
+      const output = await handlers.formatFinalSummary(
         { auto_commit: true },
         { id: 'wf-1', name: 'Commit Fail WF', working_directory: '/repo' },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],

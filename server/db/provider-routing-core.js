@@ -22,6 +22,12 @@ try {
   templateStore = null;
 }
 
+let _scoringModuleGlobal = null, _smGlobalLoaded = false;
+function getScoringModule() {
+  if (!_smGlobalLoaded) { _smGlobalLoaded = true; try { _scoringModuleGlobal = require('./provider-scoring'); } catch { _scoringModuleGlobal = null; } }
+  return _scoringModuleGlobal;
+}
+
 let _quotaStore = null;
 function getQuotaStoreIfAvailable() {
   if (!_quotaStore) {

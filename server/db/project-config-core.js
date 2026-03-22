@@ -2138,7 +2138,7 @@ function updatePipelineStep(stepId, updates) {
   const setClauses = [];
   const values = [];
 
-  const PIPELINE_STEP_FIELDS = new Set(['status', 'started_at', 'completed_at', 'output', 'error', 'exit_code', 'duration_ms', 'output_vars']);
+  const PIPELINE_STEP_FIELDS = new Set(['status', 'started_at', 'completed_at', 'output', 'error', 'exit_code', 'duration_ms', 'output_vars', 'task_id']);
   for (const [key, value] of Object.entries(updates)) {
     if (!PIPELINE_STEP_FIELDS.has(key)) continue; // skip unknown keys
     setClauses.push(`${key} = ?`);

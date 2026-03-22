@@ -690,7 +690,7 @@ describe('Workflow Handlers', () => {
   describe('duplicate_pipeline', () => {
     it('returns error for nonexistent pipeline', async () => {
       const result = await safeTool('duplicate_pipeline', {
-        pipeline_id: 999999,
+        pipeline_id: '999999',
         new_name: 'cloned-pipeline'
       });
       expect(result.isError).toBe(true);
