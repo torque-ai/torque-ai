@@ -587,7 +587,7 @@ describe('fallback-retry module', () => {
       expect(updated.provider).toBe('hashline-ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.ollama_host_id).toBeNull();
-      expect(updated.error_output).toContain('[Local-First] Trying provider ollama');
+      expect(updated.error_output).toContain('[Local-First] Trying provider hashline-ollama');
     });
 
     it('escalates to cloud after max local retries are exhausted', () => {
@@ -772,7 +772,7 @@ describe('fallback-retry module', () => {
         expect(restartCalls[0].reason).toContain('local_first_fallback');
         expect(stallRecoveryAttempts.get(task.id).attempts).toBe(1);
         expect(stallRecoveryAttempts.get(task.id).lastStrategy).toBe('local_first_fallback');
-        expect(db.getTask(task.id).provider).toBe('ollama');
+        expect(db.getTask(task.id).provider).toBe('hashline-ollama');
       });
     });
 
@@ -915,7 +915,7 @@ describe('fallback-retry module', () => {
           attempts: 3,
           lastStrategy: 'local_first_fallback',
         });
-        expect(db.getTask(task.id).provider).toBe('ollama');
+        expect(db.getTask(task.id).provider).toBe('hashline-ollama');
       });
     });
   });
@@ -1301,12 +1301,12 @@ describe('fallback-retry module', () => {
         });
 
         // Call 1: step 1 fails (only one host). Step 2 fails (no models).
-        // Step 3: switch to different local provider (ollama).
+        // Step 3: switch to different local provider (hashline-ollama).
         const first = mod.tryLocalFirstFallback(task.id, db.getTask(task.id), 'first local failure');
         expect(first).toBe(true);
         const afterFirst = db.getTask(task.id);
-        expect(afterFirst.provider).toBe('ollama');
-        expect(afterFirst.error_output).toContain('[Local-First] Trying provider ollama');
+        expect(afterFirst.provider).toBe('hashline-ollama');
+        expect(afterFirst.error_output).toContain('[Local-First] Trying provider hashline-ollama');
 
         // Call 2: 1 [Local-First] marker >= max_local_retries(1), escalates to cloud.
         const second = mod.tryLocalFirstFallback(task.id, db.getTask(task.id), 'second local failure');

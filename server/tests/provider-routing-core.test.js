@@ -1011,6 +1011,11 @@ describe('provider-routing-core', () => {
             },
           },
         },
+        moduleMocks: {
+          '../providers/agentic-capability': {
+            isAgenticCapable: () => ({ capable: false, reason: 'test mock', source: 'test' }),
+          },
+        },
       });
 
       expect(core.getNextFallbackProvider('task-1')).toBe('claude-cli');

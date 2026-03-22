@@ -432,7 +432,7 @@ describe('execute-cli.js', () => {
         id: taskId,
         task_description: 'CWD test',
         status: 'running',
-        provider: 'codex',
+        provider: 'claude-cli',
         working_directory: testDir,
       });
 
@@ -445,7 +445,7 @@ describe('execute-cli.js', () => {
         usedEditFormat: null,
       };
 
-      mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'codex');
+      mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'claude-cli');
 
       const spawnOpts = spawnMock.mock.calls[0][2];
       expect(spawnOpts.cwd).toBe(testDir);
