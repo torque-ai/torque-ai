@@ -11,16 +11,42 @@ const { mockSpawnSync, mockUuidV4 } = vi.hoisted(() => ({
   mockUuidV4: vi.fn(() => '11111111-1111-1111-1111-111111111111'),
 }));
 
-vi.mock('../database', () => ({
+// Mock sub-modules that operations.js imports directly
+vi.mock('../db/task-core', () => ({
   getTask() { return null; },
+  listTasks() { return []; },
+  countTasks() { return 0; },
+  createTask() {},
+}));
+
+vi.mock('../db/task-metadata', () => ({
   addTaskTags() { return { tags: [] }; },
   removeTaskTags() { return { tags: [] }; },
   getAllTags() { return []; },
   getTagStats() { return []; },
-  listTasks() { return []; },
-  countTasks() { return 0; },
+  createBulkOperation() {},
+  batchCancelTasks() { return 0; },
+  updateBulkOperation() {},
+  getRetryableTasks() { return []; },
+  batchAddTagsByFilter() { return 0; },
+  archiveTask() { return false; },
+  archiveTasks() { return { archived: 0 }; },
+  listArchivedTasks() { return []; },
+  getArchivedTask() { return null; },
+  restoreTask() { return null; },
+  getArchiveStats() {
+    return {
+      total_archived: 0,
+      oldest_archive: null,
+      newest_archive: null,
+      by_status: {},
+      by_reason: {},
+    };
+  },
+}));
+
+vi.mock('../db/project-config-core', () => ({
   recordHealthCheck() {},
-  getAllConfig() { return {}; },
   getHealthSummary() {
     return {
       total_checks: 0,
@@ -32,18 +58,18 @@ vi.mock('../database', () => ({
     };
   },
   getLatestHealthCheck() { return null; },
-  getHealthHistory() { return []; },
   createScheduledTask(payload) { return payload; },
   listScheduledTasks() { return []; },
   getScheduledTask() { return null; },
   deleteScheduledTask() { return false; },
   updateScheduledTask() {},
-  createBulkOperation() {},
-  batchCancelTasks() { return 0; },
-  updateBulkOperation() {},
-  getRetryableTasks() { return []; },
-  createTask() {},
-  batchAddTagsByFilter() { return 0; },
+}));
+
+vi.mock('../db/config-core', () => ({
+  getAllConfig() { return {}; },
+}));
+
+vi.mock('../db/event-tracking', () => ({
   searchTaskOutputs() { return []; },
   getOutputStats() {
     return {
@@ -69,20 +95,10 @@ vi.mock('../database', () => ({
     }
   },
   importData() { return {}; },
-  archiveTask() { return false; },
-  archiveTasks() { return { archived: 0 }; },
-  listArchivedTasks() { return []; },
-  getArchivedTask() { return null; },
-  restoreTask() { return null; },
-  getArchiveStats() {
-    return {
-      total_archived: 0,
-      oldest_archive: null,
-      newest_archive: null,
-      by_status: {},
-      by_reason: {},
-    };
-  },
+}));
+
+vi.mock('../db/provider-routing-core', () => ({
+  getHealthHistory() { return []; },
 }));
 
 vi.mock('../task-manager', () => ({
@@ -115,7 +131,12 @@ vi.mock('uuid', () => ({
   v4: mockUuidV4,
 }));
 
-const db = require('../database');
+const taskCore = require('../db/task-core');
+const taskMetadata = require('../db/task-metadata');
+const projectConfigCore = require('../db/project-config-core');
+const configCore = require('../db/config-core');
+const eventTracking = require('../db/event-tracking');
+const providerRoutingCore = require('../db/provider-routing-core');
 const taskManager = require('../task-manager');
 const fs = require('fs');
 const childProcess = require('node:child_process');
@@ -157,24 +178,24 @@ describe('task-operations handlers', () => {
     });
 
     it('returns error when task not found', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
       const result = handlers.handleTagTask({ task_id: 'nonexistent', tags: ['bug'] });
       expect(result.content[0].text).toContain('Task not found');
     });
 
     it('returns error when no tags provided', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
       const result = handlers.handleTagTask({ task_id: 'task-1', tags: [] });
       expect(result.content[0].text).toContain('No tags provided');
     });
 
     it('adds tags and normalizes to lowercase/trimmed', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
-      vi.spyOn(db, 'addTaskTags').mockReturnValue({ tags: ['bug', 'urgent'] });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
+      vi.spyOn(taskMetadata, 'addTaskTags').mockReturnValue({ tags: ['bug', 'urgent'] });
       const result = handlers.handleTagTask({ task_id: 'task-1', tags: ['BUG', ' Urgent '] });
       expect(result.content[0].text).toContain('Tags Added');
       expect(result.content[0].text).toContain('bug, urgent');
-      expect(db.addTaskTags).toHaveBeenCalledWith('task-1', ['bug', 'urgent']);
+      expect(taskMetadata.addTaskTags).toHaveBeenCalledWith('task-1', ['bug', 'urgent']);
     });
   });
 
@@ -182,28 +203,28 @@ describe('task-operations handlers', () => {
 
   describe('handleUntagTask', () => {
     it('returns error when task not found', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
       const result = handlers.handleUntagTask({ task_id: 'missing', tags: ['bug'] });
       expect(result.content[0].text).toContain('Task not found');
     });
 
     it('returns error when no tags provided', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
       const result = handlers.handleUntagTask({ task_id: 'task-1', tags: [] });
       expect(result.content[0].text).toContain('No tags provided');
     });
 
     it('removes tags successfully', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
-      vi.spyOn(db, 'removeTaskTags').mockReturnValue({ tags: ['remaining'] });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
+      vi.spyOn(taskMetadata, 'removeTaskTags').mockReturnValue({ tags: ['remaining'] });
       const result = handlers.handleUntagTask({ task_id: 'task-1', tags: ['bug'] });
       expect(result.content[0].text).toContain('Tags Removed');
       expect(result.content[0].text).toContain('remaining');
     });
 
     it('shows (none) when all tags removed', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
-      vi.spyOn(db, 'removeTaskTags').mockReturnValue({ tags: [] });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed' });
+      vi.spyOn(taskMetadata, 'removeTaskTags').mockReturnValue({ tags: [] });
       const result = handlers.handleUntagTask({ task_id: 'task-1', tags: ['bug'] });
       expect(result.content[0].text).toContain('(none)');
     });
@@ -213,15 +234,15 @@ describe('task-operations handlers', () => {
 
   describe('handleListTags', () => {
     it('returns empty message when no tags exist', () => {
-      vi.spyOn(db, 'getAllTags').mockReturnValue([]);
-      vi.spyOn(db, 'getTagStats').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'getAllTags').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'getTagStats').mockReturnValue([]);
       const result = handlers.handleListTags({});
       expect(result.content[0].text).toContain('No tags found');
     });
 
     it('lists tag statistics', () => {
-      vi.spyOn(db, 'getAllTags').mockReturnValue(['bug', 'feature']);
-      vi.spyOn(db, 'getTagStats').mockReturnValue([
+      vi.spyOn(taskMetadata, 'getAllTags').mockReturnValue(['bug', 'feature']);
+      vi.spyOn(taskMetadata, 'getTagStats').mockReturnValue([
         { tag: 'bug', count: 5 },
         { tag: 'feature', count: 3 },
       ]);
@@ -237,7 +258,7 @@ describe('task-operations handlers', () => {
 
   describe('handleCheckTaskProgress', () => {
     it('returns no running tasks message', async () => {
-      vi.spyOn(db, 'listTasks').mockReturnValue([]);
+      vi.spyOn(taskCore, 'listTasks').mockReturnValue([]);
       const result = await handlers.handleCheckTaskProgress({ wait_seconds: 0 });
       expect(getText(result)).toContain('No running tasks');
     });
@@ -256,10 +277,10 @@ describe('task-operations handlers', () => {
         ...firstSnapshot,
         output: 'x'.repeat(140),
       };
-      vi.spyOn(db, 'listTasks')
+      vi.spyOn(taskCore, 'listTasks')
         .mockReturnValueOnce([firstSnapshot])
         .mockReturnValueOnce([secondSnapshot]);
-      vi.spyOn(db, 'countTasks').mockReturnValue(0);
+      vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
 
       const promise = handlers.handleCheckTaskProgress({ wait_seconds: 1 });
       await vi.advanceTimersByTimeAsync(1000);
@@ -279,10 +300,10 @@ describe('task-operations handlers', () => {
         output: 'exceeds the 4096 token limit for this model',
         started_at: new Date(Date.now() - 60000).toISOString(),
       };
-      vi.spyOn(db, 'listTasks')
+      vi.spyOn(taskCore, 'listTasks')
         .mockReturnValueOnce([taskData])
         .mockReturnValueOnce([taskData]);
-      vi.spyOn(db, 'countTasks').mockReturnValue(0);
+      vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
 
       const promise = handlers.handleCheckTaskProgress({ wait_seconds: 1 });
       await vi.advanceTimersByTimeAsync(1000);
@@ -292,7 +313,7 @@ describe('task-operations handlers', () => {
     });
 
     it('returns an internal error when progress inspection throws', async () => {
-      vi.spyOn(db, 'listTasks').mockImplementation(() => {
+      vi.spyOn(taskCore, 'listTasks').mockImplementation(() => {
         throw new Error('db exploded');
       });
 
@@ -308,20 +329,20 @@ describe('task-operations handlers', () => {
 
   describe('handleHealthCheck', () => {
     it('runs a connectivity check and records result', () => {
-      vi.spyOn(db, 'recordHealthCheck').mockReturnValue(undefined);
+      vi.spyOn(projectConfigCore, 'recordHealthCheck').mockReturnValue(undefined);
       const result = handlers.handleHealthCheck({ check_type: 'connectivity' });
       // Whether codex is installed or not, the handler returns a status string
       expect(result.content[0].text).toContain('Health Check: CONNECTIVITY');
       expect(result.content[0].text).toMatch(/Healthy|Degraded|Unhealthy/);
       expect(result.content[0].text).toContain('Response Time');
-      expect(db.recordHealthCheck).toHaveBeenCalled();
+      expect(projectConfigCore.recordHealthCheck).toHaveBeenCalled();
     });
 
     it('defaults to connectivity check_type', () => {
-      vi.spyOn(db, 'recordHealthCheck').mockReturnValue(undefined);
+      vi.spyOn(projectConfigCore, 'recordHealthCheck').mockReturnValue(undefined);
       const result = handlers.handleHealthCheck({});
       expect(result.content[0].text).toContain('Health Check: CONNECTIVITY');
-      expect(db.recordHealthCheck).toHaveBeenCalledWith(
+      expect(projectConfigCore.recordHealthCheck).toHaveBeenCalledWith(
         'connectivity',
         expect.any(String),
         expect.any(Number),
@@ -331,9 +352,9 @@ describe('task-operations handlers', () => {
     });
 
     it('runs full check type with capacity info when healthy', () => {
-      vi.spyOn(db, 'recordHealthCheck').mockReturnValue(undefined);
+      vi.spyOn(projectConfigCore, 'recordHealthCheck').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'getRunningTaskCount').mockReturnValue(1);
-      vi.spyOn(db, 'getAllConfig').mockReturnValue({ max_concurrent: '3' });
+      vi.spyOn(configCore, 'getAllConfig').mockReturnValue({ max_concurrent: '3' });
       const result = handlers.handleHealthCheck({ check_type: 'full' });
       expect(result.content[0].text).toContain('Health Check: FULL');
       // The check may report unhealthy if codex is not installed,
@@ -343,13 +364,13 @@ describe('task-operations handlers', () => {
 
     it('marks the check degraded when the CLI returns a non-zero exit code', () => {
       mockSpawnSync.mockReturnValueOnce({ status: 1, stdout: '', stderr: 'boom', error: null });
-      vi.spyOn(db, 'recordHealthCheck').mockReturnValue(undefined);
+      vi.spyOn(projectConfigCore, 'recordHealthCheck').mockReturnValue(undefined);
 
       const result = handlers.handleHealthCheck({ check_type: 'connectivity' });
 
       expect(getText(result)).toContain('⚠ Degraded');
       expect(getText(result)).toContain('boom');
-      expect(db.recordHealthCheck).toHaveBeenCalledWith(
+      expect(projectConfigCore.recordHealthCheck).toHaveBeenCalledWith(
         'connectivity',
         'degraded',
         expect.any(Number),
@@ -359,9 +380,9 @@ describe('task-operations handlers', () => {
     });
 
     it('reports at-capacity details during a full health check', () => {
-      vi.spyOn(db, 'recordHealthCheck').mockReturnValue(undefined);
+      vi.spyOn(projectConfigCore, 'recordHealthCheck').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'getRunningTaskCount').mockReturnValue(3);
-      vi.spyOn(db, 'getAllConfig').mockReturnValue({ max_concurrent: '3' });
+      vi.spyOn(configCore, 'getAllConfig').mockReturnValue({ max_concurrent: '3' });
 
       const result = handlers.handleHealthCheck({ check_type: 'full' });
 
@@ -375,20 +396,20 @@ describe('task-operations handlers', () => {
 
   describe('handleHealthStatus', () => {
     it('shows unknown status when no checks recorded', () => {
-      vi.spyOn(db, 'getHealthSummary').mockReturnValue({ total_checks: 0 });
-      vi.spyOn(db, 'getLatestHealthCheck').mockReturnValue(null);
+      vi.spyOn(projectConfigCore, 'getHealthSummary').mockReturnValue({ total_checks: 0 });
+      vi.spyOn(projectConfigCore, 'getLatestHealthCheck').mockReturnValue(null);
       const result = handlers.handleHealthStatus({});
       expect(result.content[0].text).toContain('Unknown');
       expect(result.content[0].text).toContain('No health checks recorded');
     });
 
     it('shows current status and summary', () => {
-      vi.spyOn(db, 'getLatestHealthCheck').mockReturnValue({
+      vi.spyOn(projectConfigCore, 'getLatestHealthCheck').mockReturnValue({
         status: 'healthy',
         checked_at: new Date().toISOString(),
         response_time_ms: 42,
       });
-      vi.spyOn(db, 'getHealthSummary').mockReturnValue({
+      vi.spyOn(projectConfigCore, 'getHealthSummary').mockReturnValue({
         total_checks: 10,
         healthy_count: 9,
         degraded_count: 1,
@@ -402,12 +423,12 @@ describe('task-operations handlers', () => {
     });
 
     it('shows history when requested', () => {
-      vi.spyOn(db, 'getLatestHealthCheck').mockReturnValue({
+      vi.spyOn(projectConfigCore, 'getLatestHealthCheck').mockReturnValue({
         status: 'healthy',
         checked_at: new Date().toISOString(),
         response_time_ms: 30,
       });
-      vi.spyOn(db, 'getHealthSummary').mockReturnValue({
+      vi.spyOn(projectConfigCore, 'getHealthSummary').mockReturnValue({
         total_checks: 5,
         healthy_count: 5,
         degraded_count: 0,
@@ -415,7 +436,7 @@ describe('task-operations handlers', () => {
         avg_response_time: 35,
         uptime_percentage: 100.0,
       });
-      vi.spyOn(db, 'getHealthHistory').mockReturnValue([
+      vi.spyOn(providerRoutingCore, 'getHealthHistory').mockReturnValue([
         { status: 'healthy', checked_at: new Date().toISOString(), check_type: 'connectivity', response_time_ms: 30 },
       ]);
       const result = handlers.handleHealthStatus({ include_history: true });
@@ -495,7 +516,7 @@ describe('task-operations handlers', () => {
 
     it('creates a once schedule', () => {
       const runAt = new Date(Date.now() + 60000).toISOString();
-      vi.spyOn(db, 'createScheduledTask').mockReturnValue({
+      vi.spyOn(projectConfigCore, 'createScheduledTask').mockReturnValue({
         name: 'test-schedule',
         schedule_type: 'once',
         next_run_at: runAt,
@@ -512,7 +533,7 @@ describe('task-operations handlers', () => {
     });
 
     it('creates an interval schedule', () => {
-      vi.spyOn(db, 'createScheduledTask').mockReturnValue({
+      vi.spyOn(projectConfigCore, 'createScheduledTask').mockReturnValue({
         name: 'interval-task',
         schedule_type: 'interval',
         next_run_at: new Date().toISOString(),
@@ -534,7 +555,7 @@ describe('task-operations handlers', () => {
     it('computes a next_run_at timestamp for interval schedules without run_at', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-03-12T18:00:00.000Z'));
-      vi.spyOn(db, 'createScheduledTask').mockImplementation((payload) => payload);
+      vi.spyOn(projectConfigCore, 'createScheduledTask').mockImplementation((payload) => payload);
 
       const result = handlers.handleScheduleTask({
         task: 'recurring work',
@@ -543,7 +564,7 @@ describe('task-operations handlers', () => {
         tags: ['nightly'],
       });
 
-      expect(db.createScheduledTask).toHaveBeenCalledWith(expect.objectContaining({
+      expect(projectConfigCore.createScheduledTask).toHaveBeenCalledWith(expect.objectContaining({
         id: expect.any(String),
         task_description: 'recurring work',
         repeat_interval_minutes: 15,
@@ -560,13 +581,13 @@ describe('task-operations handlers', () => {
 
   describe('handleListScheduled', () => {
     it('shows empty message when no schedules', () => {
-      vi.spyOn(db, 'listScheduledTasks').mockReturnValue([]);
+      vi.spyOn(projectConfigCore, 'listScheduledTasks').mockReturnValue([]);
       const result = handlers.handleListScheduled({});
       expect(result.content[0].text).toContain('No scheduled tasks found');
     });
 
     it('lists scheduled tasks in table', () => {
-      vi.spyOn(db, 'listScheduledTasks').mockReturnValue([{
+      vi.spyOn(projectConfigCore, 'listScheduledTasks').mockReturnValue([{
         id: 'sched-12345678-1234-1234-1234-123456789012',
         name: 'My Schedule Task Here',
         schedule_type: 'interval',
@@ -586,22 +607,22 @@ describe('task-operations handlers', () => {
 
   describe('handleCancelScheduled', () => {
     it('returns error when schedule not found', () => {
-      vi.spyOn(db, 'getScheduledTask').mockReturnValue(null);
+      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue(null);
       const result = handlers.handleCancelScheduled({ schedule_id: 'missing' });
       expect(result.content[0].text).toContain('not found');
     });
 
     it('cancels a scheduled task', () => {
-      vi.spyOn(db, 'getScheduledTask').mockReturnValue({ name: 'My Task', run_count: 5 });
-      vi.spyOn(db, 'deleteScheduledTask').mockReturnValue(true);
+      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue({ name: 'My Task', run_count: 5 });
+      vi.spyOn(projectConfigCore, 'deleteScheduledTask').mockReturnValue(true);
       const result = handlers.handleCancelScheduled({ schedule_id: 'sched-1' });
       expect(result.content[0].text).toContain('Cancelled');
       expect(result.content[0].text).toContain('5 times');
     });
 
     it('returns error when delete fails', () => {
-      vi.spyOn(db, 'getScheduledTask').mockReturnValue({ name: 'My Task', run_count: 0 });
-      vi.spyOn(db, 'deleteScheduledTask').mockReturnValue(false);
+      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue({ name: 'My Task', run_count: 0 });
+      vi.spyOn(projectConfigCore, 'deleteScheduledTask').mockReturnValue(false);
       const result = handlers.handleCancelScheduled({ schedule_id: 'sched-1' });
       expect(result.content[0].text).toContain('Failed to cancel');
     });
@@ -611,22 +632,22 @@ describe('task-operations handlers', () => {
 
   describe('handlePauseScheduled', () => {
     it('returns error when schedule not found', () => {
-      vi.spyOn(db, 'getScheduledTask').mockReturnValue(null);
+      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue(null);
       const result = handlers.handlePauseScheduled({ schedule_id: 'missing', action: 'pause' });
       expect(result.content[0].text).toContain('not found');
     });
 
     it('pauses a scheduled task', () => {
-      vi.spyOn(db, 'getScheduledTask').mockReturnValue({ name: 'My Task' });
-      vi.spyOn(db, 'updateScheduledTask').mockReturnValue(undefined);
+      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue({ name: 'My Task' });
+      vi.spyOn(projectConfigCore, 'updateScheduledTask').mockReturnValue(undefined);
       const result = handlers.handlePauseScheduled({ schedule_id: 'sched-1', action: 'pause' });
       expect(result.content[0].text).toContain('Paused');
       expect(result.content[0].text).toContain('paused');
     });
 
     it('resumes a scheduled task', () => {
-      vi.spyOn(db, 'getScheduledTask').mockReturnValue({ name: 'My Task' });
-      vi.spyOn(db, 'updateScheduledTask').mockReturnValue(undefined);
+      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue({ name: 'My Task' });
+      vi.spyOn(projectConfigCore, 'updateScheduledTask').mockReturnValue(undefined);
       const result = handlers.handlePauseScheduled({ schedule_id: 'sched-1', action: 'resume' });
       expect(result.content[0].text).toContain('Resumed');
       expect(result.content[0].text).toContain('active');
@@ -649,8 +670,8 @@ describe('task-operations handlers', () => {
     });
 
     it('cancels tasks with process killing', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'listTasks').mockImplementation((options = {}) => {
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'listTasks').mockImplementation((options = {}) => {
         if (options.status === 'running') {
           return [
             { id: 'task-running-1' },
@@ -660,8 +681,8 @@ describe('task-operations handlers', () => {
         return [];
       });
       vi.spyOn(taskManager, 'cancelTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'batchCancelTasks').mockReturnValue(0);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'batchCancelTasks').mockReturnValue(0);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchCancel({ status: 'running' });
       expect(result.content[0].text).toContain('Batch Cancel Complete');
@@ -671,33 +692,33 @@ describe('task-operations handlers', () => {
     });
 
     it('skips process killing when status is queued', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'listTasks').mockImplementation((options = {}) => {
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'listTasks').mockImplementation((options = {}) => {
         if (options.status === 'queued') {
           return Array.from({ length: 5 }, (_, index) => ({ id: `task-queued-${index + 1}` }));
         }
         return [];
       });
-      vi.spyOn(db, 'batchCancelTasks').mockReturnValue(5);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'batchCancelTasks').mockReturnValue(5);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchCancel({ status: 'queued' });
       expect(result.content[0].text).toContain('Tasks Cancelled:** 5');
     });
 
     it('applies older_than_hours filter', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'listTasks').mockReturnValue([]);
-      vi.spyOn(db, 'batchCancelTasks').mockReturnValue(2);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'listTasks').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'batchCancelTasks').mockReturnValue(2);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchCancel({ older_than_hours: 24 });
       expect(result.content[0].text).toContain('Older than: 24 hours');
     });
 
     it('continues bulk cancellation when cancelling one running task throws', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'listTasks')
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'listTasks')
         .mockImplementationOnce(() => [
           { id: 'task-running-1' },
           { id: 'task-running-2' },
@@ -717,13 +738,13 @@ describe('task-operations handlers', () => {
           throw new Error('already gone');
         })
         .mockReturnValueOnce(undefined);
-      vi.spyOn(db, 'batchCancelTasks').mockReturnValue(4);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'batchCancelTasks').mockReturnValue(4);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchCancel({});
 
       expect(taskManager.cancelTask).toHaveBeenCalledTimes(2);
-      expect(db.updateBulkOperation).toHaveBeenCalledWith(
+      expect(taskMetadata.updateBulkOperation).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           total_tasks: 5,
@@ -745,44 +766,44 @@ describe('task-operations handlers', () => {
     });
 
     it('returns empty when no retryable tasks', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'getRetryableTasks').mockReturnValue([]);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'getRetryableTasks').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchRetry({});
       expect(result.content[0].text).toContain('No failed tasks found');
     });
 
     it('retries failed tasks', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'getRetryableTasks').mockReturnValue([
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'getRetryableTasks').mockReturnValue([
         { id: 'failed-1', status: 'failed', task_description: 'do stuff', working_directory: '/tmp', timeout_minutes: 30, priority: 0 },
       ]);
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchRetry({});
       expect(result.content[0].text).toContain('Batch Retry Complete');
       expect(result.content[0].text).toContain('Tasks Retried:** 1');
-      expect(db.createTask).toHaveBeenCalled();
+      expect(taskCore.createTask).toHaveBeenCalled();
       expect(taskManager.startTask).toHaveBeenCalled();
     });
 
     it('filters to failed only when include_cancelled is false', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'getRetryableTasks').mockReturnValue([
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'getRetryableTasks').mockReturnValue([
         { id: 'cancelled-1', status: 'cancelled', task_description: 'x', working_directory: '/tmp', timeout_minutes: 30, priority: 0 },
       ]);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchRetry({ include_cancelled: false });
       expect(result.content[0].text).toContain('No failed tasks found');
     });
 
     it('retries cancelled tasks when include_cancelled is true', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'getRetryableTasks').mockReturnValue([
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'getRetryableTasks').mockReturnValue([
         {
           id: 'cancelled-1',
           status: 'cancelled',
@@ -794,22 +815,22 @@ describe('task-operations handlers', () => {
           tags: ['ops'],
         },
       ]);
-      vi.spyOn(db, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(taskCore, 'createTask').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchRetry({ include_cancelled: true, limit: 1 });
 
-      expect(db.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      expect(taskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
         id: expect.any(String),
         status: 'pending',
         task_description: 'rerun me',
         priority: 3,
         context: { retry_of: 'cancelled-1' },
       }));
-      const newTaskId = db.createTask.mock.calls[0][0].id;
+      const newTaskId = taskCore.createTask.mock.calls[0][0].id;
       expect(taskManager.startTask).toHaveBeenCalledWith(newTaskId);
-      expect(db.updateBulkOperation).toHaveBeenCalledWith(
+      expect(taskMetadata.updateBulkOperation).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           affected_task_ids: [newTaskId],
@@ -830,9 +851,9 @@ describe('task-operations handlers', () => {
     });
 
     it('batch tags tasks', () => {
-      vi.spyOn(db, 'createBulkOperation').mockReturnValue(undefined);
-      vi.spyOn(db, 'batchAddTagsByFilter').mockReturnValue(7);
-      vi.spyOn(db, 'updateBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'createBulkOperation').mockReturnValue(undefined);
+      vi.spyOn(taskMetadata, 'batchAddTagsByFilter').mockReturnValue(7);
+      vi.spyOn(taskMetadata, 'updateBulkOperation').mockReturnValue(undefined);
 
       const result = handlers.handleBatchTag({ tags: ['batch-1'], filter_status: 'completed' });
       expect(result.content[0].text).toContain('Batch Tag Complete');
@@ -850,13 +871,13 @@ describe('task-operations handlers', () => {
     });
 
     it('returns no matches message', () => {
-      vi.spyOn(db, 'searchTaskOutputs').mockReturnValue([]);
+      vi.spyOn(eventTracking, 'searchTaskOutputs').mockReturnValue([]);
       const result = handlers.handleSearchOutputs({ pattern: 'error' });
       expect(result.content[0].text).toContain('No matches found');
     });
 
     it('returns search results with snippets', () => {
-      vi.spyOn(db, 'searchTaskOutputs').mockReturnValue([{
+      vi.spyOn(eventTracking, 'searchTaskOutputs').mockReturnValue([{
         id: 'task-search-result-1234',
         status: 'completed',
         created_at: new Date().toISOString(),
@@ -870,7 +891,7 @@ describe('task-operations handlers', () => {
     });
 
     it('passes sanitized search filters to the database', () => {
-      vi.spyOn(db, 'searchTaskOutputs').mockReturnValue([]);
+      vi.spyOn(eventTracking, 'searchTaskOutputs').mockReturnValue([]);
 
       handlers.handleSearchOutputs({
         pattern: 'error',
@@ -880,7 +901,7 @@ describe('task-operations handlers', () => {
         limit: 5,
       });
 
-      expect(db.searchTaskOutputs).toHaveBeenCalledWith('error', {
+      expect(eventTracking.searchTaskOutputs).toHaveBeenCalledWith('error', {
         status: 'failed',
         tags: ['ops'],
         since: '2026-03-10T12:00:00.000Z',
@@ -893,7 +914,7 @@ describe('task-operations handlers', () => {
 
   describe('handleOutputStats', () => {
     it('returns formatted statistics', () => {
-      vi.spyOn(db, 'getOutputStats').mockReturnValue({
+      vi.spyOn(eventTracking, 'getOutputStats').mockReturnValue({
         total_tasks: 100,
         tasks_with_output: 85,
         tasks_with_errors: 10,
@@ -912,7 +933,7 @@ describe('task-operations handlers', () => {
 
   describe('handleExportData', () => {
     it('exports data as text when no output_file', () => {
-      vi.spyOn(db, 'exportData').mockReturnValue({
+      vi.spyOn(eventTracking, 'exportData').mockReturnValue({
         exported_at: new Date().toISOString(),
         version: '1.0',
         data: { tasks: [{ id: 't1' }], templates: [], pipelines: [], scheduled_tasks: [] },
@@ -923,7 +944,7 @@ describe('task-operations handlers', () => {
     });
 
     it('exports data to file', () => {
-      vi.spyOn(db, 'exportData').mockReturnValue({
+      vi.spyOn(eventTracking, 'exportData').mockReturnValue({
         exported_at: new Date().toISOString(),
         version: '1.0',
         data: { tasks: [], templates: [], pipelines: [], scheduled_tasks: [] },
@@ -936,7 +957,7 @@ describe('task-operations handlers', () => {
     });
 
     it('returns an operation error when writing export file fails', () => {
-      vi.spyOn(db, 'exportData').mockReturnValue({
+      vi.spyOn(eventTracking, 'exportData').mockReturnValue({
         exported_at: new Date().toISOString(),
         version: '1.0',
         data: { tasks: [], templates: [], pipelines: [], scheduled_tasks: [] },
@@ -953,7 +974,7 @@ describe('task-operations handlers', () => {
     });
 
     it('rejects path traversal in output_file', () => {
-      vi.spyOn(db, 'exportData').mockReturnValue({
+      vi.spyOn(eventTracking, 'exportData').mockReturnValue({
         exported_at: new Date().toISOString(),
         version: '1.0',
         data: { tasks: [], templates: [], pipelines: [], scheduled_tasks: [] },
@@ -972,8 +993,8 @@ describe('task-operations handlers', () => {
     });
 
     it('imports from json_data', () => {
-      vi.spyOn(db, 'safeJsonParse').mockReturnValue({ tasks: [{ id: 't1' }, { id: 't2' }], templates: [] });
-      vi.spyOn(db, 'importData').mockReturnValue({
+      vi.spyOn(eventTracking, 'safeJsonParse').mockReturnValue({ tasks: [{ id: 't1' }, { id: 't2' }], templates: [] });
+      vi.spyOn(eventTracking, 'importData').mockReturnValue({
         tasks: { imported: 2, skipped: 0, errors: [] },
         templates: { imported: 0, skipped: 0, errors: [] },
       });
@@ -986,8 +1007,8 @@ describe('task-operations handlers', () => {
 
     it('imports from file', () => {
       vi.spyOn(fs, 'readFileSync').mockReturnValue('{"tasks":[],"templates":[]}');
-      vi.spyOn(db, 'safeJsonParse').mockReturnValue({ tasks: [], templates: [] });
-      vi.spyOn(db, 'importData').mockReturnValue({
+      vi.spyOn(eventTracking, 'safeJsonParse').mockReturnValue({ tasks: [], templates: [] });
+      vi.spyOn(eventTracking, 'importData').mockReturnValue({
         tasks: { imported: 0, skipped: 0, errors: [] },
       });
       const result = handlers.handleImportData({ file_path: '/tmp/import.json' });
@@ -1012,13 +1033,13 @@ describe('task-operations handlers', () => {
     });
 
     it('handles invalid JSON', () => {
-      vi.spyOn(db, 'safeJsonParse').mockReturnValue(null);
+      vi.spyOn(eventTracking, 'safeJsonParse').mockReturnValue(null);
       const result = handlers.handleImportData({ json_data: 'not-json{{{' });
       expect(result.content[0].text).toContain('invalid JSON');
     });
 
     it('rejects imports above the maximum task batch size', () => {
-      vi.spyOn(db, 'safeJsonParse').mockReturnValue({
+      vi.spyOn(eventTracking, 'safeJsonParse').mockReturnValue({
         tasks: Array.from({ length: 1001 }, (_, index) => ({ id: `task-${index}` })),
         templates: [],
       });
@@ -1030,7 +1051,7 @@ describe('task-operations handlers', () => {
     });
 
     it('rejects imports above the maximum template batch size', () => {
-      vi.spyOn(db, 'safeJsonParse').mockReturnValue({
+      vi.spyOn(eventTracking, 'safeJsonParse').mockReturnValue({
         tasks: [],
         templates: Array.from({ length: 101 }, (_, index) => ({ id: `template-${index}` })),
       });
@@ -1046,28 +1067,28 @@ describe('task-operations handlers', () => {
 
   describe('handleArchiveTask', () => {
     it('returns error when task not found', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue(null);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
       const result = handlers.handleArchiveTask({ task_id: 'missing' });
       expect(result.content[0].text).toContain('Task not found');
     });
 
     it('returns error for running task', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'running' });
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'running' });
       const result = handlers.handleArchiveTask({ task_id: 'task-1' });
       expect(result.content[0].text).toContain('Cannot archive task with status: running');
     });
 
     it('archives a completed task', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed', task_description: 'some task' });
-      vi.spyOn(db, 'archiveTask').mockReturnValue(true);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed', task_description: 'some task' });
+      vi.spyOn(taskMetadata, 'archiveTask').mockReturnValue(true);
       const result = handlers.handleArchiveTask({ task_id: 'task-1', reason: 'cleanup' });
       expect(result.content[0].text).toContain('Task Archived');
       expect(result.content[0].text).toContain('cleanup');
     });
 
     it('returns error when archive fails', () => {
-      vi.spyOn(db, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed', task_description: 'x' });
-      vi.spyOn(db, 'archiveTask').mockReturnValue(false);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-1', status: 'completed', task_description: 'x' });
+      vi.spyOn(taskMetadata, 'archiveTask').mockReturnValue(false);
       const result = handlers.handleArchiveTask({ task_id: 'task-1' });
       expect(result.content[0].text).toContain('Failed to archive');
     });
@@ -1077,7 +1098,7 @@ describe('task-operations handlers', () => {
 
   describe('handleArchiveTasks', () => {
     it('bulk archives tasks with filters', () => {
-      vi.spyOn(db, 'archiveTasks').mockReturnValue({ archived: 15 });
+      vi.spyOn(taskMetadata, 'archiveTasks').mockReturnValue({ archived: 15 });
       const result = handlers.handleArchiveTasks({
         status: 'failed',
         older_than_days: 7,
@@ -1091,7 +1112,7 @@ describe('task-operations handlers', () => {
     });
 
     it('defaults to completed status', () => {
-      vi.spyOn(db, 'archiveTasks').mockReturnValue({ archived: 0 });
+      vi.spyOn(taskMetadata, 'archiveTasks').mockReturnValue({ archived: 0 });
       const result = handlers.handleArchiveTasks({});
       expect(result.content[0].text).toContain('completed');
     });
@@ -1101,19 +1122,19 @@ describe('task-operations handlers', () => {
 
   describe('handleListArchived', () => {
     it('returns empty message when no archived tasks', () => {
-      vi.spyOn(db, 'listArchivedTasks').mockReturnValue([]);
+      vi.spyOn(taskMetadata, 'listArchivedTasks').mockReturnValue([]);
       const result = handlers.handleListArchived({});
       expect(result.content[0].text).toContain('No archived tasks found');
     });
 
     it('lists archived tasks in table', () => {
-      vi.spyOn(db, 'listArchivedTasks').mockReturnValue([{
+      vi.spyOn(taskMetadata, 'listArchivedTasks').mockReturnValue([{
         id: 'archived-12345678-xxxx',
         archived_at: new Date().toISOString(),
         archive_reason: 'old task',
         original_data: JSON.stringify({ status: 'completed', task_description: 'Do something here' }),
       }]);
-      vi.spyOn(db, 'safeJsonParse').mockReturnValue({ status: 'completed', task_description: 'Do something here' });
+      vi.spyOn(eventTracking, 'safeJsonParse').mockReturnValue({ status: 'completed', task_description: 'Do something here' });
       const result = handlers.handleListArchived({});
       expect(result.content[0].text).toContain('Archived Tasks');
       expect(result.content[0].text).toContain('completed');
@@ -1125,14 +1146,14 @@ describe('task-operations handlers', () => {
 
   describe('handleRestoreTask', () => {
     it('returns error when archived task not found', () => {
-      vi.spyOn(db, 'getArchivedTask').mockReturnValue(null);
+      vi.spyOn(taskMetadata, 'getArchivedTask').mockReturnValue(null);
       const result = handlers.handleRestoreTask({ task_id: 'missing' });
       expect(result.content[0].text).toContain('not found');
     });
 
     it('restores an archived task', () => {
-      vi.spyOn(db, 'getArchivedTask').mockReturnValue({ id: 'task-1' });
-      vi.spyOn(db, 'restoreTask').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getArchivedTask').mockReturnValue({ id: 'task-1' });
+      vi.spyOn(taskMetadata, 'restoreTask').mockReturnValue({
         id: 'task-1',
         status: 'completed',
         task_description: 'restored task',
@@ -1143,8 +1164,8 @@ describe('task-operations handlers', () => {
     });
 
     it('returns error when restore fails', () => {
-      vi.spyOn(db, 'getArchivedTask').mockReturnValue({ id: 'task-1' });
-      vi.spyOn(db, 'restoreTask').mockReturnValue(null);
+      vi.spyOn(taskMetadata, 'getArchivedTask').mockReturnValue({ id: 'task-1' });
+      vi.spyOn(taskMetadata, 'restoreTask').mockReturnValue(null);
       const result = handlers.handleRestoreTask({ task_id: 'task-1' });
       expect(result.content[0].text).toContain('Failed to restore');
     });
@@ -1154,7 +1175,7 @@ describe('task-operations handlers', () => {
 
   describe('handleGetArchiveStats', () => {
     it('returns archive statistics', () => {
-      vi.spyOn(db, 'getArchiveStats').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getArchiveStats').mockReturnValue({
         total_archived: 42,
         oldest_archive: '2025-01-01T00:00:00.000Z',
         newest_archive: '2025-06-01T00:00:00.000Z',
@@ -1170,7 +1191,7 @@ describe('task-operations handlers', () => {
     });
 
     it('handles empty archive', () => {
-      vi.spyOn(db, 'getArchiveStats').mockReturnValue({
+      vi.spyOn(taskMetadata, 'getArchiveStats').mockReturnValue({
         total_archived: 0,
         oldest_archive: null,
         newest_archive: null,

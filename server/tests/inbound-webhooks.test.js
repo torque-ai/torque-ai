@@ -684,40 +684,40 @@ describe('Inbound Webhook Payload Substitution', () => {
 });
 
 // ============================================
-// DB access via database.js merged exports
+// Inbound webhooks sub-module direct access
 // ============================================
 
-describe('Inbound Webhooks via database.js merged API', () => {
+describe('Inbound Webhooks via inbound-webhooks sub-module', () => {
   beforeEach(() => { resetInboundWebhooks(); });
 
-  it('exposes createInboundWebhook via database module', () => {
-    expect(typeof db.createInboundWebhook).toBe('function');
+  it('exposes createInboundWebhook', () => {
+    expect(typeof mod.createInboundWebhook).toBe('function');
   });
 
-  it('exposes getInboundWebhook via database module', () => {
-    expect(typeof db.getInboundWebhook).toBe('function');
+  it('exposes getInboundWebhook', () => {
+    expect(typeof mod.getInboundWebhook).toBe('function');
   });
 
-  it('exposes listInboundWebhooks via database module', () => {
-    expect(typeof db.listInboundWebhooks).toBe('function');
+  it('exposes listInboundWebhooks', () => {
+    expect(typeof mod.listInboundWebhooks).toBe('function');
   });
 
-  it('exposes deleteInboundWebhook via database module', () => {
-    expect(typeof db.deleteInboundWebhook).toBe('function');
+  it('exposes deleteInboundWebhook', () => {
+    expect(typeof mod.deleteInboundWebhook).toBe('function');
   });
 
-  it('exposes recordWebhookTrigger via database module', () => {
-    expect(typeof db.recordWebhookTrigger).toBe('function');
+  it('exposes recordWebhookTrigger', () => {
+    expect(typeof mod.recordWebhookTrigger).toBe('function');
   });
 
-  it('can create and retrieve via database module', () => {
-    db.createInboundWebhook({
+  it('can create and retrieve via sub-module', () => {
+    mod.createInboundWebhook({
       name: 'db-test',
       secret: 'secret',
       action_config: { task_description: 'DB test' },
     });
 
-    const result = db.getInboundWebhook('db-test');
+    const result = mod.getInboundWebhook('db-test');
     expect(result).toBeTruthy();
     expect(result.name).toBe('db-test');
   });

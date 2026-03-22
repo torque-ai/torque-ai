@@ -431,10 +431,15 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
 
   // Integration test skipped: db.resetForTest not exported via CJS require path.
   // cancelDependentTasks coverage is in workflow-runtime.test.js unit tests instead.
+  // Integration test skipped: db.resetForTest not exported via CJS require path.
+  // cancelDependentTasks coverage is in workflow-runtime.test.js unit tests instead.
   describe.skip('cancelDependentTasks cancels pending_provider_switch tasks', () => {
     const path = require('path');
     const os = require('os');
     const fs = require('fs');
+    const workflowEngine = require('../db/workflow-engine');
+    const projectConfigCore = require('../db/project-config-core');
+    const taskCore = require('../db/task-core');
 
     let testDir, origDataDir, db, mod;
     let startCalls, cancelCalls, queueCalls;
@@ -482,7 +487,7 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
 
     function createTask(overrides = {}) {
       const id = overrides.id || randomUUID();
-      db.createTask({
+      taskCore.createTask({
         task_description: overrides.task_description || `Task ${id.slice(0, 8)}`,
         working_directory: overrides.working_directory || testDir,
         status: overrides.status || 'pending',
@@ -495,7 +500,7 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
 
     function createWorkflow(overrides = {}) {
       const id = overrides.id || randomUUID();
-      db.createWorkflow({
+      workflowEngine.createWorkflow({
         id,
         name: overrides.name || `wf-${id.slice(0, 8)}`,
         status: overrides.status || 'running',
@@ -514,12 +519,12 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
     }
 
     function _withTaskIdDependentShape(run) {
-      const original = db.getDependentTasks;
-      db.getDependentTasks = (taskId) => {
-        const rows = original.call(db, taskId);
+      const original = projectConfigCore.getDependentTasks;
+      projectConfigCore.getDependentTasks = (taskId) => {
+        const rows = original.call(projectConfigCore, taskId);
         return rows.map(row => ({ ...row, task_id: row.task_id || row.id }));
       };
-      try { run(); } finally { db.getDependentTasks = original; }
+      try { run(); } finally { projectConfigCore.getDependentTasks = original; }
     }
 
     beforeAll(() => { setup(); });
@@ -532,7 +537,7 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
       const pps = createWorkflowTask(workflowId, 'pps-child', 'pending_provider_switch');
 
       // Wire dependency: pps depends on root
-      db.addTaskDependency({
+      workflowEngine.addTaskDependency({
         workflow_id: workflowId,
         task_id: pps,
         depends_on_task_id: root,
@@ -541,7 +546,7 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
 
       mod.cancelDependentTasks(root, workflowId, 'parent failed');
 
-      expect(db.getTask(pps).status).toBe('cancelled');
+      expect(taskCore.getTask(pps).status).toBe('cancelled');
     });
   });
 });

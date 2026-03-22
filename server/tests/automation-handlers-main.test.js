@@ -204,6 +204,13 @@ function loadAutomationModule(overrides = {}) {
   const requireFromModule = createRequire(resolvedPath);
 
   const mockDb = overrides.db || createMockDb(overrides.dbOptions);
+  const mockProjectConfigCore = overrides.projectConfigCore || {
+    getProjectFromPath: mockDb.getProjectFromPath,
+    setProjectConfig: mockDb.setProjectConfig,
+    getProjectConfig: mockDb.getProjectConfig,
+    setProjectMetadata: mockDb.setProjectMetadata,
+    getProjectMetadata: mockDb.getProjectMetadata,
+  };
   const mockTaskManager = overrides.taskManager || createMockTaskManager();
   const mockFs = overrides.fs || createVirtualFs();
   const mockLogger = overrides.logger || createMockLogger();
@@ -239,6 +246,7 @@ function loadAutomationModule(overrides = {}) {
     '../remote/remote-test-routing': { createRemoteTestRouter },
     '../logger': { child: vi.fn(() => mockLogger) },
     '../database': mockDb,
+    '../db/project-config-core': mockProjectConfigCore,
     '../task-manager': mockTaskManager,
     '../index': indexModule,
     uuid: { v4: uuidV4 },
@@ -285,6 +293,7 @@ module.exports.__testHelpers = {
     helpers: exportedModule.exports.__testHelpers,
     mocks: {
       db: mockDb,
+      projectConfigCore: mockProjectConfigCore,
       taskManager: mockTaskManager,
       fs: mockFs,
       logger: mockLogger,
@@ -828,7 +837,7 @@ describe('automation-handlers main unit suite', () => {
       const db = createMockDb({
         projectFromPath: { [workingDir]: 'torque' },
       });
-      const { handlers } = loadAutomationModule({ db });
+      const { handlers, mocks } = loadAutomationModule({ db });
 
       const result = handlers.handleSetProjectDefaults({
         working_directory: workingDir,
@@ -848,7 +857,7 @@ describe('automation-handlers main unit suite', () => {
       expect(db.safeAddColumn).toHaveBeenCalledWith('project_config', 'default_provider TEXT');
       expect(db.safeAddColumn).toHaveBeenCalledWith('project_config', 'remote_agent_id TEXT');
       expect(db.safeAddColumn).toHaveBeenCalledWith('project_config', 'prefer_remote_tests INTEGER DEFAULT 0');
-      expect(db.setProjectConfig).toHaveBeenCalledWith('torque', {
+      expect(mocks.projectConfigCore.setProjectConfig).toHaveBeenCalledWith('torque', {
         default_provider: 'codex',
         default_model: 'gpt-5.3-codex-spark',
         verify_command: 'pnpm verify',
@@ -859,7 +868,7 @@ describe('automation-handlers main unit suite', () => {
         remote_project_path: 'D:\\remote\\torque',
         prefer_remote_tests: 1,
       });
-      expect(db.setProjectMetadata).toHaveBeenCalledWith('torque', 'step_providers', '{"types":"ollama","system":"codex"}');
+      expect(mocks.projectConfigCore.setProjectMetadata).toHaveBeenCalledWith('torque', 'step_providers', '{"types":"ollama","system":"codex"}');
       expect(text).toContain('Default provider: codex');
       expect(text).toContain('Remote agent ID: agent-7');
       expect(text).toContain('Step providers: {"types":"ollama","system":"codex"}');
