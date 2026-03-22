@@ -85,6 +85,7 @@ function createSubject(options = {}) {
 
   const mod = loadWebhooksModule({
     '../database': database,
+    '../db/inbound-webhooks': database,
     '../tools': tools,
     './middleware': middleware,
   });

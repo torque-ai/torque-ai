@@ -26,6 +26,7 @@ function installCjsModuleMock(modulePath, exportsValue) {
 function loadControlPlane() {
   delete require.cache[require.resolve('../api/v2-control-plane')];
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/cost-tracking', mockDb);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   return require('../api/v2-control-plane');
 }

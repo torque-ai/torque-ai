@@ -7,6 +7,9 @@ const MODULE_PATHS = [
   CONTROL_PLANE_MODULE,
   '../api/middleware',
   '../database',
+  '../db/file-tracking',
+  '../db/host-management',
+  '../db/provider-routing-core',
 ];
 
 const mockDb = {
@@ -60,6 +63,9 @@ function clearLoadedModules() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/file-tracking', mockDb);
+  installCjsModuleMock('../db/host-management', mockDb);
+  installCjsModuleMock('../db/provider-routing-core', mockDb);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   require(CONTROL_PLANE_MODULE);
   return require(HANDLER_MODULE);

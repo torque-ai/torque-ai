@@ -6,6 +6,8 @@ const MODULE_PATHS = [
   '../api/v2-control-plane',
   '../api/middleware',
   '../database',
+  '../db/scheduling-automation',
+  '../db/validation-rules',
 ];
 
 const FIXED_TIMESTAMP = '2026-03-10T12:34:56.789Z';
@@ -62,6 +64,8 @@ function clearLoadedModules() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/scheduling-automation', mockDb);
+  installCjsModuleMock('../db/validation-rules', mockDb);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   return require(HANDLER_MODULE);
 }

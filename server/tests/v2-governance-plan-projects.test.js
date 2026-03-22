@@ -50,6 +50,7 @@ function clearModuleCache() {
 function loadHandlers() {
   clearModuleCache();
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/project-config-core', mockDb);
   installCjsModuleMock('../tools', mockTools);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   return require('../api/v2-governance-handlers');

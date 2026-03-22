@@ -4,6 +4,7 @@ const HANDLER_MODULE = '../api/v2-workflow-handlers';
 const MODULE_PATHS = [
   HANDLER_MODULE,
   '../database',
+  '../db/workflow-engine',
   '../api/v2-control-plane',
   '../api/middleware',
   '../handlers/workflow/index',
@@ -145,6 +146,7 @@ function clearLoadedModules() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/workflow-engine', mockDb);
   installCjsModuleMock('../api/v2-control-plane', mockControlPlane);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   installCjsModuleMock('../handlers/workflow/index', mockWorkflowHandlers);

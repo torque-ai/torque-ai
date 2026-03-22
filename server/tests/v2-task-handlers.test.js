@@ -80,6 +80,8 @@ function loadHandlers() {
   delete require.cache[require.resolve('../api/v2-task-handlers')];
   installCjsModuleMock('uuid', { v4: mockUuidV4 });
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/provider-routing-core', mockDb);
+  installCjsModuleMock('../db/file-tracking', mockDb);
   installCjsModuleMock('../config', mockConfig);
   installCjsModuleMock('../constants', mockConstants);
   installCjsModuleMock('../api/v2-control-plane', mockControlPlane);

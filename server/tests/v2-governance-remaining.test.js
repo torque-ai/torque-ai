@@ -15,6 +15,10 @@ const MODULE_PATHS = [
   '../api/v2-control-plane',
   '../api/middleware',
   '../database',
+  '../db/file-tracking',
+  '../db/host-management',
+  '../db/provider-routing-core',
+  '../db/webhooks-streaming',
   '../handlers/policy-handlers',
   '../handlers/automation-handlers',
   '../handlers/integration',
@@ -119,6 +123,10 @@ function clearLoadedModules() {
 function loadHandlers() {
   clearLoadedModules();
   installMock('../database', mockDb);
+  installMock('../db/file-tracking', mockDb);
+  installMock('../db/host-management', mockDb);
+  installMock('../db/provider-routing-core', mockDb);
+  installMock('../db/webhooks-streaming', mockDb);
   installMock('../api/middleware', mockMiddleware);
   installMock('../handlers/policy-handlers', mockPolicyCores);
   installMock('../handlers/automation-handlers', mockAutomationHandlers);

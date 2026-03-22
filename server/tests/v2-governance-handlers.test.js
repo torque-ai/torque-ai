@@ -6,6 +6,13 @@ const MODULE_PATHS = [
   '../api/v2-control-plane',
   '../api/middleware',
   '../database',
+  '../db/file-tracking',
+  '../db/host-management',
+  '../db/project-config-core',
+  '../db/provider-routing-core',
+  '../db/scheduling-automation',
+  '../db/validation-rules',
+  '../db/webhooks-streaming',
   '../handlers/policy-handlers',
   '../tools',
 ];
@@ -85,6 +92,13 @@ function loadHandlers() {
   clearLoadedModules();
 
   installCjsModuleMock('../database', currentModules.db);
+  installCjsModuleMock('../db/file-tracking', currentModules.db);
+  installCjsModuleMock('../db/host-management', currentModules.db);
+  installCjsModuleMock('../db/project-config-core', currentModules.db);
+  installCjsModuleMock('../db/provider-routing-core', currentModules.db);
+  installCjsModuleMock('../db/scheduling-automation', currentModules.db);
+  installCjsModuleMock('../db/validation-rules', currentModules.db);
+  installCjsModuleMock('../db/webhooks-streaming', currentModules.db);
   installCjsModuleMock('../api/middleware', currentModules.middleware);
   installCjsModuleMock('../handlers/policy-handlers', currentModules.policyHandlers);
   installCjsModuleMock('../tools', currentModules.tools);

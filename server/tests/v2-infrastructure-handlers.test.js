@@ -10,6 +10,8 @@ const MODULE_PATHS = [
   '../api/middleware',
   '../database',
   '../db/host-management',
+  '../db/coordination',
+  '../db/host-management',
   '../workstation/model',
   '../handlers/workstation-handlers',
   '../index',
@@ -503,6 +505,8 @@ function resetMockDefaults() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/host-management', mockDb);
+  installCjsModuleMock('../db/coordination', mockDb);
   installCjsModuleMock('../db/host-management', mockHostManagement);
   installCjsModuleMock('../workstation/model', mockWorkstationModel);
   installCjsModuleMock('../handlers/workstation-handlers', mockWorkstationHandlers);

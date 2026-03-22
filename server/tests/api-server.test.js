@@ -1,6 +1,7 @@
 const { EventEmitter } = require('events');
 const http = require('http');
 const db = require('../database');
+const providerRoutingCore = require('../db/provider-routing-core');
 const tools = require('../tools');
 const adapterRegistry = require('../providers/adapter-registry');
 const eventBus = require('../event-bus');
@@ -261,8 +262,11 @@ describe('API Server endpoints', () => {
       content: [{ type: 'text', text: 'ok' }],
     });
     listProvidersSpy = vi.spyOn(db, 'listProviders').mockReturnValue([]);
+    vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
     getProviderSpy = vi.spyOn(db, 'getProvider').mockReturnValue(null);
+    vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue(null);
     getDefaultProviderSpy = vi.spyOn(db, 'getDefaultProvider').mockReturnValue('codex');
+    vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
     getProviderHealthSpy = vi.spyOn(db, 'getProviderHealth').mockReturnValue({
       provider: 'codex',
       total_tasks: 0,
@@ -274,6 +278,8 @@ describe('API Server endpoints', () => {
       total_cost: 0,
     });
     isProviderHealthySpy = vi.spyOn(db, 'isProviderHealthy').mockReturnValue(true);
+    vi.spyOn(providerRoutingCore, 'getProviderHealth').mockReturnValue({ successes: 0, failures: 0 });
+    vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
     getProviderStatsSpy = vi.spyOn(db, 'getProviderStats').mockReturnValue({
       provider: 'codex',
       total_tasks: 10,
