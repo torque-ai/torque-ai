@@ -261,12 +261,12 @@ describe('API Server endpoints', () => {
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
       content: [{ type: 'text', text: 'ok' }],
     });
-    vi.spyOn(db, 'listProviders').mockReturnValue([]);
-    listProvidersSpy = vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
-    vi.spyOn(db, 'getProvider').mockReturnValue(null);
-    getProviderSpy = vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue(null);
-    vi.spyOn(db, 'getDefaultProvider').mockReturnValue('codex');
-    getDefaultProviderSpy = vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
+    listProvidersSpy = vi.spyOn(db, 'listProviders').mockReturnValue([]);
+    vi.spyOn(providerRoutingCore, 'listProviders').mockImplementation((...args) => db.listProviders(...args));
+    getProviderSpy = vi.spyOn(db, 'getProvider').mockReturnValue(null);
+    vi.spyOn(providerRoutingCore, 'getProvider').mockImplementation((...args) => db.getProvider(...args));
+    getDefaultProviderSpy = vi.spyOn(db, 'getDefaultProvider').mockReturnValue('codex');
+    vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockImplementation((...args) => db.getDefaultProvider(...args));
     getProviderHealthSpy = vi.spyOn(db, 'getProviderHealth').mockReturnValue({
       provider: 'codex',
       total_tasks: 0,
@@ -277,9 +277,9 @@ describe('API Server endpoints', () => {
       total_tokens: 0,
       total_cost: 0,
     });
-    vi.spyOn(db, 'isProviderHealthy').mockReturnValue(true);
-    vi.spyOn(providerRoutingCore, 'getProviderHealth').mockReturnValue({ successes: 0, failures: 0 });
-    isProviderHealthySpy = vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
+    isProviderHealthySpy = vi.spyOn(db, 'isProviderHealthy').mockReturnValue(true);
+    vi.spyOn(providerRoutingCore, 'getProviderHealth').mockImplementation((...args) => db.getProviderHealth(...args));
+    vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockImplementation((...args) => db.isProviderHealthy(...args));
     getProviderStatsSpy = vi.spyOn(db, 'getProviderStats').mockReturnValue({
       provider: 'codex',
       total_tasks: 10,
