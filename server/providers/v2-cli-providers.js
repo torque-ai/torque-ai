@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const BaseProvider = require('./base');
-const db = require('../database');
+let db = require('../database');
 const prompts = require('./prompts');
 const logger = require('../logger').child({ component: 'v2-cli-providers' });
 const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
@@ -415,7 +415,18 @@ class ClaudeCliProvider extends CliProviderAdapter {
   }
 }
 
+// ── DI factory ──────────────────────────────────────────────────────────────
+
+function createV2CliProviders({ db: dbInstance } = {}) {
+  if (dbInstance) {
+    db = dbInstance;
+    prompts.init({ db: dbInstance });
+  }
+  return module.exports;
+}
+
 module.exports = {
+  createV2CliProviders,
   CodexCliProvider,
   ClaudeCliProvider,
 };
