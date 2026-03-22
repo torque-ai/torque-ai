@@ -4,16 +4,20 @@ const {
   mockDiagnose,
   mockReview,
   StrategicBrainMock,
+  mockTaskCore,
   mockDb,
   mockLogger,
 } = vi.hoisted(() => ({
   mockDiagnose: vi.fn(),
   mockReview: vi.fn(),
   StrategicBrainMock: vi.fn(),
-  mockDb: {
-    getConfig: vi.fn(),
+  mockTaskCore: {
     getTask: vi.fn(),
     updateTask: vi.fn(),
+  },
+  mockDb: {
+    getConfig: vi.fn(),
+    getDbInstance: vi.fn(),
   },
   mockLogger: {
     debug: vi.fn(),
@@ -68,6 +72,7 @@ function createConfigMock(dbRef) {
 function loadHooks() {
   delete require.cache[require.resolve('../execution/strategic-hooks')];
   installCjsModuleMock('../orchestrator/strategic-brain', StrategicBrainMock);
+  installCjsModuleMock('../db/task-core', mockTaskCore);
   installCjsModuleMock('../database', mockDb);
   installCjsModuleMock('../config', createConfigMock(mockDb));
   installCjsModuleMock('../logger', {
@@ -111,7 +116,7 @@ describe('strategic-hooks', () => {
       this.diagnose = mockDiagnose;
       this.review = mockReview;
     });
-    mockDb.updateTask.mockImplementation((taskId, fields) => ({
+    mockTaskCore.updateTask.mockImplementation((taskId, fields) => ({
       id: taskId,
       ...fields,
     }));
@@ -127,7 +132,7 @@ describe('strategic-hooks', () => {
         strategic_provider: 'ollama',
         strategic_model: 'qwen2.5-coder:32b',
       });
-      mockDb.getTask.mockReturnValue(ctx.task);
+      mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockDiagnose.mockResolvedValue(diagnosis);
 
       const result = await hooks.onTaskFailed(ctx);
@@ -155,32 +160,32 @@ describe('strategic-hooks', () => {
       expect(result).toBeNull();
       expect(StrategicBrainMock).not.toHaveBeenCalled();
       expect(mockDiagnose).not.toHaveBeenCalled();
-      expect(mockDb.updateTask).not.toHaveBeenCalled();
+      expect(mockTaskCore.updateTask).not.toHaveBeenCalled();
     });
 
     it('skips for tasks tagged strategic', async () => {
       const ctx = createCtx({ task: { tags: ['strategic'] } });
       setConfigValues({ strategic_auto_diagnose: '1' });
-      mockDb.getTask.mockReturnValue(ctx.task);
+      mockTaskCore.getTask.mockReturnValue(ctx.task);
 
       const result = await hooks.onTaskFailed(ctx);
 
       expect(result).toBeNull();
       expect(StrategicBrainMock).not.toHaveBeenCalled();
       expect(mockDiagnose).not.toHaveBeenCalled();
-      expect(mockDb.updateTask).not.toHaveBeenCalled();
+      expect(mockTaskCore.updateTask).not.toHaveBeenCalled();
     });
 
     it('stores diagnosis in task metadata', async () => {
       const ctx = createCtx({ task: { metadata: { existing: true, keep: 'value' } } });
       const diagnosis = { action: 'fix_task', confidence: 0.9, reason: 'Retry with fix' };
       setConfigValues({ strategic_auto_diagnose: '1' });
-      mockDb.getTask.mockReturnValue(ctx.task);
+      mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockDiagnose.mockResolvedValue(diagnosis);
 
       await hooks.onTaskFailed(ctx);
 
-      expect(mockDb.updateTask).toHaveBeenCalledWith('task-001', {
+      expect(mockTaskCore.updateTask).toHaveBeenCalledWith('task-001', {
         metadata: {
           existing: true,
           keep: 'value',
@@ -192,7 +197,7 @@ describe('strategic-hooks', () => {
     it('does not throw even when brain.diagnose fails', async () => {
       const ctx = createCtx();
       setConfigValues({ strategic_auto_diagnose: '1' });
-      mockDb.getTask.mockReturnValue(ctx.task);
+      mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockDiagnose.mockRejectedValue(new Error('diagnose failed'));
 
       await expect(hooks.onTaskFailed(ctx)).resolves.toBeNull();
@@ -214,7 +219,7 @@ describe('strategic-hooks', () => {
         strategic_provider: 'ollama',
         strategic_model: 'qwen2.5-coder:32b',
       });
-      mockDb.getTask.mockReturnValue(ctx.task);
+      mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockReview.mockResolvedValue(review);
 
       const result = await hooks.onTaskCompleted(ctx);
@@ -241,32 +246,32 @@ describe('strategic-hooks', () => {
       expect(result).toBeNull();
       expect(StrategicBrainMock).not.toHaveBeenCalled();
       expect(mockReview).not.toHaveBeenCalled();
-      expect(mockDb.updateTask).not.toHaveBeenCalled();
+      expect(mockTaskCore.updateTask).not.toHaveBeenCalled();
     });
 
     it('skips for tasks tagged strategic', async () => {
       const ctx = createCtx({ code: 0, task: { tags: ['strategic'] } });
       setConfigValues({ strategic_auto_review: '1' });
-      mockDb.getTask.mockReturnValue(ctx.task);
+      mockTaskCore.getTask.mockReturnValue(ctx.task);
 
       const result = await hooks.onTaskCompleted(ctx);
 
       expect(result).toBeNull();
       expect(StrategicBrainMock).not.toHaveBeenCalled();
       expect(mockReview).not.toHaveBeenCalled();
-      expect(mockDb.updateTask).not.toHaveBeenCalled();
+      expect(mockTaskCore.updateTask).not.toHaveBeenCalled();
     });
 
     it('stores review in task metadata', async () => {
       const ctx = createCtx({ code: 0, task: { metadata: { existing: true, keep: 'value' } } });
       const review = { decision: 'approve', quality_score: 91, reason: 'Solid change' };
       setConfigValues({ strategic_auto_review: '1' });
-      mockDb.getTask.mockReturnValue(ctx.task);
+      mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockReview.mockResolvedValue(review);
 
       await hooks.onTaskCompleted(ctx);
 
-      expect(mockDb.updateTask).toHaveBeenCalledWith('task-001', {
+      expect(mockTaskCore.updateTask).toHaveBeenCalledWith('task-001', {
         metadata: {
           existing: true,
           keep: 'value',
@@ -278,7 +283,7 @@ describe('strategic-hooks', () => {
     it('does not throw even when brain.review fails', async () => {
       const ctx = createCtx({ code: 0 });
       setConfigValues({ strategic_auto_review: '1' });
-      mockDb.getTask.mockReturnValue(ctx.task);
+      mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockReview.mockRejectedValue(new Error('review failed'));
 
       await expect(hooks.onTaskCompleted(ctx)).resolves.toBeNull();
