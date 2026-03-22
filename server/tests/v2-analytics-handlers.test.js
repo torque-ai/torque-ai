@@ -1382,7 +1382,7 @@ describe('api/v2-analytics-handlers', () => {
             status: 'failed',
             fallback_used: true,
             needs_review: false,
-            task_description: 'secondary',
+            description: 'secondary',
           },
         ],
       });
@@ -1397,7 +1397,7 @@ describe('api/v2-analytics-handlers', () => {
           created_at: '2026-03-10T01:00:00.000Z',
           provider: 'codex',
           status: 'completed',
-          task_description: 'wrapped',
+          description: 'wrapped',
           metadata: { smart_routing: true },
         }],
       });
@@ -1418,7 +1418,7 @@ describe('api/v2-analytics-handlers', () => {
           status: 'completed',
           fallback_used: false,
           needs_review: false,
-          task_description: 'wrapped',
+          description: 'wrapped',
         }],
       });
     });
