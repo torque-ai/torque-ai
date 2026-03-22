@@ -361,6 +361,26 @@ function authenticateRequest(req, url) {
   return authMiddleware.authenticate(req);
 }
 
+function createApiMiddleware(deps) {
+  return {
+    createRateLimiter,
+    extractApiKey,
+    getRateLimit,
+    startRateLimitCleanup,
+    stopRateLimitCleanup,
+    checkRateLimit,
+    parseBody,
+    sendJson,
+    parseQuery,
+    applyMiddleware,
+    authenticateRequest,
+    AUTH_OPEN_PATHS,
+    UNAUTHENTICATED_HEALTH_ROUTES,
+    DEFAULT_RATE_WINDOW_MS,
+    SECURITY_HEADERS,
+  };
+}
+
 module.exports = {
   createRateLimiter,
   extractApiKey,
@@ -377,4 +397,5 @@ module.exports = {
   UNAUTHENTICATED_HEALTH_ROUTES,
   DEFAULT_RATE_WINDOW_MS,
   SECURITY_HEADERS,
+  createApiMiddleware,
 };

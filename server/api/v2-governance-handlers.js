@@ -1189,6 +1189,56 @@ async function handleDetectFileConflicts(req, res) {
   }
 }
 
+function createV2GovernanceHandlers(deps) {
+  return {
+    init,
+    handleListApprovals,
+    handleApprovalDecision,
+    handleListSchedules,
+    handleCreateSchedule,
+    handleGetSchedule,
+    handleToggleSchedule,
+    handleDeleteSchedule,
+    handleListPolicies,
+    handleGetPolicy,
+    handleSetPolicyMode,
+    handleEvaluatePolicies,
+    handleListPolicyEvaluations,
+    handleGetPolicyEvaluation,
+    handleOverridePolicyDecision,
+    handlePeekAttestationExport,
+    handleListPlanProjects,
+    handleGetPlanProject,
+    handlePlanProjectAction,
+    handleDeletePlanProject,
+    handleImportPlan,
+    handleListBenchmarks,
+    handleApplyBenchmark,
+    handleListProjectTuning,
+    handleCreateProjectTuning,
+    handleDeleteProjectTuning,
+    handleListProviders,
+    handleProviderStats,
+    handleProviderToggle,
+    handleProviderTrends,
+    handleConfigureProvider,
+    handleSetDefaultProvider,
+    handleSystemStatus,
+    handleScanProject,
+    handleGetProjectDefaults,
+    handleSetProjectDefaults,
+    handleGetConfig,
+    handleSetConfig,
+    handleConfigureStallDetection,
+    handleListWebhooks,
+    handleAddWebhook,
+    handleRemoveWebhook,
+    handleTestWebhook,
+    handleAutoVerifyAndFix,
+    handleDetectFileConflicts,
+  };
+}
+
 module.exports = {
   init,
   // Approvals
@@ -1246,4 +1296,5 @@ module.exports = {
   // Validation
   handleAutoVerifyAndFix,
   handleDetectFileConflicts,
+  createV2GovernanceHandlers,
 };

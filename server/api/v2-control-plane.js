@@ -164,6 +164,20 @@ function buildWorkflowDetailResponse(workflow, tasks) {
   };
 }
 
+function createV2ControlPlane(deps) {
+  return {
+    buildMeta,
+    sendSuccess,
+    sendError,
+    sendList,
+    resolveRequestId,
+    buildTaskResponse,
+    buildTaskDetailResponse,
+    buildWorkflowResponse,
+    buildWorkflowDetailResponse,
+  };
+}
+
 module.exports = {
   buildMeta,
   sendSuccess,
@@ -174,4 +188,5 @@ module.exports = {
   buildTaskDetailResponse,
   buildWorkflowResponse,
   buildWorkflowDetailResponse,
+  createV2ControlPlane,
 };

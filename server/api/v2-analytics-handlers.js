@@ -602,6 +602,32 @@ async function handleStrategicOperations(req, res) {
   }
 }
 
+function createV2AnalyticsHandlers(deps) {
+  return {
+    handleStatsOverview,
+    handleTimeSeries,
+    handleQualityStats,
+    handleStuckTasks,
+    handleModelStats,
+    handleFormatSuccess,
+    handleEventHistory,
+    handleWebhookStats,
+    handleNotificationStats,
+    handleThroughputMetrics,
+    handleBudgetSummary,
+    handleBudgetStatus,
+    handleSetBudget,
+    handleStrategicStatus,
+    handleRoutingDecisions,
+    handleProviderHealth,
+    handleFreeTierStatus,
+    handleFreeTierHistory,
+    handleFreeTierAutoScale,
+    handlePrometheusMetrics,
+    handleStrategicOperations,
+  };
+}
+
 module.exports = {
   // Stats
   handleStatsOverview,
@@ -630,4 +656,5 @@ module.exports = {
   handlePrometheusMetrics,
   // Strategic Operations
   handleStrategicOperations,
+  createV2AnalyticsHandlers,
 };

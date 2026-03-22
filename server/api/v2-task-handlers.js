@@ -870,6 +870,25 @@ async function handleRejectSwitch(req, res) {
   }
 }
 
+function createV2TaskHandlers(deps) {
+  return {
+    init,
+    handleSubmitTask,
+    handleListTasks,
+    handleGetTask,
+    handleCancelTask,
+    handleRetryTask,
+    handleReassignTaskProvider,
+    handleCommitTask,
+    handleTaskDiff,
+    handleTaskLogs,
+    handleTaskProgress,
+    handleDeleteTask,
+    handleApproveSwitch,
+    handleRejectSwitch,
+  };
+}
+
 module.exports = {
   init,
   handleSubmitTask,
@@ -885,4 +904,5 @@ module.exports = {
   handleDeleteTask,
   handleApproveSwitch,
   handleRejectSwitch,
+  createV2TaskHandlers,
 };

@@ -605,6 +605,21 @@ function createV2Router(options = {}) {
   ];
 }
 
+function createV2RouterModule(deps) {
+  return {
+    V2_MOUNT_PATH,
+    V2_PROVIDER_ROUTE_HANDLER_NAMES,
+    buildV2Middleware,
+    validateDecodedParamField,
+    escapeRegExp,
+    normalizeMountPath,
+    resolveRouteRequestId,
+    createNotImplementedHandler,
+    getRouteHandler,
+    createV2Router,
+  };
+}
+
 module.exports = {
   V2_MOUNT_PATH,
   V2_PROVIDER_ROUTE_HANDLER_NAMES,
@@ -616,4 +631,5 @@ module.exports = {
   createNotImplementedHandler,
   getRouteHandler,
   createV2Router,
+  createV2RouterModule,
 };

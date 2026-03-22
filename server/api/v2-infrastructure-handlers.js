@@ -669,6 +669,39 @@ async function handleCoordinationDashboard(req, res) {
   }
 }
 
+function createV2InfrastructureHandlers(deps) {
+  return {
+    init,
+    handleListWorkstations,
+    handleCreateWorkstation,
+    handleToggleWorkstation,
+    handleProbeWorkstation,
+    handleDeleteWorkstation,
+    handleListHosts,
+    handleGetHost,
+    handleToggleHost,
+    handleDeleteHost,
+    handleHostScan,
+    handleListPeekHosts,
+    handleCreatePeekHost,
+    handleDeletePeekHost,
+    handleTogglePeekHost,
+    handleListCredentials,
+    handleSaveCredential,
+    handleDeleteCredential,
+    handleListAgents,
+    handleCreateAgent,
+    handleGetAgent,
+    handleAgentHealth,
+    handleDeleteAgent,
+    handleAddHost,
+    handleRefreshModels,
+    handleHostActivity,
+    handleProviderPercentiles,
+    handleCoordinationDashboard,
+  };
+}
+
 module.exports = {
   init,
   // Workstations
@@ -705,4 +738,5 @@ module.exports = {
   handleHostActivity,
   handleProviderPercentiles,
   handleCoordinationDashboard,
+  createV2InfrastructureHandlers,
 };

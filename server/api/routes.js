@@ -1262,7 +1262,12 @@ const routes = [
   ...require('./routes-passthrough'),
 ];
 
+function createApiRoutes(deps) {
+  return { routes, buildV2Middleware, validateDecodedParamField, handleOpenApiSpec };
+}
+
 module.exports = routes;
 module.exports.buildV2Middleware = buildV2Middleware;
 module.exports.validateDecodedParamField = validateDecodedParamField;
 module.exports.handleOpenApiSpec = handleOpenApiSpec;
+module.exports.createApiRoutes = createApiRoutes;

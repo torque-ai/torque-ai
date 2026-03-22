@@ -991,14 +991,22 @@ function getNextFallbackProvider(taskId) {
   // Also add current provider
   if (task.provider) triedProviders.add(task.provider);
 
-  // EXP7: Raw ollama cannot create new files — skip it for greenfield tasks.
+  // EXP7: Raw ollama cannot create new files — skip it for greenfield tasks
+  // UNLESS the current default model is agentic-capable (e.g., qwen3-coder)
+  // which can use write_file tool to create files natively.
   const isGreenfield = task.task_description &&
     /\b(create|write|generate|scaffold|build)\s+(a\s+)?(new\s+)?(file|test|module|class|component|spec)\b/i.test(task.task_description);
+  let ollamaIsAgentic = false;
+  try {
+    const { isAgenticCapable } = require('../providers/agentic-capability');
+    const ollamaModel = task.model || (typeof getConfig === 'function' ? getConfig('ollama_model') : null) || 'qwen3-coder:30b-a3b';
+    ollamaIsAgentic = isAgenticCapable('ollama', ollamaModel).capable;
+  } catch { /* non-fatal — default to skipping */ }
 
   for (const candidate of chain) {
     if (triedProviders.has(candidate)) continue;
-    if (candidate === 'ollama' && isGreenfield) {
-      logger.info(`[FallbackChain] Skipping raw ollama for greenfield task ${taskId} — it produces instructions instead of code`);
+    if (candidate === 'ollama' && isGreenfield && !ollamaIsAgentic) {
+      logger.info(`[FallbackChain] Skipping raw ollama for greenfield task ${taskId} — model is not agentic-capable`);
       continue;
     }
     const p = getProvider(candidate);

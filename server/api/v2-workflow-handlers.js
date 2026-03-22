@@ -418,6 +418,23 @@ async function handleGetWorkflowTasks(req, res) {
   }
 }
 
+function createV2WorkflowHandlers(deps) {
+  return {
+    init,
+    handleCreateWorkflow,
+    handleListWorkflows,
+    handleGetWorkflow,
+    handleRunWorkflow,
+    handleCancelWorkflow,
+    handleAddWorkflowTask,
+    handleWorkflowHistory,
+    handleCreateFeatureWorkflow,
+    handlePauseWorkflow,
+    handleResumeWorkflow,
+    handleGetWorkflowTasks,
+  };
+}
+
 module.exports = {
   init,
   handleCreateWorkflow,
@@ -431,4 +448,5 @@ module.exports = {
   handlePauseWorkflow,
   handleResumeWorkflow,
   handleGetWorkflowTasks,
+  createV2WorkflowHandlers,
 };

@@ -136,8 +136,13 @@ function handleLivez(req, res, _context = {}) {
   sendJson(res, { status: 'ok', uptime: process.uptime() }, 200, req);
 }
 
+function createHealthProbes(deps) {
+  return { handleHealthz, handleReadyz, handleLivez };
+}
+
 module.exports = {
   handleHealthz,
   handleReadyz,
   handleLivez,
+  createHealthProbes,
 };
