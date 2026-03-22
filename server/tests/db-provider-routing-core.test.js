@@ -6,6 +6,8 @@ const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.
 
 let templateBuffer;
 let db;
+let taskCore;
+let configCore;
 let core;
 let seq = 0;
 
@@ -20,13 +22,13 @@ function nextId(prefix) {
 
 function bindCore(hostManagement = null) {
   core.setDb(rawDb());
-  core.setGetTask((id) => db.getTask(id));
+  core.setGetTask((id) => taskCore.getTask(id));
   core.setHostManagement(hostManagement);
 }
 
 function createTask(overrides = {}) {
   const id = overrides.id || nextId('task');
-  db.createTask({
+  taskCore.createTask({
     task_description: overrides.task_description || `Task ${id}`,
     working_directory: overrides.working_directory || os.tmpdir(),
     status: overrides.status || 'queued',
@@ -81,6 +83,8 @@ async function startMockOllama(statusCode = 200) {
 beforeAll(() => {
   templateBuffer = fs.readFileSync(TEMPLATE_BUF);
   db = require('../database');
+  taskCore = require('../db/task-core');
+  configCore = require('../db/config-core');
   core = require('../db/provider-routing-core');
   const serverConfig = require('../config');
   db.resetForTest(templateBuffer);
@@ -191,8 +195,8 @@ describe('db/provider-routing-core', () => {
 
   describe('smart routing analysis', () => {
     it('returns default provider when smart routing is disabled', () => {
-      db.setConfig('smart_routing_enabled', '0');
-      db.setConfig('default_provider', 'claude-cli');
+      configCore.setConfig('smart_routing_enabled', '0');
+      configCore.setConfig('default_provider', 'claude-cli');
 
       const result = core.analyzeTaskForRouting('do something', os.tmpdir());
       expect(result.provider).toBe('claude-cli');
@@ -237,7 +241,7 @@ describe('db/provider-routing-core', () => {
 
     it('falls back when an Ollama provider is selected but health cache is false', () => {
       core.setOllamaHealthy(false);
-      db.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
 
       const result = core.analyzeTaskForRouting('Update README docs', os.tmpdir(), []);
       expect(result.provider).toBe('codex');
@@ -247,7 +251,7 @@ describe('db/provider-routing-core', () => {
 
     it('skipHealthCheck bypasses Ollama fallback application', () => {
       core.setOllamaHealthy(false);
-      db.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
 
       const result = core.analyzeTaskForRouting('Update README docs', os.tmpdir(), [], { skipHealthCheck: true });
       expect(result.provider).toBe('ollama');
@@ -306,7 +310,7 @@ describe('db/provider-routing-core', () => {
 
     it('routes reasoning tasks to deepinfra when configured', () => {
       core.updateProvider('deepinfra', { enabled: 1 });
-      db.setConfig('deepinfra_api_key', 'deepinfra-key');
+      configCore.setConfig('deepinfra_api_key', 'deepinfra-key');
 
       const result = core.analyzeTaskForRouting('Need deep analysis for a root cause in architecture', os.tmpdir(), []);
       expect(result.provider).toBe('deepinfra');
@@ -314,8 +318,8 @@ describe('db/provider-routing-core', () => {
 
     it('routes reasoning tasks to hyperbolic when deepinfra is unavailable', () => {
       core.updateProvider('hyperbolic', { enabled: 1 });
-      db.setConfig('deepinfra_api_key', '');
-      db.setConfig('hyperbolic_api_key', 'hyperbolic-key');
+      configCore.setConfig('deepinfra_api_key', '');
+      configCore.setConfig('hyperbolic_api_key', 'hyperbolic-key');
 
       const result = core.analyzeTaskForRouting('Analyze a complex root cause in production behavior', os.tmpdir(), []);
       expect(result.provider).toBe('hyperbolic');
@@ -323,7 +327,7 @@ describe('db/provider-routing-core', () => {
 
     it('routes docs tasks to groq when configured', () => {
       core.updateProvider('groq', { enabled: 1 });
-      db.setConfig('groq_api_key', 'groq-key');
+      configCore.setConfig('groq_api_key', 'groq-key');
 
       const result = core.analyzeTaskForRouting('Summarize module behavior for docs', os.tmpdir(), []);
       expect(result.provider).toBe('groq');
@@ -432,7 +436,7 @@ describe('db/provider-routing-core', () => {
       expect(core.isCodexExhausted()).toBe(false);
       core.setCodexExhausted(true);
       expect(getExhausted()).toBe('1');
-      expect(db.getConfig('codex_exhausted_at')).toBeTruthy();
+      expect(configCore.getConfig('codex_exhausted_at')).toBeTruthy();
       core.setCodexExhausted(false);
       expect(getExhausted()).toBe('0');
     });
@@ -442,7 +446,7 @@ describe('db/provider-routing-core', () => {
     it('waitForOllamaReady and checkOllamaHealth use the configured host and cache', async () => {
       const mock = await startMockOllama(200);
       try {
-        db.setConfig('ollama_host', mock.host);
+        configCore.setConfig('ollama_host', mock.host);
 
         const ready = await core.waitForOllamaReady(2000);
         const first = await core.checkOllamaHealth(true);
@@ -460,12 +464,12 @@ describe('db/provider-routing-core', () => {
     });
 
     it('attemptOllamaStart returns false when auto-start is disabled', async () => {
-      db.setConfig('ollama_auto_start_enabled', '0');
+      configCore.setConfig('ollama_auto_start_enabled', '0');
       await expect(core.attemptOllamaStart()).resolves.toBe(false);
     });
 
     it('autoConfigureWSL2Host returns false when auto-detect is disabled', () => {
-      db.setConfig('ollama_auto_detect_wsl_host', '0');
+      configCore.setConfig('ollama_auto_detect_wsl_host', '0');
       expect(core.autoConfigureWSL2Host()).toBe(false);
     });
 
@@ -484,10 +488,10 @@ describe('db/provider-routing-core', () => {
       fs.writeFileSync(validPath, Buffer.alloc(2048, 1));
       fs.writeFileSync(tinyPath, Buffer.alloc(10, 1));
 
-      db.setConfig('ollama_binary_path', validPath);
+      configCore.setConfig('ollama_binary_path', validPath);
       expect(core.findOllamaBinary()).toBe(validPath);
 
-      db.setConfig('ollama_binary_path', tinyPath);
+      configCore.setConfig('ollama_binary_path', tinyPath);
       expect(core.findOllamaBinary()).not.toBe(tinyPath);
 
       try { fs.rmSync(validPath, { force: true }); } catch {}
@@ -530,7 +534,7 @@ describe('db/provider-routing-core', () => {
       db.resetForTest(templateBuffer);
       bindCore();
       core.setOllamaHealthy(true);
-      db.setConfig('smart_routing_enabled', '1');
+      configCore.setConfig('smart_routing_enabled', '1');
       testSuffix = nextId('pt');
     });
 

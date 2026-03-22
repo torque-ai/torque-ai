@@ -17,6 +17,7 @@ const { v4: uuidv4 } = require('uuid');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let hostManagement;
 let workflowEngine;
 let coordination;
@@ -30,6 +31,8 @@ function setupDb() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   hostManagement = require('../db/host-management');
@@ -66,7 +69,7 @@ function addTestHost(name, maxConcurrent = 2) {
 /** Create a minimal task in the DB */
 function createTestTask(overrides = {}) {
   const taskId = overrides.id || uuidv4();
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     task_description: overrides.description || `Test task ${taskId.slice(0, 8)}`,
     working_directory: testDir,
@@ -83,7 +86,7 @@ function createWorkflowTask(workflowId, nodeId, status = 'blocked') {
   const taskId = uuidv4();
   const isTerminal = ['completed', 'failed', 'cancelled'].includes(status);
   const createStatus = isTerminal ? 'pending' : status;
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     task_description: `Test task ${nodeId}`,
     working_directory: testDir,
@@ -93,7 +96,7 @@ function createWorkflowTask(workflowId, nodeId, status = 'blocked') {
     provider: 'codex',
   });
   if (status !== createStatus) {
-    db.updateTaskStatus(taskId, status);
+    taskCore.updateTaskStatus(taskId, status);
   }
   return taskId;
 }
@@ -215,63 +218,63 @@ describe('Chaos: Task Status Transition Races', () => {
 
   test('double completion — second attempt is a no-op', () => {
     const taskId = createTestTask({ status: 'pending' });
-    db.updateTaskStatus(taskId, 'running');
+    taskCore.updateTaskStatus(taskId, 'running');
 
     // Complete the task
-    db.updateTaskStatus(taskId, 'completed');
+    taskCore.updateTaskStatus(taskId, 'completed');
     // Second completion is a no-op (same target state, no additional fields)
-    const _result = db.updateTaskStatus(taskId, 'completed');
+    const _result = taskCore.updateTaskStatus(taskId, 'completed');
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.status).toBe('completed');
   });
 
   test('invalid transition rejection — completed cannot go to running', () => {
     const taskId = createTestTask({ status: 'pending' });
-    db.updateTaskStatus(taskId, 'running');
-    db.updateTaskStatus(taskId, 'completed');
+    taskCore.updateTaskStatus(taskId, 'running');
+    taskCore.updateTaskStatus(taskId, 'completed');
 
     // Try to go back to running — TORQUE rejects transitions from terminal states
-    expect(() => db.updateTaskStatus(taskId, 'running')).toThrow(/Cannot transition/);
+    expect(() => taskCore.updateTaskStatus(taskId, 'running')).toThrow(/Cannot transition/);
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.status).toBe('completed');
   });
 
   test('rapid status cycling reaches final state', () => {
     const taskId = createTestTask({ status: 'pending' });
 
-    db.updateTaskStatus(taskId, 'queued');
-    db.updateTaskStatus(taskId, 'running');
-    db.updateTaskStatus(taskId, 'completed');
+    taskCore.updateTaskStatus(taskId, 'queued');
+    taskCore.updateTaskStatus(taskId, 'running');
+    taskCore.updateTaskStatus(taskId, 'completed');
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.status).toBe('completed');
     expect(task.completed_at).toBeTruthy();
   });
 
   test('concurrent fail + complete — first terminal wins, second throws', () => {
     const taskId = createTestTask({ status: 'pending' });
-    db.updateTaskStatus(taskId, 'running');
+    taskCore.updateTaskStatus(taskId, 'running');
 
     // First terminal update wins
-    db.updateTaskStatus(taskId, 'failed');
+    taskCore.updateTaskStatus(taskId, 'failed');
     // Second terminal update throws — task already in terminal state
-    expect(() => db.updateTaskStatus(taskId, 'completed')).toThrow(/Cannot transition/);
+    expect(() => taskCore.updateTaskStatus(taskId, 'completed')).toThrow(/Cannot transition/);
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.status).toBe('failed');
   });
 
   test('status read consistency — write then immediate read', () => {
     const taskId = createTestTask({ status: 'pending' });
 
-    db.updateTaskStatus(taskId, 'running');
-    let task = db.getTask(taskId);
+    taskCore.updateTaskStatus(taskId, 'running');
+    let task = taskCore.getTask(taskId);
     expect(task.status).toBe('running');
 
-    db.updateTaskStatus(taskId, 'completed');
-    task = db.getTask(taskId);
+    taskCore.updateTaskStatus(taskId, 'completed');
+    task = taskCore.getTask(taskId);
     expect(task.status).toBe('completed');
   });
 });
@@ -379,13 +382,13 @@ describe('Chaos: Cascading Workflow Operations', () => {
     workflowEngine.addTaskDependency({ task_id: taskD, depends_on_task_id: taskC, workflow_id: wfId });
 
     // Complete B
-    db.updateTaskStatus(taskB, 'completed');
+    taskCore.updateTaskStatus(taskB, 'completed');
     // D should still be blocked (C not done)
     let dDeps = workflowEngine.areTaskDependenciesSatisfied(taskD);
     expect(dDeps.satisfied).toBe(false);
 
     // Complete C
-    db.updateTaskStatus(taskC, 'completed');
+    taskCore.updateTaskStatus(taskC, 'completed');
     // Now D should be satisfied
     dDeps = workflowEngine.areTaskDependenciesSatisfied(taskD);
     expect(dDeps.satisfied).toBe(true);
@@ -405,17 +408,17 @@ describe('Chaos: Cascading Workflow Operations', () => {
 
     // Cancel all non-terminal tasks
     for (const tid of [t2, t3, t4]) {
-      const task = db.getTask(tid);
+      const task = taskCore.getTask(tid);
       if (!['completed', 'failed', 'cancelled'].includes(task.status)) {
-        db.updateTaskStatus(tid, 'cancelled');
+        taskCore.updateTaskStatus(tid, 'cancelled');
       }
     }
 
     // Verify states
-    expect(db.getTask(t1).status).toBe('completed'); // already completed, unchanged
-    expect(db.getTask(t2).status).toBe('cancelled');
-    expect(db.getTask(t3).status).toBe('cancelled');
-    expect(db.getTask(t4).status).toBe('cancelled');
+    expect(taskCore.getTask(t1).status).toBe('completed'); // already completed, unchanged
+    expect(taskCore.getTask(t2).status).toBe('cancelled');
+    expect(taskCore.getTask(t3).status).toBe('cancelled');
+    expect(taskCore.getTask(t4).status).toBe('cancelled');
     expect(workflowEngine.getWorkflow(wfId).status).toBe('cancelled');
   });
 
@@ -446,7 +449,7 @@ describe('Chaos: Cascading Workflow Operations', () => {
     expect(deps.satisfied).toBe(false);
 
     // Complete A
-    db.updateTaskStatus(taskA, 'completed');
+    taskCore.updateTaskStatus(taskA, 'completed');
 
     // Check after completion
     deps = workflowEngine.areTaskDependenciesSatisfied(taskB);
@@ -459,7 +462,7 @@ describe('Chaos: Cascading Workflow Operations', () => {
 
     // Assign task to host
     hostManagement.tryReserveHostSlot(host.id, task1);
-    db.updateTaskStatus(task1, 'running');
+    taskCore.updateTaskStatus(task1, 'running');
 
     // Mark host as down — should trigger cleanup
     hostManagement.updateOllamaHost(host.id, { status: 'down', running_tasks: 0 });
@@ -489,7 +492,7 @@ describe('Chaos: WAL / Transaction Stress', () => {
 
     // All 100 should be retrievable
     for (const id of ids) {
-      const task = db.getTask(id);
+      const task = taskCore.getTask(id);
       expect(task).toBeTruthy();
       expect(task.id).toBe(id);
     }
@@ -504,7 +507,7 @@ describe('Chaos: WAL / Transaction Stress', () => {
       batchIds.push(id);
 
       // Read all tasks — should see complete records
-      const tasks = db.listTasks({ status: 'pending', limit: 200 });
+      const tasks = taskCore.listTasks({ status: 'pending', limit: 200 });
       for (const t of tasks) {
         expect(t.id).toBeTruthy();
         expect(t.task_description).toBeTruthy();
@@ -513,7 +516,7 @@ describe('Chaos: WAL / Transaction Stress', () => {
 
     // All 20 should exist
     for (const id of batchIds) {
-      expect(db.getTask(id)).toBeTruthy();
+      expect(taskCore.getTask(id)).toBeTruthy();
     }
   });
 
@@ -533,11 +536,11 @@ describe('Chaos: WAL / Transaction Stress', () => {
     }
 
     // The task created before the transaction should still exist
-    expect(db.getTask(taskBefore)).toBeTruthy();
+    expect(taskCore.getTask(taskBefore)).toBeTruthy();
 
     // New tasks should work after the failed transaction
     const taskAfter = createTestTask({ description: 'after-rollback' });
-    expect(db.getTask(taskAfter)).toBeTruthy();
+    expect(taskCore.getTask(taskAfter)).toBeTruthy();
   });
 
   test('busy timeout handling — concurrent BEGIN IMMEDIATE', () => {

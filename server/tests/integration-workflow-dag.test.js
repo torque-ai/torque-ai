@@ -19,6 +19,7 @@ const workflowEngine = require('../db/workflow-engine');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -29,6 +30,8 @@ function setupDb() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   return db;
@@ -59,7 +62,7 @@ function createWorkflowTask(workflowId, nodeId, status = 'blocked') {
   const isTerminal = ['completed', 'failed', 'cancelled'].includes(status);
   const createStatus = isTerminal ? 'pending' : status;
 
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     task_description: `Test task ${nodeId}`,
     working_directory: testDir,
@@ -71,7 +74,7 @@ function createWorkflowTask(workflowId, nodeId, status = 'blocked') {
 
   // Transition to target status if it differs from create status
   if (status !== createStatus) {
-    db.updateTaskStatus(taskId, status);
+    taskCore.updateTaskStatus(taskId, status);
   }
 
   return taskId;
@@ -115,8 +118,8 @@ describe('Integration: Workflow DAG', () => {
       const deps = workflowEngine.getTaskDependencies(dependentTask);
       expect(deps).toHaveLength(1);
       expect(deps[0].depends_on_task_id).toBe(missingDependencyId);
-      expect(db.getTask(missingDependencyId)).toBeFalsy();
-      expect(db.getTask(dependentTask).status).toBe('blocked');
+      expect(taskCore.getTask(missingDependencyId)).toBeFalsy();
+      expect(taskCore.getTask(dependentTask).status).toBe('blocked');
 
       const status = workflowEngine.getWorkflowStatus(workflowId);
       expect(status.summary.total).toBe(1);
@@ -144,8 +147,8 @@ describe('Integration: Workflow DAG', () => {
     });
 
     it('B starts blocked, A is pending', () => {
-      const a = db.getTask(taskA);
-      const b = db.getTask(taskB);
+      const a = taskCore.getTask(taskA);
+      const b = taskCore.getTask(taskB);
       expect(a.status).toBe('pending');
       expect(b.status).toBe('blocked');
     });
@@ -177,10 +180,10 @@ describe('Integration: Workflow DAG', () => {
     });
 
     it('completing A allows evaluating B dependencies', () => {
-      db.updateTaskStatus(taskA, 'completed', { exit_code: 0 });
+      taskCore.updateTaskStatus(taskA, 'completed', { exit_code: 0 });
       const deps = workflowEngine.getTaskDependencies(taskB);
       // A is now completed — condition should pass (default: prerequisite must succeed)
-      const prereq = db.getTask(deps[0].depends_on_task_id);
+      const prereq = taskCore.getTask(deps[0].depends_on_task_id);
       expect(prereq.status).toBe('completed');
     });
   });
@@ -225,21 +228,21 @@ describe('Integration: Workflow DAG', () => {
     });
 
     it('D stays blocked when only B completes', () => {
-      db.updateTaskStatus(taskB, 'completed', { exit_code: 0 });
+      taskCore.updateTaskStatus(taskB, 'completed', { exit_code: 0 });
       // D should still have one unsatisfied dependency (C)
       const depsD = workflowEngine.getTaskDependencies(taskD);
       const unsatisfied = depsD.filter(d => {
-        const prereq = db.getTask(d.depends_on_task_id);
+        const prereq = taskCore.getTask(d.depends_on_task_id);
         return !prereq || !['completed', 'skipped'].includes(prereq.status);
       });
       expect(unsatisfied.length).toBe(1);
     });
 
     it('D dependencies fully satisfied when both B and C complete', () => {
-      db.updateTaskStatus(taskC, 'completed', { exit_code: 0 });
+      taskCore.updateTaskStatus(taskC, 'completed', { exit_code: 0 });
       const depsD = workflowEngine.getTaskDependencies(taskD);
       const unsatisfied = depsD.filter(d => {
-        const prereq = db.getTask(d.depends_on_task_id);
+        const prereq = taskCore.getTask(d.depends_on_task_id);
         return !prereq || !['completed', 'skipped'].includes(prereq.status);
       });
       expect(unsatisfied.length).toBe(0);
@@ -269,15 +272,15 @@ describe('Integration: Workflow DAG', () => {
     });
 
     it('when A fails, B dependency condition fails (default requires success)', () => {
-      db.updateTaskStatus(taskA, 'failed', { exit_code: 1 });
-      const a = db.getTask(taskA);
+      taskCore.updateTaskStatus(taskA, 'failed', { exit_code: 1 });
+      const a = taskCore.getTask(taskA);
       expect(a.status).toBe('failed');
       // Default condition: prerequisite must be completed/skipped — failed doesn't pass
       expect(['completed', 'skipped'].includes(a.status)).toBe(false);
     });
 
     it('independent task C is unaffected by A failure', () => {
-      const c = db.getTask(taskC);
+      const c = taskCore.getTask(taskC);
       expect(c.status).toBe('pending');
     });
   });
@@ -324,10 +327,10 @@ describe('Integration: Workflow DAG', () => {
     });
 
     it('continue action treats failed prereq as satisfiable', () => {
-      db.updateTaskStatus(taskA, 'failed', { exit_code: 1 });
+      taskCore.updateTaskStatus(taskA, 'failed', { exit_code: 1 });
       // With on_fail: continue, the applyFailureAction code checks
       // if all deps are in terminal state (completed, skipped, OR failed)
-      const a = db.getTask(taskA);
+      const a = taskCore.getTask(taskA);
       expect(['completed', 'skipped', 'failed'].includes(a.status)).toBe(true);
     });
   });

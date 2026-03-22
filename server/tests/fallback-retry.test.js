@@ -10,6 +10,8 @@ let testDir;
 let origDataDir;
 let origOpenAiKey;
 let db;
+let taskCore;
+let configCore;
 let hostManagement;
 let providerRoutingCore;
 let eventTracking;
@@ -39,6 +41,10 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
@@ -113,7 +119,7 @@ function teardown() {
 function createTask(overrides = {}) {
   const id = overrides.id || randomUUID();
   const status = overrides.status || 'running';
-  db.createTask({
+  taskCore.createTask({
     id,
     status,
     task_description: overrides.task_description || 'Fallback retry test task',
@@ -128,10 +134,10 @@ function createTask(overrides = {}) {
   if (overrides.retry_count !== undefined) postCreateUpdates.retry_count = overrides.retry_count;
   if (overrides.error_output !== undefined) postCreateUpdates.error_output = overrides.error_output;
   if (Object.keys(postCreateUpdates).length > 0) {
-    db.updateTaskStatus(id, status, postCreateUpdates);
+    taskCore.updateTaskStatus(id, status, postCreateUpdates);
   }
 
-  return db.getTask(id);
+  return taskCore.getTask(id);
 }
 
 function registerHealthyHost(name, modelNames, extraUpdates = {}) {
@@ -244,15 +250,15 @@ describe('fallback-retry module', () => {
 
   describe('tryOllamaCloudFallback', () => {
     it('falls back to configured codex provider and requeues task', () => {
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       const task = createTask({ provider: 'ollama', retry_count: 1 });
       const ok = mod.tryOllamaCloudFallback(task.id, task, 'OOM error');
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.status).toBe('queued');
       expect(updated.provider).toBe('codex');
       expect(updated.model).toBeNull();
@@ -263,45 +269,45 @@ describe('fallback-retry module', () => {
     });
 
     it('auto-selects claude-cli when codex is disabled and no explicit fallback is set', () => {
-      db.setConfig('ollama_fallback_provider', '');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', '');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       const task = createTask({ provider: 'ollama' });
       const ok = mod.tryOllamaCloudFallback(task.id, task, 'model missing');
 
       expect(ok).toBe(true);
-      expect(db.getTask(task.id).provider).toBe('claude-cli');
+      expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
     });
 
     it('falls through to claude-cli when explicit codex fallback is configured but disabled', () => {
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       const task = createTask({ provider: 'ollama' });
       const ok = mod.tryOllamaCloudFallback(task.id, task, 'provider disabled');
 
       expect(ok).toBe(true);
-      expect(db.getTask(task.id).provider).toBe('claude-cli');
+      expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
     });
 
     it('returns false when all cloud providers are disabled', () => {
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '0');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '0');
 
       const task = createTask({ provider: 'ollama' });
       const ok = mod.tryOllamaCloudFallback(task.id, task, 'all disabled');
 
       expect(ok).toBe(false);
-      expect(db.getTask(task.id).status).toBe('running');
+      expect(taskCore.getTask(task.id).status).toBe('running');
       expect(notifyCalls).toHaveLength(0);
       expect(processQueueCalls).toBe(0);
     });
 
     it('prefers healthy provider over unhealthy one when isProviderHealthy is available', () => {
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
       // Mark codex as unhealthy by recording many failures
       for (let i = 0; i < 10; i++) providerRoutingCore.recordProviderOutcome('codex', false);
 
@@ -310,16 +316,16 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       // Should pick claude-cli (healthy) instead of codex (unhealthy)
-      expect(db.getTask(task.id).provider).toBe('claude-cli');
+      expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
 
       // Clean up in-memory health state to avoid leaking into other tests
       if (typeof providerRoutingCore.resetProviderHealth === 'function') providerRoutingCore.resetProviderHealth();
     });
 
     it('uses configured fallback provider when it is healthy', () => {
-      db.setConfig('ollama_fallback_provider', 'claude-cli');
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', 'claude-cli');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       withDbMethods({
         getProvider: vi.fn((name) => ({ enabled: ['claude-cli', 'codex'].includes(name) })),
@@ -329,14 +335,14 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'model unavailable');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('claude-cli');
+        expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
       });
     });
 
     it('falls back to a healthy alternative when configured fallback is unhealthy', () => {
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       withDbMethods({
         getProvider: vi.fn(() => ({ enabled: true })),
@@ -346,15 +352,15 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'provider unhealthy');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('claude-cli');
-        expect(db.getTask(task.id).retry_count).toBe(3);
+        expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
+        expect(taskCore.getTask(task.id).retry_count).toBe(3);
       });
     });
 
     it('falls back to codex as first default provider when only local defaults are enabled', () => {
-      db.setConfig('ollama_fallback_provider', '');
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', '');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       withDbMethods({
         getProvider: vi.fn((name) => ({ enabled: ['codex', 'claude-cli'].includes(name) })),
@@ -363,14 +369,14 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'provider missing');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('codex');
+        expect(taskCore.getTask(task.id).provider).toBe('codex');
       });
     });
 
     it('falls back to configured default provider when configured fallback is disabled', () => {
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       withDbMethods({
         getProvider: vi.fn((name) => ({ enabled: ['claude-cli', 'codex'].includes(name) })),
@@ -379,14 +385,14 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'fallback disabled');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('claude-cli');
+        expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
       });
     });
 
     it('falls back to API provider chain when local cloud providers are disabled', () => {
-      db.setConfig('ollama_fallback_provider', '');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '0');
+      configCore.setConfig('ollama_fallback_provider', '');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '0');
 
       withDbMethods({
         getProvider: vi.fn((name) => ({
@@ -400,14 +406,14 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'no local path');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('hyperbolic');
+        expect(taskCore.getTask(task.id).provider).toBe('hyperbolic');
       });
     });
 
     it('uses healthy API provider in declared order', () => {
-      db.setConfig('ollama_fallback_provider', '');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '0');
+      configCore.setConfig('ollama_fallback_provider', '');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '0');
 
       withDbMethods({
         getProvider: vi.fn((name) => ({ enabled: ['deepinfra', 'hyperbolic', 'anthropic', 'groq'].includes(name) })),
@@ -417,14 +423,14 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'API chain');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('anthropic');
+        expect(taskCore.getTask(task.id).provider).toBe('anthropic');
       });
     });
 
     it('falls back to first candidate when all providers are unhealthy', () => {
-      db.setConfig('ollama_fallback_provider', '');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '0');
+      configCore.setConfig('ollama_fallback_provider', '');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '0');
 
       withDbMethods({
         getProvider: vi.fn(() => ({ enabled: true })),
@@ -435,14 +441,14 @@ describe('fallback-retry module', () => {
 
         expect(ok).toBe(true);
         // ollama-cloud is now first in the ollama fallback chain (before deepinfra)
-        expect(db.getTask(task.id).provider).toBe('ollama-cloud');
+        expect(taskCore.getTask(task.id).provider).toBe('ollama-cloud');
       });
     });
 
     it('ignores exceptions while probing API provider config', () => {
-      db.setConfig('ollama_fallback_provider', '');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '0');
+      configCore.setConfig('ollama_fallback_provider', '');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '0');
 
       withDbMethods({
         getProvider: vi.fn((name) => {
@@ -455,14 +461,14 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'skip bad provider');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('hyperbolic');
+        expect(taskCore.getTask(task.id).provider).toBe('hyperbolic');
       });
     });
 
     it('falls back without isProviderHealthy when health tracker is unavailable', () => {
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       withDbMethods({
         getProvider: vi.fn((_name) => ({ enabled: true })),
@@ -472,27 +478,27 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'health tracker missing');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('codex');
+        expect(taskCore.getTask(task.id).provider).toBe('codex');
       });
     });
 
     it('always increments retry_count when cloud fallback is taken', () => {
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
 
       const task = createTask({ provider: 'ollama', retry_count: 7 });
       const ok = mod.tryOllamaCloudFallback(task.id, task, 'retry count growth');
 
       expect(ok).toBe(true);
-      expect(db.getTask(task.id).retry_count).toBe(8);
-      expect(db.getTask(task.id).error_output).toContain('[Ollama→Cloud]');
+      expect(taskCore.getTask(task.id).retry_count).toBe(8);
+      expect(taskCore.getTask(task.id).error_output).toContain('[Ollama→Cloud]');
     });
 
     it('skips quota-exhausted cloud providers and selects the next available candidate', () => {
-      db.setConfig('ollama_fallback_provider', '');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '0');
+      configCore.setConfig('ollama_fallback_provider', '');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '0');
       mod.setFreeQuotaTracker(() => ({
         getStatus: () => ({
           deepinfra: { cooldown_until: Date.now() + 60_000 },
@@ -507,14 +513,14 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'free tier cooldown');
 
         expect(ok).toBe(true);
-        expect(db.getTask(task.id).provider).toBe('hyperbolic');
+        expect(taskCore.getTask(task.id).provider).toBe('hyperbolic');
       });
     });
 
     it('returns false when quota checks block every otherwise-enabled cloud provider', () => {
-      db.setConfig('ollama_fallback_provider', '');
-      db.setConfig('codex_enabled', '0');
-      db.setConfig('claude_cli_enabled', '0');
+      configCore.setConfig('ollama_fallback_provider', '');
+      configCore.setConfig('codex_enabled', '0');
+      configCore.setConfig('claude_cli_enabled', '0');
       mod.setFreeQuotaTracker(() => ({
         getStatus: () => ({
           deepinfra: { cooldown_until: Date.now() + 60_000 },
@@ -530,7 +536,7 @@ describe('fallback-retry module', () => {
         const ok = mod.tryOllamaCloudFallback(task.id, task, 'all providers cooling down');
 
         expect(ok).toBe(false);
-        expect(db.getTask(task.id).status).toBe('running');
+        expect(taskCore.getTask(task.id).status).toBe('running');
         expect(processQueueCalls).toBe(0);
       });
     });
@@ -538,7 +544,7 @@ describe('fallback-retry module', () => {
 
   describe('tryLocalFirstFallback', () => {
     it('tries the same model on a different host first', () => {
-      db.setConfig('max_local_retries', '3');
+      configCore.setConfig('max_local_retries', '3');
       const hostA = registerHealthyHost('local-a', ['qwen2.5-coder:14b'], { running_tasks: 2 });
       const hostB = registerHealthyHost('local-b', ['qwen2.5-coder:14b'], { running_tasks: 0 });
 
@@ -551,7 +557,7 @@ describe('fallback-retry module', () => {
       const ok = mod.tryLocalFirstFallback(task.id, task, 'connection reset');
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.status).toBe('queued');
       expect(updated.provider).toBe('ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
@@ -572,7 +578,7 @@ describe('fallback-retry module', () => {
       const ok = mod.tryLocalFirstFallback(task.id, task, 'still failing', { skipSameModel: true });
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.provider).toBe('ollama');
       expect(updated.model).toBe('deepseek-coder:33b');
       expect(updated.ollama_host_id).toBe(hostA);
@@ -589,7 +595,7 @@ describe('fallback-retry module', () => {
       const ok = mod.tryLocalFirstFallback(task.id, task, 'provider issue', { skipSameModel: true });
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.provider).toBe('hashline-ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.ollama_host_id).toBeNull();
@@ -597,9 +603,9 @@ describe('fallback-retry module', () => {
     });
 
     it('escalates to cloud after max local retries are exhausted', () => {
-      db.setConfig('max_local_retries', '1');
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '1');
+      configCore.setConfig('max_local_retries', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
 
       const task = createTask({
         provider: 'ollama',
@@ -613,7 +619,7 @@ describe('fallback-retry module', () => {
       const ok = mod.tryLocalFirstFallback(task.id, task, 'still failing');
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.provider).toBe('codex');
       expect(updated.model).toBeNull();
       expect(updated.error_output).toContain('[Local-First] Exhausted 1 local retries');
@@ -621,8 +627,8 @@ describe('fallback-retry module', () => {
 
     it('skips raw ollama when task is greenfield (new file creation)', () => {
       // EXP7: Raw ollama produces instructions instead of code for greenfield tasks
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
       const task = createTask({
         provider: 'hashline-ollama',
         model: 'qwen2.5-coder:14b',
@@ -633,7 +639,7 @@ describe('fallback-retry module', () => {
       const ok = mod.tryLocalFirstFallback(task.id, task, 'hashline parse error', { skipSameModel: true });
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       // Should skip 'ollama' (greenfield) and escalate to cloud since no other local providers
       expect(updated.error_output).not.toContain('[Local-First] Trying provider ollama');
     });
@@ -649,13 +655,13 @@ describe('fallback-retry module', () => {
       const ok = mod.tryLocalFirstFallback(task.id, task, 'provider issue', { skipSameModel: true });
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       // Non-greenfield task should be able to use raw ollama
       expect(updated.provider).toBe('ollama');
     });
 
     it('keeps moving through the chain when host selection and model enumeration throw', () => {
-      db.setConfig('max_local_retries', '3');
+      configCore.setConfig('max_local_retries', '3');
       const task = createTask({
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
@@ -673,17 +679,17 @@ describe('fallback-retry module', () => {
         const ok = mod.tryLocalFirstFallback(task.id, task, 'network failures everywhere');
 
         expect(ok).toBe(true);
-        const updated = db.getTask(task.id);
+        const updated = taskCore.getTask(task.id);
         expect(updated.provider).toBe('hashline-ollama');
         expect(updated.error_output).toContain('[Local-First] Trying provider hashline-ollama');
       });
     });
 
     it('escalates to cloud when every local fallback path has already been exhausted', () => {
-      db.setConfig('max_local_retries', '5');
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '0');
+      configCore.setConfig('max_local_retries', '5');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '0');
 
       const task = createTask({
         provider: 'ollama',
@@ -699,7 +705,7 @@ describe('fallback-retry module', () => {
         const ok = mod.tryLocalFirstFallback(task.id, task, 'provider timeout', { skipSameModel: true });
 
         expect(ok).toBe(true);
-        const updated = db.getTask(task.id);
+        const updated = taskCore.getTask(task.id);
         expect(updated.provider).toBe('codex');
         expect(updated.model).toBeNull();
         expect(updated.error_output).toContain('[Local-First] All local options exhausted');
@@ -726,7 +732,7 @@ describe('fallback-retry module', () => {
       expect(recovery.attempts).toBe(1);
       expect(recovery.lastStrategy).toBe('switch_edit_format');
 
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.status).toBe('queued');
       const meta = updated.metadata || {};
       expect(meta.stallRecoveryEditFormat).toBe('whole');
@@ -752,7 +758,7 @@ describe('fallback-retry module', () => {
       expect(recovery.attempts).toBe(1);
       expect(recovery.lastStrategy).toBe('switch_model');
 
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.model).toBe('qwen2.5-coder:32b');
       const meta = updated.metadata || {};
       expect(meta.stallRecoveryEditFormat).toBe('whole');
@@ -778,7 +784,7 @@ describe('fallback-retry module', () => {
         expect(restartCalls[0].reason).toContain('local_first_fallback');
         expect(stallRecoveryAttempts.get(task.id).attempts).toBe(1);
         expect(stallRecoveryAttempts.get(task.id).lastStrategy).toBe('local_first_fallback');
-        expect(db.getTask(task.id).provider).toBe('hashline-ollama');
+        expect(taskCore.getTask(task.id).provider).toBe('hashline-ollama');
       });
     });
 
@@ -808,7 +814,7 @@ describe('fallback-retry module', () => {
     });
 
     it('keeps stall state across attempts and clears it only when limit is hit', () => {
-      db.setConfig('stall_recovery_max_attempts', '1');
+      configCore.setConfig('stall_recovery_max_attempts', '1');
       const task = createTask({ provider: 'ollama' });
       stallRecoveryAttempts.set(task.id, { attempts: 0, lastStrategy: null });
 
@@ -840,9 +846,9 @@ describe('fallback-retry module', () => {
         model: 'qwen2.5-coder:14b'
       });
 
-      const originalUpdate = db.updateTaskStatus;
+      const originalUpdate = taskCore.updateTaskStatus;
       let call = 0;
-      db.updateTaskStatus = vi.fn((id, status, updates) => {
+      taskCore.updateTaskStatus = vi.fn((id, status, updates) => {
         call++;
         if (call === 1 && status === 'queued') {
           throw new Error('Cannot update status');
@@ -854,10 +860,10 @@ describe('fallback-retry module', () => {
         const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 500 });
         expect(ok).toBe(true);
       } finally {
-        db.updateTaskStatus = originalUpdate;
+        taskCore.updateTaskStatus = originalUpdate;
       }
 
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.status).toBe('failed');
       expect(updated.error_output).toContain('Stall recovery re-queue failed');
     });
@@ -880,14 +886,14 @@ describe('fallback-retry module', () => {
       expect(recovery.attempts).toBe(2);
       expect(recovery.lastStrategy).toBe('switch_model');
 
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.model).toBe('qwen2.5-coder:32b');
       const meta = updated.metadata || {};
       expect(meta.stallRecoveryEditFormat).toBe('whole');
     });
 
     it('cancels task when maximum stall recovery attempts are exhausted', () => {
-      db.setConfig('stall_recovery_max_attempts', '2');
+      configCore.setConfig('stall_recovery_max_attempts', '2');
       const task = createTask({ provider: 'ollama' });
       stallRecoveryAttempts.set(task.id, { attempts: 2, lastStrategy: 'local_first_fallback' });
 
@@ -901,7 +907,7 @@ describe('fallback-retry module', () => {
     });
 
     it('uses local-first fallback directly on third-and-later stall recovery attempts', () => {
-      db.setConfig('max_local_retries', '3');
+      configCore.setConfig('max_local_retries', '3');
       const task = createTask({
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
@@ -921,7 +927,7 @@ describe('fallback-retry module', () => {
           attempts: 3,
           lastStrategy: 'local_first_fallback',
         });
-        expect(db.getTask(task.id).provider).toBe('hashline-ollama');
+        expect(taskCore.getTask(task.id).provider).toBe('hashline-ollama');
       });
     });
   });
@@ -1069,16 +1075,16 @@ describe('fallback-retry module', () => {
 
   describe('hashline model helpers', () => {
     it('isHashlineCapableModel honors allowlist and allow-all behavior', () => {
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder,codestral:22b');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder,codestral:22b');
       expect(mod.isHashlineCapableModel('qwen2.5-coder:7b')).toBe(true);
       expect(mod.isHashlineCapableModel('phi3:3b')).toBe(false);
 
-      db.setConfig('hashline_capable_models', '');
+      configCore.setConfig('hashline_capable_models', '');
       expect(mod.isHashlineCapableModel('phi3:3b')).toBe(true);
     });
 
     it('findNextHashlineModel prefers the smallest larger untried model', () => {
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
       const hostId = registerHealthyHost('hashline-next', [
         'qwen2.5-coder:7b',
         'qwen2.5-coder:14b',
@@ -1090,7 +1096,7 @@ describe('fallback-retry module', () => {
     });
 
     it('findNextHashlineModel falls back to largest untried capable model when none are larger', () => {
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
       const hostId = registerHealthyHost('hashline-fallback', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
 
       const next = mod.findNextHashlineModel(
@@ -1101,7 +1107,7 @@ describe('fallback-retry module', () => {
     });
 
     it('findNextHashlineModel returns null when model discovery throws', () => {
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
       const originalGetAggregatedModels = hostManagement.getAggregatedModels;
       hostManagement.getAggregatedModels = vi.fn(() => {
         throw new Error('hashline registry offline');
@@ -1117,7 +1123,7 @@ describe('fallback-retry module', () => {
 
   describe('tryHashlineTieredFallback', () => {
     it('retries same model on a different host before cloud escalation', () => {
-      db.setConfig('max_hashline_local_retries', '2');
+      configCore.setConfig('max_hashline_local_retries', '2');
       const hostA = registerHealthyHost('hashline-a', ['qwen2.5-coder:14b'], { running_tasks: 2 });
       const hostB = registerHealthyHost('hashline-b', ['qwen2.5-coder:14b'], { running_tasks: 0 });
 
@@ -1130,7 +1136,7 @@ describe('fallback-retry module', () => {
       const ok = mod.tryHashlineTieredFallback(task.id, task, 'connection timeout');
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.provider).toBe('hashline-ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.ollama_host_id).toBe(hostB);
@@ -1138,8 +1144,8 @@ describe('fallback-retry module', () => {
     });
 
     it('skips host switching when the task is already known not hashline-capable', () => {
-      db.setConfig('max_hashline_local_retries', '2');
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      configCore.setConfig('max_hashline_local_retries', '2');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
       const host = registerHealthyHost('hashline-single', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
 
       const task = createTask({
@@ -1151,15 +1157,15 @@ describe('fallback-retry module', () => {
       const ok = mod.tryHashlineTieredFallback(task.id, task, 'not hashline-capable output format invalid');
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.ollama_host_id).toBe(host);
       expect(updated.error_output).toContain('[Hashline-Local] Trying model qwen2.5-coder:14b');
     });
 
     it('tries an untried larger hashline model when prior model was already attempted', () => {
-      db.setConfig('max_hashline_local_retries', '2');
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      configCore.setConfig('max_hashline_local_retries', '2');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
       const host = registerHealthyHost('hashline-history', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b', 'qwen2.5-coder:32b']);
 
       const task = createTask({
@@ -1172,14 +1178,14 @@ describe('fallback-retry module', () => {
       const ok = mod.tryHashlineTieredFallback(task.id, task, 'stale response');
 
       expect(ok).toBe(true);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.model).toBe('qwen2.5-coder:32b');
       expect(updated.error_output).toContain('[Hashline-Local] Trying model qwen2.5-coder:32b');
     });
 
     it('falls back to a larger model when only one host is available', () => {
-      db.setConfig('max_hashline_local_retries', '1');
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      configCore.setConfig('max_hashline_local_retries', '1');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
       const host = registerHealthyHost('hashline-alone', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
 
       const task = createTask({
@@ -1191,15 +1197,15 @@ describe('fallback-retry module', () => {
       const ok = mod.tryHashlineTieredFallback(task.id, task, 'hashline parsing failed');
       expect(ok).toBe(true);
 
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.provider).toBe('hashline-ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.error_output).toContain('[Hashline-Local] Trying model qwen2.5-coder:14b');
     });
 
     it('keeps escalating locally when same-model host selection fails with a timeout', () => {
-      db.setConfig('max_hashline_local_retries', '2');
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      configCore.setConfig('max_hashline_local_retries', '2');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
       const host = registerHealthyHost('hashline-timeout', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
 
       const task = createTask({
@@ -1219,7 +1225,7 @@ describe('fallback-retry module', () => {
         const ok = mod.tryHashlineTieredFallback(task.id, task, 'network timeout');
 
         expect(ok).toBe(true);
-        const updated = db.getTask(task.id);
+        const updated = taskCore.getTask(task.id);
         expect(updated.provider).toBe('hashline-ollama');
         expect(updated.model).toBe('qwen2.5-coder:14b');
         expect(updated.error_output).toContain('[Hashline-Local] Trying model qwen2.5-coder:14b');
@@ -1227,8 +1233,8 @@ describe('fallback-retry module', () => {
     });
 
     it('falls back to codex when cloud escalation is unavailable', () => {
-      db.setConfig('max_hashline_local_retries', '1');
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      configCore.setConfig('max_hashline_local_retries', '1');
+      configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
       providerRoutingCore.getProvider = () => ({ enabled: false });
       delete process.env.OPENAI_API_KEY;
 
@@ -1241,12 +1247,12 @@ describe('fallback-retry module', () => {
 
       const first = mod.tryHashlineTieredFallback(task.id, task, 'local retry');
       expect(first).toBe(true);
-      let updated = db.getTask(task.id);
+      let updated = taskCore.getTask(task.id);
       expect(updated.model).toBe('qwen2.5-coder:14b');
 
-      const second = mod.tryHashlineTieredFallback(task.id, db.getTask(task.id), 'still failing');
+      const second = mod.tryHashlineTieredFallback(task.id, taskCore.getTask(task.id), 'still failing');
       expect(second).toBe(true);
-      updated = db.getTask(task.id);
+      updated = taskCore.getTask(task.id);
       expect(updated.provider).toBe('codex');
       expect(updated.model).toBeNull();
       expect(updated.error_output).toContain('Escalated from hashline-ollama: still failing');
@@ -1258,12 +1264,12 @@ describe('fallback-retry module', () => {
         model: 'qwen2.5-coder:7b'
       });
       // Manually set task to cancelled state
-      db.updateTaskStatus(task.id, 'cancelled', {});
+      taskCore.updateTaskStatus(task.id, 'cancelled', {});
 
       const ok = mod.tryHashlineTieredFallback(task.id, task, 'connection timeout');
 
       expect(ok).toBe(false);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.status).toBe('cancelled');
       expect(updated.provider).toBe('hashline-ollama'); // unchanged
     });
@@ -1273,13 +1279,13 @@ describe('fallback-retry module', () => {
         provider: 'hashline-ollama',
         model: 'qwen2.5-coder:7b'
       });
-      db.updateTaskStatus(task.id, 'running', {});
-      db.updateTaskStatus(task.id, 'completed', { exit_code: 0 });
+      taskCore.updateTaskStatus(task.id, 'running', {});
+      taskCore.updateTaskStatus(task.id, 'completed', { exit_code: 0 });
 
       const ok = mod.tryHashlineTieredFallback(task.id, task, 'stale error');
 
       expect(ok).toBe(false);
-      const updated = db.getTask(task.id);
+      const updated = taskCore.getTask(task.id);
       expect(updated.status).toBe('completed');
     });
   });
@@ -1289,10 +1295,10 @@ describe('fallback-retry module', () => {
       // Each call adds one [Local-First] marker to error_output.
       // With max_local_retries=1, the first call gets one local retry,
       // and the second call sees 1 marker >= max(1) and escalates to cloud.
-      db.setConfig('max_local_retries', '1');
-      db.setConfig('ollama_fallback_provider', 'codex');
-      db.setConfig('codex_enabled', '1');
-      db.setConfig('claude_cli_enabled', '1');
+      configCore.setConfig('max_local_retries', '1');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
       // Single host, no model alternatives: step 1 (host switch) and step 2 (model switch)
       // both fail, forcing step 3 (provider switch) on the first call.
       const hostA = registerHealthyHost('full-a', ['qwen2.5-coder:14b']);
@@ -1308,16 +1314,16 @@ describe('fallback-retry module', () => {
 
         // Call 1: step 1 fails (only one host). Step 2 fails (no models).
         // Step 3: switch to different local provider (hashline-ollama).
-        const first = mod.tryLocalFirstFallback(task.id, db.getTask(task.id), 'first local failure');
+        const first = mod.tryLocalFirstFallback(task.id, taskCore.getTask(task.id), 'first local failure');
         expect(first).toBe(true);
-        const afterFirst = db.getTask(task.id);
+        const afterFirst = taskCore.getTask(task.id);
         expect(afterFirst.provider).toBe('hashline-ollama');
         expect(afterFirst.error_output).toContain('[Local-First] Trying provider hashline-ollama');
 
         // Call 2: 1 [Local-First] marker >= max_local_retries(1), escalates to cloud.
-        const second = mod.tryLocalFirstFallback(task.id, db.getTask(task.id), 'second local failure');
+        const second = mod.tryLocalFirstFallback(task.id, taskCore.getTask(task.id), 'second local failure');
         expect(second).toBe(true);
-        const afterSecond = db.getTask(task.id);
+        const afterSecond = taskCore.getTask(task.id);
         expect(afterSecond.provider).toBe('codex');
         expect(afterSecond.model).toBeNull();
         expect(afterSecond.error_output).toContain('[Local-First] Exhausted 1 local retries');
@@ -1328,7 +1334,7 @@ describe('fallback-retry module', () => {
 
   describe('selectHashlineFormat', () => {
     it('uses task metadata override before model config override', () => {
-      db.setConfig('hashline_model_formats', JSON.stringify({
+      configCore.setConfig('hashline_model_formats', JSON.stringify({
         'qwen2.5-coder:7b': 'hashline-lite',
         qwen2_5_coder: 'hashline-lite'
       }));
@@ -1342,7 +1348,7 @@ describe('fallback-retry module', () => {
     });
 
     it('uses exact and base-model config overrides before auto-selection', () => {
-      db.setConfig('hashline_model_formats', JSON.stringify({
+      configCore.setConfig('hashline_model_formats', JSON.stringify({
         'qwen2.5-coder:14b': 'hashline-lite',
         'deepseek-coder': 'hashline-lite'
       }));
@@ -1358,8 +1364,8 @@ describe('fallback-retry module', () => {
     });
 
     it('forces standard hashline when the model has repeated format failures', () => {
-      db.setConfig('hashline_model_formats', '{}');
-      db.setConfig('hashline_format_auto_select', '0');
+      configCore.setConfig('hashline_model_formats', '{}');
+      configCore.setConfig('hashline_format_auto_select', '0');
       hostManagement.getModelFormatFailures = vi.fn(() => ([
         { model_name: 'qwen2.5-coder', failure_count: 2 },
         { model_name: 'qwen2.5-coder:14b', failure_count: 1 },
@@ -1372,8 +1378,8 @@ describe('fallback-retry module', () => {
     });
 
     it('falls back to the default format when auto-learn checks fail', () => {
-      db.setConfig('hashline_model_formats', '{}');
-      db.setConfig('hashline_format_auto_select', '0');
+      configCore.setConfig('hashline_model_formats', '{}');
+      configCore.setConfig('hashline_format_auto_select', '0');
       hostManagement.getModelFormatFailures = vi.fn(() => {
         throw new Error('telemetry store unavailable');
       });
@@ -1385,8 +1391,8 @@ describe('fallback-retry module', () => {
     });
 
     it('uses auto-routing when enabled and falls back to default when no recommendation exists', () => {
-      db.setConfig('hashline_model_formats', '{}');
-      db.setConfig('hashline_format_auto_select', '1');
+      configCore.setConfig('hashline_model_formats', '{}');
+      configCore.setConfig('hashline_format_auto_select', '1');
       eventTracking.getBestFormatForModel = () => ({ format: 'hashline-lite', reason: 'lite_outperforms' });
 
       const auto = mod.selectHashlineFormat('qwen2.5-coder:14b', null);
@@ -1520,7 +1526,7 @@ describe('scheduleProcessQueue debouncing', () => {
       // Full setup with fake timers active so setTimeout is properly intercepted
       setup();
 
-      db.setConfig('max_hashline_local_retries', '0');
+      configCore.setConfig('max_hashline_local_retries', '0');
       providerRoutingCore.getProvider = () => ({ enabled: false });
       delete process.env.OPENAI_API_KEY;
 

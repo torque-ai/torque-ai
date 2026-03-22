@@ -14,6 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -24,6 +25,8 @@ function setupDb() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   return db;
@@ -49,7 +52,7 @@ describe('Provider Switch — Model Clearing', () => {
 
   it('clears model to null when provider changes and no new model is passed', () => {
     const taskId = uuidv4();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test model clearing on provider switch',
       status: 'queued',
@@ -58,16 +61,16 @@ describe('Provider Switch — Model Clearing', () => {
     });
 
     // Switch provider without specifying a new model
-    db.updateTaskStatus(taskId, 'running', { provider: 'ollama' });
+    taskCore.updateTaskStatus(taskId, 'running', { provider: 'ollama' });
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.provider).toBe('ollama');
     expect(task.model).toBeNull();
   });
 
   it('preserves new model when provider changes and a model IS provided', () => {
     const taskId = uuidv4();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test model preservation on provider switch',
       status: 'queued',
@@ -75,19 +78,19 @@ describe('Provider Switch — Model Clearing', () => {
       model: 'gpt-5.3-codex-spark',
     });
 
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       provider: 'ollama',
       model: 'qwen2.5-coder:32b',
     });
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.provider).toBe('ollama');
     expect(task.model).toBe('qwen2.5-coder:32b');
   });
 
   it('does not touch model when provider does not change', () => {
     const taskId = uuidv4();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test model untouched when same provider',
       status: 'queued',
@@ -96,41 +99,41 @@ describe('Provider Switch — Model Clearing', () => {
     });
 
     // Update status without changing provider
-    db.updateTaskStatus(taskId, 'running');
+    taskCore.updateTaskStatus(taskId, 'running');
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.provider).toBe('codex');
     expect(task.model).toBe('gpt-5.3-codex-spark');
   });
 
   it('sets original_provider on first provider switch', () => {
     const taskId = uuidv4();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test original_provider tracking',
       status: 'queued',
       provider: 'codex',
     });
 
-    db.updateTaskStatus(taskId, 'running', { provider: 'ollama' });
+    taskCore.updateTaskStatus(taskId, 'running', { provider: 'ollama' });
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task.original_provider).toBe('codex');
     expect(task.provider).toBe('ollama');
   });
 
   it('appends to provider_switch_history in metadata', () => {
     const taskId = uuidv4();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test switch history metadata',
       status: 'queued',
       provider: 'codex',
     });
 
-    db.updateTaskStatus(taskId, 'running', { provider: 'ollama' });
+    taskCore.updateTaskStatus(taskId, 'running', { provider: 'ollama' });
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
     expect(meta.provider_switch_history).toBeDefined();
     expect(Array.isArray(meta.provider_switch_history)).toBe(true);

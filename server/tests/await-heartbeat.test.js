@@ -172,6 +172,7 @@ describe('formatHeartbeat', () => {
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const db = require('../database');
+const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
 const hostMonitoring = require('../utils/host-monitoring');
 
@@ -198,7 +199,7 @@ function textOf(result) {
 
 function createTask(overrides = {}) {
   const id = overrides.id || randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id,
     task_description: 'Heartbeat test task',
     provider: 'codex',
@@ -211,21 +212,21 @@ function createTask(overrides = {}) {
 }
 
 function finalizeTask(taskId, status = 'completed', overrides = {}) {
-  const task = db.getTask(taskId);
+  const task = taskCore.getTask(taskId);
   if (!task) return;
 
   if (task.status === 'blocked') {
-    db.updateTaskStatus(taskId, 'pending');
+    taskCore.updateTaskStatus(taskId, 'pending');
   }
 
-  const current = db.getTask(taskId);
+  const current = taskCore.getTask(taskId);
   if (current && ['pending', 'queued'].includes(current.status)) {
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: overrides.started_at || '2026-01-01T00:00:00.000Z',
     });
   }
 
-  db.updateTaskStatus(taskId, status, {
+  taskCore.updateTaskStatus(taskId, status, {
     output: overrides.output ?? (status === 'completed' ? 'task output' : ''),
     error_output: overrides.error_output ?? (status === 'failed' ? 'task failed' : null),
     exit_code: overrides.exit_code
@@ -281,7 +282,7 @@ describe('handleAwaitTask heartbeat integration', () => {
     vi.useFakeTimers();
     const taskId = createTask({ status: 'running' });
     // Set started_at so elapsed calc works
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: new Date(Date.now() - 10000).toISOString(),
     });
 
@@ -322,7 +323,7 @@ describe('handleAwaitTask heartbeat integration', () => {
 
   test('notable event (task:started) triggers immediate heartbeat', async () => {
     const taskId = createTask({ status: 'running' });
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: new Date().toISOString(),
     });
 
@@ -398,7 +399,7 @@ describe('handleAwaitTask heartbeat integration', () => {
 
   test('heartbeat includes partial_output from DB', async () => {
     const taskId = createTask({ status: 'running' });
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: new Date().toISOString(),
       partial_output: 'Working on files...',
     });
@@ -424,7 +425,7 @@ describe('handleAwaitTask heartbeat integration', () => {
 
   test('task:retry triggers heartbeat, not completion', async () => {
     const taskId = createTask({ status: 'running' });
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: new Date().toISOString(),
     });
 
@@ -481,7 +482,7 @@ function createWorkflowWithTasks(taskDefs) {
   const taskIds = {};
   for (const def of taskDefs) {
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: def.description || 'Workflow task',
       provider: def.provider || 'codex',
@@ -551,7 +552,7 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
     finalizeTask(taskIds.done, 'completed', { output: 'done output' });
 
     // Transition active -> running
-    db.updateTaskStatus(taskIds.active, 'running', {
+    taskCore.updateTaskStatus(taskIds.active, 'running', {
       started_at: new Date(Date.now() - 30000).toISOString(),
       provider: 'codex',
     });
@@ -591,12 +592,12 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
     ]);
 
     // Transition step1 running -> completed
-    db.updateTaskStatus(taskIds.step1, 'running', {
+    taskCore.updateTaskStatus(taskIds.step1, 'running', {
       started_at: new Date().toISOString(),
     });
 
     // Start step2 running
-    db.updateTaskStatus(taskIds.step2, 'running', {
+    taskCore.updateTaskStatus(taskIds.step2, 'running', {
       started_at: new Date().toISOString(),
     });
 
@@ -626,7 +627,7 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
     ]);
 
     // running1 -> running
-    db.updateTaskStatus(taskIds.running1, 'running', {
+    taskCore.updateTaskStatus(taskIds.running1, 'running', {
       started_at: new Date(Date.now() - 60000).toISOString(),
     });
 
@@ -658,10 +659,10 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
     ]);
 
     // Both running
-    db.updateTaskStatus(taskIds.taskA, 'running', {
+    taskCore.updateTaskStatus(taskIds.taskA, 'running', {
       started_at: new Date().toISOString(),
     });
-    db.updateTaskStatus(taskIds.taskB, 'running', {
+    taskCore.updateTaskStatus(taskIds.taskB, 'running', {
       started_at: new Date().toISOString(),
     });
 
@@ -690,7 +691,7 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
       { name: 'wfTask', description: 'WF task', status: 'pending' },
     ]);
 
-    db.updateTaskStatus(
+    taskCore.updateTaskStatus(
       workflowEngine.getWorkflowTasks(workflowId)[0].id,
       'running',
       { started_at: new Date(Date.now()).toISOString() }
@@ -727,7 +728,7 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
 
     // All three running
     for (const name of ['a', 'b', 'c']) {
-      db.updateTaskStatus(taskIds[name], 'running', {
+      taskCore.updateTaskStatus(taskIds[name], 'running', {
         started_at: new Date(Date.now() - 10000).toISOString(),
       });
     }
@@ -806,7 +807,7 @@ describe('heartbeat integration', () => {
     // 1. Create a running task
     vi.useFakeTimers();
     const taskId = createTask({ status: 'running' });
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: new Date(Date.now() - 10000).toISOString(),
     });
 
@@ -854,7 +855,7 @@ describe('heartbeat integration', () => {
   test('stall_warning event includes correct alert text', async () => {
     // 1. Create a running task
     const taskId = createTask({ status: 'running' });
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: new Date().toISOString(),
     });
 
@@ -890,7 +891,7 @@ describe('heartbeat integration', () => {
   test('partial_output from DB included in heartbeat', async () => {
     // 1. Create running task, set partial_output in DB to 'test output data'
     const taskId = createTask({ status: 'running' });
-    db.updateTaskStatus(taskId, 'running', {
+    taskCore.updateTaskStatus(taskId, 'running', {
       started_at: new Date().toISOString(),
       partial_output: 'test output data',
     });

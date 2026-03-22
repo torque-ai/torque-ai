@@ -14,6 +14,7 @@ const { MAX_STREAMING_OUTPUT } = require('../constants');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let templateBuffer;
 let executeHashline;
 let executeOllama;
@@ -30,6 +31,8 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
 
@@ -82,7 +85,7 @@ function makeOllamaDeps(overrides = {}) {
       notifyTaskUpdated: vi.fn(),
       notifyTaskOutput: vi.fn(),
     },
-    safeUpdateTaskStatus: (taskId, status, fields) => db.updateTaskStatus(taskId, status, fields),
+    safeUpdateTaskStatus: (taskId, status, fields) => taskCore.updateTaskStatus(taskId, status, fields),
     tryReserveHostSlotWithFallback: vi.fn(() => ({ success: true })),
     tryOllamaCloudFallback: vi.fn(() => false),
     isLargeModelBlockedOnHost: vi.fn(() => ({ blocked: false })),
@@ -211,7 +214,7 @@ describe('P1 streaming fixes', () => {
       executeHashline.init(makeHashlineDeps());
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Trailing line test',
         status: 'running',
@@ -248,7 +251,7 @@ describe('P1 streaming fixes', () => {
       executeOllama.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Trailing line test for execute-ollama',
         status: 'running',
@@ -264,7 +267,7 @@ describe('P1 streaming fixes', () => {
         working_directory: testDir,
       });
 
-      const task = db.getTask(taskId);
+      const task = taskCore.getTask(taskId);
       expect(task.output).toContain('Hello from Ollama');
       await streamServer.close();
     });
@@ -280,7 +283,7 @@ describe('P1 streaming fixes', () => {
       executeHashline.init(makeHashlineDeps());
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Output cap test',
         status: 'running',
@@ -320,7 +323,7 @@ describe('P1 streaming fixes', () => {
       executeOllama.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Ollama cap test',
         status: 'running',
@@ -336,7 +339,7 @@ describe('P1 streaming fixes', () => {
         working_directory: testDir,
       });
 
-      const task = db.getTask(taskId);
+      const task = taskCore.getTask(taskId);
       expect(task.output).toContain('\n[output truncated at 10MB]');
       expect(task.output.length).toBeLessThanOrEqual(
         MAX_STREAMING_OUTPUT + '\n[output truncated at 10MB]'.length
@@ -351,7 +354,7 @@ describe('P1 streaming fixes', () => {
       executeApi.init(makeApiDeps({ processQueue }));
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Retry test',
         status: 'pending',
@@ -377,7 +380,7 @@ describe('P1 streaming fixes', () => {
       }, provider);
 
       expect(call).toHaveBeenCalledTimes(3);
-      const task = db.getTask(taskId);
+      const task = taskCore.getTask(taskId);
       expect(task.status).toBe('completed');
       expect(task.output).toBe('retry success');
       expect(processQueue).toHaveBeenCalled();
@@ -399,7 +402,7 @@ describe('P1 streaming fixes', () => {
       executeCli.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Queue wakeup test',
         status: 'running',
@@ -438,7 +441,7 @@ describe('P1 streaming fixes', () => {
       executeCli.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Queue wakeup capacity test',
         status: 'running',

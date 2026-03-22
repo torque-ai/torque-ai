@@ -5,6 +5,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const db = require('../database');
+const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
 const projectConfigCore = require('../db/project-config-core');
 const { getPeekFirstSliceCanonicalEntry } = require('../contracts/peek');
@@ -173,7 +174,7 @@ async function runWithDbRetry(operation, { retries = 3, baseDelayMs = 25 } = {})
 }
 
 function listTasksWithRetry(query) {
-  return runWithDbRetry(() => db.listTasks(query), { retries: 4, baseDelayMs: 40 });
+  return runWithDbRetry(() => taskCore.listTasks(query), { retries: 4, baseDelayMs: 40 });
 }
 
 describe('test-hardening parity', () => {
@@ -230,7 +231,7 @@ describe('test-hardening parity', () => {
   describe('Tag filtering', () => {
     it('listTasks handles oversized tags gracefully', () => {
       const longTag = 'a'.repeat(200);
-      const tasks = db.listTasks({ tags: [longTag] });
+      const tasks = taskCore.listTasks({ tags: [longTag] });
       expect(Array.isArray(tasks)).toBe(true);
     });
 
@@ -241,7 +242,7 @@ describe('test-hardening parity', () => {
     });
 
     it('listTasks handles valid tags', () => {
-      const tasks = db.listTasks({ tags: ['test-tag'] });
+      const tasks = taskCore.listTasks({ tags: ['test-tag'] });
       expect(Array.isArray(tasks)).toBe(true);
     });
   });
@@ -249,7 +250,7 @@ describe('test-hardening parity', () => {
   describe('Security', () => {
     it('share_context sanitizes context_type', async () => {
       const taskId = uuidv4();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         status: 'pending',
         task_description: 'test task',
@@ -267,7 +268,7 @@ describe('test-hardening parity', () => {
         expect(result.isError || false).toBe(true);
         expect(getResultText(result)).toContain('must be one of');
       } finally {
-        db.updateTaskStatus(taskId, 'cancelled');
+        taskCore.updateTaskStatus(taskId, 'cancelled');
       }
     });
 
@@ -276,7 +277,7 @@ describe('test-hardening parity', () => {
       const workspaceDir = path.join(os.tmpdir(), `test-task-${taskId.slice(0, 8)}`);
       fs.mkdirSync(workspaceDir, { recursive: true });
 
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         status: 'pending',
         task_description: 'test task',
@@ -295,7 +296,7 @@ describe('test-hardening parity', () => {
         const text = getResultText(result);
         expect(text).toMatch(/traversal blocked|Not found/i);
       } finally {
-        db.updateTaskStatus(taskId, 'cancelled');
+        taskCore.updateTaskStatus(taskId, 'cancelled');
         try {
           fs.rmSync(workspaceDir, { recursive: true, force: true });
         } catch {
@@ -405,7 +406,7 @@ describe('test-hardening parity', () => {
       const workspaceDir = path.join(os.tmpdir(), `test-task-${taskId.slice(0, 8)}`);
       fs.mkdirSync(workspaceDir, { recursive: true });
 
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         status: 'pending',
         task_description: 'test task',
@@ -424,7 +425,7 @@ describe('test-hardening parity', () => {
           'cannot exceed',
         );
       } finally {
-        db.updateTaskStatus(taskId, 'cancelled');
+        taskCore.updateTaskStatus(taskId, 'cancelled');
         try {
           fs.rmSync(workspaceDir, { recursive: true, force: true });
         } catch {

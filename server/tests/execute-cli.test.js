@@ -19,6 +19,8 @@ const { randomUUID } = require('crypto');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let mod;
 let spawnMock;
 let originalSpawn;
@@ -116,6 +118,10 @@ function setup() {
   cp.spawn = spawnMock;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   mod = require('../providers/execute-cli');
@@ -154,9 +160,9 @@ function clearHosts() {
 }
 
 function resetConfigs() {
-  db.setConfig('proactive_format_selection_enabled', '0');
-  db.setConfig('ollama_model_settings', '');
-  db.setConfig('ollama_host', 'http://localhost:11434');
+  configCore.setConfig('proactive_format_selection_enabled', '0');
+  configCore.setConfig('ollama_model_settings', '');
+  configCore.setConfig('ollama_host', 'http://localhost:11434');
 }
 
 // ── test suite ───────────────────────────────────────────────────────
@@ -362,7 +368,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Spawn test',
         status: 'running',
@@ -397,7 +403,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Stdin test',
         status: 'running',
@@ -429,7 +435,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'CWD test',
         status: 'running',
@@ -462,7 +468,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Env test',
         status: 'running',
@@ -499,7 +505,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Stdout capture test',
         status: 'running',
@@ -545,7 +551,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Stderr capture test',
         status: 'running',
@@ -588,7 +594,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Dashboard notify test',
         status: 'running',
@@ -620,7 +626,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Result test',
         status: 'running',
@@ -654,7 +660,7 @@ describe('execute-cli.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Error event test',
         status: 'running',

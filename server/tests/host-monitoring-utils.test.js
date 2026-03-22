@@ -11,6 +11,7 @@ const hostManagement = require('../db/host-management');
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 let db;
+let configCore;
 let monitoring;
 
 function loadHostMonitoring() {
@@ -97,6 +98,7 @@ describe('host-monitoring utility module', () => {
   beforeAll(() => {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF);
     db = require('../database');
+    configCore = require('../db/config-core');
     db.resetForTest(templateBuffer);
   });
 
@@ -361,9 +363,9 @@ describe('host-monitoring utility module', () => {
 
     it('clears exhausted flag when API probe returns 200', async () => {
       process.env.OPENAI_API_KEY = 'test-key';
-      db.setConfig('codex_exhausted', '1');
-      db.setConfig('codex_probe_interval_minutes', '0');
-      db.setConfig('codex_exhausted_at', new Date(Date.now() - 3600_000).toISOString());
+      configCore.setConfig('codex_exhausted', '1');
+      configCore.setConfig('codex_probe_interval_minutes', '0');
+      configCore.setConfig('codex_exhausted_at', new Date(Date.now() - 3600_000).toISOString());
 
       const spawnSpy = vi.spyOn(childProcess, 'spawnSync');
       const requestSpy = vi.spyOn(https, 'request').mockImplementation((options, callback) => {
@@ -374,16 +376,16 @@ describe('host-monitoring utility module', () => {
 
       await monitoring.probeCodexRecovery();
 
-      expect(db.getConfig('codex_exhausted')).toBe('1');
+      expect(configCore.getConfig('codex_exhausted')).toBe('1');
       expect(requestSpy).toHaveBeenCalledTimes(1);
       expect(spawnSpy).not.toHaveBeenCalled();
     });
 
     it('keeps exhausted flag when API returns 429 and reschedules', async () => {
       process.env.OPENAI_API_KEY = 'test-key';
-      db.setConfig('codex_exhausted', '1');
-      db.setConfig('codex_probe_interval_minutes', '0');
-      db.setConfig('codex_exhausted_at', new Date(Date.now() - 3600_000).toISOString());
+      configCore.setConfig('codex_exhausted', '1');
+      configCore.setConfig('codex_probe_interval_minutes', '0');
+      configCore.setConfig('codex_exhausted_at', new Date(Date.now() - 3600_000).toISOString());
 
       const requestSpy = vi.spyOn(https, 'request').mockImplementation((options, callback) => {
         const { req, res } = mockRequestResponse({ statusCode: 429, body: { error: { message: 'rate limit' } } });
@@ -393,16 +395,16 @@ describe('host-monitoring utility module', () => {
 
       await monitoring.probeCodexRecovery();
 
-      expect(db.getConfig('codex_exhausted')).toBe('1');
-      expect(db.getConfig('codex_exhausted_at')).toBeTruthy();
+      expect(configCore.getConfig('codex_exhausted')).toBe('1');
+      expect(configCore.getConfig('codex_exhausted_at')).toBeTruthy();
       expect(requestSpy).toHaveBeenCalledTimes(1);
     });
 
     it('respects interval backoff before probing', async () => {
       process.env.OPENAI_API_KEY = 'test-key';
-      db.setConfig('codex_exhausted', '1');
-      db.setConfig('codex_probe_interval_minutes', '15');
-      db.setConfig('codex_exhausted_at', new Date().toISOString());
+      configCore.setConfig('codex_exhausted', '1');
+      configCore.setConfig('codex_probe_interval_minutes', '15');
+      configCore.setConfig('codex_exhausted_at', new Date().toISOString());
 
       const requestSpy = vi.spyOn(https, 'request');
       const spawnSpy = vi.spyOn(childProcess, 'spawnSync');
@@ -426,14 +428,14 @@ describe('host-monitoring utility module', () => {
       });
 
       delete process.env.OPENAI_API_KEY;
-      db.setConfig('codex_exhausted', '1');
-      db.setConfig('codex_probe_interval_minutes', '0');
-      db.setConfig('codex_exhausted_at', new Date(Date.now() - 3600_000).toISOString());
+      configCore.setConfig('codex_exhausted', '1');
+      configCore.setConfig('codex_probe_interval_minutes', '0');
+      configCore.setConfig('codex_exhausted_at', new Date(Date.now() - 3600_000).toISOString());
 
       await monitoring.probeCodexRecovery();
 
       expect(spawnSyncMock).toHaveBeenCalledWith('npx', ['codex', '--version'], expect.any(Object));
-      expect(db.getConfig('codex_exhausted')).toBe('1');
+      expect(configCore.getConfig('codex_exhausted')).toBe('1');
     });
   });
 

@@ -13,6 +13,8 @@ const { v4: uuidv4 } = require('uuid');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let fileTracking;
 let codeAnalysis;
 let eventTracking;
@@ -29,6 +31,10 @@ function setupDb() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   fileTracking = require('../db/file-tracking');
@@ -69,35 +75,35 @@ describe('Database Module', () => {
   // ── Config CRUD ──────────────────────────────────────────
   describe('Config CRUD', () => {
     it('setConfig + getConfig round-trips a string value', () => {
-      db.setConfig('test_key_1', 'hello');
-      expect(db.getConfig('test_key_1')).toBe('hello');
+      configCore.setConfig('test_key_1', 'hello');
+      expect(configCore.getConfig('test_key_1')).toBe('hello');
     });
 
     it('getConfig returns null for missing key', () => {
-      expect(db.getConfig('nonexistent_key_xyz')).toBeNull();
+      expect(configCore.getConfig('nonexistent_key_xyz')).toBeNull();
     });
 
     it('setConfig overwrites existing value', () => {
-      db.setConfig('overwrite_key', 'first');
-      db.setConfig('overwrite_key', 'second');
-      expect(db.getConfig('overwrite_key')).toBe('second');
+      configCore.setConfig('overwrite_key', 'first');
+      configCore.setConfig('overwrite_key', 'second');
+      expect(configCore.getConfig('overwrite_key')).toBe('second');
     });
 
     it('setConfig stores JSON values as strings', () => {
       const obj = { nested: true, count: 42 };
-      db.setConfig('json_key', JSON.stringify(obj));
-      const retrieved = JSON.parse(db.getConfig('json_key'));
+      configCore.setConfig('json_key', JSON.stringify(obj));
+      const retrieved = JSON.parse(configCore.getConfig('json_key'));
       expect(retrieved).toEqual(obj);
     });
 
     it('setConfig stores numeric values as strings', () => {
-      db.setConfig('num_key', 123);
-      expect(db.getConfig('num_key')).toBe('123');
+      configCore.setConfig('num_key', 123);
+      expect(configCore.getConfig('num_key')).toBe('123');
     });
 
     it('getAllConfig returns an object with all config entries', () => {
-      db.setConfig('all_cfg_test', 'yes');
-      const all = db.getAllConfig();
+      configCore.setConfig('all_cfg_test', 'yes');
+      const all = configCore.getAllConfig();
       expect(typeof all).toBe('object');
       expect(all.all_cfg_test).toBe('yes');
     });
@@ -109,7 +115,7 @@ describe('Database Module', () => {
 
     it('createTask returns task with correct fields', () => {
       taskId = uuidv4();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Test task for DB unit test',
         working_directory: testDir,
@@ -118,7 +124,7 @@ describe('Database Module', () => {
         timeout_minutes: 30,
         provider: 'codex',
       });
-      const task = db.getTask(taskId);
+      const task = taskCore.getTask(taskId);
       expect(task).not.toBeNull();
       expect(task.id).toBe(taskId);
       expect(task.task_description).toBe('Test task for DB unit test');
@@ -130,7 +136,7 @@ describe('Database Module', () => {
       const emitSpy = vi.spyOn(process, 'emit');
       try {
         const queuedId = uuidv4();
-        db.createTask({
+        taskCore.createTask({
           id: queuedId,
           task_description: 'Queued task emission test',
           working_directory: testDir,
@@ -149,7 +155,7 @@ describe('Database Module', () => {
       const emitSpy = vi.spyOn(process, 'emit');
       try {
         const pendingId = uuidv4();
-        db.createTask({
+        taskCore.createTask({
           id: pendingId,
           task_description: 'Pending task emission test',
           working_directory: testDir,
@@ -168,7 +174,7 @@ describe('Database Module', () => {
       const emitSpy = vi.spyOn(process, 'emit');
       try {
         const requeueId = uuidv4();
-        db.createTask({
+        taskCore.createTask({
           id: requeueId,
           task_description: 'Requeue task emission test',
           working_directory: testDir,
@@ -179,7 +185,7 @@ describe('Database Module', () => {
         });
         emitSpy.mockClear();
 
-                db.updateTaskStatus(requeueId, 'queued');
+                taskCore.updateTaskStatus(requeueId, 'queued');
                 expect(emitQueueChangedSpy).toHaveBeenCalled();
       } finally {
         emitSpy.mockRestore();
@@ -187,78 +193,78 @@ describe('Database Module', () => {
     });
 
     it('getTask returns null for nonexistent ID', () => {
-      expect(db.getTask('nonexistent-id-00000')).toBeNull();
+      expect(taskCore.getTask('nonexistent-id-00000')).toBeNull();
     });
 
     it('getTask returns null for null/undefined', () => {
-      expect(db.getTask(null)).toBeNull();
-      expect(db.getTask(undefined)).toBeNull();
+      expect(taskCore.getTask(null)).toBeNull();
+      expect(taskCore.getTask(undefined)).toBeNull();
     });
 
     it('updateTaskStatus changes status correctly', () => {
       const id = uuidv4();
-      db.createTask({ id, task_description: 'Status test', status: 'queued', working_directory: testDir });
-      db.updateTaskStatus(id, 'running');
-      const task = db.getTask(id);
+      taskCore.createTask({ id, task_description: 'Status test', status: 'queued', working_directory: testDir });
+      taskCore.updateTaskStatus(id, 'running');
+      const task = taskCore.getTask(id);
       expect(task.status).toBe('running');
       expect(task.started_at).not.toBeNull();
     });
 
     it('updateTaskStatus to completed sets completed_at', () => {
       const id = uuidv4();
-      db.createTask({ id, task_description: 'Complete test', status: 'queued', working_directory: testDir });
-      db.updateTaskStatus(id, 'running');
-      db.updateTaskStatus(id, 'completed', { exit_code: 0, output: 'done' });
-      const task = db.getTask(id);
+      taskCore.createTask({ id, task_description: 'Complete test', status: 'queued', working_directory: testDir });
+      taskCore.updateTaskStatus(id, 'running');
+      taskCore.updateTaskStatus(id, 'completed', { exit_code: 0, output: 'done' });
+      const task = taskCore.getTask(id);
       expect(task.status).toBe('completed');
       expect(task.completed_at).not.toBeNull();
     });
 
     it('updateTaskStatus running -> failed sets completed_at', () => {
       const id = uuidv4();
-      db.createTask({ id, task_description: 'Failed test', status: 'queued', working_directory: testDir });
-      db.updateTaskStatus(id, 'running');
-      db.updateTaskStatus(id, 'failed', { exit_code: 1, output: 'error' });
-      const task = db.getTask(id);
+      taskCore.createTask({ id, task_description: 'Failed test', status: 'queued', working_directory: testDir });
+      taskCore.updateTaskStatus(id, 'running');
+      taskCore.updateTaskStatus(id, 'failed', { exit_code: 1, output: 'error' });
+      const task = taskCore.getTask(id);
       expect(task.status).toBe('failed');
       expect(task.completed_at).not.toBeNull();
     });
 
     it('updateTaskStatus running -> cancelled sets completed_at', () => {
       const id = uuidv4();
-      db.createTask({ id, task_description: 'Cancelled running test', status: 'queued', working_directory: testDir });
-      db.updateTaskStatus(id, 'running');
-      db.updateTaskStatus(id, 'cancelled', { output: 'canceled while running' });
-      const task = db.getTask(id);
+      taskCore.createTask({ id, task_description: 'Cancelled running test', status: 'queued', working_directory: testDir });
+      taskCore.updateTaskStatus(id, 'running');
+      taskCore.updateTaskStatus(id, 'cancelled', { output: 'canceled while running' });
+      const task = taskCore.getTask(id);
       expect(task.status).toBe('cancelled');
       expect(task.completed_at).not.toBeNull();
     });
 
     it('updateTaskStatus pending -> cancelled does not set completed_at', () => {
       const id = uuidv4();
-      db.createTask({ id, task_description: 'Cancelled pending test', status: 'pending', working_directory: testDir });
-      db.updateTaskStatus(id, 'cancelled', { output: 'canceled while pending' });
-      const task = db.getTask(id);
+      taskCore.createTask({ id, task_description: 'Cancelled pending test', status: 'pending', working_directory: testDir });
+      taskCore.updateTaskStatus(id, 'cancelled', { output: 'canceled while pending' });
+      const task = taskCore.getTask(id);
       expect(task.status).toBe('cancelled');
       expect(task.completed_at).toBeNull();
     });
 
     it('updateTaskStatus blocked -> cancelled does not set completed_at', () => {
       const id = uuidv4();
-      db.createTask({ id, task_description: 'Cancelled blocked test', status: 'blocked', working_directory: testDir });
-      db.updateTaskStatus(id, 'cancelled', { output: 'canceled while blocked' });
-      const task = db.getTask(id);
+      taskCore.createTask({ id, task_description: 'Cancelled blocked test', status: 'blocked', working_directory: testDir });
+      taskCore.updateTaskStatus(id, 'cancelled', { output: 'canceled while blocked' });
+      const task = taskCore.getTask(id);
       expect(task.status).toBe('cancelled');
       expect(task.completed_at).toBeNull();
     });
 
     it('createTask throws on empty ID', () => {
-      expect(() => db.createTask({ id: '', task_description: 'No ID', status: 'queued', working_directory: testDir }))
+      expect(() => taskCore.createTask({ id: '', task_description: 'No ID', status: 'queued', working_directory: testDir }))
         .toThrow();
     });
 
     it('createTask throws on missing ID', () => {
-      expect(() => db.createTask({ task_description: 'No ID field', status: 'queued', working_directory: testDir }))
+      expect(() => taskCore.createTask({ task_description: 'No ID field', status: 'queued', working_directory: testDir }))
         .toThrow();
     });
   });
@@ -268,7 +274,7 @@ describe('Database Module', () => {
     beforeAll(() => {
       // Seed several tasks for query tests
       for (let i = 0; i < 5; i++) {
-        db.createTask({
+        taskCore.createTask({
           id: uuidv4(),
           task_description: `Query test task ${i}`,
           status: i < 3 ? 'queued' : 'completed',
@@ -280,36 +286,36 @@ describe('Database Module', () => {
     });
 
     it('listTasks returns an array', () => {
-      const tasks = db.listTasks({ limit: 100 });
+      const tasks = taskCore.listTasks({ limit: 100 });
       expect(Array.isArray(tasks)).toBe(true);
       expect(tasks.length).toBeGreaterThan(0);
     });
 
     it('listTasks filters by status', () => {
-      const queued = db.listTasks({ status: 'queued', limit: 100 });
+      const queued = taskCore.listTasks({ status: 'queued', limit: 100 });
       expect(queued.every(t => t.status === 'queued')).toBe(true);
     });
 
     it('listTasks filters by project', () => {
-      const tasks = db.listTasks({ project: 'query-test-project', limit: 100 });
+      const tasks = taskCore.listTasks({ project: 'query-test-project', limit: 100 });
       expect(tasks.length).toBeGreaterThanOrEqual(5);
       expect(tasks.every(t => t.project === 'query-test-project')).toBe(true);
     });
 
     it('listTasks respects limit', () => {
-      const tasks = db.listTasks({ limit: 2 });
+      const tasks = taskCore.listTasks({ limit: 2 });
       expect(tasks.length).toBeLessThanOrEqual(2);
     });
 
     it('countTasks returns a number', () => {
-      const result = db.countTasks({});
+      const result = taskCore.countTasks({});
       expect(typeof result).toBe('number');
       expect(result).toBeGreaterThan(0);
     });
 
     it('countTasks filters by status', () => {
-      const all = db.countTasks({});
-      const queued = db.countTasks({ status: 'queued' });
+      const all = taskCore.countTasks({});
+      const queued = taskCore.countTasks({ status: 'queued' });
       expect(queued).toBeLessThanOrEqual(all);
       expect(queued).toBeGreaterThan(0);
     });
@@ -321,7 +327,7 @@ describe('Database Module', () => {
 
     beforeAll(() => {
       trackTaskId = uuidv4();
-      db.createTask({
+      taskCore.createTask({
         id: trackTaskId,
         task_description: 'File tracking test',
         status: 'running',
@@ -339,7 +345,7 @@ describe('Database Module', () => {
 
     it('getTaskFileChanges returns empty array for task with no changes', () => {
       const noChangesId = uuidv4();
-      db.createTask({ id: noChangesId, task_description: 'No changes', status: 'queued', working_directory: testDir });
+      taskCore.createTask({ id: noChangesId, task_description: 'No changes', status: 'queued', working_directory: testDir });
       const changes = fileTracking.getTaskFileChanges(noChangesId);
       expect(changes).toEqual([]);
     });
@@ -351,7 +357,7 @@ describe('Database Module', () => {
 
     beforeAll(() => {
       analysisTaskId = uuidv4();
-      db.createTask({
+      taskCore.createTask({
         id: analysisTaskId,
         task_description: 'Analysis test',
         status: 'completed',
@@ -390,7 +396,7 @@ function fibonacci(n) {
 
     beforeAll(() => {
       docTaskId = uuidv4();
-      db.createTask({ id: docTaskId, task_description: 'Doc test', status: 'completed', working_directory: testDir });
+      taskCore.createTask({ id: docTaskId, task_description: 'Doc test', status: 'completed', working_directory: testDir });
     });
 
     it('detects missing JSDoc on exports', () => {
@@ -422,7 +428,7 @@ export function documented() {
 
     beforeAll(() => {
       a11yTaskId = uuidv4();
-      db.createTask({ id: a11yTaskId, task_description: 'A11y test', status: 'completed', working_directory: testDir });
+      taskCore.createTask({ id: a11yTaskId, task_description: 'A11y test', status: 'completed', working_directory: testDir });
     });
 
     it('detects missing alt attrs in HTML', () => {
@@ -451,7 +457,7 @@ export function documented() {
 
     beforeAll(() => {
       i18nTaskId = uuidv4();
-      db.createTask({ id: i18nTaskId, task_description: 'I18n test', status: 'completed', working_directory: testDir });
+      taskCore.createTask({ id: i18nTaskId, task_description: 'I18n test', status: 'completed', working_directory: testDir });
     });
 
     it('detects hardcoded user-facing strings', () => {
@@ -471,7 +477,7 @@ export function documented() {
 
     beforeAll(() => {
       deadTaskId = uuidv4();
-      db.createTask({ id: deadTaskId, task_description: 'Dead code test', status: 'completed', working_directory: testDir });
+      taskCore.createTask({ id: deadTaskId, task_description: 'Dead code test', status: 'completed', working_directory: testDir });
     });
 
     it('finds unused functions', () => {
@@ -506,7 +512,7 @@ function b() { return a(); }`;
 
     beforeAll(() => {
       resTaskId = uuidv4();
-      db.createTask({ id: resTaskId, task_description: 'Resource test', status: 'completed', working_directory: testDir });
+      taskCore.createTask({ id: resTaskId, task_description: 'Resource test', status: 'completed', working_directory: testDir });
     });
 
     it('detects infinite loop risk', () => {
@@ -536,7 +542,7 @@ function b() { return a(); }`;
 
     beforeAll(() => {
       typeTaskId = uuidv4();
-      db.createTask({ id: typeTaskId, task_description: 'Type ref test', status: 'completed', working_directory: testDir });
+      taskCore.createTask({ id: typeTaskId, task_description: 'Type ref test', status: 'completed', working_directory: testDir });
       // Create a temp working directory with a type file
       workDir = path.join(testDir, 'type-project');
       fs.mkdirSync(workDir, { recursive: true });
@@ -580,11 +586,11 @@ function b() { return a(); }`;
 
     it('deleteTask removes completed task from DB', () => {
       const id = uuidv4();
-      db.createTask({ id, task_description: 'To be deleted', status: 'queued', working_directory: testDir });
-      db.updateTaskStatus(id, 'cancelled');
-      expect(db.getTask(id)).not.toBeNull();
-      db.deleteTask(id);
-      expect(db.getTask(id)).toBeFalsy();
+      taskCore.createTask({ id, task_description: 'To be deleted', status: 'queued', working_directory: testDir });
+      taskCore.updateTaskStatus(id, 'cancelled');
+      expect(taskCore.getTask(id)).not.toBeNull();
+      taskCore.deleteTask(id);
+      expect(taskCore.getTask(id)).toBeFalsy();
     });
 
     it('safeJsonParse handles malformed JSON', () => {
@@ -604,7 +610,7 @@ function b() { return a(); }`;
     });
 
     it('getRunningCount returns a number', () => {
-      const count = db.getRunningCount();
+      const count = taskCore.getRunningCount();
       expect(typeof count).toBe('number');
       expect(count).toBeGreaterThanOrEqual(0);
     });

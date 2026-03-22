@@ -10,6 +10,8 @@ const os = require('os');
 const fs = require('fs');
 
 let db;
+let taskCore;
+let configCore;
 let hostManagement;
 let workflowEngine;
 let templateBuffer;
@@ -22,6 +24,8 @@ beforeAll(() => {
 
   // Clear module cache for fresh init
   db = require('../database');
+  taskCore = require('../db/task-core');
+  configCore = require('../db/config-core');
   db.init();
   hostManagement = require('../db/host-management');
   workflowEngine = require('../db/workflow-engine');
@@ -54,7 +58,7 @@ describe('db.resetForTest(buffer)', () => {
 
     // Should be able to create a task
     const taskId = 'reset-test-task-1';
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       task_description: 'Test task after reset',
       working_directory: os.tmpdir(),
@@ -66,7 +70,7 @@ describe('db.resetForTest(buffer)', () => {
       auto_approve: false,
     });
 
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     expect(task).toBeTruthy();
     expect(task.id).toBe(taskId);
     expect(task.task_description).toBe('Test task after reset');
@@ -76,7 +80,7 @@ describe('db.resetForTest(buffer)', () => {
     // Previous test created a task. Reset should give a fresh DB.
     db.resetForTest(templateBuffer);
 
-    const tasks = db.listTasks({ limit: 100 });
+    const tasks = taskCore.listTasks({ limit: 100 });
     expect(tasks).toHaveLength(0);
   });
 
@@ -92,8 +96,8 @@ describe('db.resetForTest(buffer)', () => {
     db.resetForTest(templateBuffer);
 
     // setConfig + getConfig should work
-    db.setConfig('test_key_reset', 'test_value_123');
-    const val = db.getConfig('test_key_reset');
+    configCore.setConfig('test_key_reset', 'test_value_123');
+    const val = configCore.getConfig('test_key_reset');
     expect(val).toBe('test_value_123');
   });
 
@@ -101,12 +105,12 @@ describe('db.resetForTest(buffer)', () => {
     db.resetForTest(templateBuffer);
 
     // Set a config value (populates cache)
-    db.setConfig('cached_key', 'original');
-    expect(db.getConfig('cached_key')).toBe('original');
+    configCore.setConfig('cached_key', 'original');
+    expect(configCore.getConfig('cached_key')).toBe('original');
 
     // Reset again — cache should be cleared, and value gone
     db.resetForTest(templateBuffer);
-    const val = db.getConfig('cached_key');
+    const val = configCore.getConfig('cached_key');
     expect(val).not.toBe('original');
   });
 
@@ -115,7 +119,7 @@ describe('db.resetForTest(buffer)', () => {
     db.resetForTest(templateBuffer);
 
     // Should still work after double reset
-    db.createTask({
+    taskCore.createTask({
       id: 'idempotent-test',
       task_description: 'After double reset',
       working_directory: os.tmpdir(),
@@ -127,7 +131,7 @@ describe('db.resetForTest(buffer)', () => {
       auto_approve: false,
     });
 
-    const task = db.getTask('idempotent-test');
+    const task = taskCore.getTask('idempotent-test');
     expect(task).toBeTruthy();
     expect(task.task_description).toBe('After double reset');
   });

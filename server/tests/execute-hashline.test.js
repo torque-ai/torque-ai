@@ -24,6 +24,8 @@ const webhooksStreaming = require('../db/webhooks-streaming');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
@@ -60,6 +62,10 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   mod = require('../providers/execute-hashline');
@@ -205,7 +211,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Do something with no file references',
         status: 'running',
@@ -239,7 +245,7 @@ describe('execute-hashline.js', () => {
       fs.writeFileSync(testFile, 'const x = 1;\n', 'utf8');
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src/test-file.js',
         status: 'running',
@@ -272,7 +278,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src2/app.js',
         status: 'running',
@@ -303,7 +309,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src3/mod.js',
         status: 'running',
@@ -335,7 +341,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src4/util.ts',
         status: 'running',
@@ -368,7 +374,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src5/index.js',
         status: 'running',
@@ -399,7 +405,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src6/code.js',
         status: 'running',
@@ -438,7 +444,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src7/tiny.js',
         status: 'running',
@@ -474,7 +480,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src8/fail.js',
         status: 'running',
@@ -505,7 +511,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src9_abort/abort.js',
         status: 'running',
@@ -553,7 +559,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix src10/pre.js',
         status: 'running',
@@ -585,7 +591,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix srcA/tune.js',
         status: 'running',
@@ -619,7 +625,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix srcB/dash.js',
         status: 'running',
@@ -665,7 +671,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: `Fix ${targetRel}`,
         status: 'running',
@@ -696,7 +702,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix srcC/queue.js',
         status: 'running',
@@ -722,7 +728,7 @@ describe('execute-hashline.js', () => {
 
     it('falls back to single-host mode when no hosts registered', async () => {
       clearHosts();
-      db.setConfig('ollama_host', mockUrl);
+      configCore.setConfig('ollama_host', mockUrl);
 
       const srcDir = path.join(testDir, 'srcD');
       fs.mkdirSync(srcDir, { recursive: true });
@@ -732,7 +738,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix srcD/single.js',
         status: 'running',
@@ -762,7 +768,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fix srcE/missing-file.js that does not exist',
         status: 'running',
@@ -814,7 +820,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Generate test',
         status: 'running',
@@ -869,7 +875,7 @@ describe('execute-hashline.js', () => {
       });
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Generate cancellation test',
         status: 'running',
@@ -894,7 +900,7 @@ describe('execute-hashline.js', () => {
           streamId,
         });
         await vi.advanceTimersByTimeAsync(200);
-        db.updateTaskStatus(taskId, 'cancelled', {});
+        taskCore.updateTaskStatus(taskId, 'cancelled', {});
         await vi.advanceTimersByTimeAsync(3000);
         await expect(run).rejects.toThrow();
       } finally {
@@ -914,7 +920,7 @@ describe('execute-hashline.js', () => {
       const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Generate interval test',
         status: 'running',
@@ -950,7 +956,7 @@ describe('execute-hashline.js', () => {
       mockOllama2.setFailGenerate(true);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Fail generate test',
         status: 'running',
@@ -975,7 +981,7 @@ describe('execute-hashline.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Model check test',
         status: 'running',

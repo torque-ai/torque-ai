@@ -96,7 +96,7 @@ describe('Integration: Stall Detection & Recovery', () => {
 
     it('runtime config override takes priority', () => {
       // Set a custom threshold via config
-      db.setConfig('stall_threshold_ollama', '999');
+      configCore.setConfig('stall_threshold_ollama', '999');
       const threshold = tm.getStallThreshold(null, 'ollama');
       expect(threshold).toBe(999);
 
@@ -105,7 +105,7 @@ describe('Integration: Stall Detection & Recovery', () => {
     });
 
     it('config value of 0 disables stall detection', () => {
-      db.setConfig('stall_threshold_ollama', '0');
+      configCore.setConfig('stall_threshold_ollama', '0');
       const threshold = tm.getStallThreshold(null, 'ollama');
       expect(threshold).toBeNull();
 
@@ -162,27 +162,27 @@ describe('Integration: Stall Detection & Recovery', () => {
 
   describe('Stall recovery configuration', () => {
     it('stall_recovery_enabled config controls recovery', () => {
-      db.setConfig('stall_recovery_enabled', '1');
-      expect(db.getConfig('stall_recovery_enabled')).toBe('1');
+      configCore.setConfig('stall_recovery_enabled', '1');
+      expect(configCore.getConfig('stall_recovery_enabled')).toBe('1');
 
-      db.setConfig('stall_recovery_enabled', '0');
-      expect(db.getConfig('stall_recovery_enabled')).toBe('0');
+      configCore.setConfig('stall_recovery_enabled', '0');
+      expect(configCore.getConfig('stall_recovery_enabled')).toBe('0');
 
       // Restore
-      db.setConfig('stall_recovery_enabled', '1');
+      configCore.setConfig('stall_recovery_enabled', '1');
     });
 
     it('stall_recovery_max_attempts config is readable', () => {
-      db.setConfig('stall_recovery_max_attempts', '5');
-      expect(db.getConfig('stall_recovery_max_attempts')).toBe('5');
+      configCore.setConfig('stall_recovery_max_attempts', '5');
+      expect(configCore.getConfig('stall_recovery_max_attempts')).toBe('5');
 
       // Restore
-      db.setConfig('stall_recovery_max_attempts', '3');
+      configCore.setConfig('stall_recovery_max_attempts', '3');
     });
 
     it('auto_cancel_stalled config is readable', () => {
-      db.setConfig('auto_cancel_stalled', '1');
-      expect(db.getConfig('auto_cancel_stalled')).toBe('1');
+      configCore.setConfig('auto_cancel_stalled', '1');
+      expect(configCore.getConfig('auto_cancel_stalled')).toBe('1');
     });
   });
 
@@ -216,8 +216,8 @@ describe('Integration: Stall Detection & Recovery', () => {
       for (const provider of providers) {
         // Setting a value and reading it back should work
         const key = `stall_threshold_${provider.replace(/-/g, '_')}`;
-        db.setConfig(key, '300');
-        const val = db.getConfig(key);
+        configCore.setConfig(key, '300');
+        const val = configCore.getConfig(key);
         expect(val).toBe('300');
         deleteConfig(key); // Clean up — must delete row, not set to null
       }

@@ -45,6 +45,7 @@ function textOfResult(result) {
 describeV('await verify routing', () => {
   const { setupTestDb, teardownTestDb } = require('./vitest-setup');
   const db = require('../database');
+  const taskCore = require('../db/task-core');
   const workflowEngine = require('../db/workflow-engine');
   const hostMonitoring = require('../utils/host-monitoring');
   let tmpDir;
@@ -52,7 +53,7 @@ describeV('await verify routing', () => {
 
   function createTestTask(overrides = {}) {
     const id = overrides.id || randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id,
       task_description: 'Routing test task',
       provider: 'codex',
@@ -65,14 +66,14 @@ describeV('await verify routing', () => {
   }
 
   function finalizeTestTask(taskId, status = 'completed', overrides = {}) {
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     if (!task) return;
-    if (task.status === 'blocked') db.updateTaskStatus(taskId, 'pending');
-    const current = db.getTask(taskId);
+    if (task.status === 'blocked') taskCore.updateTaskStatus(taskId, 'pending');
+    const current = taskCore.getTask(taskId);
     if (current && ['pending', 'queued'].includes(current.status)) {
-      db.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
+      taskCore.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
     }
-    db.updateTaskStatus(taskId, status, {
+    taskCore.updateTaskStatus(taskId, status, {
       output: overrides.output ?? (status === 'completed' ? 'task output' : ''),
       error_output: overrides.error_output ?? (status === 'failed' ? 'task failed' : null),
       exit_code: overrides.exit_code ?? (status === 'completed' ? 0 : 1),
@@ -213,7 +214,7 @@ describeV('await verify routing', () => {
     });
 
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       workflow_id: wfId,
       workflow_node_id: 'build',
@@ -223,8 +224,8 @@ describeV('await verify routing', () => {
       status: 'pending',
       working_directory: tmpDir,
     });
-    db.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
-    db.updateTaskStatus(taskId, 'completed', {
+    taskCore.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
+    taskCore.updateTaskStatus(taskId, 'completed', {
       output: 'build done',
       exit_code: 0,
       completed_at: '2026-01-01T00:00:05.000Z',
@@ -266,7 +267,7 @@ describeV('await verify routing', () => {
     });
 
     const taskId = randomUUID();
-    db.createTask({
+    taskCore.createTask({
       id: taskId,
       workflow_id: wfId,
       workflow_node_id: 'build',
@@ -276,8 +277,8 @@ describeV('await verify routing', () => {
       status: 'pending',
       working_directory: tmpDir,
     });
-    db.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
-    db.updateTaskStatus(taskId, 'completed', {
+    taskCore.updateTaskStatus(taskId, 'running', { started_at: '2026-01-01T00:00:00.000Z' });
+    taskCore.updateTaskStatus(taskId, 'completed', {
       output: 'build done',
       exit_code: 0,
       completed_at: '2026-01-01T00:00:05.000Z',

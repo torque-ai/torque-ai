@@ -6,6 +6,8 @@ const { randomUUID } = require('crypto');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let workflowEngine;
 let projectConfigCore;
 let mod;
@@ -24,6 +26,10 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   workflowEngine = require('../db/workflow-engine');
@@ -101,7 +107,7 @@ function createTask(overrides = {}) {
     ...overrides,
     id,
   };
-  db.createTask(payload);
+  taskCore.createTask(payload);
   return id;
 }
 
@@ -136,7 +142,7 @@ describe('workflow-runtime', () => {
 
   beforeEach(() => {
     initRuntime();
-    db.setConfig('max_concurrent', '1000');
+    configCore.setConfig('max_concurrent', '1000');
   });
 
   describe('handlePlanProjectTaskCompletion', () => {
@@ -152,7 +158,7 @@ describe('workflow-runtime', () => {
       mod.handlePlanProjectTaskCompletion(rootTaskId);
 
       const updatedProject = projectConfigCore.getPlanProject(projectId);
-      const depTask = db.getTask(depTaskId);
+      const depTask = taskCore.getTask(depTaskId);
       expect(updatedProject.completed_tasks).toBe(1);
       expect(updatedProject.status).toBe('active');
       expect(depTask.status).toBe('queued');
@@ -194,9 +200,9 @@ describe('workflow-runtime', () => {
 
       const project = projectConfigCore.getPlanProject(projectId);
       expect(project.failed_tasks).toBe(1);
-      expect(db.getTask(taskB).status).toBe('blocked');
-      expect(db.getTask(taskC).status).toBe('blocked');
-      expect(db.getTask(taskD).status).toBe('running');
+      expect(taskCore.getTask(taskB).status).toBe('blocked');
+      expect(taskCore.getTask(taskC).status).toBe('blocked');
+      expect(taskCore.getTask(taskD).status).toBe('running');
       expect(dashboardCalls).toContain(taskB);
       expect(dashboardCalls).toContain(taskC);
     });
@@ -214,7 +220,7 @@ describe('workflow-runtime', () => {
 
       const project = projectConfigCore.getPlanProject(projectId);
       expect(project.status).toBe('failed');
-      expect(db.getTask(taskB).status).toBe('blocked');
+      expect(taskCore.getTask(taskB).status).toBe('blocked');
     });
   });
 
@@ -243,10 +249,10 @@ describe('workflow-runtime', () => {
         status: 'pending',
         working_directory: workingDir,
       });
-      db.updateTaskStatus(taskId, 'running', {
+      taskCore.updateTaskStatus(taskId, 'running', {
         started_at: new Date(Date.now() - 5000).toISOString(),
       });
-      db.updateTaskStatus(taskId, 'completed', {
+      taskCore.updateTaskStatus(taskId, 'completed', {
         output: 'build succeeded',
         error_output: '',
         files_modified: ['src/app.js', 'README.md'],
@@ -292,10 +298,10 @@ describe('workflow-runtime', () => {
         status: 'pending',
         working_directory: workingDir,
       });
-      db.updateTaskStatus(taskId, 'running', {
+      taskCore.updateTaskStatus(taskId, 'running', {
         started_at: new Date(Date.now() - 5000).toISOString(),
       });
-      db.updateTaskStatus(taskId, 'completed', {
+      taskCore.updateTaskStatus(taskId, 'completed', {
         output: 'build succeeded',
         error_output: '',
         files_modified: '["src/app.js", "README.md"',
@@ -351,7 +357,7 @@ describe('workflow-runtime', () => {
         working_directory: workingDir,
         context: { pipeline_id: pipelineId, step_id: step1.id },
       });
-      db.updateTaskStatus(firstTaskId, 'completed', { output: 'first-step-output' });
+      taskCore.updateTaskStatus(firstTaskId, 'completed', { output: 'first-step-output' });
       projectConfigCore.updatePipelineStep(step1.id, { status: 'running', task_id: firstTaskId });
 
       mod.handlePipelineStepCompletion(firstTaskId, 'completed');
@@ -359,7 +365,7 @@ describe('workflow-runtime', () => {
       const refreshedSteps = projectConfigCore.getPipelineSteps(pipelineId);
       const refreshedStep1 = refreshedSteps.find(s => s.id === step1.id);
       const refreshedStep2 = refreshedSteps.find(s => s.id === step2.id);
-      const nextTask = db.getTask(refreshedStep2.task_id);
+      const nextTask = taskCore.getTask(refreshedStep2.task_id);
       const pipeline = projectConfigCore.getPipeline(pipelineId);
 
       expect(refreshedStep1.status).toBe('completed');
@@ -410,7 +416,7 @@ describe('workflow-runtime', () => {
         working_directory: workingDir,
         context: { pipeline_id: pipelineId, step_id: step1.id },
       });
-      db.updateTaskStatus(firstTaskId, 'completed', { output: 'first-step-output' });
+      taskCore.updateTaskStatus(firstTaskId, 'completed', { output: 'first-step-output' });
       projectConfigCore.updatePipelineStep(step1.id, { status: 'running', task_id: firstTaskId });
 
       mod.handlePipelineStepCompletion(firstTaskId, 'completed');
@@ -496,7 +502,7 @@ describe('workflow-runtime', () => {
 
       mod.handleWorkflowTermination(taskA);
 
-      const updatedTaskB = db.getTask(taskB);
+      const updatedTaskB = taskCore.getTask(taskB);
       // unblockTask now queues instead of starting directly — scheduler enforces per-provider limits
       expect(['pending', 'queued']).toContain(updatedTaskB.status);
     });
@@ -520,8 +526,8 @@ describe('workflow-runtime', () => {
       const updatedWorkflow = workflowEngine.getWorkflow(workflowId);
       const workflowTaskStatuses = workflowEngine.getWorkflowTasks(workflowId).map(task => task.status).sort();
 
-      expect(db.getTask(blockedTask).status).toBe('skipped');
-      expect(db.getTask(blockedTask).error_output).toContain('Skipped due to dependency condition not met');
+      expect(taskCore.getTask(blockedTask).status).toBe('skipped');
+      expect(taskCore.getTask(blockedTask).error_output).toContain('Skipped due to dependency condition not met');
       expect(workflowTaskStatuses).toEqual(['failed', 'skipped']);
       expect(updatedWorkflow.status).toBe('failed');
       expect(updatedWorkflow.completed_at).toBeTruthy();
@@ -551,12 +557,12 @@ describe('workflow-runtime', () => {
       });
 
       mod.evaluateWorkflowDependencies(taskA, workflowId);
-      expect(db.getTask(taskD).status).toBe('blocked');
+      expect(taskCore.getTask(taskD).status).toBe('blocked');
 
-      db.updateTaskStatus(taskC, 'completed');
+      taskCore.updateTaskStatus(taskC, 'completed');
       mod.evaluateWorkflowDependencies(taskC, workflowId);
       // unblockTask now queues instead of starting directly
-      expect(['pending', 'queued']).toContain(db.getTask(taskD).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(taskD).status);
     });
 
     it('applies on_fail policy when condition fails', () => {
@@ -573,7 +579,7 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(taskA, workflowId);
 
-      const task = db.getTask(taskB);
+      const task = taskCore.getTask(taskB);
       const workflow = workflowEngine.getWorkflow(workflowId);
       expect(task.status).toBe('skipped');
       expect(task.error_output).toContain('Skipped due to dependency condition not met');
@@ -589,7 +595,7 @@ describe('workflow-runtime', () => {
 
       expect(result).toBe(true);
       // unblockTask always queues — scheduler enforces per-provider concurrency limits
-      expect(db.getTask(taskId).status).toBe('queued');
+      expect(taskCore.getTask(taskId).status).toBe('queued');
     });
 
     it('unblocks waiting tasks to queued status', () => {
@@ -598,7 +604,7 @@ describe('workflow-runtime', () => {
       const result = mod.unblockTask(taskId);
 
       expect(result).toBe(true);
-      expect(db.getTask(taskId).status).toBe('queued');
+      expect(taskCore.getTask(taskId).status).toBe('queued');
     });
   });
 
@@ -611,9 +617,9 @@ describe('workflow-runtime', () => {
 
       mod.applyFailureAction(taskA, 'cancel', null, workflowId);
 
-      expect(db.getTask(taskA).status).toBe('cancelled');
-      expect(db.getTask(taskB).status).toBe('cancelled');
-      expect(db.getTask(taskA).error_output).toContain('Cancelled due to dependency failure');
+      expect(taskCore.getTask(taskA).status).toBe('cancelled');
+      expect(taskCore.getTask(taskB).status).toBe('cancelled');
+      expect(taskCore.getTask(taskA).error_output).toContain('Cancelled due to dependency failure');
     });
 
     it('continue action unblocks task when all dependencies are terminal', () => {
@@ -638,7 +644,7 @@ describe('workflow-runtime', () => {
       mod.applyFailureAction(target, 'continue', null, workflowId);
 
       // unblockTask now queues instead of starting directly
-      expect(['pending', 'queued']).toContain(db.getTask(target).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(target).status);
     });
 
     it('run_alternate action skips original and unblocks alternate task', () => {
@@ -656,10 +662,10 @@ describe('workflow-runtime', () => {
 
       mod.applyFailureAction(original, 'run_alternate', alternate, workflowId);
 
-      expect(db.getTask(original).status).toBe('skipped');
+      expect(taskCore.getTask(original).status).toBe('skipped');
       // unblockTask now queues instead of starting directly
-      expect(['pending', 'queued']).toContain(db.getTask(alternate).status);
-      expect(['pending', 'queued']).toContain(db.getTask(downstream).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(alternate).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(downstream).status);
     });
   });
 
@@ -678,10 +684,10 @@ describe('workflow-runtime', () => {
 
       mod.cancelDependentTasks(root, workflowId, 'cascade cancel');
 
-      expect(db.getTask(d1).status).toBe('cancelled');
-      expect(db.getTask(d2).status).toBe('cancelled');
-      expect(db.getTask(d3).status).toBe('cancelled');
-      expect(db.getTask(done).status).toBe('completed');
+      expect(taskCore.getTask(d1).status).toBe('cancelled');
+      expect(taskCore.getTask(d2).status).toBe('cancelled');
+      expect(taskCore.getTask(d3).status).toBe('cancelled');
+      expect(taskCore.getTask(done).status).toBe('completed');
       expect(cancelCalls.length).toBe(0);
     });
   });
@@ -981,7 +987,7 @@ describe('workflow-runtime', () => {
       const wfId = createWorkflow({ name: 'runtime-build-dep-map' });
       const src = createWorkflowTask(wfId, 'src', 'pending');
       const dst = createWorkflowTask(wfId, 'dst', 'blocked');
-      db.updateTaskStatus(src, 'completed', {
+      taskCore.updateTaskStatus(src, 'completed', {
         output: 'src-output',
         error_output: 'src-error',
         exit_code: 0,
@@ -1003,8 +1009,8 @@ describe('workflow-runtime', () => {
       const b = createWorkflowTask(wfId, 'b', 'pending');
       const c = createWorkflowTask(wfId, 'c', 'blocked');
 
-      db.updateTaskStatus(a, 'completed', { output: 'out-a', exit_code: 0, error_output: '' });
-      db.updateTaskStatus(b, 'completed', { output: 'out-b', exit_code: 0, error_output: '' });
+      taskCore.updateTaskStatus(a, 'completed', { output: 'out-a', exit_code: 0, error_output: '' });
+      taskCore.updateTaskStatus(b, 'completed', { output: 'out-b', exit_code: 0, error_output: '' });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'skip' });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
 
@@ -1020,8 +1026,8 @@ describe('workflow-runtime', () => {
       const named = createWorkflowTask(wfId, 'named', 'pending');
       const dst = createWorkflowTask(wfId, 'dst', 'blocked');
 
-      db.updateTaskStatus(src, 'completed', { output: 'standalone-output', exit_code: 0, error_output: '' });
-      db.updateTaskStatus(named, 'completed', { output: 'named-output', exit_code: 0, error_output: '' });
+      taskCore.updateTaskStatus(src, 'completed', { output: 'standalone-output', exit_code: 0, error_output: '' });
+      taskCore.updateTaskStatus(named, 'completed', { output: 'named-output', exit_code: 0, error_output: '' });
 
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: dst, depends_on_task_id: src, on_fail: 'skip' });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: dst, depends_on_task_id: named, on_fail: 'skip' });
@@ -1055,7 +1061,7 @@ describe('workflow-runtime', () => {
         task_description: 'consume {{producer.output}} and {{producer.exit_code}} err {{producer.error_output}}',
       });
 
-      db.updateTaskStatus(producer, 'completed', {
+      taskCore.updateTaskStatus(producer, 'completed', {
         output: 'compiled output',
         error_output: 'minor warning',
         exit_code: 7,
@@ -1069,7 +1075,7 @@ describe('workflow-runtime', () => {
 
       mod.applyOutputInjection(consumer, wfId);
 
-      const updated = db.getTask(consumer);
+      const updated = taskCore.getTask(consumer);
       expect(updated.task_description).toContain('consume compiled output and 7 err minor warning');
     });
 
@@ -1081,7 +1087,7 @@ describe('workflow-runtime', () => {
         metadata: JSON.stringify({ context_from: ['producer'] }),
       });
 
-      db.updateTaskStatus(producer, 'completed', { output: 'build ok', exit_code: 0 });
+      taskCore.updateTaskStatus(producer, 'completed', { output: 'build ok', exit_code: 0 });
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
@@ -1090,7 +1096,7 @@ describe('workflow-runtime', () => {
       });
 
       mod.applyOutputInjection(consumer, wfId);
-      const updated = db.getTask(consumer);
+      const updated = taskCore.getTask(consumer);
 
       expect(updated.task_description).toContain('Prior step results:');
       expect(updated.task_description).toContain('### producer');
@@ -1106,7 +1112,7 @@ describe('workflow-runtime', () => {
         metadata: JSON.stringify({ context_from: ['producer'] }),
       });
 
-      db.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
+      taskCore.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: validator,
@@ -1115,7 +1121,7 @@ describe('workflow-runtime', () => {
       });
 
       mod.applyOutputInjection(validator, wfId);
-      const updated = db.getTask(validator);
+      const updated = taskCore.getTask(validator);
 
       expect(updated.task_description).toContain('check payload');
       expect(updated.task_description).toContain('Prior step results:');
@@ -1129,7 +1135,7 @@ describe('workflow-runtime', () => {
         task_description: 'static',
       });
       mod.applyOutputInjection(lone, wfId);
-      expect(db.getTask(lone).task_description).toContain('static');
+      expect(taskCore.getTask(lone).task_description).toContain('static');
     });
 
     it('handles malformed metadata JSON safely', () => {
@@ -1140,7 +1146,7 @@ describe('workflow-runtime', () => {
         metadata: '{bad',
       });
 
-      db.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
+      taskCore.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
@@ -1149,7 +1155,7 @@ describe('workflow-runtime', () => {
       });
 
       expect(() => mod.applyOutputInjection(consumer, wfId)).not.toThrow();
-      expect(db.getTask(consumer).task_description).toContain('consume payload');
+      expect(taskCore.getTask(consumer).task_description).toContain('consume payload');
     });
 
     it('does not update a task description if nothing changed', () => {
@@ -1159,7 +1165,7 @@ describe('workflow-runtime', () => {
         task_description: 'no placeholders',
       });
 
-      db.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
+      taskCore.updateTaskStatus(producer, 'completed', { output: 'payload', exit_code: 0 });
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
@@ -1167,9 +1173,9 @@ describe('workflow-runtime', () => {
         on_fail: 'skip',
       });
 
-      const before = db.getTask(consumer);
+      const before = taskCore.getTask(consumer);
       mod.applyOutputInjection(consumer, wfId);
-      const after = db.getTask(consumer);
+      const after = taskCore.getTask(consumer);
 
       expect(after.task_description).toBe(before.task_description);
     });
@@ -1181,7 +1187,7 @@ describe('workflow-runtime', () => {
       });
 
       mod.applyOutputInjection(task, wfId);
-      expect(db.getTask(task).task_description).toBe('no deps');
+      expect(taskCore.getTask(task).task_description).toBe('no deps');
     });
   });
 
@@ -1200,7 +1206,7 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(['pending', 'queued']).toContain(db.getTask(b).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(b).status);
     });
 
     it('waits when a task has multiple unresolved dependencies', () => {
@@ -1213,11 +1219,11 @@ describe('workflow-runtime', () => {
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
-      expect(db.getTask(c).status).toBe('blocked');
+      expect(taskCore.getTask(c).status).toBe('blocked');
 
-      db.updateTaskStatus(b, 'completed', { output: 'done', exit_code: 0 });
+      taskCore.updateTaskStatus(b, 'completed', { output: 'done', exit_code: 0 });
       mod.evaluateWorkflowDependencies(b, wfId);
-      expect(['pending', 'queued']).toContain(db.getTask(c).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(c).status);
     });
 
     it('uses condition_expr for dependency gating', () => {
@@ -1227,7 +1233,7 @@ describe('workflow-runtime', () => {
         task_description: 'uses {{producer.output}}',
       });
 
-      db.updateTaskStatus(producer, 'completed', { output: 'all good', exit_code: 0 });
+      taskCore.updateTaskStatus(producer, 'completed', { output: 'all good', exit_code: 0 });
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
@@ -1238,8 +1244,8 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(producer, wfId);
 
-      expect(['pending', 'queued']).toContain(db.getTask(consumer).status);
-      expect(db.getTask(consumer).task_description).toContain('all good');
+      expect(['pending', 'queued']).toContain(taskCore.getTask(consumer).status);
+      expect(taskCore.getTask(consumer).task_description).toContain('all good');
     });
 
     it('skips dependent task when condition_expr fails', () => {
@@ -1250,7 +1256,7 @@ describe('workflow-runtime', () => {
       });
       const downstream = createWorkflowTask(wfId, 'downstream', 'blocked');
 
-      db.updateTaskStatus(producer, 'completed', { output: 'all bad', exit_code: 5 });
+      taskCore.updateTaskStatus(producer, 'completed', { output: 'all bad', exit_code: 5 });
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: consumer,
@@ -1267,9 +1273,9 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(producer, wfId);
 
-      expect(db.getTask(consumer).status).toBe('skipped');
-      expect(['pending', 'queued']).toContain(db.getTask(downstream).status);
-      expect(db.getTask(consumer).error_output).toContain('dependency condition not met');
+      expect(taskCore.getTask(consumer).status).toBe('skipped');
+      expect(['pending', 'queued']).toContain(taskCore.getTask(downstream).status);
+      expect(taskCore.getTask(consumer).error_output).toContain('dependency condition not met');
     });
 
     it('injects exit_code and error_output through template variables in context propagation', () => {
@@ -1279,7 +1285,7 @@ describe('workflow-runtime', () => {
         task_description: 'build rc={{build.exit_code}} err={{build.error_output}} out={{build.output}}',
       });
 
-      db.updateTaskStatus(build, 'completed', {
+      taskCore.updateTaskStatus(build, 'completed', {
         output: 'build-log-line',
         error_output: 'warn',
         exit_code: 13,
@@ -1292,7 +1298,7 @@ describe('workflow-runtime', () => {
       });
 
       mod.evaluateWorkflowDependencies(build, wfId);
-      const updated = db.getTask(test);
+      const updated = taskCore.getTask(test);
 
       expect(updated.task_description).toContain('build rc=13 err=warn out=build-log-line');
       expect(['pending', 'queued']).toContain(updated.status);
@@ -1306,7 +1312,7 @@ describe('workflow-runtime', () => {
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'skip' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
-      db.updateTaskStatus(b, 'completed', { output: 'final', exit_code: 0 });
+      taskCore.updateTaskStatus(b, 'completed', { output: 'final', exit_code: 0 });
       mod.handleWorkflowTermination(b);
 
       const updated = workflowEngine.getWorkflow(wfId);
@@ -1324,7 +1330,7 @@ describe('workflow-runtime', () => {
       const b = createWorkflowTask(wfId, 'B', 'blocked');
       const c = createWorkflowTask(wfId, 'C', 'blocked');
 
-      db.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'bad', output: 'bad' });
+      taskCore.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'bad', output: 'bad' });
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: b,
@@ -1341,8 +1347,8 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(db.getTask(b).status).toBe('skipped');
-      expect(['pending', 'queued']).toContain(db.getTask(c).status);
+      expect(taskCore.getTask(b).status).toBe('skipped');
+      expect(['pending', 'queued']).toContain(taskCore.getTask(c).status);
     });
 
     it('cancel action marks dependent and descendants as cancelled', () => {
@@ -1351,16 +1357,16 @@ describe('workflow-runtime', () => {
       const b = createWorkflowTask(wfId, 'B', 'blocked');
       const c = createWorkflowTask(wfId, 'C', 'pending');
 
-      db.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'err' });
+      taskCore.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'err' });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'cancel' });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(db.getTask(b).status).toBe('cancelled');
+      expect(taskCore.getTask(b).status).toBe('cancelled');
       // cancelDependentTasks now uses getTaskDependents (task_dependencies table)
       // so C is correctly found as a descendant of B and cancelled recursively.
-      expect(db.getTask(c).status).toBe('cancelled');
+      expect(taskCore.getTask(c).status).toBe('cancelled');
     });
 
     it('continue action unblocks only when all dependencies are terminal', () => {
@@ -1371,8 +1377,8 @@ describe('workflow-runtime', () => {
         task_description: 'depends {{A.output}} {{B.output}}',
       });
 
-      db.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 3 });
-      db.updateTaskStatus(b, 'completed', { output: 'b-ok', exit_code: 0 });
+      taskCore.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 3 });
+      taskCore.updateTaskStatus(b, 'completed', { output: 'b-ok', exit_code: 0 });
 
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
@@ -1389,7 +1395,7 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(['pending', 'queued']).toContain(db.getTask(c).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(c).status);
 
     });
 
@@ -1404,7 +1410,7 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(db.getTask(c).status).toBe('blocked');
+      expect(taskCore.getTask(c).status).toBe('blocked');
     });
 
     it('continue: conditionPassed path respects on_fail continue for failed other deps', () => {
@@ -1418,8 +1424,8 @@ describe('workflow-runtime', () => {
       const c = createWorkflowTask(wfId, 'C', 'blocked');
 
       // Both are already terminal before we evaluate
-      db.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 1 });
-      db.updateTaskStatus(b, 'completed', { output: 'b-ok', exit_code: 0 });
+      taskCore.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 1 });
+      taskCore.updateTaskStatus(b, 'completed', { output: 'b-ok', exit_code: 0 });
 
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: a, on_fail: 'continue' });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'skip' });
@@ -1428,7 +1434,7 @@ describe('workflow-runtime', () => {
       // and must check A (failed) with on_fail: continue → satisfied
       mod.evaluateWorkflowDependencies(b, wfId);
 
-      expect(['pending', 'queued']).toContain(db.getTask(c).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(c).status);
     });
 
     it('run_alternate action skips original task and unblocks alternate', () => {
@@ -1447,8 +1453,8 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(db.getTask(b).status).toBe('skipped');
-      expect(['pending', 'queued']).toContain(db.getTask(alt).status);
+      expect(taskCore.getTask(b).status).toBe('skipped');
+      expect(['pending', 'queued']).toContain(taskCore.getTask(alt).status);
     });
 
     it('defaults unknown on_fail actions to skip behavior', () => {
@@ -1457,7 +1463,7 @@ describe('workflow-runtime', () => {
       const b = createWorkflowTask(wfId, 'B', 'blocked');
 
       // A must have non-zero exit_code so condition_expr 'exit_code == 0' fails
-      db.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'err' });
+      taskCore.updateTaskStatus(a, 'failed', { exit_code: 1, error_output: 'err' });
       workflowEngine.addTaskDependency({
         workflow_id: wfId,
         task_id: b,
@@ -1468,8 +1474,8 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(db.getTask(b).status).toBe('skipped');
-      expect(db.getTask(b).error_output).toContain('dependency condition not met');
+      expect(taskCore.getTask(b).status).toBe('skipped');
+      expect(taskCore.getTask(b).error_output).toContain('dependency condition not met');
     });
 
     it('propagates skipped state through additional downstream dependencies', () => {
@@ -1479,16 +1485,16 @@ describe('workflow-runtime', () => {
       const c = createWorkflowTask(wfId, 'C', 'blocked');
       const d = createWorkflowTask(wfId, 'D', 'blocked');
 
-      db.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 2 });
+      taskCore.updateTaskStatus(a, 'failed', { output: 'a-failed', exit_code: 2 });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: b, depends_on_task_id: a, on_fail: 'skip', condition_expr: 'exit_code == 0' });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: c, depends_on_task_id: b, on_fail: 'continue' });
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: d, depends_on_task_id: b, on_fail: 'skip' });
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(db.getTask(b).status).toBe('skipped');
-      expect(['pending', 'queued']).toContain(db.getTask(c).status);
-      expect(['pending', 'queued']).toContain(db.getTask(d).status);
+      expect(taskCore.getTask(b).status).toBe('skipped');
+      expect(['pending', 'queued']).toContain(taskCore.getTask(c).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(d).status);
     });
 
     it('does not unblock dependents when workflow is paused', () => {
@@ -1509,7 +1515,7 @@ describe('workflow-runtime', () => {
       mod.evaluateWorkflowDependencies(a, wfId);
 
       // Task B should remain blocked — pause prevents cascading
-      expect(db.getTask(b).status).toBe('blocked');
+      expect(taskCore.getTask(b).status).toBe('blocked');
     });
   });
 
@@ -1557,7 +1563,7 @@ describe('workflow-runtime', () => {
       workflowEngine.addTaskDependency({ workflow_id: wfId, task_id: child, depends_on_task_id: root, on_fail: 'skip' });
       mod.handleWorkflowTermination(root);
 
-      expect(['pending', 'queued']).toContain(db.getTask(child).status);
+      expect(['pending', 'queued']).toContain(taskCore.getTask(child).status);
     });
 
     it('does not unblock tasks for non-workflow tasks in handleWorkflowTermination', () => {
@@ -1569,13 +1575,13 @@ describe('workflow-runtime', () => {
     it('unblockTask is idempotent for completed tasks and returns false', () => {
       const task = createTask({ status: 'completed' });
       expect(mod.unblockTask(task)).toBe(false);
-      expect(db.getTask(task).status).toBe('completed');
+      expect(taskCore.getTask(task).status).toBe('completed');
     });
 
     it('unblockTask returns false for pending tasks', () => {
       const task = createTask({ status: 'pending' });
       expect(mod.unblockTask(task)).toBe(false);
-      expect(db.getTask(task).status).toBe('pending');
+      expect(taskCore.getTask(task).status).toBe('pending');
     });
   });
 });

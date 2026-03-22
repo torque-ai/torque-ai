@@ -6,6 +6,8 @@ const { randomUUID } = require('crypto');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let mod;
 const schedulingAutomation = require('../db/scheduling-automation');
 const projectConfigCore = require('../db/project-config-core');
@@ -20,12 +22,16 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   mod = require('../db/analytics-metrics');
   mod.setDb(db.getDb());
-  mod.setGetTask(db.getTask);
+  mod.setGetTask(taskCore.getTask);
   mod.setDbFunctions({
     getCacheStats: projectConfigCore.getCacheStats,
     setCacheConfig: projectConfigCore.setCacheConfig,
@@ -39,9 +45,9 @@ function setup() {
     getScheduledTask: schedulingAutomation.getScheduledTask,
     deleteScheduledTask: schedulingAutomation.deleteScheduledTask,
     createScheduledTask: projectConfigCore.createScheduledTask,
-    getAllConfig: db.getAllConfig,
-    createTask: db.createTask,
-    getConfig: db.getConfig
+    getAllConfig: configCore.getAllConfig,
+    createTask: taskCore.createTask,
+    getConfig: configCore.getConfig
   });
 }
 
@@ -86,8 +92,8 @@ function mkTask(overrides = {}) {
     provider: overrides.provider || 'codex',
     template_name: overrides.template_name || null
   };
-  db.createTask(task);
-  return db.getTask(task.id);
+  taskCore.createTask(task);
+  return taskCore.getTask(task.id);
 }
 
 function isoNowMinusHours(hours) {
@@ -335,8 +341,8 @@ describe('analytics-metrics module', () => {
     });
 
     it('recommends hashline-lite when hashline is below threshold', () => {
-      db.setConfig('hashline_lite_min_samples', '3');
-      db.setConfig('hashline_lite_threshold', '0.8');
+      configCore.setConfig('hashline_lite_min_samples', '3');
+      configCore.setConfig('hashline_lite_threshold', '0.8');
       mod.recordFormatSuccess('m3', 'hashline', true, null, 9);
       mod.recordFormatSuccess('m3', 'hashline', false, 'bad_edit', 9);
       mod.recordFormatSuccess('m3', 'hashline', false, 'bad_edit', 9);
@@ -347,8 +353,8 @@ describe('analytics-metrics module', () => {
     });
 
     it('recommends hashline-lite when lite outperforms with enough samples', () => {
-      db.setConfig('hashline_lite_min_samples', '3');
-      db.setConfig('hashline_lite_threshold', '0.5');
+      configCore.setConfig('hashline_lite_min_samples', '3');
+      configCore.setConfig('hashline_lite_threshold', '0.5');
 
       mod.recordFormatSuccess('m4', 'hashline', true, null, 8);
       mod.recordFormatSuccess('m4', 'hashline', true, null, 8);
@@ -472,7 +478,7 @@ describe('analytics-metrics module', () => {
         schedule_type: 'once',
         next_run_at: new Date().toISOString()
       });
-      db.setConfig('export_key', 'export_val');
+      configCore.setConfig('export_key', 'export_val');
 
       const out = mod.exportData();
       expect(out.data.templates.length).toBeGreaterThanOrEqual(1);
@@ -511,8 +517,8 @@ describe('analytics-metrics module', () => {
 
       expect(result.tasks.skipped).toBe(1);
       expect(result.tasks.imported).toBe(1);
-      expect(db.getTask(existing.id).task_description).toBe('old desc');
-      expect(db.getTask('task-new')).toBeTruthy();
+      expect(taskCore.getTask(existing.id).task_description).toBe('old desc');
+      expect(taskCore.getTask('task-new')).toBeTruthy();
     });
 
     it('importData replaces existing tasks when skipExisting is false', () => {
@@ -539,7 +545,7 @@ describe('analytics-metrics module', () => {
 
       expect(result.tasks.imported).toBe(1);
       expect(result.tasks.skipped).toBe(0);
-      expect(db.getTask('task-overwrite').task_description).toBe('after overwrite');
+      expect(taskCore.getTask('task-overwrite').task_description).toBe('after overwrite');
     });
   });
 

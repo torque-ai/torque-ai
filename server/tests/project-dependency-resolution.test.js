@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
 let projectConfigCore;
 let taskManager;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
@@ -18,6 +19,8 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   projectConfigCore = require('../db/project-config-core');
@@ -53,7 +56,7 @@ function teardown() {
 
 function createTask(overrides = {}) {
   const id = overrides.id || randomUUID();
-  db.createTask({
+  taskCore.createTask({
     id,
     task_description: overrides.task_description || `Task ${id.slice(0, 8)}`,
     working_directory: overrides.working_directory || testDir,
@@ -88,13 +91,13 @@ describe('project dependency resolution', () => {
     projectConfigCore.addTaskToPlanProject(projectId, rootTaskId, 1, []);
     projectConfigCore.addTaskToPlanProject(projectId, dependentTaskId, 2, [rootTaskId]);
 
-    db.updateTaskStatus(rootTaskId, 'completed', {
+    taskCore.updateTaskStatus(rootTaskId, 'completed', {
       exit_code: 0,
       output: 'done',
     });
 
     const project = projectConfigCore.getPlanProject(projectId);
-    expect(db.getTask(dependentTaskId).status).toBe('queued');
+    expect(taskCore.getTask(dependentTaskId).status).toBe('queued');
     expect(project.completed_tasks).toBe(1);
     expect(project.status).toBe('active');
   });
@@ -113,16 +116,16 @@ describe('project dependency resolution', () => {
     projectConfigCore.addTaskToPlanProject(projectId, taskC, 3, [taskB]);
     projectConfigCore.addTaskToPlanProject(projectId, taskD, 4, [taskA]);
 
-    db.updateTaskStatus(taskA, 'failed', {
+    taskCore.updateTaskStatus(taskA, 'failed', {
       exit_code: 1,
       error_output: 'boom',
     });
 
     const project = projectConfigCore.getPlanProject(projectId);
     expect(project.failed_tasks).toBe(1);
-    expect(db.getTask(taskB).status).toBe('blocked');
-    expect(db.getTask(taskC).status).toBe('blocked');
-    expect(db.getTask(taskD).status).toBe('running');
+    expect(taskCore.getTask(taskB).status).toBe('blocked');
+    expect(taskCore.getTask(taskC).status).toBe('blocked');
+    expect(taskCore.getTask(taskD).status).toBe('running');
   });
 
   it('marks a project completed when all project tasks are done', () => {
@@ -132,7 +135,7 @@ describe('project dependency resolution', () => {
     const onlyTaskId = createTask({ status: 'running' });
     projectConfigCore.addTaskToPlanProject(projectId, onlyTaskId, 1, []);
 
-    db.updateTaskStatus(onlyTaskId, 'completed', {
+    taskCore.updateTaskStatus(onlyTaskId, 'completed', {
       exit_code: 0,
       output: 'done',
     });
@@ -153,7 +156,7 @@ describe('project dependency resolution', () => {
     projectConfigCore.addTaskToPlanProject(projectId, failedTaskId, 1, []);
     projectConfigCore.addTaskToPlanProject(projectId, blockedTaskId, 2, [failedTaskId]);
 
-    db.updateTaskStatus(failedTaskId, 'failed', {
+    taskCore.updateTaskStatus(failedTaskId, 'failed', {
       exit_code: 2,
       error_output: 'failed',
     });
@@ -161,6 +164,6 @@ describe('project dependency resolution', () => {
     const project = projectConfigCore.getPlanProject(projectId);
     expect(project.status).toBe('failed');
     expect(project.failed_tasks).toBe(1);
-    expect(db.getTask(blockedTaskId).status).toBe('blocked');
+    expect(taskCore.getTask(blockedTaskId).status).toBe('blocked');
   });
 });

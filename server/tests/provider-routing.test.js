@@ -5,6 +5,8 @@ const fs = require('fs');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let mod;
 let seq = 0;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
@@ -17,6 +19,10 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
@@ -47,7 +53,7 @@ function rawDb() {
 
 function createTask(overrides = {}) {
   const taskId = overrides.id || id('task');
-  db.createTask({
+  taskCore.createTask({
     id: taskId,
     task_description: overrides.task_description || `Task ${taskId}`,
     working_directory: overrides.working_directory || testDir,
@@ -77,7 +83,7 @@ function loadFreshProviderRouting() {
   delete require.cache[require.resolve('../db/provider-routing-core')];
   const fresh = require('../db/provider-routing-core');
   fresh.setDb(rawDb());
-  if (fresh.setGetTask) fresh.setGetTask(db.getTask);
+  if (fresh.setGetTask) fresh.setGetTask(taskCore.getTask);
   return fresh;
 }
 
@@ -196,14 +202,14 @@ describe('provider-routing module', () => {
       if (previousValue === null || previousValue === undefined) {
         rawDb().prepare('DELETE FROM config WHERE key = ?').run(key);
       } else {
-        db.setConfig(key, previousValue);
+        configCore.setConfig(key, previousValue);
       }
     }
 
     it('getNextFallbackProvider skips providers already recorded in failover_events', () => {
       const provider = 'codex';
       const key = `fallback_chain_${provider}`;
-      const previousChain = db.getConfig(key);
+      const previousChain = configCore.getConfig(key);
       const previousClaude = mod.getProvider('claude-cli')?.enabled;
       const previousOllama = mod.getProvider('ollama')?.enabled;
       const taskId = createTask({ provider, original_provider: provider });
@@ -240,7 +246,7 @@ describe('provider-routing module', () => {
     it('getNextFallbackProvider no longer parses Auto-Failover text from error_output', () => {
       const provider = 'codex';
       const key = `fallback_chain_${provider}`;
-      const previousChain = db.getConfig(key);
+      const previousChain = configCore.getConfig(key);
       const previousClaude = mod.getProvider('claude-cli')?.enabled;
       const previousOllama = mod.getProvider('ollama')?.enabled;
       const taskId = createTask({
@@ -762,8 +768,8 @@ describe('provider-routing module', () => {
       expect(cleaned.running_cleaned).toBeGreaterThanOrEqual(1);
       expect(cleaned.queued_cleaned).toBeGreaterThanOrEqual(1);
 
-      expect(db.getTask(runningId).status).toBe('failed');
-      expect(db.getTask(queuedId).status).toBe('cancelled');
+      expect(taskCore.getTask(runningId).status).toBe('failed');
+      expect(taskCore.getTask(queuedId).status).toBe('cancelled');
     });
 
     it('cleanupStaleTasks handles running tasks with null started_at', () => {
@@ -774,7 +780,7 @@ describe('provider-routing module', () => {
 
       const cleaned = mod.cleanupStaleTasks(60, 1440);
       expect(cleaned.running_cleaned).toBeGreaterThanOrEqual(1);
-      expect(db.getTask(runningId).status).toBe('failed');
+      expect(taskCore.getTask(runningId).status).toBe('failed');
     });
 
     it('cleanupStaleTasks leaves fresh tasks untouched', () => {
@@ -782,8 +788,8 @@ describe('provider-routing module', () => {
       const queuedId = createTask({ status: 'queued', project: 'cleanup-fresh' });
       const cleaned = mod.cleanupStaleTasks(99999, 99999);
       expect(cleaned.total).toBeGreaterThanOrEqual(0);
-      expect(db.getTask(runningId).status).toBe('running');
-      expect(db.getTask(queuedId).status).toBe('queued');
+      expect(taskCore.getTask(runningId).status).toBe('running');
+      expect(taskCore.getTask(queuedId).status).toBe('queued');
     });
   });
 
@@ -1037,7 +1043,7 @@ describe('provider-routing module', () => {
     it('checkOllamaHealth returns true against healthy mock endpoint', async () => {
       const mock = await startMockOllama(200);
       try {
-        db.setConfig('ollama_host', mock.host);
+        configCore.setConfig('ollama_host', mock.host);
         const healthy = await mod.checkOllamaHealth(true);
         expect(healthy).toBe(true);
       } finally {
@@ -1047,7 +1053,7 @@ describe('provider-routing module', () => {
 
     it('checkOllamaHealth uses cache when not forced and refreshes when forced', async () => {
       const mock = await startMockOllama(200);
-      db.setConfig('ollama_host', mock.host);
+      configCore.setConfig('ollama_host', mock.host);
       const first = await mod.checkOllamaHealth(true);
       await mock.close();
 
@@ -1055,7 +1061,7 @@ describe('provider-routing module', () => {
       expect(first).toBe(true);
       expect(cached).toBe(true);
 
-      db.setConfig('ollama_host', 'http://127.0.0.1:9');
+      configCore.setConfig('ollama_host', 'http://127.0.0.1:9');
       const refreshed = await mod.checkOllamaHealth(true);
       expect(refreshed).toBe(false);
     });
@@ -1089,10 +1095,10 @@ describe('provider-routing module', () => {
       fs.writeFileSync(validPath, Buffer.alloc(2048, 1));
       fs.writeFileSync(tinyPath, Buffer.alloc(10, 2));
 
-      db.setConfig('ollama_binary_path', validPath);
+      configCore.setConfig('ollama_binary_path', validPath);
       expect(mod.findOllamaBinary()).toBe(validPath);
 
-      db.setConfig('ollama_binary_path', tinyPath);
+      configCore.setConfig('ollama_binary_path', tinyPath);
       const found = mod.findOllamaBinary();
       expect(found).not.toBe(tinyPath);
     });
@@ -1104,7 +1110,7 @@ describe('provider-routing module', () => {
     });
 
     it('isCodexExhausted returns true when flag is "1"', () => {
-      db.setConfig('codex_exhausted', '1');
+      configCore.setConfig('codex_exhausted', '1');
       expect(mod.isCodexExhausted()).toBe(true);
     });
 
@@ -1112,7 +1118,7 @@ describe('provider-routing module', () => {
       const before = new Date().toISOString();
       mod.setCodexExhausted(true);
       expect(mod.isCodexExhausted()).toBe(true);
-      const ts = db.getConfig('codex_exhausted_at');
+      const ts = configCore.getConfig('codex_exhausted_at');
       expect(ts).toBeTruthy();
       expect(ts >= before).toBe(true);
     });

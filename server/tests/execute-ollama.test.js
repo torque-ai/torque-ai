@@ -20,6 +20,8 @@ const hostManagement = require('../db/host-management');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
@@ -50,6 +52,10 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   mod = require('../providers/execute-ollama');
@@ -233,7 +239,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Explain the factorial function',
         status: 'running',
@@ -264,7 +270,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'This should fail',
         status: 'running',
@@ -295,7 +301,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'VRAM block test',
         status: 'running',
@@ -322,7 +328,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Slot fail test',
         status: 'running',
@@ -348,7 +354,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Pre-routed host test',
         status: 'running',
@@ -387,7 +393,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'No model test',
         status: 'running',
@@ -415,7 +421,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Tuning override test',
         status: 'running',
@@ -447,7 +453,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Model name test',
         status: 'running',
@@ -473,7 +479,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'System prompt test',
         status: 'running',
@@ -500,7 +506,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Stream test',
         status: 'running',
@@ -526,7 +532,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Think test',
         status: 'running',
@@ -562,7 +568,7 @@ describe('execute-ollama.js', () => {
       };
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Cancellation streaming test',
         status: 'running',
@@ -580,7 +586,7 @@ describe('execute-ollama.js', () => {
           working_directory: testDir,
         });
         await vi.advanceTimersByTimeAsync(200);
-        db.updateTaskStatus(taskId, 'cancelled', {});
+        taskCore.updateTaskStatus(taskId, 'cancelled', {});
         await vi.advanceTimersByTimeAsync(3000);
         await execution;
       } finally {
@@ -600,7 +606,7 @@ describe('execute-ollama.js', () => {
       const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Interval cleanup test',
         status: 'running',
@@ -628,13 +634,13 @@ describe('execute-ollama.js', () => {
 
     it('falls back to legacy single-host mode when no hosts are registered', async () => {
       clearHosts();
-      db.setConfig('ollama_host', mockUrl);
+      configCore.setConfig('ollama_host', mockUrl);
       const safeUpdate = vi.fn();
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Single host fallback test',
         status: 'running',
@@ -660,7 +666,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Queue test',
         status: 'running',
@@ -685,7 +691,7 @@ describe('execute-ollama.js', () => {
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Dashboard notification test',
         status: 'running',
@@ -709,13 +715,13 @@ describe('execute-ollama.js', () => {
       const safeUpdate = vi.fn((id, status, updates) => {
         // The safeUpdateTaskStatus proxy needs to actually update the DB
         // for the failover path to work correctly
-        try { db.updateTaskStatus(id, status, updates); } catch { /* ok */ }
+        try { taskCore.updateTaskStatus(id, status, updates); } catch { /* ok */ }
       });
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Connection refused test',
         status: 'running',
@@ -748,20 +754,20 @@ describe('execute-ollama.js', () => {
       const _host = addHost({ url: mockUrl, model: 'codellama:latest' });
 
       // Set config values BEFORE init
-      db.setConfig('ollama_temperature', '0.5');
-      db.setConfig('ollama_num_ctx', '16384');
-      db.setConfig('ollama_top_p', '0.85');
+      configCore.setConfig('ollama_temperature', '0.5');
+      configCore.setConfig('ollama_num_ctx', '16384');
+      configCore.setConfig('ollama_top_p', '0.85');
       // Disable adaptive context to avoid overriding num_ctx
-      db.setConfig('adaptive_context_enabled', '0');
+      configCore.setConfig('adaptive_context_enabled', '0');
       // Clear any model-specific settings that might override
-      db.setConfig('ollama_model_settings', '');
-      db.setConfig('ollama_auto_tuning_enabled', '0');
+      configCore.setConfig('ollama_model_settings', '');
+      configCore.setConfig('ollama_auto_tuning_enabled', '0');
 
       const deps = makeDeps({ safeUpdateTaskStatus: vi.fn() });
       mod.init(deps);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Config test',
         status: 'running',
@@ -783,11 +789,11 @@ describe('execute-ollama.js', () => {
       expect(genReqs[0].body.options.top_p).toBe(0.85);
 
       // Reset configs
-      db.setConfig('ollama_temperature', '0.3');
-      db.setConfig('ollama_num_ctx', '8192');
-      db.setConfig('ollama_top_p', '0.9');
-      db.setConfig('adaptive_context_enabled', '1');
-      db.setConfig('ollama_auto_tuning_enabled', '0');
+      configCore.setConfig('ollama_temperature', '0.3');
+      configCore.setConfig('ollama_num_ctx', '8192');
+      configCore.setConfig('ollama_top_p', '0.9');
+      configCore.setConfig('adaptive_context_enabled', '1');
+      configCore.setConfig('ollama_auto_tuning_enabled', '0');
     });
 
     it('includes task description in prompt', async () => {
@@ -797,7 +803,7 @@ describe('execute-ollama.js', () => {
 
       const desc = 'Write a Python function that sorts integers';
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: desc,
         status: 'running',

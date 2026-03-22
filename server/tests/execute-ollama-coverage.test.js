@@ -21,6 +21,8 @@ const hostManagement = require('../db/host-management');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let mod;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
@@ -51,6 +53,10 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   mod = require('../providers/execute-ollama');
@@ -118,8 +124,8 @@ describe('execute-ollama.js — coverage edge cases', () => {
     mockOllama.setStatusCode(200);
     clearHosts();
     // Reset config values that individual tests may mutate
-    db.setConfig('adaptive_context_enabled', '0');
-    db.setConfig('ollama_auto_tuning_enabled', '0');
+    configCore.setConfig('adaptive_context_enabled', '0');
+    configCore.setConfig('ollama_auto_tuning_enabled', '0');
   });
 
   // ── 1. HTTPS enforcement ────────────────────────────────────────
@@ -142,7 +148,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
         mod.init(deps);
 
         const taskId = randomUUID();
-        db.createTask({
+        taskCore.createTask({
           id: taskId,
           task_description: 'HTTPS enforcement test',
           status: 'running',
@@ -191,7 +197,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
         mod.init(deps);
 
         const taskId = randomUUID();
-        db.createTask({
+        taskCore.createTask({
           id: taskId,
           task_description: 'HTTPS not required test',
           status: 'running',
@@ -233,7 +239,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const decrementSpy = vi.spyOn(hostManagement, 'decrementHostTasks');
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Slot decrement failure test',
         status: 'running',
@@ -273,7 +279,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const decrementSpy = vi.spyOn(hostManagement, 'decrementHostTasks');
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: 'Pre-routed slot decrement test',
         status: 'running',
@@ -312,11 +318,11 @@ describe('execute-ollama.js — coverage edge cases', () => {
       //   requiredCtx = ceil(estimatedPromptTokens * 1.3)
       //   if requiredCtx > numCtx AND requiredCtx > maxCtxForModel → fail
       // Set both numCtx and max_ctx very low (32 tokens ≈ ~128 chars).
-      db.setConfig('ollama_num_ctx', '32');
-      db.setConfig('ollama_max_ctx', '32');
-      db.setConfig('adaptive_context_enabled', '0');
-      db.setConfig('ollama_model_settings', '');
-      db.setConfig('ollama_auto_tuning_enabled', '0');
+      configCore.setConfig('ollama_num_ctx', '32');
+      configCore.setConfig('ollama_max_ctx', '32');
+      configCore.setConfig('adaptive_context_enabled', '0');
+      configCore.setConfig('ollama_model_settings', '');
+      configCore.setConfig('ollama_auto_tuning_enabled', '0');
 
       const safeUpdate = vi.fn();
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
@@ -328,7 +334,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const longDescription = 'A'.repeat(500);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: longDescription,
         status: 'running',
@@ -359,18 +365,18 @@ describe('execute-ollama.js — coverage edge cases', () => {
       expect(genReqs).toHaveLength(0);
 
       // Restore config
-      db.setConfig('ollama_num_ctx', '8192');
-      db.setConfig('ollama_max_ctx', '32768');
+      configCore.setConfig('ollama_num_ctx', '8192');
+      configCore.setConfig('ollama_max_ctx', '32768');
     });
 
     it('calls decrementHostTasks when context limit causes early failure', async () => {
       addHost({ url: mockUrl, model: 'codellama:latest' });
 
-      db.setConfig('ollama_num_ctx', '32');
-      db.setConfig('ollama_max_ctx', '32');
-      db.setConfig('adaptive_context_enabled', '0');
-      db.setConfig('ollama_model_settings', '');
-      db.setConfig('ollama_auto_tuning_enabled', '0');
+      configCore.setConfig('ollama_num_ctx', '32');
+      configCore.setConfig('ollama_max_ctx', '32');
+      configCore.setConfig('adaptive_context_enabled', '0');
+      configCore.setConfig('ollama_model_settings', '');
+      configCore.setConfig('ollama_auto_tuning_enabled', '0');
 
       const safeUpdate = vi.fn();
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
@@ -381,7 +387,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const longDescription = 'B'.repeat(500);
 
       const taskId = randomUUID();
-      db.createTask({
+      taskCore.createTask({
         id: taskId,
         task_description: longDescription,
         status: 'running',
@@ -403,8 +409,8 @@ describe('execute-ollama.js — coverage edge cases', () => {
       decrementSpy.mockRestore();
 
       // Restore config
-      db.setConfig('ollama_num_ctx', '8192');
-      db.setConfig('ollama_max_ctx', '32768');
+      configCore.setConfig('ollama_num_ctx', '8192');
+      configCore.setConfig('ollama_max_ctx', '32768');
     });
   });
 });

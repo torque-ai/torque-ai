@@ -6,6 +6,8 @@ const { randomUUID } = require('crypto');
 let testDir;
 let origDataDir;
 let db;
+let taskCore;
+let configCore;
 let workflowEngine;
 let mod;
 
@@ -21,6 +23,10 @@ function setup() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  taskCore = require('../db/task-core');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   workflowEngine = require('../db/workflow-engine');
@@ -86,7 +92,7 @@ function createTask(overrides = {}) {
     ...overrides,
     id,
   };
-  db.createTask(payload);
+  taskCore.createTask(payload);
   return id;
 }
 
@@ -122,7 +128,7 @@ describe('workflow-output-injection', () => {
 
   beforeEach(() => {
     initRuntime();
-    db.setConfig('max_concurrent', '1000');
+    configCore.setConfig('max_concurrent', '1000');
   });
 
   // =========================================================================
@@ -368,7 +374,7 @@ describe('workflow-output-injection', () => {
       });
 
       // Transition to completed with output
-      db.updateTaskStatus(step1Id, 'completed', {
+      taskCore.updateTaskStatus(step1Id, 'completed', {
         output: 'step1-output-data',
         error_output: 'step1-error-data',
         exit_code: 0,
@@ -389,7 +395,7 @@ describe('workflow-output-injection', () => {
       // Trigger evaluation: step1 completed, should unblock step2 with injected outputs
       mod.evaluateWorkflowDependencies(step1Id, wfId);
 
-      const updatedStep2 = db.getTask(step2Id);
+      const updatedStep2 = taskCore.getTask(step2Id);
       expect(updatedStep2.task_description).toContain(
         'Use step1-output-data and check 0 errors: step1-error-data'
       );
@@ -402,7 +408,7 @@ describe('workflow-output-injection', () => {
       const buildId = createWorkflowTask(wfId, 'build', 'pending', {
         task_description: 'Build the project',
       });
-      db.updateTaskStatus(buildId, 'completed', {
+      taskCore.updateTaskStatus(buildId, 'completed', {
         output: 'Build succeeded with 0 warnings',
         exit_code: 0,
       });
@@ -421,7 +427,7 @@ describe('workflow-output-injection', () => {
 
       mod.evaluateWorkflowDependencies(buildId, wfId);
 
-      const updatedTest = db.getTask(testId);
+      const updatedTest = taskCore.getTask(testId);
       expect(updatedTest.task_description).toContain('Prior step results:');
       expect(updatedTest.task_description).toContain('### build');
       expect(updatedTest.task_description).toContain('Build succeeded with 0 warnings');
@@ -433,7 +439,7 @@ describe('workflow-output-injection', () => {
       const genId = createWorkflowTask(wfId, 'generate', 'pending', {
         task_description: 'Generate code',
       });
-      db.updateTaskStatus(genId, 'completed', {
+      taskCore.updateTaskStatus(genId, 'completed', {
         output: 'generated 5 files',
         exit_code: 0,
       });
@@ -452,7 +458,7 @@ describe('workflow-output-injection', () => {
 
       mod.evaluateWorkflowDependencies(genId, wfId);
 
-      const updatedFix = db.getTask(fixId);
+      const updatedFix = taskCore.getTask(fixId);
       // Template vars should be replaced
       expect(updatedFix.task_description).toContain('Fix issues from generated 5 files (exit: 0)');
       // Context should be prepended
@@ -465,7 +471,7 @@ describe('workflow-output-injection', () => {
       const aId = createWorkflowTask(wfId, 'a', 'pending', {
         task_description: 'Step A',
       });
-      db.updateTaskStatus(aId, 'completed', {
+      taskCore.updateTaskStatus(aId, 'completed', {
         output: 'done',
         exit_code: 0,
       });
@@ -484,7 +490,7 @@ describe('workflow-output-injection', () => {
 
       mod.evaluateWorkflowDependencies(aId, wfId);
 
-      const updatedB = db.getTask(bId);
+      const updatedB = taskCore.getTask(bId);
       expect(updatedB.task_description).toBe(originalDesc);
     });
 
@@ -494,7 +500,7 @@ describe('workflow-output-injection', () => {
         task_description: 'Big output step',
       });
       const largeOutput = 'L'.repeat(10000);
-      db.updateTaskStatus(bigId, 'completed', {
+      taskCore.updateTaskStatus(bigId, 'completed', {
         output: largeOutput,
         exit_code: 0,
       });
@@ -512,7 +518,7 @@ describe('workflow-output-injection', () => {
 
       mod.evaluateWorkflowDependencies(bigId, wfId);
 
-      const updated = db.getTask(consumerId);
+      const updated = taskCore.getTask(consumerId);
       // "Got: " is 5 chars + 5120 capped output
       expect(updated.task_description.length).toBe(5 + mod.OUTPUT_CAP_BYTES);
     });
@@ -523,7 +529,7 @@ describe('workflow-output-injection', () => {
       const typeId = createWorkflowTask(wfId, 'types', 'pending', {
         task_description: 'Generate types',
       });
-      db.updateTaskStatus(typeId, 'completed', {
+      taskCore.updateTaskStatus(typeId, 'completed', {
         output: 'types-generated',
         exit_code: 0,
       });
@@ -531,7 +537,7 @@ describe('workflow-output-injection', () => {
       const dataId = createWorkflowTask(wfId, 'data', 'pending', {
         task_description: 'Generate data',
       });
-      db.updateTaskStatus(dataId, 'completed', {
+      taskCore.updateTaskStatus(dataId, 'completed', {
         output: 'data-generated',
         exit_code: 0,
       });
@@ -556,7 +562,7 @@ describe('workflow-output-injection', () => {
       // Both deps must be complete. Trigger from the last one.
       mod.evaluateWorkflowDependencies(dataId, wfId);
 
-      const updated = db.getTask(systemId);
+      const updated = taskCore.getTask(systemId);
       expect(updated.task_description).toBe(
         'Build system using types-generated and data-generated'
       );
@@ -568,7 +574,7 @@ describe('workflow-output-injection', () => {
       const aId = createWorkflowTask(wfId, 'a', 'pending', {
         task_description: 'Step A',
       });
-      db.updateTaskStatus(aId, 'completed', {
+      taskCore.updateTaskStatus(aId, 'completed', {
         output: 'a-output',
         exit_code: 0,
       });
@@ -588,7 +594,7 @@ describe('workflow-output-injection', () => {
 
       mod.evaluateWorkflowDependencies(aId, wfId);
 
-      const updated = db.getTask(cId);
+      const updated = taskCore.getTask(cId);
       expect(updated.task_description).toContain("Use a-output and [ERROR: output unavailable from node 'nonexistent'");
     });
   });
@@ -600,7 +606,7 @@ describe('workflow-output-injection', () => {
     it('builds map from workflow dependencies', () => {
       const wfId = createWorkflow();
       const s1 = createWorkflowTask(wfId, 'src', 'pending');
-      db.updateTaskStatus(s1, 'completed', { output: 'src-out', exit_code: 0 });
+      taskCore.updateTaskStatus(s1, 'completed', { output: 'src-out', exit_code: 0 });
 
       const s2 = createWorkflowTask(wfId, 'dst', 'blocked');
       workflowEngine.addTaskDependency({

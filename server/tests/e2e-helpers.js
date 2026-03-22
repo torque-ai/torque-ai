@@ -42,18 +42,22 @@ function setupE2eDb(suiteName) {
 
   const db = require('../database');
 
+  const taskCore = require('../db/task-core');
+
+  const configCore = require('../db/config-core');
+
   // Swap to fresh in-memory DB from buffer (~5-10ms)
   // No init() needed — resetForTest sets up the DB handle and all sub-modules
   db.resetForTest(templateBuffer);
 
   // Disable discovery, slow timers
-  db.setConfig('discovery_enabled', '0');
-  db.setConfig('health_check_interval_seconds', '99999');
-  db.setConfig('activity_poll_interval_seconds', '99999');
+  configCore.setConfig('discovery_enabled', '0');
+  configCore.setConfig('health_check_interval_seconds', '99999');
+  configCore.setConfig('activity_poll_interval_seconds', '99999');
 
   // Make all models hashline-capable for E2E tests (default allowlist
   // only includes specific production models like qwen3, codestral, etc.)
-  db.setConfig('hashline_capable_models', '');
+  configCore.setConfig('hashline_capable_models', '');
 
   // Clear task-manager state and skip git in close handlers (no real files modified in E2E tests)
   const tm = require('../task-manager');
@@ -82,12 +86,13 @@ function resetE2eDb() {
   }
 
   const db = require('../database');
+  const configCore = require('../db/config-core');
   db.resetForTest(templateBuffer);
 
-  db.setConfig('discovery_enabled', '0');
-  db.setConfig('health_check_interval_seconds', '99999');
-  db.setConfig('activity_poll_interval_seconds', '99999');
-  db.setConfig('hashline_capable_models', '');
+  configCore.setConfig('discovery_enabled', '0');
+  configCore.setConfig('health_check_interval_seconds', '99999');
+  configCore.setConfig('activity_poll_interval_seconds', '99999');
+  configCore.setConfig('hashline_capable_models', '');
 
   const tm = require('../task-manager');
   if (typeof tm.initEarlyDeps === 'function') {
@@ -174,6 +179,7 @@ function registerMockHost(db, url, modelNames = ['codellama:latest'], opts = {})
  * @returns {string} Task ID
  */
 function createTestTask(db, opts = {}) {
+  const taskCore = require('../db/task-core');
   const { v4: uuidv4 } = require('uuid');
   const taskId = opts.id || uuidv4();
   const task = {
@@ -189,7 +195,7 @@ function createTestTask(db, opts = {}) {
     ...opts.extra,
   };
 
-  db.createTask(task);
+  taskCore.createTask(task);
   return taskId;
 }
 
@@ -204,15 +210,16 @@ function createTestTask(db, opts = {}) {
  * @returns {object} Final task record
  */
 async function waitForTaskStatus(db, taskId, statuses, timeout = 10000, interval = 15) {
+  const taskCore = require('../db/task-core');
   const start = Date.now();
   while (Date.now() - start < timeout) {
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     if (task && statuses.includes(task.status)) {
       return task;
     }
     await new Promise(resolve => setTimeout(resolve, interval));
   }
-  const task = db.getTask(taskId);
+  const task = taskCore.getTask(taskId);
   throw new Error(`Task ${taskId} did not reach ${statuses.join('/')} within ${timeout}ms (current: ${task?.status})`);
 }
 

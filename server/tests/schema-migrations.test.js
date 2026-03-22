@@ -13,6 +13,7 @@ const fs = require('fs');
 let testDir;
 let origDataDir;
 let db;
+let configCore;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
 
@@ -23,6 +24,8 @@ function setupDb() {
   process.env.TORQUE_DATA_DIR = testDir;
 
   db = require('../database');
+
+  configCore = require('../db/config-core');
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
   db.resetForTest(templateBuffer);
   return db;
@@ -190,47 +193,47 @@ describe('db/schema.js — smoke test', () => {
 
   describe('config values are seeded', () => {
     it('max_concurrent is seeded', () => {
-      const val = db.getConfig('max_concurrent');
+      const val = configCore.getConfig('max_concurrent');
       expect(val).not.toBeNull();
       expect(Number(val)).toBeGreaterThan(0);
     });
 
     it('default_timeout is seeded', () => {
-      const val = db.getConfig('default_timeout');
+      const val = configCore.getConfig('default_timeout');
       expect(val).not.toBeNull();
       expect(Number(val)).toBeGreaterThan(0);
     });
 
     it('default_provider is seeded', () => {
-      const val = db.getConfig('default_provider');
+      const val = configCore.getConfig('default_provider');
       expect(val).not.toBeNull();
       expect(typeof val).toBe('string');
       expect(val.length).toBeGreaterThan(0);
     });
 
     it('stale_running_minutes is seeded', () => {
-      const val = db.getConfig('stale_running_minutes');
+      const val = configCore.getConfig('stale_running_minutes');
       expect(val).not.toBeNull();
       expect(Number(val)).toBeGreaterThan(0);
     });
 
     it('codex_enabled is seeded', () => {
-      const val = db.getConfig('codex_enabled');
+      const val = configCore.getConfig('codex_enabled');
       expect(val).not.toBeNull();
     });
 
     it('build commands are seeded', () => {
-      expect(db.getConfig('build_command_dotnet')).not.toBeNull();
-      expect(db.getConfig('build_command_npm')).not.toBeNull();
+      expect(configCore.getConfig('build_command_dotnet')).not.toBeNull();
+      expect(configCore.getConfig('build_command_npm')).not.toBeNull();
     });
 
     it('safeguard flags are seeded', () => {
-      expect(db.getConfig('file_baseline_enabled')).not.toBeNull();
-      expect(db.getConfig('syntax_validation_enabled')).not.toBeNull();
-      expect(db.getConfig('quality_scoring_enabled')).not.toBeNull();
-      expect(db.getConfig('rate_limiting_enabled')).not.toBeNull();
-      expect(db.getConfig('cost_tracking_enabled')).not.toBeNull();
-      expect(db.getConfig('audit_trail_enabled')).not.toBeNull();
+      expect(configCore.getConfig('file_baseline_enabled')).not.toBeNull();
+      expect(configCore.getConfig('syntax_validation_enabled')).not.toBeNull();
+      expect(configCore.getConfig('quality_scoring_enabled')).not.toBeNull();
+      expect(configCore.getConfig('rate_limiting_enabled')).not.toBeNull();
+      expect(configCore.getConfig('cost_tracking_enabled')).not.toBeNull();
+      expect(configCore.getConfig('audit_trail_enabled')).not.toBeNull();
     });
   });
 

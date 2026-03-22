@@ -5,6 +5,7 @@
  */
 
 const db = require('../database');
+const configCore = require('../db/config-core');
 const handlers = require('../handlers/provider-tuning');
 
 describe('provider-tuning handlers', () => {
@@ -17,7 +18,7 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleGetLlmTuning', () => {
     it('returns formatted tuning parameters with defaults when no config set', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleGetLlmTuning({});
       const text = result.content[0].text;
@@ -31,7 +32,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns configured values when config is set', () => {
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'ollama_temperature') return '0.7';
         if (key === 'ollama_num_ctx') return '16384';
         if (key === 'ollama_preset') return 'creative';
@@ -52,14 +53,14 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleSetLlmTuning', () => {
     it('sets temperature within valid range', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetLlmTuning({ temperature: 0.5 });
       const text = result.content[0].text;
 
       expect(text).toContain('LLM Tuning Updated');
       expect(text).toContain('temperature');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_temperature', '0.5');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_temperature', '0.5');
     });
 
     it('returns error for temperature below 0.1', () => {
@@ -117,11 +118,11 @@ describe('provider-tuning handlers', () => {
     });
 
     it('accepts valid mirostat values 0, 1, 2', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetLlmTuning({ mirostat: 2 });
       expect(result.content[0].text).toContain('mirostat');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_mirostat', '2');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_mirostat', '2');
     });
 
     // aider_map_tokens test removed — aider provider no longer exists
@@ -158,24 +159,24 @@ describe('provider-tuning handlers', () => {
     });
 
     it('applies preset from config', () => {
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'ollama_presets') return JSON.stringify({
           code: { temperature: 0.3, top_k: 40, num_ctx: 8192 }
         });
         return null;
       });
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetLlmTuning({ preset: 'code' });
       const text = result.content[0].text;
 
       expect(text).toContain('preset');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_temperature', '0.3');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_preset', 'code');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_temperature', '0.3');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_preset', 'code');
     });
 
     it('returns error for unknown preset', () => {
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'ollama_presets') return JSON.stringify({ code: {} });
         return null;
       });
@@ -186,7 +187,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error when no presets configured and preset requested', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleSetLlmTuning({ preset: 'code' });
       expect(result.isError).toBe(true);
@@ -194,7 +195,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('sets multiple parameters at once', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetLlmTuning({
         temperature: 0.5,
@@ -208,11 +209,11 @@ describe('provider-tuning handlers', () => {
       expect(text).toContain('num_ctx');
       expect(text).toContain('top_p');
       expect(text).toContain('seed');
-      expect(db.setConfig).toHaveBeenCalledTimes(4);
+      expect(configCore.setConfig).toHaveBeenCalledTimes(4);
     });
 
     it('sets host and auto_start_enabled', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetLlmTuning({
         host: 'http://192.0.2.100:11434',
@@ -222,25 +223,25 @@ describe('provider-tuning handlers', () => {
 
       expect(text).toContain('host');
       expect(text).toContain('auto_start_enabled');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_host', 'http://192.0.2.100:11434');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_auto_start_enabled', '1');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_host', 'http://192.0.2.100:11434');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_auto_start_enabled', '1');
     });
 
     // 'sets aider parameters' test removed — aider provider no longer exists
 
     it('applies preset then overrides with explicit params', () => {
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'ollama_presets') return JSON.stringify({
           code: { temperature: 0.3, top_k: 40 }
         });
         return null;
       });
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       handlers.handleSetLlmTuning({ preset: 'code', temperature: 0.5 });
 
       // Preset applies 0.3 first, then explicit overrides to 0.5
-      const tempCalls = db.setConfig.mock.calls.filter(c => c[0] === 'ollama_temperature');
+      const tempCalls = configCore.setConfig.mock.calls.filter(c => c[0] === 'ollama_temperature');
       expect(tempCalls).toHaveLength(2);
       expect(tempCalls[0][1]).toBe('0.3');
       expect(tempCalls[1][1]).toBe('0.5');
@@ -258,7 +259,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error when no presets are configured', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleApplyLlmPreset({ preset: 'code' });
       expect(result.isError).toBe(true);
@@ -266,7 +267,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error for unknown preset name', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({ code: {} }));
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({ code: {} }));
 
       const result = handlers.handleApplyLlmPreset({ preset: 'unknown' });
       expect(result.isError).toBe(true);
@@ -274,10 +275,10 @@ describe('provider-tuning handlers', () => {
     });
 
     it('applies preset values and returns confirmation', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
         code: { temperature: 0.3, top_k: 40, num_ctx: 8192, mirostat: 0 }
       }));
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleApplyLlmPreset({ preset: 'code' });
       const text = result.content[0].text;
@@ -286,9 +287,9 @@ describe('provider-tuning handlers', () => {
       expect(text).toContain('temperature: 0.3');
       expect(text).toContain('top_k: 40');
       expect(text).toContain('num_ctx: 8192');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_preset', 'code');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_temperature', '0.3');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_top_k', '40');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_preset', 'code');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_temperature', '0.3');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_top_k', '40');
     });
   });
 
@@ -297,7 +298,7 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleListLlmPresets', () => {
     it('returns no-presets message when none configured', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleListLlmPresets({});
       const text = result.content[0].text;
@@ -306,7 +307,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('lists all presets with current marker', () => {
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'ollama_presets') return JSON.stringify({
           code: { temperature: 0.3, top_p: 0.9, top_k: 40, repeat_penalty: 1.1, num_ctx: 8192, mirostat: 0 },
           creative: { temperature: 0.8, top_p: 0.95, top_k: 60, repeat_penalty: 1.0, num_ctx: 4096, mirostat: 0 }
@@ -330,7 +331,7 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleGetModelSettings', () => {
     it('returns no-settings message when none configured', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleGetModelSettings({});
       const text = result.content[0].text;
@@ -339,7 +340,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns all model settings when no model specified', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
         'qwen3:8b': { temperature: 0.3, top_k: 40, num_ctx: 8192, description: 'Balanced' },
         'gemma3:4b': { temperature: 0.5, top_k: 30, num_ctx: 4096, description: 'Fast' }
       }));
@@ -353,7 +354,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns specific model settings when model specified', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
         'qwen3:8b': { temperature: 0.3, description: 'Balanced model' }
       }));
 
@@ -365,7 +366,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns not-found when specific model not in settings', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
         'qwen3:8b': { temperature: 0.3 }
       }));
 
@@ -387,19 +388,19 @@ describe('provider-tuning handlers', () => {
     });
 
     it('sets model temperature and saves to config', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', temperature: 0.4 });
       const text = result.content[0].text;
 
       expect(text).toContain('Model Settings Updated: qwen3:8b');
       expect(text).toContain('temperature');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_model_settings', expect.any(String));
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_model_settings', expect.any(String));
     });
 
     it('returns error for invalid temperature on model settings', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', temperature: 2.0 });
       expect(result.isError).toBe(true);
@@ -407,7 +408,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error for invalid mirostat on model settings', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', mirostat: 5 });
       expect(result.isError).toBe(true);
@@ -415,7 +416,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error for invalid num_ctx on model settings', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', num_ctx: 100 });
       expect(result.isError).toBe(true);
@@ -423,7 +424,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error for invalid top_p on model settings', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', top_p: 1.5 });
       expect(result.isError).toBe(true);
@@ -431,7 +432,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error for invalid top_k on model settings', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', top_k: 200 });
       expect(result.isError).toBe(true);
@@ -439,7 +440,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns error for invalid repeat_penalty on model settings', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', repeat_penalty: 3.0 });
       expect(result.isError).toBe(true);
@@ -447,7 +448,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns no-changes when no settings params provided', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b' });
       const text = result.content[0].text;
@@ -456,15 +457,15 @@ describe('provider-tuning handlers', () => {
     });
 
     it('sets description for model', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', description: 'Test model' });
       const text = result.content[0].text;
 
       expect(text).toContain('description');
 
-      const storedJson = db.setConfig.mock.calls[0][1];
+      const storedJson = configCore.setConfig.mock.calls[0][1];
       const stored = JSON.parse(storedJson);
       expect(stored['qwen3:8b'].description).toBe('Test model');
     });
@@ -475,7 +476,7 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleGetModelPrompts', () => {
     it('returns no-prompts message when none configured', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleGetModelPrompts({});
       const text = result.content[0].text;
@@ -484,7 +485,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('lists all prompts when no model specified', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
         'qwen3:8b': 'You are a helpful coding assistant.\nAlways output code.',
         'gemma3:4b': 'Be concise.\nOutput only code.'
       }));
@@ -498,7 +499,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns specific model prompt', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
         'qwen3:8b': 'You are a helpful coding assistant.'
       }));
 
@@ -510,7 +511,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns not-found for unknown model prompt', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
         'qwen3:8b': 'prompt here'
       }));
 
@@ -538,17 +539,17 @@ describe('provider-tuning handlers', () => {
     });
 
     it('sets model prompt and saves to config', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue('{}');
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetModelPrompt({ model: 'qwen3:8b', prompt: 'Be a coder.' });
       const text = result.content[0].text;
 
       expect(text).toContain('System Prompt Updated: qwen3:8b');
       expect(text).toContain('Be a coder.');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_model_prompts', expect.any(String));
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_model_prompts', expect.any(String));
 
-      const storedJson = db.setConfig.mock.calls[0][1];
+      const storedJson = configCore.setConfig.mock.calls[0][1];
       const stored = JSON.parse(storedJson);
       expect(stored['qwen3:8b']).toBe('Be a coder.');
     });
@@ -559,7 +560,7 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleGetInstructionTemplates', () => {
     it('lists all providers when no provider specified', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleGetInstructionTemplates({});
       const text = result.content[0].text;
@@ -569,7 +570,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('shows specific provider template when provider specified', () => {
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'instruction_template_codex') return 'Custom template for {TASK_DESCRIPTION}';
         return null;
       });
@@ -614,18 +615,18 @@ describe('provider-tuning handlers', () => {
     });
 
     it('sets valid template for valid provider', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const template = 'Please do: {TASK_DESCRIPTION}';
       const result = handlers.handleSetInstructionTemplate({ provider: 'codex', template });
       const text = result.content[0].text;
 
       expect(text).toContain('Instruction Template Updated: codex');
-      expect(db.setConfig).toHaveBeenCalledWith('instruction_template_codex', template);
+      expect(configCore.setConfig).toHaveBeenCalledWith('instruction_template_codex', template);
     });
 
     it('sets model-specific template when model is provided', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const template = 'Model-specific: {TASK_DESCRIPTION}';
       const result = handlers.handleSetInstructionTemplate({
@@ -636,7 +637,7 @@ describe('provider-tuning handlers', () => {
       const text = result.content[0].text;
 
       expect(text).toContain('hashline-ollama (model: qwen3:8b)');
-      expect(db.setConfig).toHaveBeenCalledWith('instruction_template_hashline-ollama_qwen3:8b', template);
+      expect(configCore.setConfig).toHaveBeenCalledWith('instruction_template_hashline-ollama_qwen3:8b', template);
     });
   });
 
@@ -645,25 +646,25 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleToggleInstructionWrapping', () => {
     it('enables instruction wrapping', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleToggleInstructionWrapping({ enabled: true });
       const text = result.content[0].text;
 
       expect(text).toContain('Instruction Wrapping Enabled');
       expect(text).toContain('Safeguard rules');
-      expect(db.setConfig).toHaveBeenCalledWith('instruction_wrapping_enabled', '1');
+      expect(configCore.setConfig).toHaveBeenCalledWith('instruction_wrapping_enabled', '1');
     });
 
     it('disables instruction wrapping with warning', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleToggleInstructionWrapping({ enabled: false });
       const text = result.content[0].text;
 
       expect(text).toContain('Instruction Wrapping Disabled');
       expect(text).toContain('Warning');
-      expect(db.setConfig).toHaveBeenCalledWith('instruction_wrapping_enabled', '0');
+      expect(configCore.setConfig).toHaveBeenCalledWith('instruction_wrapping_enabled', '0');
     });
   });
 
@@ -672,7 +673,7 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleGetHardwareTuning', () => {
     it('returns hardware tuning with defaults', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleGetHardwareTuning({});
       const text = result.content[0].text;
@@ -686,7 +687,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns configured hardware values', () => {
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'ollama_num_gpu') return '70';
         if (key === 'ollama_num_thread') return '8';
         if (key === 'ollama_keep_alive') return '10m';
@@ -707,14 +708,14 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleSetHardwareTuning', () => {
     it('sets num_gpu within valid range', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetHardwareTuning({ num_gpu: 70 });
       const text = result.content[0].text;
 
       expect(text).toContain('Hardware Tuning Updated');
       expect(text).toContain('70 layers');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_num_gpu', '70');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_num_gpu', '70');
     });
 
     it('returns error for num_gpu below -1', () => {
@@ -742,13 +743,13 @@ describe('provider-tuning handlers', () => {
     });
 
     it('sets keep_alive', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetHardwareTuning({ keep_alive: '30m' });
       const text = result.content[0].text;
 
       expect(text).toContain('keep_alive');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_keep_alive', '30m');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_keep_alive', '30m');
     });
 
     it('returns no-changes when no params provided', () => {
@@ -759,7 +760,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('formats auto and CPU labels correctly', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const resultAuto = handlers.handleSetHardwareTuning({ num_gpu: -1 });
       expect(resultAuto.content[0].text).toContain('auto');
@@ -774,7 +775,7 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleGetAutoTuning', () => {
     it('returns disabled status with no rules', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
 
       const result = handlers.handleGetAutoTuning({});
       const text = result.content[0].text;
@@ -785,7 +786,7 @@ describe('provider-tuning handlers', () => {
     });
 
     it('returns enabled status with rules', () => {
-      vi.spyOn(db, 'getConfig').mockImplementation((key) => {
+      vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
         if (key === 'ollama_auto_tuning_enabled') return '1';
         if (key === 'ollama_auto_tuning_rules') return JSON.stringify({
           code_gen: {
@@ -810,29 +811,29 @@ describe('provider-tuning handlers', () => {
   // ============================================================
   describe('handleSetAutoTuning', () => {
     it('enables auto-tuning', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetAutoTuning({ enabled: true });
       const text = result.content[0].text;
 
       expect(text).toContain('Auto-Tuning Updated');
       expect(text).toContain('enabled');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_auto_tuning_enabled', '1');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_auto_tuning_enabled', '1');
     });
 
     it('disables auto-tuning', () => {
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetAutoTuning({ enabled: false });
       const text = result.content[0].text;
 
       expect(text).toContain('disabled');
-      expect(db.setConfig).toHaveBeenCalledWith('ollama_auto_tuning_enabled', '0');
+      expect(configCore.setConfig).toHaveBeenCalledWith('ollama_auto_tuning_enabled', '0');
     });
 
     it('adds a new rule with patterns and tuning', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(null);
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       const result = handlers.handleSetAutoTuning({
         rule: 'creative_writing',
@@ -844,7 +845,7 @@ describe('provider-tuning handlers', () => {
       expect(text).toContain('Auto-Tuning Updated');
       expect(text).toContain('creative_writing');
 
-      const savedCall = db.setConfig.mock.calls.find(c => c[0] === 'ollama_auto_tuning_rules');
+      const savedCall = configCore.setConfig.mock.calls.find(c => c[0] === 'ollama_auto_tuning_rules');
       expect(savedCall).toBeTruthy();
       const saved = JSON.parse(savedCall[1]);
       expect(saved.creative_writing.patterns).toEqual(['story', 'poem', 'creative']);
@@ -859,20 +860,20 @@ describe('provider-tuning handlers', () => {
     });
 
     it('merges tuning into existing rule', () => {
-      vi.spyOn(db, 'getConfig').mockReturnValue(JSON.stringify({
+      vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
         existing_rule: {
           patterns: ['old'],
           tuning: { temperature: 0.3 }
         }
       }));
-      vi.spyOn(db, 'setConfig').mockReturnValue(undefined);
+      vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
       handlers.handleSetAutoTuning({
         rule: 'existing_rule',
         tuning: { top_k: 50 }
       });
 
-      const savedCall = db.setConfig.mock.calls.find(c => c[0] === 'ollama_auto_tuning_rules');
+      const savedCall = configCore.setConfig.mock.calls.find(c => c[0] === 'ollama_auto_tuning_rules');
       const saved = JSON.parse(savedCall[1]);
       expect(saved.existing_rule.tuning.temperature).toBe(0.3);
       expect(saved.existing_rule.tuning.top_k).toBe(50);
