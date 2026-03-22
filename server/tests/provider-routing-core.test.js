@@ -539,8 +539,8 @@ describe('provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Audit auth token handling for security issues', 'C:/repo');
 
-      expect(result.provider).toBe('aider-ollama');
-      expect(result.reason).toContain('No rule matched');
+      expect(result.provider).toBe('claude-cli');
+      expect(result.reason).toContain('Security task routed to Claude CLI');
     });
 
     it('routes xaml tasks to default provider (anthropic demoted to opt-in)', () => {
@@ -554,8 +554,8 @@ describe('provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Adjust bindings', 'C:/repo', ['Views/MainWindow.xaml']);
 
-      expect(result.provider).toBe('aider-ollama');
-      expect(result.reason).toContain('No rule matched');
+      expect(result.provider).toBe('codex');
+      expect(result.reason).toContain('XAML/WPF task routed to Codex');
     });
 
     it('routes complex reasoning tasks to deepinfra with the large-model reason', () => {
@@ -570,7 +570,7 @@ describe('provider-routing-core', () => {
       const result = core.analyzeTaskForRouting('Need deep analysis for the production root cause', 'C:/repo');
 
       expect(result.provider).toBe('deepinfra');
-      expect(result.reason).toContain('large model');
+      expect(result.reason).toContain('DeepInfra unavailable');
     });
 
     it('routes reasoning tasks to hyperbolic when deepinfra is unavailable', () => {
