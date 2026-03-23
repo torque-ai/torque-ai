@@ -172,6 +172,16 @@ function registerApiAdapter(providerId, ProviderClass, capabilities = {}) {
         const providerInstance = resolveProvider();
         return providerInstance.discoverModels();
       },
+
+      getDefaultTuning(model) {
+        const providerInstance = resolveProvider();
+        return providerInstance.getDefaultTuning(model);
+      },
+
+      getSystemPrompt(model, format) {
+        const providerInstance = resolveProvider();
+        return providerInstance.getSystemPrompt(model, format);
+      },
     };
   });
 }
