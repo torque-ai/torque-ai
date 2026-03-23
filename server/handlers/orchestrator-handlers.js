@@ -4,23 +4,10 @@ const { ErrorCodes, makeError } = require('./error-codes');
 const { requireTask } = require('./shared');
 const StrategicBrain = require('../orchestrator/strategic-brain');
 const { BenchmarkHarness } = require('../orchestrator/benchmark');
-const taskCore = require('../db/task-core');
-
 let configLoader = null;
 try {
   configLoader = require('../orchestrator/config-loader');
 } catch (_e) { /* config-loader not yet available — optional dependency */ }
-
-// Module-level usage accumulator (decoupled from instance lifecycle)
-const usageByProject = new Map();
-
-function getOrCreateUsage(workingDir) {
-  const key = workingDir || '__global__';
-  if (!usageByProject.has(key)) {
-    usageByProject.set(key, { total_calls: 0, total_tokens: 0, fallback_calls: 0 });
-  }
-  return usageByProject.get(key);
-}
 
 function getBrain(workingDirectory, providerOverride, modelOverride, configOverride, sessionId) {
   // Load config from three-layer merge if config-loader is available

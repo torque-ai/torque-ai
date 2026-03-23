@@ -10,7 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const logger = require('../logger').child({ component: 'task-startup' });
-const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
+const { TASK_TIMEOUTS } = require('../constants');
 const { parseGitStatusLine } = require('../utils/git');
 
 // ── Injected Dependencies ──────────────────────────────────────────────────
@@ -18,20 +18,15 @@ let db;
 let dashboard;
 let serverConfig;
 let providerRegistry;
-let providerCfg;
 let gpuMetrics;
 let runningProcesses;
-let apiAbortControllers;
 let pendingRetryTimeouts;
-let stallRecoveryAttempts;
-let taskCleanupGuard;
 
 // Injected functions
 let parseTaskMetadata;
 let getTaskContextTokenEstimate;
 let safeUpdateTaskStatus;
 let resolveProviderRouting;
-let normalizeProviderOverride;
 let failTaskForInvalidProvider;
 let getProviderSlotLimits;
 let getEffectiveGlobalMaxConcurrent;
@@ -49,7 +44,6 @@ let cancelTask;
 let processQueue;
 let sanitizeTaskOutput;
 let detectOutputCompletion;
-let shellEscape;
 let QUEUE_LOCK_HOLDER_ID;
 
 // State
@@ -70,18 +64,13 @@ function init(deps) {
   dashboard = deps.dashboard;
   serverConfig = deps.serverConfig;
   providerRegistry = deps.providerRegistry;
-  providerCfg = deps.providerCfg;
   gpuMetrics = deps.gpuMetrics;
   runningProcesses = deps.runningProcesses;
-  apiAbortControllers = deps.apiAbortControllers;
   pendingRetryTimeouts = deps.pendingRetryTimeouts;
-  stallRecoveryAttempts = deps.stallRecoveryAttempts;
-  taskCleanupGuard = deps.taskCleanupGuard;
   parseTaskMetadata = deps.parseTaskMetadata;
   getTaskContextTokenEstimate = deps.getTaskContextTokenEstimate;
   safeUpdateTaskStatus = deps.safeUpdateTaskStatus;
   resolveProviderRouting = deps.resolveProviderRouting;
-  normalizeProviderOverride = deps.normalizeProviderOverride;
   failTaskForInvalidProvider = deps.failTaskForInvalidProvider;
   getProviderSlotLimits = deps.getProviderSlotLimits;
   getEffectiveGlobalMaxConcurrent = deps.getEffectiveGlobalMaxConcurrent;
@@ -99,7 +88,6 @@ function init(deps) {
   processQueue = deps.processQueue;
   sanitizeTaskOutput = deps.sanitizeTaskOutput;
   detectOutputCompletion = deps.detectOutputCompletion;
-  shellEscape = deps.shellEscape;
   QUEUE_LOCK_HOLDER_ID = deps.QUEUE_LOCK_HOLDER_ID;
 }
 

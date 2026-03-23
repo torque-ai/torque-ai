@@ -105,13 +105,8 @@ function resolveRequestId(req) {
 // ============================================
 const v2DiscoveryHelpers = require('./api/v2-discovery-helpers');
 const {
-  normalizeV2Transport,
-  getV2ProviderTransport,
   sendV2Success,
   sendV2Error,
-  buildV2MetaEnvelope,
-  sendV2DiscoverySuccess,
-  sendV2DiscoveryError,
   sendAuthError,
   getV2ProviderDefaultTimeoutMs,
   getV2ProviderQueueDepth,

@@ -31,14 +31,6 @@ const { resolveContextFiles } = require('../../utils/smart-scan');
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../../constants');
 const logger = require('../../logger');
 
-// DI shim: shared helpers (checkProviderAvailability, requireTask) accept a db facade.
-// Build one from the direct imports already at the top of this file.
-const db = {
-  isCodexExhausted: providerRoutingCore.isCodexExhausted,
-  hasHealthyOllamaHost: hostManagement.hasHealthyOllamaHost,
-  getTask: taskCore.getTask,
-};
-
 /**
  * Validate that an object does not exceed a maximum nesting depth.
  * Prevents stack-overflow DoS from deeply nested metadata payloads.
@@ -371,7 +363,7 @@ function handleSubmitTask(args) {
   try {
     const coord = require('../../db/coordination');
     coord.recordCoordinationEvent('task_submitted', args.__sessionId || null, taskId, null);
-  } catch (e) {
+  } catch (_e) {
     // Non-fatal
   }
 
@@ -387,10 +379,10 @@ function handleSubmitTask(args) {
           const ruleId = approvalResult.rule ? approvalResult.rule.id : null;
           coord.recordCoordinationEvent('approval_requested', args.__sessionId || null, taskId,
             JSON.stringify({ rule_id: ruleId }));
-        } catch (e) { /* non-fatal */ }
+        } catch (_e) { /* non-fatal */ }
       }
     }
-  } catch (e) {
+  } catch (_e) {
     // Non-fatal — if approval check fails, task proceeds without gate
   }
 
@@ -1311,7 +1303,7 @@ function handleTaskInfo(args) {
   return result;
 }
 
-function createTaskCoreHandlers(deps) {
+function createTaskCoreHandlers(_deps) {
   return {
     handleSubmitTask,
     handleQueueTask,

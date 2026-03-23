@@ -557,39 +557,16 @@ function getConfig(key) { return configCore.getConfig(key); }
 function setConfig(key, value) { return configCore.setConfig(key, value); }
 function setConfigDefault(key, value) { return configCore.setConfigDefault(key, value); }
 function getAllConfig() { return configCore.getAllConfig(); }
-function getProviderRateLimits() { return configCore.getProviderRateLimits(); }
 
 // ============================================================
 // Task delegation (facade over task-core)
+// Only functions referenced internally by _wireAllModules / init.
+// All other task-core functions are re-exported via the merge loop.
 // ============================================================
 
 function createTask(task) { return taskCore.createTask(task); }
 function getTask(id) { return taskCore.getTask(id); }
-function updateTask(id, fields) { return taskCore.updateTask(id, fields); }
-function resolveTaskId(id) { return taskCore.resolveTaskId(id); }
-function updateTaskStatus(id, status, fields) { return taskCore.updateTaskStatus(id, status, fields); }
-function requeueTaskAfterAttemptedStart(id, fields) { return taskCore.requeueTaskAfterAttemptedStart(id, fields); }
-function updateTaskProgress(id, progress, output) { return taskCore.updateTaskProgress(id, progress, output); }
-function listTasks(options) { return taskCore.listTasks(options); }
-function listQueuedTasksLightweight(limit) { return taskCore.listQueuedTasksLightweight(limit); }
-function deleteTask(taskId) { return taskCore.deleteTask(taskId); }
-function deleteTasks(status) { return taskCore.deleteTasks(status); }
-function countTasks(options) { return taskCore.countTasks(options); }
-function countTasksByStatus() { return taskCore.countTasksByStatus(); }
-function archiveOldTasks(maxAgeHours) { return taskCore.archiveOldTasks(maxAgeHours); }
-function purgeOldTaskOutput(retentionDays) { return taskCore.purgeOldTaskOutput(retentionDays); }
 function getRunningCount() { return taskCore.getRunningCount(); }
-function getRunningCountByProvider(provider) { return taskCore.getRunningCountByProvider(provider); }
-function getRunningTasksLightweight() { return taskCore.getRunningTasksLightweight(); }
-function getNextQueuedTask() { return taskCore.getNextQueuedTask(); }
-function tryClaimTaskSlot(...args) { return taskCore.tryClaimTaskSlot(...args); }
-function patchTaskMetadata(taskId, metadata) { return taskCore.patchTaskMetadata(taskId, metadata); }
-function patchTaskSlotBinding(taskId, metadata) { return taskCore.patchTaskSlotBinding(taskId, metadata); }
-function getRecentSuccessfulTasks(limit) { return taskCore.getRecentSuccessfulTasks(limit); }
-function claimSlotAtomic(taskId, provider) { return taskCore.claimSlotAtomic(taskId, provider); }
-function clearProviderIfNotRunning(taskId) { return taskCore.clearProviderIfNotRunning(taskId); }
-function getTaskStatus(taskId) { return taskCore.getTaskStatus(taskId); }
-function requeueAfterSlotFailure(taskId, failedProvider, options, getMaxRetriesFn, parseTaskMetaFn) { return taskCore.requeueAfterSlotFailure(taskId, failedProvider, options, getMaxRetriesFn, parseTaskMetaFn); }
 
 // ============================================================
 // Other utility

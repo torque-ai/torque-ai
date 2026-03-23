@@ -187,6 +187,222 @@ describe('remote-test-routing', () => {
       const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
       expect(router.getRemoteConfig('/repo')).toBeNull();
     });
+
+    // ── Codex auto-discovery ─────────────────────────────────
+
+    it('auto-discovers workstation with test_runners for codex provider', () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue(null), // no explicit remote config
+      };
+
+      // Mock workstation model
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([
+            { name: 'omen', status: 'healthy', _capabilities: { test_runners: true } },
+          ]),
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+        },
+      };
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
+        const result = router.getRemoteConfig('/repo', { provider: 'codex' });
+
+        expect(result).toEqual({
+          agentId: 'omen',
+          remotePath: '/repo',
+        });
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('auto-discovers workstation for codex-spark provider', () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue({}), // empty config — no prefer_remote_tests
+      };
+
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([
+            { name: 'build-box', status: 'healthy', _capabilities: { test_runners: true } },
+          ]),
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+        },
+      };
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
+        const result = router.getRemoteConfig('/repo', { provider: 'codex-spark' });
+
+        expect(result).toEqual({
+          agentId: 'build-box',
+          remotePath: '/repo',
+        });
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('returns null for codex when no workstation has test_runners', () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue(null),
+      };
+
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([
+            { name: 'gpu-box', status: 'healthy', _capabilities: { ollama: true } },
+          ]),
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+        },
+      };
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
+        const result = router.getRemoteConfig('/repo', { provider: 'codex' });
+
+        expect(result).toBeNull();
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('returns null for codex when workstation with test_runners is down', () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue(null),
+      };
+
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([
+            { name: 'omen', status: 'down', _capabilities: { test_runners: true } },
+          ]),
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+        },
+      };
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
+        const result = router.getRemoteConfig('/repo', { provider: 'codex' });
+
+        expect(result).toBeNull();
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('does NOT auto-discover for non-codex providers (e.g. ollama)', () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue(null),
+      };
+
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([
+            { name: 'omen', status: 'healthy', _capabilities: { test_runners: true } },
+          ]),
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+        },
+      };
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
+
+        // ollama — should NOT auto-discover
+        expect(router.getRemoteConfig('/repo', { provider: 'ollama' })).toBeNull();
+        // hashline-ollama — should NOT auto-discover
+        expect(router.getRemoteConfig('/repo', { provider: 'hashline-ollama' })).toBeNull();
+        // no provider — should NOT auto-discover
+        expect(router.getRemoteConfig('/repo')).toBeNull();
+        expect(router.getRemoteConfig('/repo', {})).toBeNull();
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('explicit prefer_remote_tests config takes priority over codex auto-discovery', () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue({
+          prefer_remote_tests: true,
+          remote_agent_id: 'my-explicit-agent',
+          remote_project_path: '/explicit/path',
+        }),
+      };
+
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([
+            { name: 'omen', status: 'healthy', _capabilities: { test_runners: true } },
+          ]),
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+          getWorkstationByName: vi.fn().mockReturnValue(null),
+          getWorkstation: vi.fn().mockReturnValue(null),
+        },
+      };
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
+        const result = router.getRemoteConfig('/repo', { provider: 'codex' });
+
+        // Should use explicit config, not auto-discovered workstation
+        expect(result).toEqual({
+          agentId: 'my-explicit-agent',
+          remotePath: '/explicit/path',
+        });
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
   });
 
   describe('getCurrentBranch', () => {
@@ -524,6 +740,134 @@ describe('remote-test-routing', () => {
       expect(client.run).toHaveBeenCalledWith(command, undefined, expect.objectContaining({
         cwd: '/remote/torque/server',
       }));
+    });
+
+    it('routes codex verify to auto-discovered workstation when no explicit remote config', async () => {
+      const client = makeClient();
+      const agentRegistry = { getClient: vi.fn().mockReturnValue(client) };
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue(null), // no explicit remote config
+      };
+
+      // Mock workstation model to return a healthy test runner
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([
+            { name: 'omen', status: 'healthy', _capabilities: { test_runners: true } },
+          ]),
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+        },
+      };
+
+      // getSyncProjectName needs git rev-parse
+      mockSpawnSync.mockReturnValueOnce({ status: 0, stdout: '/workspace/Torque\n', stderr: '' });
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry, db, logger: makeLogger() });
+        const result = await router.runVerifyCommand(
+          'npx vitest run',
+          '/repo',
+          { provider: 'codex' }
+        );
+
+        expect(result.remote).toBe(true);
+        expect(result.success).toBe(true);
+        // Client was looked up by workstation name
+        expect(agentRegistry.getClient).toHaveBeenCalledWith('omen');
+        expect(client.run).toHaveBeenCalledTimes(1);
+        expect(client.run).toHaveBeenCalledWith('npx vitest run', undefined, expect.objectContaining({
+          cwd: '/repo',
+        }));
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('falls back to local for codex verify when no test_runner workstation exists', async () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue(null),
+      };
+
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([]),
+          hasCapability: vi.fn().mockReturnValue(false),
+        },
+      };
+
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'local-verify-ok\n', ''));
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
+        const result = await router.runVerifyCommand(
+          'npx vitest run',
+          '/repo',
+          { provider: 'codex' }
+        );
+
+        expect(result.remote).toBe(false);
+        expect(result.success).toBe(true);
+        expect(result.output).toBe('local-verify-ok\n');
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('does NOT auto-discover workstation for non-codex provider verify', async () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue(null),
+      };
+
+      const wsModelPath = require.resolve('../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      const mockListWs = vi.fn().mockReturnValue([
+        { name: 'omen', status: 'healthy', _capabilities: { test_runners: true } },
+      ]);
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: mockListWs,
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+        },
+      };
+
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'local\n', ''));
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
+        const result = await router.runVerifyCommand(
+          'npx vitest run',
+          '/repo',
+          { provider: 'ollama' }
+        );
+
+        // Should run locally — workstation auto-discovery should NOT trigger
+        expect(result.remote).toBe(false);
+        expect(result.success).toBe(true);
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
     });
   });
 });

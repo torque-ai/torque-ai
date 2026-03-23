@@ -145,12 +145,6 @@ function debugLog(message) {
 // MCP Protocol version
 const JSONRPC_VERSION = '2.0';
 
-// Server info
-const SERVER_INFO = {
-  name: 'torque',
-  version: '2.0.0',
-};
-
 // Track readline interface for cleanup on shutdown
 let readlineInterface = null;
 
@@ -549,7 +543,7 @@ function init() {
       const { key } = keyManager.createKey({ name: 'Bootstrap admin key', role: 'admin' });
       // Write key to a file so Claude Code (and the user) can find it.
       // The server often starts via nohup > /dev/null, so console output is lost.
-      const keyFilePath = path.join(dataDir, '.torque-api-key');
+      const keyFilePath = path.join(db.getDataDir(), '.torque-api-key');
       try {
         fs.writeFileSync(keyFilePath, key, { mode: 0o600 });
         debugLog(`Bootstrap API key written to ${keyFilePath}`);
@@ -907,7 +901,7 @@ function init() {
 }
 
 // Maintenance, coordination, and budget schedulers — extracted to maintenance/scheduler.js
-const { startMaintenanceScheduler, startCoordinationScheduler, startProviderQuotaInferenceTimer, getAutoArchiveStatuses, checkBudgetAlerts } = maintenanceScheduler;
+const { startMaintenanceScheduler, startCoordinationScheduler, startProviderQuotaInferenceTimer, getAutoArchiveStatuses } = maintenanceScheduler;
 
 /**
  * Handle incoming JSON-RPC requests — thin stdio shim around shared mcp-protocol handler.

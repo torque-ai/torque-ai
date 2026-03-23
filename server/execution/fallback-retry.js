@@ -165,7 +165,7 @@ function tryOllamaCloudFallback(taskId, task, errorMsg) {
     if (updatedTask) {
       dispatchTaskEvent('fallback', updatedTask);
     }
-  } catch (e) {
+  } catch (_e) {
     // Non-fatal
   }
   if (dashboard) dashboard.notifyTaskUpdated(taskId);
@@ -337,7 +337,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
       if (updatedTask) {
         dispatchTaskEvent('fallback', updatedTask);
       }
-    } catch (e) {
+    } catch (_e) {
       // Non-fatal
     }
     if (dashboard) dashboard.notifyTaskUpdated(taskId);
@@ -737,7 +737,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
     if (updatedTask) {
       dispatchTaskEvent('fallback', updatedTask);
     }
-  } catch (e) {
+  } catch (_e) {
     // Non-fatal
   }
   if (dashboard) dashboard.notifyTaskUpdated(taskId);
@@ -825,7 +825,6 @@ function selectHashlineFormat(model, task) {
 function classifyError(errorOutput, exitCode) {
   const errorText = errorOutput || '';
   const errorLower = errorText.toLowerCase();
-  const truncated = errorText.slice(0, 1200);
   const retryAfterMatch = errorLower.match(/retry_after_seconds=(\d+)/);
   const retryAfterSeconds = retryAfterMatch ? Number.parseInt(retryAfterMatch[1], 10) : null;
 
@@ -953,7 +952,7 @@ function classifyError(errorOutput, exitCode) {
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createFallbackRetry(deps) {
+function createFallbackRetry(_deps) {
   // deps reserved for Phase 5 when database.js facade is removed
   return {
     init,

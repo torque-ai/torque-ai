@@ -114,7 +114,12 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
    * Uses the database module's high-level getProjectFromPath / getProjectConfig
    * API instead of raw SQL so it stays consistent with the rest of the server.
    *
+   * When options.provider is a codex provider and no explicit remote config exists,
+   * auto-discovers a healthy workstation with test_runners capability.
+   *
    * @param {string} workingDir - Absolute path to the project directory
+   * @param {object} [options]
+   * @param {string} [options.provider] - Task provider name (enables codex auto-discovery)
    * @returns {{ agentId: string, remotePath: string } | null}
    */
   function getRemoteConfig(workingDir, options = {}) {

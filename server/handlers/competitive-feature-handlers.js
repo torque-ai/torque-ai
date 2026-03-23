@@ -5,7 +5,7 @@
  * Auto-discovered by tools.js routeMap via handleXxx naming convention.
  */
 
-const logger = require('../logger').child({ component: 'competitive-features' });
+// logger available if needed: require('../logger').child({ component: 'competitive-features' })
 
 // ─── Provider Comparison ─────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ async function handleReviewTaskOutput(args) {
 
 // ─── Agent Discovery ─────────────────────────────────────────────────────
 
-async function handleDiscoverAgents(args) {
+async function handleDiscoverAgents(_args) {
   const { discoverAgents, formatDiscoveryReport } = require('../utils/agent-discovery');
   const result = discoverAgents();
   const report = formatDiscoveryReport(result);
@@ -33,7 +33,7 @@ async function handleDiscoverAgents(args) {
 // ─── Project Template Detection ──────────────────────────────────────────
 
 async function handleDetectProjectType(args) {
-  const { detectProjectType, getTemplate, listTemplates } = require('../templates/registry');
+  const { detectProjectType } = require('../templates/registry');
   const workingDir = args.working_directory;
   if (!workingDir) {
     return { content: [{ type: 'text', text: 'working_directory is required' }], isError: true };
@@ -50,7 +50,7 @@ async function handleDetectProjectType(args) {
   return { content: [{ type: 'text', text }], structuredData: detected };
 }
 
-async function handleListProjectTemplates(args) {
+async function handleListProjectTemplates(_args) {
   const { listTemplates } = require('../templates/registry');
   const templates = listTemplates();
   let text = '## Available Project Templates\n\n';
@@ -85,7 +85,7 @@ async function handleGetProviderScores(args) {
 
 // ─── Circuit Breaker Status ──────────────────────────────────────────────
 
-async function handleGetCircuitBreakerStatus(args) {
+async function handleGetCircuitBreakerStatus(_args) {
   const cb = require('../execution/circuit-breaker');
   const open = cb.getAllOpenCircuits();
   if (open.length === 0) {

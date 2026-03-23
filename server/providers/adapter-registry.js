@@ -170,59 +170,6 @@ function registerApiAdapter(providerId, ProviderClass, capabilities = {}) {
   });
 }
 
-function registerUnavailableProviderAdapter(providerId, capabilities = {}) {
-  registerProviderAdapter(providerId, () => {
-    const adapterCapabilities = {
-      ...DEFAULT_CAPABILITIES,
-      ...capabilities,
-    };
-
-    return {
-      id: providerId,
-      capabilities: adapterCapabilities,
-      supportsStream: adapterCapabilities.supportsStream,
-      supportsAsync: adapterCapabilities.supportsAsync,
-      supportsCancellation: adapterCapabilities.supportsCancellation,
-
-      async submit() {
-        throw new Error(makeUnavailableResult(providerId, 'execution').message);
-      },
-
-      async stream() {
-        throw new Error(makeUnavailableResult(providerId, 'streaming').message);
-      },
-
-      async submitAsync() {
-        throw new Error(makeUnavailableResult(providerId, 'async execution').message);
-      },
-
-      async cancel() {
-        return {
-          cancelled: false,
-          provider: providerId,
-          supported: false,
-        };
-      },
-
-      normalizeResult(response) {
-        return response;
-      },
-
-      async checkHealth() {
-        return {
-          available: false,
-          models: [],
-          error: `${providerId} transport is not implemented for v2`,
-        };
-      },
-
-      async listModels() {
-        return [];
-      },
-    };
-  });
-}
-
 registerApiAdapter('anthropic', AnthropicProvider, {
   supportsStream: true,
   supportsAsync: true,

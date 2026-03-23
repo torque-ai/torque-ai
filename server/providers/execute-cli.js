@@ -9,12 +9,9 @@
 'use strict';
 
 const path = require('path');
-const fs = require('fs');
 const { spawn } = require('child_process');
-const os = require('os');
 const logger = require('../logger').child({ component: 'execute-cli' });
-const { TASK_TIMEOUTS, PROVIDER_DEFAULTS, COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = require('../constants');
-const { isSmallModel } = require('../utils/model');
+const { PROVIDER_DEFAULTS, COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = require('../constants');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { redactCommandArgs, redactSecrets } = require('../utils/sanitize');
 const gitWorktree = require('../utils/git-worktree');
@@ -68,7 +65,6 @@ function init(deps) {
 }
 
 // Proxy helpers
-function tryReserveHostSlotWithFallback(...args) { if (!_tryReserveHostSlotWithFallback) throw new Error('execute-cli not initialized'); return _tryReserveHostSlotWithFallback(...args); }
 function markTaskCleanedUp(...args) { if (!_markTaskCleanedUp) throw new Error('execute-cli not initialized'); return _markTaskCleanedUp(...args); }
 function processQueue(...args) { return _processQueue ? _processQueue(...args) : undefined; }
 function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cli not initialized'); return _finalizeTask(...args); }
