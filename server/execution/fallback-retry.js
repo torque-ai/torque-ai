@@ -558,6 +558,16 @@ function findLargerAvailableModel(currentModel) {
  * @returns {boolean} True if the model is hashline-capable
  */
 function isHashlineCapableModel(model) {
+  // Try model_capabilities registry first (populated by discovery + heuristics)
+  try {
+    const rawDb = require('../database').getDbInstance();
+    if (rawDb) {
+      const { isHashlineCapable } = require('../discovery/capability-lookup');
+      if (isHashlineCapable(rawDb, model)) return true;
+    }
+  } catch { /* registry not available — fall through to config */ }
+
+  // Fallback: legacy config key
   const capableStr = serverConfig.get('hashline_capable_models') || '';
   if (!capableStr) return true; // No allowlist configured = allow all
   const capableModels = capableStr.split(',').map(m => m.trim().toLowerCase()).filter(Boolean);
