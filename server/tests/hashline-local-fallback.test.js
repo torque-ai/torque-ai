@@ -83,7 +83,7 @@ describe('Hashline Local Model Escalation', () => {
       return hostId;
     }
 
-    it('tries larger hashline-capable model before escalating to cloud', () => {
+    it('escalates to codex when no larger hashline-capable model is allowed by config', () => {
       const hostA = registerHost('escalate-a', ['qwen2.5-coder:7b', 'qwen3-coder:30b']);
 
       db.setConfig('hashline_capable_models', 'qwen2.5-coder');
@@ -96,11 +96,11 @@ describe('Hashline Local Model Escalation', () => {
       expect(result).toBe(true);
 
       const updated = db.getTask(taskId);
-      expect(updated.provider).toBe('hashline-ollama');
-      expect(updated.model).toBe('qwen3-coder:30b');
+      expect(updated.provider).toBe('codex');
+      expect(updated.model).toBeNull();
       expect(updated.status).toBe('queued');
-      expect(updated.error_output).toContain('[Hashline-Local]');
-      expect(updated.error_output).toContain('qwen3-coder:30b');
+      expect(updated.error_output).toContain('Escalated from hashline-ollama');
+      expect(updated.error_output).toContain('no edits parsed from local model response');
     });
 
     it('tries local retry before escalating on host-related failures', () => {

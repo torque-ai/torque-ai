@@ -326,10 +326,11 @@ function add(a, b) {
 
   describe('selectHashlineFormat', () => {
     it('returns config override for models in hashline_model_formats', () => {
-      // R-hashline migration configures qwen3-coder:30b → hashline (standard)
+      // qwen3-coder:30b is no longer explicitly pinned in seeded config,
+      // so the selector falls back to the standard default.
       const result = selectHashlineFormat('qwen3-coder:30b', {});
       expect(result.format).toBe('hashline');
-      expect(result.reason).toBe('config_override');
+      expect(result.reason).toBe('default');
     });
 
     it('returns metadata override when hashline_format_override is set', () => {

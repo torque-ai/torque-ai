@@ -3,7 +3,6 @@
 const mockDb = {
   getRateLimits: vi.fn(),
   setRateLimit: vi.fn(),
-  getTask: vi.fn(),
   getTaskFileChanges: vi.fn(),
   runSecurityScan: vi.fn(),
   getSecurityScanResults: vi.fn(),
@@ -12,6 +11,10 @@ const mockDb = {
   releaseAllFileLocks: vi.fn(),
   getTaskBackups: vi.fn(),
   restoreFileBackup: vi.fn(),
+};
+
+const mockTaskCore = {
+  getTask: vi.fn(),
 };
 
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -26,11 +29,13 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/security')];
-  installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/file-tracking', mockDb);
+  installCjsModuleMock('../db/task-core', mockTaskCore);
   return require('../handlers/validation/security');
 }
 
-vi.mock('../database', () => mockDb);
+vi.mock('../db/file-tracking', () => mockDb);
+vi.mock('../db/task-core', () => mockTaskCore);
 
 function resetMockDefaults() {
   mockDb.getRateLimits.mockReset();
@@ -39,8 +44,8 @@ function resetMockDefaults() {
   mockDb.setRateLimit.mockReset();
   mockDb.setRateLimit.mockReturnValue(undefined);
 
-  mockDb.getTask.mockReset();
-  mockDb.getTask.mockReturnValue({ id: 'task-default' });
+  mockTaskCore.getTask.mockReset();
+  mockTaskCore.getTask.mockReturnValue({ id: 'task-default' });
 
   mockDb.getTaskFileChanges.mockReset();
   mockDb.getTaskFileChanges.mockReturnValue([]);
@@ -159,11 +164,11 @@ describe('handler:validation-security-handlers', () => {
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
-      expect(mockDb.getTask).not.toHaveBeenCalled();
+      expect(mockTaskCore.getTask).not.toHaveBeenCalled();
     });
 
     it('returns TASK_NOT_FOUND when scanning an unknown task', () => {
-      mockDb.getTask.mockReturnValue(null);
+      mockTaskCore.getTask.mockReturnValue(null);
 
       const result = handlers.handleRunSecurityScan({ task_id: 'missing-task' });
 
@@ -174,7 +179,7 @@ describe('handler:validation-security-handlers', () => {
     });
 
     it('runs scans only for changed files with truthy new content and aggregates findings', () => {
-      mockDb.getTask.mockReturnValue({ id: 'task-1' });
+      mockTaskCore.getTask.mockReturnValue({ id: 'task-1' });
       mockDb.getTaskFileChanges.mockReturnValue([
         { file_path: 'package-lock.json', new_content: '{"deps":1}' },
         { file_path: '.env', new_content: 'API_KEY=abc' },
@@ -191,7 +196,7 @@ describe('handler:validation-security-handlers', () => {
 
       const payload = getJson(handlers.handleRunSecurityScan({ task_id: 'task-1' }));
 
-      expect(mockDb.getTask).toHaveBeenCalledWith('task-1');
+      expect(mockTaskCore.getTask).toHaveBeenCalledWith('task-1');
       expect(mockDb.getTaskFileChanges).toHaveBeenCalledWith('task-1');
       expect(mockDb.runSecurityScan).toHaveBeenCalledTimes(2);
       expect(mockDb.runSecurityScan).toHaveBeenNthCalledWith(
@@ -213,7 +218,7 @@ describe('handler:validation-security-handlers', () => {
     });
 
     it('returns zero findings when no changed files include new content', () => {
-      mockDb.getTask.mockReturnValue({ id: 'task-empty' });
+      mockTaskCore.getTask.mockReturnValue({ id: 'task-empty' });
       mockDb.getTaskFileChanges.mockReturnValue([
         { file_path: 'README.md', new_content: '' },
         { file_path: 'notes.txt' },

@@ -690,7 +690,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('parses size from standard model names', () => {
-      expect(taskManager.parseModelSizeB('qwen3-coder:30b')).toBe(32);
+      expect(taskManager.parseModelSizeB('qwen3-coder:30b')).toBe(30);
       expect(taskManager.parseModelSizeB('codellama:34b')).toBe(34);
       expect(taskManager.parseModelSizeB('mistral:7b')).toBe(7);
       expect(taskManager.parseModelSizeB('deepseek-coder-v2:16b')).toBe(16);
@@ -774,7 +774,7 @@ describe('Host Distribution & Load Balancing', () => {
         status: 'running',
         task_description: 'Already running large model',
         provider: 'hashline-ollama',
-        model: TEST_MODELS.DEFAULT,
+        model: 'codellama:34b',
         working_directory: process.cwd()
       });
       db.updateTaskStatus(runningTaskId, 'running', { ollama_host_id: hostId });

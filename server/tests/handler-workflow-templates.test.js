@@ -1,5 +1,6 @@
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
+const providerRoutingCore = require('../db/provider-routing-core');
 const schedulingAutomation = require('../db/scheduling-automation');
 const workflowHandlers = require('../handlers/workflow');
 const handlers = require('../handlers/workflow/templates');
@@ -257,7 +258,7 @@ describe('workflow-templates handlers', () => {
     });
 
     it('creates condition and includes then/else blocks in output', () => {
-      vi.spyOn(workflowEngine, 'createTemplateCondition').mockReturnValue({ id: 'cond-1' });
+      vi.spyOn(providerRoutingCore, 'createTemplateCondition').mockReturnValue({ id: 'cond-1' });
 
       const result = handlers.handleCreateConditionalTemplate({
         template_id: 'tmpl-1',

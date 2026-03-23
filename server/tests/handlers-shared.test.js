@@ -1,18 +1,73 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 
-const mockDb = vi.hoisted(() => ({
+const require = createRequire(import.meta.url);
+
+const SHARED_MODULE = '../handlers/shared';
+const TASK_CORE_MODULE = '../db/task-core';
+const WORKFLOW_ENGINE_MODULE = '../db/workflow-engine';
+const PROVIDER_ROUTING_CORE_MODULE = '../db/provider-routing-core';
+const HOST_MANAGEMENT_MODULE = '../db/host-management';
+const MODULE_PATHS = [
+  SHARED_MODULE,
+  TASK_CORE_MODULE,
+  WORKFLOW_ENGINE_MODULE,
+  PROVIDER_ROUTING_CORE_MODULE,
+  HOST_MANAGEMENT_MODULE,
+];
+
+const taskCore = {
   getTask: vi.fn(),
+};
+
+const workflowEngine = {
   getWorkflow: vi.fn(),
+};
+
+const providerRoutingCore = {
   isCodexExhausted: vi.fn(),
+};
+
+const hostManagement = {
   hasHealthyOllamaHost: vi.fn(),
-}));
+};
 
-vi.mock('../database', () => mockDb);
+let shared;
 
-import * as database from '../database';
-import shared from '../handlers/shared';
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+function clearModule(modulePath) {
+  try {
+    delete require.cache[require.resolve(modulePath)];
+  } catch {
+    // Ignore modules that were not loaded in this test process.
+  }
+}
+
+function clearModules() {
+  for (const modulePath of MODULE_PATHS) {
+    clearModule(modulePath);
+  }
+}
+
+function loadShared() {
+  clearModules();
+  installCjsModuleMock(TASK_CORE_MODULE, taskCore);
+  installCjsModuleMock(WORKFLOW_ENGINE_MODULE, workflowEngine);
+  installCjsModuleMock(PROVIDER_ROUTING_CORE_MODULE, providerRoutingCore);
+  installCjsModuleMock(HOST_MANAGEMENT_MODULE, hostManagement);
+  return require(SHARED_MODULE);
+}
 
 function getText(result) {
   return result?.content?.[0]?.text ?? '';
@@ -69,13 +124,18 @@ async function closeServer(server) {
 beforeEach(() => {
   vi.useRealTimers();
 
-  database.getTask.mockReset();
-  database.getWorkflow.mockReset();
-  database.isCodexExhausted.mockReset();
-  database.hasHealthyOllamaHost.mockReset();
+  taskCore.getTask.mockReset();
+  workflowEngine.getWorkflow.mockReset();
+  providerRoutingCore.isCodexExhausted.mockReset();
+  hostManagement.hasHealthyOllamaHost.mockReset();
 
-  database.isCodexExhausted.mockReturnValue(false);
-  database.hasHealthyOllamaHost.mockReturnValue(true);
+  providerRoutingCore.isCodexExhausted.mockReturnValue(false);
+  hostManagement.hasHealthyOllamaHost.mockReturnValue(true);
+  shared = loadShared();
+});
+
+afterEach(() => {
+  clearModules();
 });
 
 describe('handlers/shared.js utilities', () => {
@@ -844,51 +904,51 @@ describe('handlers/shared.js utilities', () => {
 
   describe('requireTask', () => {
     it('returns a missing-parameter error when no task id is provided', () => {
-      const result = shared.requireTask(database, '');
+      const result = shared.requireTask('');
 
       expectError(result.error, shared.ErrorCodes.MISSING_REQUIRED_PARAM.code, 'task_id is required');
-      expect(database.getTask).not.toHaveBeenCalled();
+      expect(taskCore.getTask).not.toHaveBeenCalled();
     });
 
     it('returns a task-not-found error when the task does not exist', () => {
-      database.getTask.mockReturnValue(null);
+      taskCore.getTask.mockReturnValue(null);
 
-      const result = shared.requireTask(database, 'task-404');
+      const result = shared.requireTask('task-404');
 
-      expect(database.getTask).toHaveBeenCalledWith('task-404');
+      expect(taskCore.getTask).toHaveBeenCalledWith('task-404');
       expectError(result.error, shared.ErrorCodes.TASK_NOT_FOUND.code, 'Task not found: task-404');
     });
 
     it('returns the task when it exists', () => {
       const task = { id: 'task-1', status: 'running' };
-      database.getTask.mockReturnValue(task);
+      taskCore.getTask.mockReturnValue(task);
 
-      expect(shared.requireTask(database, 'task-1')).toEqual({ task });
+      expect(shared.requireTask('task-1')).toEqual({ task });
     });
   });
 
   describe('requireWorkflow', () => {
     it('returns a missing-parameter error when no workflow id is provided', () => {
-      const result = shared.requireWorkflow(database, '');
+      const result = shared.requireWorkflow('');
 
       expectError(result.error, shared.ErrorCodes.MISSING_REQUIRED_PARAM.code, 'workflow_id is required');
-      expect(database.getWorkflow).not.toHaveBeenCalled();
+      expect(workflowEngine.getWorkflow).not.toHaveBeenCalled();
     });
 
     it('returns a workflow-not-found error when the workflow does not exist', () => {
-      database.getWorkflow.mockReturnValue(null);
+      workflowEngine.getWorkflow.mockReturnValue(null);
 
-      const result = shared.requireWorkflow(database, 'wf-404');
+      const result = shared.requireWorkflow('wf-404');
 
-      expect(database.getWorkflow).toHaveBeenCalledWith('wf-404');
+      expect(workflowEngine.getWorkflow).toHaveBeenCalledWith('wf-404');
       expectError(result.error, shared.ErrorCodes.WORKFLOW_NOT_FOUND.code, 'Workflow not found: wf-404');
     });
 
     it('returns the workflow when it exists', () => {
       const workflow = { id: 'wf-1', status: 'running' };
-      database.getWorkflow.mockReturnValue(workflow);
+      workflowEngine.getWorkflow.mockReturnValue(workflow);
 
-      expect(shared.requireWorkflow(database, 'wf-1')).toEqual({ workflow });
+      expect(shared.requireWorkflow('wf-1')).toEqual({ workflow });
     });
   });
 
@@ -943,24 +1003,24 @@ describe('handlers/shared.js utilities', () => {
   describe('checkProviderAvailability', () => {
     it('bypasses availability checks when an explicit provider is supplied', () => {
       expect(
-        shared.checkProviderAvailability(database, { hasExplicitProvider: true }),
+        shared.checkProviderAvailability({ hasExplicitProvider: true }),
       ).toBeNull();
-      expect(database.isCodexExhausted).not.toHaveBeenCalled();
-      expect(database.hasHealthyOllamaHost).not.toHaveBeenCalled();
+      expect(providerRoutingCore.isCodexExhausted).not.toHaveBeenCalled();
+      expect(hostManagement.hasHealthyOllamaHost).not.toHaveBeenCalled();
     });
 
     it('returns null when at least one provider path is available', () => {
-      database.isCodexExhausted.mockReturnValue(false);
-      database.hasHealthyOllamaHost.mockReturnValue(false);
+      providerRoutingCore.isCodexExhausted.mockReturnValue(false);
+      hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
 
-      expect(shared.checkProviderAvailability(database)).toBeNull();
+      expect(shared.checkProviderAvailability()).toBeNull();
     });
 
     it('returns a NO_HOSTS_AVAILABLE error when codex is exhausted and Ollama is offline', () => {
-      database.isCodexExhausted.mockReturnValue(true);
-      database.hasHealthyOllamaHost.mockReturnValue(false);
+      providerRoutingCore.isCodexExhausted.mockReturnValue(true);
+      hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
 
-      const result = shared.checkProviderAvailability(database);
+      const result = shared.checkProviderAvailability();
 
       expect(result).toBeTruthy();
       expectError(result.error, shared.ErrorCodes.NO_HOSTS_AVAILABLE.code, 'No providers available');

@@ -2,11 +2,9 @@
 
 const mockDb = {
   captureTestBaseline: vi.fn(),
-  getConfig: vi.fn(),
   detectRegressions: vi.fn(),
   captureConfigBaselines: vi.fn(),
   detectConfigDrift: vi.fn(),
-  getTask: vi.fn(),
   getTaskFileChanges: vi.fn(),
   estimateResourceUsage: vi.fn(),
   checkI18n: vi.fn(),
@@ -20,6 +18,14 @@ const mockDb = {
   getTaskComplexityScore: vi.fn(),
   performAutoRollback: vi.fn(),
   getAutoRollbackHistory: vi.fn(),
+};
+
+const mockConfigCore = {
+  getConfig: vi.fn(),
+};
+
+const mockTaskCore = {
+  getTask: vi.fn(),
 };
 
 const mockConstants = {
@@ -39,20 +45,24 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/safeguard')];
-  installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/file-tracking', mockDb);
+  installCjsModuleMock('../db/config-core', mockConfigCore);
+  installCjsModuleMock('../db/task-core', mockTaskCore);
   installCjsModuleMock('../constants', mockConstants);
   return require('../handlers/validation/safeguard');
 }
 
-vi.mock('../database', () => mockDb);
+vi.mock('../db/file-tracking', () => mockDb);
+vi.mock('../db/config-core', () => mockConfigCore);
+vi.mock('../db/task-core', () => mockTaskCore);
 vi.mock('../constants', () => mockConstants);
 
 function resetMockDefaults() {
   mockDb.captureTestBaseline.mockReset();
   mockDb.captureTestBaseline.mockResolvedValue({ suites: 0, passed: 0, failed: 0 });
 
-  mockDb.getConfig.mockReset();
-  mockDb.getConfig.mockReturnValue(null);
+  mockConfigCore.getConfig.mockReset();
+  mockConfigCore.getConfig.mockReturnValue(null);
 
   mockDb.detectRegressions.mockReset();
   mockDb.detectRegressions.mockResolvedValue({
@@ -72,8 +82,8 @@ function resetMockDefaults() {
     changed_files: [],
   });
 
-  mockDb.getTask.mockReset();
-  mockDb.getTask.mockReturnValue({ id: 'task-default' });
+  mockTaskCore.getTask.mockReset();
+  mockTaskCore.getTask.mockReturnValue({ id: 'task-default' });
 
   mockDb.getTaskFileChanges.mockReset();
   mockDb.getTaskFileChanges.mockReturnValue([]);
@@ -216,12 +226,12 @@ describe('handler:validation-safeguard-handlers', () => {
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
-      expect(mockDb.getConfig).not.toHaveBeenCalled();
+      expect(mockConfigCore.getConfig).not.toHaveBeenCalled();
     });
 
     it('uses a cached baseline when config data exists', async () => {
       const baseline = { files: ['src/app.js'] };
-      mockDb.getConfig.mockReturnValue(JSON.stringify(baseline));
+      mockConfigCore.getConfig.mockReturnValue(JSON.stringify(baseline));
       mockDb.detectRegressions.mockResolvedValue({
         regressions_found: 1,
         regressions: [{ file_path: 'src/app.js', reason: 'snapshot changed' }],
@@ -241,7 +251,7 @@ describe('handler:validation-safeguard-handlers', () => {
     });
 
     it('captures a baseline when no cached baseline exists', async () => {
-      mockDb.getConfig.mockReturnValue(null);
+      mockConfigCore.getConfig.mockReturnValue(null);
       mockDb.captureTestBaseline.mockResolvedValue({ snapshot: 'fresh' });
 
       const result = await handlers.handleDetectRegressions({
@@ -255,7 +265,7 @@ describe('handler:validation-safeguard-handlers', () => {
     });
 
     it('returns INTERNAL_ERROR when cached baseline JSON is invalid', async () => {
-      mockDb.getConfig.mockReturnValue('{not-valid-json');
+      mockConfigCore.getConfig.mockReturnValue('{not-valid-json');
 
       const result = await handlers.handleDetectRegressions({
         task_id: 'task-4',
@@ -328,11 +338,11 @@ describe('handler:validation-safeguard-handlers', () => {
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
-      expect(mockDb.getTask).not.toHaveBeenCalled();
+      expect(mockTaskCore.getTask).not.toHaveBeenCalled();
     });
 
     it('returns TASK_NOT_FOUND when the task does not exist', () => {
-      mockDb.getTask.mockReturnValue(null);
+      mockTaskCore.getTask.mockReturnValue(null);
 
       const result = handlers.handleEstimateResources({ task_id: 'missing-task' });
 
@@ -390,11 +400,11 @@ describe('handler:validation-safeguard-handlers', () => {
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
-      expect(mockDb.getTask).not.toHaveBeenCalled();
+      expect(mockTaskCore.getTask).not.toHaveBeenCalled();
     });
 
     it('returns TASK_NOT_FOUND when the task does not exist', () => {
-      mockDb.getTask.mockReturnValue(null);
+      mockTaskCore.getTask.mockReturnValue(null);
 
       const result = handlers.handleCheckI18n({ task_id: 'missing-task' });
 
@@ -445,11 +455,11 @@ describe('handler:validation-safeguard-handlers', () => {
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
-      expect(mockDb.getTask).not.toHaveBeenCalled();
+      expect(mockTaskCore.getTask).not.toHaveBeenCalled();
     });
 
     it('returns TASK_NOT_FOUND when the task does not exist', () => {
-      mockDb.getTask.mockReturnValue(null);
+      mockTaskCore.getTask.mockReturnValue(null);
 
       const result = handlers.handleCheckAccessibility({ task_id: 'missing-task' });
 
