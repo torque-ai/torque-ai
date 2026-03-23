@@ -11,7 +11,12 @@ const path = require('path');
 const os = require('os');
 
 describe('Git Operations', () => {
-  beforeAll(() => { setupTestDb('git-ops'); });
+  beforeAll(() => {
+    setupTestDb('git-ops');
+    const tm = require('../task-manager');
+    if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+    if (typeof tm.initSubModules === 'function') tm.initSubModules();
+  });
   afterAll(() => { teardownTestDb(); });
 
   describe('preview_diff', () => {

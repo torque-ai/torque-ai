@@ -132,7 +132,13 @@ function createAutomationDbMock(options = {}) {
 
 const TASK_PROJECT_MODULES = [
   '../handlers/task/project',
-  '../database',
+  '../db/config-core',
+  '../db/cost-tracking',
+  '../db/task-core',
+  '../db/event-tracking',
+  '../db/project-config-core',
+  '../db/task-metadata',
+  '../config',
   '../task-manager',
   '../handlers/shared',
   '../handlers/task/utils',
@@ -144,6 +150,9 @@ const AUTOMATION_MODULES = [
   '../handlers/automation-ts-tools',
   '../handlers/automation-batch-orchestration',
   '../database',
+  '../db/config-core',
+  '../db/task-core',
+  '../db/project-config-core',
   '../task-manager',
   '../handlers/shared',
   '../logger',
@@ -156,7 +165,13 @@ const AUTOMATION_MODULES = [
 
 function loadTaskProject({ dbMock, sharedMock, loggerMock, formatTimeMock }) {
   clearModules(TASK_PROJECT_MODULES);
-  installCjsModuleMock('../database', dbMock);
+  installCjsModuleMock('../db/config-core', {});
+  installCjsModuleMock('../db/cost-tracking', {});
+  installCjsModuleMock('../db/task-core', {});
+  installCjsModuleMock('../db/event-tracking', {});
+  installCjsModuleMock('../db/project-config-core', dbMock);
+  installCjsModuleMock('../db/task-metadata', {});
+  installCjsModuleMock('../config', { get: vi.fn(() => null) });
   installCjsModuleMock('../task-manager', { startTask: vi.fn() });
   installCjsModuleMock('../handlers/shared', sharedMock);
   installCjsModuleMock('../handlers/task/utils', { formatTime: formatTimeMock });
@@ -167,6 +182,9 @@ function loadTaskProject({ dbMock, sharedMock, loggerMock, formatTimeMock }) {
 function loadAutomationHandlers({ dbMock, sharedMock, loggerMock }) {
   clearModules(AUTOMATION_MODULES);
   installCjsModuleMock('../database', dbMock);
+  installCjsModuleMock('../db/config-core', {});
+  installCjsModuleMock('../db/task-core', {});
+  installCjsModuleMock('../db/project-config-core', dbMock);
   installCjsModuleMock('../task-manager', {});
   installCjsModuleMock('../handlers/shared', sharedMock);
   installCjsModuleMock('../logger', loggerMock);

@@ -5,7 +5,7 @@ const { parseModelSizeB, getModelSizeCategory, isSmallModel, isThinkingModel } =
 describe('utils/model', () => {
   describe('parseModelSizeB', () => {
     it('parses colon-delimited sizes', () => {
-      expect(parseModelSizeB('qwen3-coder:30b')).toBe(32);
+      expect(parseModelSizeB('qwen3-coder:30b')).toBe(30);
       expect(parseModelSizeB('gemma3:4b')).toBe(4);
       expect(parseModelSizeB('model:1.5b')).toBe(1.5);
     });

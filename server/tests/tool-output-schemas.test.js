@@ -5,6 +5,13 @@ const { getOutputSchema, OUTPUT_SCHEMAS } = require('../tool-output-schemas');
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
 
+function setupSchemaTestDb(suiteName) {
+  setupTestDb(suiteName);
+  const tm = require('../task-manager');
+  if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+  if (typeof tm.initSubModules === 'function') tm.initSubModules();
+}
+
 describe('tool-output-schemas', () => {
   describe('getOutputSchema', () => {
     it('returns schema for declared tools', () => {
@@ -51,7 +58,7 @@ describe('tool-output-schemas', () => {
         'get_cost_summary', 'get_budget_status', 'get_cost_forecast',
         'get_concurrency_limits', 'check_stalled_tasks', 'check_task_progress',
         // Phase 3
-        'workflow_history', 'list_models', 'list_pending_models', 'list_archived',
+        'workflow_history', 'list_models', 'list_pending_models', 'list_model_roles', 'list_archived',
         'get_archive_stats', 'get_provider_health_trends', 'health_check',
         'integration_health', 'list_tags', 'get_batch_summary',
       ];
@@ -177,7 +184,7 @@ describe('tool-output-schemas', () => {
     // These tests call the real handlers and verify structuredData shape.
     // They require a running database, so we use the test DB from global setup.
     beforeAll(() => {
-      setupTestDb('tool-output-schemas');
+      setupSchemaTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -231,7 +238,7 @@ describe('tool-output-schemas', () => {
 
   describe('handler conformance — list/result/progress', () => {
     beforeAll(() => {
-      setupTestDb('tool-output-schemas');
+      setupSchemaTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -311,7 +318,7 @@ describe('tool-output-schemas', () => {
 
   describe('handler conformance — workflows', () => {
     beforeAll(() => {
-      setupTestDb('tool-output-schemas');
+      setupSchemaTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -362,7 +369,7 @@ describe('tool-output-schemas', () => {
 
   describe('handler conformance — list_ollama_hosts', () => {
     beforeAll(() => {
-      setupTestDb('tool-output-schemas');
+      setupSchemaTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -381,7 +388,7 @@ describe('tool-output-schemas', () => {
 
   describe('handler conformance — Phase 2', () => {
     beforeAll(() => {
-      setupTestDb('tool-output-schemas');
+      setupSchemaTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -556,7 +563,7 @@ describe('tool-output-schemas', () => {
 
   describe('handler conformance — Phase 3', () => {
     beforeAll(() => {
-      setupTestDb('tool-output-schemas');
+      setupSchemaTestDb('tool-output-schemas');
     });
 
     afterAll(() => {

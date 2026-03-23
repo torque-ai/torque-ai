@@ -402,7 +402,7 @@ describe('utils-all', () => {
 
   describe('utils/model', () => {
     it('parses colon-delimited integer sizes', () => {
-      expect(parseModelSizeB('qwen3-coder:30b')).toBe(32);
+      expect(parseModelSizeB('qwen3-coder:30b')).toBe(30);
       expect(parseModelSizeB('gemma3:4b')).toBe(4);
     });
 

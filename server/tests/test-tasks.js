@@ -8,7 +8,12 @@ const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-set
 const { uniqueId, extractTaskId } = require('./test-helpers');
 
 describe('Task Lifecycle', () => {
-  beforeAll(() => { setupTestDb('task-lifecycle'); });
+  beforeAll(() => {
+    setupTestDb('task-lifecycle');
+    const tm = require('../task-manager');
+    if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+    if (typeof tm.initSubModules === 'function') tm.initSubModules();
+  });
   afterAll(() => { teardownTestDb(); });
 
   describe('Task Creation', () => {
