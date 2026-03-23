@@ -68,8 +68,6 @@ describe('inbound webhook idempotency (RB-044)', () => {
   let apiServer;
   let requestHandler;
   let handleToolCallSpy;
-  let testDir;
-  let origDataDir;
   let templateBuffer;
 
   const webhookName = 'rb044-hook';
@@ -91,7 +89,7 @@ describe('inbound webhook idempotency (RB-044)', () => {
   }
 
   beforeAll(async () => {
-    ({ db, testDir } = setupTestDb('webhook-idempotency'));
+    ({ db } = setupTestDb('webhook-idempotency'));
     templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
     inboundWebhooks = require('../db/inbound-webhooks');
     inboundWebhooks.setDb(db.getDbInstance());

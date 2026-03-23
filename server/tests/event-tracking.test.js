@@ -10,10 +10,10 @@ const { setupTestDbModule, teardownTestDb } = require('./vitest-setup');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
 
-let db, mod;
+let db, mod, testDir;
 
 function setup() {
-  ({ db, mod } = setupTestDbModule('../db/event-tracking', 'evttrack'));
+  ({ db, mod, testDir } = setupTestDbModule('../db/event-tracking', 'evttrack'));
 
   const schedulingAutomation = require('../db/scheduling-automation');
 

@@ -4,13 +4,12 @@ const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb, resetTables: _resetTables } = require('./vitest-setup');
 
 let testDir;
-let db;
 let mod;
 const costTracking = require('../db/cost-tracking');
 const taskCore = require('../db/task-core');
 
 function setup() {
-  ({ db, mod, testDir } = setupTestDbModule('../db/project-config-core', 'projconfig'));
+  ({ mod, testDir } = setupTestDbModule('../db/project-config-core', 'projconfig'));
   // Inject required cross-module dependencies
   mod.setGetTask((id) => taskCore.getTask(id));
   mod.setRecordEvent((...args) => {

@@ -157,10 +157,12 @@ async function handleAutoVerifyRetry(ctx) {
 
   logger.info(`[auto-verify] Task ${taskId}: running verify_command for project "${project}"`);
 
-  // Run verify_command (routes to remote agent when configured, falls back to local)
+  // Run verify_command (routes to remote agent when configured, falls back to local).
+  // Pass provider so codex tasks auto-discover a remote workstation with test_runners.
   const router = getRouter();
   const verifyResult = await router.runVerifyCommand(verifyCommand, task.working_directory, {
     timeout: 300000, // 5 minutes — tsc + vitest can be slow on large projects
+    provider,
   });
   const verifyOutput = (verifyResult.output || '') + (verifyResult.error || '');
   const verifyExitCode = verifyResult.exitCode;

@@ -5,12 +5,12 @@
  * resolveProvider logic, and validation rules.
  */
 
-const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { setupTestDbModule, teardownTestDb } = require('./vitest-setup');
 
-let mod, db;
+let mod;
 
 beforeAll(() => {
-  ({ mod, db } = setupTestDbModule('../routing/template-store', 'routing-templates'));
+  ({ mod } = setupTestDbModule('../routing/template-store', 'routing-templates'));
   mod.ensureTable();
   mod.seedPresets();
 });

@@ -4,10 +4,10 @@
  */
 const { setupTestDbModule, teardownTestDb } = require('./vitest-setup');
 
-let db, mod;
+let mod;
 
 function setup() {
-  ({ db, mod } = setupTestDbModule('../handlers/provider-ollama-hosts', 'ollama-hosts'));
+  ({ mod } = setupTestDbModule('../handlers/provider-ollama-hosts', 'ollama-hosts'));
 }
 
 function teardown() {

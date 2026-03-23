@@ -4,10 +4,8 @@
  * Tests: buildClaudeCliCommand, buildCodexCommand
  */
 
-const path = require('path');
 const _os = require('os');
-const fs = require('fs');
-const { setupE2eDb, teardownE2eDb, registerMockHost } = require('./e2e-helpers');
+const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
 const { createConfigMock: _createConfigMock } = require('./test-helpers');
 
 let db, tm, testDir, origDataDir;

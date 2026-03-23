@@ -12,6 +12,26 @@ const SENSITIVE_ENV_PATTERNS = [
   /^(TORQUE_AGENT_SECRET_KEY)$/i,
 ];
 
+// Codex providers run tasks in a sandbox — post-task heavy compute (tests, builds)
+// should route to a remote workstation with test_runners capability when available.
+const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
+
+/**
+ * Find a healthy workstation with test_runners capability for codex verification routing.
+ * @returns {object|null} Workstation record or null
+ */
+function findTestRunnerWorkstation() {
+  try {
+    const wsModel = require('../workstation/model');
+    const workstations = wsModel.listWorkstations({ enabled: true });
+    return workstations.find(ws =>
+      ws.status === 'healthy' && wsModel.hasCapability(ws, 'test_runners')
+    ) || null;
+  } catch {
+    return null;
+  }
+}
+
 function filterSensitiveEnv(env) {
   if (!env) return undefined;
   const filtered = {};
@@ -97,7 +117,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
    * @param {string} workingDir - Absolute path to the project directory
    * @returns {{ agentId: string, remotePath: string } | null}
    */
-  function getRemoteConfig(workingDir) {
+  function getRemoteConfig(workingDir, options = {}) {
     try {
       if (!db || !workingDir) return null;
 
@@ -111,35 +131,47 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       const config = typeof db.getProjectConfig === 'function'
         ? db.getProjectConfig(project)
         : null;
-      if (!config) return null;
 
-      // Must have remote agent id AND prefer_remote_tests enabled
-      if (!config.prefer_remote_tests || !config.remote_agent_id) return null;
-
-      // Phase 3: Try workstation lookup for remote agent
-      try {
-        const wsModel = require('../workstation/model');
-        const ws = wsModel.getWorkstationByName(config.remote_agent_id)
-          || wsModel.getWorkstation(config.remote_agent_id);
-        if (
-          ws
-          && ws._capabilities
-          && (
-            ws._capabilities.command_exec === true
-            || (ws._capabilities.command_exec && ws._capabilities.command_exec.detected)
-          )
-        ) {
-          // Found a workstation with command_exec capability matching the remote_agent_id.
-          // The existing agent-client code will handle the actual execution.
+      // Check explicit remote configuration
+      if (config && config.prefer_remote_tests && config.remote_agent_id) {
+        // Phase 3: Try workstation lookup for remote agent
+        try {
+          const wsModel = require('../workstation/model');
+          const ws = wsModel.getWorkstationByName(config.remote_agent_id)
+            || wsModel.getWorkstation(config.remote_agent_id);
+          if (
+            ws
+            && ws._capabilities
+            && (
+              ws._capabilities.command_exec === true
+              || (ws._capabilities.command_exec && ws._capabilities.command_exec.detected)
+            )
+          ) {
+            // Found a workstation with command_exec capability matching the remote_agent_id.
+            // The existing agent-client code will handle the actual execution.
+          }
+        } catch {
+          /* fall through to legacy agent lookup */
         }
-      } catch {
-        /* fall through to legacy agent lookup */
+
+        return {
+          agentId: config.remote_agent_id,
+          remotePath: config.remote_project_path || workingDir,
+        };
       }
 
-      return {
-        agentId: config.remote_agent_id,
-        remotePath: config.remote_project_path || workingDir,
-      };
+      // Auto-discover remote workstation for codex providers.
+      // Codex tasks run in a sandbox — post-task verification (tests, builds)
+      // should execute on a workstation with test_runners capability when available.
+      if (CODEX_PROVIDERS.has((options.provider || '').toLowerCase())) {
+        const ws = findTestRunnerWorkstation();
+        if (ws) {
+          logger.info(`[remote-routing] Codex auto-discover: routing verification to workstation "${ws.name}"`);
+          return { agentId: ws.name || ws.id, remotePath: workingDir };
+        }
+      }
+
+      return null;
     } catch {
       return null;
     }
@@ -183,7 +215,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
    * @returns {Promise<{success: boolean, output: string, error: string, exitCode: number, durationMs: number, remote: boolean}>}
    */
   async function runRemoteOrLocal(command, args, cwd, options = {}) {
-    const remoteConfig = getRemoteConfig(cwd);
+    const remoteConfig = getRemoteConfig(cwd, { provider: options.provider });
 
     if (remoteConfig && agentRegistry) {
       const client = agentRegistry.getClient(remoteConfig.agentId);
@@ -290,7 +322,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       };
     }
 
-    const remoteConfig = getRemoteConfig(cwd);
+    const remoteConfig = getRemoteConfig(cwd, { provider: options.provider });
 
     if (remoteConfig && agentRegistry) {
       const client = agentRegistry.getClient(remoteConfig.agentId);
@@ -416,5 +448,7 @@ module.exports = {
   filterSensitiveEnv,
   isRemoteAuthError,
   isRemoteExecutionTimeout,
+  findTestRunnerWorkstation,
   SENSITIVE_ENV_PATTERNS,
+  CODEX_PROVIDERS,
 };

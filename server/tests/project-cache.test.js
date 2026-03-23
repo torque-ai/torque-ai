@@ -6,13 +6,10 @@
  * integrity checks, index stats.
  */
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 let testDir;
 let db;

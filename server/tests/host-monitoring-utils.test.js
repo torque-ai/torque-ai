@@ -1,6 +1,3 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { EventEmitter } = require('events');
@@ -11,7 +8,7 @@ const hostManagement = require('../db/host-management');
 let db;
 let configCore;
 let monitoring;
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb } = require('./vitest-setup');
 
 function loadHostMonitoring() {
   const monitoringPath = require.resolve('../utils/host-monitoring');

@@ -6,18 +6,20 @@
  * Uses isolated temp DB via vitest-setup.js pattern.
  */
 
+const path = require('path');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
-let db;
+let testDir;
 let taskCore;
 let tm;
 
 function setupTm() {
-  ({ db } = setupTestDb('taskmgr'));
+  ({ testDir } = setupTestDb('taskmgr'));
   taskCore = require('../db/task-core');
   tm = require('../task-manager');
-  return { db, tm };
+  return { tm, testDir };
 }
 
 function teardownTm() {

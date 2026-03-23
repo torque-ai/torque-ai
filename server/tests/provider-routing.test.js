@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 const { setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 let testDir;

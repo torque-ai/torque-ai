@@ -1,12 +1,12 @@
 const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
-let db, mod, testDir;
+let mod, testDir;
 const projectConfigCore = require('../db/project-config-core');
 const taskCore = require('../db/task-core');
 
 function setup() {
-  ({ db, mod, testDir } = setupTestDbModule('../db/scheduling-automation', 'schedauto'));
+  ({ mod, testDir } = setupTestDbModule('../db/scheduling-automation', 'schedauto'));
   // Inject cross-module dependencies
   mod.setGetTask((id) => taskCore.getTask(id));
   mod.setRecordTaskEvent((..._args) => { /* no-op for tests */ });

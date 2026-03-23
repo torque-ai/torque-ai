@@ -1,11 +1,9 @@
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const childProcess = require('child_process');
 
 let testDir;
-let db;
 let taskCore;
 let projectConfigCore;
 let fileTracking;
@@ -16,10 +14,10 @@ let saveBuildResultSpy;
 
 const originalExecFileSync = childProcess.execFileSync;
 const originalSpawnSync = childProcess.spawnSync;
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('post-task'));
+  ({ testDir } = setupTestDb('post-task'));
 
   mockExecFileSync = vi.fn();
   mockSpawnSync = vi.fn();
@@ -48,6 +46,8 @@ function setup() {
 }
 
 function teardown() {
+  childProcess.execFileSync = originalExecFileSync;
+  childProcess.spawnSync = originalSpawnSync;
   teardownTestDb();
 }
 

@@ -2,10 +2,10 @@ const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
 const { setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
-let testDir, db, mod;
+let testDir, mod;
 
 function setup() {
-  ({ db, mod, testDir } = setupTestDbModule('../db/webhooks-streaming', 'webhooks'));
+  ({ mod, testDir } = setupTestDbModule('../db/webhooks-streaming', 'webhooks'));
 }
 
 function rawDb() {

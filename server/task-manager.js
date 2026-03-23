@@ -57,7 +57,6 @@ const hostMonitoring = require('./utils/host-monitoring');
 const contextEnrichment = require('./utils/context-enrichment');
 const tsserverClient = require('./utils/tsserver-client');
 const activityMonitoring = require('./utils/activity-monitoring');
-const taskHooks = require('./policy-engine/task-hooks');
 const _taskExecutionHooks = require('./policy-engine/task-execution-hooks');
 
 // TIMEOUT MECHANISM OVERLAP — authoritative summary:
@@ -465,7 +464,7 @@ function handleSafeguardChecks(ctx) {
 /**
  * Phase 3: Fuzzy SEARCH/REPLACE repair (no-op — legacy phase removed).
  */
-function handleFuzzyRepair(ctx) {
+function handleFuzzyRepair(_ctx) {
   // No-op — legacy phase removed
 }
 
@@ -478,7 +477,7 @@ const CONVERSATIONAL_REFUSAL_PATTERN = /\b(I'm ready to|share the files|provide 
 /**
  * Phase 4: Detect no-file-change tasks (no-op — legacy phase removed).
  */
-function handleNoFileChangeDetection(ctx) {
+function handleNoFileChangeDetection(_ctx) {
   // No-op — legacy phase removed
 }
 
@@ -1199,6 +1198,7 @@ Object.assign(module.exports, {
   updateInstanceInfo,
   // Free-tier quota tracking
   getFreeQuotaTracker,
+  buildPolicyTaskData,
   evaluateTaskSubmissionPolicy,
   evaluateTaskPreExecutePolicy,
   fireTaskCompletionPolicyHook,
@@ -1299,7 +1299,7 @@ Object.assign(module.exports, {
   createTaskManager,
 });
 
-function createTaskManager(deps) {
+function createTaskManager(_deps) {
   return {
     startTask,
     cancelTask,
@@ -1352,6 +1352,7 @@ function createTaskManager(deps) {
     stopInstanceHeartbeat,
     updateInstanceInfo,
     getFreeQuotaTracker,
+    buildPolicyTaskData,
     evaluateTaskSubmissionPolicy,
     evaluateTaskPreExecutePolicy,
     fireTaskCompletionPolicyHook,

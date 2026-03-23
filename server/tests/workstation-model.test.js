@@ -7,7 +7,6 @@ const probe = require('../workstation/probe');
 const routing = require('../workstation/routing');
 const failover = require('../workstation/failover');
 
-let db;
 let seq = 0;
 
 function bindModules() {
@@ -62,7 +61,7 @@ function createWs(overrides = {}) {
 
 describe('workstation/model', () => {
   beforeAll(() => {
-    ({ db } = setupTestDb('workstation-model'));
+    setupTestDb('workstation-model');
     bindModules();
   });
 

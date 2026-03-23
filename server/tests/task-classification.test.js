@@ -2,11 +2,11 @@
 
 const { setupTestDbModule, teardownTestDb } = require('./vitest-setup');
 
-let db, mod;
+let mod;
 
 describe('Task Classification', () => {
   beforeAll(() => {
-    ({ db, mod } = setupTestDbModule('../db/host-management', 'task-class'));
+    ({ mod } = setupTestDbModule('../db/host-management', 'task-class'));
   });
   afterAll(() => teardownTestDb());
 
