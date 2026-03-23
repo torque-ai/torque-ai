@@ -125,6 +125,11 @@ describe('execution.js CLI builders', () => {
         '--dangerously-skip-permissions',
         '--disable-slash-commands',
         '--strict-mcp-config',
+        '--bare',
+        '--output-format',
+        'json',
+        '--max-turns',
+        '15',
         '-p',
       ]);
       expect(result.stdinPrompt).toBe('[claude-cli] Review this change\nFILECTX');

@@ -714,7 +714,8 @@ describe('fallback-retry module', () => {
     });
 
     it('switches to a larger model when task is already using whole edits', () => {
-      const hostA = registerHealthyHost('stall-large-host', ['qwen2.5-coder:14b', TEST_MODELS.QUALITY]);
+      const largerCoderModel = 'qwen2.5-coder:32b';
+      const hostA = registerHealthyHost('stall-large-host', ['qwen2.5-coder:14b', largerCoderModel]);
       const task = createTask({
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
@@ -733,7 +734,7 @@ describe('fallback-retry module', () => {
       expect(recovery.lastStrategy).toBe('switch_model');
 
       const updated = taskCore.getTask(task.id);
-      expect(updated.model).toBe(TEST_MODELS.QUALITY);
+      expect(updated.model).toBe(largerCoderModel);
       const meta = updated.metadata || {};
       expect(meta.stallRecoveryEditFormat).toBe('whole');
       expect(updated.error_output).toContain('[STALL RECOVERY] Attempt 1: switch_model');
@@ -843,7 +844,8 @@ describe('fallback-retry module', () => {
     });
 
     it('second attempt switches to a larger available model', () => {
-      registerHealthyHost('stall-models', ['qwen2.5-coder:14b', TEST_MODELS.QUALITY]);
+      const largerCoderModel = 'qwen2.5-coder:32b';
+      registerHealthyHost('stall-models', ['qwen2.5-coder:14b', largerCoderModel]);
       const task = createTask({
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
@@ -861,7 +863,7 @@ describe('fallback-retry module', () => {
       expect(recovery.lastStrategy).toBe('switch_model');
 
       const updated = taskCore.getTask(task.id);
-      expect(updated.model).toBe(TEST_MODELS.QUALITY);
+      expect(updated.model).toBe(largerCoderModel);
       const meta = updated.metadata || {};
       expect(meta.stallRecoveryEditFormat).toBe('whole');
     });
@@ -1027,7 +1029,7 @@ describe('fallback-retry module', () => {
       ]);
 
       try {
-        expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBe(TEST_MODELS.QUALITY);
+        expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBeNull();
       } finally {
         db.getAggregatedModels = originalGetAggregatedModels;
       }
@@ -1153,8 +1155,9 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = taskCore.getTask(task.id);
-      expect(updated.model).toBe(TEST_MODELS.QUALITY);
-      expect(updated.error_output).toContain(`[Hashline-Local] Trying model ${TEST_MODELS.QUALITY}`);
+      expect(updated.model).toBeNull();
+      expect(updated.provider).toBe('codex');
+      expect(updated.error_output).toContain('Escalated from hashline-ollama');
     });
 
     it('falls back to a larger model when only one host is available', () => {

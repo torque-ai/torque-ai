@@ -5,6 +5,7 @@
  */
 
 const { TEST_MODELS } = require('./test-helpers');
+const taskCore = require('../db/task-core');
 
 // rawDb mock with transaction support (returns a function that calls the callback)
 const mockRawDb = {
@@ -12,8 +13,6 @@ const mockRawDb = {
 };
 
 const mockDb = {
-  createTask: vi.fn(),
-  getTask: vi.fn(),
   getDbInstance: vi.fn(() => mockRawDb),
 };
 
@@ -38,15 +37,14 @@ describe('experiment-handlers (Experiment 6)', () => {
   let handlers;
 
   beforeEach(() => {
-    mockDb.createTask.mockReset();
-    mockDb.createTask.mockImplementation(() => undefined);
-    mockDb.getTask.mockReset();
-    mockDb.getTask.mockReturnValue(null);
     mockDb.getDbInstance.mockReset();
     mockDb.getDbInstance.mockReturnValue(mockRawDb);
     mockRawDb.transaction.mockReset();
     // transaction() receives a callback and returns a function; calling that function runs the callback
     mockRawDb.transaction.mockImplementation((fn) => fn);
+    vi.restoreAllMocks();
+    vi.spyOn(taskCore, 'createTask').mockImplementation(() => undefined);
+    vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
     handlers = loadHandlers();
   });
 
@@ -107,10 +105,10 @@ describe('experiment-handlers (Experiment 6)', () => {
       });
 
       expect(result.isError).toBeFalsy();
-      expect(mockDb.createTask).toHaveBeenCalledTimes(2);
+      expect(taskCore.createTask).toHaveBeenCalledTimes(2);
 
-      const callA = mockDb.createTask.mock.calls[0][0];
-      const callB = mockDb.createTask.mock.calls[1][0];
+      const callA = taskCore.createTask.mock.calls[0][0];
+      const callB = taskCore.createTask.mock.calls[1][0];
 
       expect(callA.provider).toBe('codex');
       expect(callB.provider).toBe('hashline-ollama');
@@ -139,8 +137,8 @@ describe('experiment-handlers (Experiment 6)', () => {
         model_b: TEST_MODELS.DEFAULT,
       });
 
-      const callA = mockDb.createTask.mock.calls[0][0];
-      const callB = mockDb.createTask.mock.calls[1][0];
+      const callA = taskCore.createTask.mock.calls[0][0];
+      const callB = taskCore.createTask.mock.calls[1][0];
       expect(callA.model).toBe('gpt-5.3-codex-spark');
       expect(callB.model).toBe(TEST_MODELS.DEFAULT);
     });
@@ -161,7 +159,7 @@ describe('experiment-handlers (Experiment 6)', () => {
     });
 
     it('handles db.createTask failure gracefully', () => {
-      mockDb.createTask.mockImplementation(() => { throw new Error('DB write failed'); });
+      taskCore.createTask.mockImplementation(() => { throw new Error('DB write failed'); });
 
       const result = handlers.handleSubmitAbTest({
         task_description: 'Test task',
@@ -183,7 +181,7 @@ describe('experiment-handlers (Experiment 6)', () => {
     });
 
     it('returns error when task A not found', () => {
-      mockDb.getTask.mockReturnValue(null);
+      taskCore.getTask.mockReturnValue(null);
       const result = handlers.handleCompareAbTest({
         task_id_a: 'a-123',
         task_id_b: 'b-456',
@@ -194,7 +192,7 @@ describe('experiment-handlers (Experiment 6)', () => {
 
     it('compares two completed tasks', () => {
       const abTestId = 'test-ab-123';
-      mockDb.getTask
+      taskCore.getTask
         .mockReturnValueOnce({
           id: 'a-123',
           provider: 'codex',
@@ -232,7 +230,7 @@ describe('experiment-handlers (Experiment 6)', () => {
     });
 
     it('handles one failed and one completed task', () => {
-      mockDb.getTask
+      taskCore.getTask
         .mockReturnValueOnce({
           id: 'a-123',
           provider: 'ollama',

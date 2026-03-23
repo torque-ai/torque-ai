@@ -83,6 +83,16 @@ function bindCore({
   core.setGetTask(() => null);
   core.setHostManagement(hostManagement);
   core.setOllamaHealthy(ollamaHealthy);
+
+  delete process.env.GROQ_API_KEY;
+  delete process.env.DEEPINFRA_API_KEY;
+  delete process.env.HYPERBOLIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+
+  if (config?.groq_api_key) process.env.GROQ_API_KEY = String(config.groq_api_key);
+  if (config?.deepinfra_api_key) process.env.DEEPINFRA_API_KEY = String(config.deepinfra_api_key);
+  if (config?.hyperbolic_api_key) process.env.HYPERBOLIC_API_KEY = String(config.hyperbolic_api_key);
+  if (config?.anthropic_api_key) process.env.ANTHROPIC_API_KEY = String(config.anthropic_api_key);
 }
 
 describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
@@ -97,7 +107,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
   it.each([
     'Run a security audit on token validation',
     'Perform a security scan for the API gateway',
-  ])('routes security tasks to default provider (anthropic demoted): %s', (taskDescription) => {
+  ])('routes security tasks to anthropic when configured: %s', (taskDescription) => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
@@ -107,14 +117,14 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
 
     const result = core.analyzeTaskForRouting(taskDescription, 'C:/repo');
 
-    expect(result.provider).toBe('hashline-ollama');
-    expect(result.reason).toContain('No rule matched');
+    expect(result.provider).toBe('anthropic');
+    expect(result.reason).toContain('Security task routed to Anthropic');
   });
 
   it.each([
     'Update the xaml binding for the settings dialog',
     'Refactor the wpf view model hookup for the dashboard',
-  ])('routes XAML and WPF tasks to default provider (anthropic demoted): %s', (taskDescription) => {
+  ])('routes XAML and WPF tasks to codex even when anthropic is configured: %s', (taskDescription) => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
@@ -206,7 +216,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     expect(result.provider).toBe('hashline-ollama');
     expect(result.hostId).toBe('host-local');
     expect(result.selectedHost).toBe('host-local');
-    expect(result.reason).toContain('targeted file edit');
+    expect(result.reason).toContain('Complexity-based routing');
   });
 
   it('falls back to the smart routing default when no patterns or rules match', () => {

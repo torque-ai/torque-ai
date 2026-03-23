@@ -6,11 +6,13 @@ const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
 
 let ctx;
 let db;
+let fileTracking;
 let workDir;
 
 function setup() {
   ctx = setupE2eDb('file-tracking');
   db = ctx.db;
+  fileTracking = require('../db/file-tracking');
   workDir = path.join(ctx.testDir, 'workspace');
   fs.mkdirSync(workDir, { recursive: true });
 }
@@ -20,6 +22,7 @@ async function teardown() {
   if (ctx) await teardownE2eDb(ctx);
   ctx = null;
   db = null;
+  fileTracking = null;
   workDir = null;
 }
 
@@ -213,12 +216,12 @@ describe('file-tracking module (db-integrated)', () => {
     it('recordFileChange stores file paths', () => {
       const task = createTask();
       const absPath = path.join(workDir, 'src/store.js');
-      db.recordFileChange(task.id, absPath, 'modified', {
+      fileTracking.recordFileChange(task.id, absPath, 'modified', {
         fileSizeBytes: 41,
         workingDirectory: workDir,
       });
 
-      const rows = db.getTaskFileChanges(task.id);
+      const rows = fileTracking.getTaskFileChanges(task.id);
       expect(rows).toHaveLength(1);
       expect(rows[0].task_id).toBe(task.id);
       expect(rows[0].file_path).toBe(absPath);
@@ -227,17 +230,17 @@ describe('file-tracking module (db-integrated)', () => {
 
     it('getTaskFileChanges retrieves recorded files', () => {
       const task = createTask();
-      db.recordFileChange(task.id, path.join(workDir, 'a.js'), 'created', { workingDirectory: workDir });
-      db.recordFileChange(task.id, path.join(workDir, 'b.js'), 'modified', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, path.join(workDir, 'a.js'), 'created', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, path.join(workDir, 'b.js'), 'modified', { workingDirectory: workDir });
 
-      const changes = db.getTaskFileChanges(task.id);
+      const changes = fileTracking.getTaskFileChanges(task.id);
       expect(changes).toHaveLength(2);
       const types = changes.map(c => c.change_type).sort();
       expect(types).toEqual(['created', 'modified']);
     });
 
     it('getTaskFileChanges returns empty array for unknown task', () => {
-      const changes = db.getTaskFileChanges('task-does-not-exist');
+      const changes = fileTracking.getTaskFileChanges('task-does-not-exist');
       expect(changes).toEqual([]);
     });
 
@@ -245,10 +248,10 @@ describe('file-tracking module (db-integrated)', () => {
       const task = createTask();
       const filePath = path.join(workDir, 'dup.js');
 
-      db.recordFileChange(task.id, filePath, 'modified', { workingDirectory: workDir });
-      db.recordFileChange(task.id, filePath, 'modified', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, filePath, 'modified', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, filePath, 'modified', { workingDirectory: workDir });
 
-      const changes = db.getTaskFileChanges(task.id);
+      const changes = fileTracking.getTaskFileChanges(task.id);
       expect(changes).toHaveLength(2);
       expect(changes.every(c => c.file_path === filePath)).toBe(true);
     });
@@ -257,12 +260,12 @@ describe('file-tracking module (db-integrated)', () => {
       const task = createTask();
       const outsidePath = path.join(path.dirname(workDir), 'outside.js');
 
-      const result = db.recordFileChange(task.id, outsidePath, 'created', {
+      const result = fileTracking.recordFileChange(task.id, outsidePath, 'created', {
         workingDirectory: workDir,
       });
 
       expect(result.is_outside_workdir).toBe(true);
-      const [row] = db.getTaskFileChanges(task.id);
+      const [row] = fileTracking.getTaskFileChanges(task.id);
       expect(row.is_outside_workdir).toBe(1);
     });
 
@@ -270,31 +273,31 @@ describe('file-tracking module (db-integrated)', () => {
       const task = createTask();
       const filePath = path.join(workDir, 'src', 'inside.js');
 
-      db.recordFileChange(task.id, filePath, 'modified', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, filePath, 'modified', { workingDirectory: workDir });
 
-      const [row] = db.getTaskFileChanges(task.id);
+      const [row] = fileTracking.getTaskFileChanges(task.id);
       expect(toForwardSlashes(row.relative_path)).toBe('src/inside.js');
       expect(row.is_outside_workdir).toBe(0);
     });
 
     it('recordFileChange handles missing workingDirectory gracefully', () => {
       const task = createTask();
-      const result = db.recordFileChange(task.id, 'relative/path.js', 'modified');
+      const result = fileTracking.recordFileChange(task.id, 'relative/path.js', 'modified');
 
       expect(result.task_id).toBe(task.id);
       expect(result.is_outside_workdir).toBe(false);
 
-      const [row] = db.getTaskFileChanges(task.id);
+      const [row] = fileTracking.getTaskFileChanges(task.id);
       expect(row.relative_path).toBe('relative/path.js');
     });
 
     it('recordFileChange stores mixed change types for one task', () => {
       const task = createTask();
-      db.recordFileChange(task.id, path.join(workDir, 'a.js'), 'created', { workingDirectory: workDir });
-      db.recordFileChange(task.id, path.join(workDir, 'b.js'), 'deleted', { workingDirectory: workDir });
-      db.recordFileChange(task.id, path.join(workDir, 'c.js'), 'modified', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, path.join(workDir, 'a.js'), 'created', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, path.join(workDir, 'b.js'), 'deleted', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, path.join(workDir, 'c.js'), 'modified', { workingDirectory: workDir });
 
-      const types = db.getTaskFileChanges(task.id).map(r => r.change_type).sort();
+      const types = fileTracking.getTaskFileChanges(task.id).map(r => r.change_type).sort();
       expect(types).toEqual(['created', 'deleted', 'modified']);
     });
   });
@@ -614,11 +617,11 @@ describe('file-tracking module (db-integrated)', () => {
       const createdPath = createTestFile('generated/new-file.js', 'new\n');
       const modifiedPath = createTestFile('src/existing.js', 'old\n');
 
-      db.recordFileChange(task.id, createdPath, 'created', { workingDirectory: workDir });
-      db.recordFileChange(task.id, modifiedPath, 'modified', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, createdPath, 'created', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, modifiedPath, 'modified', { workingDirectory: workDir });
 
       const execSpy = vi.spyOn(require('child_process'), 'execFileSync').mockImplementation(() => Buffer.from('ok'));
-      const result = db.performAutoRollback(task.id, workDir, 'test-trigger', 2);
+      const result = fileTracking.performAutoRollback(task.id, workDir, 'test-trigger', 2);
 
       expect(result.success).toBe(true);
       expect(result.files_processed).toBe(2);
@@ -629,7 +632,7 @@ describe('file-tracking module (db-integrated)', () => {
         expect.objectContaining({ cwd: workDir, stdio: 'pipe' })
       );
 
-      const history = db.getAutoRollbackHistory(task.id);
+      const history = fileTracking.getAutoRollbackHistory(task.id);
       expect(history).toHaveLength(1);
       expect(history[0].trigger_reason).toBe('test-trigger');
     });
@@ -638,7 +641,7 @@ describe('file-tracking module (db-integrated)', () => {
       const task = createTask();
       const modifiedPath = createTestFile('src/existing.js', 'old\n');
 
-      db.recordFileChange(task.id, modifiedPath, 'modified', { workingDirectory: workDir });
+      fileTracking.recordFileChange(task.id, modifiedPath, 'modified', { workingDirectory: workDir });
 
       const execSpy = vi.spyOn(require('child_process'), 'execFileSync').mockImplementation((command, args) => {
         if (command === 'git' && args[0] === 'rev-parse') {
@@ -647,7 +650,7 @@ describe('file-tracking module (db-integrated)', () => {
         return Buffer.from('ok');
       });
 
-      const result = db.performAutoRollback(task.id, workDir, 'test-trigger', 2);
+      const result = fileTracking.performAutoRollback(task.id, workDir, 'test-trigger', 2);
 
       expect(result.success).toBe(false);
       expect(result.files_processed).toBe(0);

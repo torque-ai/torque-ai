@@ -1,7 +1,7 @@
 'use strict';
 
 const hostComplexity = require('../db/host-complexity');
-const { TEST_MODELS } = require('./test-helpers');
+const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 
 function createMockDb() {
   return {
@@ -70,9 +70,9 @@ describe('host-complexity getModelTierForComplexity', () => {
   });
 
   it.each([
-    ['simple', 'fast', TEST_MODELS.DEFAULT],
-    ['normal', 'balanced', TEST_MODELS.DEFAULT],
-    ['complex', 'quality', TEST_MODELS.DEFAULT],
+    ['simple', 'fast', DEFAULT_FALLBACK_MODEL],
+    ['normal', 'balanced', DEFAULT_FALLBACK_MODEL],
+    ['complex', 'quality', DEFAULT_FALLBACK_MODEL],
   ])('returns the expected tier config for %s complexity', (complexity, tier, modelConfig) => {
     expect(hostComplexity.getModelTierForComplexity(complexity)).toMatchObject({
       tier,

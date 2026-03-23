@@ -10,15 +10,16 @@
  * - handleDetectProviderDegradation: provider health summary
  */
 
-const mockDb = {
-  getConfig: vi.fn(),
-  setConfig: vi.fn(),
+const mockRoutingCore = {
   getProvider: vi.fn(),
   listProviders: vi.fn(),
   getHealthTrend: vi.fn(),
   getProviderStats: vi.fn(),
   getDefaultProvider: vi.fn(),
   setDefaultProvider: vi.fn(),
+};
+
+const mockFileTracking = {
   detectProviderDegradation: vi.fn(),
 };
 
@@ -44,7 +45,8 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadProviderHandlers() {
   delete require.cache[require.resolve('../handlers/provider-handlers')];
-  installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/provider-routing-core', mockRoutingCore);
+  installCjsModuleMock('../db/file-tracking', mockFileTracking);
   installCjsModuleMock('../task-manager', mockTaskManager);
   installCjsModuleMock('../dashboard-server', mockDashboard);
   installCjsModuleMock('../handlers/provider-ollama-hosts', {});
@@ -52,27 +54,22 @@ function loadProviderHandlers() {
   return require('../handlers/provider-handlers');
 }
 
-vi.mock('../database', () => mockDb);
+vi.mock('../db/provider-routing-core', () => mockRoutingCore);
+vi.mock('../db/file-tracking', () => mockFileTracking);
 vi.mock('../task-manager', () => mockTaskManager);
 vi.mock('../dashboard-server', () => mockDashboard);
 vi.mock('../handlers/provider-ollama-hosts', () => ({}));
 vi.mock('../handlers/provider-tuning', () => ({}));
 
 function resetMockDefaults() {
-  mockDb.getConfig.mockReset();
-  mockDb.getConfig.mockReturnValue(null);
+  mockRoutingCore.getProvider.mockReset();
+  mockRoutingCore.getProvider.mockReturnValue(null);
 
-  mockDb.setConfig.mockReset();
-  mockDb.setConfig.mockImplementation(() => undefined);
+  mockRoutingCore.listProviders.mockReset();
+  mockRoutingCore.listProviders.mockReturnValue([]);
 
-  mockDb.getProvider.mockReset();
-  mockDb.getProvider.mockReturnValue(null);
-
-  mockDb.listProviders.mockReset();
-  mockDb.listProviders.mockReturnValue([]);
-
-  mockDb.getHealthTrend.mockReset();
-  mockDb.getHealthTrend.mockImplementation((provider, days = 30) => ({
+  mockRoutingCore.getHealthTrend.mockReset();
+  mockRoutingCore.getHealthTrend.mockImplementation((provider, days = 30) => ({
     provider,
     days,
     trend: 'stable',
@@ -81,8 +78,8 @@ function resetMockDefaults() {
     recent_failure_rate: 0.1,
   }));
 
-  mockDb.getProviderStats.mockReset();
-  mockDb.getProviderStats.mockReturnValue({
+  mockRoutingCore.getProviderStats.mockReset();
+  mockRoutingCore.getProviderStats.mockReturnValue({
     total_tasks: 0,
     successful_tasks: 0,
     failed_tasks: 0,
@@ -92,14 +89,14 @@ function resetMockDefaults() {
     avg_duration_seconds: 0,
   });
 
-  mockDb.getDefaultProvider.mockReset();
-  mockDb.getDefaultProvider.mockReturnValue('codex');
+  mockRoutingCore.getDefaultProvider.mockReset();
+  mockRoutingCore.getDefaultProvider.mockReturnValue('codex');
 
-  mockDb.setDefaultProvider.mockReset();
-  mockDb.setDefaultProvider.mockImplementation(() => undefined);
+  mockRoutingCore.setDefaultProvider.mockReset();
+  mockRoutingCore.setDefaultProvider.mockImplementation(() => undefined);
 
-  mockDb.detectProviderDegradation.mockReset();
-  mockDb.detectProviderDegradation.mockReturnValue([]);
+  mockFileTracking.detectProviderDegradation.mockReset();
+  mockFileTracking.detectProviderDegradation.mockReturnValue([]);
 
   mockTaskManager.processQueue.mockReset();
 
@@ -124,12 +121,12 @@ describe('provider-handlers main-file handlers', () => {
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
       expect(result.content[0].text).toContain('provider is required');
-      expect(mockDb.listProviders).not.toHaveBeenCalled();
-      expect(mockDb.setDefaultProvider).not.toHaveBeenCalled();
+      expect(mockRoutingCore.listProviders).not.toHaveBeenCalled();
+      expect(mockRoutingCore.setDefaultProvider).not.toHaveBeenCalled();
     });
 
     it('returns an error when provider is blank or invalid', () => {
-      mockDb.listProviders.mockReturnValue([
+      mockRoutingCore.listProviders.mockReturnValue([
         { provider: 'codex' },
         { provider: 'ollama' },
       ]);
@@ -145,11 +142,11 @@ describe('provider-handlers main-file handlers', () => {
       expect(invalidResult.error_code).toBe('INVALID_PARAM');
       expect(invalidResult.content[0].text).toContain('Unknown provider: groq');
       expect(invalidResult.content[0].text).toContain('codex, ollama');
-      expect(mockDb.setDefaultProvider).not.toHaveBeenCalled();
+      expect(mockRoutingCore.setDefaultProvider).not.toHaveBeenCalled();
     });
 
     it('sets the default provider and returns a success message', () => {
-      mockDb.listProviders.mockReturnValue([
+      mockRoutingCore.listProviders.mockReturnValue([
         { provider: 'codex' },
         { provider: 'ollama' },
       ]);
@@ -157,7 +154,7 @@ describe('provider-handlers main-file handlers', () => {
       const result = handlers.handleSetDefaultProvider({ provider: 'ollama' });
 
       expect(result.isError).toBeFalsy();
-      expect(mockDb.setDefaultProvider).toHaveBeenCalledWith('ollama');
+      expect(mockRoutingCore.setDefaultProvider).toHaveBeenCalledWith('ollama');
       expect(result.content[0].text).toContain('Default Provider Updated');
       expect(result.content[0].text).toContain('New tasks will now use **ollama** by default.');
     });
@@ -170,18 +167,18 @@ describe('provider-handlers main-file handlers', () => {
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
       expect(result.content[0].text).toContain('provider is required');
-      expect(mockDb.getProviderStats).not.toHaveBeenCalled();
-      expect(mockDb.getProvider).not.toHaveBeenCalled();
+      expect(mockRoutingCore.getProviderStats).not.toHaveBeenCalled();
+      expect(mockRoutingCore.getProvider).not.toHaveBeenCalled();
     });
 
     it('returns stats for the requested provider', () => {
-      mockDb.getProvider.mockReturnValue({
+      mockRoutingCore.getProvider.mockReturnValue({
         provider: 'ollama',
         enabled: 1,
         priority: 2,
         max_concurrent: 6,
       });
-      mockDb.getProviderStats.mockReturnValue({
+      mockRoutingCore.getProviderStats.mockReturnValue({
         total_tasks: 20,
         successful_tasks: 15,
         failed_tasks: 5,
@@ -194,8 +191,8 @@ describe('provider-handlers main-file handlers', () => {
       const result = handlers.handleProviderStats({ provider: 'ollama', days: 7 });
 
       expect(result.isError).toBeFalsy();
-      expect(mockDb.getProviderStats).toHaveBeenCalledWith('ollama', 7);
-      expect(mockDb.getProvider).toHaveBeenCalledWith('ollama');
+      expect(mockRoutingCore.getProviderStats).toHaveBeenCalledWith('ollama', 7);
+      expect(mockRoutingCore.getProvider).toHaveBeenCalledWith('ollama');
       expect(result.content[0].text).toContain('Provider Statistics: ollama');
       expect(result.content[0].text).toContain('Last 7 days');
       expect(result.content[0].text).toContain('| Enabled | Yes |');
@@ -207,8 +204,8 @@ describe('provider-handlers main-file handlers', () => {
     });
 
     it('handles a minimal db response when the provider configuration is missing', () => {
-      mockDb.getProvider.mockReturnValue(null);
-      mockDb.getProviderStats.mockReturnValue({
+      mockRoutingCore.getProvider.mockReturnValue(null);
+      mockRoutingCore.getProviderStats.mockReturnValue({
         total_tasks: 0,
         successful_tasks: 0,
         failed_tasks: 0,
@@ -221,7 +218,7 @@ describe('provider-handlers main-file handlers', () => {
       const result = handlers.handleProviderStats({ provider: 'missing-provider' });
 
       expect(result.isError).toBeFalsy();
-      expect(mockDb.getProviderStats).toHaveBeenCalledWith('missing-provider', 30);
+      expect(mockRoutingCore.getProviderStats).toHaveBeenCalledWith('missing-provider', 30);
       expect(result.content[0].text).toContain('Provider Statistics: missing-provider');
       expect(result.content[0].text).toContain('*Provider not found*');
     });
@@ -229,18 +226,18 @@ describe('provider-handlers main-file handlers', () => {
 
   describe('handleDetectProviderDegradation (current health/dashboard equivalent)', () => {
     it('works with an empty or minimal db state', () => {
-      mockDb.detectProviderDegradation.mockReturnValue([]);
+      mockFileTracking.detectProviderDegradation.mockReturnValue([]);
 
       const result = handlers.handleDetectProviderDegradation({});
 
       expect(result.isError).toBeFalsy();
-      expect(mockDb.detectProviderDegradation).toHaveBeenCalledTimes(1);
+      expect(mockFileTracking.detectProviderDegradation).toHaveBeenCalledTimes(1);
       expect(result.content[0].text).toContain('Provider Health');
       expect(result.content[0].text).toContain('No degradation detected');
     });
 
     it('returns degraded provider health details when issues exist', () => {
-      mockDb.detectProviderDegradation.mockReturnValue([
+      mockFileTracking.detectProviderDegradation.mockReturnValue([
         {
           provider: 'ollama',
           failure_rate: 0.4,
@@ -260,7 +257,7 @@ describe('provider-handlers main-file handlers', () => {
 
   describe('handleGetProviderHealthTrends', () => {
     it('returns a single-provider trend as MCP JSON text', () => {
-      mockDb.getHealthTrend.mockReturnValue({
+      mockRoutingCore.getHealthTrend.mockReturnValue({
         provider: 'ollama',
         days: 7,
         trend: 'improving',
@@ -272,7 +269,7 @@ describe('provider-handlers main-file handlers', () => {
       const result = handlers.handleGetProviderHealthTrends({ provider: 'ollama', days: 7 });
 
       expect(result.isError).toBeFalsy();
-      expect(mockDb.getHealthTrend).toHaveBeenCalledWith('ollama', 7);
+      expect(mockRoutingCore.getHealthTrend).toHaveBeenCalledWith('ollama', 7);
       expect(result.content[0].type).toBe('text');
       expect(JSON.parse(result.content[0].text)).toEqual([{
         provider: 'ollama',
@@ -285,11 +282,11 @@ describe('provider-handlers main-file handlers', () => {
     });
 
     it('returns all configured provider trends when provider is omitted', () => {
-      mockDb.listProviders.mockReturnValue([
+      mockRoutingCore.listProviders.mockReturnValue([
         { provider: 'codex' },
         { provider: 'ollama' },
       ]);
-      mockDb.getHealthTrend
+      mockRoutingCore.getHealthTrend
         .mockReturnValueOnce({
           provider: 'codex',
           days: 30,
@@ -310,9 +307,9 @@ describe('provider-handlers main-file handlers', () => {
       const result = handlers.handleGetProviderHealthTrends({});
 
       expect(result.isError).toBeFalsy();
-      expect(mockDb.listProviders).toHaveBeenCalledTimes(1);
-      expect(mockDb.getHealthTrend).toHaveBeenNthCalledWith(1, 'codex', undefined);
-      expect(mockDb.getHealthTrend).toHaveBeenNthCalledWith(2, 'ollama', undefined);
+      expect(mockRoutingCore.listProviders).toHaveBeenCalledTimes(1);
+      expect(mockRoutingCore.getHealthTrend).toHaveBeenNthCalledWith(1, 'codex', undefined);
+      expect(mockRoutingCore.getHealthTrend).toHaveBeenNthCalledWith(2, 'ollama', undefined);
       expect(JSON.parse(result.content[0].text)).toEqual([
         {
           provider: 'codex',
@@ -343,7 +340,7 @@ describe('provider-handlers main-file handlers', () => {
       expect(invalidDays.isError).toBe(true);
       expect(invalidDays.error_code).toBe('INVALID_PARAM');
       expect(invalidDays.content[0].text).toContain('days must be a positive number');
-      expect(mockDb.getHealthTrend).not.toHaveBeenCalled();
+      expect(mockRoutingCore.getHealthTrend).not.toHaveBeenCalled();
     });
   });
 });
