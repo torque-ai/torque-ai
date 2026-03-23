@@ -650,6 +650,91 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       context_window: 16384, param_size_b: 30,
     });
   } catch (e) { logger.debug('model capabilities seed: ' + e.message); }
+
+  // Seed model family templates (system prompts + tuning per model family)
+  try {
+    seedFamilyTemplates(db);
+  } catch (e) { logger.debug('family templates seed: ' + e.message); }
 }
 
-module.exports = { seedDefaults };
+/**
+ * Seed default prompt templates and tuning overrides for known model families.
+ * Uses INSERT OR IGNORE so existing customisations are preserved.
+ *
+ * @param {import('better-sqlite3').Database} db
+ */
+function seedFamilyTemplates(db) {
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO model_family_templates
+      (family, system_prompt, tuning_json, size_overrides)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  const families = [
+    {
+      family: 'qwen3',
+      systemPrompt: 'You are Qwen3, a highly capable code generation model. Write clean, idiomatic code. Make only the changes requested. Preserve existing style and conventions.',
+      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.15 },
+      sizeOverrides: { small: { num_ctx: 4096, top_k: 40 }, large: { num_ctx: 16384, top_k: 25 } },
+    },
+    {
+      family: 'qwen2.5',
+      systemPrompt: 'You are Qwen2.5 Coder, an expert code generation model. Write idiomatic, language-specific code. Follow established project conventions exactly. Minimal changes — only modify what is requested.',
+      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.15 },
+      sizeOverrides: { small: { num_ctx: 4096 }, large: { num_ctx: 16384, top_k: 25 } },
+    },
+    {
+      family: 'llama',
+      systemPrompt: 'You are Llama, a versatile code assistant. Write clean, efficient code. Follow project conventions and existing patterns. Keep implementations direct and minimal.',
+      tuning: { temperature: 0.3, num_ctx: 8192, top_k: 40, repeat_penalty: 1.1 },
+      sizeOverrides: { small: { num_ctx: 4096 }, large: { num_ctx: 16384 } },
+    },
+    {
+      family: 'gemma',
+      systemPrompt: 'You are Gemma, a fast and efficient code assistant. Make only the specific changes requested. Keep edits small and targeted. Follow existing code patterns and style exactly.',
+      tuning: { temperature: 0.3, num_ctx: 4096, top_k: 40, repeat_penalty: 1.1 },
+      sizeOverrides: { large: { num_ctx: 8192 } },
+    },
+    {
+      family: 'deepseek',
+      systemPrompt: 'You are DeepSeek Coder, specialized in code generation. Write production-quality code. Follow established patterns and conventions. Handle edge cases appropriately.',
+      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.1 },
+      sizeOverrides: { small: { num_ctx: 4096 }, large: { num_ctx: 16384 } },
+    },
+    {
+      family: 'codestral',
+      systemPrompt: 'You are Codestral, a specialized code generation model. Write clean, efficient implementations. Follow project conventions and existing patterns. Minimal changes — only modify what is requested.',
+      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.1 },
+      sizeOverrides: { large: { num_ctx: 16384 } },
+    },
+    {
+      family: 'mistral',
+      systemPrompt: 'You are Mistral, a capable code assistant. Write clear, well-structured code. Follow project conventions. Provide complete, working implementations.',
+      tuning: { temperature: 0.3, num_ctx: 8192, top_k: 40, repeat_penalty: 1.1 },
+      sizeOverrides: { small: { num_ctx: 4096 } },
+    },
+    {
+      family: 'phi',
+      systemPrompt: 'You are Phi, a compact and efficient code model. Write focused, minimal code. Make only the requested changes. Prefer simple, direct implementations.',
+      tuning: { temperature: 0.3, num_ctx: 4096, top_k: 40, repeat_penalty: 1.1 },
+      sizeOverrides: null,
+    },
+    {
+      family: 'unknown',
+      systemPrompt: 'You are a highly capable, code-focused AI assistant. Write clean, correct, idiomatic code. Make only the changes requested. Follow the existing code conventions, style, and architecture. Keep implementations minimal and direct.',
+      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.1 },
+      sizeOverrides: null,
+    },
+  ];
+
+  for (const { family, systemPrompt, tuning, sizeOverrides } of families) {
+    insert.run(
+      family,
+      systemPrompt,
+      JSON.stringify(tuning),
+      sizeOverrides != null ? JSON.stringify(sizeOverrides) : null
+    );
+  }
+}
+
+module.exports = { seedDefaults, seedFamilyTemplates };

@@ -72,6 +72,7 @@ const VALID_TABLE_NAMES = new Set([
   'linter_configs',
   'maintenance_schedule',
   'model_capabilities',
+  'model_family_templates',
   'model_registry',
   'model_task_outcomes',
   'notification_templates',
