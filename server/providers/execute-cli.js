@@ -18,6 +18,33 @@ const gitWorktree = require('../utils/git-worktree');
 const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
 
+/**
+ * Extract unified diffs from codex's stderr output.
+ * Codex writes "file update:\ndiff --git a/... b/...\n..." blocks.
+ * Returns an array of complete unified diff strings ready for `git apply`.
+ */
+function extractCodexDiffs(output) {
+  if (!output || typeof output !== 'string') return [];
+  const diffs = [];
+  // Match "diff --git" blocks — each one ends at the next "diff --git", "exec\n", "codex\n", "tokens used", or end of string
+  const regex = /diff --git [^\n]+\n(?:(?!diff --git |^exec\n|^codex\n|^tokens used)[\s\S])*?(?=\ndiff --git |\nexec\n|\ncodex\n|\ntokens used|\n\n[A-Z]|\s*$)/gm;
+  let match;
+  while ((match = regex.exec(output)) !== null) {
+    const diff = match[0].trim();
+    if (diff && diff.includes('@@')) {
+      diffs.push(diff + '\n');
+    }
+  }
+  // Deduplicate — codex sometimes emits the same diff twice
+  const seen = new Set();
+  return diffs.filter(d => {
+    const key = d.slice(0, 200);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // Dependency injection
 let db = null;
 let dashboard = null;
@@ -641,32 +668,64 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
         try {
           if (code === 0 && origDir) {
             const mergeResult = gitWorktree.mergeWorktreeChanges(wt.worktreePath, origDir, taskId);
-            if (mergeResult.success) {
-              logger.info(`[Worktree] Task ${taskId} worktree merge complete: ${mergeResult.filesChanged} file(s)`);
-              // Auto-commit merged changes so the next parallel task's worktree
-              // starts from the updated HEAD. Without this, parallel tasks stomp
-              // on each other's changes (sandbox staleness).
-              if (mergeResult.filesChanged > 0) {
-                try {
-                  const { execFileSync } = require('child_process');
-                  execFileSync('git', ['add', '-A'], {
-                    cwd: origDir, encoding: 'utf-8', timeout: 10000,
-                    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-                  });
-                  const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
-                  execFileSync('git', ['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
-                    cwd: origDir, encoding: 'utf-8', timeout: 10000,
-                    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-                  });
-                  logger.info(`[Worktree] Task ${taskId} auto-committed merged changes`);
-                } catch (commitErr) {
-                  // Non-fatal — changes still applied, just not committed
-                  logger.info(`[Worktree] Task ${taskId} auto-commit failed: ${commitErr.message}`);
+            let filesChanged = mergeResult.success ? mergeResult.filesChanged : 0;
+
+            // Codex sandbox reverts file writes on exit, so the worktree often
+            // shows 0 changes. Fallback: extract unified diffs from codex's stderr
+            // output (the "file update: diff --git ..." blocks) and apply them.
+            if (filesChanged === 0 && (proc.errorOutput || '').includes('file update')) {
+              logger.info(`[Worktree] Task ${taskId} worktree had 0 changes — extracting diffs from codex output`);
+              const diffs = extractCodexDiffs(proc.errorOutput || '');
+              if (diffs.length > 0) {
+                const { execFileSync } = require('child_process');
+                let applied = 0;
+                for (const patch of diffs) {
+                  try {
+                    execFileSync('git', ['apply', '--whitespace=nowarn'], {
+                      cwd: origDir, encoding: 'utf-8', timeout: 10000,
+                      input: patch, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+                    });
+                    applied++;
+                  } catch (_e) {
+                    // Try with --3way for files that diverged
+                    try {
+                      execFileSync('git', ['apply', '--3way', '--whitespace=nowarn'], {
+                        cwd: origDir, encoding: 'utf-8', timeout: 10000,
+                        input: patch, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+                      });
+                      applied++;
+                    } catch (_e2) {
+                      logger.info(`[Worktree] Task ${taskId} failed to apply extracted diff: ${_e2.message?.slice(0, 100)}`);
+                    }
+                  }
+                }
+                if (applied > 0) {
+                  logger.info(`[Worktree] Task ${taskId} applied ${applied}/${diffs.length} extracted diffs from codex output`);
+                  filesChanged = applied;
                 }
               }
-            } else {
+            }
+
+            if (filesChanged > 0) {
+              logger.info(`[Worktree] Task ${taskId} merge complete: ${filesChanged} file(s)`);
+              // Auto-commit so the next parallel task's worktree starts from updated HEAD.
+              try {
+                const { execFileSync } = require('child_process');
+                execFileSync('git', ['add', '-A'], {
+                  cwd: origDir, encoding: 'utf-8', timeout: 10000,
+                  stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+                });
+                const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
+                execFileSync('git', ['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
+                  cwd: origDir, encoding: 'utf-8', timeout: 10000,
+                  stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+                });
+                logger.info(`[Worktree] Task ${taskId} auto-committed merged changes`);
+              } catch (commitErr) {
+                logger.info(`[Worktree] Task ${taskId} auto-commit failed: ${commitErr.message}`);
+              }
+            } else if (!mergeResult.success) {
               logger.info(`[Worktree] Task ${taskId} worktree merge failed: ${mergeResult.error}`);
-              // Append merge failure info to error output so finalizeTask can see it
               proc.errorOutput += `\n[Worktree] Merge failed: ${mergeResult.error}`;
             }
           } else {
