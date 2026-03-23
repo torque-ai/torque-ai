@@ -119,17 +119,21 @@ describe('Item 15: workflow provider validation', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Item 22: buildRetryMetadata provider override preservation', () => {
-  const mockDb = {
+  const mockTaskCore = {
     countTasks: vi.fn(),
     createTask: vi.fn(),
     deleteTask: vi.fn(),
-    getDefaultProvider: vi.fn(),
-    getProvider: vi.fn(),
     getTask: vi.fn(),
-    getTaskFileChanges: vi.fn(),
     listTasks: vi.fn(),
     updateTask: vi.fn(),
     updateTaskStatus: vi.fn(),
+  };
+  const mockProviderRoutingCore = {
+    getDefaultProvider: vi.fn(),
+    getProvider: vi.fn(),
+  };
+  const mockFileTracking = {
+    getTaskFileChanges: vi.fn(),
   };
 
   const mockConfig = { getInt: vi.fn() };
@@ -149,7 +153,9 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
   const mockConstants = { PROVIDER_DEFAULT_TIMEOUTS: { codex: 45, ollama: 60 } };
 
   vi.mock('uuid', () => ({ v4: mockUuidV4 }));
-  vi.mock('../database', () => mockDb);
+  vi.mock('../db/task-core', () => mockTaskCore);
+  vi.mock('../db/provider-routing-core', () => mockProviderRoutingCore);
+  vi.mock('../db/file-tracking', () => mockFileTracking);
   vi.mock('../config', () => mockConfig);
   vi.mock('../constants', () => mockConstants);
   vi.mock('../api/v2-control-plane', () => mockControlPlane);
@@ -170,7 +176,9 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
   function loadHandlers() {
     delete require.cache[require.resolve('../api/v2-task-handlers')];
     installCjsModuleMock('uuid', { v4: mockUuidV4 });
-    installCjsModuleMock('../database', mockDb);
+    installCjsModuleMock('../db/task-core', mockTaskCore);
+    installCjsModuleMock('../db/provider-routing-core', mockProviderRoutingCore);
+    installCjsModuleMock('../db/file-tracking', mockFileTracking);
     installCjsModuleMock('../config', mockConfig);
     installCjsModuleMock('../constants', mockConstants);
     installCjsModuleMock('../api/v2-control-plane', mockControlPlane);
@@ -215,15 +223,15 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
   function createRes() { return {}; }
 
   function resetMockDefaults() {
-    mockDb.countTasks.mockReturnValue(0);
-    mockDb.createTask.mockReturnValue(undefined);
-    mockDb.getDefaultProvider.mockReturnValue('codex');
-    mockDb.getProvider.mockReturnValue({ enabled: true });
-    mockDb.getTask.mockReturnValue(null);
-    mockDb.getTaskFileChanges.mockReturnValue([]);
-    mockDb.listTasks.mockReturnValue([]);
-    mockDb.updateTask.mockImplementation((id, fields) => ({ id, ...fields }));
-    mockDb.updateTaskStatus.mockImplementation((id, status, fields = {}) => ({ id, status, ...fields }));
+    mockTaskCore.countTasks.mockReturnValue(0);
+    mockTaskCore.createTask.mockReturnValue(undefined);
+    mockTaskCore.getTask.mockReturnValue(null);
+    mockTaskCore.listTasks.mockReturnValue([]);
+    mockTaskCore.updateTask.mockImplementation((id, fields) => ({ id, ...fields }));
+    mockTaskCore.updateTaskStatus.mockImplementation((id, status, fields = {}) => ({ id, status, ...fields }));
+    mockProviderRoutingCore.getDefaultProvider.mockReturnValue('codex');
+    mockProviderRoutingCore.getProvider.mockReturnValue({ enabled: true });
+    mockFileTracking.getTaskFileChanges.mockReturnValue([]);
     mockConfig.getInt.mockImplementation((key, fallback) => fallback);
     mockUuidV4.mockReturnValue('retry-id');
     mockControlPlane.resolveRequestId.mockImplementation((req) => req?.requestId || 'req-default');
@@ -248,8 +256,8 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
     // Task was smart-routed to deepinfra (not user-chosen) — no user_provider_override in metadata
     mockUuidV4.mockReturnValueOnce('retry-smart-1');
     mockTaskManager.startTask.mockReturnValue({ queued: false });
-    mockDb.getDefaultProvider.mockReturnValue('codex');
-    mockDb.getTask
+    mockProviderRoutingCore.getDefaultProvider.mockReturnValue('codex');
+    mockTaskCore.getTask
       .mockReturnValueOnce({
         id: 'smart-routed-task',
         status: 'failed',
@@ -276,7 +284,7 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
     );
 
     // The retry should NOT have user_provider_override — let smart routing re-route
-    const createCall = mockDb.createTask.mock.calls[0]?.[0];
+    const createCall = mockTaskCore.createTask.mock.calls[0]?.[0];
     expect(createCall).toBeDefined();
     const meta = parseJson(createCall.metadata);
     expect(meta.user_provider_override).toBeUndefined();
@@ -286,8 +294,8 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
   it('preserves user_provider_override when retrying a user-overridden task', async () => {
     mockUuidV4.mockReturnValueOnce('retry-user-1');
     mockTaskManager.startTask.mockReturnValue({ queued: false });
-    mockDb.getDefaultProvider.mockReturnValue('codex');
-    mockDb.getTask
+    mockProviderRoutingCore.getDefaultProvider.mockReturnValue('codex');
+    mockTaskCore.getTask
       .mockReturnValueOnce({
         id: 'user-routed-task',
         status: 'failed',
@@ -313,7 +321,7 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
       createRes(),
     );
 
-    const createCall = mockDb.createTask.mock.calls[0]?.[0];
+    const createCall = mockTaskCore.createTask.mock.calls[0]?.[0];
     expect(createCall).toBeDefined();
     const meta = parseJson(createCall.metadata);
     expect(meta.user_provider_override).toBe(true);
@@ -324,8 +332,8 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
     // Task was explicitly routed, then provider-switched (has original_provider)
     mockUuidV4.mockReturnValueOnce('retry-switched-1');
     mockTaskManager.startTask.mockReturnValue({ queued: false });
-    mockDb.getDefaultProvider.mockReturnValue('codex');
-    mockDb.getTask
+    mockProviderRoutingCore.getDefaultProvider.mockReturnValue('codex');
+    mockTaskCore.getTask
       .mockReturnValueOnce({
         id: 'switched-task',
         status: 'failed',
@@ -351,7 +359,7 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
       createRes(),
     );
 
-    const createCall = mockDb.createTask.mock.calls[0]?.[0];
+    const createCall = mockTaskCore.createTask.mock.calls[0]?.[0];
     expect(createCall).toBeDefined();
     const meta = parseJson(createCall.metadata);
     expect(meta.user_provider_override).toBe(true);

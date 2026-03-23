@@ -11,12 +11,25 @@ const {
 
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
-let db;
+let getDbInstance;
+let resetForTest;
 let taskCore;
 let workflowEngine;
 let testDir;
 let runtime;
 let templateBuffer;
+
+const workflowRuntimeDb = {
+  createTask: (...args) => taskCore.createTask(...args),
+  getTask: (...args) => taskCore.getTask(...args),
+  updateTaskStatus: (...args) => taskCore.updateTaskStatus(...args),
+  getWorkflow: (...args) => workflowEngine.getWorkflow(...args),
+  getTaskDependents: (...args) => workflowEngine.getTaskDependents(...args),
+  getTaskDependencies: (...args) => workflowEngine.getTaskDependencies(...args),
+  evaluateCondition: (...args) => workflowEngine.evaluateCondition(...args),
+  getWorkflowTasks: (...args) => workflowEngine.getWorkflowTasks(...args),
+  updateWorkflow: (...args) => workflowEngine.updateWorkflow(...args),
+};
 
 function loadTemplateBuffer() {
   if (!templateBuffer) {
@@ -26,12 +39,12 @@ function loadTemplateBuffer() {
 }
 
 function resetRuntimeDb() {
-  db.resetForTest(loadTemplateBuffer());
+  resetForTest(loadTemplateBuffer());
 }
 
 function initRuntime() {
   runtime.init({
-    db,
+    db: workflowRuntimeDb,
     startTask: () => ({ status: 'running' }),
     cancelTask: (taskId, reason) => ({ taskId, reason, status: 'cancelled' }),
     processQueue: () => {},
@@ -72,7 +85,7 @@ function createTask(overrides = {}) {
 describe('P1 workflow fixes', () => {
   beforeAll(() => {
     ({ testDir } = setupTestDb('workflow-fixes'));
-    db = require('../database');
+    ({ getDbInstance, resetForTest } = require('../database'));
     taskCore = require('../db/task-core');
     workflowEngine = require('../db/workflow-engine');
     runtime = require('../execution/workflow-runtime');
@@ -118,7 +131,7 @@ describe('P1 workflow fixes', () => {
     });
     expect(wildcardLoop.isError).toBeFalsy();
 
-    const wildcardTask = db.getDbInstance().prepare(
+    const wildcardTask = getDbInstance().prepare(
       'SELECT task_description FROM tasks WHERE template_name = ? AND task_description LIKE ? ORDER BY created_at DESC LIMIT 1'
     ).get(templated, 'expanded=%');
     expect(wildcardTask.task_description).toBe('expanded=value-1, keep=${marker}, index=0');
@@ -138,7 +151,7 @@ describe('P1 workflow fixes', () => {
     });
     expect(crashLoop.isError).toBeFalsy();
 
-    const crashTask = db.getDbInstance().prepare(
+    const crashTask = getDbInstance().prepare(
       'SELECT task_description FROM tasks WHERE template_name = ? ORDER BY created_at DESC LIMIT 1'
     ).get(crashTemplate);
     expect(crashTask.task_description).toBe('value=escaped');

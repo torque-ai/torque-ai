@@ -13,22 +13,22 @@ vi.mock('../logger', () => ({
 }));
 
 describe('RB-045: budget alert webhook targeting', () => {
+  const testDataDir = path.join(os.tmpdir(), 'torque-budget-alerts-test');
+  const originalTorqueDataDir = process.env.TORQUE_DATA_DIR;
   let index;
-  let db;
   let projectConfigCore;
   let webhooksStreaming;
   let webhookHandlers;
   let _checkBudgetAlertsSpy;
   let _updateBudgetAlertSpy;
   let _getWebhookSpy;
-  let _getDataDirSpy;
   let sendWebhookSpy;
   let triggerWebhooksSpy;
 
   function loadIndex() {
     vi.resetModules();
+    process.env.TORQUE_DATA_DIR = testDataDir;
     index = require('../index');
-    db = require('../database');
     projectConfigCore = require('../db/project-config-core');
     webhooksStreaming = require('../db/webhooks-streaming');
     webhookHandlers = require('../handlers/webhook-handlers');
@@ -43,14 +43,16 @@ describe('RB-045: budget alert webhook targeting', () => {
     _getWebhookSpy = vi.spyOn(webhooksStreaming, 'getWebhook').mockReturnValue();
     sendWebhookSpy = vi.spyOn(webhookHandlers, 'sendWebhook').mockResolvedValue();
     triggerWebhooksSpy = vi.spyOn(webhookHandlers, 'triggerWebhooks').mockResolvedValue();
-    if (typeof db.getDataDir === 'function') {
-      _getDataDirSpy = vi.spyOn(db, 'getDataDir').mockReturnValue(path.join(os.tmpdir(), 'torque-budget-alerts-test'));
-    }
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+    if (originalTorqueDataDir === undefined) {
+      delete process.env.TORQUE_DATA_DIR;
+    } else {
+      process.env.TORQUE_DATA_DIR = originalTorqueDataDir;
+    }
   });
 
   it('fires only the webhook assigned in alert.webhook_id', () => {

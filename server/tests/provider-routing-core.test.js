@@ -5,8 +5,10 @@ const http = require('http');
 
 const CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
-const DATABASE_MODULE_PATH = require.resolve('../database');
 const CONFIG_MODULE_PATH = require.resolve('../config');
+const CONFIG_CORE_MODULE_PATH = require.resolve('../db/config-core');
+const SMART_ROUTING_MODULE_PATH = require.resolve('../db/smart-routing');
+const OLLAMA_HEALTH_MODULE_PATH = require.resolve('../db/ollama-health');
 const CATEGORY_CLASSIFIER_MODULE_PATH = require.resolve('../routing/category-classifier');
 const TEMPLATE_STORE_MODULE_PATH = require.resolve('../routing/template-store');
 const PROVIDER_QUOTAS_MODULE_PATH = require.resolve('../db/provider-quotas');
@@ -315,8 +317,10 @@ function createHostManagement(overrides = {}) {
 function resetModuleCache() {
   delete require.cache[CORE_MODULE_PATH];
   delete require.cache[LOGGER_MODULE_PATH];
-  delete require.cache[DATABASE_MODULE_PATH];
   delete require.cache[CONFIG_MODULE_PATH];
+  delete require.cache[CONFIG_CORE_MODULE_PATH];
+  delete require.cache[SMART_ROUTING_MODULE_PATH];
+  delete require.cache[OLLAMA_HEALTH_MODULE_PATH];
   delete require.cache[CATEGORY_CLASSIFIER_MODULE_PATH];
   delete require.cache[TEMPLATE_STORE_MODULE_PATH];
   delete require.cache[PROVIDER_QUOTAS_MODULE_PATH];
@@ -333,14 +337,14 @@ function loadCore(overrides = {}) {
     child: vi.fn(() => loggerChild),
   };
   const { db, state } = createDbHarness(overrides.db);
-  const databaseModuleMock = {
-    getDbInstance: vi.fn(() => db),
-  };
 
   vi.resetModules();
   resetModuleCache();
   installCjsModuleMock('../logger', loggerMock);
-  installCjsModuleMock('../database', databaseModuleMock);
+
+  const configCore = require('../db/config-core');
+  configCore.setDb(db);
+  configCore.clearConfigCache();
 
   // Install server/config.js mock that delegates getApiKey to the mock DB
   const serverConfigMock = require('../config');
@@ -368,7 +372,6 @@ function loadCore(overrides = {}) {
     db,
     state,
     loggerChild,
-    databaseModuleMock,
   };
 }
 
