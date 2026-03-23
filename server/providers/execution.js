@@ -62,7 +62,7 @@ const PROVIDER_DEFAULT_MODEL = {
   openrouter: 'nvidia/nemotron-3-nano-30b-a3b:free', // Grade A, 3.9s, best free model
   hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
   'ollama-cloud': 'kimi-k2:1t',                     // Grade A, 4.5s, most reliable (devstral intermittent)
-  'google-ai': 'gemini-2.5-flash',                  // Grade A, 3.6s, only model with quota
+  'google-ai': 'gemini-2.5-flash-lite',              // 1M ctx, 65K out, higher RPM than 2.5-flash, tool calls work
 };
 
 // ── Deps captured at init time for the agentic wrapper ────────────────

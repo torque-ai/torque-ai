@@ -34,7 +34,16 @@ describe('Queue Scheduler', () => {
 
     mockDb = {
       getRunningCount: vi.fn().mockReturnValue(0),
-      prepare: vi.fn(),
+      prepare: vi.fn().mockImplementation((sql) => {
+        // Wire configCore.getConfig() to use mockDb.getConfig()
+        if (sql.includes('SELECT value FROM config')) {
+          return { get: (key) => {
+            const val = mockDb.getConfig(key);
+            return val != null ? { value: val } : undefined;
+          }};
+        }
+        return { all: vi.fn().mockReturnValue([]), run: vi.fn(), get: vi.fn() };
+      }),
       listTasks: vi.fn().mockReturnValue([]),
       listOllamaHosts: vi.fn().mockReturnValue([]),
       getConfig: vi.fn().mockReturnValue(null),
@@ -44,6 +53,11 @@ describe('Queue Scheduler', () => {
       resetExpiredBudgets: vi.fn(),
       checkApprovalRequired: vi.fn().mockReturnValue({ required: false, status: 'not_required', rule: null }),
     };
+
+    // Wire configCore to use mockDb so serverConfig.get() can read test config values
+    const configCore = require('../db/config-core');
+    configCore.setDb(mockDb);
+    configCore.clearConfigCache();
 
     mocks = {
       safeStartTask: vi.fn().mockReturnValue(true),
@@ -72,6 +86,9 @@ describe('Queue Scheduler', () => {
   });
 
   afterEach(() => {
+    const configCore = require('../db/config-core');
+    configCore.clearConfigCache();
+    configCore.setDb(null);
     vi.restoreAllMocks();
   });
 
@@ -159,7 +176,7 @@ describe('Queue Scheduler', () => {
       const result = scheduler.categorizeQueuedTasks(tasks, true);
 
       expect(result.ollamaTasks.map((t) => t.id)).toEqual(['1', '2']);
-      expect(result.ollamaTasks).toHaveLength(3);
+      expect(result.ollamaTasks).toHaveLength(2);
     });
 
     it('maps all API providers to apiTasks', () => {

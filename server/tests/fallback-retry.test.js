@@ -715,7 +715,7 @@ describe('fallback-retry module', () => {
     });
 
     it('switches to a larger model when task is already using whole edits', () => {
-      const hostA = registerHealthyHost('stall-large-host', ['qwen2.5-coder:14b', 'qwen3-coder:30b']);
+      const hostA = registerHealthyHost('stall-large-host', ['qwen2.5-coder:14b', 'qwen2.5-coder:32b']);
       const task = createTask({
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
@@ -734,7 +734,7 @@ describe('fallback-retry module', () => {
       expect(recovery.lastStrategy).toBe('switch_model');
 
       const updated = taskCore.getTask(task.id);
-      expect(updated.model).toBe('qwen3-coder:30b');
+      expect(updated.model).toBe('qwen2.5-coder:32b');
       const meta = updated.metadata || {};
       expect(meta.stallRecoveryEditFormat).toBe('whole');
       expect(updated.error_output).toContain('[STALL RECOVERY] Attempt 1: switch_model');
@@ -844,7 +844,7 @@ describe('fallback-retry module', () => {
     });
 
     it('second attempt switches to a larger available model', () => {
-      registerHealthyHost('stall-models', ['qwen2.5-coder:14b', 'qwen3-coder:30b']);
+      registerHealthyHost('stall-models', ['qwen2.5-coder:14b', 'qwen2.5-coder:32b']);
       const task = createTask({
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
@@ -862,7 +862,7 @@ describe('fallback-retry module', () => {
       expect(recovery.lastStrategy).toBe('switch_model');
 
       const updated = taskCore.getTask(task.id);
-      expect(updated.model).toBe('qwen3-coder:30b');
+      expect(updated.model).toBe('qwen2.5-coder:32b');
       const meta = updated.metadata || {};
       expect(meta.stallRecoveryEditFormat).toBe('whole');
     });
@@ -1024,11 +1024,11 @@ describe('fallback-retry module', () => {
       const originalGetAggregatedModels = hostManagement.getAggregatedModels;
       hostManagement.getAggregatedModels = vi.fn(() => [
         { name: 'qwen2.5-coder:14b' },
-        { name: 'qwen3-coder:30b', hosts: [] },
+        { name: 'qwen2.5-coder:32b', hosts: [] },
       ]);
 
       try {
-        expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBe('qwen3-coder:30b');
+        expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBe('qwen2.5-coder:32b');
       } finally {
         hostManagement.getAggregatedModels = originalGetAggregatedModels;
       }
@@ -1141,7 +1141,7 @@ describe('fallback-retry module', () => {
     it('tries an untried larger hashline model when prior model was already attempted', () => {
       configCore.setConfig('max_hashline_local_retries', '2');
       configCore.setConfig('hashline_capable_models', 'qwen2.5-coder');
-      const host = registerHealthyHost('hashline-history', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b', 'qwen3-coder:30b']);
+      const host = registerHealthyHost('hashline-history', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b', 'qwen2.5-coder:32b']);
 
       const task = createTask({
         provider: 'hashline-ollama',
@@ -1154,8 +1154,8 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = taskCore.getTask(task.id);
-      expect(updated.model).toBe('qwen3-coder:30b');
-      expect(updated.error_output).toContain('[Hashline-Local] Trying model qwen3-coder:30b');
+      expect(updated.model).toBe('qwen2.5-coder:32b');
+      expect(updated.error_output).toContain('[Hashline-Local] Trying model qwen2.5-coder:32b');
     });
 
     it('falls back to a larger model when only one host is available', () => {

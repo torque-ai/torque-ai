@@ -241,8 +241,10 @@ async function runAgenticLoop({
         const msg = apiErr.message || '';
         const isTransient = /parse.*json|unexpected end|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d|502|503|429/i.test(msg);
         if (!isTransient || attempt >= MAX_API_RETRIES) throw apiErr;
-        const delayMs = (attempt + 1) * 2000; // 2s, 4s
-        logger.info(`[Agentic] Transient API error (attempt ${attempt + 1}/${MAX_API_RETRIES + 1}): ${msg.slice(0, 100)} — retrying in ${delayMs}ms`);
+        // 429 rate-limit errors need much longer backoff (free-tier quotas reset per minute)
+        const is429 = /429|quota|rate.limit/i.test(msg);
+        const delayMs = is429 ? (attempt + 1) * 15000 : (attempt + 1) * 2000; // 429: 15s, 30s; other: 2s, 4s
+        logger.info(`[Agentic] Transient API error (attempt ${attempt + 1}/${MAX_API_RETRIES + 1}): ${msg.slice(0, 100)} — retrying in ${delayMs}ms${is429 ? ' (rate-limit backoff)' : ''}`);
         await new Promise(r => setTimeout(r, delayMs));
       }
     }
