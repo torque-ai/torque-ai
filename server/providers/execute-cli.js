@@ -164,6 +164,9 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
 
     codexArgs.push('--skip-git-repo-check');
 
+    // JSON output for structured event parsing (file changes, progress, errors)
+    codexArgs.push('--json');
+
     // Only pass -m when user specified a real model name.
     // Skip when model matches the provider name — let the CLI use its own default.
     if (task.model && task.model !== 'codex') {
@@ -220,25 +223,28 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
 function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
   let { cliPath, finalArgs, stdinPrompt, envExtras, selectedOllamaHostId, usedEditFormat } = cmdSpec;
 
-  // --- Worktree isolation for Codex tasks ---
-  // MANDATORY for Codex: tasks always run in a temporary git worktree so they
-  // don't modify the project working directory directly. Changes are merged back
-  // after the task completes successfully. This prevents sandbox contamination.
+  // --- Worktree isolation ---
+  // Codex exec mode persists file writes directly to the -C directory.
+  // Worktree isolation is DISABLED for codex because:
+  // 1. codex exec --full-auto already persists changes to disk
+  // 2. The sandbox reverts writes in worktrees on exit (sandbox cleanup)
+  // 3. mergeWorktreeChanges then sees 0 changes → all work is lost
+  // Worktree isolation remains available for non-codex CLI providers if needed.
   let worktreeInfo = null;
-  const isCodexProvider = (provider === 'codex');
-  const worktreeIsolationEnabled = isCodexProvider
+  const isCodexProvider = (provider === 'codex' || provider === 'codex-spark');
+  const worktreeIsolationEnabled = !isCodexProvider
     && task.working_directory
-    && gitWorktree.isGitRepo(task.working_directory);
+    && gitWorktree.isGitRepo(task.working_directory)
+    && serverConfig.get('cli_worktree_isolation') === '1';
 
   if (worktreeIsolationEnabled) {
     worktreeInfo = gitWorktree.createWorktree(taskId, task.working_directory);
     if (worktreeInfo) {
-      // Rewrite the -C argument in finalArgs to point to the worktree
       const dashCIndex = finalArgs.indexOf('-C');
       if (dashCIndex !== -1 && dashCIndex + 1 < finalArgs.length) {
         finalArgs[dashCIndex + 1] = worktreeInfo.worktreePath;
       }
-      logger.info(`[TaskManager] Codex task ${taskId} using worktree isolation at ${worktreeInfo.worktreePath}`);
+      logger.info(`[TaskManager] Task ${taskId} using worktree isolation at ${worktreeInfo.worktreePath}`);
     } else {
       logger.info(`[TaskManager] Worktree creation failed for task ${taskId} — falling back to direct execution`);
     }
@@ -741,6 +747,34 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
           } catch (cleanupErr) {
             logger.info(`[Worktree] Task ${taskId} cleanup exception: ${cleanupErr.message}`);
           }
+        }
+      }
+
+      // --- Auto-commit for codex exec tasks (no worktree) ---
+      // codex exec --full-auto writes directly to the working directory.
+      // Auto-commit advances HEAD so parallel tasks see each other's changes.
+      if (isCodexProvider && !proc.worktreeInfo && code === 0 && task.working_directory) {
+        try {
+          const { execFileSync } = require('child_process');
+          const workDir = task.working_directory;
+          const statusOut = execFileSync('git', ['status', '--porcelain'], {
+            cwd: workDir, encoding: 'utf-8', timeout: 10000,
+            stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+          }).trim();
+          if (statusOut) {
+            execFileSync('git', ['add', '-A'], {
+              cwd: workDir, encoding: 'utf-8', timeout: 10000,
+              stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+            });
+            const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
+            execFileSync('git', ['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
+              cwd: workDir, encoding: 'utf-8', timeout: 10000,
+              stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+            });
+            logger.info(`[Codex] Task ${taskId} auto-committed ${statusOut.split('\n').length} changed file(s)`);
+          }
+        } catch (commitErr) {
+          logger.info(`[Codex] Task ${taskId} auto-commit failed: ${commitErr.message}`);
         }
       }
 

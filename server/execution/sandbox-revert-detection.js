@@ -115,6 +115,11 @@ function detectSandboxReverts(ctx) {
   const provider = ctx.proc?.provider || ctx.task?.provider;
   if (!isCodexProvider(provider)) return;
 
+  // Skip when codex exec writes directly (no worktree isolation).
+  // In direct mode, codex's changes are intentional — not sandbox reverts.
+  // Only run revert detection when worktree isolation was used.
+  if (!ctx.proc?.worktreeInfo) return;
+
   // Only check completed tasks — failed tasks don't write files
   if (ctx.status !== 'completed') return;
 
