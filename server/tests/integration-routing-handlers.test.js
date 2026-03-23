@@ -15,8 +15,14 @@ const MODULE_PATHS = [
   '../utils/smart-scan',
   '../logger',
   '../config',
+  '../db/config-core',
+  '../db/host-management',
+  '../db/provider-routing-core',
+  '../db/task-core',
+  '../db/workflow-engine',
   '../db/model-roles',
   '../db/model-capabilities',
+  '../providers/ollama-shared',
   'uuid',
 ];
 
@@ -146,6 +152,10 @@ const mockModelCaps = {
   createModelCapabilities: vi.fn(),
 };
 
+const mockOllamaShared = {
+  resolveOllamaModel: vi.fn((taskModel, requestedModel) => requestedModel || taskModel || 'mock-default-model'),
+};
+
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
@@ -218,8 +228,14 @@ function loadHandler() {
   installCjsModuleMock('../utils/smart-scan', mockSmartScan);
   installCjsModuleMock('../logger', mockLogger);
   installCjsModuleMock('../config', createConfigModuleMock());
+  installCjsModuleMock('../db/config-core', mockDb);
+  installCjsModuleMock('../db/host-management', mockDb);
+  installCjsModuleMock('../db/provider-routing-core', mockDb);
+  installCjsModuleMock('../db/task-core', mockDb);
+  installCjsModuleMock('../db/workflow-engine', mockDb);
   installCjsModuleMock('../db/model-roles', mockModelRoles);
   installCjsModuleMock('../db/model-capabilities', mockModelCaps);
+  installCjsModuleMock('../providers/ollama-shared', mockOllamaShared);
   installCjsModuleMock('uuid', mockUuid);
   return require(HANDLER_MODULE);
 }
@@ -336,6 +352,11 @@ function resetMockState() {
     can_edit_safely: 1,
     is_agentic: 0,
   });
+
+  mockOllamaShared.resolveOllamaModel.mockReset();
+  mockOllamaShared.resolveOllamaModel.mockImplementation(
+    (taskModel, requestedModel) => requestedModel || taskModel || 'mock-default-model'
+  );
 
   mockDb.checkOllamaHealth.mockReset();
   mockDb.checkOllamaHealth.mockResolvedValue(true);

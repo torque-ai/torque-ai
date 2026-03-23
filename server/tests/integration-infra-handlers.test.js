@@ -15,6 +15,11 @@ const MODULE_PATHS = [
   '../task-manager',
   '../logger',
   '../config',
+  '../db/backup-core',
+  '../db/config-core',
+  '../db/email-peek',
+  '../db/host-management',
+  '../db/provider-routing-core',
 ];
 const ENV_KEYS = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM', 'TORQUE_DATA_DIR'];
 
@@ -123,6 +128,11 @@ function loadHandlers(options = {}) {
   installCjsModuleMock('../task-manager', modules.taskManager);
   installCjsModuleMock('../logger', modules.loggerModule);
   installCjsModuleMock('../config', modules.config);
+  installCjsModuleMock('../db/backup-core', modules.db);
+  installCjsModuleMock('../db/config-core', modules.db);
+  installCjsModuleMock('../db/email-peek', modules.db);
+  installCjsModuleMock('../db/host-management', modules.db);
+  installCjsModuleMock('../db/provider-routing-core', modules.db);
 
   return {
     handlers: require(HANDLER_MODULE),

@@ -7,6 +7,7 @@ const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let db;
 let hostCreds;
+let emailPeek;
 let hostsRoutes;
 let dispatch;
 let healthServer;
@@ -97,6 +98,13 @@ beforeAll(async () => {
   const env = setupTestDb('hosts-routes');
   db = env.db;
   hostCreds = require('../db/host-management');
+  emailPeek = require('../db/email-peek');
+  Object.assign(hostCreds, {
+    registerPeekHost: emailPeek.registerPeekHost,
+    unregisterPeekHost: emailPeek.unregisterPeekHost,
+    listPeekHosts: emailPeek.listPeekHosts,
+    getPeekHost: emailPeek.getPeekHost,
+  });
   hostsRoutes = require('../dashboard/routes/infrastructure');
   ({ dispatch } = require('../dashboard/router'));
 
@@ -116,6 +124,13 @@ beforeAll(async () => {
 
   const address = healthServer.address();
   healthUrl = `http://127.0.0.1:${address.port}`;
+});
+
+beforeEach(() => {
+  const conn = db.getDbInstance();
+  for (const table of ['peek_hosts', 'host_credentials']) {
+    try { conn.prepare(`DELETE FROM ${table}`).run(); } catch { /* ignore */ }
+  }
 });
 
 afterAll(async () => {

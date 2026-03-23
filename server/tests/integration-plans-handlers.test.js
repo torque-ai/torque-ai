@@ -15,6 +15,8 @@ const MODULE_PATHS = [
   '../task-manager',
   '../logger',
   '../handlers/shared',
+  '../db/project-config-core',
+  '../db/task-core',
 ];
 
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -80,6 +82,8 @@ function loadHandlers(options = {}) {
   installCjsModuleMock('../database', modules.db);
   installCjsModuleMock('../task-manager', modules.taskManager);
   installCjsModuleMock('../logger', modules.loggerModule);
+  installCjsModuleMock('../db/project-config-core', modules.db);
+  installCjsModuleMock('../db/task-core', modules.db);
 
   return {
     handlers: require(HANDLER_MODULE),

@@ -291,6 +291,7 @@ describe('orchestrator integration', () => {
       clearModule('../execution/strategic-hooks');
       installCjsModuleMock('../orchestrator/strategic-brain', StrategicBrainMock);
       installCjsModuleMock('../database', mockDb);
+      installCjsModuleMock('../db/task-core', mockDb);
       installCjsModuleMock('../config', createConfigMock(mockDb));
       installCjsModuleMock('../logger', {
         child: vi.fn(() => mockLogger),

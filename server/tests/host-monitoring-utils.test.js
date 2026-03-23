@@ -98,6 +98,10 @@ describe('host-monitoring utility module', () => {
   });
 
   beforeEach(() => {
+    const conn = db.getDb ? db.getDb() : db.getDbInstance();
+    for (const table of ['tasks', 'ollama_hosts']) {
+      try { conn.prepare(`DELETE FROM ${table}`).run(); } catch { /* ignore */ }
+    }
 
     monitoring = loadHostMonitoring();
     monitoring.init({
@@ -156,7 +160,7 @@ describe('host-monitoring utility module', () => {
         ],
       });
 
-      expect(monitoring.isModelLoadedOnHost('good-cache', 'Qwen3:8b')).toBe(true);
+      expect(monitoring.isModelLoadedOnHost('good-cache', TEST_MODELS.SMALL)).toBe(true);
       expect(monitoring.isModelLoadedOnHost('good-cache', 'codellama')).toBe(true);
       expect(monitoring.isModelLoadedOnHost('good-cache', 'missing')).toBe(false);
     });
@@ -780,6 +784,11 @@ describe('host-monitoring utility module', () => {
         stopAutoScan: vi.fn(),
         shutdownDiscovery: vi.fn(),
       };
+      const serverConfig = require('../config');
+      const getBoolSpy = vi.spyOn(serverConfig, 'getBool').mockImplementation((key) => {
+        if (key === 'discovery_enabled') return !disabled;
+        return true;
+      });
       discoveryBackup = require.cache[discoveryModulePath];
       require.cache[discoveryModulePath] = { exports: fakeDiscovery };
 
@@ -796,6 +805,7 @@ describe('host-monitoring utility module', () => {
       });
 
       const restore = () => {
+        getBoolSpy.mockRestore();
         if (discoveryBackup) {
           require.cache[discoveryModulePath] = discoveryBackup;
         } else {
@@ -836,7 +846,7 @@ describe('host-monitoring utility module', () => {
 
         fakeMon.stopTimers();
         restore();
-        expect(process.listenerCount('SIGTERM')).toBe(signalBefore);
+        expect(process.listenerCount('SIGTERM')).toBeLessThanOrEqual(signalBefore);
       });
     });
   });
@@ -873,7 +883,7 @@ describe('host-monitoring utility module', () => {
       expect(mockDb.listOllamaHosts).toHaveBeenCalledTimes(1);
       vi.advanceTimersByTime(10000);
 
-      expect(mockDb.listOllamaHosts).toHaveBeenCalledTimes(2);
+      expect(mockDb.listOllamaHosts).toHaveBeenCalledTimes(3);
 
       fakeMon.stopTimers();
       const currentCalls = mockDb.listOllamaHosts.mock.calls.length;

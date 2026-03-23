@@ -385,6 +385,8 @@ describe('deterministic-fallbacks', () => {
 // ────────────────────────────────────────────────────────────────
 describe('StrategicBrain', () => {
   const StrategicBrain = require('../orchestrator/strategic-brain');
+  const { resolveOllamaModel } = require('../providers/ollama-shared');
+  const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 
   describe('constructor', () => {
     it('defaults to ollama provider when no env vars or config', () => {
@@ -412,7 +414,7 @@ describe('StrategicBrain', () => {
 
     it('uses default model for selected provider', () => {
       const brain = new StrategicBrain({ provider: 'ollama' });
-      expect(brain.model).toBe(TEST_MODELS.DEFAULT);
+      expect(brain.model).toBe(resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL);
     });
 
     it('allows model override', () => {
