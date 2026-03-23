@@ -615,6 +615,21 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   // Approval requests: add updated_at for rejection/decision timestamps (approved_at is for approvals only)
   safeAddColumn('approval_requests', 'updated_at TEXT DEFAULT NULL');
 
+  // Dynamic model roles: provider+role → model_name lookup
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS model_roles (
+        provider TEXT NOT NULL,
+        role TEXT NOT NULL,
+        model_name TEXT NOT NULL,
+        updated_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (provider, role)
+      )
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (model_roles): ${e.message}`);
+  }
+
   // Validate task statuses on startup
   if (logger) {
     try { validateTaskStatuses(db, logger); } catch (_e) { void _e; }

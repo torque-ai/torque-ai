@@ -257,6 +257,7 @@ function initModules(db, serverConfig) {
     const providerQuotas = require('./db/provider-quotas');
     const providerScoring = require('./db/provider-scoring');
     const modelCapabilities = require('./db/model-capabilities');
+    const modelRoles = require('./db/model-roles');
     const fileBaselines = require('./db/file-baselines');
     const fileQuality = require('./db/file-quality');
     const policyProfileStore = require('./policy-engine/profile-store');
@@ -300,6 +301,7 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('providerQuotas', providerQuotas);
     _defaultContainer.registerValue('providerScoring', providerScoring);
     _defaultContainer.registerValue('modelCapabilities', modelCapabilities);
+    _defaultContainer.registerValue('modelRoles', modelRoles);
     _defaultContainer.registerValue('fileBaselines', fileBaselines);
     _defaultContainer.registerValue('fileQuality', fileQuality);
     _defaultContainer.registerValue('policyProfileStore', policyProfileStore);

@@ -55,6 +55,7 @@ const policyProfileStore = require('./policy-engine/profile-store');
 const policyEvaluationStore = require('./policy-engine/evaluation-store');
 const auditStore = require('./db/audit-store');
 const ciCache = require('./db/ci-cache');
+const modelRoles = require('./db/model-roles');
 const taskCore = require('./db/task-core');
 const configCore = require('./db/config-core');
 
@@ -309,6 +310,7 @@ function _wireAllModules() {
   recoveryMetrics.createRecoveryMetrics({ db });
   inboundWebhooks.createInboundWebhooks({ db });
   ciCache.createCiCache({ db });
+  modelRoles.createModelRoles({ db });
   workflowEngine.createWorkflowEngine({ db });
   validationRules.createValidationRules({ db, taskCore: { getTask } });
 
