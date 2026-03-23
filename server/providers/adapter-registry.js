@@ -243,6 +243,50 @@ function invalidateAdapterCache(providerId) {
   }
 }
 
+const LOCAL_PROVIDERS = new Set(['ollama', 'hashline-ollama', 'ollama-strategic']);
+
+/**
+ * Run model discovery across all registered provider adapters.
+ *
+ * Iterates every provider registered in the adapter registry. Cloud/API providers
+ * are skipped when no API key is configured (checked via serverConfig.getApiKey).
+ * Local Ollama variants are always attempted regardless of key state.
+ *
+ * Per-provider errors are caught and stored as `{ error: message }` entries so
+ * a single unreachable provider cannot abort the whole batch.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @returns {Promise<Record<string, object>>} Map of providerId → discovery result or error
+ */
+async function discoverAllModels(db) {
+  const { discoverFromAdapter } = require('../discovery/discovery-engine');
+  const serverConfig = require('../config');
+  const results = {};
+
+  for (const providerId of getRegisteredProviderIds()) {
+    const adapter = getProviderAdapter(providerId);
+    if (!adapter) continue;
+
+    // Skip cloud providers without API keys; local Ollama variants always run
+    if (!LOCAL_PROVIDERS.has(providerId)) {
+      try {
+        const hasKey = serverConfig.getApiKey(providerId);
+        if (!hasKey) continue;
+      } catch {
+        continue; // config not ready
+      }
+    }
+
+    try {
+      results[providerId] = await discoverFromAdapter(db, adapter, providerId, null);
+    } catch (err) {
+      results[providerId] = { error: err.message };
+    }
+  }
+
+  return results;
+}
+
 module.exports = {
   createProviderAdapter,
   registerProviderAdapter,
@@ -251,4 +295,5 @@ module.exports = {
   isAdapterRegistered,
   getProviderCapabilityMatrix,
   invalidateAdapterCache,
+  discoverAllModels,
 };
