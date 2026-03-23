@@ -5,17 +5,19 @@ import { createRequire } from 'module';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { gitSync } = require('./git-test-utils');
 const vitestSetup = require('./vitest-setup');
 const validationHandlers = require('../handlers/validation');
 const advIntelligence = require('../handlers/advanced/intelligence');
 const postToolHooks = require('../hooks/post-tool-hooks');
 const taskManager = require('../task-manager');
+const taskCore = require('../db/task-core');
+const fileTracking = require('../db/file-tracking');
+const validationRules = require('../db/validation-rules');
 
 const { setupTestDb, teardownTestDb, safeTool } = vitestSetup;
 
 function createTask(overrides = {}) {
-  return db.createTask({
+  return taskCore.createTask({
     id: randomUUID(),
     task_description: overrides.task_description || 'post-tool hook test task',
     working_directory: overrides.working_directory || testDir,
@@ -25,21 +27,12 @@ function createTask(overrides = {}) {
   });
 }
 
-function initGitRepo(workingDirectory) {
-  gitSync(['init'], { cwd: workingDirectory });
-  gitSync(['config', 'user.email', 'test@example.com'], { cwd: workingDirectory });
-  gitSync(['config', 'user.name', 'Torque Tests'], { cwd: workingDirectory });
-  gitSync(['commit', '--allow-empty', '-m', 'baseline', '--no-gpg-sign'], { cwd: workingDirectory });
-  gitSync(['commit', '--allow-empty', '-m', 'baseline-2', '--no-gpg-sign'], { cwd: workingDirectory });
-}
-
 let db;
 let testDir;
 
 describe('post-tool hooks', () => {
   beforeEach(() => {
     ({ db, testDir } = setupTestDb('post-tool-hooks'));
-    initGitRepo(testDir);
     postToolHooks.resetHooksForTest();
     taskManager._testing.resetForTest();
   });
@@ -129,7 +122,7 @@ describe('post-tool hooks', () => {
       task_description: 'approval gate task',
       status: 'queued',
     });
-    db.updateTaskStatus(task.id, 'completed', { output: '   ' });
+    taskCore.updateTaskStatus(task.id, 'completed', { output: '   ' });
 
     const trackedFile = path.join(testDir, 'gate.js');
     fs.writeFileSync(
@@ -137,14 +130,14 @@ describe('post-tool hooks', () => {
       'const alpha = 1;\nconst beta = 2;\nconst gamma = 3;\nconst delta = 4;\n',
       'utf8'
     );
-    db.captureFileBaseline('gate.js', testDir, task.id);
+    fileTracking.captureFileBaseline('gate.js', testDir, task.id);
 
     fs.writeFileSync(trackedFile, 'const alpha = 1;\n', 'utf8');
-    db.recordFileChange(task.id, trackedFile, 'modified', {
+    fileTracking.recordFileChange(task.id, trackedFile, 'modified', {
       workingDirectory: testDir,
       fileSizeBytes: fs.statSync(trackedFile).size,
     });
-    db.saveValidationRule({
+    validationRules.saveValidationRule({
       id: 'rule-1',
       name: 'No TODOs',
       description: 'Reject TODO markers',
@@ -152,7 +145,7 @@ describe('post-tool hooks', () => {
       pattern: 'TODO',
       severity: 'error',
     });
-    db.recordValidationResult(task.id, 'rule-1', 'No TODOs', 'fail', 'error', 'TODO marker found', 'gate.js', null);
+    validationRules.recordValidationResult(task.id, 'rule-1', 'No TODOs', 'fail', 'error', 'TODO marker found', 'gate.js', null);
 
     const result = await safeTool('check_approval_gate', { task_id: task.id });
 
@@ -171,19 +164,19 @@ describe('post-tool hooks', () => {
       task_description: 'completed task',
       status: 'queued',
     });
-    db.updateTaskStatus(completedTask.id, 'completed', { output: 'done' });
+    taskCore.updateTaskStatus(completedTask.id, 'completed', { output: 'done' });
 
     const failedTask = createTask({
       task_description: 'failed task',
       status: 'queued',
     });
-    db.updateTaskStatus(failedTask.id, 'failed', { error_output: 'boom' });
+    taskCore.updateTaskStatus(failedTask.id, 'failed', { error_output: 'boom' });
 
     taskManager.handlePostCompletion({
       taskId: completedTask.id,
       code: 0,
       status: 'completed',
-      task: db.getTask(completedTask.id),
+      task: taskCore.getTask(completedTask.id),
       output: 'done',
       errorOutput: '',
       proc: { output: 'done', errorOutput: '' },
@@ -193,7 +186,7 @@ describe('post-tool hooks', () => {
       taskId: failedTask.id,
       code: 1,
       status: 'failed',
-      task: db.getTask(failedTask.id),
+      task: taskCore.getTask(failedTask.id),
       output: '',
       errorOutput: 'boom',
       proc: { output: '', errorOutput: 'boom' },

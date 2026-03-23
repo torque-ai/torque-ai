@@ -15,7 +15,11 @@ let db;
 let lifecycle;
 
 const PROCESS_LIFECYCLE_MODULE = '../execution/process-lifecycle';
-const DATABASE_MODULE = '../database';
+const TASK_CORE_MODULE = '../db/task-core';
+const HOST_MANAGEMENT_MODULE = '../db/host-management';
+const TASK_METADATA_MODULE = '../db/task-metadata';
+const WEBHOOK_STREAMING_MODULE = '../db/webhooks-streaming';
+const PROVIDER_ROUTING_CORE_MODULE = '../db/provider-routing-core';
 const LOGGER_MODULE = '../logger';
 const SANITIZE_MODULE = '../utils/sanitize';
 const COMPLETION_MODULE = '../validation/completion-detection';
@@ -126,7 +130,11 @@ function installMock(modulePath, exports) {
 function clearLifecycleModuleCache() {
   for (const modulePath of [
     PROCESS_LIFECYCLE_MODULE,
-    DATABASE_MODULE,
+    TASK_CORE_MODULE,
+    HOST_MANAGEMENT_MODULE,
+    TASK_METADATA_MODULE,
+    WEBHOOK_STREAMING_MODULE,
+    PROVIDER_ROUTING_CORE_MODULE,
     LOGGER_MODULE,
     SANITIZE_MODULE,
     COMPLETION_MODULE,
@@ -310,7 +318,22 @@ function loadLifecycleSubject({
   spawnImpl = null,
 } = {}) {
   clearLifecycleModuleCache();
-  installMock(DATABASE_MODULE, dbMock);
+  installMock(TASK_CORE_MODULE, {
+    getTask: dbMock.getTask,
+    updateTaskStatus: dbMock.updateTaskStatus,
+  });
+  installMock(HOST_MANAGEMENT_MODULE, {
+    decrementHostTasks: dbMock.decrementHostTasks,
+  });
+  installMock(TASK_METADATA_MODULE, {
+    updateTaskGitState: dbMock.updateTaskGitState,
+  });
+  installMock(WEBHOOK_STREAMING_MODULE, {
+    getOrCreateTaskStream: dbMock.getOrCreateTaskStream,
+  });
+  installMock(PROVIDER_ROUTING_CORE_MODULE, {
+    invalidateOllamaHealth: dbMock.invalidateOllamaHealth,
+  });
   installMock(LOGGER_MODULE, loggerMock.module);
   installMock(SANITIZE_MODULE, sanitizeMock);
   installMock(COMPLETION_MODULE, completionMock);

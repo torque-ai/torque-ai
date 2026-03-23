@@ -10,14 +10,19 @@
 describe('Prompts Module', () => {
   let prompts;
   let mockDb;
+  let serverConfig;
 
   beforeEach(() => {
+    delete require.cache[require.resolve('../providers/prompts')];
+    delete require.cache[require.resolve('../config')];
     prompts = require('../providers/prompts');
+    serverConfig = require('../config');
 
     mockDb = {
       getConfig: vi.fn().mockReturnValue(null),
     };
     prompts.init({ db: mockDb });
+    vi.spyOn(serverConfig, 'get').mockImplementation((key) => mockDb.getConfig(key));
   });
 
   afterEach(() => {

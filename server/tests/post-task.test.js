@@ -24,6 +24,9 @@ function setup() {
   childProcess.execFileSync = mockExecFileSync;
   childProcess.spawnSync = mockSpawnSync;
 
+  delete require.cache[require.resolve('../validation/build-verification')];
+  delete require.cache[require.resolve('../validation/post-task')];
+
   taskCore = require('../db/task-core');
   projectConfigCore = require('../db/project-config-core');
   fileTracking = require('../db/file-tracking');
@@ -40,7 +43,7 @@ function setup() {
       getTaskFileChanges: (...args) => fileTracking.getTaskFileChanges(...args),
     },
     getModifiedFiles: () => [],
-    parseGitStatusLine: (line) => ({ file: line.trim(), status: 'M' }),
+    parseGitStatusLine: (line) => ({ filePath: line.trim().replace(/^[AMDR?! ]{1,3}\s*"?/, '').replace(/"$/, '').trim() }),
     sanitizeLLMOutput: (output) => output,
   });
 }

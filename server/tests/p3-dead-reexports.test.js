@@ -18,6 +18,7 @@ const INTENTIONAL_PUBLIC_API = new Set([
   // Core functions used via dot access by api-server.core.js
   'runRemoteCommandCore',
   'runTestsCore',
+  'createRemoteAgentHandlers',
   // Backward-compat aliases (used by tests and external consumers)
   'registerRemoteAgent',
   'listRemoteAgents',

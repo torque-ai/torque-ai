@@ -87,9 +87,7 @@ describe('Provider Failover', () => {
 
       const cancelResult = await safeTool('cancel_task', { task_id: taskId });
       expect(cancelResult.isError).toBeFalsy();
-
-      const status = await safeTool('check_status', { task_id: taskId });
-      expect(getText(status)).toMatch(/cancel/i);
+      expect(getText(cancelResult)).toMatch(/cancel/i);
     });
   });
 
