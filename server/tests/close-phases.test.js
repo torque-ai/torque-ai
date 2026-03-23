@@ -96,6 +96,9 @@ describe('Close Phases', () => {
       dashboard: mockDashboard,
       ...mocks,
     });
+
+    const serverConfig = require('../config');
+    vi.spyOn(serverConfig, 'get').mockImplementation((key) => mockDb.getConfig(key));
   });
 
   afterEach(() => {
@@ -183,7 +186,7 @@ describe('Close Phases', () => {
       expect(mocks.scopedRollback).toHaveBeenCalledWith('task-001', '/tmp/test-project', 'Auto-Validation');
     });
 
-    it('detects line-count regression (>40% shrink) and reverts', () => {
+    it('leaves line-count regression checks disabled after aider removal', () => {
       const currentContent = Array(10).fill('line').join('\n');
       const previousContent = Array(100).fill('line').join('\n');
 
@@ -200,9 +203,9 @@ describe('Close Phases', () => {
       const ctx = makeCtx();
       closePhases.handleAutoValidation(ctx);
 
-      expect(ctx.status).toBe('failed');
-      expect(ctx.errorOutput).toContain('likely code destruction');
-      expect(mocks.scopedRollback).toHaveBeenCalledWith('task-001', '/tmp/test-project', 'Auto-Validation');
+      expect(ctx.status).toBe('completed');
+      expect(ctx.errorOutput).toBe('');
+      expect(mocks.scopedRollback).not.toHaveBeenCalled();
     });
 
     it('passes when no quality issues found', () => {
@@ -479,8 +482,8 @@ describe('Close Phases', () => {
       vi.useRealTimers();
     });
 
-    it('falls back locally for hashline-ollama failures', () => {
-      const task = makeTask({ provider: 'hashline-ollama', retry_count: 0 });
+    it('falls back locally for ollama failures', () => {
+      const task = makeTask({ provider: 'ollama', retry_count: 0 });
       const proc = makeProc({ errorOutput: 'connection refused' });
       const ctx = makeCtx({ status: 'failed', task, proc, code: 1 });
 
@@ -492,7 +495,7 @@ describe('Close Phases', () => {
       expect(mocks.tryLocalFirstFallback).toHaveBeenCalledWith(
         'task-001',
         expect.objectContaining({
-          provider: 'hashline-ollama',
+          provider: 'ollama',
           error_output: 'connection refused',
         }),
         'connection refused'

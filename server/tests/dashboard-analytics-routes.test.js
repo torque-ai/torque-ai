@@ -3,6 +3,13 @@
 const MODULE_PATHS = [
   '../dashboard/routes/analytics',
   '../database',
+  '../db/task-core',
+  '../db/cost-tracking',
+  '../db/event-tracking',
+  '../db/file-tracking',
+  '../db/provider-routing-core',
+  '../db/webhooks-streaming',
+  '../db/workflow-engine',
   '../config',
   '../dashboard/utils',
   '../handlers/orchestrator-handlers',
@@ -73,6 +80,49 @@ const mockQueueScheduler = {
   _getLastAutoScaleActivation: vi.fn(),
 };
 
+const mockTaskCore = {
+  countTasks: mockDb.countTasks,
+  listTasks: mockDb.listTasks,
+};
+
+const mockCostTracking = {
+  getCostSummary: mockDb.getCostSummary,
+  getCostByPeriod: mockDb.getCostByPeriod,
+  getBudgetStatus: mockDb.getBudgetStatus,
+  setBudget: mockDb.setBudget,
+  getUsageHistory: mockDb.getUsageHistory,
+  getWorkflowCostSummary: mockDb.getWorkflowCostSummary,
+};
+
+const mockEventTracking = {
+  getFormatSuccessRatesSummary: mockDb.getFormatSuccessRatesSummary,
+};
+
+const mockFileTracking = {
+  getProviderStats: mockDb.getProviderStats,
+  getOverallQualityStats: mockDb.getOverallQualityStats,
+  getQualityStatsByProvider: mockDb.getQualityStatsByProvider,
+  getValidationFailureRate: mockDb.getValidationFailureRate,
+};
+
+const mockProviderRoutingCore = {
+  listProviders: mockDb.listProviders,
+  getProviderHealth: mockDb.getProviderHealth,
+  isProviderHealthy: mockDb.isProviderHealthy,
+};
+
+const mockWebhooksStreaming = {
+  getWebhookStats: mockDb.getWebhookStats,
+  listWebhooks: mockDb.listWebhooks,
+};
+
+const mockWorkflowEngine = {
+  listWorkflows: mockDb.listWorkflows,
+  getWorkflowStatus: mockDb.getWorkflowStatus,
+  getWorkflowTasks: mockDb.getWorkflowTasks,
+  getWorkflowHistory: mockDb.getWorkflowHistory,
+};
+
 function installMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
@@ -96,6 +146,13 @@ function clearLoadedModules() {
 function loadAnalytics() {
   clearLoadedModules();
   installMock('../database', mockDb);
+  installMock('../db/task-core', mockTaskCore);
+  installMock('../db/cost-tracking', mockCostTracking);
+  installMock('../db/event-tracking', mockEventTracking);
+  installMock('../db/file-tracking', mockFileTracking);
+  installMock('../db/provider-routing-core', mockProviderRoutingCore);
+  installMock('../db/webhooks-streaming', mockWebhooksStreaming);
+  installMock('../db/workflow-engine', mockWorkflowEngine);
   installMock('../config', mockConfig);
   installMock('../dashboard/utils', mockUtils);
   installMock('../handlers/orchestrator-handlers', mockOrchestratorHandlers);

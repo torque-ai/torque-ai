@@ -2,18 +2,16 @@
 
 describe('server/config.js — unified config resolution', () => {
   let config;
-  let mockDb;
+  let mockConfigCore;
   const savedEnv = {};
 
   beforeEach(() => {
     // Fresh require to reset module state
     vi.resetModules();
     config = require('../config');
-
-    mockDb = {
-      getConfig: vi.fn(() => null),
-    };
-    config.init({ db: mockDb });
+    mockConfigCore = require('../db/config-core');
+    vi.spyOn(mockConfigCore, 'getConfig').mockReturnValue(null);
+    vi.spyOn(mockConfigCore, 'setConfig').mockImplementation(() => {});
 
     // Save env vars we'll modify
     for (const key of Object.values(config.API_KEY_ENV_VARS)) {
@@ -25,6 +23,7 @@ describe('server/config.js — unified config resolution', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     // Restore env vars
     for (const [key, val] of Object.entries(savedEnv)) {
       if (val === undefined) delete process.env[key];
@@ -36,7 +35,7 @@ describe('server/config.js — unified config resolution', () => {
 
   describe('get()', () => {
     it('returns DB value when available', () => {
-      mockDb.getConfig.mockReturnValueOnce('hello');
+      mockConfigCore.getConfig.mockReturnValueOnce('hello');
       expect(config.get('some_key')).toBe('hello');
     });
 
@@ -54,12 +53,12 @@ describe('server/config.js — unified config resolution', () => {
 
     it('prefers env var over DB value for registered keys', () => {
       process.env.TORQUE_DASHBOARD_PORT = '9999';
-      mockDb.getConfig.mockReturnValue('3456');
+      mockConfigCore.getConfig.mockReturnValue('3456');
       expect(config.get('dashboard_port')).toBe('9999');
     });
 
     it('prefers DB value over registry default', () => {
-      mockDb.getConfig.mockReturnValue('4000');
+      mockConfigCore.getConfig.mockReturnValue('4000');
       expect(config.get('dashboard_port')).toBe('4000');
     });
   });
@@ -68,7 +67,7 @@ describe('server/config.js — unified config resolution', () => {
 
   describe('getInt()', () => {
     it('parses DB string value as integer', () => {
-      mockDb.getConfig.mockReturnValue('42');
+      mockConfigCore.getConfig.mockReturnValue('42');
       expect(config.getInt('max_concurrent')).toBe(42);
     });
 
@@ -81,12 +80,12 @@ describe('server/config.js — unified config resolution', () => {
     });
 
     it('returns 0 for NaN with no default', () => {
-      mockDb.getConfig.mockReturnValue('not-a-number');
+      mockConfigCore.getConfig.mockReturnValue('not-a-number');
       expect(config.getInt('unregistered_key')).toBe(0);
     });
 
     it('returns default for NaN when default exists', () => {
-      mockDb.getConfig.mockReturnValue('not-a-number');
+      mockConfigCore.getConfig.mockReturnValue('not-a-number');
       expect(config.getInt('max_concurrent')).toBe(20);
     });
   });
@@ -95,7 +94,7 @@ describe('server/config.js — unified config resolution', () => {
 
   describe('getFloat()', () => {
     it('parses float values', () => {
-      mockDb.getConfig.mockReturnValue('0.7');
+      mockConfigCore.getConfig.mockReturnValue('0.7');
       expect(config.getFloat('ollama_temperature')).toBeCloseTo(0.7);
     });
 
@@ -112,17 +111,17 @@ describe('server/config.js — unified config resolution', () => {
     });
 
     it('returns false when set to "0"', () => {
-      mockDb.getConfig.mockReturnValue('0');
+      mockConfigCore.getConfig.mockReturnValue('0');
       expect(config.getBool('smart_routing_enabled')).toBe(false);
     });
 
     it('returns false when set to "false"', () => {
-      mockDb.getConfig.mockReturnValue('false');
+      mockConfigCore.getConfig.mockReturnValue('false');
       expect(config.getBool('smart_routing_enabled')).toBe(false);
     });
 
     it('returns true for any other truthy value', () => {
-      mockDb.getConfig.mockReturnValue('1');
+      mockConfigCore.getConfig.mockReturnValue('1');
       expect(config.getBool('smart_routing_enabled')).toBe(true);
     });
 
@@ -139,17 +138,17 @@ describe('server/config.js — unified config resolution', () => {
     });
 
     it('returns true when set to "1"', () => {
-      mockDb.getConfig.mockReturnValue('1');
+      mockConfigCore.getConfig.mockReturnValue('1');
       expect(config.isOptIn('codex_enabled')).toBe(true);
     });
 
     it('returns true when set to "true"', () => {
-      mockDb.getConfig.mockReturnValue('true');
+      mockConfigCore.getConfig.mockReturnValue('true');
       expect(config.isOptIn('codex_enabled')).toBe(true);
     });
 
     it('returns false for "0"', () => {
-      mockDb.getConfig.mockReturnValue('0');
+      mockConfigCore.getConfig.mockReturnValue('0');
       expect(config.isOptIn('codex_enabled')).toBe(false);
     });
   });
@@ -158,12 +157,12 @@ describe('server/config.js — unified config resolution', () => {
 
   describe('getJson()', () => {
     it('parses valid JSON', () => {
-      mockDb.getConfig.mockReturnValue('{"a":1}');
+      mockConfigCore.getConfig.mockReturnValue('{"a":1}');
       expect(config.getJson('some_key')).toEqual({ a: 1 });
     });
 
     it('returns fallback for invalid JSON', () => {
-      mockDb.getConfig.mockReturnValue('not-json');
+      mockConfigCore.getConfig.mockReturnValue('not-json');
       expect(config.getJson('some_key', {})).toEqual({});
     });
 
@@ -181,7 +180,7 @@ describe('server/config.js — unified config resolution', () => {
     });
 
     it('falls back to DB config when env var not set', () => {
-      mockDb.getConfig.mockImplementation((key) => {
+      mockConfigCore.getConfig.mockImplementation((key) => {
         if (key === 'anthropic_api_key') return 'db-key-456';
         return null;
       });
@@ -190,7 +189,7 @@ describe('server/config.js — unified config resolution', () => {
 
     it('prefers env var over DB', () => {
       process.env.DEEPINFRA_API_KEY = 'env-key';
-      mockDb.getConfig.mockReturnValue('db-key');
+      mockConfigCore.getConfig.mockReturnValue('db-key');
       expect(config.getApiKey('deepinfra')).toBe('env-key');
     });
 
@@ -228,7 +227,7 @@ describe('server/config.js — unified config resolution', () => {
     });
 
     it('returns DB-configured port', () => {
-      mockDb.getConfig.mockImplementation((key) => {
+      mockConfigCore.getConfig.mockImplementation((key) => {
         if (key === 'api_port') return '8080';
         return null;
       });
@@ -237,7 +236,7 @@ describe('server/config.js — unified config resolution', () => {
 
     it('returns env var port over DB', () => {
       process.env.TORQUE_DASHBOARD_PORT = '5000';
-      mockDb.getConfig.mockReturnValue('3456');
+      mockConfigCore.getConfig.mockReturnValue('3456');
       expect(config.getPort('dashboard')).toBe(5000);
     });
 

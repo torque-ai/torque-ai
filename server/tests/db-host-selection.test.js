@@ -304,7 +304,7 @@ describe('db/host-selection (real DB)', () => {
       expect(result).toEqual({
         host: null,
         reason: 'No healthy Ollama hosts available',
-        modelTier: 'balanced',
+        modelTier: null,
       });
     });
 

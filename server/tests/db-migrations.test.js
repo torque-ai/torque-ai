@@ -25,6 +25,8 @@ function createBaseSchema(conn, options = {}) {
     includeProviderTaskStats = true,
     includeOllamaHosts = true,
     includeDistributedLocks = true,
+    includeConfig = true,
+    includeComplexityRouting = true,
     existingModelAffinityColumns = false,
   } = options;
 
@@ -75,6 +77,32 @@ function createBaseSchema(conn, options = {}) {
         acquired_at TEXT,
         expires_at TEXT
       );
+    `);
+  }
+
+  if (includeConfig) {
+    conn.exec(`
+      CREATE TABLE config (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+    `);
+    conn.exec(`
+      INSERT INTO config (key, value) VALUES
+        ('aider_auto_commits', '1'),
+        ('stall_threshold_aider', '60');
+    `);
+  }
+
+  if (includeComplexityRouting) {
+    conn.exec(`
+      CREATE TABLE complexity_routing (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_provider TEXT
+      );
+    `);
+    conn.exec(`
+      INSERT INTO complexity_routing (target_provider) VALUES ('aider-ollama');
     `);
   }
 }
@@ -320,7 +348,7 @@ describe('db/migrations', () => {
 
       const count = subject.runMigrations(db);
 
-      expect(count).toBe(4);
+      expect(count).toBe(subject.MIGRATIONS.length - 3);
       expect(getAppliedVersions(db)).toEqual(subject.MIGRATIONS.map((migration) => migration.version));
       expect(tableExists(db, 'project_tuning')).toBe(true);
       expect(tableExists(db, 'benchmark_results')).toBe(true);

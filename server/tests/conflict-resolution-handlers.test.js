@@ -1,6 +1,6 @@
 'use strict';
 
-const mockDb = {
+const mockWorkflowEngine = {
   getWorkflow: vi.fn(),
 };
 
@@ -20,7 +20,7 @@ function installMock(modulePath, exports) {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/conflict-resolution-handlers')];
-  installMock('../database', mockDb);
+  installMock('../db/workflow-engine', mockWorkflowEngine);
   installMock('../execution/conflict-resolver', mockConflictResolver);
   installMock('../handlers/error-codes', require('../handlers/error-codes'));
   installMock('../handlers/shared', {
@@ -36,7 +36,7 @@ describe('conflict-resolution-handlers', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    mockDb.getWorkflow.mockReset();
+    mockWorkflowEngine.getWorkflow.mockReset();
     mockConflictResolver.resolveWorkflowConflicts.mockReset();
     handlers = loadHandlers();
   });
@@ -55,7 +55,7 @@ describe('conflict-resolution-handlers', () => {
     });
 
     it('returns error when workflow is not found', () => {
-      mockDb.getWorkflow.mockReturnValue(null);
+      mockWorkflowEngine.getWorkflow.mockReturnValue(null);
       const result = handlers.handleResolveWorkflowConflicts({ workflow_id: 'wf-missing' });
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('WORKFLOW_NOT_FOUND');
@@ -63,7 +63,7 @@ describe('conflict-resolution-handlers', () => {
 
     it('returns conflict resolution result with merged files', () => {
       const workflow = { id: 'wf-1', name: 'Test Workflow' };
-      mockDb.getWorkflow.mockReturnValue(workflow);
+      mockWorkflowEngine.getWorkflow.mockReturnValue(workflow);
       mockConflictResolver.resolveWorkflowConflicts.mockReturnValue({
         merged: [
           { file_path: 'src/a.ts', task_ids: ['t1', 't2'], action: 'merge', strategy: 'append' },
@@ -84,7 +84,7 @@ describe('conflict-resolution-handlers', () => {
 
     it('returns conflict resolution result with manual conflicts', () => {
       const workflow = { id: 'wf-2', name: 'Conflicted Workflow' };
-      mockDb.getWorkflow.mockReturnValue(workflow);
+      mockWorkflowEngine.getWorkflow.mockReturnValue(workflow);
       mockConflictResolver.resolveWorkflowConflicts.mockReturnValue({
         merged: [],
         conflicts: [
@@ -102,7 +102,7 @@ describe('conflict-resolution-handlers', () => {
 
     it('shows no-conflict message when both arrays are empty', () => {
       const workflow = { id: 'wf-3', name: 'Clean Workflow' };
-      mockDb.getWorkflow.mockReturnValue(workflow);
+      mockWorkflowEngine.getWorkflow.mockReturnValue(workflow);
       mockConflictResolver.resolveWorkflowConflicts.mockReturnValue({
         merged: [],
         conflicts: [],
@@ -115,7 +115,7 @@ describe('conflict-resolution-handlers', () => {
 
     it('returns error when resolver throws', () => {
       const workflow = { id: 'wf-4', name: 'Error Workflow' };
-      mockDb.getWorkflow.mockReturnValue(workflow);
+      mockWorkflowEngine.getWorkflow.mockReturnValue(workflow);
       mockConflictResolver.resolveWorkflowConflicts.mockImplementation(() => {
         throw new Error('Resolver crashed');
       });

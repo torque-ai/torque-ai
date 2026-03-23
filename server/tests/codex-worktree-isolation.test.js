@@ -239,7 +239,7 @@ describe('Codex worktree isolation integration', () => {
 
   // ─── Test 1: Worktree path passed as -C argument ───────────────────
 
-  it('worktree enabled: codex process receives worktree path as -C argument', async () => {
+  it('codex execution ignores worktree isolation and keeps the original working_directory', async () => {
     const projectDir = path.join(testDir, 'my-project');
     fs.mkdirSync(projectDir, { recursive: true });
 
@@ -255,29 +255,24 @@ describe('Codex worktree isolation integration', () => {
 
     const gitWorktree = require('../utils/git-worktree');
 
-    // Verify createWorktree was called with the task ID and project dir
-    expect(gitWorktree.createWorktree).toHaveBeenCalledWith(
-      taskId,
-      projectDir
-    );
+    // Codex exec writes directly into the target directory, so worktree isolation is skipped.
+    expect(gitWorktree.createWorktree).not.toHaveBeenCalled();
 
-    // Verify the -C argument in spawn call points to the worktree, not the original dir
+    // Verify the -C argument in spawn call points to the original project dir.
     const spawnArgs = spawnMock.mock.calls[0][1]; // finalArgs array
     const dashCIndex = spawnArgs.indexOf('-C');
     expect(dashCIndex).toBeGreaterThan(-1);
     const cArg = spawnArgs[dashCIndex + 1];
-    // The -C arg should be the worktree path (contains torque-fake-wt), not the original project dir
-    expect(cArg).toContain('torque-fake-wt');
-    expect(cArg).not.toBe(projectDir);
+    expect(cArg).toBe(projectDir);
 
-    // Also verify cwd was set to the worktree path
+    // Also verify cwd stayed on the original project path.
     const spawnOpts = spawnMock.mock.calls[0][2]; // options
-    expect(spawnOpts.cwd).toBe(cArg);
+    expect(spawnOpts.cwd).toBe(projectDir);
   });
 
   // ─── Test 2: Changes merged back on success (exit 0) ──────────────
 
-  it('worktree enabled + exit 0: mergeWorktreeChanges called, then removeWorktree', async () => {
+  it('codex exit 0 does not attempt worktree merge or cleanup', async () => {
     const projectDir = path.join(testDir, 'merge-test');
     fs.mkdirSync(projectDir, { recursive: true });
 
@@ -290,22 +285,15 @@ describe('Codex worktree isolation integration', () => {
 
     const gitWorktree = require('../utils/git-worktree');
 
-    // mergeWorktreeChanges should have been called with the worktree path + original dir
-    expect(gitWorktree.mergeWorktreeChanges).toHaveBeenCalledTimes(1);
-    const mergeArgs = gitWorktree.mergeWorktreeChanges.mock.calls[0];
-    expect(mergeArgs[0]).toContain('torque-fake-wt'); // worktreePath
-    expect(mergeArgs[1]).toBe(projectDir);             // sourceDir (original)
-    expect(mergeArgs[2]).toBe(taskId);                 // taskId
-
-    // removeWorktree should also have been called (cleanup)
-    expect(gitWorktree.removeWorktree).toHaveBeenCalledTimes(1);
-    const removeArgs = gitWorktree.removeWorktree.mock.calls[0];
-    expect(removeArgs[0]).toContain('torque-fake-wt');
+    expect(taskId).toBeTruthy();
+    expect(gitWorktree.createWorktree).not.toHaveBeenCalled();
+    expect(gitWorktree.mergeWorktreeChanges).not.toHaveBeenCalled();
+    expect(gitWorktree.removeWorktree).not.toHaveBeenCalled();
   });
 
   // ─── Test 3: Worktree cleaned up without merging on failure ────────
 
-  it('worktree enabled + exit 1: removeWorktree called WITHOUT mergeWorktreeChanges', async () => {
+  it('codex exit 1 does not attempt worktree cleanup paths', async () => {
     const projectDir = path.join(testDir, 'fail-test');
     fs.mkdirSync(projectDir, { recursive: true });
 
@@ -318,13 +306,9 @@ describe('Codex worktree isolation integration', () => {
 
     const gitWorktree = require('../utils/git-worktree');
 
-    // mergeWorktreeChanges should NOT have been called (exit code != 0)
+    expect(gitWorktree.createWorktree).not.toHaveBeenCalled();
     expect(gitWorktree.mergeWorktreeChanges).not.toHaveBeenCalled();
-
-    // removeWorktree should still have been called (cleanup happens regardless)
-    expect(gitWorktree.removeWorktree).toHaveBeenCalledTimes(1);
-    const removeArgs = gitWorktree.removeWorktree.mock.calls[0];
-    expect(removeArgs[0]).toContain('torque-fake-wt');
+    expect(gitWorktree.removeWorktree).not.toHaveBeenCalled();
   });
 
   // ─── Test 4: Not a git repo — original working_directory used ─────
@@ -364,7 +348,7 @@ describe('Codex worktree isolation integration', () => {
 
   // ─── Test 5: Worktree creation fails — falls back to direct execution ─
 
-  it('worktree creation fails: falls back to direct execution gracefully', async () => {
+  it('codex does not attempt worktree creation even when a worktree mock would fail', async () => {
     const gitWorktree = require('../utils/git-worktree');
     // Make createWorktree return null (simulates worktree creation failure)
     gitWorktree.createWorktree = vi.fn().mockReturnValue(null);
@@ -379,8 +363,7 @@ describe('Codex worktree isolation integration', () => {
     simulateSuccess(child, 'Completed without worktree\n');
     await new Promise(resolve => setTimeout(resolve, 200));
 
-    // createWorktree was attempted
-    expect(gitWorktree.createWorktree).toHaveBeenCalledTimes(1);
+    expect(gitWorktree.createWorktree).not.toHaveBeenCalled();
 
     // Since creation failed, the -C arg should be the original project dir
     const spawnArgs = spawnMock.mock.calls[0][1];
@@ -392,7 +375,7 @@ describe('Codex worktree isolation integration', () => {
     const spawnOpts = spawnMock.mock.calls[0][2];
     expect(spawnOpts.cwd).toBe(projectDir);
 
-    // No merge or cleanup since there was no worktree
+    // No merge or cleanup since codex bypasses worktrees entirely.
     expect(gitWorktree.mergeWorktreeChanges).not.toHaveBeenCalled();
     expect(gitWorktree.removeWorktree).not.toHaveBeenCalled();
   });

@@ -12,7 +12,7 @@ function installMock(modulePath, exports) {
   };
 }
 
-const mockDb = {
+const mockConfigCore = {
   getConfig: vi.fn(),
   setConfig: vi.fn(),
 };
@@ -46,7 +46,7 @@ function resetMocks() {
   mockCredentialCrypto.getOrCreateKey.mockReset();
   mockCredentialCrypto.encrypt.mockReset();
 
-  for (const fn of Object.values(mockDb)) {
+  for (const fn of Object.values(mockConfigCore)) {
     fn.mockReset();
   }
 
@@ -60,7 +60,7 @@ function resetMocks() {
 
   mockGitHubActionsProvider.mockClear();
   mockDiagnostics.diagnoseFailures.mockReset();
-  mockDb.getConfig.mockReturnValue(null);
+  mockConfigCore.getConfig.mockReturnValue(null);
   mockCredentialCrypto.getOrCreateKey.mockReturnValue('mock-key');
   mockCredentialCrypto.encrypt.mockReturnValue({
     encrypted_value: 'aa',
@@ -71,7 +71,7 @@ function resetMocks() {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/ci-handlers')];
-  installMock('../database', mockDb);
+  installMock('../db/config-core', mockConfigCore);
   installMock('../ci/watcher', mockWatcher);
   installMock('../ci/github-actions', mockGitHubActionsProvider);
   installMock('../ci/diagnostics', mockDiagnostics);
@@ -94,7 +94,7 @@ describe('ci-handlers.js', () => {
 
   describe('handleAwaitCiRun', () => {
     it('returns completed run details when the run finishes successfully', async () => {
-      mockDb.getConfig.mockReturnValue('acme/website');
+      mockConfigCore.getConfig.mockReturnValue('acme/website');
       mockWatcher.awaitRun.mockResolvedValue({
         id: 'run-123',
         status: 'success',
@@ -126,7 +126,7 @@ describe('ci-handlers.js', () => {
     });
 
     it('returns TIMEOUT on a timeout while awaiting a CI run', async () => {
-      mockDb.getConfig.mockReturnValue('acme/website');
+      mockConfigCore.getConfig.mockReturnValue('acme/website');
       mockWatcher.awaitRun.mockRejectedValue(new Error('timed out waiting for run completion'));
 
       const result = await handlers.handleAwaitCiRun({ run_id: 'run-123' });
@@ -140,7 +140,7 @@ describe('ci-handlers.js', () => {
 
   describe('watch/stop handlers', () => {
     it('starts watch_ci_repo and confirms the watch', async () => {
-      mockDb.getConfig.mockReturnValue('acme/website');
+      mockConfigCore.getConfig.mockReturnValue('acme/website');
       mockWatcher.watchRepo.mockResolvedValue({
         id: 'watch-123',
         repo: 'acme/website',
@@ -175,7 +175,7 @@ describe('ci-handlers.js', () => {
 
   describe('handleDiagnoseCiFailure', () => {
     it('returns diagnosis triage text from provider logs', async () => {
-      mockDb.getConfig.mockReturnValue('acme/website');
+      mockConfigCore.getConfig.mockReturnValue('acme/website');
       mockProviderInstance.getFailureLogs.mockResolvedValue('FAIL tests > should do something\\n  expected 1 to be 2');
       mockDiagnostics.diagnoseFailures.mockReturnValue({
         triage: '## CI Failure Triage\\n1. Example suggestion',
@@ -195,7 +195,7 @@ describe('ci-handlers.js', () => {
 
   describe('handleListCiRuns', () => {
     it('formats CI runs as a markdown table', async () => {
-      mockDb.getConfig.mockReturnValue('acme/website');
+      mockConfigCore.getConfig.mockReturnValue('acme/website');
       mockProviderInstance.listRuns.mockResolvedValue([
         {
           id: 'run-a',
@@ -226,7 +226,7 @@ describe('ci-handlers.js', () => {
 
   describe('handleCiRunStatus', () => {
     it('returns formatted run status markdown', async () => {
-      mockDb.getConfig.mockReturnValue('acme/website');
+      mockConfigCore.getConfig.mockReturnValue('acme/website');
       mockProviderInstance.getRun.mockResolvedValue({
         id: 'run-777',
         status: 'success',
@@ -255,9 +255,9 @@ describe('ci-handlers.js', () => {
         poll_interval_ms: 15000,
       });
 
-      expect(mockDb.setConfig).toHaveBeenCalledWith('default_ci_repo', 'acme/website');
-      expect(mockDb.setConfig).toHaveBeenCalledWith('webhook_secret', 'ENC:aa:bb:cc');
-      expect(mockDb.setConfig).toHaveBeenCalledWith('poll_interval_ms', '15000');
+      expect(mockConfigCore.setConfig).toHaveBeenCalledWith('default_ci_repo', 'acme/website');
+      expect(mockConfigCore.setConfig).toHaveBeenCalledWith('webhook_secret', 'ENC:aa:bb:cc');
+      expect(mockConfigCore.setConfig).toHaveBeenCalledWith('poll_interval_ms', '15000');
       expect(mockCredentialCrypto.getOrCreateKey).toHaveBeenCalledTimes(1);
       expect(mockCredentialCrypto.encrypt).toHaveBeenCalledWith('super-secret-value', 'mock-key');
       expect(getText(result)).not.toContain('super-secret-value');
@@ -271,7 +271,7 @@ describe('ci-handlers.js', () => {
     it('falls back from args.repo to db config and finally `gh repo view`', async () => {
       const spy = vi.spyOn(require('child_process'), 'execFileSync').mockImplementation(() => 'cli/fallback\n');
 
-      mockDb.getConfig.mockReturnValueOnce(null);
+      mockConfigCore.getConfig.mockReturnValueOnce(null);
       const result = handlers.resolveRepo({
         working_directory: 'C:/tmp/repo',
       });
@@ -288,7 +288,7 @@ describe('ci-handlers.js', () => {
       expect(result).toBe('cli/fallback');
       spy.mockRestore();
 
-      mockDb.getConfig.mockReturnValue('db/repo');
+      mockConfigCore.getConfig.mockReturnValue('db/repo');
       expect(handlers.resolveRepo({})).toBe('db/repo');
       expect(handlers.resolveRepo({ repo: 'arg/repo' })).toBe('arg/repo');
     });

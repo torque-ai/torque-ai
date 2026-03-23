@@ -187,6 +187,7 @@ function createTestTask(db, opts = {}) {
     provider: opts.provider || 'ollama',
     model: opts.model || 'codellama:latest',
     status: opts.status || 'pending',
+    approval_status: opts.approvalStatus || 'not_required',
     priority: opts.priority || 0,
     timeout_minutes: opts.timeout || 5,
     auto_approve: opts.autoApprove || false,
@@ -194,6 +195,10 @@ function createTestTask(db, opts = {}) {
   };
 
   taskCore.createTask(task);
+  const rawDb = typeof db?.getDbInstance === 'function' ? db.getDbInstance() : null;
+  if (rawDb && typeof rawDb.prepare === 'function') {
+    rawDb.prepare('UPDATE tasks SET approval_status = ? WHERE id = ?').run(task.approval_status, taskId);
+  }
   return taskId;
 }
 

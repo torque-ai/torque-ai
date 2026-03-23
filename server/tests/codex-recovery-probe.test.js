@@ -66,9 +66,25 @@ describe('probeCodexRecovery', () => {
       cleanupOrphanedHostTasks: vi.fn(),
       queueLockHolderId: 'test-holder',
     });
+
+    const serverConfig = require('../config');
+    vi.spyOn(serverConfig, 'get').mockImplementation((key) => mockDb.getConfig(key));
+    vi.spyOn(serverConfig, 'getInt').mockImplementation((key, fallback) => {
+      const value = mockDb.getConfig(key);
+      if (value === null || value === undefined || value === '') return fallback;
+      const parsed = Number.parseInt(value, 10);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    });
+    vi.spyOn(serverConfig, 'isOptIn').mockImplementation((key) => {
+      const value = mockDb.getConfig(key);
+      if (value === null || value === undefined) return false;
+      const normalized = String(value).toLowerCase().trim();
+      return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+    });
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     // Restore OPENAI_API_KEY
     if (savedApiKey !== undefined) {
       process.env.OPENAI_API_KEY = savedApiKey;

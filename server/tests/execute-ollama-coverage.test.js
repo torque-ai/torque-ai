@@ -3,7 +3,7 @@
  *
  * Covers three edge-case paths not exercised by execute-ollama.test.js:
  *   1. HTTPS enforcement — TORQUE_OLLAMA_REQUIRE_HTTPS=true blocks http:// non-localhost hosts
- *   2. Host-slot decrement on task failure — hostManagement.decrementHostTasks called when HTTP 500 occurs
+ *   2. Host-slot decrement on task failure — db.decrementHostTasks called when HTTP 500 occurs
  *   3. Context limit exceeded — prompt too large for ollama_max_ctx fails the task early
  *
  * Uses the same mock Ollama HTTP server and setupTestDb pattern as execute-ollama.test.js.
@@ -214,8 +214,8 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
       mod.init(deps);
 
-      // Spy on hostManagement.decrementHostTasks to confirm it is called
-      const decrementSpy = vi.spyOn(hostManagement, 'decrementHostTasks');
+      // execute-ollama now decrements via the injected db facade.
+      const decrementSpy = vi.spyOn(db, 'decrementHostTasks');
 
       const taskId = randomUUID();
       taskCore.createTask({
@@ -255,7 +255,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
       mod.init(deps);
 
-      const decrementSpy = vi.spyOn(hostManagement, 'decrementHostTasks');
+      const decrementSpy = vi.spyOn(db, 'decrementHostTasks');
 
       const taskId = randomUUID();
       taskCore.createTask({
@@ -361,7 +361,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
       mod.init(deps);
 
-      const decrementSpy = vi.spyOn(hostManagement, 'decrementHostTasks');
+      const decrementSpy = vi.spyOn(db, 'decrementHostTasks');
 
       const longDescription = 'B'.repeat(500);
 
@@ -382,7 +382,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
         working_directory: testDir,
       });
 
-      // The context-limit path explicitly calls hostManagement.decrementHostTasks(selectedHostId)
+      // The context-limit path explicitly calls db.decrementHostTasks(selectedHostId)
       expect(decrementSpy).toHaveBeenCalled();
 
       decrementSpy.mockRestore();

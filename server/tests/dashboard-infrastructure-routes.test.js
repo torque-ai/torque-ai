@@ -8,7 +8,11 @@ const ROUTE_MODULE = '../dashboard/routes/infrastructure';
 const MODULE_PATHS = [
   ROUTE_MODULE,
   '../database',
+  '../db/task-core',
+  '../db/coordination',
+  '../db/file-tracking',
   '../db/host-management',
+  '../db/provider-routing-core',
   '../dashboard/utils',
   '../task-manager',
   '../discovery',
@@ -22,7 +26,11 @@ let state;
 let handlers;
 
 vi.mock('../database', () => currentModules.db);
+vi.mock('../db/task-core', () => currentModules.taskCore);
+vi.mock('../db/coordination', () => currentModules.coordination);
+vi.mock('../db/file-tracking', () => currentModules.fileTracking);
 vi.mock('../db/host-management', () => currentModules.hostManagement);
+vi.mock('../db/provider-routing-core', () => currentModules.providerRoutingCore);
 vi.mock('../dashboard/utils', () => currentModules.utils);
 vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('../discovery', () => currentModules.discovery);
@@ -311,6 +319,17 @@ function createModules() {
   };
 
   const hostManagement = {
+    listOllamaHosts: db.listOllamaHosts,
+    getOllamaHost: db.getOllamaHost,
+    updateOllamaHost: db.updateOllamaHost,
+    recordHostHealthCheck: db.recordHostHealthCheck,
+    getHostSettings: db.getHostSettings,
+    removeOllamaHost: db.removeOllamaHost,
+    listPeekHosts: db.listPeekHosts,
+    getPeekHost: db.getPeekHost,
+    registerPeekHost: db.registerPeekHost,
+    unregisterPeekHost: db.unregisterPeekHost,
+    updatePeekHost: db.updatePeekHost,
     listCredentials: vi.fn((hostName, hostType) => {
       const bucket = state.credentials.get(credentialKey(hostName, hostType));
       if (!bucket) return [];
@@ -389,9 +408,32 @@ function createModules() {
   const http = createTransportModule();
   const https = createTransportModule();
 
+  const taskCore = {
+    listTasks: db.listTasks,
+    countTasks: db.countTasks,
+  };
+
+  const fileTracking = {
+    getProviderStats: db.getProviderStats,
+  };
+
+  const providerRoutingCore = {
+    listProviders: db.listProviders,
+    getProvider: db.getProvider,
+    updateProvider: db.updateProvider,
+  };
+
+  const coordination = {
+    getActiveInstances: vi.fn(() => []),
+  };
+
   return {
     db,
+    taskCore,
+    coordination,
+    fileTracking,
     hostManagement,
+    providerRoutingCore,
     utils,
     taskManager,
     discovery,
@@ -403,7 +445,11 @@ function createModules() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', currentModules.db);
+  installCjsModuleMock('../db/task-core', currentModules.taskCore);
+  installCjsModuleMock('../db/coordination', currentModules.coordination);
+  installCjsModuleMock('../db/file-tracking', currentModules.fileTracking);
   installCjsModuleMock('../db/host-management', currentModules.hostManagement);
+  installCjsModuleMock('../db/provider-routing-core', currentModules.providerRoutingCore);
   installCjsModuleMock('../dashboard/utils', currentModules.utils);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../discovery', currentModules.discovery);

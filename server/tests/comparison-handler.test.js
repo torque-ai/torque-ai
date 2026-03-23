@@ -2,9 +2,9 @@
 
 const comparisonHandlerPath = require.resolve('../handlers/comparison-handler');
 
-let currentDb = null;
+let currentTaskCore = null;
 
-vi.mock('../database', () => currentDb);
+vi.mock('../db/task-core', () => currentTaskCore);
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -24,16 +24,16 @@ function createDbMock() {
 }
 
 function loadHandlers() {
-  currentDb = createDbMock();
+  currentTaskCore = createDbMock();
 
   vi.resetModules();
-  vi.doMock('../database', () => currentDb);
-  installCjsModuleMock('../database', currentDb);
+  vi.doMock('../db/task-core', () => currentTaskCore);
+  installCjsModuleMock('../db/task-core', currentTaskCore);
   delete require.cache[comparisonHandlerPath];
 
   return {
     handlers: require('../handlers/comparison-handler'),
-    db: currentDb,
+    db: currentTaskCore,
   };
 }
 
@@ -80,7 +80,7 @@ describe('comparison-handler', () => {
   });
 
   afterEach(() => {
-    currentDb = null;
+    currentTaskCore = null;
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.restoreAllMocks();

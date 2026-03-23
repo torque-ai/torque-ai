@@ -74,6 +74,14 @@ describe('Deferred Provider Assignment', () => {
       db: mockDb,
       ...mocks,
     });
+
+    const serverConfig = require('../config');
+    vi.spyOn(serverConfig, 'isOptIn').mockImplementation((key) => {
+      const value = mockDb.getConfig(key);
+      if (value === null || value === undefined) return false;
+      const normalized = String(value).toLowerCase().trim();
+      return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+    });
   });
 
   afterEach(() => {

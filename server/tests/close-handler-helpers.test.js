@@ -650,7 +650,7 @@ describe('handleBuildTestStyleCommit', () => {
     // Without a verify command configured, build verification should be skipped
     const task = createTask();
     const proc = makeProc();
-    const c = makeCtx(task, proc, { status: 'completed' });
+    const c = makeCtx(task, proc, { status: 'completed', filesModified: ['src/changed.js'] });
 
     tm.handleBuildTestStyleCommit(c);
     // Should remain completed since no build command is configured

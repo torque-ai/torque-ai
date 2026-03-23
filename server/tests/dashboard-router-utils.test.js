@@ -5,7 +5,7 @@ const { TEST_MODELS } = require('./test-helpers');
 
 const UTILS_MODULES = [
   '../dashboard/utils',
-  '../database',
+  '../db/host-management',
   '../task-manager',
 ];
 
@@ -111,7 +111,7 @@ function createHandlerProxy() {
   });
 }
 
-const mockDb = {
+const mockHostManagement = {
   getOllamaHost: vi.fn(),
 };
 
@@ -121,7 +121,7 @@ const mockTaskManager = {
 
 function loadUtils() {
   clearModules(UTILS_MODULES);
-  installMock('../database', mockDb);
+  installMock('../db/host-management', mockHostManagement);
   installMock('../task-manager', mockTaskManager);
   return require('../dashboard/utils');
 }
@@ -167,7 +167,7 @@ describe('dashboard/utils', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    mockDb.getOllamaHost.mockReset().mockReturnValue(null);
+    mockHostManagement.getOllamaHost.mockReset().mockReturnValue(null);
     mockTaskManager.isModelLoadedOnHost.mockReset().mockReturnValue(false);
     utils = loadUtils();
   });
@@ -366,7 +366,7 @@ describe('dashboard/utils', () => {
   describe('enrichTaskWithHostName', () => {
     it('returns null unchanged', () => {
       expect(utils.enrichTaskWithHostName(null)).toBeNull();
-      expect(mockDb.getOllamaHost).not.toHaveBeenCalled();
+      expect(mockHostManagement.getOllamaHost).not.toHaveBeenCalled();
     });
 
     it('returns the same task object unchanged when no host id is present', () => {
@@ -376,11 +376,11 @@ describe('dashboard/utils', () => {
 
       expect(result).toBe(task);
       expect(result).toEqual({ id: 'task-1', status: 'queued' });
-      expect(mockDb.getOllamaHost).not.toHaveBeenCalled();
+      expect(mockHostManagement.getOllamaHost).not.toHaveBeenCalled();
     });
 
     it('adds the host name from the database', () => {
-      mockDb.getOllamaHost.mockReturnValue({ id: 'host-1', name: 'Primary Host' });
+      mockHostManagement.getOllamaHost.mockReturnValue({ id: 'host-1', name: 'Primary Host' });
       const task = { id: 'task-1', status: 'queued', ollama_host_id: 'host-1' };
 
       const result = utils.enrichTaskWithHostName(task);
@@ -391,7 +391,7 @@ describe('dashboard/utils', () => {
     });
 
     it('falls back to the host id when the database returns no host record', () => {
-      mockDb.getOllamaHost.mockReturnValue(null);
+      mockHostManagement.getOllamaHost.mockReturnValue(null);
       const task = { id: 'task-1', status: 'queued', ollama_host_id: 'host-missing' };
 
       const result = utils.enrichTaskWithHostName(task);
@@ -400,7 +400,7 @@ describe('dashboard/utils', () => {
     });
 
     it('falls back to the host id when host lookup throws', () => {
-      mockDb.getOllamaHost.mockImplementation(() => {
+      mockHostManagement.getOllamaHost.mockImplementation(() => {
         throw new Error('db offline');
       });
       const task = { id: 'task-1', status: 'queued', ollama_host_id: 'host-err' };
@@ -411,7 +411,7 @@ describe('dashboard/utils', () => {
     });
 
     it('adds gpu_active for running tasks using task-manager state', () => {
-      mockDb.getOllamaHost.mockReturnValue({ id: 'host-1', name: 'Primary Host' });
+      mockHostManagement.getOllamaHost.mockReturnValue({ id: 'host-1', name: 'Primary Host' });
       mockTaskManager.isModelLoadedOnHost.mockReturnValue(true);
       const task = {
         id: 'task-1',
@@ -427,7 +427,7 @@ describe('dashboard/utils', () => {
     });
 
     it('sets gpu_active to null when task-manager lookup throws', () => {
-      mockDb.getOllamaHost.mockReturnValue({ id: 'host-1', name: 'Primary Host' });
+      mockHostManagement.getOllamaHost.mockReturnValue({ id: 'host-1', name: 'Primary Host' });
       mockTaskManager.isModelLoadedOnHost.mockImplementation(() => {
         throw new Error('gpu lookup failed');
       });

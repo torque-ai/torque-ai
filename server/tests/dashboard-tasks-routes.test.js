@@ -5,7 +5,10 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 const ROUTE_MODULE = '../dashboard/routes/tasks';
 const MODULE_PATHS = [
   ROUTE_MODULE,
-  '../database',
+  '../db/task-core',
+  '../db/file-tracking',
+  '../db/provider-routing-core',
+  '../db/webhooks-streaming',
   '../dashboard/utils',
   '../task-manager',
   '../tools',
@@ -23,6 +26,20 @@ const mockDb = {
   deleteTask: vi.fn(),
   getDiffPreview: vi.fn(),
   getTaskLogs: vi.fn(),
+};
+
+const mockFileTracking = {
+  getDiffPreview: mockDb.getDiffPreview,
+};
+
+const mockProviderRoutingCore = {
+  approveProviderSwitch: mockDb.approveProviderSwitch,
+  rejectProviderSwitch: mockDb.rejectProviderSwitch,
+};
+
+const mockWebhooksStreaming = {
+  getStreamChunks: mockDb.getStreamChunks,
+  getTaskLogs: mockDb.getTaskLogs,
 };
 
 const mockUtils = {
@@ -73,7 +90,10 @@ function clearLoadedModules() {
 
 function loadHandlers() {
   clearLoadedModules();
-  installMock('../database', mockDb);
+  installMock('../db/task-core', mockDb);
+  installMock('../db/file-tracking', mockFileTracking);
+  installMock('../db/provider-routing-core', mockProviderRoutingCore);
+  installMock('../db/webhooks-streaming', mockWebhooksStreaming);
   installMock('../dashboard/utils', mockUtils);
   installMock('../task-manager', mockTaskManager);
   installMock('../tools', mockTools);

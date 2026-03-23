@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { createMockChild, simulateSuccess, simulateFailure } = require('./mocks/process-mock');
+const { createMockOllama } = require('./mocks/ollama');
 const { setupE2eDb, teardownE2eDb, createTestTask, waitForTaskStatus } = require('./e2e-helpers');
 
 let ctx;
@@ -182,7 +183,6 @@ describe('E2E: CLI provider execution', () => {
 
   it('spawn not called for ollama provider (uses HTTP instead)', async () => {
     // Ollama provider should NOT use spawn — it makes direct HTTP calls
-    const { createMockOllama } = require('./mocks/ollama');
     const mock = createMockOllama();
     const info = await mock.start();
     const { registerMockHost } = require('./e2e-helpers');

@@ -186,8 +186,8 @@ describe('db/provider-routing-core', () => {
 
     it('setDefaultProvider rejects unknown and disabled providers', () => {
       expect(() => core.setDefaultProvider('no-such-provider')).toThrow(/unknown provider/i);
-      core.updateProvider('anthropic', { enabled: 0 });
-      expect(() => core.setDefaultProvider('anthropic')).toThrow(/disabled/i);
+      core.updateProvider('codex', { enabled: 0 });
+      expect(() => core.setDefaultProvider('codex')).toThrow(/disabled/i);
     });
   });
 

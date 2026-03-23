@@ -56,7 +56,10 @@ describe('DeepInfraProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['model-a', 'model-b']);
+      expect(result.models).toEqual([
+        { id: 'model-a', model_name: 'model-a', owned_by: null, context_window: null },
+        { id: 'model-b', model_name: 'model-b', owned_by: null, context_window: null },
+      ]);
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining('/models'),
         expect.objectContaining({
@@ -102,7 +105,7 @@ describe('DeepInfraProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['Qwen/Qwen2.5-72B-Instruct']);
+      expect(result.models).toEqual([{ model_name: 'Qwen/Qwen2.5-72B-Instruct' }]);
     });
   });
 

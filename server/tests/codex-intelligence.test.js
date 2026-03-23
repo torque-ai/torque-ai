@@ -109,6 +109,10 @@ afterAll(() => {
   }
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 // ─── detectProjectInfo ──────────────────────────────────────────────────
 
 describe('detectProjectInfo', () => {
@@ -470,6 +474,10 @@ describe('buildCodexEnrichedPrompt', () => {
   });
 
   it('includes verify command when configured', () => {
+    const config = require('../config');
+    const getSpy = vi.spyOn(config, 'get').mockImplementation((key) => (
+      key === 'verify_command' ? 'npx vitest run' : null
+    ));
     const prompt = mod.buildCodexEnrichedPrompt(
       baseTask,
       [{ actual: 'index.js', mentioned: 'index.js' }],
@@ -478,6 +486,7 @@ describe('buildCodexEnrichedPrompt', () => {
     );
     expect(prompt).toContain('Verification');
     expect(prompt).toContain('npx vitest run');
+    getSpy.mockRestore();
   });
 
   it('includes task type instructions for markdown tasks', () => {
@@ -568,6 +577,10 @@ describe('buildCodexEnrichedPrompt', () => {
 
 describe('Integration', () => {
   it('produces a well-structured prompt for a typical code task', () => {
+    const config = require('../config');
+    const getSpy = vi.spyOn(config, 'get').mockImplementation((key) => (
+      key === 'verify_command' ? 'npx vitest run' : null
+    ));
     const task = {
       task_description: 'Add input validation to the startServer function in index.js',
       files: ['index.js'],
@@ -591,6 +604,7 @@ describe('Integration', () => {
     expect(prompt).toContain('index.js');
     expect(prompt).toContain('vitest');
     expect(prompt).toContain('npx vitest run');
+    getSpy.mockRestore();
   });
 
   it('handles complete empty context gracefully', () => {
