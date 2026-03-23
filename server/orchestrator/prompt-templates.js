@@ -128,6 +128,65 @@ Respond with a JSON object:
       },
     },
   },
+
+  scout: {
+    system: `You are a codebase analyst performing reconnaissance for an automated task distribution system.
+Your job is to analyze a working directory, identify the scope of a requested change, classify files by transformation pattern, and produce a structured diffusion plan.
+Do NOT modify any files. Your output is analysis only.
+Respond ONLY with valid JSON as the LAST block in your response — no markdown fences around the JSON.`,
+
+    user: `Analyze the following scope and produce a diffusion plan.
+
+**Scope:** {{scope}}
+**Working Directory:** {{working_directory}}
+**File List:** {{file_list}}
+
+Instructions:
+1. Read the files in the working directory matching the scope description
+2. Group files by the transformation they need (same change = same pattern)
+3. For the 2-3 most representative files per pattern, write the transformed code as a unified diff
+4. Output a diffusion plan JSON as the LAST thing in your response
+
+The JSON must match this schema:
+{
+  "summary": "One-line description of the total work",
+  "patterns": [
+    {
+      "id": "pattern-id",
+      "description": "What these files have in common",
+      "transformation": "What change to apply",
+      "exemplar_files": ["path/to/example.js"],
+      "exemplar_diff": "unified diff showing the before/after",
+      "file_count": 10
+    }
+  ],
+  "manifest": [
+    { "file": "path/to/file.js", "pattern": "pattern-id" }
+  ],
+  "shared_dependencies": [
+    { "file": "path/to/shared.js", "change": "What needs to change in this shared file" }
+  ],
+  "estimated_subtasks": 10,
+  "isolation_confidence": 0.0-1.0,
+  "recommended_batch_size": 8
+}
+
+Output the JSON block directly (no markdown fences). It must be the final content in your response.`,
+
+    schema: {
+      type: 'object',
+      required: ['summary', 'patterns', 'manifest'],
+      properties: {
+        summary: { type: 'string' },
+        patterns: { type: 'array', items: { type: 'object', required: ['id', 'description', 'transformation', 'exemplar_files', 'exemplar_diff', 'file_count'] } },
+        manifest: { type: 'array', items: { type: 'object', required: ['file', 'pattern'] } },
+        shared_dependencies: { type: 'array' },
+        estimated_subtasks: { type: 'number' },
+        isolation_confidence: { type: 'number' },
+        recommended_batch_size: { type: 'number' },
+      },
+    },
+  },
 };
 
 function buildPrompt(templateName, variables) {
