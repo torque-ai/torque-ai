@@ -246,6 +246,26 @@ function recordProviderPerformance(ctx) {
   }
 }
 
+function handleDiffusionSignalDetection(ctx) {
+  try {
+    const { parseDiffusionSignal } = require('../diffusion/signal-parser');
+    const signal = parseDiffusionSignal(ctx.output || '');
+    if (signal) {
+      const task = deps.db.getTask(ctx.taskId);
+      const existingMeta = task && task.metadata
+        ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata)
+        : {};
+      existingMeta.diffusion_request = signal;
+      if (typeof deps.db.updateTask === 'function') {
+        deps.db.updateTask(ctx.taskId, { metadata: JSON.stringify(existingMeta) });
+      }
+      logger.info(`[Diffusion] Task ${ctx.taskId} emitted diffusion request: ${signal.summary}`);
+    }
+  } catch (err) {
+    logger.debug(`[Diffusion] Phase 2.5 non-critical error: ${err.message}`);
+  }
+}
+
 async function finalizeTask(taskId, options = {}) {
   if (!deps.db || typeof deps.db.getTask !== 'function') {
     throw new Error('task-finalizer not initialized with db dependency');
@@ -326,6 +346,9 @@ async function finalizeTask(taskId, options = {}) {
         reason: 'early_exit',
       };
     }
+
+    // Phase 2.5: Diffusion signal detection — check output for __DIFFUSION_REQUEST__ blocks
+    await runStage(ctx, 'diffusion_signal_detection', handleDiffusionSignalDetection, ctx.code === 0);
 
     await runStage(ctx, 'fuzzy_repair', deps.handleFuzzyRepair, typeof deps.handleFuzzyRepair === 'function');
     await runStage(ctx, 'no_file_change_detection', deps.handleNoFileChangeDetection, typeof deps.handleNoFileChangeDetection === 'function');
