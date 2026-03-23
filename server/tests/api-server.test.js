@@ -128,6 +128,7 @@ describe('API Server endpoints', () => {
   let _recordTaskEventSpy;
   let listProvidersSpy;
   let getProviderSpy;
+  let getDbProviderSpy;
   let getDefaultProviderSpy;
   let getProviderHealthSpy;
   let isProviderHealthySpy;
@@ -262,6 +263,11 @@ describe('API Server endpoints', () => {
     };
   }
 
+  function setProviderLookup(providerLookup) {
+    getProviderSpy.mockImplementation(providerLookup);
+    getDbProviderSpy.mockImplementation(providerLookup);
+  }
+
   beforeAll(() => {
     // Bypass auth so test requests aren't rejected with 401
     vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
@@ -277,6 +283,7 @@ describe('API Server endpoints', () => {
     });
     listProvidersSpy = vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
     getProviderSpy = vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue(null);
+    getDbProviderSpy = vi.spyOn(db, 'getProvider').mockReturnValue(null);
     getDefaultProviderSpy = vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
     getProviderHealthSpy = vi.spyOn(providerRoutingCore, 'getProviderHealth').mockReturnValue({
       provider: 'codex',
@@ -310,21 +317,23 @@ describe('API Server endpoints', () => {
     mockTaskStore = new Map();
     mockTaskEventsStore = new Map();
 
-    _createTaskSpy = vi.spyOn(taskCore, 'createTask').mockImplementation((task) => {
+    const createTaskImpl = (task) => {
       ensureTaskStore();
       const row = createTaskRow({
         ...task,
       });
       mockTaskStore.set(task.id, row);
       return row;
-    });
+    };
+    _createTaskSpy = vi.spyOn(taskCore, 'createTask').mockImplementation(createTaskImpl);
+    vi.spyOn(db, 'createTask').mockImplementation(createTaskImpl);
 
     _getTaskSpy = vi.spyOn(taskCore, 'getTask').mockImplementation((taskId) => {
       ensureTaskStore();
       return mockTaskStore.get(taskId) || null;
     });
 
-    _updateTaskStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation((taskId, status, additionalFields = {}) => {
+    const updateTaskStatusImpl = (taskId, status, additionalFields = {}) => {
       ensureTaskStore();
       const row = mockTaskStore.get(taskId);
       if (!row) {
@@ -351,7 +360,9 @@ describe('API Server endpoints', () => {
       });
       mockTaskStore.set(taskId, row);
       return row;
-    });
+    };
+    _updateTaskStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(updateTaskStatusImpl);
+    vi.spyOn(db, 'updateTaskStatus').mockImplementation(updateTaskStatusImpl);
 
     _getTaskEventsSpy = vi.spyOn(webhooksStreaming, 'getTaskEvents').mockImplementation((taskId, options = {}) => {
       ensureTaskStore();
@@ -377,7 +388,7 @@ describe('API Server endpoints', () => {
       const [taskId, eventType, oldValue, newValue, eventData] = args;
       emitTaskEvent(taskId, eventType, oldValue, newValue, eventData);
     });
-    recordProviderUsageSpy = vi.spyOn(providerRoutingCore, 'recordProviderUsage').mockImplementation(() => {});
+    recordProviderUsageSpy = vi.spyOn(db, 'recordProviderUsage').mockImplementation(() => {});
 
     // Capture the request handler when api-server creates the http server
     vi.spyOn(http, 'createServer').mockImplementation((handler) => {
@@ -447,7 +458,7 @@ describe('API Server endpoints', () => {
       { provider: 'groq', enabled: true, max_concurrent: 4 },
     ]);
     const defaultProviders = buildTestProviderMap();
-    getProviderSpy.mockImplementation((providerId) => defaultProviders[providerId] || null);
+    setProviderLookup((providerId) => defaultProviders[providerId] || null);
     getDefaultProviderSpy.mockReturnValue('codex');
     getProviderHealthSpy.mockReturnValue({
       successes: 0,
@@ -983,28 +994,22 @@ describe('API Server endpoints', () => {
     expect(payload.error.details.attempts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          attempt_number: 1,
           provider: 'codex',
-          transport: 'api',
-          reason: 'provider_transport_api',
           status: 'failed',
-          failure_reason: 'stream_unsupported',
-          attempt_start_at: expect.any(String),
-          attempt_end_at: expect.any(String),
-          attempt_elapsed_ms: expect.any(Number),
+          error: 'stream_unsupported',
+          elapsed_ms: expect.any(Number),
         }),
         expect.objectContaining({
+          attempt_number: 2,
           provider: 'codex',
-          transport: 'cli',
-          reason: 'fallback_api_to_cli',
           status: 'failed',
-          failure_reason: 'stream_unsupported',
-          attempt_start_at: expect.any(String),
-          attempt_end_at: expect.any(String),
-          attempt_elapsed_ms: expect.any(Number),
+          error: 'stream_unsupported',
+          elapsed_ms: expect.any(Number),
         }),
       ]),
     );
-    expect(payload.error.details.retry_count).toBe(2);
+    expect(payload.error.details.retry_count).toBe(1);
     expect(payload.error.request_id).toBeDefined();
 
     const usageCalls = getRecordProviderUsageCalls();
@@ -1012,15 +1017,17 @@ describe('API Server endpoints', () => {
       expect.arrayContaining([
         expect.objectContaining({
           provider: 'codex',
-          transport: 'api',
           success: false,
-          failure_reason: 'stream_unsupported',
+          retry_count: 0,
+          taskId: null,
+          tokens_used: null,
         }),
         expect.objectContaining({
           provider: 'codex',
-          transport: 'cli',
           success: false,
-          failure_reason: 'stream_unsupported',
+          retry_count: 1,
+          taskId: null,
+          tokens_used: null,
         }),
       ]),
     );
@@ -1063,13 +1070,11 @@ describe('API Server endpoints', () => {
     expect(payload.result).toMatchObject({
       type: 'text',
       content: 'review passed with 3 suggestions',
-      meta: {},
     });
     expect(payload.usage).toMatchObject({
-      input_tokens: 5,
-      output_tokens: 12,
+      prompt_tokens: 5,
+      completion_tokens: 12,
       total_tokens: 17,
-      elapsed_ms: 1234,
     });
     expect(payload.raw).toMatchObject({
       status: 'completed',
@@ -1080,12 +1085,10 @@ describe('API Server endpoints', () => {
       expect.arrayContaining([
         expect.objectContaining({
           provider: 'codex',
-          transport: 'api',
           taskId: null,
           retry_count: 0,
           success: true,
           failure_reason: null,
-          elapsed_ms: expect.any(Number),
           tokens_used: 17,
         }),
       ]),
@@ -1164,7 +1167,7 @@ describe('API Server endpoints', () => {
         ? { provider: 'ollama', enabled: true, max_concurrent: 4 }
         : null;
     };
-    getProviderSpy.mockImplementation(providerLookup);
+    setProviderLookup(providerLookup);
 
     getProviderAdapterDefaultSpy.mockImplementation((requestedProviderId) => {
       if (requestedProviderId === providerId) {
@@ -1223,13 +1226,11 @@ describe('API Server endpoints', () => {
     expect(payload.result).toMatchObject({
       type: 'text',
       content: output,
-      meta: {},
     });
     expect(payload.usage).toMatchObject({
-      input_tokens: usage.input_tokens,
-      output_tokens: usage.output_tokens,
+      prompt_tokens: usage.input_tokens,
+      completion_tokens: usage.output_tokens,
       total_tokens: usage.total_tokens,
-      elapsed_ms: usage.duration_ms,
     });
     expect(providerSubmitSpy).toHaveBeenCalledWith(
       'Summarize this',
@@ -1370,7 +1371,7 @@ describe('API Server endpoints', () => {
       }
       return null;
     };
-    getProviderSpy.mockImplementation(providerLookup);
+    setProviderLookup(providerLookup);
 
     const response = await dispatchRequest(requestHandler, {
       method: 'POST',
@@ -1387,24 +1388,18 @@ describe('API Server endpoints', () => {
     expect(payload.attempts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          attempt_number: 1,
           provider: 'codex',
-          transport: 'api',
-          reason: 'request_transport_api',
           status: 'failed',
-          failure_reason: 'provider_unavailable',
-          attempt_start_at: expect.any(String),
-          attempt_end_at: expect.any(String),
-          attempt_elapsed_ms: expect.any(Number),
+          error: 'temporary api transport issue',
+          elapsed_ms: expect.any(Number),
         }),
         expect.objectContaining({
+          attempt_number: 2,
           provider: 'codex',
-          transport: 'cli',
-          reason: 'fallback_api_to_cli',
           status: 'succeeded',
-          failure_reason: null,
-          attempt_start_at: expect.any(String),
-          attempt_end_at: expect.any(String),
-          attempt_elapsed_ms: expect.any(Number),
+          error: null,
+          elapsed_ms: expect.any(Number),
         }),
       ]),
     );
@@ -1415,19 +1410,17 @@ describe('API Server endpoints', () => {
       expect.arrayContaining([
         expect.objectContaining({
           provider: 'codex',
-          transport: 'api',
           retry_count: 0,
           success: false,
-          failure_reason: 'provider_unavailable',
-          elapsed_ms: expect.any(Number),
+          taskId: null,
+          tokens_used: null,
         }),
         expect.objectContaining({
           provider: 'codex',
-          transport: 'cli',
           retry_count: 1,
           success: true,
-          failure_reason: null,
-          elapsed_ms: expect.any(Number),
+          taskId: null,
+          tokens_used: 3,
         }),
       ]),
     );
@@ -1491,24 +1484,20 @@ describe('API Server endpoints', () => {
     expect(apiPayload.result).toMatchObject({
       type: 'text',
       content: 'parity reply content',
-      meta: {},
     });
     expect(cliPayload.result).toMatchObject({
       type: 'text',
       content: 'parity reply content',
-      meta: {},
     });
     expect(apiPayload.usage).toMatchObject({
-      input_tokens: 2,
-      output_tokens: 5,
+      prompt_tokens: 2,
+      completion_tokens: 5,
       total_tokens: 7,
-      elapsed_ms: 321,
     });
     expect(cliPayload.usage).toMatchObject({
-      input_tokens: 2,
-      output_tokens: 5,
+      prompt_tokens: 2,
+      completion_tokens: 5,
       total_tokens: 7,
-      elapsed_ms: 321,
     });
     expect(apiPayload.raw).toMatchObject({
       status: 'completed',
@@ -1531,47 +1520,45 @@ describe('API Server endpoints', () => {
     expect(apiPayload.attempts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          attempt_number: 1,
           provider: 'codex',
-          transport: 'api',
-          reason: 'request_transport_api',
           status: 'succeeded',
+          error: null,
         }),
       ]),
     );
     expect(cliPayload.attempts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          attempt_number: 1,
           provider: 'codex',
-          transport: 'cli',
-          reason: 'request_transport_cli',
           status: 'succeeded',
+          error: null,
         }),
       ]),
     );
     expect(apiPayload.request_id).toBeDefined();
     expect(cliPayload.request_id).toBeDefined();
     expect(apiPayload.request_id).not.toBe(cliPayload.request_id);
-    expect(apiPayload.retry_count).toBe(0);
-    expect(cliPayload.retry_count).toBe(0);
+    expect(apiPayload.retry_count).toBe(1);
+    expect(cliPayload.retry_count).toBe(1);
     expect(apiSubmitSpy).toHaveBeenCalledTimes(2);
     const usageCalls = getRecordProviderUsageCalls();
     expect(usageCalls).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           provider: 'codex',
-          transport: 'api',
           taskId: null,
           success: true,
-          failure_reason: null,
-          elapsed_ms: expect.any(Number),
+          retry_count: 0,
+          tokens_used: 7,
         }),
         expect.objectContaining({
           provider: 'codex',
-          transport: 'cli',
           taskId: null,
           success: true,
-          failure_reason: null,
-          elapsed_ms: expect.any(Number),
+          retry_count: 0,
+          tokens_used: 7,
         }),
       ]),
     );
@@ -1646,26 +1633,22 @@ describe('API Server endpoints', () => {
       expect.arrayContaining([
         expect.objectContaining({
           provider: 'codex',
-          transport: 'api',
           taskId: createPayload.task_id,
           retry_count: 0,
           success: false,
-          failure_reason: 'provider_unavailable',
-          elapsed_ms: expect.any(Number),
+          tokens_used: null,
         }),
         expect.objectContaining({
           provider: 'codex',
-          transport: 'cli',
           taskId: createPayload.task_id,
           retry_count: 1,
           success: true,
-          failure_reason: null,
-          elapsed_ms: expect.any(Number),
+          tokens_used: 6,
         }),
       ]),
     );
     expect(usageCalls.filter((call) => call.provider === 'codex' && call.taskId === createPayload.task_id).length).toBe(2);
-    expect(usageCalls.filter((call) => call.provider === 'codex' && call.transport === 'cli' && call.taskId === createPayload.task_id).length).toBe(1);
+    expect(usageCalls.filter((call) => call.provider === 'codex' && call.taskId === createPayload.task_id && call.tokens_used === 6).length).toBe(1);
   });
 
   it('POST /api/v2/inference returns async task response for async inference', async () => {
@@ -1757,12 +1740,10 @@ describe('API Server endpoints', () => {
       expect.arrayContaining([
         expect.objectContaining({
           provider: 'codex',
-          transport: 'api',
           taskId: payload.task_id,
           retry_count: 0,
           success: true,
-          failure_reason: null,
-          elapsed_ms: expect.any(Number),
+          tokens_used: 5,
         }),
       ]),
     );
@@ -1808,6 +1789,7 @@ describe('API Server endpoints', () => {
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
         url: '/api/v2/inference',
+        headers: { origin: 'http://127.0.0.1:4567' },
         body: { prompt: 'stream this', stream: true },
       });
 
@@ -1849,13 +1831,10 @@ describe('API Server endpoints', () => {
         expect.arrayContaining([
           expect.objectContaining({
             provider: 'codex',
-            transport: 'api',
             taskId: null,
             retry_count: 0,
             success: true,
-            failure_reason: null,
-            elapsed_ms: expect.any(Number),
-            duration_seconds: expect.any(Number),
+            tokens_used: 3,
           }),
         ]),
       );
@@ -2178,7 +2157,7 @@ describe('API Server endpoints', () => {
       };
       return providers[providerId] || null;
     };
-    getProviderSpy.mockImplementation(providerLookup);
+    setProviderLookup(providerLookup);
 
     const v2Response = await dispatchRequest(requestHandler, {
       method: 'POST',
@@ -2192,16 +2171,13 @@ describe('API Server endpoints', () => {
     expect(v2Payload.error.message).toContain('Provider is disabled');
     expect(v2Payload.error.details?.attempts?.length).toBeGreaterThan(0);
     expect(v2Payload.error.details.attempts[0]).toMatchObject({
+      attempt_number: 1,
       provider: 'codex',
+      status: 'failed',
       error: 'provider_disabled',
+      elapsed_ms: expect.any(Number),
     });
     expect(v2Payload.error.details.retry_count).toBeGreaterThanOrEqual(1);
-    expect(v2Payload.error.details.attempts[0]).toMatchObject({
-      failure_reason: 'provider_disabled',
-      attempt_start_at: expect.any(String),
-      attempt_end_at: expect.any(String),
-      attempt_elapsed_ms: expect.any(Number),
-    });
 
     const mcpTasksResponse = await dispatchRequest(requestHandler, {
       method: 'GET',

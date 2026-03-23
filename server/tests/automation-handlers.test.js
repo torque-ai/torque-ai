@@ -577,7 +577,7 @@ describe('automation-handlers', () => {
       const db = createMockDb({
         projectFromPath: { [workingDir]: 'torque' },
       });
-      const { handlers } = loadHandlers({ db });
+      const { handlers, mocks } = loadHandlers({ db });
 
       const setResult = handlers.handleSetProjectDefaults({
         working_directory: workingDir,
@@ -762,99 +762,10 @@ describe('automation-handlers', () => {
   });
 
   describe('handleUpdateProjectStats', () => {
-    it('returns a validation error when working_directory is missing', () => {
+    it('is no longer exported from automation handlers', () => {
       const { handlers } = loadHandlers();
 
-      const result = handlers.handleUpdateProjectStats({ memory_path: 'C:\\repo\\MEMORY.md' });
-
-      expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('working_directory is required');
-    });
-
-    it('returns a validation error when memory_path is missing', () => {
-      const { handlers } = loadHandlers();
-
-      const result = handlers.handleUpdateProjectStats({ working_directory: 'C:\\repo' });
-
-      expect(result.isError).toBe(true);
-      expect(getText(result)).toContain('memory_path is required');
-    });
-
-    it('uses stored project defaults for verification and updates MEMORY.md', () => {
-      const workingDir = createTempProject({
-        [path.join('src', 'systems', 'Alpha.ts')]: buildLines(10, 'alpha'),
-        [path.join('src', 'systems', 'Beta.ts')]: buildLines(12, 'beta'),
-        [path.join('src', 'util.js')]: buildLines(6, 'util'),
-        [path.join('src', 'systems', '__tests__', 'Alpha.test.ts')]: 'export {}',
-        'MEMORY.md': 'Test coverage is currently **0/0 source files (0%)**, 0 tests passing',
-      });
-      const memoryPath = path.join(workingDir, 'MEMORY.md');
-      const db = createMockDb({
-        config: {
-          [`project_defaults_${workingDir}`]: JSON.stringify({ verify_command: 'pnpm verify:ci' }),
-        },
-      });
-      const safeExecChain = vi.fn(() => ({
-        exitCode: 0,
-        output: '12 passed (4)',
-        error: '',
-      }));
-      const { handlers } = loadHandlers({ db, safeExecChain });
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-      });
-      const text = getText(result);
-
-      expect(safeExecChain).toHaveBeenCalledWith(
-        'pnpm verify:ci',
-        expect.objectContaining({ cwd: workingDir }),
-      );
-      expect(result._stats).toEqual({
-        testCount: 12,
-        testFileCount: 4,
-        featureCount: 2,
-        sourceFileCount: 3,
-        testedFileCount: 1,
-        coveragePercent: 33,
-      });
-      expect(text).toContain('**Tests:** 12 passing across 4 test files');
-      expect(text).toContain('**Systems:** 2 in src/systems');
-      expect(text).toContain('**Coverage:** 1/3 source files (33%)');
-      expect(text).toContain('### Memory Updated');
-      expect(fs.readFileSync(memoryPath, 'utf8')).toContain(
-        'Test coverage is currently **1/3 source files (33%)**, 12 tests passing',
-      );
-    });
-
-    it('reports zeroed stats for an empty project and a missing memory file', () => {
-      const workingDir = createTempProject();
-      const memoryPath = path.join(workingDir, 'MEMORY.md');
-      const safeExecChain = vi.fn(() => ({
-        exitCode: 0,
-        output: 'No tests found',
-        error: '',
-      }));
-      const { handlers } = loadHandlers({ safeExecChain });
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-      });
-      const text = getText(result);
-
-      expect(result._stats).toEqual({
-        testCount: 0,
-        testFileCount: 0,
-        featureCount: 0,
-        sourceFileCount: 0,
-        testedFileCount: 0,
-        coveragePercent: 0,
-      });
-      expect(text).toContain('**Source files:** 0');
-      expect(text).toContain('**Coverage:** 0/0 source files (0%)');
-      expect(text).toContain(`Memory file not found: ${memoryPath}`);
+      expect(handlers.handleUpdateProjectStats).toBeUndefined();
     });
   });
 });
