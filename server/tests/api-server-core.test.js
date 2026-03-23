@@ -16,6 +16,7 @@ const apiRoutes = require('../api/routes');
 const authMiddleware = require('../auth/middleware');
 const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
+const providerRoutingCore = require('../db/provider-routing-core');
 
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
@@ -345,29 +346,35 @@ describe('api-server.core helpers', () => {
   });
 
   it('getV2ProviderQueueDepth returns zero when queue lookup fails', () => {
-    const countTasksSpy = vi.spyOn(db, 'countTasks')
+    delete require.cache[require.resolve('../api/v2-discovery-helpers')];
+    const countTasksSpy = vi.spyOn(taskCore, 'countTasks')
       .mockImplementationOnce(() => 4)
       .mockImplementationOnce(() => {
         throw new Error('db down');
       });
+    const { getV2ProviderQueueDepth } = require('../api/v2-discovery-helpers');
 
-    expect(api.getV2ProviderQueueDepth('codex')).toBe(4);
-    expect(api.getV2ProviderQueueDepth('codex')).toBe(0);
+    expect(getV2ProviderQueueDepth('codex')).toBe(4);
+    expect(getV2ProviderQueueDepth('codex')).toBe(0);
 
     countTasksSpy.mockRestore();
+    delete require.cache[require.resolve('../api/v2-discovery-helpers')];
   });
 
   it('getV2ProviderDefaultProvider returns the db default and null on failure', () => {
-    const getDefaultProviderSpy = vi.spyOn(db, 'getDefaultProvider')
+    delete require.cache[require.resolve('../api/v2-discovery-helpers')];
+    const getDefaultProviderSpy = vi.spyOn(providerRoutingCore, 'getDefaultProvider')
       .mockImplementationOnce(() => 'groq')
       .mockImplementationOnce(() => {
         throw new Error('db down');
       });
+    const { getV2ProviderDefaultProvider } = require('../api/v2-discovery-helpers');
 
-    expect(api.getV2ProviderDefaultProvider()).toBe('groq');
-    expect(api.getV2ProviderDefaultProvider()).toBeNull();
+    expect(getV2ProviderDefaultProvider()).toBe('groq');
+    expect(getV2ProviderDefaultProvider()).toBeNull();
 
     getDefaultProviderSpy.mockRestore();
+    delete require.cache[require.resolve('../api/v2-discovery-helpers')];
   });
 });
 
@@ -447,6 +454,16 @@ describe('exported route handlers', () => {
   it('handleHealthz degrades when the ollama health probe times out', async () => {
     vi.useFakeTimers();
     handleToolCallSpy.mockImplementation(() => new Promise(() => {}));
+    const countTasksSpy = vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
+    const countTasksByStatusSpy = vi.spyOn(taskCore, 'countTasksByStatus').mockReturnValue({
+      running: 0,
+      queued: 0,
+      completed: 0,
+      failed: 0,
+      pending: 0,
+      cancelled: 0,
+      blocked: 0,
+    });
     const { response } = createMockResponse();
     const requestPromise = api.handleHealthz(createMockRequest(), response);
 
@@ -459,6 +476,8 @@ describe('exported route handlers', () => {
       database: 'connected',
       ollama: 'timeout',
     }));
+    countTasksSpy.mockRestore();
+    countTasksByStatusSpy.mockRestore();
   });
 
   it('handleReadyz returns ready after warmup when the database is accessible', () => {
@@ -477,12 +496,18 @@ describe('exported route handlers', () => {
   });
 
   it('handleReadyz returns not ready when the database probe fails', () => {
-    const countTasksSpy = vi.spyOn(db, 'countTasks').mockImplementation(() => {
+    const realDateNow = Date.now;
+    Date.now = () => realDateNow() + 10_000;
+    const countTasksSpy = vi.spyOn(taskCore, 'countTasks').mockImplementation(() => {
       throw new Error('Database connection lost');
     });
     const { response } = createMockResponse();
 
-    api.handleReadyz(createMockRequest(), response);
+    try {
+      api.handleReadyz(createMockRequest(), response);
+    } finally {
+      Date.now = realDateNow;
+    }
 
     expect(response.statusCode).toBe(503);
     expect(parseJsonBody(response)).toEqual({

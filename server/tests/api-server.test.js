@@ -6,6 +6,7 @@ const taskCore = require('../db/task-core');
 const hostManagement = require('../db/host-management');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const providerRoutingCore = require('../db/provider-routing-core');
+const fileTracking = require('../db/file-tracking');
 const tools = require('../tools');
 const adapterRegistry = require('../providers/adapter-registry');
 const eventBus = require('../event-bus');
@@ -248,6 +249,19 @@ describe('API Server endpoints', () => {
     }, {});
   }
 
+  function buildTestProviderMap(overrides = {}) {
+    return {
+      codex: { provider: 'codex', enabled: true, max_concurrent: 6 },
+      'claude-cli': { provider: 'claude-cli', enabled: true, max_concurrent: 3, transport: 'cli' },
+      groq: { provider: 'groq', enabled: true, max_concurrent: 4 },
+      ollama: { provider: 'ollama', enabled: true, max_concurrent: 4 },
+      anthropic: { provider: 'anthropic', enabled: true, max_concurrent: 4 },
+      deepinfra: { provider: 'deepinfra', enabled: true, max_concurrent: 5 },
+      hyperbolic: { provider: 'hyperbolic', enabled: true, max_concurrent: 5 },
+      ...overrides,
+    };
+  }
+
   beforeAll(() => {
     // Bypass auth so test requests aren't rejected with 401
     vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
@@ -275,7 +289,7 @@ describe('API Server endpoints', () => {
       total_cost: 0,
     });
     isProviderHealthySpy = vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
-    getProviderStatsSpy = vi.spyOn(providerRoutingCore, 'getProviderStats').mockReturnValue({
+    getProviderStatsSpy = vi.spyOn(fileTracking, 'getProviderStats').mockReturnValue({
       provider: 'codex',
       total_tasks: 10,
       successful_tasks: 9,
@@ -432,18 +446,8 @@ describe('API Server endpoints', () => {
       { provider: 'codex', enabled: true, max_concurrent: 6 },
       { provider: 'groq', enabled: true, max_concurrent: 4 },
     ]);
-    getProviderSpy.mockImplementation((providerId) => {
-      const providers = {
-        codex: { provider: 'codex', enabled: true, max_concurrent: 6 },
-        'claude-cli': { provider: 'claude-cli', enabled: true, max_concurrent: 3, transport: 'cli' },
-        groq: { provider: 'groq', enabled: true, max_concurrent: 4 },
-        ollama: { provider: 'ollama', enabled: true, max_concurrent: 4 },
-        anthropic: { provider: 'anthropic', enabled: true, max_concurrent: 4 },
-        deepinfra: { provider: 'deepinfra', enabled: true, max_concurrent: 5 },
-        hyperbolic: { provider: 'hyperbolic', enabled: true, max_concurrent: 5 },
-      };
-      return providers[providerId] || null;
-    });
+    const defaultProviders = buildTestProviderMap();
+    getProviderSpy.mockImplementation((providerId) => defaultProviders[providerId] || null);
     getDefaultProviderSpy.mockReturnValue('codex');
     getProviderHealthSpy.mockReturnValue({
       successes: 0,
@@ -1143,7 +1147,7 @@ describe('API Server endpoints', () => {
       max_concurrent: 4,
     };
 
-    getProviderSpy.mockImplementation((requestedProviderId) => {
+    const providerLookup = (requestedProviderId) => {
       if (requestedProviderId === providerId) {
         return providerDescriptor;
       }
@@ -1159,7 +1163,8 @@ describe('API Server endpoints', () => {
       return requestedProviderId === 'ollama'
         ? { provider: 'ollama', enabled: true, max_concurrent: 4 }
         : null;
-    });
+    };
+    getProviderSpy.mockImplementation(providerLookup);
 
     getProviderAdapterDefaultSpy.mockImplementation((requestedProviderId) => {
       if (requestedProviderId === providerId) {
@@ -1355,7 +1360,7 @@ describe('API Server endpoints', () => {
       return null;
     });
 
-    getProviderSpy.mockImplementation((providerId) => {
+    const providerLookup = (providerId) => {
       if (providerId === 'codex') {
         return {
           provider: 'codex',
@@ -1364,7 +1369,8 @@ describe('API Server endpoints', () => {
         };
       }
       return null;
-    });
+    };
+    getProviderSpy.mockImplementation(providerLookup);
 
     const response = await dispatchRequest(requestHandler, {
       method: 'POST',
@@ -2160,7 +2166,7 @@ describe('API Server endpoints', () => {
   });
 
   it('rollback drill: v2 is disabled and MCP compatibility still responds', async () => {
-    getProviderSpy.mockImplementation((providerId) => {
+    const providerLookup = (providerId) => {
       const providers = {
         codex: { provider: 'codex', enabled: false, max_concurrent: 6 },
         'claude-cli': { provider: 'claude-cli', enabled: false, max_concurrent: 3, transport: 'cli' },
@@ -2171,7 +2177,8 @@ describe('API Server endpoints', () => {
         hyperbolic: { provider: 'hyperbolic', enabled: false, max_concurrent: 5 },
       };
       return providers[providerId] || null;
-    });
+    };
+    getProviderSpy.mockImplementation(providerLookup);
 
     const v2Response = await dispatchRequest(requestHandler, {
       method: 'POST',

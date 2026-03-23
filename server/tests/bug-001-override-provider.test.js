@@ -16,6 +16,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const configCore = require('../db/config-core');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 const { createConfigMock, TEST_MODELS } = require('./test-helpers');
 
@@ -331,6 +332,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
   let scheduler;
   let mockDb;
   let mocks;
+  let getConfigSpy;
 
   beforeEach(() => {
     // Fresh module state
@@ -363,6 +365,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
       cleanupOrphanedRetryTimeouts: vi.fn(),
     };
 
+    getConfigSpy = vi.spyOn(configCore, 'getConfig').mockImplementation(createConfigMock());
     scheduler.init({ db: mockDb, ...mocks });
 
     // Skip the recent-process guard
@@ -406,7 +409,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
       },
     ]);
 
-    mockDb.getConfig.mockImplementation(createConfigMock({
+    getConfigSpy.mockImplementation(createConfigMock({
       codex_enabled: '1',
       codex_overflow_to_local: '1',
       ollama_balanced_model: TEST_MODELS.BALANCED,
@@ -601,7 +604,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
       { id: 'h1', name: 'local', status: 'healthy', running_tasks: 0, max_concurrent: 4 },
     ]);
 
-    mockDb.getConfig.mockImplementation(createConfigMock({
+    getConfigSpy.mockImplementation(createConfigMock({
       codex_enabled: '1',
       codex_overflow_to_local: '1',
       ollama_balanced_model: TEST_MODELS.BALANCED,

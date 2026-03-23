@@ -9,7 +9,11 @@ const tempDirs = new Set();
 
 let currentModules = {};
 
-vi.mock('../database', () => currentModules.db);
+vi.mock('../database', () => currentModules.database);
+vi.mock('../db/config-core', () => currentModules.configCore);
+vi.mock('../db/task-core', () => currentModules.taskCore);
+vi.mock('../db/project-config-core', () => currentModules.projectConfigCore);
+vi.mock('../db/workflow-engine', () => currentModules.workflowEngine);
 vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('../remote/remote-test-routing', () => ({
   createRemoteTestRouter: currentModules.createRemoteTestRouter,
@@ -113,6 +117,29 @@ function createMockDb(options = {}) {
 function createDefaultModules(overrides = {}) {
   let uuidCounter = 0;
   const db = overrides.db || createMockDb(overrides.dbOptions);
+  const database = overrides.database || {
+    safeAddColumn: db.safeAddColumn,
+  };
+  const configCore = overrides.configCore || {
+    __stores: db.__stores,
+    setConfig: db.setConfig,
+    getConfig: db.getConfig,
+  };
+  const taskCore = overrides.taskCore || {
+    getTask: db.getTask,
+    createTask: db.createTask,
+  };
+  const projectConfigCore = overrides.projectConfigCore || {
+    getProjectFromPath: db.getProjectFromPath,
+    setProjectConfig: db.setProjectConfig,
+    getProjectConfig: db.getProjectConfig,
+    setProjectMetadata: db.setProjectMetadata,
+    getProjectMetadata: db.getProjectMetadata,
+  };
+  const workflowEngine = overrides.workflowEngine || {
+    getWorkflow: db.getWorkflow,
+    getWorkflowStatus: db.getWorkflowStatus,
+  };
   const taskManager = overrides.taskManager || { startTask: vi.fn() };
   const logger = overrides.logger || createMockLogger();
   const router = overrides.router || {
@@ -127,6 +154,11 @@ function createDefaultModules(overrides = {}) {
 
   return {
     db,
+    database,
+    configCore,
+    taskCore,
+    projectConfigCore,
+    workflowEngine,
     taskManager,
     router,
     createRemoteTestRouter: overrides.createRemoteTestRouter || vi.fn(() => router),
@@ -157,7 +189,11 @@ function loadHandlers(overrides = {}) {
   currentModules = createDefaultModules(overrides);
 
   vi.resetModules();
-  vi.doMock('../database', () => currentModules.db);
+  vi.doMock('../database', () => currentModules.database);
+  vi.doMock('../db/config-core', () => currentModules.configCore);
+  vi.doMock('../db/task-core', () => currentModules.taskCore);
+  vi.doMock('../db/project-config-core', () => currentModules.projectConfigCore);
+  vi.doMock('../db/workflow-engine', () => currentModules.workflowEngine);
   vi.doMock('../task-manager', () => currentModules.taskManager);
   vi.doMock('../remote/remote-test-routing', () => ({
     createRemoteTestRouter: currentModules.createRemoteTestRouter,
@@ -177,7 +213,11 @@ function loadHandlers(overrides = {}) {
   vi.doMock('../handlers/automation-ts-tools', () => currentModules.tsTools);
   vi.doMock('../handlers/automation-batch-orchestration', () => currentModules.batchOrchestration);
 
-  installCjsModuleMock('../database', currentModules.db);
+  installCjsModuleMock('../database', currentModules.database);
+  installCjsModuleMock('../db/config-core', currentModules.configCore);
+  installCjsModuleMock('../db/task-core', currentModules.taskCore);
+  installCjsModuleMock('../db/project-config-core', currentModules.projectConfigCore);
+  installCjsModuleMock('../db/workflow-engine', currentModules.workflowEngine);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../remote/remote-test-routing', {
     createRemoteTestRouter: currentModules.createRemoteTestRouter,
@@ -242,13 +282,13 @@ describe('automation-handlers', () => {
       });
       const text = getText(result);
 
-      expect(mocks.db.__stores.configStore.get('stall_threshold_codex')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_threshold_ollama')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_threshold_hashline')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_threshold_claude')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_auto_resubmit')).toBe('1');
-      expect(mocks.db.__stores.configStore.get('stall_recovery_max_attempts')).toBe('4');
-      expect(mocks.db.__stores.configStore.get('stall_recovery_enabled')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('stall_threshold_codex')).toBe('180');
+      expect(mocks.configCore.__stores.configStore.get('stall_threshold_ollama')).toBe('180');
+      expect(mocks.configCore.__stores.configStore.get('stall_threshold_hashline')).toBe('180');
+      expect(mocks.configCore.__stores.configStore.get('stall_threshold_claude')).toBe('180');
+      expect(mocks.configCore.__stores.configStore.get('stall_auto_resubmit')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('stall_recovery_max_attempts')).toBe('4');
+      expect(mocks.configCore.__stores.configStore.get('stall_recovery_enabled')).toBe('1');
       expect(text).toContain('Set stall threshold to 180s for all providers');
       expect(text).toContain('**Auto-resubmit:** Yes');
       expect(text).toContain('**Max attempts:** 4');
@@ -264,9 +304,9 @@ describe('automation-handlers', () => {
       });
       const text = getText(result);
 
-      expect(mocks.db.__stores.configStore.get('free_tier_auto_scale_enabled')).toBe('true');
-      expect(mocks.db.__stores.configStore.get('free_tier_queue_depth_threshold')).toBe('1');
-      expect(mocks.db.__stores.configStore.get('free_tier_cooldown_seconds')).toBe('0');
+      expect(mocks.configCore.__stores.configStore.get('free_tier_auto_scale_enabled')).toBe('true');
+      expect(mocks.configCore.__stores.configStore.get('free_tier_queue_depth_threshold')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('free_tier_cooldown_seconds')).toBe('0');
       expect(text).toContain('Free-tier auto-scale: enabled');
       expect(text).toContain('| Queue depth threshold | 1 |');
       expect(text).toContain('| Cooldown (seconds) | 0 |');
@@ -334,7 +374,7 @@ describe('automation-handlers', () => {
       expect(text).toContain('**src/foo.ts:**');
       expect(text).toContain('**src/bar.ts:**');
       expect(text).toContain('Summary:** 2 errors, 0 fix tasks submitted');
-      expect(mocks.db.createTask).not.toHaveBeenCalled();
+      expect(mocks.taskCore.createTask).not.toHaveBeenCalled();
     });
 
     it('submits fix tasks with error-feedback context from the source task', async () => {
@@ -370,7 +410,7 @@ describe('automation-handlers', () => {
         'original task context',
         expect.stringContaining('TS2304'),
       );
-      expect(db.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mocks.taskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
         id: '12345678-aaaa-bbbb-cccc-000000000001',
         task_description: 'FEEDBACK PROMPT',
         provider: null,
@@ -378,7 +418,7 @@ describe('automation-handlers', () => {
         priority: 5,
       }));
       // Fix tasks now use deferred assignment with intended_provider in metadata
-      const createTaskCall = db.createTask.mock.calls[0][0];
+      const createTaskCall = mocks.taskCore.createTask.mock.calls[0][0];
       const fixMeta = JSON.parse(createTaskCall.metadata);
       expect(fixMeta.intended_provider).toBe('ollama');
       expect(mocks.taskManager.startTask).toHaveBeenCalledWith('12345678-aaaa-bbbb-cccc-000000000001');
@@ -499,12 +539,12 @@ describe('automation-handlers', () => {
       });
       const text = getText(result);
 
-      expect(db.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mocks.taskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
         provider: 'claude-cli',
         working_directory: workingDir,
         timeout_minutes: 15,
       }));
-      expect(db.createTask.mock.calls[0][0].task_description).toContain('with ~8 tests');
+      expect(mocks.taskCore.createTask.mock.calls[0][0].task_description).toContain('with ~8 tests');
       expect(mocks.taskManager.startTask).toHaveBeenCalledWith('12345678-aaaa-bbbb-cccc-000000000001');
       expect(text).toContain('Submitted 1 test tasks to claude-cli.');
     });
@@ -559,7 +599,7 @@ describe('automation-handlers', () => {
       expect(db.safeAddColumn).toHaveBeenCalledWith('project_config', 'default_provider TEXT');
       expect(db.safeAddColumn).toHaveBeenCalledWith('project_config', 'remote_agent_id TEXT');
       expect(db.safeAddColumn).toHaveBeenCalledWith('project_config', 'prefer_remote_tests INTEGER DEFAULT 0');
-      expect(db.setProjectConfig).toHaveBeenCalledWith('torque', {
+      expect(mocks.projectConfigCore.setProjectConfig).toHaveBeenCalledWith('torque', {
         default_provider: 'codex',
         default_model: 'gpt-5.3-codex-spark',
         verify_command: 'pnpm verify',
@@ -570,7 +610,7 @@ describe('automation-handlers', () => {
         remote_project_path: 'D:\\remote\\torque',
         prefer_remote_tests: 1,
       });
-      expect(db.setProjectMetadata).toHaveBeenCalledWith('torque', 'step_providers', '{"types":"ollama","system":"codex"}');
+      expect(mocks.projectConfigCore.setProjectMetadata).toHaveBeenCalledWith('torque', 'step_providers', '{"types":"ollama","system":"codex"}');
       expect(setText).toContain('Default provider: codex');
       expect(setText).toContain('Remote agent ID: agent-7');
       expect(getTextValue).toContain('| Provider | codex |');
