@@ -24,16 +24,6 @@ function setHostTierHint(hostId, tier) {
   HOST_TIER_HINTS[hostId] = tier;
 }
 
-const MODEL_TIER_HINTS = {
-  'gemma3:4b': 'fast',
-  'llama3.2:3b': 'fast',
-  'qwen3:8b': 'balanced',
-  'mistral:7b': 'balanced',
-  'llama3:8b': 'balanced',
-  'qwen2.5-coder:32b': 'quality',
-  'codestral:22b': 'quality',
-  'codellama:34b': 'quality',
-};
 const HOST_TIER_HINTS = {};
 
 function getConfig(key) {
@@ -91,7 +81,19 @@ function ensureModelsLoaded() {
  */
 function selectOllamaHostForModel(modelName = null, options = {}) {
   const { excludeHostIds = [] } = options;
-  const modelTier = modelName ? MODEL_TIER_HINTS[modelName.toLowerCase()] || null : null;
+  // Dynamic tier hint from registry (replaces hardcoded MODEL_TIER_HINTS)
+  let modelTier = null;
+  if (modelName) {
+    try {
+      const row = db.prepare(
+        'SELECT parameter_size_b FROM model_registry WHERE model_name = ? LIMIT 1'
+      ).get(modelName);
+      if (row && row.parameter_size_b) {
+        const { suggestRole } = require('../discovery/family-classifier');
+        modelTier = suggestRole(row.parameter_size_b);
+      }
+    } catch { /* registry not available */ }
+  }
 
   ensureModelsLoaded();
 
