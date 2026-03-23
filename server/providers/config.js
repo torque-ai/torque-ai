@@ -176,6 +176,35 @@ function resolveOllamaTuning(opts = {}) {
     }
   }
 
+  // Layer 2.5: Family template tuning (between preset and per-model config)
+  if (model) {
+    try {
+      const rawDb = db.getDbInstance ? db.getDbInstance() : null;
+      if (rawDb) {
+        const { createFamilyTemplates } = require('../db/family-templates');
+        const templates = createFamilyTemplates({ db: rawDb });
+        const regRow = rawDb.prepare(
+          'SELECT family, parameter_size_b FROM model_registry WHERE model_name = ? LIMIT 1'
+        ).get(model);
+        if (regRow && regRow.family) {
+          const { getSizeBucket } = require('../discovery/family-classifier');
+          const familyTuning = templates.resolveTuning({
+            family: regRow.family,
+            sizeBucket: getSizeBucket(regRow.parameter_size_b),
+            role: 'default',
+            modelTuning: null,
+            taskTuning: null,
+          });
+          // Apply as defaults — lower priority than model-specific settings (Layer 3)
+          if (familyTuning.temperature !== undefined) temperature = familyTuning.temperature;
+          if (familyTuning.num_ctx !== undefined) numCtx = familyTuning.num_ctx;
+          if (familyTuning.top_k !== undefined) topK = familyTuning.top_k;
+          if (familyTuning.repeat_penalty !== undefined) repeatPenalty = familyTuning.repeat_penalty;
+        }
+      }
+    } catch { /* family templates not available — use existing defaults */ }
+  }
+
   // Layer 3: Model-specific settings
   if (model) {
     const modelSettingsJson = db.getConfig('ollama_model_settings');
@@ -261,6 +290,23 @@ function resolveSystemPrompt(model) {
         logger.info('Failed to parse model prompts:', e.message);
       }
     }
+  }
+  // Family template prompt fallback
+  if (model && systemPrompt === DEFAULT_SYSTEM_PROMPT) {
+    try {
+      const rawDb = db.getDbInstance ? db.getDbInstance() : null;
+      if (rawDb) {
+        const { createFamilyTemplates } = require('../db/family-templates');
+        const templates = createFamilyTemplates({ db: rawDb });
+        const regRow = rawDb.prepare(
+          'SELECT family FROM model_registry WHERE model_name = ? LIMIT 1'
+        ).get(model);
+        if (regRow && regRow.family) {
+          const resolved = templates.resolvePrompt(regRow.family, null);
+          if (resolved) systemPrompt = resolved;
+        }
+      }
+    } catch { /* family templates not available */ }
   }
   return systemPrompt;
 }
