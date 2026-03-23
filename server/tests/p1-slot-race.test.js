@@ -6,18 +6,22 @@
  */
 
 const { randomUUID } = require('crypto');
-const taskCore = require('../db/task-core');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbModule, teardownTestDb } = require('./vitest-setup');
 
 
 let db;
+let taskCore;
 
 function setupDbForTest() {
-  ({ db } = setupTestDb('slot-race'));
+  ({ db, mod: taskCore } = setupTestDbModule('../db/task-core', 'slot-race'));
+  try {
+    db.getDbInstance().prepare('DELETE FROM tasks').run();
+  } catch { /* ignore */ }
 }
 
 function teardownDbForTest() {
   teardownTestDb();
+  taskCore = null;
 }
 
 function createQueuedTask(overrides = {}) {
@@ -32,11 +36,14 @@ function createQueuedTask(overrides = {}) {
     max_retries: overrides.max_retries || 0,
     timeout_minutes: overrides.timeout_minutes || 5,
   });
+  db.getDbInstance()
+    .prepare(`UPDATE tasks SET approval_status = 'approved' WHERE id = ?`)
+    .run(taskId);
   return taskId;
 }
 
 function claimSlot(taskId, maxConcurrent, provider, providerLimit, providerGroup) {
-  return db.tryClaimTaskSlot(taskId, maxConcurrent, null, provider, providerLimit, providerGroup);
+  return taskCore.tryClaimTaskSlot(taskId, maxConcurrent, null, provider, providerLimit, providerGroup);
 }
 
 describe('Slot claim atomicity', () => {
@@ -73,8 +80,9 @@ describe('Slot claim atomicity', () => {
     expect(thirdClaim.success).toBe(false);
     expect(['provider_at_capacity', 'provider_limit']).toContain(secondClaim.reason);
 
+    const providerPlaceholders = providerGroup.map(() => '?').join(',');
     const providerRunning = db.getDbInstance()
-      .prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (?,?,?)')
+      .prepare(`SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (${providerPlaceholders})`)
       .get('running', ...providerGroup).count;
     expect(providerRunning).toBe(1);
   });
@@ -115,14 +123,17 @@ describe('Slot claim atomicity', () => {
     const successfulClaims = claimResults.filter((r) => r.success).length;
     expect(successfulClaims).toBe(4);
 
+    const ollamaPlaceholders = configByProvider.ollama.providerGroup.map(() => '?').join(',');
     const ollamaRunning = db.getDbInstance()
-      .prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (?,?,?)')
+      .prepare(`SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (${ollamaPlaceholders})`)
       .get('running', ...configByProvider.ollama.providerGroup).count;
+    const codexPlaceholders = configByProvider.codex.providerGroup.map(() => '?').join(',');
     const codexRunning = db.getDbInstance()
-      .prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (?,?)')
+      .prepare(`SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (${codexPlaceholders})`)
       .get('running', ...configByProvider.codex.providerGroup).count;
+    const apiPlaceholders = configByProvider.anthropic.providerGroup.map(() => '?').join(',');
     const apiRunning = db.getDbInstance()
-      .prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (?,?,?,?)')
+      .prepare(`SELECT COUNT(*) as count FROM tasks WHERE status = ? AND provider IN (${apiPlaceholders})`)
       .get('running', ...configByProvider.anthropic.providerGroup).count;
 
     expect(ollamaRunning).toBe(1);

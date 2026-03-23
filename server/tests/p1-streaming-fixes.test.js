@@ -4,7 +4,6 @@
 
 'use strict';
 
-const path = require('path');
 const http = require('http');
 const { randomUUID } = require('crypto');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
@@ -15,7 +14,6 @@ let taskCore;
 let executeHashline;
 let executeOllama;
 let executeApi;
-let executeCli;
 const hostManagement = require('../db/host-management');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
@@ -28,7 +26,6 @@ function setup() {
   executeHashline = require('../providers/execute-hashline');
   executeOllama = require('../providers/execute-ollama');
   executeApi = require('../providers/execute-api');
-  executeCli = require('../providers/execute-cli');
 }
 
 function teardown() {
@@ -36,6 +33,21 @@ function teardown() {
 }
 
 function resetDb() {
+  const conn = db.getDb ? db.getDb() : db.getDbInstance();
+  for (const table of [
+    'stream_chunks',
+    'task_checkpoints',
+    'task_events',
+    'event_subscriptions',
+    'task_streams',
+    'provider_usage',
+    'tasks',
+    'ollama_hosts',
+  ]) {
+    try {
+      conn.prepare(`DELETE FROM ${table}`).run();
+    } catch { /* ignore missing tables during targeted cleanup */ }
+  }
 }
 
 function makeHashlineDeps(overrides = {}) {
@@ -91,37 +103,6 @@ function makeApiDeps(overrides = {}) {
     },
     apiAbortControllers: overrides.apiAbortControllers || new Map(),
     processQueue: vi.fn(),
-    ...overrides,
-  };
-}
-
-function makeCliDeps(overrides = {}) {
-  return {
-    db,
-    dashboard: {
-      broadcast: vi.fn(),
-      broadcastTaskUpdate: vi.fn(),
-      notifyTaskUpdated: vi.fn(),
-      notifyTaskOutput: vi.fn(),
-    },
-    runningProcesses: new Map(),
-    safeUpdateTaskStatus: vi.fn(),
-    tryReserveHostSlotWithFallback: vi.fn(() => ({ success: true })),
-    markTaskCleanedUp: vi.fn(() => true),
-    tryOllamaCloudFallback: vi.fn(() => false),
-    tryLocalFirstFallback: vi.fn(() => false),
-    attemptFuzzySearchRepair: vi.fn(() => ({ repaired: false })),
-    tryHashlineTieredFallback: vi.fn(() => false),
-    shellEscape: (s) => s,
-    processQueue: vi.fn(),
-    isLargeModelBlockedOnHost: vi.fn(() => ({ blocked: false })),
-    helpers: {
-      extractTargetFilesFromDescription: () => [],
-      ensureTargetFilesExist: (wd, fps) => [...new Set(fps)].map((p) => path.resolve(wd, p)),
-      detectTaskTypes: () => [],
-      wrapWithInstructions: (desc) => desc,
-      isLargeModelBlockedOnHost: vi.fn(() => ({ blocked: false })),
-    },
     ...overrides,
   };
 }
@@ -187,6 +168,9 @@ describe('P1 streaming fixes', () => {
   });
   beforeEach(() => {
     resetDb();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('Issue 1: trailing NDJSON line is flushed', () => {
@@ -373,82 +357,90 @@ describe('P1 streaming fixes', () => {
   });
 
   describe('Issue 4: Requeue wakes queue and notifies dashboard', () => {
-    it('notifies dashboard and wakes queue when requeued for slot reservation failure', async () => {
+    it('notifies dashboard and schedules a queue retry when slot reservation fails', async () => {
+      vi.useFakeTimers();
       const processQueue = vi.fn();
       const dashboard = { broadcast: vi.fn(), broadcastTaskUpdate: vi.fn(), notifyTaskUpdated: vi.fn(), notifyTaskOutput: vi.fn() };
       const hostUrl = 'http://127.0.0.1:11434';
       addHost({ url: hostUrl, model: 'qwen2.5-coder:7b' });
 
-      const deps = makeCliDeps({
+      const deps = makeOllamaDeps({
         dashboard,
         processQueue,
         tryReserveHostSlotWithFallback: vi.fn(() => ({ success: false, reason: 'all workers busy' })),
       });
-      executeCli.init(deps);
+      executeOllama.init(deps);
 
       const taskId = randomUUID();
       taskCore.createTask({
         id: taskId,
         task_description: 'Queue wakeup test',
         status: 'running',
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b',
         working_directory: testDir,
       });
 
-      const result = executeCli.buildAiderOllamaCommand(
+      const result = await executeOllama.executeOllamaTask(
         {
           id: taskId,
-          provider: 'hashline-ollama',
+          provider: 'ollama',
           task_description: 'Queue wakeup test',
           model: 'qwen2.5-coder:7b',
-          retry_count: 0,
           working_directory: testDir,
-        },
-        '',
-        []
+        }
       );
 
       expect(result).toEqual(expect.objectContaining({ requeued: true }));
+      expect(result.reason).toBe('all workers busy');
+      const task = taskCore.getTask(taskId);
+      expect(task.status).toBe('queued');
+      expect(task.error_output).toContain('Temporarily requeued: all workers busy');
+      expect(dashboard.notifyTaskUpdated).toHaveBeenCalledWith(taskId);
+      expect(processQueue).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(processQueue).toHaveBeenCalledTimes(1);
     });
 
-    it('notifies dashboard and wakes queue when requeued due host capacity', async () => {
+    it('notifies dashboard when requeued because all hosts are at capacity', async () => {
       const processQueue = vi.fn();
       const dashboard = { broadcast: vi.fn(), broadcastTaskUpdate: vi.fn(), notifyTaskUpdated: vi.fn(), notifyTaskOutput: vi.fn() };
-      const atCapacityHost = addHost({ url: 'http://127.0.0.1:11434', model: 'qwen2.5-coder:7b', maxConcurrent: 1, runningTasks: 1 });
+      const atCapacityHost = addHost({ url: 'http://127.0.0.1:11435', model: 'qwen2.5-coder:7b', maxConcurrent: 1, runningTasks: 1 });
       hostManagement.updateOllamaHost(atCapacityHost, {
         enabled: 1,
         status: 'healthy',
         running_tasks: 1,
       });
 
-      const deps = makeCliDeps({ dashboard, processQueue });
-      executeCli.init(deps);
+      const deps = makeOllamaDeps({ dashboard, processQueue });
+      executeOllama.init(deps);
 
       const taskId = randomUUID();
       taskCore.createTask({
         id: taskId,
         task_description: 'Queue wakeup capacity test',
         status: 'running',
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b',
         working_directory: testDir,
       });
 
-      const result = executeCli.buildAiderOllamaCommand(
+      const result = await executeOllama.executeOllamaTask(
         {
           id: taskId,
-          provider: 'hashline-ollama',
+          provider: 'ollama',
           task_description: 'Queue wakeup capacity test',
           model: 'qwen2.5-coder:7b',
-          retry_count: 0,
           working_directory: testDir,
-        },
-        '',
-        []
+        }
       );
 
       expect(result).toEqual(expect.objectContaining({ requeued: true }));
+      const task = taskCore.getTask(taskId);
+      expect(task.status).toBe('queued');
+      expect(task.error_output).toContain('Temporarily requeued: All hosts at capacity');
+      expect(dashboard.notifyTaskUpdated).toHaveBeenCalledWith(taskId);
+      expect(processQueue).not.toHaveBeenCalled();
     });
   });
 });

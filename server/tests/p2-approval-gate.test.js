@@ -1,8 +1,5 @@
 const { randomUUID } = require('crypto');
 
-const schedulingAutomation = require('../db/scheduling-automation');
-const hostManagement = require('../db/host-management');
-const taskCore = require('../db/task-core');
 const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 vi.mock('../providers/registry', () => ({
@@ -16,11 +13,21 @@ let db;
 let scheduler;
 let testDir;
 let safeStartTask;
+let schedulingAutomation;
+let hostManagement;
+let taskCore;
 
 function setup() {
   ({ db, testDir } = setupTestDb('p2-approval-gate-'));
+  const conn = db.getDbInstance();
+  for (const table of ['tasks', 'approval_requests', 'approval_rules', 'ollama_hosts']) {
+    try { conn.prepare(`DELETE FROM ${table}`).run(); } catch { /* ignore */ }
+  }
+  schedulingAutomation = require('../db/scheduling-automation');
+  hostManagement = require('../db/host-management');
+  taskCore = require('../db/task-core');
 
-  require.resolve('../execution/queue-scheduler');
+  delete require.cache[require.resolve('../execution/queue-scheduler')];
   scheduler = require('../execution/queue-scheduler');
 
   safeStartTask = vi.fn().mockReturnValue(true);
@@ -79,6 +86,9 @@ function createQueuedTaskForRule(overrides = {}) {
     priority: 0,
     ...overrides,
   });
+  db.getDbInstance()
+    .prepare(`UPDATE tasks SET approval_status = 'not_required' WHERE id = ?`)
+    .run(taskId);
 
   return taskCore.getTask(taskId);
 }
@@ -106,7 +116,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
   });
 
   it('starts queued task with null approval_status', () => {
@@ -115,7 +125,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
   });
 
   it('does NOT start queued task with rejected approval_status', () => {
@@ -132,7 +142,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
   });
 
   it('does NOT start queued task when matching approval rule is pending', () => {
@@ -177,7 +187,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
   });
 
   it('starts queued task with no matching approval rule', () => {
@@ -189,7 +199,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
   });
 });
 

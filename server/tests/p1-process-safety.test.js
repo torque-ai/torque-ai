@@ -15,6 +15,7 @@ const childProcess = require('child_process');
 const { randomUUID } = require('crypto');
 
 const taskManager = require('../task-manager');
+const providerRoutingCore = require('../db/provider-routing-core');
 const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
 
 // Use real modules for index and routing tests, with temporary DB roots per test.
@@ -107,7 +108,7 @@ describe('integration-routing file-size probing guards traversal', () => {
     const env = setupTestDb('p1-routing');
     db = env.db;
     routing = require('../handlers/integration/routing');
-    db.checkOllamaHealth = async () => true;
+    providerRoutingCore.checkOllamaHealth = async () => true;
   });
 
   afterAll(() => { teardownTestDb(); });
@@ -133,14 +134,14 @@ describe('integration-routing file-size probing guards traversal', () => {
     fs.mkdirSync(path.dirname(outsidePath), { recursive: true });
     fs.writeFileSync(outsidePath, 'secret payload');
 
-    vi.spyOn(db, 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(providerRoutingCore, 'analyzeTaskForRouting').mockReturnValue({
       provider: 'ollama',
       complexity: 'normal',
       reason: 'test',
       rule: null,
       fallbackApplied: false,
     });
-    vi.spyOn(db, 'getProvider').mockReturnValue({ enabled: 1, name: 'ollama' });
+    vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue({ enabled: 1, name: 'ollama' });
     vi.spyOn(taskManager, 'resolveFileReferences').mockReturnValue({
       resolved: [{ actual: outsidePath }],
       missing: [],

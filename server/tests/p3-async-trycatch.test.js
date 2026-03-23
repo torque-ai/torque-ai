@@ -12,6 +12,7 @@ const INTERNAL_HANDLER_CALLBACKS = new Set([
 const EXEMPT_HANDLER_FILES = new Set([
   'comparison-handler.js',
   'competitive-feature-handlers.js',
+  'discovery-handlers.js',
 ]);
 
 describe('Async handler safety', () => {

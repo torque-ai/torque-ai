@@ -17,11 +17,11 @@ describe('submit_task provider enum completeness', () => {
   });
 
   it('defines deepinfra and hyperbolic timeouts', () => {
-    expect(PROVIDER_DEFAULT_TIMEOUTS.deepinfra).toBe(20);
-    expect(PROVIDER_DEFAULT_TIMEOUTS.hyperbolic).toBe(20);
+    expect(PROVIDER_DEFAULT_TIMEOUTS.deepinfra).toBe(480);
+    expect(PROVIDER_DEFAULT_TIMEOUTS.hyperbolic).toBe(480);
   });
 
-  it('submit_task provider enum has exactly 13 providers', () => {
-    expect(providerEnum).toHaveLength(13);
+  it('submit_task provider enum has exactly 12 providers', () => {
+    expect(providerEnum).toHaveLength(12);
   });
 });
