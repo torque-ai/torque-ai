@@ -8,18 +8,45 @@
 const { v4: uuidv4 } = require('uuid');
 const costTracking = require('../db/cost-tracking');
 const workflowEngine = require('../db/workflow-engine');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
-let db;
-
 function setupDb() {
-  ({ db } = setupTestDb('cost'));
-  return db;
+  setupTestDb('cost');
 }
 
 function teardownDb() {
   teardownTestDb();
+}
+
+function withFreshCostTrackingDb(run) {
+  const freshDir = path.join(os.tmpdir(), `torque-vtest-cost-${Date.now()}-${uuidv4()}`);
+  fs.mkdirSync(freshDir, { recursive: true });
+
+  const originalDir = process.env.TORQUE_DATA_DIR;
+  const originalDbHandle = rawDb();
+  const dbModulePath = require.resolve('../database');
+
+  process.env.TORQUE_DATA_DIR = freshDir;
+  delete require.cache[dbModulePath];
+
+  const { init, getDbInstance, close } = require('../database');
+  init();
+  costTracking.setDb(getDbInstance());
+
+  try {
+    return run();
+  } finally {
+    try { close(); } catch { /* ignore */ }
+    costTracking.setDb(originalDbHandle);
+    delete require.cache[dbModulePath];
+    fs.rmSync(freshDir, { recursive: true, force: true });
+    if (originalDir !== undefined) {
+      process.env.TORQUE_DATA_DIR = originalDir;
+    } else {
+      delete process.env.TORQUE_DATA_DIR;
+    }
+  }
 }
 
 function createTask(overrides = {}) {
@@ -236,7 +263,7 @@ describe('Cost Tracking Module', () => {
       // Set reset_at to 32 days ago and current_spend to 50
       const budgetId = `budget-${name.toLowerCase().replace(/\s+/g, '-')}`;
       const pastDate = new Date(Date.now() - 32 * 24 * 60 * 60 * 1000).toISOString();
-      db.getDbInstance().prepare('UPDATE cost_budgets SET reset_at = ?, current_spend = 50 WHERE id = ?')
+      rawDb().prepare('UPDATE cost_budgets SET reset_at = ?, current_spend = 50 WHERE id = ?')
         .run(pastDate, budgetId);
 
       const resetCount = costTracking.resetExpiredBudgets();
@@ -252,7 +279,7 @@ describe('Cost Tracking Module', () => {
 
       // Budget was just created with reset_at = now, so period has not elapsed
       const budgetId = `budget-${name.toLowerCase().replace(/\s+/g, '-')}`;
-      db.getDbInstance().prepare('UPDATE cost_budgets SET current_spend = 25 WHERE id = ?')
+      rawDb().prepare('UPDATE cost_budgets SET current_spend = 25 WHERE id = ?')
         .run(budgetId);
 
       costTracking.resetExpiredBudgets();
@@ -267,7 +294,7 @@ describe('Cost Tracking Module', () => {
 
       const budgetId = `budget-${name.toLowerCase().replace(/\s+/g, '-')}`;
       const pastDate = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
-      db.getDbInstance().prepare('UPDATE cost_budgets SET reset_at = ?, current_spend = 30 WHERE id = ?')
+      rawDb().prepare('UPDATE cost_budgets SET reset_at = ?, current_spend = 30 WHERE id = ?')
         .run(pastDate, budgetId);
 
       const resetCount = costTracking.resetExpiredBudgets();
@@ -283,7 +310,7 @@ describe('Cost Tracking Module', () => {
 
       const budgetId = `budget-${name.toLowerCase().replace(/\s+/g, '-')}`;
       const pastDate = new Date(Date.now() - 32 * 24 * 60 * 60 * 1000).toISOString();
-      db.getDbInstance().prepare('UPDATE cost_budgets SET reset_at = ?, current_spend = 75, enabled = 0 WHERE id = ?')
+      rawDb().prepare('UPDATE cost_budgets SET reset_at = ?, current_spend = 75, enabled = 0 WHERE id = ?')
         .run(pastDate, budgetId);
 
       costTracking.resetExpiredBudgets();
@@ -402,49 +429,23 @@ describe('Cost Tracking Module', () => {
       // getCostForecast uses token_usage table (getCostByPeriod), not cost_tracking.
       // When token_usage has no data, daily_avg is 0 and days_remaining is Infinity.
       // Use a fresh DB to ensure no prior token_usage data.
-      const freshDir = path.join(os.tmpdir(), `torque-vtest-forecast-${Date.now()}`);
-      fs.mkdirSync(freshDir, { recursive: true });
-      const origDir = process.env.TORQUE_DATA_DIR;
-      process.env.TORQUE_DATA_DIR = freshDir;
-
-      const _dbModPath = require.resolve('../database');
-      const freshDb = require('../database');
-      freshDb.init();
-
-      try {
-        freshDb.setBudget('no-spend-fresh', 50, null, 'monthly', 80);
-        const forecast = freshDb.getCostForecast();
+      withFreshCostTrackingDb(() => {
+        costTracking.setBudget('no-spend-fresh', 50, null, 'monthly', 80);
+        const forecast = costTracking.getCostForecast();
         const budget = forecast.budgets.find(b => b.name === 'no-spend-fresh');
         expect(budget).toBeDefined();
         expect(budget.days_remaining).toBe(Infinity);
         expect(budget.projected_exhaustion_date).toBeNull();
-      } finally {
-        try { freshDb.close(); } catch { /* ignore */ }
-        fs.rmSync(freshDir, { recursive: true, force: true });
-        process.env.TORQUE_DATA_DIR = origDir;
-      }
+      });
     });
 
     it('should return zero values when no cost data', () => {
       // Use a fresh DB with no prior data
-      const freshDir = path.join(os.tmpdir(), `torque-vtest-forecast-zero-${Date.now()}`);
-      fs.mkdirSync(freshDir, { recursive: true });
-      const origDir = process.env.TORQUE_DATA_DIR;
-      process.env.TORQUE_DATA_DIR = freshDir;
-
-      const _dbModPath = require.resolve('../database');
-      const freshDb = require('../database');
-      freshDb.init();
-
-      try {
-        const forecast = freshDb.getCostForecast();
+      withFreshCostTrackingDb(() => {
+        const forecast = costTracking.getCostForecast();
         expect(forecast.daily_avg).toBe(0);
         expect(forecast.projected_monthly).toBe(0);
-      } finally {
-        try { freshDb.close(); } catch { /* ignore */ }
-        fs.rmSync(freshDir, { recursive: true, force: true });
-        process.env.TORQUE_DATA_DIR = origDir;
-      }
+      });
     });
   });
 });

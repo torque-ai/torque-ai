@@ -13,17 +13,17 @@ function installMock(modulePath, exportsValue) {
 }
 
 const MODULE_PATH = require.resolve('../utils/agent-discovery');
-const DATABASE_MODULE_PATH = require.resolve('../database');
-const originalDatabaseCache = require.cache[DATABASE_MODULE_PATH];
-const mockDb = {
+const PROVIDER_ROUTING_CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
+const originalProviderRoutingCoreCache = require.cache[PROVIDER_ROUTING_CORE_MODULE_PATH];
+const mockProviderRoutingCore = {
   getProvider: vi.fn(),
 };
 
-function restoreDatabaseModule() {
-  if (originalDatabaseCache) {
-    require.cache[DATABASE_MODULE_PATH] = originalDatabaseCache;
+function restoreProviderRoutingCoreModule() {
+  if (originalProviderRoutingCoreCache) {
+    require.cache[PROVIDER_ROUTING_CORE_MODULE_PATH] = originalProviderRoutingCoreCache;
   } else {
-    delete require.cache[DATABASE_MODULE_PATH];
+    delete require.cache[PROVIDER_ROUTING_CORE_MODULE_PATH];
   }
 }
 
@@ -33,7 +33,7 @@ function unloadAgentDiscovery() {
 
 function loadAgentDiscovery() {
   unloadAgentDiscovery();
-  installMock('../database', mockDb);
+  installMock('../db/provider-routing-core', mockProviderRoutingCore);
   return require('../utils/agent-discovery');
 }
 
@@ -44,15 +44,15 @@ function getLookupCommand() {
 describe('utils/agent-discovery', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    mockDb.getProvider.mockReset();
-    mockDb.getProvider.mockImplementation((provider) => ({ provider, enabled: true }));
-    restoreDatabaseModule();
+    mockProviderRoutingCore.getProvider.mockReset();
+    mockProviderRoutingCore.getProvider.mockImplementation((provider) => ({ provider, enabled: true }));
+    restoreProviderRoutingCoreModule();
     unloadAgentDiscovery();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    restoreDatabaseModule();
+    restoreProviderRoutingCoreModule();
     unloadAgentDiscovery();
   });
 
@@ -160,7 +160,7 @@ describe('utils/agent-discovery', () => {
 
   it('generates suggestions for installed but unconfigured providers', () => {
     const lookupCommand = getLookupCommand();
-    mockDb.getProvider.mockImplementation((provider) => (
+    mockProviderRoutingCore.getProvider.mockImplementation((provider) => (
       provider === 'codex' ? { provider, enabled: false } : { provider, enabled: true }
     ));
     vi.spyOn(childProcess, 'execFileSync').mockImplementation((command, args) => {

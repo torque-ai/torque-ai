@@ -1064,10 +1064,6 @@ describe('quick_setup_notifications handler', () => {
       secret: args.secret || null,
     }));
 
-    // Mock upsertIntegration
-    if (!db.upsertIntegration) db.upsertIntegration = vi.fn();
-    vi.spyOn(db, 'upsertIntegration').mockReturnValue(true);
-
     // Re-require to pick up mocked db — this handler captures db at require-time
     handleQuickSetupNotifications = require('../handlers/webhook-handlers').handleQuickSetupNotifications;
   });

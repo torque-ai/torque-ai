@@ -4,7 +4,7 @@ const path = require('path');
 
 const { v4: uuidv4 } = require('uuid');
 
-const db = require('../database');
+const { init, close, safeAddColumn } = require('../database');
 const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
 const projectConfigCore = require('../db/project-config-core');
@@ -125,11 +125,11 @@ async function expectToolError(toolName, args, expectedMessage) {
 }
 
 beforeAll(() => {
-  db.init();
+  init();
 });
 
 afterAll(() => {
-  db.close();
+  close();
 });
 
 function isTransientDbError(error) {
@@ -197,7 +197,7 @@ describe('test-hardening parity', () => {
 
   describe('Schema migration', () => {
     it('safeAddColumn tolerates duplicate columns', () => {
-      const result = db.safeAddColumn('tasks', 'status TEXT');
+      const result = safeAddColumn('tasks', 'status TEXT');
       expect([false, true]).toContain(result);
     });
   });
@@ -306,11 +306,11 @@ describe('test-hardening parity', () => {
     });
 
     it('validateColumnName blocks SQL injection', () => {
-      expect(() => db.validateColumnName('status; DROP TABLE tasks;--')).toThrowError(/Invalid column name/);
+      expect(() => taskCore.validateColumnName('status; DROP TABLE tasks;--')).toThrowError(/Invalid column name/);
     });
 
     it('validateColumnName allows valid columns', () => {
-      const result = db.validateColumnName('status');
+      const result = taskCore.validateColumnName('status');
       expect(result).toBe('status');
     });
   });

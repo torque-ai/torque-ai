@@ -171,7 +171,6 @@ describe('formatHeartbeat', () => {
 // ---------------------------------------------------------------------------
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
-const db = require('../database');
 const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
 const hostMonitoring = require('../utils/host-monitoring');

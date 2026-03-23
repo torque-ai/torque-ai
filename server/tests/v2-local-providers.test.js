@@ -4,7 +4,17 @@ const { EventEmitter } = require('events');
 const http = require('http');
 const https = require('https');
 
-function createDbMock(overrides = {}) {
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+function createConfigCoreMock(overrides = {}) {
   const defaultGetConfig = vi.fn((key) => {
     switch (key) {
       case 'ollama_host':
@@ -22,6 +32,12 @@ function createDbMock(overrides = {}) {
 
   return {
     getConfig: defaultGetConfig,
+    ...overrides,
+  };
+}
+
+function createHostManagementMock(overrides = {}) {
+  return {
     listOllamaHosts: vi.fn(() => []),
     selectOllamaHostForModel: vi.fn(() => null),
     selectHostWithModelVariant: vi.fn(() => null),
@@ -50,7 +66,10 @@ function createConstantsMock(overrides = {}) {
 }
 
 function loadProviders(overrides = {}) {
-  const dbMock = createDbMock(overrides.db);
+  const { getConfig, ...hostManagementOverrides } = overrides.db || {};
+  const configCoreMock = createConfigCoreMock(getConfig ? { getConfig } : {});
+  const hostManagementMock = createHostManagementMock(hostManagementOverrides);
+  const dbMock = { ...configCoreMock, ...hostManagementMock };
   const constantsMock = createConstantsMock(overrides.constants);
   const loggerChild = {
     debug: vi.fn(),
@@ -62,19 +81,18 @@ function loadProviders(overrides = {}) {
     child: vi.fn(() => loggerChild),
   };
 
-  const dbPath = require.resolve('../database');
-  const constantsPath = require.resolve('../constants');
-  const loggerPath = require.resolve('../logger');
   const providersPath = require.resolve('../providers/v2-local-providers');
 
   vi.resetModules();
-  vi.doMock('../database', () => dbMock);
-  vi.doMock('../constants', () => constantsMock);
-  vi.doMock('../logger', () => loggerMock);
-  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: dbMock };
-  require.cache[constantsPath] = { id: constantsPath, filename: constantsPath, loaded: true, exports: constantsMock };
-  require.cache[loggerPath] = { id: loggerPath, filename: loggerPath, loaded: true, exports: loggerMock };
+  delete require.cache[require.resolve('../db/config-core')];
+  delete require.cache[require.resolve('../db/host-management')];
+  delete require.cache[require.resolve('../constants')];
+  delete require.cache[require.resolve('../logger')];
   delete require.cache[providersPath];
+  installCjsModuleMock('../db/config-core', configCoreMock);
+  installCjsModuleMock('../db/host-management', hostManagementMock);
+  installCjsModuleMock('../constants', constantsMock);
+  installCjsModuleMock('../logger', loggerMock);
 
   return {
     providers: require('../providers/v2-local-providers'),

@@ -373,9 +373,11 @@ describe('db/schema.js — smoke test', () => {
 // ── db/migrations.js ────────────────────────────────────────────────
 
 describe('db/migrations.js', () => {
-  let migrationsDb;
   let migrationsTestDir;
   let migrationsOrigDataDir;
+  let initMigrationsDb;
+  let getMigrationsDbInstance;
+  let closeMigrationsDb;
 
   beforeAll(() => {
     migrationsTestDir = path.join(os.tmpdir(), `torque-vtest-migrations-${Date.now()}`);
@@ -388,13 +390,13 @@ describe('db/migrations.js', () => {
     const migrationsModulePath = require.resolve('../db/migrations');
     delete require.cache[migrationsModulePath];
 
-    migrationsDb = require('../database');
-    migrationsDb.init();
+    ({ init: initMigrationsDb, getDbInstance: getMigrationsDbInstance, close: closeMigrationsDb } = require('../database'));
+    initMigrationsDb();
   });
 
   afterAll(() => {
-    if (migrationsDb) {
-      try { migrationsDb.close(); } catch { /* ignore */ }
+    if (closeMigrationsDb) {
+      try { closeMigrationsDb(); } catch { /* ignore */ }
     }
     if (migrationsTestDir) {
       try { fs.rmSync(migrationsTestDir, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -442,7 +444,7 @@ describe('db/migrations.js', () => {
   it('running migrations on a fresh DB does not throw', () => {
     // Migrations already ran during init(). Verify schema_migrations table exists
     // and has entries.
-    const conn = migrationsDb.getDbInstance();
+    const conn = getMigrationsDbInstance();
     const rows = conn.prepare('SELECT * FROM schema_migrations ORDER BY version').all();
     expect(rows.length).toBeGreaterThan(0);
     expect(rows[0].version).toBe(1);
@@ -452,7 +454,7 @@ describe('db/migrations.js', () => {
 
   it('running migrations twice is idempotent (returns 0 new migrations)', () => {
     const migrations = require('../db/migrations');
-    const conn = migrationsDb.getDbInstance();
+    const conn = getMigrationsDbInstance();
     // Run again on the same DB — should apply 0 new migrations
     const count = migrations.runMigrations(conn);
     expect(count).toBe(0);
@@ -460,7 +462,7 @@ describe('db/migrations.js', () => {
 
   it('all defined migrations are recorded as applied', () => {
     const migrations = require('../db/migrations');
-    const conn = migrationsDb.getDbInstance();
+    const conn = getMigrationsDbInstance();
     const applied = conn.prepare('SELECT version FROM schema_migrations ORDER BY version').all();
     const appliedVersions = new Set(applied.map(r => r.version));
     for (const m of migrations.MIGRATIONS) {
@@ -469,7 +471,7 @@ describe('db/migrations.js', () => {
   });
 
   it('migration-created tables exist', () => {
-    const conn = migrationsDb.getDbInstance();
+    const conn = getMigrationsDbInstance();
     const tables = conn.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     ).all().map(r => r.name);
@@ -480,7 +482,7 @@ describe('db/migrations.js', () => {
   });
 
   it('migration v8 removes aider config keys and renames stall threshold', () => {
-    const conn = migrationsDb.getDbInstance();
+    const conn = getMigrationsDbInstance();
 
     // Verify aider config keys were removed (they were seeded, then migration deleted them)
     const aiderKeys = conn.prepare(

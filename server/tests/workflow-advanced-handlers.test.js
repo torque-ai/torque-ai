@@ -104,13 +104,24 @@ const { dbMock, taskManagerMock, loggerMock, loggerModuleMock, workflowRuntimeMo
 let handlers;
 let shared;
 
-const databaseModulePath = require.resolve('../database');
+const taskCoreModulePath = require.resolve('../db/task-core');
+const eventTrackingModulePath = require.resolve('../db/event-tracking');
+const providerRoutingCoreModulePath = require.resolve('../db/provider-routing-core');
+const schedulingAutomationModulePath = require.resolve('../db/scheduling-automation');
+const workflowEngineModulePath = require.resolve('../db/workflow-engine');
 const taskManagerModulePath = require.resolve('../task-manager');
 const loggerModulePath = require.resolve('../logger');
 const sharedHandlerPath = require.resolve('../handlers/shared');
 const advancedHandlerPath = require.resolve('../handlers/workflow/advanced');
 const workflowRuntimePath = require.resolve('../execution/workflow-runtime');
 const originalModules = new Map();
+const workflowDependencyModulePaths = [
+  taskCoreModulePath,
+  eventTrackingModulePath,
+  providerRoutingCoreModulePath,
+  schedulingAutomationModulePath,
+  workflowEngineModulePath,
+];
 
 function installModule(modulePath, exportsValue) {
   require.cache[modulePath] = {
@@ -255,7 +266,7 @@ describe('workflow advanced handlers', () => {
     resetMocks();
 
     for (const modulePath of [
-      databaseModulePath,
+      ...workflowDependencyModulePaths,
       taskManagerModulePath,
       loggerModulePath,
       workflowRuntimePath,
@@ -265,7 +276,9 @@ describe('workflow advanced handlers', () => {
       originalModules.set(modulePath, require.cache[modulePath]);
     }
 
-    installModule(databaseModulePath, dbMock);
+    for (const modulePath of workflowDependencyModulePaths) {
+      installModule(modulePath, dbMock);
+    }
     installModule(taskManagerModulePath, taskManagerMock);
     installModule(loggerModulePath, loggerModuleMock);
     installModule(workflowRuntimePath, workflowRuntimeMock);
@@ -292,7 +305,7 @@ describe('workflow advanced handlers', () => {
     delete require.cache[advancedHandlerPath];
 
     for (const modulePath of [
-      databaseModulePath,
+      ...workflowDependencyModulePaths,
       taskManagerModulePath,
       loggerModulePath,
       workflowRuntimePath,

@@ -179,9 +179,6 @@ describe('v2 provider health and model inventory endpoints', () => {
     vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
     vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
     vi.spyOn(db, 'getDbInstance').mockReturnValue({});
-    if (typeof db.isDbClosed === 'function') {
-      vi.spyOn(db, 'isDbClosed').mockReturnValue(false);
-    }
 
     createServerSpy = vi.spyOn(http, 'createServer').mockImplementation((handler) => {
       requestHandler = handler;

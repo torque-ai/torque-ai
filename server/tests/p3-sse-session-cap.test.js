@@ -1,5 +1,5 @@
 const http = require('http');
-const db = require('../database');
+const configCore = require('../db/config-core');
 const { EventEmitter } = require('events');
 
 const MAX_SSE_SESSIONS = 50;
@@ -96,7 +96,7 @@ describe('MCP SSE session cap', () => {
 
     mcpSse = require('../mcp-sse');
 
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     vi.spyOn(http, 'createServer').mockImplementation((handler) => {
       handleHttpRequest = handler;
       return mockServer;

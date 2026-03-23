@@ -41,29 +41,45 @@ const originalExecPlain = childProc['exec'];
 childProc.execFile = mockExecFile;
 childProc['exec'] = mockExecPlain;
 
-// ─── Load the handler AFTER patching ─────────────────────────────────────────
-const handlers = {
-  ...require('../handlers/snapscope-handlers'),
-  ...require('../handlers/peek-handlers'),
-};
-const database = require('../database');
+const emailPeek = require('../db/email-peek');
+const taskCore = require('../db/task-core');
+const workflowEngine = require('../db/workflow-engine');
+const taskMetadata = require('../db/task-metadata');
 const { loadPeekContractFixture } = require('../contracts/peek');
 const snapscopeDefs = require('../tool-defs/snapscope-defs');
 
 const originalHttpGet = http.get;
 const originalHttpRequest = http.request;
-const originalRegisterPeekHost = database.registerPeekHost;
-const originalUnregisterPeekHost = database.unregisterPeekHost;
-const originalListPeekHosts = database.listPeekHosts;
-const originalGetPeekHost = database.getPeekHost;
-const originalGetDefaultPeekHost = database.getDefaultPeekHost;
-const originalGetTask = database.getTask;
-const originalUpdateTask = database.updateTask;
-const originalGetWorkflow = database.getWorkflow;
-const originalUpdateWorkflow = database.updateWorkflow;
-const originalGetArtifactConfig = database.getArtifactConfig;
-const originalStoreArtifact = database.storeArtifact;
+const originalRegisterPeekHost = emailPeek.registerPeekHost;
+const originalUnregisterPeekHost = emailPeek.unregisterPeekHost;
+const originalListPeekHosts = emailPeek.listPeekHosts;
+const originalGetPeekHost = emailPeek.getPeekHost;
+const originalGetDefaultPeekHost = emailPeek.getDefaultPeekHost;
+const originalGetTask = taskCore.getTask;
+const originalUpdateTask = taskCore.updateTask;
+const originalGetWorkflow = workflowEngine.getWorkflow;
+const originalUpdateWorkflow = workflowEngine.updateWorkflow;
+const originalGetArtifactConfig = taskMetadata.getArtifactConfig;
+const originalStoreArtifact = taskMetadata.storeArtifact;
 const originalHomedir = os.homedir;
+
+emailPeek.registerPeekHost = vi.fn();
+emailPeek.unregisterPeekHost = vi.fn();
+emailPeek.listPeekHosts = vi.fn(() => []);
+emailPeek.getPeekHost = vi.fn(() => null);
+emailPeek.getDefaultPeekHost = vi.fn(() => null);
+taskCore.getTask = vi.fn(() => null);
+taskCore.updateTask = vi.fn();
+workflowEngine.getWorkflow = vi.fn(() => null);
+workflowEngine.updateWorkflow = vi.fn();
+taskMetadata.getArtifactConfig = vi.fn(() => null);
+taskMetadata.storeArtifact = vi.fn((artifact) => artifact);
+
+// ─── Load the handler AFTER patching ─────────────────────────────────────────
+const handlers = {
+  ...require('../handlers/snapscope-handlers'),
+  ...require('../handlers/peek-handlers'),
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 let tempDir;
@@ -174,17 +190,17 @@ describe('Snapscope Handlers', () => {
     childProc['exec'] = originalExecPlain;
     http.get = originalHttpGet;
     http.request = originalHttpRequest;
-    database.registerPeekHost = originalRegisterPeekHost;
-    database.unregisterPeekHost = originalUnregisterPeekHost;
-    database.listPeekHosts = originalListPeekHosts;
-    database.getPeekHost = originalGetPeekHost;
-    database.getDefaultPeekHost = originalGetDefaultPeekHost;
-    database.getTask = originalGetTask;
-    database.updateTask = originalUpdateTask;
-    database.getWorkflow = originalGetWorkflow;
-    database.updateWorkflow = originalUpdateWorkflow;
-    database.getArtifactConfig = originalGetArtifactConfig;
-    database.storeArtifact = originalStoreArtifact;
+    emailPeek.registerPeekHost = originalRegisterPeekHost;
+    emailPeek.unregisterPeekHost = originalUnregisterPeekHost;
+    emailPeek.listPeekHosts = originalListPeekHosts;
+    emailPeek.getPeekHost = originalGetPeekHost;
+    emailPeek.getDefaultPeekHost = originalGetDefaultPeekHost;
+    taskCore.getTask = originalGetTask;
+    taskCore.updateTask = originalUpdateTask;
+    workflowEngine.getWorkflow = originalGetWorkflow;
+    workflowEngine.updateWorkflow = originalUpdateWorkflow;
+    taskMetadata.getArtifactConfig = originalGetArtifactConfig;
+    taskMetadata.storeArtifact = originalStoreArtifact;
     os.homedir = originalHomedir;
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -207,17 +223,24 @@ describe('Snapscope Handlers', () => {
     mockHttpRequestBodies = [];
     installHttpGetMock();
     installHttpRequestMock();
-    database.registerPeekHost = vi.fn();
-    database.unregisterPeekHost = vi.fn();
-    database.listPeekHosts = vi.fn(() => []);
-    database.getPeekHost = vi.fn(() => null);
-    database.getDefaultPeekHost = vi.fn(() => null);
-    database.getTask = vi.fn(() => null);
-    database.updateTask = vi.fn();
-    database.getWorkflow = vi.fn(() => null);
-    database.updateWorkflow = vi.fn();
-    database.getArtifactConfig = vi.fn(() => ({ storage_path: tempDir }));
-    database.storeArtifact = vi.fn((artifact) => ({
+    emailPeek.registerPeekHost.mockReset();
+    emailPeek.unregisterPeekHost.mockReset();
+    emailPeek.listPeekHosts.mockReset();
+    emailPeek.getPeekHost.mockReset();
+    emailPeek.getDefaultPeekHost.mockReset();
+    taskCore.getTask.mockReset();
+    taskCore.updateTask.mockReset();
+    workflowEngine.getWorkflow.mockReset();
+    workflowEngine.updateWorkflow.mockReset();
+    taskMetadata.getArtifactConfig.mockReset();
+    taskMetadata.storeArtifact.mockReset();
+    emailPeek.listPeekHosts.mockImplementation(() => []);
+    emailPeek.getPeekHost.mockImplementation(() => null);
+    emailPeek.getDefaultPeekHost.mockImplementation(() => null);
+    taskCore.getTask.mockImplementation(() => null);
+    workflowEngine.getWorkflow.mockImplementation(() => null);
+    taskMetadata.getArtifactConfig.mockImplementation(() => ({ storage_path: tempDir }));
+    taskMetadata.storeArtifact.mockImplementation((artifact) => ({
       ...artifact,
       created_at: '2026-03-10T00:00:00.000Z',
       expires_at: '2026-04-09T00:00:00.000Z',
@@ -680,7 +703,7 @@ describe('Snapscope Handlers', () => {
 
   // ─── peek host management ──────────────────────────────────────────────────
   describe('peek host management', () => {
-    it('registers a peek host through the database helper', async () => {
+    it('registers a peek host through the email-peek module', async () => {
       const result = await handlers.handleRegisterPeekHost({
         name: 'omen',
         url: 'http://omen:9876',
@@ -690,7 +713,7 @@ describe('Snapscope Handlers', () => {
       });
 
       expect(result.isError).toBeFalsy();
-      expect(database.registerPeekHost).toHaveBeenCalledWith(
+      expect(emailPeek.registerPeekHost).toHaveBeenCalledWith(
         'omen',
         'http://omen:9876',
         'user@omen',
@@ -701,7 +724,7 @@ describe('Snapscope Handlers', () => {
     });
 
     it('returns an error when unregistering an unknown peek host', async () => {
-      database.unregisterPeekHost = vi.fn(() => false);
+      emailPeek.unregisterPeekHost.mockImplementation(() => false);
 
       const result = await handlers.handleUnregisterPeekHost({ name: 'missing-host' });
 
@@ -710,7 +733,7 @@ describe('Snapscope Handlers', () => {
     });
 
     it('lists peek hosts with live health status', async () => {
-      database.listPeekHosts = vi.fn(() => [
+      emailPeek.listPeekHosts.mockImplementation(() => [
         { name: 'omen', url: 'http://omen:9876', is_default: 1, platform: 'windows' },
         { name: 'lab', url: 'http://lab:9876', is_default: 0, platform: 'linux' }
       ]);
@@ -728,7 +751,7 @@ describe('Snapscope Handlers', () => {
 
     it('normalizes the published health payload status and capabilities contract', async () => {
       const capabilityFixture = loadPeekContractFixture('peek-capabilities-v1.json');
-      database.listPeekHosts = vi.fn(() => [
+      emailPeek.listPeekHosts.mockImplementation(() => [
         { name: 'omen', url: 'http://omen:9876', is_default: 1, platform: 'windows' },
       ]);
       queueHttpResponse({
@@ -759,7 +782,7 @@ describe('Snapscope Handlers', () => {
   // ─── peek_ui ───────────────────────────────────────────────────────────────
   describe('handlePeekUi', () => {
     it('applies annotations and writes the annotated image to disk', { timeout: 30000 }, async () => {
-      database.getDefaultPeekHost = vi.fn(() => ({
+      emailPeek.getDefaultPeekHost.mockImplementation(() => ({
         name: 'omen',
         url: 'http://omen:9876'
       }));
@@ -819,7 +842,7 @@ describe('Snapscope Handlers', () => {
     });
 
     it('routes through a named host and diffs against a saved baseline', async () => {
-      database.getPeekHost = vi.fn(() => ({
+      emailPeek.getPeekHost.mockImplementation(() => ({
         name: 'lab',
         url: 'http://lab:9876'
       }));
@@ -866,7 +889,7 @@ describe('Snapscope Handlers', () => {
       });
 
       expect(result.isError).toBeFalsy();
-      expect(database.getPeekHost).toHaveBeenCalledWith('lab');
+      expect(emailPeek.getPeekHost).toHaveBeenCalledWith('lab');
       expect(http.get).toHaveBeenNthCalledWith(1, 'http://lab:9876/health', { timeout: 5000 }, expect.any(Function));
       expect(String(http.get.mock.calls[1][0])).toContain('http://lab:9876/peek?');
       expect(String(http.request.mock.calls[0][0].href || http.request.mock.calls[0][0])).toBe('http://lab:9876/compare');
@@ -887,7 +910,7 @@ describe('Snapscope Handlers', () => {
     });
 
     it('uses the default host and auto-diffs against the previous capture for the same target', async () => {
-      database.getDefaultPeekHost = vi.fn(() => ({
+      emailPeek.getDefaultPeekHost.mockImplementation(() => ({
         name: 'omen',
         url: 'http://omen:9876'
       }));
@@ -932,7 +955,7 @@ describe('Snapscope Handlers', () => {
       });
 
       expect(result.isError).toBeFalsy();
-      expect(database.getDefaultPeekHost).toHaveBeenCalled();
+      expect(emailPeek.getDefaultPeekHost).toHaveBeenCalled();
       expect(http.get).toHaveBeenNthCalledWith(1, 'http://omen:9876/health', { timeout: 5000 }, expect.any(Function));
 
       const comparePayload = JSON.parse(mockHttpRequestBodies[0]);
@@ -947,7 +970,7 @@ describe('Snapscope Handlers', () => {
     });
 
     it('returns an invalid-param error when an explicitly requested host is missing', async () => {
-      database.getPeekHost = vi.fn(() => null);
+      emailPeek.getPeekHost.mockImplementation(() => null);
 
       const result = await handlers.handlePeekUi({ host: 'missing-host' });
 
@@ -960,7 +983,7 @@ describe('Snapscope Handlers', () => {
   describe('handlePeekDiagnose', () => {
     it('posts the Torque-supported request subset and surfaces bundle contract metadata', async () => {
       const bundleFixture = loadPeekContractFixture('peek-investigation-bundle-v1.json');
-      database.getDefaultPeekHost = vi.fn(() => ({
+      emailPeek.getDefaultPeekHost.mockImplementation(() => ({
         name: 'omen',
         url: 'http://omen:9876'
       }));
@@ -1023,17 +1046,17 @@ describe('Snapscope Handlers', () => {
       bundleFixture.artifacts.bundle_path = bundlePath;
       bundleFixture.artifacts.artifact_report_path = artifactReportPath;
 
-      database.getDefaultPeekHost = vi.fn(() => ({
+      emailPeek.getDefaultPeekHost.mockImplementation(() => ({
         name: 'omen',
         url: 'http://omen:9876'
       }));
-      database.getTask = vi.fn(() => ({
+      taskCore.getTask.mockImplementation(() => ({
         id: 'task-peek-1',
         metadata: {},
         workflow_id: 'wf-peek-1',
         workflow_node_id: 'diagnose-ui',
       }));
-      database.getWorkflow = vi.fn(() => ({
+      workflowEngine.getWorkflow.mockImplementation(() => ({
         id: 'wf-peek-1',
         context: {},
       }));
@@ -1063,8 +1086,8 @@ describe('Snapscope Handlers', () => {
       expect(typeof requestBody.output_dir).toBe('string');
       expect(requestBody.output_dir).toContain(path.join('task-peek-1', 'peek-diagnose'));
 
-      expect(database.storeArtifact).toHaveBeenCalledTimes(2);
-      expect(database.storeArtifact.mock.calls[0][0]).toEqual(expect.objectContaining({
+      expect(taskMetadata.storeArtifact).toHaveBeenCalledTimes(2);
+      expect(taskMetadata.storeArtifact.mock.calls[0][0]).toEqual(expect.objectContaining({
         task_id: 'task-peek-1',
         name: 'bundle.json',
         file_path: bundlePath,
@@ -1080,7 +1103,7 @@ describe('Snapscope Handlers', () => {
           },
         }),
       }));
-      expect(database.updateTask).toHaveBeenCalledWith('task-peek-1', expect.objectContaining({
+      expect(taskCore.updateTask).toHaveBeenCalledWith('task-peek-1', expect.objectContaining({
         metadata: expect.objectContaining({
           peek: expect.objectContaining({
             bundle_references: expect.arrayContaining([
@@ -1092,7 +1115,7 @@ describe('Snapscope Handlers', () => {
           }),
         }),
       }));
-      expect(database.updateWorkflow).toHaveBeenCalledWith('wf-peek-1', expect.objectContaining({
+      expect(workflowEngine.updateWorkflow).toHaveBeenCalledWith('wf-peek-1', expect.objectContaining({
         context: expect.objectContaining({
           peek: expect.objectContaining({
             bundle_references: expect.arrayContaining([

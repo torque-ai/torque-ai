@@ -1,6 +1,10 @@
 'use strict';
 
-const mockDb = {
+const mockTaskCore = {};
+const mockEventTracking = {};
+const mockFileTracking = {};
+const mockHostManagement = {};
+const mockProviderRoutingCore = {
   getConfig: vi.fn(),
   setConfig: vi.fn(),
   getProvider: vi.fn(),
@@ -20,9 +24,28 @@ const mockDashboardServer = {
   getStatus: vi.fn(() => ({ running: false })),
 };
 
-vi.mock('../database', () => mockDb);
+const mockProviderRegistry = {
+  isApiProvider: vi.fn(() => false),
+};
+
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+vi.mock('../db/task-core', () => mockTaskCore);
+vi.mock('../db/event-tracking', () => mockEventTracking);
+vi.mock('../db/file-tracking', () => mockFileTracking);
+vi.mock('../db/host-management', () => mockHostManagement);
+vi.mock('../db/provider-routing-core', () => mockProviderRoutingCore);
 vi.mock('../task-manager', () => mockTaskManager);
 vi.mock('../dashboard-server', () => mockDashboardServer);
+vi.mock('../providers/registry', () => mockProviderRegistry);
 vi.mock('../handlers/provider-ollama-hosts', () => ({}));
 vi.mock('../handlers/provider-tuning', () => ({}));
 
@@ -45,24 +68,29 @@ function getStatsHandler() {
 }
 
 function loadProviderHandlers() {
-  const databasePath = require.resolve('../database');
-  const taskManagerPath = require.resolve('../task-manager');
-  const dashboardServerPath = require.resolve('../dashboard-server');
-  const ollamaHostsPath = require.resolve('../handlers/provider-ollama-hosts');
-  const tuningPath = require.resolve('../handlers/provider-tuning');
   const providerHandlersPath = require.resolve('../handlers/provider-handlers');
 
   vi.resetModules();
-  vi.doMock('../database', () => mockDb);
+  vi.doMock('../db/task-core', () => mockTaskCore);
+  vi.doMock('../db/event-tracking', () => mockEventTracking);
+  vi.doMock('../db/file-tracking', () => mockFileTracking);
+  vi.doMock('../db/host-management', () => mockHostManagement);
+  vi.doMock('../db/provider-routing-core', () => mockProviderRoutingCore);
   vi.doMock('../task-manager', () => mockTaskManager);
   vi.doMock('../dashboard-server', () => mockDashboardServer);
+  vi.doMock('../providers/registry', () => mockProviderRegistry);
   vi.doMock('../handlers/provider-ollama-hosts', () => ({}));
   vi.doMock('../handlers/provider-tuning', () => ({}));
-  require.cache[databasePath] = { id: databasePath, filename: databasePath, loaded: true, exports: mockDb };
-  require.cache[taskManagerPath] = { id: taskManagerPath, filename: taskManagerPath, loaded: true, exports: mockTaskManager };
-  require.cache[dashboardServerPath] = { id: dashboardServerPath, filename: dashboardServerPath, loaded: true, exports: mockDashboardServer };
-  require.cache[ollamaHostsPath] = { id: ollamaHostsPath, filename: ollamaHostsPath, loaded: true, exports: {} };
-  require.cache[tuningPath] = { id: tuningPath, filename: tuningPath, loaded: true, exports: {} };
+  installCjsModuleMock('../db/task-core', mockTaskCore);
+  installCjsModuleMock('../db/event-tracking', mockEventTracking);
+  installCjsModuleMock('../db/file-tracking', mockFileTracking);
+  installCjsModuleMock('../db/host-management', mockHostManagement);
+  installCjsModuleMock('../db/provider-routing-core', mockProviderRoutingCore);
+  installCjsModuleMock('../task-manager', mockTaskManager);
+  installCjsModuleMock('../dashboard-server', mockDashboardServer);
+  installCjsModuleMock('../providers/registry', mockProviderRegistry);
+  installCjsModuleMock('../handlers/provider-ollama-hosts', {});
+  installCjsModuleMock('../handlers/provider-tuning', {});
   delete require.cache[providerHandlersPath];
   providerHandlers = require('../handlers/provider-handlers');
 }
@@ -71,13 +99,13 @@ describe('provider-handlers direct exports', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockDb.listProviders.mockReturnValue([
+    mockProviderRoutingCore.listProviders.mockReturnValue([
       { provider: 'ollama', enabled: 1, priority: 1, cli_path: null, max_concurrent: 4 },
       { provider: 'codex', enabled: 1, priority: 2, cli_path: 'codex', max_concurrent: 2 },
     ]);
-    mockDb.getDefaultProvider.mockReturnValue('codex');
-    mockDb.getConfig.mockImplementation((key) => (key === 'default_provider' ? 'codex' : null));
-    mockDb.getProvider.mockImplementation((provider) => {
+    mockProviderRoutingCore.getDefaultProvider.mockReturnValue('codex');
+    mockProviderRoutingCore.getConfig.mockImplementation((key) => (key === 'default_provider' ? 'codex' : null));
+    mockProviderRoutingCore.getProvider.mockImplementation((provider) => {
       if (provider === 'ollama') {
         return {
           provider: 'ollama',
@@ -98,7 +126,7 @@ describe('provider-handlers direct exports', () => {
 
       return null;
     });
-    mockDb.getProviderStats.mockReturnValue({
+    mockProviderRoutingCore.getProviderStats.mockReturnValue({
       total_tasks: 12,
       successful_tasks: 10,
       failed_tasks: 2,
@@ -107,6 +135,7 @@ describe('provider-handlers direct exports', () => {
       total_cost: 1.2345,
       avg_duration_seconds: 42,
     });
+    mockProviderRegistry.isApiProvider.mockReturnValue(false);
 
     loadProviderHandlers();
   });
@@ -129,17 +158,18 @@ describe('provider-handlers direct exports', () => {
     it('updates the default provider and returns a success message', () => {
       const result = getSwitchHandler()({ provider: 'ollama' });
       const text = getText(result);
-      const totalConfigWrites = mockDb.setConfig.mock.calls.length + mockDb.setDefaultProvider.mock.calls.length;
+      const totalConfigWrites = mockProviderRoutingCore.setConfig.mock.calls.length
+        + mockProviderRoutingCore.setDefaultProvider.mock.calls.length;
 
       expect(result.isError).not.toBe(true);
       expect(totalConfigWrites).toBe(1);
 
-      if (mockDb.setConfig.mock.calls.length > 0) {
-        expect(mockDb.setConfig).toHaveBeenCalledWith('default_provider', 'ollama');
+      if (mockProviderRoutingCore.setConfig.mock.calls.length > 0) {
+        expect(mockProviderRoutingCore.setConfig).toHaveBeenCalledWith('default_provider', 'ollama');
       }
 
-      if (mockDb.setDefaultProvider.mock.calls.length > 0) {
-        expect(mockDb.setDefaultProvider).toHaveBeenCalledWith('ollama');
+      if (mockProviderRoutingCore.setDefaultProvider.mock.calls.length > 0) {
+        expect(mockProviderRoutingCore.setDefaultProvider).toHaveBeenCalledWith('ollama');
       }
 
       expect(text).toContain('ollama');
@@ -149,9 +179,9 @@ describe('provider-handlers direct exports', () => {
 
   describe('handleGetProviderDashboard / handleListProviders', () => {
     it('works with an empty db', () => {
-      mockDb.listProviders.mockReturnValue([]);
-      mockDb.getDefaultProvider.mockReturnValue(null);
-      mockDb.getConfig.mockReturnValue(null);
+      mockProviderRoutingCore.listProviders.mockReturnValue([]);
+      mockProviderRoutingCore.getDefaultProvider.mockReturnValue(null);
+      mockProviderRoutingCore.getConfig.mockReturnValue(null);
 
       const result = getDashboardHandler()({});
       const text = getText(result);
@@ -198,8 +228,8 @@ describe('provider-handlers direct exports', () => {
       const text = getText(result);
 
       expect(result.isError).not.toBe(true);
-      expect(mockDb.getProviderStats).toHaveBeenCalled();
-      expect(mockDb.getProviderStats.mock.calls[0][0]).toBe('ollama');
+      expect(mockProviderRoutingCore.getProviderStats).toHaveBeenCalled();
+      expect(mockProviderRoutingCore.getProviderStats.mock.calls[0][0]).toBe('ollama');
       expect(text).toContain('ollama');
       expect(text).toMatch(/statistics|stats/i);
     });

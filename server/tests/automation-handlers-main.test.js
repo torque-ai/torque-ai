@@ -204,12 +204,28 @@ function loadAutomationModule(overrides = {}) {
   const requireFromModule = createRequire(resolvedPath);
 
   const mockDb = overrides.db || createMockDb(overrides.dbOptions);
+  const mockDatabase = overrides.database || {
+    safeAddColumn: mockDb.safeAddColumn,
+  };
+  const mockConfigCore = overrides.configCore || {
+    __stores: mockDb.__stores,
+    setConfig: mockDb.setConfig,
+    getConfig: mockDb.getConfig,
+  };
+  const mockTaskCore = overrides.taskCore || {
+    getTask: mockDb.getTask,
+    createTask: mockDb.createTask,
+  };
   const mockProjectConfigCore = overrides.projectConfigCore || {
     getProjectFromPath: mockDb.getProjectFromPath,
     setProjectConfig: mockDb.setProjectConfig,
     getProjectConfig: mockDb.getProjectConfig,
     setProjectMetadata: mockDb.setProjectMetadata,
     getProjectMetadata: mockDb.getProjectMetadata,
+  };
+  const mockWorkflowEngine = overrides.workflowEngine || {
+    getWorkflow: mockDb.getWorkflow,
+    getWorkflowStatus: mockDb.getWorkflowStatus,
   };
   const mockTaskManager = overrides.taskManager || createMockTaskManager();
   const mockFs = overrides.fs || createVirtualFs();
@@ -245,8 +261,11 @@ function loadAutomationModule(overrides = {}) {
     './shared': { ErrorCodes, makeError },
     '../remote/remote-test-routing': { createRemoteTestRouter },
     '../logger': { child: vi.fn(() => mockLogger) },
-    '../database': mockDb,
+    '../database': mockDatabase,
+    '../db/config-core': mockConfigCore,
+    '../db/task-core': mockTaskCore,
     '../db/project-config-core': mockProjectConfigCore,
+    '../db/workflow-engine': mockWorkflowEngine,
     '../task-manager': mockTaskManager,
     '../index': indexModule,
     uuid: { v4: uuidV4 },
@@ -273,7 +292,8 @@ function loadAutomationModule(overrides = {}) {
     'exports',
     '__filename',
     '__dirname',
-    `${source}
+    `const db = database;
+${source}
 module.exports.__testHelpers = {
   sanitizeTemplateVariable,
   db,
@@ -292,8 +312,11 @@ module.exports.__testHelpers = {
     handlers: exportedModule.exports,
     helpers: exportedModule.exports.__testHelpers,
     mocks: {
-      db: mockDb,
+      db: mockDatabase,
+      configCore: mockConfigCore,
+      taskCore: mockTaskCore,
       projectConfigCore: mockProjectConfigCore,
+      workflowEngine: mockWorkflowEngine,
       taskManager: mockTaskManager,
       fs: mockFs,
       logger: mockLogger,
@@ -491,14 +514,14 @@ describe('automation-handlers main unit suite', () => {
       });
       const text = getText(result);
 
-      expect(mocks.db.__stores.configStore.get('stall_threshold_codex')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_threshold_ollama')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_threshold_hashline')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_threshold_claude')).toBe('180');
-      expect(mocks.db.__stores.configStore.get('stall_auto_resubmit')).toBe('1');
-      expect(mocks.db.__stores.configStore.get('stall_recovery_max_attempts')).toBe('4');
-      expect(mocks.db.__stores.configStore.get('auto_cancel_stalled')).toBe('1');
-      expect(mocks.db.__stores.configStore.get('stall_recovery_enabled')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('stall_threshold_codex')).toBe('180');
+      expect(mocks.configCore.__stores.configStore.get('stall_threshold_ollama')).toBe('180');
+      expect(mocks.configCore.__stores.configStore.get('stall_threshold_hashline')).toBe('180');
+      expect(mocks.configCore.__stores.configStore.get('stall_threshold_claude')).toBe('180');
+      expect(mocks.configCore.__stores.configStore.get('stall_auto_resubmit')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('stall_recovery_max_attempts')).toBe('4');
+      expect(mocks.configCore.__stores.configStore.get('auto_cancel_stalled')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('stall_recovery_enabled')).toBe('1');
       expect(text).toContain('Set stall threshold to 180s for all providers');
       expect(text).toContain('**Auto-resubmit:** Yes');
       expect(text).toContain('**Max attempts:** 4');
@@ -540,9 +563,9 @@ describe('automation-handlers main unit suite', () => {
       });
       const text = getText(result);
 
-      expect(mocks.db.__stores.configStore.get('free_tier_auto_scale_enabled')).toBe('true');
-      expect(mocks.db.__stores.configStore.get('free_tier_queue_depth_threshold')).toBe('1');
-      expect(mocks.db.__stores.configStore.get('free_tier_cooldown_seconds')).toBe('0');
+      expect(mocks.configCore.__stores.configStore.get('free_tier_auto_scale_enabled')).toBe('true');
+      expect(mocks.configCore.__stores.configStore.get('free_tier_queue_depth_threshold')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('free_tier_cooldown_seconds')).toBe('0');
       expect(text).toContain('Free-tier auto-scale: enabled');
       expect(text).toContain('| Queue depth threshold | 1 |');
       expect(text).toContain('| Cooldown (seconds) | 0 |');
@@ -621,7 +644,7 @@ describe('automation-handlers main unit suite', () => {
       expect(text).toContain('**src/foo.ts:**');
       expect(text).toContain('**src/bar.ts:**');
       expect(text).toContain('Summary:** 2 errors, 0 fix tasks submitted');
-      expect(mocks.db.createTask).not.toHaveBeenCalled();
+      expect(mocks.taskCore.createTask).not.toHaveBeenCalled();
     });
 
     it('submits fix tasks with error-feedback context when a source task is provided', async () => {

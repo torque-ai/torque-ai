@@ -4,7 +4,7 @@ const mockDecompose = vi.fn();
 const mockDiagnose = vi.fn();
 const mockReview = vi.fn();
 const mockGetUsage = vi.fn();
-const mockDb = {
+const mockTaskCore = {
   getTask: vi.fn(),
 };
 
@@ -35,12 +35,12 @@ let handleStrategicUsage;
 
 function loadHandlers() {
   const brainPath = require.resolve('../orchestrator/strategic-brain');
-  const databasePath = require.resolve('../database');
+  const taskCorePath = require.resolve('../db/task-core');
   const handlersPath = require.resolve('../handlers/orchestrator-handlers');
 
   vi.resetModules();
   require.cache[brainPath] = { id: brainPath, filename: brainPath, loaded: true, exports: MockBrain };
-  require.cache[databasePath] = { id: databasePath, filename: databasePath, loaded: true, exports: mockDb };
+  require.cache[taskCorePath] = { id: taskCorePath, filename: taskCorePath, loaded: true, exports: mockTaskCore };
   delete require.cache[handlersPath];
 
   ({
@@ -57,7 +57,7 @@ describe('orchestrator-handlers', () => {
     mockDiagnose.mockReset();
     mockReview.mockReset();
     mockGetUsage.mockReset();
-    mockDb.getTask.mockReset();
+    mockTaskCore.getTask.mockReset();
     loadHandlers();
   });
 

@@ -12,6 +12,9 @@ const mockDb = {
   getPlanProject: vi.fn(),
   getPlanProjectTasks: vi.fn(),
   deletePlanProject: vi.fn(),
+};
+
+const mockTaskCore = {
   updateTaskStatus: vi.fn(),
 };
 
@@ -43,13 +46,14 @@ function clearModuleCache() {
   delete require.cache[require.resolve('../api/v2-governance-handlers')];
   delete require.cache[require.resolve('../api/v2-control-plane')];
   delete require.cache[require.resolve('../api/middleware')];
-  delete require.cache[require.resolve('../database')];
+  delete require.cache[require.resolve('../db/task-core')];
+  delete require.cache[require.resolve('../db/project-config-core')];
   delete require.cache[require.resolve('../tools')];
 }
 
 function loadHandlers() {
   clearModuleCache();
-  installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/task-core', mockTaskCore);
   installCjsModuleMock('../db/project-config-core', mockDb);
   installCjsModuleMock('../tools', mockTools);
   installCjsModuleMock('../api/middleware', mockMiddleware);
@@ -68,7 +72,7 @@ function resetMockDefaults() {
   ensureMockFn(mockDb, 'getPlanProject').mockReturnValue(null);
   ensureMockFn(mockDb, 'getPlanProjectTasks').mockReturnValue([]);
   ensureMockFn(mockDb, 'deletePlanProject').mockReturnValue(undefined);
-  ensureMockFn(mockDb, 'updateTaskStatus').mockReturnValue(undefined);
+  ensureMockFn(mockTaskCore, 'updateTaskStatus').mockReturnValue(undefined);
 
   ensureMockFn(mockTools, 'handleToolCall').mockResolvedValue({ success: true });
 
@@ -549,7 +553,7 @@ describe('api/v2-governance-handlers.handleDeletePlanProject', () => {
 
     await handlers.handleDeletePlanProject(req, res);
 
-    expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-1', 'cancelled', {
+    expect(mockTaskCore.updateTaskStatus).toHaveBeenCalledWith('task-1', 'cancelled', {
       error_output: 'Plan project deleted',
     });
     expect(mockDb.deletePlanProject).toHaveBeenCalledWith('plan-3');

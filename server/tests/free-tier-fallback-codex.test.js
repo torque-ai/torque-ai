@@ -6,7 +6,9 @@ const LOGGER_PATH = require.resolve('../logger');
 const SANITIZE_PATH = require.resolve('../utils/sanitize');
 const CONTEXT_STUFFING_PATH = require.resolve('../utils/context-stuffing');
 const UUID_PATH = require.resolve('uuid');
-const DB_PATH = require.resolve('../database');
+const TASK_CORE_PATH = require.resolve('../db/task-core');
+const PROVIDER_ROUTING_CORE_PATH = require.resolve('../db/provider-routing-core');
+const FILE_TRACKING_PATH = require.resolve('../db/file-tracking');
 const CONFIG_PATH = require.resolve('../config');
 const CONSTANTS_PATH = require.resolve('../constants');
 const CONTROL_PLANE_PATH = require.resolve('../api/v2-control-plane');
@@ -20,7 +22,9 @@ const ORIGINAL_CACHE_ENTRIES = new Map([
   [SANITIZE_PATH, require.cache[SANITIZE_PATH]],
   [CONTEXT_STUFFING_PATH, require.cache[CONTEXT_STUFFING_PATH]],
   [UUID_PATH, require.cache[UUID_PATH]],
-  [DB_PATH, require.cache[DB_PATH]],
+  [TASK_CORE_PATH, require.cache[TASK_CORE_PATH]],
+  [PROVIDER_ROUTING_CORE_PATH, require.cache[PROVIDER_ROUTING_CORE_PATH]],
+  [FILE_TRACKING_PATH, require.cache[FILE_TRACKING_PATH]],
   [CONFIG_PATH, require.cache[CONFIG_PATH]],
   [CONSTANTS_PATH, require.cache[CONSTANTS_PATH]],
   [CONTROL_PLANE_PATH, require.cache[CONTROL_PLANE_PATH]],
@@ -161,15 +165,19 @@ function parseMetadata(value) {
 }
 
 function loadV2TaskHandlers() {
-  const mockDb = {
+  const mockTaskCore = {
     countTasks: vi.fn(() => 0),
     createTask: vi.fn(),
     deleteTask: vi.fn(),
+    getTask: vi.fn(),
+    listTasks: vi.fn(() => []),
+  };
+  const mockProviderRoutingCore = {
     getDefaultProvider: vi.fn(() => 'codex'),
     getProvider: vi.fn(() => ({ enabled: true })),
-    getTask: vi.fn(),
+  };
+  const mockFileTracking = {
     getTaskFileChanges: vi.fn(() => []),
-    listTasks: vi.fn(() => []),
   };
   const mockConfig = {
     getInt: vi.fn((key, fallback) => fallback),
@@ -210,7 +218,9 @@ function loadV2TaskHandlers() {
   };
 
   installMock(UUID_PATH, { v4: mockUuidV4 });
-  installMock(DB_PATH, mockDb);
+  installMock(TASK_CORE_PATH, mockTaskCore);
+  installMock(PROVIDER_ROUTING_CORE_PATH, mockProviderRoutingCore);
+  installMock(FILE_TRACKING_PATH, mockFileTracking);
   installMock(CONFIG_PATH, mockConfig);
   installMock(CONSTANTS_PATH, mockConstants);
   installMock(CONTROL_PLANE_PATH, mockControlPlane);
@@ -223,7 +233,7 @@ function loadV2TaskHandlers() {
 
   return {
     handlers,
-    mockDb,
+    mockTaskCore,
     mockControlPlane,
     taskManager,
   };
@@ -395,9 +405,9 @@ describe('free-tier Codex fallback', () => {
   });
 
   it('uses original_provider for v2 retry clones when present', async () => {
-    const { handlers, mockDb, mockControlPlane, taskManager } = loadV2TaskHandlers();
+    const { handlers, mockTaskCore, mockControlPlane, taskManager } = loadV2TaskHandlers();
 
-    mockDb.getTask
+    mockTaskCore.getTask
       .mockReturnValueOnce({
         id: 'failed-task',
         status: 'failed',
@@ -435,7 +445,7 @@ describe('free-tier Codex fallback', () => {
         intended_provider: 'codex',
       }),
     }));
-    expect(mockDb.createTask).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockTaskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
       id: 'retry-clone-1',
       provider: null,
       metadata: expect.stringContaining('"intended_provider":"codex"'),

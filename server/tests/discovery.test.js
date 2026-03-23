@@ -365,12 +365,14 @@ function loadDiscoveryWithBonjour(mockBonjour) {
 }
 
 describe('Bonjour Discovery Host Identities', () => {
-  let database;
+  let configCore;
+  let hostManagement;
   let loadedDiscovery = null;
 
   beforeAll(() => {
     setupTestDb('discovery-mdns');
-    database = require('../database');
+    configCore = require('../db/config-core');
+    hostManagement = require('../db/host-management');
   });
 
   afterAll(() => {
@@ -401,7 +403,7 @@ describe('Bonjour Discovery Host Identities', () => {
     };
 
     for (const [key, value] of Object.entries(config)) {
-      database.setConfig(key, value);
+      configCore.setConfig(key, value);
     }
   }
 
@@ -508,7 +510,7 @@ describe('Bonjour Discovery Host Identities', () => {
       },
     });
 
-    const hosts = database.listOllamaHosts()
+    const hosts = hostManagement.listOllamaHosts()
       .slice()
       .sort((left, right) => left.url.localeCompare(right.url));
 

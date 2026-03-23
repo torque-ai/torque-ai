@@ -258,9 +258,6 @@ describe('API Server endpoints', () => {
     countTasksSpy = vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
     // Mock DB instance check for probeDatabase() — return truthy so probes see DB as initialized
     vi.spyOn(db, 'getDbInstance').mockReturnValue({});
-    if (typeof db.isDbClosed === 'function') {
-      vi.spyOn(db, 'isDbClosed').mockReturnValue(false);
-    }
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
       content: [{ type: 'text', text: 'ok' }],
     });

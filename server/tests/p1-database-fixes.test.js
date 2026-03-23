@@ -20,11 +20,13 @@ const TASK_CHILD_TABLES = [
   'xaml_consistency_results', 'smoke_test_results', 'similar_tasks', 'task_replays'
 ];
 
-let db;
 let rawDb;
 let auxDb;
 let workingDir;
 let originalDataDir;
+let initDb;
+let getDbInstance;
+let closeDb;
 
 function setupDb() {
   workingDir = path.join(os.tmpdir(), `torque-p1-db-fixes-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
@@ -32,11 +34,18 @@ function setupDb() {
   originalDataDir = process.env.TORQUE_DATA_DIR;
   process.env.TORQUE_DATA_DIR = workingDir;
 
-  db = require('../database');
-  db.init();
-  rawDb = db.getDbInstance();
+  const dbModulePath = require.resolve('../database');
+  delete require.cache[dbModulePath];
+  ({ init: initDb, getDbInstance, close: closeDb } = require('../database'));
 
-  auxDb = new Database(db.getDbPath());
+  initDb();
+  rawDb = getDbInstance();
+
+  const mainDb = rawDb.prepare('PRAGMA database_list').all().find((entry) => entry.name === 'main');
+  if (!mainDb?.file) {
+    throw new Error('Could not resolve main SQLite database path for test');
+  }
+  auxDb = new Database(mainDb.file);
   resetDbTables();
 }
 
@@ -50,13 +59,15 @@ function teardownDb() {
     auxDb = null;
   }
 
-  if (db) {
+  if (closeDb) {
     try {
-      db.close();
+      closeDb();
     } catch {
       // ignore
     }
-    db = null;
+    initDb = null;
+    getDbInstance = null;
+    closeDb = null;
     rawDb = null;
   }
 
@@ -142,7 +153,7 @@ describe('p1 database fixes', () => {
     createTask({ id: 'ambig-task-bbb', task_description: 'second duplicate prefix' });
 
     try {
-      db.resolveTaskId('ambig-task');
+      taskCore.resolveTaskId('ambig-task');
       throw new Error('Expected ambiguous prefix error');
     } catch (err) {
       expect(err.code).toBe(ErrorCodes.INVALID_PARAM);
@@ -229,7 +240,7 @@ describe('p1 database fixes', () => {
     };
 
     try {
-      const result = db.tryClaimTaskSlot(targetId, 1, null, 'ollama', 1, ['ollama']);
+      const result = taskCore.tryClaimTaskSlot(targetId, 1, null, 'ollama', 1, ['ollama']);
       // The interleaved claim fills the global slot (cap=1), so the atomic
       // check correctly rejects the second claim — no over-capacity.
       expect(result.success).toBe(false);

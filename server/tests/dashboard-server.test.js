@@ -68,6 +68,16 @@ function sentEvents(ws) {
   return ws.send.mock.calls.map((call) => JSON.parse(call[0]));
 }
 
+function installMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
 // Shared state for WebSocket mock instances
 let wsInstances = [];
 
@@ -100,6 +110,8 @@ function loadDashboardServer({
   const modulesToClear = [
     '../dashboard-server',
     '../database',
+    '../db/task-core',
+    '../db/host-management',
     '../dashboard/router',
     '../dashboard/utils',
     '../task-manager',
@@ -142,13 +154,37 @@ function loadDashboardServer({
     res.end(JSON.stringify({ error: message }));
   });
 
-  const mockDb = {
-    getConfig: vi.fn(() => null),
+  const mockTaskCore = {
     getTask: vi.fn(() => null),
     countTasks: vi.fn(() => 0),
     listTasks: vi.fn(() => []),
+    ...Object.fromEntries(Object.entries(dbOverrides).filter(([key]) => (
+      ['getTask', 'countTasks', 'countTasksByStatus', 'listTasks'].includes(key)
+    ))),
+  };
+  if (typeof mockTaskCore.countTasksByStatus !== 'function') {
+    mockTaskCore.countTasksByStatus = vi.fn(() => ({
+      running: mockTaskCore.countTasks({ status: 'running' }),
+      queued: mockTaskCore.countTasks({ status: 'queued' }),
+      completed: mockTaskCore.countTasks({ status: 'completed' }),
+      failed: mockTaskCore.countTasks({ status: 'failed' }),
+    }));
+  }
+
+  const mockHostManagement = {
     listOllamaHosts: vi.fn(() => []),
-    ...dbOverrides,
+    ...Object.fromEntries(Object.entries(dbOverrides).filter(([key]) => (
+      ['listOllamaHosts'].includes(key)
+    ))),
+  };
+
+  const mockDb = {
+    getConfig: vi.fn(() => null),
+    getTask: mockTaskCore.getTask,
+    countTasks: mockTaskCore.countTasks,
+    countTasksByStatus: mockTaskCore.countTasksByStatus,
+    listTasks: mockTaskCore.listTasks,
+    listOllamaHosts: mockHostManagement.listOllamaHosts,
   };
 
   const mockTaskManager = {
@@ -181,21 +217,18 @@ function loadDashboardServer({
   const ws = require('ws');
   ws.WebSocketServer = MockWebSocketServer;
 
-  // database: replace the cached module with our mock
-  const dbPath = require.resolve('../database');
-  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: mockDb };
+  // Load the real database facade against mocked task/host sub-modules.
+  installMock('../db/task-core', mockTaskCore);
+  installMock('../db/host-management', mockHostManagement);
 
   // dashboard/router: replace with dispatch mock
-  const routerPath = require.resolve('../dashboard/router');
-  require.cache[routerPath] = { id: routerPath, filename: routerPath, loaded: true, exports: { dispatch: dispatchMock } };
+  installMock('../dashboard/router', { dispatch: dispatchMock });
 
   // dashboard/utils: replace with sendError mock
-  const utilsPath = require.resolve('../dashboard/utils');
-  require.cache[utilsPath] = { id: utilsPath, filename: utilsPath, loaded: true, exports: { sendError: sendErrorMock } };
+  installMock('../dashboard/utils', { sendError: sendErrorMock });
 
   // task-manager: replace with mock
-  const tmPath = require.resolve('../task-manager');
-  require.cache[tmPath] = { id: tmPath, filename: tmPath, loaded: true, exports: mockTaskManager };
+  installMock('../task-manager', mockTaskManager);
 
   // fs: if overrides, monkey-patch the fs module
   if (fsOverrides) {
@@ -687,15 +720,22 @@ describe('dashboard-server', () => {
 describe('dashboard router/utils helpers', () => {
   beforeEach(() => {
     // Clear require.cache entries that were monkey-patched by dashboard-server tests
-    for (const mod of ['../database', '../dashboard/router', '../dashboard/utils', '../task-manager']) {
+    for (const mod of [
+      '../db/host-management',
+      '../dashboard/router',
+      '../dashboard/utils',
+      '../dashboard/routes/tasks',
+      '../dashboard/routes/infrastructure',
+      '../dashboard/routes/analytics',
+      '../dashboard/routes/admin',
+    ]) {
       try {
         const resolved = require.resolve(mod);
         delete require.cache[resolved];
       } catch { /* ignore */ }
     }
 
-    // Set up a db mock with proxy for any missing methods
-    const dbMock = new Proxy({
+    const hostManagementMock = new Proxy({
       getOllamaHost: vi.fn(() => null),
     }, {
       get(target, prop) {
@@ -705,12 +745,38 @@ describe('dashboard router/utils helpers', () => {
         return target[prop];
       },
     });
-    const dbPath = require.resolve('../database');
-    require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: dbMock };
+
+    const createRouteModuleMock = () => new Proxy({}, {
+      get(target, prop) {
+        if (!(prop in target)) {
+          target[prop] = vi.fn();
+        }
+        return target[prop];
+      },
+    });
+
+    installMock('../db/host-management', hostManagementMock);
+    installMock('../dashboard/routes/tasks', createRouteModuleMock());
+    installMock('../dashboard/routes/infrastructure', createRouteModuleMock());
+    installMock('../dashboard/routes/analytics', createRouteModuleMock());
+    installMock('../dashboard/routes/admin', createRouteModuleMock());
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    for (const mod of [
+      '../db/host-management',
+      '../dashboard/router',
+      '../dashboard/utils',
+      '../dashboard/routes/tasks',
+      '../dashboard/routes/infrastructure',
+      '../dashboard/routes/analytics',
+      '../dashboard/routes/admin',
+    ]) {
+      try {
+        delete require.cache[require.resolve(mod)];
+      } catch { /* ignore */ }
+    }
   });
 
   it('handles CORS preflight OPTIONS requests', async () => {

@@ -25,7 +25,6 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadControlPlane() {
   delete require.cache[require.resolve('../api/v2-control-plane')];
-  installCjsModuleMock('../database', mockDb);
   installCjsModuleMock('../db/cost-tracking', mockDb);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   return require('../api/v2-control-plane');
@@ -47,7 +46,8 @@ afterEach(() => {
   });
   vi.useRealTimers();
   delete require.cache[require.resolve('../api/v2-control-plane')];
-  delete require.cache[require.resolve('../database')];
+  delete require.cache[require.resolve('../db/cost-tracking')];
+  delete require.cache[require.resolve('../api/middleware')];
 });
 
 describe('v2-control-plane response helpers', () => {

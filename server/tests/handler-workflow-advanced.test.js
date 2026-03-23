@@ -1,4 +1,3 @@
-const db = require('../database');
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
@@ -7,6 +6,17 @@ const eventTracking = require('../db/event-tracking');
 const taskManager = require('../task-manager');
 const workflowRuntime = require('../execution/workflow-runtime');
 const handlers = require('../handlers/workflow/advanced');
+
+const workflowRuntimeDb = {
+  getTask: (...args) => taskCore.getTask(...args),
+  updateTaskStatus: (...args) => taskCore.updateTaskStatus(...args),
+  getWorkflow: (...args) => workflowEngine.getWorkflow(...args),
+  getTaskDependents: (...args) => workflowEngine.getTaskDependents(...args),
+  getTaskDependencies: (...args) => workflowEngine.getTaskDependencies(...args),
+  evaluateCondition: (...args) => workflowEngine.evaluateCondition(...args),
+  getWorkflowTasks: (...args) => workflowEngine.getWorkflowTasks(...args),
+  updateWorkflow: (...args) => workflowEngine.updateWorkflow(...args),
+};
 
 function textOf(result) {
   return result?.content?.[0]?.text || '';
@@ -569,8 +579,8 @@ describe('workflow-advanced handlers', () => {
       vi.spyOn(workflowEngine, 'evaluateCondition').mockReturnValue(true);
       vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(Object.values(taskState));
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
-      // Initialize workflow-runtime with the spied db so handleWorkflowTermination works
-      workflowRuntime.init({ db });
+      // Initialize workflow-runtime with the spied task/workflow adapters so handleWorkflowTermination works
+      workflowRuntime.init({ db: workflowRuntimeDb });
 
       const result = handlers.handleSkipTask({
         task_id: 'root',
@@ -624,8 +634,8 @@ describe('workflow-advanced handlers', () => {
       vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(Object.values(taskState));
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
       const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
-      // Initialize workflow-runtime with the spied db so handleWorkflowTermination works
-      workflowRuntime.init({ db });
+      // Initialize workflow-runtime with the spied task/workflow adapters so handleWorkflowTermination works
+      workflowRuntime.init({ db: workflowRuntimeDb });
 
       const result = handlers.handleSkipTask({ task_id: 'root' });
 

@@ -5,30 +5,96 @@
  * Exercises the REAL createTask + processQueue pipeline.
  */
 
-vi.mock('../providers/registry', () => ({
+const mockProviderRegistry = {
   getProviderInstance: vi.fn().mockReturnValue({}),
   listProviders: vi.fn().mockReturnValue([]),
   getProviderConfig: vi.fn(),
-  getCategory: vi.fn().mockReturnValue(null),
-}));
+  getCategory: vi.fn().mockImplementation((provider) => {
+    if (provider === 'codex') return 'codex';
+    if (provider === 'ollama' || provider === 'hashline-ollama') return 'ollama';
+    return 'api';
+  }),
+};
+
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+vi.mock('../providers/registry', () => mockProviderRegistry);
+
+const mockServerConfig = {
+  init: vi.fn(),
+  isOptIn: vi.fn(),
+  getBool: vi.fn(),
+  getInt: vi.fn(),
+  get: vi.fn(),
+};
+
+vi.mock('../config', () => mockServerConfig);
 
 describe('auto_routed overflow — proof of integration', () => {
   // ── Part 1: createTask metadata flag ──────────────────────
 
   describe('createTask sets auto_routed correctly', () => {
-    let db;
+    let dbHandle;
     let taskCore;
 
     beforeEach(() => {
+      const Database = require('better-sqlite3');
       vi.resetModules();
-      delete require.cache[require.resolve('../database')];
-      db = require('../database');
       taskCore = require('../db/task-core');
-      db.init(':memory:');
+      dbHandle = new Database(':memory:');
+      dbHandle.exec(`
+        CREATE TABLE tasks (
+          id TEXT PRIMARY KEY,
+          status TEXT,
+          task_description TEXT,
+          working_directory TEXT,
+          timeout_minutes INTEGER,
+          auto_approve INTEGER,
+          priority INTEGER,
+          context TEXT,
+          created_at TEXT,
+          max_retries INTEGER,
+          depends_on TEXT,
+          template_name TEXT,
+          isolated_workspace TEXT,
+          tags TEXT,
+          project TEXT,
+          provider TEXT,
+          model TEXT,
+          complexity TEXT,
+          review_status TEXT,
+          ollama_host_id TEXT,
+          original_provider TEXT,
+          provider_switched_at TEXT,
+          metadata TEXT,
+          workflow_id TEXT,
+          workflow_node_id TEXT,
+          stall_timeout_seconds INTEGER
+        );
+      `);
+      taskCore.setDb(dbHandle);
+      taskCore.setDbClosed(false);
+      taskCore.setExternalFns({
+        getProjectFromPath: () => null,
+        recordEvent: () => undefined,
+        escapeLikePattern: (value) => value,
+        recordTaskFileWrite: () => undefined,
+        notifyTaskStatusTransition: () => undefined,
+        getConfig: () => 'codex',
+      });
     });
 
     afterEach(() => {
-      try { db.close(); } catch (_e) { void _e; }
+      taskCore.setDb(null);
+      dbHandle.close();
     });
 
     it('defaults to configured provider when NO provider specified (workflow path)', () => {
@@ -97,6 +163,8 @@ describe('auto_routed overflow — proof of integration', () => {
 
     beforeEach(() => {
       vi.resetModules();
+      installCjsModuleMock('../providers/registry', mockProviderRegistry);
+      installCjsModuleMock('../config', mockServerConfig);
       delete require.cache[require.resolve('../execution/queue-scheduler')];
       scheduler = require('../execution/queue-scheduler');
 
@@ -105,7 +173,6 @@ describe('auto_routed overflow — proof of integration', () => {
         prepare: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue(null) }),
         listTasks: vi.fn().mockReturnValue([]),
         listOllamaHosts: vi.fn().mockReturnValue([]),
-        getConfig: vi.fn().mockReturnValue(null),
         selectOllamaHostForModel: vi.fn().mockReturnValue({ host: null, reason: 'no host' }),
         updateTaskStatus: vi.fn(),
         getNextQueuedTask: vi.fn().mockReturnValue(null),
@@ -125,6 +192,29 @@ describe('auto_routed overflow — proof of integration', () => {
         cleanupOrphanedRetryTimeouts: vi.fn(),
       };
 
+      mockServerConfig.init.mockReset();
+      mockServerConfig.isOptIn.mockReset();
+      mockServerConfig.getBool.mockReset();
+      mockServerConfig.getInt.mockReset();
+      mockServerConfig.get.mockReset();
+      mockServerConfig.isOptIn.mockImplementation((key) => {
+        if (key === 'codex_enabled') return true;
+        if (key === 'free_tier_auto_scale_enabled') return false;
+        return false;
+      });
+      mockServerConfig.getBool.mockImplementation((key) => {
+        if (key === 'codex_overflow_to_local') return true;
+        if (key === 'auto_compute_max_concurrent') return false;
+        return false;
+      });
+      mockServerConfig.getInt.mockImplementation((_key, fallback) => fallback);
+      mockServerConfig.get.mockImplementation((key) => {
+        if (key === 'overflow_max_complexity') return 'normal';
+        if (key === 'ollama_balanced_model') return 'qwen2.5-coder:32b';
+        if (key === 'ollama_fast_model') return 'qwen2.5-coder:32b';
+        return null;
+      });
+
       scheduler.init({ db: mockDb, ...mocks });
 
       // Patch to skip recent-process guard
@@ -137,15 +227,6 @@ describe('auto_routed overflow — proof of integration', () => {
     });
 
     function setupFullCodex(queuedTasks) {
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'codex_enabled') return '1';
-        if (key === 'codex_overflow_to_local') return '1';
-        if (key === 'overflow_max_complexity') return 'normal';
-        if (key === 'ollama_balanced_model') return 'qwen2.5-coder:32b';
-        if (key === 'ollama_fast_model') return 'qwen2.5-coder:32b';
-        return null;
-      });
-
       const runningCodex = [
         { id: 'r1', provider: 'codex', status: 'running' },
         { id: 'r2', provider: 'codex', status: 'running' },
