@@ -368,6 +368,7 @@ describe('db/provider-routing-core', () => {
     });
 
     it('getNextFallbackProvider skips raw ollama for greenfield tasks', () => {
+      configCore.setConfig('ollama_model', 'default-model');
       const taskId = createTask({
         status: 'failed',
         provider: 'codex',
