@@ -29,7 +29,7 @@ describe('provider-tuning handlers', () => {
       expect(text).toContain('0.3'); // default temperature
       expect(text).toContain('8192'); // default num_ctx
       expect(text).toContain('code'); // default preset
-      expect(text).toContain('Aider');
+      expect(text).toContain('Ollama (Direct API)');
     });
 
     it('returns configured values when config is set', () => {

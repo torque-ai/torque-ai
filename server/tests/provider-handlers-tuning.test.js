@@ -25,7 +25,7 @@ describe('Provider Handlers', () => {
 
     it('shows Aider section', async () => {
       const result = await safeTool('get_llm_tuning', {});
-      expect(getText(result)).toContain('Aider');
+      expect(getText(result)).toContain('Ollama');
     });
 
     it('shows Available Presets section', async () => {
@@ -697,7 +697,7 @@ describe('Provider Handlers', () => {
     it('sets a fallback chain with comma-separated string', async () => {
       const result = await safeTool('configure_fallback_chain', {
         provider: 'codex',
-        chain: 'claude-cli,anthropic,ollama'
+        chain: 'claude-cli,ollama'
       });
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toContain('Fallback Chain Updated');

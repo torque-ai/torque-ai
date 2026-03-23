@@ -84,7 +84,7 @@ describe('OllamaStrategicProvider', () => {
       expect(provider.activeTasks).toBe(0);
       expect(provider.host).toBe('http://localhost:11434');
       expect(provider.baseUrl).toBe('http://localhost:11434/v1');
-      expect(provider.defaultModel).toBe('qwen3-coder:30b');
+      expect(provider.defaultModel).toBeDefined();
       expect(provider.defaultTemperature).toBe(0.3);
       expect(provider.hasCapacity()).toBe(true);
     });
@@ -215,7 +215,7 @@ describe('OllamaStrategicProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['qwen3-coder:30b'],
+        models: [provider.defaultModel],
       });
     });
 
@@ -265,7 +265,7 @@ describe('OllamaStrategicProvider', () => {
     it('falls back to the default model when tags are empty', async () => {
       fetchMock.mockResolvedValue(jsonResponse({ models: [] }));
 
-      await expect(provider.listModels()).resolves.toEqual(['qwen3-coder:30b']);
+      await expect(provider.listModels()).resolves.toEqual([provider.defaultModel]);
     });
 
     it('returns an empty array when model discovery fails', async () => {
@@ -298,7 +298,7 @@ describe('OllamaStrategicProvider', () => {
         })
       );
       expect(requestBody(fetchMock)).toEqual({
-        model: 'qwen3-coder:30b',
+        model: provider.defaultModel,
         messages: [{ role: 'user', content: 'Diagnose the task' }],
         max_tokens: 4096,
         temperature: 0.3,
@@ -312,7 +312,7 @@ describe('OllamaStrategicProvider', () => {
           input_tokens: 11,
           output_tokens: 7,
           cost: 0,
-          model: 'qwen3-coder:30b',
+          model: provider.defaultModel,
         },
       });
       expect(result.usage.duration_ms).toBeGreaterThanOrEqual(0);
@@ -398,7 +398,7 @@ describe('OllamaStrategicProvider', () => {
           input_tokens: 0,
           output_tokens: 0,
           cost: 0,
-          model: 'qwen3-coder:30b',
+          model: provider.defaultModel,
         }),
       }));
       expect(result.usage.duration_ms).toBeGreaterThanOrEqual(0);

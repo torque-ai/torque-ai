@@ -60,8 +60,8 @@ describe('categorizeQueuedTasks', () => {
 
     const result = tm.categorizeQueuedTasks(tasks, true);
 
-    expect(result.ollamaTasks).toHaveLength(3);
-    expect(result.ollamaTasks.map(t => t.id)).toEqual(['1', '2', '3']);
+    expect(result.ollamaTasks).toHaveLength(2);
+    expect(result.ollamaTasks.map(t => t.id)).toEqual(['1', '2']);
 
     expect(result.codexTasks).toHaveLength(2);
     expect(result.codexTasks.map(t => t.id)).toEqual(['4', '5']);

@@ -46,19 +46,20 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadProviderHandlers() {
   delete require.cache[require.resolve('../handlers/provider-handlers')];
-  installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/task-core', {});
+  installCjsModuleMock('../db/event-tracking', {});
+  installCjsModuleMock('../db/file-tracking', {});
+  installCjsModuleMock('../db/host-management', {});
+  installCjsModuleMock('../db/provider-routing-core', {
+    getHealthTrend: mockDb.getHealthTrend,
+    listProviders: mockDb.listProviders,
+  });
   installCjsModuleMock('../task-manager', mockTaskManager);
   installCjsModuleMock('../dashboard-server', mockDashboard);
   installCjsModuleMock('../handlers/provider-ollama-hosts', {});
   installCjsModuleMock('../handlers/provider-tuning', {});
   return require('../handlers/provider-handlers');
 }
-
-vi.mock('../database', () => mockDb);
-vi.mock('../task-manager', () => mockTaskManager);
-vi.mock('../dashboard-server', () => mockDashboard);
-vi.mock('../handlers/provider-ollama-hosts', () => ({}));
-vi.mock('../handlers/provider-tuning', () => ({}));
 
 function makeHistory(provider, count = 4) {
   return Array.from({ length: count }, (_, index) => ({

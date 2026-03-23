@@ -44,6 +44,10 @@ const mockDashboard = {
   getStatus: vi.fn(),
 };
 
+const mockProviderRegistry = {
+  isApiProvider: vi.fn(),
+};
+
 function resetMocks() {
   for (const fn of Object.values(mockDb)) {
     fn.mockReset();
@@ -54,6 +58,7 @@ function resetMocks() {
   mockDashboard.start.mockReset();
   mockDashboard.stop.mockReset();
   mockDashboard.getStatus.mockReset();
+  mockProviderRegistry.isApiProvider.mockReset();
 
   mockDb.listProviders.mockReturnValue([]);
   mockDb.getDefaultProvider.mockReturnValue('codex');
@@ -94,6 +99,7 @@ function resetMocks() {
   }));
   mockDb.listTasks.mockReturnValue([]);
   mockDb.getModelLeaderboard.mockReturnValue([]);
+  mockProviderRegistry.isApiProvider.mockReturnValue(false);
 
   mockDashboard.start.mockResolvedValue({
     success: true,
@@ -106,9 +112,35 @@ function resetMocks() {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/provider-handlers')];
-  installMock('../database', mockDb);
+  installMock('../db/task-core', {
+    listTasks: mockDb.listTasks,
+  });
+  installMock('../db/event-tracking', {
+    getFormatSuccessRate: mockDb.getFormatSuccessRate,
+    getBestFormatForModel: mockDb.getBestFormatForModel,
+    getFormatSuccessRatesSummary: mockDb.getFormatSuccessRatesSummary,
+  });
+  installMock('../db/file-tracking', {
+    detectProviderDegradation: mockDb.detectProviderDegradation,
+  });
+  installMock('../db/host-management', {
+    getModelLeaderboard: mockDb.getModelLeaderboard,
+  });
+  installMock('../db/provider-routing-core', {
+    approveProviderSwitch: mockDb.approveProviderSwitch,
+    rejectProviderSwitch: mockDb.rejectProviderSwitch,
+    listProviders: mockDb.listProviders,
+    getDefaultProvider: mockDb.getDefaultProvider,
+    getProvider: mockDb.getProvider,
+    updateProvider: mockDb.updateProvider,
+    getProviderStats: mockDb.getProviderStats,
+    setDefaultProvider: mockDb.setDefaultProvider,
+    setProviderFallbackChain: mockDb.setProviderFallbackChain,
+    getHealthTrend: mockDb.getHealthTrend,
+  });
   installMock('../task-manager', mockTaskManager);
   installMock('../dashboard-server', mockDashboard);
+  installMock('../providers/registry', mockProviderRegistry);
   installMock('../handlers/error-codes', realErrorCodes);
   installMock('../handlers/provider-ollama-hosts', {});
   installMock('../handlers/provider-tuning', {});

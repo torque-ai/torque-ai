@@ -53,6 +53,8 @@ function createWorkflow(overrides = {}) {
 
 function loadFreshProviderRouting() {
   // Clear cached module to get truly fresh module state
+  delete require.cache[require.resolve('../db/ollama-health')];
+  delete require.cache[require.resolve('../db/smart-routing')];
   delete require.cache[require.resolve('../db/provider-routing-core')];
   const fresh = require('../db/provider-routing-core');
   fresh.setDb(rawDb());
@@ -161,11 +163,11 @@ describe('provider-routing module', () => {
     });
 
     it('setDefaultProvider throws when provider is disabled', () => {
-      mod.updateProvider('anthropic', { enabled: 0 });
-      const disabled = mod.getProvider('anthropic');
+      mod.updateProvider('claude-cli', { enabled: 0 });
+      const disabled = mod.getProvider('claude-cli');
       expect(disabled).toBeTruthy();
       expect(disabled.enabled).toBe(false);
-      expect(() => mod.setDefaultProvider('anthropic')).toThrow(/disabled/i);
+      expect(() => mod.setDefaultProvider('claude-cli')).toThrow(/disabled/i);
     });
   });
 
@@ -1048,7 +1050,7 @@ describe('provider-routing module', () => {
       const fresh = loadFreshProviderRouting();
       expect(fresh.isOllamaHealthy()).toBeNull();
       fresh.setHostManagement({
-        listOllamaHosts: () => [{ enabled: true, status: 'healthy' }],
+        listOllamaHosts: () => [{ enabled: true, status: 'healthy', running_tasks: 0, max_concurrent: 1 }],
       });
       expect(fresh.isOllamaHealthy()).toBe(true);
     });

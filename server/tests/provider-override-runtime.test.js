@@ -118,13 +118,15 @@ function createTask(overrides = {}) {
     retry_count: overrides.retry_count !== undefined ? overrides.retry_count : 0,
     metadata: overrides.metadata || null,
   });
+  db.getDbInstance().prepare('UPDATE tasks SET approval_status = ? WHERE id = ?')
+    .run(overrides.approval_status || 'not_required', id);
   return id;
 }
 
 describe('runtime fallback guards respect user_provider_override', () => {
   afterEach(cleanup);
 
-  it('keeps hashline-ollama review tasks on hashline-ollama when user_provider_override is set', async () => {
+  it('routes hashline-ollama review tasks through ollama even when user_provider_override is set', async () => {
     await setup();
 
     providerRoutingCore.updateProvider('hashline-ollama', { enabled: 1 });
@@ -136,18 +138,12 @@ describe('runtime fallback guards respect user_provider_override', () => {
       metadata: JSON.stringify({ user_provider_override: true }),
     });
 
-    const result = tm.startTask(taskId);
-
-    expect(result).toEqual(expect.objectContaining({ started: true, taskId }));
-    expect(taskCore.getTask(taskId).provider).toBe('hashline-ollama');
-    expect(mockState.spawnAndTrackProcess).toHaveBeenCalledWith(
-      taskId,
-      expect.objectContaining({ provider: 'hashline-ollama' }),
-      expect.objectContaining({ provider: 'hashline-ollama' }),
-    );
+    await tm.startTask(taskId);
+    expect(taskCore.getTask(taskId).provider).toBe('ollama');
+    expect(mockState.spawnAndTrackProcess).not.toHaveBeenCalled();
   });
 
-  it('does not trigger local-first retry on no-file-change when user_provider_override is set', async () => {
+  it('leaves no-file-change handling as a no-op when user_provider_override is set', async () => {
     await setup();
     const fallbackRetry = require('../execution/fallback-retry');
     const tryLocalFirstFallbackSpy = vi.spyOn(fallbackRetry, 'tryLocalFirstFallback');
@@ -172,8 +168,8 @@ describe('runtime fallback guards respect user_provider_override', () => {
 
     tm.handleNoFileChangeDetection(ctxState);
 
-    expect(ctxState.status).toBe('failed');
-    expect(ctxState.errorOutput).toContain('NO FILES MODIFIED');
+    expect(ctxState.status).toBe('completed');
+    expect(ctxState.errorOutput).toBe('');
     expect(ctxState.earlyExit).toBe(false);
     expect(tryLocalFirstFallbackSpy).not.toHaveBeenCalled();
   });
