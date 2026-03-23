@@ -2,6 +2,9 @@
 
 async function handleDiscoverModels(args) {
   const db = require('../database').getDbInstance();
+  // Ensure model registry has the DB handle (legacy setDb pattern)
+  const registry = require('../models/registry');
+  if (typeof registry.setDb === 'function') registry.setDb(db);
   const provider = args?.provider;
 
   if (provider) {
