@@ -64,6 +64,8 @@ function makeCtx(overrides = {}) {
       provider: overrides.provider || 'codex',
       output: '',
       errorOutput: '',
+      // Revert detection only applies to isolated codex worktrees.
+      worktreeInfo: { root: overrides.working_directory || os.tmpdir() },
       ...(overrides.proc || {}),
     },
     task: {
@@ -274,6 +276,16 @@ describe('detectSandboxReverts', () => {
   it('skips tasks with undefined filesModified', () => {
     const ctx = makeCtx({});
     ctx.filesModified = undefined;
+    detectSandboxReverts(ctx);
+    expect(ctx.sandboxReverts).toBeUndefined();
+  });
+
+  it('skips direct codex runs without worktree isolation', () => {
+    const ctx = makeCtx({
+      filesModified: ['file.js'],
+      proc: { worktreeInfo: null },
+    });
+
     detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined();
   });

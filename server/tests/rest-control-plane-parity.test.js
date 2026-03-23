@@ -81,6 +81,7 @@ installCjsModuleMock('../api/v2-analytics-handlers', handlerModule([
 installCjsModuleMock('../api/v2-infrastructure-handlers', handlerModule([
   'handleListWorkstations', 'handleCreateWorkstation', 'handleToggleWorkstation', 'handleProbeWorkstation', 'handleDeleteWorkstation',
   'handleListHosts', 'handleGetHost', 'handleToggleHost', 'handleDeleteHost',
+  'handleUpdateHost',
   'handleHostScan', 'handleListPeekHosts', 'handleCreatePeekHost',
   'handleDeletePeekHost', 'handleTogglePeekHost', 'handleListCredentials',
   'handleSaveCredential', 'handleDeleteCredential', 'handleListAgents',

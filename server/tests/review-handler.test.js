@@ -11,10 +11,10 @@ let currentModules = {};
 
 const originalCacheEntries = new Map();
 
-vi.mock('../database', () => currentModules.db);
+vi.mock('../db/task-core', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('child_process', () => currentModules.childProcessModule);
-vi.mock('uuid', () => currentModules.uuidModule);
+vi.mock('crypto', () => currentModules.cryptoModule);
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -52,8 +52,8 @@ function createDefaultModules(overrides = {}) {
     childProcessModule: {
       execFileSync: vi.fn(() => Buffer.from(' server/app.js | 4 ++--\n')),
     },
-    uuidModule: {
-      v4: vi.fn(() => 'review-task-123'),
+    cryptoModule: {
+      randomUUID: vi.fn(() => 'review-task-123'),
     },
   };
 
@@ -63,7 +63,7 @@ function createDefaultModules(overrides = {}) {
     db: { ...defaults.db, ...(overrides.db || {}) },
     taskManager: { ...defaults.taskManager, ...(overrides.taskManager || {}) },
     childProcessModule: { ...defaults.childProcessModule, ...(overrides.childProcessModule || {}) },
-    uuidModule: { ...defaults.uuidModule, ...(overrides.uuidModule || {}) },
+    cryptoModule: { ...defaults.cryptoModule, ...(overrides.cryptoModule || {}) },
   };
 }
 
@@ -71,15 +71,15 @@ function loadHandler(overrides = {}) {
   currentModules = createDefaultModules(overrides);
 
   vi.resetModules();
-  vi.doMock('../database', () => currentModules.db);
+  vi.doMock('../db/task-core', () => currentModules.db);
   vi.doMock('../task-manager', () => currentModules.taskManager);
   vi.doMock('child_process', () => currentModules.childProcessModule);
-  vi.doMock('uuid', () => currentModules.uuidModule);
+  vi.doMock('crypto', () => currentModules.cryptoModule);
 
-  installCjsModuleMock('../database', currentModules.db);
+  installCjsModuleMock('../db/task-core', currentModules.db);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('child_process', currentModules.childProcessModule);
-  installCjsModuleMock('uuid', currentModules.uuidModule);
+  installCjsModuleMock('crypto', currentModules.cryptoModule);
 
   delete require.cache[reviewHandlerPath];
 

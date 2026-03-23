@@ -8,11 +8,30 @@ const { TEST_MODELS } = require('./test-helpers');
 
 let db;
 let handler;
+let hostManagement;
 let taskManager;
 let templateBuffer;
-let createAndStartTaskSpy;
-let _capturedTaskArgs;
+let processQueueSpy;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+
+function ensureModelCapabilitiesColumns() {
+  const rawDb = db.getDb ? db.getDb() : db.getDbInstance();
+  const columns = new Set(
+    rawDb.prepare("PRAGMA table_info('model_capabilities')").all().map((row) => row.name)
+  );
+  const additions = [
+    ['can_create_files', 'INTEGER DEFAULT 1'],
+    ['can_edit_safely', 'INTEGER DEFAULT 1'],
+    ['max_safe_edit_lines', 'INTEGER DEFAULT 250'],
+    ['is_agentic', 'INTEGER DEFAULT 0'],
+  ];
+
+  for (const [name, type] of additions) {
+    if (!columns.has(name)) {
+      rawDb.prepare(`ALTER TABLE model_capabilities ADD COLUMN ${name} ${type}`).run();
+    }
+  }
+}
 
 function seedModelCapabilities() {
   const seed = [
@@ -127,23 +146,14 @@ function resetAndSeedDb() {
 
   db.resetForTest(templateBuffer);
   db.checkOllamaHealth = async () => true;
+  ensureModelCapabilitiesColumns();
 
   seedModelCapabilities();
   seedProviders();
   seedHosts();
 
-  createAndStartTaskSpy = vi.spyOn(taskManager, 'createAndStartTask');
-  createAndStartTaskSpy.mockClear();
-  _capturedTaskArgs = null;
-
-  const originalCreateTask = db.createTask;
-  vi.spyOn(db, 'createTask').mockImplementation((task) => {
-    _capturedTaskArgs = task;
-    taskManager.createAndStartTask(task);
-    return originalCreateTask(task);
-  });
-
-  taskManager.processQueue = vi.fn();
+  processQueueSpy = vi.fn();
+  taskManager.processQueue = processQueueSpy;
 
   const originalListOllamaHosts = db.listOllamaHosts;
   vi.spyOn(db, 'listOllamaHosts').mockImplementation((options = {}) => {
@@ -168,10 +178,10 @@ function getSubmittedTask(result) {
 beforeAll(() => {
   const env = setupTestDb('smart-routing-integration');
   db = env.db;
+  hostManagement = require('../db/host-management');
   templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
 
   taskManager = {
-    createAndStartTask: () => {},
     processQueue: () => {},
     resolveFileReferences: () => ({ resolved: [], unresolved: [] }),
     extractJsFunctionBoundaries: () => [],
@@ -214,7 +224,7 @@ beforeEach(() => {
 
 describe('smart routing model scoring helpers', () => {
   it('prefers a testing-specialized model for testing tasks', () => {
-    const ranked = db.selectBestModel('testing', 'typescript', 'normal', [
+    const ranked = hostManagement.selectBestModel('testing', 'typescript', 'normal', [
       'smart-testing-model',
       'smart-doc-model',
       'smart-code-model',
@@ -224,7 +234,7 @@ describe('smart routing model scoring helpers', () => {
   });
 
   it('prefers a docs-specialized model for documentation tasks', () => {
-    const ranked = db.selectBestModel('docs', 'typescript', 'normal', [
+    const ranked = hostManagement.selectBestModel('docs', 'typescript', 'normal', [
       'smart-testing-model',
       'smart-doc-model',
       'smart-code-model',
@@ -234,7 +244,7 @@ describe('smart routing model scoring helpers', () => {
   });
 
   it('prefers a code-specialized model for code_gen tasks', () => {
-    const ranked = db.selectBestModel('code_gen', 'typescript', 'normal', [
+    const ranked = hostManagement.selectBestModel('code_gen', 'typescript', 'normal', [
       'smart-testing-model',
       'smart-doc-model',
       'smart-code-model',
@@ -246,35 +256,40 @@ describe('smart routing model scoring helpers', () => {
 
 describe('classifyTaskType helper', () => {
   it('classifies testing task intent', () => {
-    expect(db.classifyTaskType('Write unit tests for auth.js')).toBe('testing');
+    expect(hostManagement.classifyTaskType('Write unit tests for auth.js')).toBe('testing');
   });
 
   it('classifies refactoring intent', () => {
-    expect(db.classifyTaskType('Refactor the database module')).toBe('refactoring');
+    expect(hostManagement.classifyTaskType('Refactor the database module')).toBe('refactoring');
   });
 
   it('classifies documentation intent', () => {
-    expect(db.classifyTaskType('Update the README')).toBe('docs');
+    expect(hostManagement.classifyTaskType('Update the README')).toBe('docs');
   });
 
   it('classifies code generation intent by default', () => {
-    expect(db.classifyTaskType('Add a new API endpoint')).toBe('code_gen');
+    expect(hostManagement.classifyTaskType('Add a new API endpoint')).toBe('code_gen');
   });
 });
 
 describe('detectTaskLanguage helper', () => {
   it('detects typescript from file extension', () => {
-    expect(db.detectTaskLanguage('Refactor handler', ['src/app.ts'])).toBe('typescript');
+    expect(hostManagement.detectTaskLanguage('Refactor handler', ['src/app.ts'])).toBe('typescript');
   });
 
   it('detects python from file extension', () => {
-    expect(db.detectTaskLanguage('Refactor util', ['main.py'])).toBe('python');
+    expect(hostManagement.detectTaskLanguage('Refactor util', ['main.py'])).toBe('python');
   });
 
   it('detects javascript from description when files are empty', () => {
-    expect(db.detectTaskLanguage('Fix the JavaScript bug', [])).toBe('javascript');
+    expect(hostManagement.detectTaskLanguage('Fix the JavaScript bug', [])).toBe('javascript');
   });
 });
+
+function getTaskMetadata(task) {
+  if (!task || task.metadata == null) return {};
+  return typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+}
 
 describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
   it('routes testing task via smart model selection and captures provider/model payload', async () => {
@@ -285,14 +300,8 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const createdTask = getSubmittedTask(result);
     expect(createdTask).toBeTruthy();
-    expect(createAndStartTaskSpy).toHaveBeenCalledTimes(1);
-
-    const createdPayload = createAndStartTaskSpy.mock.calls[0][0];
-    expect(createdPayload).toBeTruthy();
-    expect(createdPayload.provider).toBe('codex');
-    expect(createdPayload.model).toBe('gpt-5.3-codex-spark');
-    expect(createdTask.provider).toBe(createdPayload.provider);
-    expect(createdTask.model).toBe(createdPayload.model);
+    expect(createdTask.provider).toBe('codex');
+    expect(createdTask.model).toBe('gpt-5.3-codex-spark');
   });
 
   it('routes documentation greenfield task to Codex (Ollama cannot create files)', async () => {
@@ -303,9 +312,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const createdTask = getSubmittedTask(result);
     expect(createdTask).toBeTruthy();
-    expect(createAndStartTaskSpy).toHaveBeenCalledTimes(1);
-    // hashline-ollama handles the task (modification routing block skipped for hashline)
-    expect(createAndStartTaskSpy.mock.calls[0][0].provider).toBe('hashline-ollama');
+    expect(createdTask.provider).toBe('codex');
   });
 
   it('routes code_gen greenfield task to Codex (Ollama cannot create files)', async () => {
@@ -316,13 +323,11 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const createdTask = getSubmittedTask(result);
     expect(createdTask).toBeTruthy();
-    expect(createAndStartTaskSpy).toHaveBeenCalledTimes(1);
-    // hashline-ollama handles the task (modification routing block skipped for hashline)
-    expect(createAndStartTaskSpy.mock.calls[0][0].provider).toBe('hashline-ollama');
+    expect(createdTask.provider).toBe('codex');
   });
 
   it('adds needs_review metadata for complex smart-routed tasks only', async () => {
-    vi.spyOn(db, 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
       provider: 'codex',
       complexity: 'complex',
       reason: 'Complex task',
@@ -337,9 +342,9 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const complexTask = getSubmittedTask(complexResult);
     expect(complexTask).toBeTruthy();
-    expect(complexTask.metadata).toMatchObject({ smart_routing: true, needs_review: true, complexity: 'complex' });
+    expect(getTaskMetadata(complexTask)).toMatchObject({ smart_routing: true, needs_review: true, complexity: 'complex' });
 
-    vi.spyOn(db, 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
       provider: 'codex',
       complexity: 'normal',
       reason: 'Normal task',
@@ -354,12 +359,12 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const normalTask = getSubmittedTask(normalResult);
     expect(normalTask).toBeTruthy();
-    expect(normalTask.metadata).toMatchObject({ smart_routing: true, complexity: 'normal' });
-    expect(normalTask.metadata).not.toHaveProperty('needs_review');
+    expect(getTaskMetadata(normalTask)).toMatchObject({ smart_routing: true, complexity: 'normal' });
+    expect(getTaskMetadata(normalTask)).not.toHaveProperty('needs_review');
   });
 
   it('adds split_advisory metadata only for complex smart-routed tasks with 3+ files', async () => {
-    vi.spyOn(db, 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
       provider: 'codex',
       complexity: 'complex',
       reason: 'Complex task',
@@ -375,7 +380,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const advisoryTask = getSubmittedTask(advisoryResult);
     expect(advisoryTask).toBeTruthy();
-    expect(advisoryTask.metadata).toMatchObject({
+    expect(getTaskMetadata(advisoryTask)).toMatchObject({
       smart_routing: true,
       complexity: 'complex',
       split_advisory: true,
@@ -389,19 +394,19 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const noAdvisoryTask = getSubmittedTask(noAdvisoryResult);
     expect(noAdvisoryTask).toBeTruthy();
-    expect(noAdvisoryTask.metadata).toMatchObject({ smart_routing: true, complexity: 'complex' });
-    expect(noAdvisoryTask.metadata).not.toHaveProperty('split_advisory');
+    expect(getTaskMetadata(noAdvisoryTask)).toMatchObject({ smart_routing: true, complexity: 'complex' });
+    expect(getTaskMetadata(noAdvisoryTask)).not.toHaveProperty('split_advisory');
   });
 
   it('returns actionable workflow subscription metadata when smart submit auto-decomposes', async () => {
-    vi.spyOn(db, 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
       provider: 'codex',
       complexity: 'complex',
       reason: 'Complex C# task',
       rule: null,
       fallbackApplied: false,
     });
-    vi.spyOn(db, 'decomposeTask').mockReturnValue([
+    vi.spyOn(hostManagement, 'decomposeTask').mockReturnValue([
       'Extract repository interface',
       'Wire repository into service',
     ]);

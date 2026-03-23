@@ -91,7 +91,6 @@ describe('checkRateLimit — provider isolation', () => {
     // Many tasks running for other providers
     for (let i = 0; i < 5; i++) {
       insertRunningTask(`task-codex-${i}`, 'codex');
-      insertRunningTask(`task-hashline-${i}`, 'hashline-ollama');
     }
 
     // hashline-ollama has 0 running tasks — should be allowed

@@ -26,7 +26,7 @@ function clearModules(modulePaths) {
 
 const MODULES_TO_CLEAR = [
   '../handlers/remote-agent-handlers',
-  '../database',
+  '../db/project-config-core',
   '../logger',
 ];
 
@@ -49,7 +49,7 @@ function loadHandlers({
   const child = vi.fn(() => logger);
 
   clearModules(MODULES_TO_CLEAR);
-  installCjsModuleMock('../database', {
+  installCjsModuleMock('../db/project-config-core', {
     getProjectFromPath,
     getProjectConfig,
   });

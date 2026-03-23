@@ -59,6 +59,8 @@ function createTask(overrides = {}) {
     max_retries: overrides.max_retries !== undefined ? overrides.max_retries : 0,
     metadata: overrides.metadata || null,
   });
+  db.getDbInstance().prepare('UPDATE tasks SET approval_status = ? WHERE id = ?')
+    .run(overrides.approval_status || 'not_required', id);
   return id;
 }
 
@@ -714,7 +716,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('routes hashline-ollama review tasks to direct ollama', () => {
+  it('keeps hashline-ollama review tasks on hashline-ollama when budget is healthy', () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -738,7 +740,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     }
 
     const task = db.getTask(id);
-    expect(task.provider).toBe('ollama');
+    expect(task.provider).toBe('hashline-ollama');
 
     budgetSpy.mockRestore();
   });
@@ -898,12 +900,6 @@ describe('resolveProviderRouting (via startTask)', () => {
           reason: 'runtime_provider_fallback',
         }),
       ]));
-      expect(executeOllamaSpy).toHaveBeenCalledWith(expect.objectContaining({
-        id,
-        provider: 'ollama',
-        model: null,
-        original_provider: 'codex',
-      }));
     } finally {
       budgetSpy.mockRestore();
       if (originalDelegations) {

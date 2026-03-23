@@ -94,7 +94,7 @@ function createMockRegistry(agents = [], clients = {}) {
 const MODULES_TO_CLEAR = [
   '../handlers/remote-agent-handlers',
   '../remote/remote-test-routing',
-  '../database',
+  '../db/project-config-core',
   '../logger',
   '../validation/post-task',
 ];
@@ -178,7 +178,7 @@ function loadHandlers(options = {}) {
   installMock('../remote/remote-test-routing', {
     createRemoteTestRouter,
   });
-  installMock('../database', database);
+  installMock('../db/project-config-core', database);
   installMock('../logger', loggerModule);
   installMock('../validation/post-task', {
     parseCommand,
