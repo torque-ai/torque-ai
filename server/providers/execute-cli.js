@@ -643,6 +643,27 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
             const mergeResult = gitWorktree.mergeWorktreeChanges(wt.worktreePath, origDir, taskId);
             if (mergeResult.success) {
               logger.info(`[Worktree] Task ${taskId} worktree merge complete: ${mergeResult.filesChanged} file(s)`);
+              // Auto-commit merged changes so the next parallel task's worktree
+              // starts from the updated HEAD. Without this, parallel tasks stomp
+              // on each other's changes (sandbox staleness).
+              if (mergeResult.filesChanged > 0) {
+                try {
+                  const { execFileSync } = require('child_process');
+                  execFileSync('git', ['add', '-A'], {
+                    cwd: origDir, encoding: 'utf-8', timeout: 10000,
+                    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+                  });
+                  const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
+                  execFileSync('git', ['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
+                    cwd: origDir, encoding: 'utf-8', timeout: 10000,
+                    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+                  });
+                  logger.info(`[Worktree] Task ${taskId} auto-committed merged changes`);
+                } catch (commitErr) {
+                  // Non-fatal — changes still applied, just not committed
+                  logger.info(`[Worktree] Task ${taskId} auto-commit failed: ${commitErr.message}`);
+                }
+              }
             } else {
               logger.info(`[Worktree] Task ${taskId} worktree merge failed: ${mergeResult.error}`);
               // Append merge failure info to error output so finalizeTask can see it
