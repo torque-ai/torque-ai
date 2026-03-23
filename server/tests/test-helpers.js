@@ -15,10 +15,15 @@ const _path = require('path');
  * instead of returning null for unknown keys.
  */
 const TEST_MODELS = {
-  DEFAULT: 'qwen3-coder:30b',
-  FALLBACK: 'qwen3-coder:30b',
-  LEGACY: 'qwen2.5-coder:32b',
-  SMALL: 'qwen3-coder:7b',
+  DEFAULT: 'test-model:14b',
+  FALLBACK: 'test-fallback:7b',
+  FAST: 'test-fast:4b',
+  BALANCED: 'test-balanced:14b',
+  QUALITY: 'test-quality:32b',
+  HASHLINE: 'test-hashline:14b',
+  CLOUD: 'test-cloud-model',
+  LEGACY: 'test-legacy:32b',
+  SMALL: 'test-small:7b',
 };
 
 const TEST_CONFIG_DEFAULTS = {
@@ -27,9 +32,10 @@ const TEST_CONFIG_DEFAULTS = {
   v2_auth_mode: 'permissive',
   default_timeout: '300',
   budget_check_enabled: '1',
-  ollama_fast_model: 'qwen3-coder:30b',
-  ollama_balanced_model: 'qwen3-coder:30b',
-  ollama_quality_model: 'qwen3-coder:30b',
+  ollama_fast_model: TEST_MODELS.FAST,
+  ollama_balanced_model: TEST_MODELS.BALANCED,
+  ollama_quality_model: TEST_MODELS.QUALITY,
+  ollama_model: TEST_MODELS.DEFAULT,
   max_concurrent: '2',
   stall_detection_enabled: '1',
   auto_start_ollama: '0',
