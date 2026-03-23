@@ -3,17 +3,17 @@
 const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 const { createFamilyTemplates } = require('../db/family-templates');
 
-let db, mod;
+let mod;
 
 beforeAll(() => {
-  ({ db } = setupTestDbModule('../db/family-templates', 'family-templates'));
+  setupTestDbModule('../db/family-templates', 'family-templates');
   mod = createFamilyTemplates({ db: rawDb() });
 });
 
 afterAll(() => { teardownTestDb(); });
 
 beforeEach(() => {
-  rawDb().prepare('DELETE FROM model_family_templates').run();
+  resetTables('model_family_templates');
 });
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────

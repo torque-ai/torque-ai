@@ -1,17 +1,12 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-
-let testDir;
 let db;
 const costTracking = require('../db/cost-tracking');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 function setupDb() {
-  ({ db, testDir } = setupTestDb('budget-completeness-'));
+  ({ db } = setupTestDb('budget-completeness-'));
 }
 
-function teardown() {
+function teardownDb() {
   teardownTestDb();
 }
 

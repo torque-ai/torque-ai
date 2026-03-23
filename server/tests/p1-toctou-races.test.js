@@ -1,14 +1,10 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-
 let testDir;
 let db;
 let taskCore;
 let mod;
 let seq = 0;
 
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
   ({ db, testDir } = setupTestDb('toctou-'));

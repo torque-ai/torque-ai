@@ -6,13 +6,10 @@
  * returns the correct taskId for a given streamId.
  */
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
-let testDir, origDataDir, db, taskCore, mod;
+let testDir, db, taskCore, mod;
 
 function setup() {
   ({ db, testDir } = setupTestDb('partial-output-'));

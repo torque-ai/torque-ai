@@ -5,8 +5,6 @@
 'use strict';
 
 const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const http = require('http');
 const { randomUUID } = require('crypto');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
@@ -20,7 +18,7 @@ let executeApi;
 let executeCli;
 const hostManagement = require('../db/host-management');
 const webhooksStreaming = require('../db/webhooks-streaming');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
   ({ db, testDir } = setupTestDb('p1-streaming-'));
@@ -34,10 +32,7 @@ function setup() {
 }
 
 function teardown() {
-  try { if (db) db.close(); } catch { /* ok */ }
-  if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-  else delete process.env.TORQUE_DATA_DIR;
-  try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ok */ }
+  teardownTestDb();
 }
 
 function resetDb() {

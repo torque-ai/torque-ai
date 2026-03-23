@@ -27,7 +27,7 @@ describe('tool-output-schemas', () => {
 
   describe('schema validity', () => {
     it('every schema is a valid JSON Schema object with properties', () => {
-      for (const [name, schema] of Object.entries(OUTPUT_SCHEMAS)) {
+      for (const schema of Object.values(OUTPUT_SCHEMAS)) {
         expect(schema.type).toBe('object');
         expect(schema.properties).toBeDefined();
         expect(typeof schema.properties).toBe('object');
@@ -35,7 +35,7 @@ describe('tool-output-schemas', () => {
     });
 
     it('every schema has required array', () => {
-      for (const [name, schema] of Object.entries(OUTPUT_SCHEMAS)) {
+      for (const schema of Object.values(OUTPUT_SCHEMAS)) {
         expect(Array.isArray(schema.required)).toBe(true);
         expect(schema.required.length).toBeGreaterThan(0);
       }
@@ -176,10 +176,8 @@ describe('tool-output-schemas', () => {
   describe('handler conformance — check_status', () => {
     // These tests call the real handlers and verify structuredData shape.
     // They require a running database, so we use the test DB from global setup.
-    let db;
-
     beforeAll(() => {
-      ({ db } = setupTestDb('tool-output-schemas'));
+      setupTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -232,10 +230,8 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — list/result/progress', () => {
-    let db;
-
     beforeAll(() => {
-      ({ db } = setupTestDb('tool-output-schemas'));
+      setupTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -314,10 +310,8 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — workflows', () => {
-    let db;
-
     beforeAll(() => {
-      ({ db } = setupTestDb('tool-output-schemas'));
+      setupTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -367,10 +361,8 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — list_ollama_hosts', () => {
-    let db;
-
     beforeAll(() => {
-      ({ db } = setupTestDb('tool-output-schemas'));
+      setupTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -388,10 +380,8 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — Phase 2', () => {
-    let db;
-
     beforeAll(() => {
-      ({ db } = setupTestDb('tool-output-schemas'));
+      setupTestDb('tool-output-schemas');
     });
 
     afterAll(() => {
@@ -565,10 +555,8 @@ describe('tool-output-schemas', () => {
   });
 
   describe('handler conformance — Phase 3', () => {
-    let db;
-
     beforeAll(() => {
-      ({ db } = setupTestDb('tool-output-schemas'));
+      setupTestDb('tool-output-schemas');
     });
 
     afterAll(() => {

@@ -9,24 +9,19 @@
 'use strict';
 
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 let testDir;
-let db;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('p1-handler2-'));
+  ({ testDir } = setupTestDb('p1-handler2-'));
 }
 
 function teardown() {
-  try { if (db) db.close(); } catch { /* ok */ }
-  if (origDataDir !== undefined) process.env.TORQUE_DATA_DIR = origDataDir;
-  else delete process.env.TORQUE_DATA_DIR;
-  try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ok */ }
+  teardownTestDb();
   // Clean up feature-gaps cache that handleRunFullBatch may have written
   try {
     const cacheFile = path.join(__dirname, '..', '.cache', 'feature-gaps.json');

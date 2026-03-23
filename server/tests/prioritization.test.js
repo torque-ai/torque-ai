@@ -1,11 +1,8 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
 
-let testDir, origDataDir, db, mod;
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+let testDir, db, mod;
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
   ({ db, testDir } = setupTestDb('prioritization-'));

@@ -1,15 +1,11 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
 
-let testDir;
 let db;
 let mod;
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('tier-pref-'));
+  ({ db } = setupTestDb('tier-pref-'));
   const taskCore = require('../db/task-core');
   mod = require('../db/host-management');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());

@@ -38,7 +38,7 @@ function mockAdapter(responses) {
  */
 function mockToolExecutor(results = {}) {
   return {
-    execute: (name, args) => results[name] || { result: 'ok', metadata: {} },
+    execute: (name, _args) => results[name] || { result: 'ok', metadata: {} },
     changedFiles: new Set(),
   };
 }
@@ -298,12 +298,6 @@ describe('runAgenticLoop — context budget truncation', () => {
     // Iteration 1: tool call with large result
     // Iteration 2: another tool call
     // Iteration 3: final text response
-    const adapter = mockAdapter([
-      toolCallResponse('read_file', { path: 'big.txt' }),
-      toolCallResponse('read_file', { path: 'small.txt' }),
-      textResponse('Done with both files.'),
-    ]);
-
     let capturedMessages = null;
     const executor = {
       execute: (name, args) => {
@@ -369,7 +363,6 @@ describe('runAgenticLoop — parse failure recovery', () => {
 
     const finalResponse = textResponse('I have completed the task.');
 
-    const adapter = mockAdapter([malformedResponse, finalResponse]);
     const executor = mockToolExecutor();
 
     const capturedMessages = [];

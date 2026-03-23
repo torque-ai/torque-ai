@@ -5,22 +5,18 @@
  * enforce both global and provider limits when claims are made rapidly.
  */
 
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 
-let testDir;
 let db;
 
 function setupDbForTest() {
-  ({ db, testDir } = setupTestDb('slot-race'));
+  ({ db } = setupTestDb('slot-race'));
 }
 
-function teardown() {
+function teardownDbForTest() {
   teardownTestDb();
 }
 

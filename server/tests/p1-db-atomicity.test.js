@@ -1,18 +1,13 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
-
-let testDir;
 let db;
 let taskCore;
 let schedulingMod;
 let hostMod;
 
 const projectConfigCore = require('../db/project-config-core');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('p1-atomicity-'));
+  ({ db } = setupTestDb('p1-atomicity-'));
   taskCore = require('../db/task-core');
 
   schedulingMod = require('../db/scheduling-automation');

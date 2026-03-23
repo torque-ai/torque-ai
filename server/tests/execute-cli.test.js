@@ -123,17 +123,6 @@ function teardown() {
   teardownTestDb();
 }
 
-function addHost({ id = randomUUID(), name = 'test-host', url = 'http://127.0.0.1:11434', model = 'qwen2.5-coder:7b' } = {}) {
-  hostManagement.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
-  hostManagement.updateOllamaHost(id, {
-    enabled: 1,
-    status: 'healthy',
-    running_tasks: 0,
-    models_cache: JSON.stringify([{ name: model, size: 4 * 1024 * 1024 * 1024 }]),
-  });
-  return { id, url };
-}
-
 function clearHosts() {
   for (const host of hostManagement.listOllamaHosts()) {
     hostManagement.removeOllamaHost(host.id);

@@ -13,9 +13,7 @@
  * Uses init() dependency injection for database, dashboard, and task-manager internals.
  */
 
-const path = require('path');
-const fs = require('fs');
-const { execFileSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const logger = require('../logger').child({ component: 'close-phases' });
 const serverConfig = require('../config');
 const { TASK_TIMEOUTS } = require('../constants');
@@ -93,70 +91,7 @@ function recoverModifiedFiles(ctx) {
  * Phase 5: Per-file quality checks, line-count regression, scoped rollback.
  */
 function handleAutoValidation(ctx) {
-  const { taskId, proc, task } = ctx;
-  // No-op — legacy phase removed
-  if (ctx.status !== 'completed' || !task) return;
-  return;
-
-  const workingDir = task.working_directory || process.cwd();
-  try {
-    // Get modified files from git — scoped to this task's changes only.
-    const tryGitDiff = (args) => {
-      try {
-        return execFileSync('git', args, { cwd: workingDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_DIFF, windowsHide: true }).trim();
-      } catch { return ''; }
-    };
-    let gitOutput = tryGitDiff(['diff', '--name-only']);
-    if (!gitOutput) gitOutput = tryGitDiff(['diff', '--name-only', '--cached']);
-    if (!gitOutput && proc.baselineCommit) {
-      gitOutput = tryGitDiff(['diff', '--name-only', proc.baselineCommit, 'HEAD']);
-    } else if (!gitOutput) {
-      gitOutput = tryGitDiff(['diff', '--name-only', 'HEAD~1', 'HEAD']);
-    }
-
-    const changedFiles = gitOutput.split('\n').filter(f => f.trim());
-    for (const relFile of changedFiles) {
-      const absPath = path.join(workingDir, relFile);
-      if (!fs.existsSync(absPath)) continue;
-      const content = fs.readFileSync(absPath, 'utf-8');
-
-      const qualityResult = _checkFileQuality ? _checkFileQuality(absPath) : { issues: [] };
-      const issues = qualityResult.issues || [];
-
-      // Line-count regression check (>40% reduction = likely destruction)
-      const currentLines = content.split('\n').length;
-      let previousLines = 0;
-      const baselineRef = proc.baselineCommit || 'HEAD~1';
-      try {
-        const prevContent = execFileSync('git', ['show', baselineRef + ':' + relFile], {
-          cwd: workingDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS, windowsHide: true
-        }).trim();
-        previousLines = prevContent.split('\n').length;
-      } catch {
-        try {
-          const stagedContent = execFileSync('git', ['show', 'HEAD:' + relFile], {
-            cwd: workingDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS, windowsHide: true
-          }).trim();
-          previousLines = stagedContent.split('\n').length;
-        } catch { /* new file, no baseline */ }
-      }
-      if (previousLines > 20 && currentLines < previousLines * 0.6) {
-        issues.push(`File shrank from ${previousLines} to ${currentLines} lines (${Math.round((1 - currentLines/previousLines) * 100)}% reduction — likely code destruction)`);
-      }
-
-      if (issues.length > 0) {
-        logger.warn(`[Auto-Validation] Task ${taskId} file ${relFile} has quality issues: ${issues.join(', ')}`);
-        const rollback = _scopedRollback ? _scopedRollback(taskId, workingDir, 'Auto-Validation') : { reverted: [], skipped: [] };
-        logger.info(`[Auto-Validation] Rolled back ${rollback.reverted.length} file(s) for task ${taskId}`);
-        ctx.status = 'failed';
-        ctx.errorOutput = (ctx.errorOutput || '') +
-          `\n\n[AUTO-VALIDATION FAILED] ${relFile}: ${issues.join('; ')}`;
-        break;
-      }
-    }
-  } catch (e) {
-    logger.warn(`[Auto-Validation] Error validating task ${taskId}: ${e.message}`);
-  }
+  void ctx;
 }
 
 /**

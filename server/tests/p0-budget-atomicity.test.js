@@ -1,23 +1,19 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
-let testDir;
 let db;
 let taskCore;
 let costTracking;
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 function setupDb() {
-  ({ db, testDir } = setupTestDb('budget-atomicity-'));
+  ({ db } = setupTestDb('budget-atomicity-'));
   taskCore = require('../db/task-core');
   costTracking = require('../db/cost-tracking');
   costTracking.setDb(db.getDbInstance());
   return db;
 }
 
-function teardown() {
+function teardownDb() {
   teardownTestDb();
 }
 

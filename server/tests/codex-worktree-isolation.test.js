@@ -34,13 +34,10 @@ const spawnMock = vi.fn();
 childProcess.spawn = spawnMock;
 
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
-let templateBuffer;
 
 let db;
 let mod; // execute-cli module
 let testDir;
-let origDataDir;
 let origOpenAIKey;
 
 // We mock the git-worktree module at require level
@@ -137,7 +134,6 @@ describe('Codex worktree isolation integration', () => {
 
     // Load DB and reset using vitest-setup
     ({ db, testDir } = setupTestDb('codex-worktree'));
-    origDataDir = process.env.TORQUE_DATA_DIR;
 
     // Load execute-cli module (spawn is already patched at file top)
     mod = require('../providers/execute-cli');
@@ -315,7 +311,7 @@ describe('Codex worktree isolation integration', () => {
 
     const result = startCodexTask('This task will fail', projectDir);
     expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
-    const { taskId, child } = result;
+    const { child } = result;
 
     simulateFailure(child, '', 'API error: rate limit', 1);
     await new Promise(resolve => setTimeout(resolve, 200));
@@ -343,7 +339,7 @@ describe('Codex worktree isolation integration', () => {
 
     const result = startCodexTask('Direct execution test', projectDir);
     expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
-    const { taskId, child } = result;
+    const { child } = result;
 
     simulateSuccess(child, 'Done\n');
     await new Promise(resolve => setTimeout(resolve, 200));
@@ -378,7 +374,7 @@ describe('Codex worktree isolation integration', () => {
 
     const result = startCodexTask('Fallback test', projectDir);
     expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
-    const { taskId, child } = result;
+    const { child } = result;
 
     simulateSuccess(child, 'Completed without worktree\n');
     await new Promise(resolve => setTimeout(resolve, 200));
