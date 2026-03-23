@@ -146,7 +146,7 @@ async function runAgenticLoop({
   tools,
   toolExecutor,
   options,
-  workingDir,
+  workingDir: _workingDir,
   timeoutMs,
   maxIterations = MAX_ITERATIONS,
   contextBudget = DEFAULT_CONTEXT_BUDGET,
@@ -169,7 +169,7 @@ async function runAgenticLoop({
   let iterations = 0;
   let totalOutputChars = 0;
   let finalOutput = '';
-  let tokenUsage = { prompt_tokens: 0, completion_tokens: 0 };
+  const tokenUsage = { prompt_tokens: 0, completion_tokens: 0 };
 
   // Stuck loop detection
   let prevToolCallHash = null;
@@ -261,7 +261,7 @@ async function runAgenticLoop({
     }
 
     // Parse tool calls (handles structured + JSON + XML formats)
-    let toolCalls = parseToolCalls(assistantMessage);
+    const toolCalls = parseToolCalls(assistantMessage);
 
     if (toolCalls.length === 0) {
       const content = assistantMessage.content || '';

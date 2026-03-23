@@ -100,7 +100,7 @@ function validateKey(plaintext) {
   }
 
   let effectiveRole = row.role;
-  let userId = row.user_id || null;
+  const userId = row.user_id || null;
 
   if (row.user_id) {
     try {
@@ -135,7 +135,6 @@ function revokeKey(id) {
 
     let adminUsers = 0;
     try {
-      const userManager = require('./user-manager');
       adminUsers = _db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get().count;
     } catch {}
 

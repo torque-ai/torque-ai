@@ -263,7 +263,7 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
   sendJson(res, responseBody, 200, req);
 }
 
-function createWebhooks(deps) {
+function createWebhooks(_deps) {
   return { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setFreeTierTrackerGetter };
 }
 

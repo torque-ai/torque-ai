@@ -15,6 +15,7 @@ const logger = require('../logger').child({ component: 'workflow-runtime' });
 const serverConfig = require('../config');
 const { resolveWorkflowConflicts } = require('./conflict-resolver');
 const { safeJsonParse } = require('../utils/json');
+const { stripAnsiEscapes } = require('../utils/sanitize');
 const eventBus = require('../event-bus');
 
 // ---------------------------------------------------------------------------
@@ -501,13 +502,15 @@ function sanitizeInjectedOutput(text, maxLen = 5000) {
   // accidentally trigger another round of {{node_id.field}} template substitution.
   // This is intentional: the space breaks the `{{word.word}}` pattern the regex matches.
   sanitized = sanitized.replace(/\{\{/g, '{ {').replace(/\}\}/g, '} }');
-  // Strip ANSI escape sequences
-  const ANSI_ESCAPE = /\x1b\[[0-9;]*m/g;
-  sanitized = sanitized.replace(ANSI_ESCAPE, '');
-  // Strip control characters (null, backspace, vertical tab, form feed, etc.) but keep \n \r \t
-  const CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
-  sanitized = sanitized.replace(CONTROL_CHARS, '');
-  return sanitized;
+  sanitized = stripAnsiEscapes(sanitized);
+  // Strip remaining control characters but keep \n, \r, and \t for readability.
+  return [...sanitized]
+    .filter((char) => {
+      if (char === '\n' || char === '\r' || char === '\t') return true;
+      const code = char.charCodeAt(0);
+      return code >= 0x20 && code !== 0x7f;
+    })
+    .join('');
 }
 
 /**
@@ -1215,8 +1218,8 @@ function maybeFinalizeAuditRun(workflowId, finalStatus) {
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createWorkflowRuntime(deps) {
-  // deps reserved for Phase 5 when database.js facade is removed
+function createWorkflowRuntime(_deps) {
+  // _deps reserved for Phase 5 when database.js facade is removed
   return {
     init,
     handlePlanProjectTaskCompletion,

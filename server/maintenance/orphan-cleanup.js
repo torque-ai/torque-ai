@@ -431,7 +431,7 @@ function checkStalledTasks(autoCancel = false) {
             threshold: Math.round(stallThreshold),
             description: proc?.description || ''
           });
-        } catch (e) {
+        } catch {
           // Non-fatal
         }
       }

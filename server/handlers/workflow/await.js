@@ -359,7 +359,7 @@ async function handleAwaitWorkflow(args) {
     fallback: 'provider_fallback'
   };
 
-  const { workflow, error: wfErr } = requireWorkflow(db, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
   // Build set of workflow task IDs for filtering notable events
@@ -960,7 +960,7 @@ async function handleAwaitTask(args) {
       fallback: 'provider_fallback'
     };
 
-    const { task: initialTask, error: taskErr } = requireTask(db, taskId);
+    const { task: initialTask, error: taskErr } = requireTask(taskId);
     if (taskErr) return taskErr;
 
     // If already terminal, return immediately

@@ -10,7 +10,7 @@ const ollamaHealth = require('./ollama-health');
 let templateStore = null;
 try {
   templateStore = require('../routing/template-store');
-} catch (error) {
+} catch {
   templateStore = null;
 }
 
@@ -1326,7 +1326,7 @@ function deleteRoutingRule(idOrName) {
 // ============================================================
 const providerHealthHistory = require('./provider-health-history');
 
-const { ensureHealthTable, persistHealthWindow, getHealthHistory, getHealthTrend, pruneHealthHistory } = providerHealthHistory;
+const { persistHealthWindow, getHealthHistory, getHealthTrend, pruneHealthHistory } = providerHealthHistory;
 
 // ============================================================
 // Factory function (dependency injection without singletons)
@@ -1351,6 +1351,7 @@ module.exports = {
   setHostManagement,
 
   // Provider Core
+  getTask,
   getProvider,
   listProviders,
   getEnabledProviderMaxConcurrentSum,

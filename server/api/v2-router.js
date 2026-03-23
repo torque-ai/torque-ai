@@ -607,7 +607,7 @@ function createV2Router(options = {}) {
   ];
 }
 
-function createV2RouterModule(deps) {
+function createV2RouterModule(_deps) {
   return {
     V2_MOUNT_PATH,
     V2_PROVIDER_ROUTE_HANDLER_NAMES,

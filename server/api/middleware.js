@@ -2,7 +2,6 @@
 const logger = require('../logger').child({ component: 'middleware' });
 
 const configCore = require('../db/config-core');
-const serverConfig = require('../config');
 const { RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS, RATE_LIMIT_CLEANUP_MS } = require('../constants');
 
 // Security headers used by sendJson
@@ -361,7 +360,7 @@ function authenticateRequest(req, url) {
   return authMiddleware.authenticate(req);
 }
 
-function createApiMiddleware(deps) {
+function createApiMiddleware(_deps) {
   return {
     createRateLimiter,
     extractApiKey,

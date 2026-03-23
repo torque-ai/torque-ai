@@ -54,7 +54,7 @@ function formatDuration(seconds) {
  * Get dependency graph visualization
  */
 function handleDependencyGraph(args) {
-  const workflowResult = requireWorkflow(workflowEngine, args.workflow_id);
+  const workflowResult = requireWorkflow(args.workflow_id);
   if (workflowResult.error) return workflowResult.error;
   const { workflow } = workflowResult;
 
@@ -150,7 +150,7 @@ function handleDependencyGraph(args) {
  * Find critical path through workflow
  */
 function handleCriticalPath(args) {
-  const workflowResult = requireWorkflow(workflowEngine, args.workflow_id);
+  const workflowResult = requireWorkflow(args.workflow_id);
   if (workflowResult.error) return workflowResult.error;
   const { workflow } = workflowResult;
 
@@ -256,10 +256,10 @@ function handleCriticalPath(args) {
  * What-if simulation
  */
 function handleWhatIf(args) {
-  const workflowResult = requireWorkflow(workflowEngine, args.workflow_id);
+  const workflowResult = requireWorkflow(args.workflow_id);
   if (workflowResult.error) return workflowResult.error;
 
-  const taskResult = requireTask(taskCore, args.task_id);
+  const taskResult = requireTask(args.task_id);
   if (taskResult.error) return taskResult.error;
 
   const { task } = taskResult;
@@ -337,7 +337,7 @@ function handleWhatIf(args) {
 function handleBlockedTasks(args) {
   let workflow = null;
   if (args.workflow_id) {
-    const workflowResult = requireWorkflow(workflowEngine, args.workflow_id);
+    const workflowResult = requireWorkflow(args.workflow_id);
     if (workflowResult.error) return workflowResult.error;
     workflow = workflowResult.workflow;
   }

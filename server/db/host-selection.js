@@ -451,6 +451,7 @@ function createHostSelection({ db: dbInstance } = {}) {
 }
 
 module.exports = {
+  getWsAdapters,
   setDb,
   setHostTierHint,
   createHostSelection,

@@ -17,12 +17,11 @@
 
 let db;
 let _getTaskFn;
-let recordTaskEventFn;
+let _recordTaskEventFn;
 let getPipelineFn;
 let createPipelineFn;
 const { createHash } = require('crypto');
 const { safeJsonParse } = require('../utils/json');
-const eventBus = require('../event-bus');
 
 const approvalWorkflows = require('./approval-workflows');
 const cronScheduling = require('./cron-scheduling');
@@ -41,7 +40,7 @@ function setGetTask(fn) {
 }
 
 function setRecordTaskEvent(fn) {
-  recordTaskEventFn = fn;
+  _recordTaskEventFn = fn;
   approvalWorkflows.setRecordTaskEvent(fn);
 }
 

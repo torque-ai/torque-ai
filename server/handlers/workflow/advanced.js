@@ -31,7 +31,7 @@ function handleForkWorkflow(args) {
   }
 
   // Verify workflow exists
-  const { workflow: _workflow, error: wfErr } = requireWorkflow(workflowEngine, workflow_id);
+  const { workflow: _workflow, error: wfErr } = requireWorkflow(workflow_id);
   if (wfErr) return wfErr;
 
   const fork = providerRoutingCore.createWorkflowFork({
@@ -118,7 +118,7 @@ function handleReplayTask(args) {
   }
 
   // Get original task
-  const { task: originalTask, error: taskErr } = requireTask(taskCore, task_id);
+  const { task: originalTask, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   // Create new task based on original
@@ -168,9 +168,9 @@ function handleDiffTaskRuns(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Both task_id_a and task_id_b are required');
   }
 
-  const { task: taskA, error: errA } = requireTask(taskCore, task_id_a);
+  const { task: taskA, error: errA } = requireTask(task_id_a);
   if (errA) return errA;
-  const { task: taskB, error: errB } = requireTask(taskCore, task_id_b);
+  const { task: taskB, error: errB } = requireTask(task_id_b);
   if (errB) return errB;
 
   const diff = {};
@@ -364,7 +364,7 @@ function handleExportReport(args) {
  * Retry workflow from a specific task
  */
 function handleRetryWorkflowFrom(args) {
-  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
   const task = taskCore.getTask(args.from_task_id);
@@ -455,7 +455,7 @@ function handleRetryWorkflowFrom(args) {
  * Manually skip a blocked task
  */
 function handleSkipTask(args) {
-  const { task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'blocked') {

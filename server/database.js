@@ -726,14 +726,30 @@ const _DI_INTERNALS = new Set([
   'setExternalFns', 'setDbClosed',
 ]);
 
+// IMPORTANT: Do NOT replace _DI_FACTORIES with a pattern like `key.startsWith('create')`.
+// Runtime functions (createTask, createWorkflow, createWebhook, etc.) MUST be exported.
+// Only DI factory functions (createTaskCore, createConfigCore, etc.) are excluded.
+// DI factory functions — return module instances, not data. Excluded from facade.
+const _DI_FACTORIES = new Set([
+  'createTaskCore', 'createConfigCore', 'createWorkflowEngine', 'createCostTracking',
+  'createWebhooksStreaming', 'createCoordination', 'createEventTracking', 'createAnalytics',
+  'createHostManagement', 'createSchedulingAutomation', 'createTaskMetadata',
+  'createProviderRoutingCore', 'createFileTracking', 'createProjectConfigCore',
+  'createBackupCore', 'createValidationRules', 'createCodeAnalysis',
+  'createAuditStore', 'createEmailPeek', 'createPeekFixtureCatalog',
+  'createPackRegistry', 'createPeekPolicyAudit', 'createPeekRecoveryApprovals',
+  'createRecoveryMetrics', 'createInboundWebhooks', 'createCiCache',
+  'createPolicyProfileStore', 'createPolicyEvaluationStore', 'createModelRoles',
+]);
+
 // Merge all sub-module exports into a flat namespace, skipping DI internals
-// and factory functions (createXxx).
+// and DI factory functions. Runtime createXxx (createTask, createWorkflow, etc.) included.
 const merged = {};
 for (const mod of _SUB_MODULES) {
   for (const [key, value] of Object.entries(mod)) {
     if (typeof value !== 'function') continue;
     if (_DI_INTERNALS.has(key)) continue;
-    if (key.startsWith('create') && key[6] && key[6] === key[6].toUpperCase()) continue;
+    if (_DI_FACTORIES.has(key)) continue;
     merged[key] = value;
   }
 }

@@ -465,7 +465,7 @@ async function finalizeTask(taskId, options = {}) {
           } catch { /* routing template activation is best-effort */ }
         }
       }
-    } catch (e) { /* non-critical */ }
+    } catch (_e) { /* non-critical */ }
 
     try {
       if (ctx.status === 'failed') {
@@ -478,7 +478,7 @@ async function finalizeTask(taskId, options = {}) {
         const db = require('../database');
         try { db.getDbInstance().prepare('UPDATE tasks SET resume_context = ? WHERE id = ?').run(JSON.stringify(resumeCtx), task.id); } catch {}
       }
-    } catch (e) { /* non-critical */ }
+    } catch (_e) { /* non-critical */ }
 
     if (typeof deps.handlePostCompletion === 'function') {
       try {
@@ -583,8 +583,8 @@ async function finalizeTask(taskId, options = {}) {
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createTaskFinalizer(deps) {
-  // deps reserved for Phase 5 when database.js facade is removed
+function createTaskFinalizer(_deps) {
+  // _deps reserved for Phase 5 when database.js facade is removed
   return {
     init,
     finalizeTask,

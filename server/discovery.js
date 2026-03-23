@@ -1094,7 +1094,7 @@ function initAutoScanFromConfig() {
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createDiscovery(deps) {
+function createDiscovery(_deps) {
   // deps reserved for future DI refinement
   return {
     initDiscovery, shutdownDiscovery,

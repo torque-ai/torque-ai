@@ -10,7 +10,6 @@
 const mcpProtocol = require('../../mcp-protocol');
 const { TOOLS, handleToolCall } = require('../../tools');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../../core-tools');
-const logger = require('../../logger').child({ component: 'mcp-sse:protocol' });
 const session = require('./session');
 
 // ──────────────────────────────────────────────────────────────
@@ -202,7 +201,7 @@ function initProtocol(shutdownAbort) {
           const coord = require('../../db/coordination');
           coord.updateAgent(sess._sessionId, { name: `claude-code@${projectName}` });
           sess._nameUpdated = true;
-        } catch (e) {
+        } catch {
           // Non-fatal
         }
       }

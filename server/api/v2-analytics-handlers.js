@@ -620,7 +620,7 @@ async function handleStrategicOperations(req, res) {
   }
 }
 
-function createV2AnalyticsHandlers(deps) {
+function createV2AnalyticsHandlers(_deps) {
   return {
     handleStatsOverview,
     handleTimeSeries,

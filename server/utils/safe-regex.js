@@ -12,7 +12,7 @@ function isSafeRegex(pattern, maxLength = 200) {
   try { new RegExp(pattern); return true; } catch { return false; }
 }
 
-function safeRegexTest(pattern, input, timeoutMs = 100) {
+function safeRegexTest(pattern, input, _timeoutMs = 100) {
   if (!isSafeRegex(pattern)) return false;
   try {
     const regex = new RegExp(pattern, 'i');

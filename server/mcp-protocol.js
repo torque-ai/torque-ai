@@ -72,7 +72,7 @@ async function handleRequest(request, session) {
         if (isOpenMode()) {
           response._meta = { security_warning: 'TORQUE running without authentication' };
         }
-      } catch (e) {
+      } catch {
         // If auth middleware fails to load, include warning as a safe default
         response._meta = { security_warning: 'TORQUE running without authentication' };
       }

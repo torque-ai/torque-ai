@@ -275,7 +275,7 @@ function handleBootstrapWorkstation(req, res) {
     res.end('Invalid port — must be a number between 1 and 65535');
     return;
   }
-  if (!/^[a-zA-Z0-9._:\[\]-]+$/.test(torqueHost)) {
+  if (!/^[a-zA-Z0-9._:[\]-]+$/.test(torqueHost)) {
     res.writeHead(400, { 'Content-Type': 'text/plain' });
     res.end('Invalid host header');
     return;

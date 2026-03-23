@@ -178,7 +178,7 @@ function runSlotPullPass() {
               coord.recordCoordinationEvent('task_claimed', agentId, taskId, JSON.stringify({ provider }));
             }
           }
-        } catch (e) {
+        } catch (_e) {
           // Non-fatal — don't block task execution
         }
         logger.info('Slot-pull assigned task ' + taskId + ' to ' + provider);
@@ -244,8 +244,8 @@ function stopHeartbeat() {
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createSlotPullScheduler(deps) {
-  // deps reserved for Phase 5 when database.js facade is removed
+function createSlotPullScheduler(_deps) {
+  // _deps reserved for Phase 5 when database.js facade is removed
   return {
     init, findBestTaskForProvider, claimTask, runSlotPullPass,
     requeueAfterFailure, onSlotFreed, startHeartbeat, stopHeartbeat,

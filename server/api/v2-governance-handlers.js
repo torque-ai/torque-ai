@@ -1197,7 +1197,7 @@ async function handleDetectFileConflicts(req, res) {
   }
 }
 
-function createV2GovernanceHandlers(deps) {
+function createV2GovernanceHandlers(_deps) {
   return {
     init,
     handleListApprovals,

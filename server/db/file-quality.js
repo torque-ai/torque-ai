@@ -965,6 +965,7 @@ function getSafeguardToolConfigs(safeguardType = null) {
 module.exports = {
   setDb,
   setGetTask,
+  getRunningCount,
   getSyntaxValidators,
   listAllSyntaxValidators,
   runSyntaxValidation,

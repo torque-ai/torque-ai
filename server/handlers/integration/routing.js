@@ -349,7 +349,7 @@ async function handleSmartSubmitTask(args) {
   }
 
   // Both-providers-down gate: reject if Codex exhausted AND no local LLM available (RB-031)
-  const availCheck = checkProviderAvailability(null, { hasExplicitProvider: !!override_provider });
+  const availCheck = checkProviderAvailability({ hasExplicitProvider: !!override_provider });
   if (availCheck) return availCheck.error;
 
   // Validate provider

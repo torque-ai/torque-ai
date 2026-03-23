@@ -147,7 +147,7 @@ function handleValidateTaskOutput(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  const { task, error: taskErr } = requireTask(database, task_id);
+  const { task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = [];
@@ -501,7 +501,7 @@ function handlePreviewTaskDiff(args) {
   const err = requireString(args, 'task_id');
   if (err) return err;
 
-  const { task, error: taskErr } = requireTask(database, task_id);
+  const { task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   let preview = fileTracking.getDiffPreview(task_id);

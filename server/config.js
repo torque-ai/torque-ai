@@ -264,7 +264,7 @@ function init(deps) {
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createConfig(deps) {
+function createConfig(_deps) {
   // deps reserved for Phase 5 when database.js facade is removed
   return { init, get, getInt, getFloat, getBool, isOptIn, getJson, getApiKey, hasApiKey, getPort, REGISTRY, API_KEY_ENV_VARS };
 }

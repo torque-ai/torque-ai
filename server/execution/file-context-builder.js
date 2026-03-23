@@ -234,7 +234,7 @@ function extractJsFunctionBoundaries(filePath) {
     }
 
     return boundaries;
-  } catch (err) {
+  } catch (_err) {
     return [];
   }
 }

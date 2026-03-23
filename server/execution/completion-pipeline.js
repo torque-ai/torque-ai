@@ -192,7 +192,7 @@ function handlePostCompletion(ctx) {
     try {
       const { clearPartialOutputBuffer } = require('../db/webhooks-streaming');
       clearPartialOutputBuffer(taskId);
-    } catch (poErr) {
+    } catch (_poErr) {
       // Non-fatal
     }
 
@@ -203,7 +203,7 @@ function handlePostCompletion(ctx) {
       for (const claim of claims) {
         coord.releaseTaskClaim(claim.id);
       }
-    } catch (e) {
+    } catch (_e) {
       // Non-fatal
     }
   } catch (webhookErr) {

@@ -294,8 +294,8 @@ function resolveWorkflowConflicts(workflowId) {
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createConflictResolver(deps) {
-  // deps reserved for Phase 5 when database.js facade is removed
+function createConflictResolver(_deps) {
+  // _deps reserved for Phase 5 when database.js facade is removed
   return {
     resolveWorkflowConflicts,
   };

@@ -52,7 +52,7 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
     // 2. Parse stringified arguments back to objects (Ollama requires objects, not JSON strings)
     const cleanedMessages = messages.map(m => {
       if (m.role === 'tool' && m.tool_call_id) {
-        const { tool_call_id, ...clean } = m;
+        const { tool_call_id: _toolCallId, ...clean } = m;
         return clean;
       }
       if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
@@ -109,7 +109,7 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
       (res) => {
         let buffer = '';
         let accumulatedContent = '';
-        let accumulatedToolCalls = [];
+        const accumulatedToolCalls = [];
         let resolved = false;
         // Token counts come on the done:true line
         let promptTokens = 0;

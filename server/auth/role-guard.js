@@ -2,7 +2,7 @@
 
 const ROLE_HIERARCHY = ['viewer', 'operator', 'manager', 'admin'];
 
-function requireRole(identity, minRole, projectId = null) {
+function requireRole(identity, minRole, _projectId = null) {
   if (!identity) return false;
   const identityLevel = ROLE_HIERARCHY.indexOf(identity.role);
   const requiredLevel = ROLE_HIERARCHY.indexOf(minRole);

@@ -510,7 +510,7 @@ async function handleToolCall(name, args) {
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createTools(deps) {
+function createTools(_deps) {
   // deps reserved for Phase 5 when database.js facade is removed
   return { TOOLS, routeMap, schemaMap, handleToolCall, validateArgsAgainstSchema, INTERNAL_HANDLER_EXPORTS };
 }

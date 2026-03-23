@@ -272,7 +272,7 @@ function walkProjectFiles(workingDir) {
 
   function walk(dir, depth) {
     if (depth > 10) return;
-    var entries;
+    let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
 
     for (const entry of entries) {
@@ -332,7 +332,7 @@ function cleanupOrphans(workingDir) {
 
   const stmt = _db.prepare('SELECT DISTINCT file_path FROM symbol_index WHERE working_dir = ?');
   const indexedPaths = stmt.all(workingDir).map(function(r) { return r.file_path; });
-  var removed = 0;
+  let removed = 0;
 
   for (const filePath of indexedPaths) {
     if (!fs.existsSync(filePath)) {
@@ -385,8 +385,8 @@ async function indexProject(workingDir, options) {
   const stale = options.force ? allFiles : getStaleFiles(allFiles, workingDir);
   const orphans = cleanupOrphans(workingDir);
 
-  var totalSymbols = 0;
-  var filesIndexed = 0;
+  let totalSymbols = 0;
+  let filesIndexed = 0;
 
   for (const file of stale) {
     try {
@@ -414,7 +414,7 @@ function searchSymbols(query, workingDir, options) {
   const kind = options.kind || null;
   const limit = options.limit || 50;
 
-  var sql = 'SELECT * FROM symbol_index WHERE working_dir = ?';
+  let sql = 'SELECT * FROM symbol_index WHERE working_dir = ?';
   const params = [workingDir];
 
   if (mode === 'exact') {

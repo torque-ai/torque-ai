@@ -164,7 +164,7 @@ function buildWorkflowDetailResponse(workflow, tasks) {
   };
 }
 
-function createV2ControlPlane(deps) {
+function createV2ControlPlane(_deps) {
   return {
     buildMeta,
     sendSuccess,

@@ -12,7 +12,7 @@
 const logger = require('../logger').child({ component: 'prompts' });
 const serverConfig = require('../config');
 const { BASE_LLM_RULES } = require('../constants');
-const { getModelSizeCategory, isSmallModel, isThinkingModel } = require('../utils/model');
+const { getModelSizeCategory, isSmallModel } = require('../utils/model');
 
 const TIER_CONTEXT_CAPS = {
   small: 2048, // ~500 tokens — single file only

@@ -12,7 +12,7 @@ const { ErrorCodes, makeError, requireTask } = require('../shared');
  * Check test coverage for a task
  */
 function handleCheckTestCoverage(args) {
-  const { task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
@@ -45,7 +45,7 @@ function handleCheckTestCoverage(args) {
  * Run code style check
  */
 function handleRunStyleCheck(args) {
-  const { task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
@@ -78,7 +78,7 @@ function handleRunStyleCheck(args) {
  * Analyze change impact for a task
  */
 function handleAnalyzeChangeImpact(args) {
-  const { task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
@@ -242,7 +242,7 @@ function handleGetVulnerabilityResults(args) {
  * Analyze code complexity
  */
 function handleAnalyzeComplexity(args) {
-  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
@@ -291,7 +291,7 @@ function handleGetComplexityMetrics(args) {
  * Detect dead code
  */
 function handleDetectDeadCode(args) {
-  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);
@@ -366,7 +366,7 @@ async function handleValidateApiContract(args) {
  * Check documentation coverage
  */
 function handleCheckDocCoverage(args) {
-  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);

@@ -872,7 +872,7 @@ async function handleRejectSwitch(req, res) {
   }
 }
 
-function createV2TaskHandlers(deps) {
+function createV2TaskHandlers(_deps) {
   return {
     init,
     handleSubmitTask,

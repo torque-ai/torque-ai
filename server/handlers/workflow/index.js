@@ -720,7 +720,7 @@ function handleAddWorkflowTask(args) {
     }
   }
 
-  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
   // Guard: do not add tasks to terminal workflows.
@@ -968,7 +968,7 @@ function handleAddWorkflowTask(args) {
  * Start workflow execution
  */
 function handleRunWorkflow(args) {
-  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
   if (workflow.status === 'running') {
@@ -1152,7 +1152,7 @@ function handleWorkflowStatus(args) {
  * Cancel a workflow
  */
 function handleCancelWorkflow(args) {
-  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
   const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
@@ -1203,7 +1203,7 @@ function handleCancelWorkflow(args) {
  * Pause a workflow
  */
 function handlePauseWorkflow(args) {
-  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
   if (workflow.status !== 'running') {
@@ -1314,7 +1314,7 @@ function handleListWorkflows(args) {
  * Get workflow execution history
  */
 function handleWorkflowHistory(args) {
-  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
   const events = workflowEngine.getWorkflowHistory(args.workflow_id);
@@ -1373,7 +1373,7 @@ function handleExportWorkflow(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required');
   }
 
-  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, args.workflow_id);
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
   const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);

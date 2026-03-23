@@ -645,7 +645,7 @@ function updateTaskStatus(id, status, additionalFields = {}) {
       if (updatedTask) {
         dispatchTaskEvent('started', updatedTask);
       }
-    } catch (e) {
+    } catch {
       // Non-fatal — never block status transition
     }
   }

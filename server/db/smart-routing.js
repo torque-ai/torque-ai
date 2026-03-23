@@ -14,7 +14,7 @@ let templateStore = null;
 try {
   categoryClassifier = require('../routing/category-classifier');
   templateStore = require('../routing/template-store');
-} catch (error) {
+} catch {
   categoryClassifier = null;
   templateStore = null;
 }
@@ -88,8 +88,6 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     };
   }
 
-  const workflowId = options.workflowId;
-
   // Check Ollama health from cache
   const ollamaHealthy = isOllamaHealthy();
 
@@ -137,11 +135,6 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   function getCircuitBreaker() {
     if (!_cbLoaded) { _cbLoaded = true; try { _circuitBreaker = require('../execution/circuit-breaker'); } catch { _circuitBreaker = null; } }
     return _circuitBreaker;
-  }
-  let _scoringModule = null, _smLoaded = false;
-  function getScoringModule() {
-    if (!_smLoaded) { _smLoaded = true; try { _scoringModule = require('./provider-scoring'); } catch { _scoringModule = null; } }
-    return _scoringModule;
   }
 
   // Helper to check if provider needs Ollama and handle fallback
@@ -679,7 +672,6 @@ const LOCAL_PROVIDERS = ['ollama', 'hashline-ollama'];
  */
 function getProviderFallbackChain(provider, options) {
   const getDatabaseConfig = _deps.getDatabaseConfig;
-  const getProvider = _deps.getProvider;
 
   // Check for user-configured fallback chain first
   const customChainJson = getDatabaseConfig(`fallback_chain_${provider}`);

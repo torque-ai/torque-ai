@@ -19,7 +19,6 @@ const {
   cleanupEventData,
 } = require('../database');
 const {
-  STREAM_EVENT_TYPES,
   normalizePolicyKey,
   normalizeEventTypes,
   mapTaskToolCall,

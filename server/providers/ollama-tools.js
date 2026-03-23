@@ -18,7 +18,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 const logger = require('../logger').child({ component: 'ollama-tools' });
 const { isSafeRegex } = require('../utils/safe-regex');
 const { lineSimilarity } = require('../utils/hashline-parser');
@@ -629,7 +628,7 @@ function createToolExecutor(workingDir, options = {}) {
             // to fix LLMs that send new_text with wrong base indentation.
             const oldFirstNonBlank = args.old_text.split('\n').find(l => l.trim().length > 0);
             const oldIndent = oldFirstNonBlank ? oldFirstNonBlank.match(/^(\s*)/)[1] : '';
-            let finalNewText = reindentNewText(args.new_text, oldIndent);
+            const finalNewText = reindentNewText(args.new_text, oldIndent);
             const newContent = content.slice(0, idx) + finalNewText + content.slice(idx + args.old_text.length);
             fs.writeFileSync(resolvedPath, newContent, 'utf-8');
             changedFiles.add(resolvedPath);

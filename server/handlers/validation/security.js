@@ -58,7 +58,7 @@ function handleRunSecurityScan(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const fileChanges = fileTracking.getTaskFileChanges(args.task_id);

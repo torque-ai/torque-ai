@@ -51,7 +51,7 @@ function evaluateAtStage(stage, taskData, options = {}) {
       if (effectResult.applied.length > 0) {
         result.activeEffectsApplied = effectResult.applied;
       }
-    } catch (e) {
+    } catch {
       // Active effects are non-critical
     }
 

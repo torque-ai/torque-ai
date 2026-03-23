@@ -726,7 +726,7 @@ async function handleCoordinationDashboard(req, res) {
   }
 }
 
-function createV2InfrastructureHandlers(deps) {
+function createV2InfrastructureHandlers(_deps) {
   return {
     init,
     handleListWorkstations,

@@ -836,7 +836,7 @@ function probeOllamaEndpoint(hostUrl, timeoutMs) {
  * @param {boolean} [options.hasExplicitProvider] - true if user specified a provider override
  * @returns {{ error: Object } | null}
  */
-function checkProviderAvailability(_db, options = {}) {
+function checkProviderAvailability(options = {}) {
   if (options.hasExplicitProvider) return null;
   const providerRoutingCore = require('../db/provider-routing-core');
   const hostManagement = require('../db/host-management');
@@ -850,11 +850,10 @@ function checkProviderAvailability(_db, options = {}) {
 
 /**
  * Require a task to exist, returning an error response if not found.
- * @param {object} db - Database instance
  * @param {string} taskId - Task ID to look up
  * @returns {{ task: object }|{ error: object }} task object or error response
  */
-function requireTask(_db, taskId) {
+function requireTask(taskId) {
   if (!taskId) {
     return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required') };
   }
@@ -868,11 +867,10 @@ function requireTask(_db, taskId) {
 
 /**
  * Require a workflow to exist, returning an error response if not found.
- * @param {object} db - Database instance
  * @param {string} workflowId - Workflow ID to look up
  * @returns {{ workflow: object }|{ error: object }} workflow object or error response
  */
-function requireWorkflow(_db, workflowId) {
+function requireWorkflow(workflowId) {
   if (!workflowId) {
     return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required') };
   }

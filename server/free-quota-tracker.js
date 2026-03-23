@@ -447,7 +447,7 @@ FreeQuotaTracker.FREE_PROVIDER_SCAN_ONLY_TYPES = FREE_PROVIDER_SCAN_ONLY_TYPES;
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
-function createFreeQuotaTracker(deps) {
+function createFreeQuotaTracker(_deps) {
   // deps reserved for Phase 5 when database.js facade is removed
   return FreeQuotaTracker;
 }

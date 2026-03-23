@@ -27,7 +27,7 @@ const { safeLimit, ErrorCodes, makeError, requireTask } = require('../shared');
 function handleCacheTaskResult(args) {
   const { task_id, ttl_hours } = args;
 
-  const { task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'completed') {
@@ -228,7 +228,7 @@ function handleWarmCache(args) {
 function handleComputePriority(args) {
   const { task_id, recalculate } = args;
 
-  const { task: _task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task: _task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   const score = computePriorityScore(task_id);
@@ -345,7 +345,7 @@ function handleConfigurePriorityWeights(args) {
 function handleExplainPriority(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   // Priority explanation using config weights and task data
@@ -379,7 +379,7 @@ function handleExplainPriority(args) {
 function handleBoostPriority(args) {
   const { task_id, boost_amount, reason } = args;
 
-  const { task: _task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task: _task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   boostPriority(task_id, boost_amount, reason || 'Manual boost');
@@ -411,7 +411,7 @@ function handlePredictFailure(args) {
 
   let prediction;
   if (task_id) {
-    const { task, error: taskErr } = requireTask(taskCore, task_id);
+    const { task, error: taskErr } = requireTask(task_id);
     if (taskErr) return taskErr;
     prediction = predictFailureForTask(task.task_description, task.working_directory);
   } else if (task_description) {
@@ -454,7 +454,7 @@ function handleLearnFailurePattern(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id, name, and description are required');
   }
 
-  const { task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   // Verify task has output to learn from
@@ -547,7 +547,7 @@ function handleDeleteFailurePattern(args) {
 function handleSuggestIntervention(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   const result = suggestIntervention(task.task_description, task.working_directory);
@@ -585,7 +585,7 @@ function handleSuggestIntervention(args) {
 function handleApplyIntervention(args) {
   const { task_id, intervention_type, parameters } = args;
 
-  const { task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   // Apply intervention based on type
@@ -714,7 +714,7 @@ function handleConfigureAdaptiveRetry(args) {
 function handleGetRetryRecommendation(args) {
   const { task_id } = args;
 
-  const { task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   if (task.status !== 'failed') {
@@ -766,7 +766,7 @@ function handleGetRetryRecommendation(args) {
 function handleRetryWithAdaptation(args) {
   const { task_id, apply_recommendations } = args;
 
-  const { task, error: taskErr2 } = requireTask(taskCore, task_id);
+  const { task, error: taskErr2 } = requireTask(task_id);
   if (taskErr2) return taskErr2;
 
   if (task.status !== 'failed') {

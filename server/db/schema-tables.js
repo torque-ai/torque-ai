@@ -320,7 +320,7 @@ function createTables(db, logger) {
     `);
   try {
     rawDb.exec('ALTER TABLE tasks ADD COLUMN resume_context TEXT');
-  } catch (e) {
+  } catch {
     // Column already exists — safe to ignore
   }
   db.exec(`

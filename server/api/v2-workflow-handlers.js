@@ -418,7 +418,7 @@ async function handleGetWorkflowTasks(req, res) {
   }
 }
 
-function createV2WorkflowHandlers(deps) {
+function createV2WorkflowHandlers(_deps) {
   return {
     init,
     handleCreateWorkflow,

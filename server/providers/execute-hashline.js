@@ -337,7 +337,7 @@ function parseAndApplyEdits({ llmOutput, editFormat, fileContextMap, workingDir 
  */
 async function runErrorFeedbackLoop({
   taskId, workingDir, editFormat, ollamaHost, ollamaModel,
-  systemPrompt, options, modifiedFiles, resolvedFiles,
+  systemPrompt, options, modifiedFiles, resolvedFiles: _resolvedFiles,
   ollamaStreamId, importContext
 }) {
   // Check if error feedback is enabled
@@ -459,7 +459,7 @@ async function executeHashlineOllamaTask(task) {
   const workingDir = task.working_directory || process.cwd();
   let terminalCompleted = false;
 
-  let cancelCheckInterval = setInterval(() => {
+  const cancelCheckInterval = setInterval(() => {
     try {
       const cur = db.getTask(taskId);
       if (!cur || cur.status === 'cancelled' || cur.status === 'failed') clearInterval(cancelCheckInterval);

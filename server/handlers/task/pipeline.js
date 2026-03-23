@@ -286,7 +286,7 @@ function handleRetryTask(args) {
     }
   }
 
-  const { task: originalTask, error: taskErr } = requireTask(db, args.task_id);
+  const { task: originalTask, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   if (originalTask.status !== 'failed' && originalTask.status !== 'cancelled') {
@@ -563,7 +563,7 @@ function handleListPipelines(args) {
  * Preview diff for a task
  */
 function handlePreviewDiff(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const cwd = args.working_directory || task.working_directory || process.cwd();
@@ -615,7 +615,7 @@ function handlePreviewDiff(args) {
  * Commit task changes
  */
 function handleCommitTask(args) {
-  const { task, error: taskErr2 } = requireTask(db, args.task_id);
+  const { task, error: taskErr2 } = requireTask(args.task_id);
   if (taskErr2) return taskErr2;
 
   const cwd = args.working_directory || task.working_directory || process.cwd();
@@ -678,7 +678,7 @@ function handleRollbackTask(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  const { task: _task, error: taskErr3 } = requireTask(db, task_id);
+  const { task: _task, error: taskErr3 } = requireTask(task_id);
   if (taskErr3) return taskErr3;
 
   // Create rollback record

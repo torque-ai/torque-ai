@@ -232,7 +232,7 @@ function handleClaimTask(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id and agent_id are required');
   }
 
-  const { task: _task, error: taskErr } = requireTask(db, task_id);
+  const { task: _task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   const agent = coordinationDb.getAgent(agent_id);

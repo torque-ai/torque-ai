@@ -530,7 +530,7 @@ function clearPartialOutputBuffer(taskId) {
   // NULL out partial_output — full output is in the output column now
   try {
     db.prepare('UPDATE tasks SET partial_output = NULL WHERE id = ?').run(taskId);
-  } catch (e) {
+  } catch {
     // Non-fatal
   }
 }
@@ -554,7 +554,7 @@ function getPartialOutputBuffer(taskId) {
 function flushPartialOutput(taskId, buffer) {
   try {
     db.prepare('UPDATE tasks SET partial_output = ? WHERE id = ?').run(buffer, taskId);
-  } catch (e) {
+  } catch {
     // Non-fatal — never block chunk processing
   }
 }
@@ -661,7 +661,7 @@ function addStreamChunk(streamId, chunkData, chunkType = 'stdout') {
         entry.lastFlushAt = now;
       }
     }
-  } catch (e) {
+  } catch {
     // Non-fatal — never block chunk processing
   }
 

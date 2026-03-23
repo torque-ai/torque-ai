@@ -241,7 +241,7 @@ function handleSubmitTask(args) {
   }
 
   // Provider availability gate — reject if no providers can serve (RB-031)
-  const availCheck = checkProviderAvailability(db, { hasExplicitProvider: !!args.provider });
+  const availCheck = checkProviderAvailability({ hasExplicitProvider: !!args.provider });
   if (availCheck) return availCheck.error;
 
   // Fix F3: Use per-provider timeout defaults when no explicit timeout given
@@ -491,7 +491,7 @@ function handleQueueTask(args) {
   }
 
   // Provider availability gate — reject if no providers can serve (RB-031)
-  const availCheck2 = checkProviderAvailability(db, { hasExplicitProvider: !!args.provider });
+  const availCheck2 = checkProviderAvailability({ hasExplicitProvider: !!args.provider });
   if (availCheck2) return availCheck2.error;
 
   // Fix F3: Use per-provider timeout defaults when no explicit timeout given
@@ -563,7 +563,7 @@ function handleCheckStatus(args) {
   const pressureLevel = getTaskInfoPressureLevel();
 
   if (args.task_id) {
-    const { task, error: taskErr } = requireTask(db, args.task_id);
+    const { task, error: taskErr } = requireTask(args.task_id);
     if (taskErr) return taskErr;
 
     const progress = taskManager.getTaskProgress(args.task_id);
@@ -689,7 +689,7 @@ function handleCheckStatus(args) {
  * Get full result of a task
  */
 function handleGetResult(args) {
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   if (task.status === 'running' || task.status === 'queued' || task.status === 'pending') {
@@ -802,7 +802,7 @@ async function handleWaitForTask(args) {
   }
   
 
-  const { task, error: taskErr } = requireTask(db, taskId);
+  const { task, error: taskErr } = requireTask(taskId);
   if (taskErr) return taskErr;
 
   const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'skipped'];
@@ -952,7 +952,7 @@ function handleCancelTask(args) {
   }
 
   // Look up the task first to show what's about to be cancelled
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   // For running, queued, or retry_scheduled tasks, require explicit confirm=true
@@ -1129,7 +1129,7 @@ function handleShareContext(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'content must be a non-empty string');
   }
 
-  const { task, error: taskErr } = requireTask(db, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   // Sanitize context type - only allow alphanumeric, dash, underscore
@@ -1206,7 +1206,7 @@ function handleSyncFiles(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'direction must be "push" or "pull"');
   }
 
-  const { task, error: taskErr2 } = requireTask(db, args.task_id);
+  const { task, error: taskErr2 } = requireTask(args.task_id);
   if (taskErr2) return taskErr2;
 
   // F6: Require working_directory for file sync — don't fall back to server cwd

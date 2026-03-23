@@ -3,7 +3,6 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const logger = require('../logger').child({ component: 'workstation-model' });
 const { safeJsonParse } = require('../utils/json');
 
 let db;

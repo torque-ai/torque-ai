@@ -719,7 +719,7 @@ function handleWebhookStats(_args) {
 function handleConfigureRetries(args) {
   if (args.task_id) {
     // Configure specific task
-    const { error: taskErr } = requireTask(db, args.task_id);
+    const { error: taskErr } = requireTask(args.task_id);
     if (taskErr) return taskErr;
 
     const task = projectConfigCore.configureTaskRetry(args.task_id, {

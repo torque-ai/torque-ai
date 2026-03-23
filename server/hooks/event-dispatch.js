@@ -276,7 +276,7 @@ function dispatchTaskEvent(eventName, task) {
       const agentId = taskMeta?.submitted_by_agent || null;
       coord.recordCoordinationEvent(eventName, agentId, task?.id || null,
         JSON.stringify({ status: task?.status, provider: task?.provider }));
-    } catch (e) {
+    } catch {
       // Non-fatal
     }
   } catch (err) {

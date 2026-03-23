@@ -36,7 +36,6 @@ const {
   JSONRPC_VERSION,
   MAX_SSE_SESSIONS,
   MAX_SESSIONS_PER_IP,
-  ALL_TASKS_SUBSCRIPTION_KEY,
 } = sessionMod;
 
 const KEEPALIVE_INTERVAL_MS = 30000;
@@ -478,7 +477,7 @@ async function handleSseConnection(req, res, url, requestId) {
         metadata: { transport: 'sse', connected_at: new Date().toISOString() },
       });
       coord.recordCoordinationEvent('session_connected', sessionId, null, null);
-    } catch (e) {
+    } catch {
       // Non-fatal
     }
 
@@ -561,13 +560,13 @@ async function handleSseConnection(req, res, url, requestId) {
         const coord = require('./db/coordination');
         coord.updateAgent(sessionId, { status: 'offline' });
         coord.recordCoordinationEvent('session_disconnected', sessionId, null, null);
-      } catch (e) {
+      } catch {
         // Non-fatal
       }
 
       // Clean up pending elicitation requests
       if (current.pendingRequests) {
-        for (const [id, pending] of current.pendingRequests) {
+        for (const pending of current.pendingRequests.values()) {
           clearTimeout(pending.timeout);
           pending.resolve({ action: 'cancel' });
         }

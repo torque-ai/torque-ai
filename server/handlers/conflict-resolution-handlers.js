@@ -40,7 +40,7 @@ function handleResolveWorkflowConflicts(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required');
   }
 
-  const { workflow, error: wfErr } = requireWorkflow(workflowEngine, workflowId);
+  const { workflow, error: wfErr } = requireWorkflow(workflowId);
   if (wfErr) return wfErr;
 
   try {

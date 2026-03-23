@@ -34,7 +34,7 @@ const logger = require('../../logger').child({ component: 'task-operations' });
  * Add tags to a task
  */
 function handleTagTask(args) {
-  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   if (!args.tags || args.tags.length === 0) {
@@ -59,7 +59,7 @@ function handleTagTask(args) {
  * Remove tags from a task
  */
 function handleUntagTask(args) {
-  const { task: _task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task: _task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   if (!args.tags || args.tags.length === 0) {
@@ -1178,7 +1178,7 @@ function handleImportData(args) {
  * Archive a single task
  */
 function handleArchiveTask(args) {
-  const { task, error: taskErr } = requireTask(taskCore, args.task_id);
+  const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   if (['pending', 'queued', 'running'].includes(task.status)) {

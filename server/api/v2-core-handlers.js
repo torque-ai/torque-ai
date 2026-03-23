@@ -13,7 +13,6 @@ const db = require('../database');
 const { getTask, updateTaskStatus } = require('../db/task-core');
 const { getDefaultProvider, getProvider, listProviders } = require('../db/provider-routing-core');
 const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');
-const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'api-server' });
 const remoteAgentHandlers = require('../handlers/remote-agent-handlers');
 const v2Inference = require('./v2-inference');

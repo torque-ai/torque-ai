@@ -58,7 +58,7 @@ function handleStoreArtifact(args) {
   }
 
   // Verify task exists
-  const { task: _task, error: taskErr } = requireTask(taskCore, task_id);
+  const { task: _task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
 
   const config = getArtifactConfig();

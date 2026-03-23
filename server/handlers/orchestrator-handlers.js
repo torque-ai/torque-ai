@@ -137,7 +137,7 @@ async function handleStrategicDiagnose(args) {
     let diagInput = { error_output, provider, exit_code };
 
     if (task_id) {
-      const { task, error: taskErr } = requireTask(taskCore, task_id);
+      const { task, error: taskErr } = requireTask(task_id);
       if (taskErr) return taskErr;
 
       diagInput = {
@@ -197,7 +197,7 @@ async function handleStrategicReview(args) {
     let reviewInput = { task_output, validation_failures, file_size_delta_pct };
 
     if (task_id) {
-      const { task, error: taskErr } = requireTask(taskCore, task_id);
+      const { task, error: taskErr } = requireTask(task_id);
       if (taskErr) return taskErr;
 
       reviewInput = {
