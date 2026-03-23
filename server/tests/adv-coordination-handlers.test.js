@@ -832,14 +832,16 @@ describe('Advanced Coordination Handlers', () => {
       expect(result.isError).toBe(true);
     });
 
-    it('errors due to handler-db API mismatch (object vs positional args for setRateLimit)', async () => {
-      // Handler calls db.setRateLimit({id, project_id, limit_type, max_value, window_seconds})
-      // but fileTracking.setRateLimit(provider, limitType, maxValue, windowSeconds, enabled) wins in merge
+    it('configures a rate limit through the provider-routing-core handler boundary', async () => {
       const result = await safeTool('rate_limit_tasks', {
         limit_type: 'tasks_per_minute',
         max_value: 10
       });
-      expect(result.isError).toBe(true);
+      expect(result.isError).toBeFalsy();
+      const text = getText(result);
+      expect(text).toContain('Rate Limit Configured');
+      expect(text).toContain('tasks_per_minute');
+      expect(text).toContain('60 seconds');
     });
   });
 

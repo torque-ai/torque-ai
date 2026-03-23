@@ -1,14 +1,9 @@
 'use strict';
 
 // require.cache manipulation is intentionally used here rather than vi.mock().
-// The database module (database.js) re-exports functions defined in sub-modules
-// that hold a reference to the internal SQLite connection, not to the exported
-// object. vi.mock('../database') replaces the require() return value but cannot
-// intercept those internal references, so the real sub-module functions still run
-// against the uninitialized SQLite connection (db = null) and throw.
-// installMock() directly patches require.cache so the handler picks up mockDb when
-// it first loads. The handler cache entry is evicted on every beforeEach so it
-// reloads and re-binds to the fresh mock.
+// The artifacts handler binds directly to db/task-metadata.js and handlers/shared
+// when it loads. installMock() patches those current module boundaries so the
+// tests never fall through to the real SQLite-backed implementations.
 
 const crypto = require('crypto');
 const fs = require('fs');
@@ -102,8 +97,23 @@ const mockArchiver = vi.fn((format, options) => {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/advanced/artifacts')];
-  installMock('../database', mockDb);
-  installMock('../handlers/shared', realShared);
+  installMock('../db/task-metadata', {
+    storeArtifact: mockDb.storeArtifact,
+    listArtifacts: mockDb.listArtifacts,
+    getArtifact: mockDb.getArtifact,
+    deleteArtifact: mockDb.deleteArtifact,
+    getArtifactConfig: mockDb.getArtifactConfig,
+    setArtifactConfig: mockDb.setArtifactConfig,
+  });
+  installMock('../handlers/shared', {
+    ...realShared,
+    requireTask: vi.fn((taskId) => {
+      const task = mockDb.getTask(taskId);
+      return task
+        ? { task, error: null }
+        : { task: null, error: realShared.makeError(realShared.ErrorCodes.TASK_NOT_FOUND, `Task not found: ${taskId}`) };
+    }),
+  });
   return require('../handlers/advanced/artifacts');
 }
 

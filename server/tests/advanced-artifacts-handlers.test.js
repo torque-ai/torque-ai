@@ -30,14 +30,14 @@ const { dbMock, taskManagerMock, loggerMock, loggerModuleMock } = vi.hoisted(() 
   },
 }));
 
-// require.cache manipulation is used here only for the handler modules
-// (artifacts and shared) so that they re-load after mocks are installed.
-// The database/taskManager/logger mocks are set up via vi.hoisted() above,
-// and the cache entries for those modules are replaced so that the handler
-// picks them up when it first loads inside beforeAll.
+// require.cache manipulation is used here only for the handler modules and the
+// current sub-module boundaries they import. The artifacts handler now binds to
+// db/task-metadata.js, and shared.requireTask resolves through db/task-core.js.
+// Replacing those cache entries keeps the handler on the mocked path.
 let handlers;
 let shared;
-const databaseModulePath = require.resolve('../database');
+const taskMetadataModulePath = require.resolve('../db/task-metadata');
+const taskCoreModulePath = require.resolve('../db/task-core');
 const taskManagerModulePath = require.resolve('../task-manager');
 const loggerModulePath = require.resolve('../logger');
 const artifactsHandlerPath = require.resolve('../handlers/advanced/artifacts');
@@ -125,7 +125,17 @@ describe('advanced artifact handlers', () => {
   beforeAll(() => {
     resetMocks();
     for (const [modulePath, exportsValue] of [
-      [databaseModulePath, dbMock],
+      [taskMetadataModulePath, {
+        getArtifactConfig: dbMock.getArtifactConfig,
+        storeArtifact: dbMock.storeArtifact,
+        listArtifacts: dbMock.listArtifacts,
+        getArtifact: dbMock.getArtifact,
+        deleteArtifact: dbMock.deleteArtifact,
+        setArtifactConfig: dbMock.setArtifactConfig,
+      }],
+      [taskCoreModulePath, {
+        getTask: dbMock.getTask,
+      }],
       [taskManagerModulePath, taskManagerMock],
       [loggerModulePath, loggerModuleMock],
     ]) {
@@ -178,7 +188,7 @@ describe('advanced artifact handlers', () => {
   afterAll(() => {
     delete require.cache[artifactsHandlerPath];
     delete require.cache[sharedHandlerPath];
-    for (const modulePath of [databaseModulePath, taskManagerModulePath, loggerModulePath]) {
+    for (const modulePath of [taskMetadataModulePath, taskCoreModulePath, taskManagerModulePath, loggerModulePath]) {
       const original = originalModules.get(modulePath);
       if (original) {
         require.cache[modulePath] = original;

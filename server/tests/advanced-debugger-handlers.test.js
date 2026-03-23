@@ -25,15 +25,14 @@ const { dbMock, taskManagerMock, loggerMock, loggerModuleMock } = vi.hoisted(() 
   },
 }));
 
-// require.cache manipulation is used here only for the handler modules
-// (debugger and shared) so that they re-load with mocks installed.
-// The database/taskManager/logger mocks are set up via vi.hoisted() above,
-// and their cache entries are replaced inside beforeAll so the handler sees
-// them when it first requires those modules.
+// require.cache manipulation is used here only for the handler modules and the
+// current sub-module boundaries they import. The debugger handler now binds to
+// db/task-metadata.js directly, so that module is replaced before the handler
+// is first required.
 let handlers;
 let shared;
 
-const databaseModulePath = require.resolve('../database');
+const taskMetadataModulePath = require.resolve('../db/task-metadata');
 const taskManagerModulePath = require.resolve('../task-manager');
 const loggerModulePath = require.resolve('../logger');
 const sharedHandlerPath = require.resolve('../handlers/shared');
@@ -91,7 +90,7 @@ describe('advanced debugger handlers (boundary mocked)', () => {
     resetMocks();
 
     for (const modulePath of [
-      databaseModulePath,
+      taskMetadataModulePath,
       taskManagerModulePath,
       loggerModulePath,
       sharedHandlerPath,
@@ -100,7 +99,16 @@ describe('advanced debugger handlers (boundary mocked)', () => {
       originalModules.set(modulePath, require.cache[modulePath]);
     }
 
-    installModule(databaseModulePath, dbMock);
+    installModule(taskMetadataModulePath, {
+      createBreakpoint: dbMock.createBreakpoint,
+      listBreakpoints: dbMock.listBreakpoints,
+      getBreakpoint: dbMock.getBreakpoint,
+      deleteBreakpoint: dbMock.deleteBreakpoint,
+      getDebugSessionByTask: dbMock.getDebugSessionByTask,
+      updateDebugSession: dbMock.updateDebugSession,
+      getDebugState: dbMock.getDebugState,
+      getDebugCaptures: dbMock.getDebugCaptures,
+    });
     installModule(taskManagerModulePath, taskManagerMock);
     installModule(loggerModulePath, loggerModuleMock);
 
@@ -126,7 +134,7 @@ describe('advanced debugger handlers (boundary mocked)', () => {
     delete require.cache[debuggerHandlerPath];
 
     for (const modulePath of [
-      databaseModulePath,
+      taskMetadataModulePath,
       taskManagerModulePath,
       loggerModulePath,
       sharedHandlerPath,
