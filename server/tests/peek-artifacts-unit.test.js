@@ -16,6 +16,8 @@ const dbMock = {
     expires_at: '2026-04-10T00:00:00.000Z',
   })),
   getWorkflow: vi.fn(() => ({ context: {} })),
+  formatPolicyProof: vi.fn(),
+  recordPolicyProofAudit: vi.fn(),
   updateTask: vi.fn(),
   updateWorkflow: vi.fn(),
 };
@@ -65,6 +67,10 @@ function installMockFrom(dir, relPath, mock) {
 
 installMock('fs', fsMock);
 installMockFrom(artifactsDir, '../../database', dbMock);
+installMockFrom(artifactsDir, '../../db/task-core', dbMock);
+installMockFrom(artifactsDir, '../../db/task-metadata', dbMock);
+installMockFrom(artifactsDir, '../../db/workflow-engine', dbMock);
+installMockFrom(artifactsDir, '../../db/peek-policy-audit', dbMock);
 installMockFrom(artifactsDir, '../../contracts/peek', contractsMock);
 installMockFrom(artifactsDir, './shared', sharedMock);
 installMockFrom(artifactsDir, '../../logger', loggerMock);

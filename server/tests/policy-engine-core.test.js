@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 
 const SUBJECT_MODULE = '../policy-engine/engine';
 const LOGGER_MODULE = '../logger';
-const DATABASE_MODULE = '../database';
+const DATABASE_MODULE = '../db/backup-core';
 const MATCHERS_MODULE = '../policy-engine/matchers';
 const PROFILE_STORE_MODULE = '../policy-engine/profile-store';
 const EVALUATION_STORE_MODULE = '../policy-engine/evaluation-store';
@@ -45,7 +45,7 @@ const currentModules = {
 };
 
 vi.mock('../logger', () => currentModules.logger);
-vi.mock('../database', () => currentModules.database);
+vi.mock('../db/backup-core', () => currentModules.database);
 vi.mock('../policy-engine/matchers', () => currentModules.matchers);
 vi.mock('../policy-engine/profile-store', () => currentModules.profileStore);
 vi.mock('../policy-engine/evaluation-store', () => currentModules.evaluationStore);

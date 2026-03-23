@@ -14,6 +14,7 @@ const CAPTURE_MODULE_PATH = require.resolve('../handlers/peek/capture');
 let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
+vi.mock('../db/peek-policy-audit', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('../handlers/peek/shared', () => currentModules.peekShared);
 vi.mock('../logger', () => currentModules.logger);
@@ -153,6 +154,7 @@ function createModules() {
 
 function loadHandlers() {
   installMock('../database', currentModules.db);
+  installMock('../db/peek-policy-audit', currentModules.db);
   installMock('../task-manager', currentModules.taskManager);
   installMock('../handlers/peek/shared', currentModules.peekShared);
   installMock('../handlers/shared', realShared);

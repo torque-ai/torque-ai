@@ -14,6 +14,9 @@ const RECOVERY_MODULE_PATH = require.resolve('../handlers/peek/recovery');
 let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
+vi.mock('../db/config-core', () => currentModules.db);
+vi.mock('../db/peek-recovery-approvals', () => currentModules.db);
+vi.mock('../db/recovery-metrics', () => currentModules.db);
 vi.mock('../handlers/peek/shared', () => currentModules.peekShared);
 vi.mock('../handlers/peek/rollback', () => currentModules.rollback);
 vi.mock('../handlers/peek/live-autonomy', () => currentModules.liveAutonomy);
@@ -190,6 +193,9 @@ function loadHandlers() {
   vi.resetModules();
 
   vi.doMock('../database', () => currentModules.db);
+  vi.doMock('../db/config-core', () => currentModules.db);
+  vi.doMock('../db/peek-recovery-approvals', () => currentModules.db);
+  vi.doMock('../db/recovery-metrics', () => currentModules.db);
   vi.doMock('../handlers/peek/shared', () => currentModules.peekShared);
   vi.doMock('../handlers/peek/rollback', () => currentModules.rollback);
   vi.doMock('../handlers/peek/live-autonomy', () => currentModules.liveAutonomy);
@@ -198,6 +204,9 @@ function loadHandlers() {
   vi.doMock('../logger', () => currentModules.loggerModule);
 
   installMock('../database', currentModules.db);
+  installMock('../db/config-core', currentModules.db);
+  installMock('../db/peek-recovery-approvals', currentModules.db);
+  installMock('../db/recovery-metrics', currentModules.db);
   installMock('../handlers/peek/shared', currentModules.peekShared);
   installMock('../handlers/peek/rollback', currentModules.rollback);
   installMock('../handlers/peek/live-autonomy', currentModules.liveAutonomy);

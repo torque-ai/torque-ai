@@ -10,6 +10,10 @@ let currentModules = {};
 
 vi.mock('fs', () => currentModules.fsModule);
 vi.mock('../database', () => currentModules.database);
+vi.mock('../db/task-core', () => currentModules.database);
+vi.mock('../db/task-metadata', () => currentModules.database);
+vi.mock('../db/workflow-engine', () => currentModules.database);
+vi.mock('../db/peek-policy-audit', () => currentModules.database);
 vi.mock('../contracts/peek', () => currentModules.contracts);
 vi.mock('../handlers/peek/shared', () => currentModules.shared);
 vi.mock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
@@ -29,6 +33,10 @@ function loadArtifacts() {
   vi.resetModules();
   vi.doMock('fs', () => currentModules.fsModule);
   vi.doMock('../database', () => currentModules.database);
+  vi.doMock('../db/task-core', () => currentModules.database);
+  vi.doMock('../db/task-metadata', () => currentModules.database);
+  vi.doMock('../db/workflow-engine', () => currentModules.database);
+  vi.doMock('../db/peek-policy-audit', () => currentModules.database);
   vi.doMock('../contracts/peek', () => currentModules.contracts);
   vi.doMock('../handlers/peek/shared', () => currentModules.shared);
   vi.doMock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
@@ -36,6 +44,10 @@ function loadArtifacts() {
 
   installCjsModuleMock('fs', currentModules.fsModule);
   installCjsModuleMock('../database', currentModules.database);
+  installCjsModuleMock('../db/task-core', currentModules.database);
+  installCjsModuleMock('../db/task-metadata', currentModules.database);
+  installCjsModuleMock('../db/workflow-engine', currentModules.database);
+  installCjsModuleMock('../db/peek-policy-audit', currentModules.database);
   installCjsModuleMock('../contracts/peek', currentModules.contracts);
   installCjsModuleMock('../handlers/peek/shared', currentModules.shared);
   installCjsModuleMock('../handlers/peek/webhook-outbound', currentModules.webhookOutbound);

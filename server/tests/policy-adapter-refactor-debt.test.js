@@ -7,7 +7,7 @@ function installMock(modulePath, exports) {
 }
 
 const SUBJECT_MODULE = '../policy-engine/adapters/refactor-debt';
-const DATABASE_MODULE = '../database';
+const DATABASE_MODULE = '../db/backup-core';
 const MATCHERS_MODULE = '../policy-engine/matchers';
 
 const subjectPath = require.resolve(SUBJECT_MODULE);

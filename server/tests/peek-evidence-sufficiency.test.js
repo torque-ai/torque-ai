@@ -9,10 +9,23 @@ const { EventEmitter } = require('events');
 const emailPeek = require('../db/email-peek');
 const taskMetadata = require('../db/task-metadata');
 const { WPF_FIXTURE } = require('../contracts/peek-fixtures');
-const handlers = require('../handlers/peek-handlers');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+const HANDLER_MODULES = [
+  '../handlers/peek-handlers',
+  '../handlers/peek/analysis',
+  '../handlers/peek/artifacts',
+  '../handlers/peek/shared',
+];
+
+function loadHandlers() {
+  for (const modulePath of HANDLER_MODULES) {
+    delete require.cache[require.resolve(modulePath)];
+  }
+  return require('../handlers/peek-handlers');
 }
 
 function createHttpRequestMock(queue) {
@@ -55,6 +68,7 @@ function createHttpRequestMock(queue) {
 }
 
 describe('peek evidence sufficiency', () => {
+  let handlers;
   let tempDir;
   let requestQueue;
 
@@ -75,6 +89,7 @@ describe('peek evidence sufficiency', () => {
       expires_at: '2026-04-09T00:00:00.000Z',
     }));
     vi.spyOn(http, 'request').mockImplementation(createHttpRequestMock(requestQueue));
+    handlers = loadHandlers();
   });
 
   afterEach(() => {

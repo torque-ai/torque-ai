@@ -162,6 +162,8 @@ function createDiagnoseIntegrationHarness(tempRoot, overrides = {}) {
       created_at: '2026-03-11T12:00:00.000Z',
       expires_at: '2026-04-10T12:00:00.000Z',
     })),
+    formatPolicyProof: vi.fn(),
+    recordPolicyProofAudit: vi.fn(),
     updateTask: vi.fn(),
     updateWorkflow: vi.fn(),
   };
@@ -190,6 +192,10 @@ function createDiagnoseIntegrationHarness(tempRoot, overrides = {}) {
     fs: fsProxy,
     '../../contracts/peek': contracts,
     '../../database': dbMock,
+    '../../db/task-core': dbMock,
+    '../../db/task-metadata': dbMock,
+    '../../db/workflow-engine': dbMock,
+    '../../db/peek-policy-audit': dbMock,
     '../../logger': loggerModule,
     './shared': sharedModule,
   });

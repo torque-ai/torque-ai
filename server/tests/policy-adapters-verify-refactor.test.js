@@ -9,7 +9,7 @@ const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
 const VERIFICATION_SUBJECT_MODULE = '../policy-engine/adapters/verification';
 const REFACTOR_DEBT_SUBJECT_MODULE = '../policy-engine/adapters/refactor-debt';
 const MATCHERS_MODULE = '../policy-engine/matchers';
-const DATABASE_MODULE = '../database';
+const DATABASE_MODULE = '../db/backup-core';
 const PROFILE_STORE_MODULE = '../policy-engine/profile-store';
 const PROFILE_LOADER_MODULE = '../policy-engine/profile-loader';
 const EVALUATION_STORE_MODULE = '../policy-engine/evaluation-store';
@@ -1608,19 +1608,32 @@ describe('policy adapters verify/refactor combined coverage', () => {
     let testDir;
     let engine;
     let profileStore;
+    let evaluationStore;
     let loadTorqueDefaults;
     let verificationAdapter;
 
     beforeEach(() => {
       clearModuleCaches([...UNIT_MODULES, ...INTEGRATION_MODULES]);
       ({ db, testDir } = setupTestDb('policy-adapters-verify-refactor'));
+      installMock(DATABASE_MODULE, {
+        getDbInstance: vi.fn(() => rawDb()),
+      });
       engine = require(ENGINE_MODULE);
       profileStore = require(PROFILE_STORE_MODULE);
+      profileStore.setDb(rawDb());
+      evaluationStore = require(EVALUATION_STORE_MODULE);
+      evaluationStore.setDb(rawDb());
       ({ loadTorqueDefaults } = require(PROFILE_LOADER_MODULE));
       verificationAdapter = require(VERIFICATION_SUBJECT_MODULE);
     });
 
     afterEach(() => {
+      if (profileStore && typeof profileStore.setDb === 'function') {
+        profileStore.setDb(null);
+      }
+      if (evaluationStore && typeof evaluationStore.setDb === 'function') {
+        evaluationStore.setDb(null);
+      }
       teardownTestDb();
       clearModuleCaches(INTEGRATION_MODULES);
       vi.useRealTimers();

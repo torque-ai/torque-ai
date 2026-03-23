@@ -3,7 +3,7 @@
 
 const SUBJECT_MODULE = '../policy-engine/engine';
 const LOGGER_MODULE = '../logger';
-const DATABASE_MODULE = '../database';
+const DATABASE_MODULE = '../db/backup-core';
 const MATCHERS_MODULE = '../policy-engine/matchers';
 const PROFILE_STORE_MODULE = '../policy-engine/profile-store';
 const EVALUATION_STORE_MODULE = '../policy-engine/evaluation-store';
@@ -43,7 +43,7 @@ const currentModules = {
 };
 
 vi.mock('../logger', () => currentModules.logger);
-vi.mock('../database', () => currentModules.database);
+vi.mock('../db/backup-core', () => currentModules.database);
 vi.mock('../policy-engine/matchers', () => currentModules.matchers);
 vi.mock('../policy-engine/profile-store', () => currentModules.profileStore);
 vi.mock('../policy-engine/evaluation-store', () => currentModules.evaluationStore);
@@ -981,7 +981,7 @@ describe('policy-engine/engine', () => {
     });
   });
 
-  it('falls back to getDb when getDbInstance is unavailable during architecture seeding', () => {
+  it('skips architecture boundary seeding when getDbInstance is unavailable', () => {
     const fallbackDbHandle = createDbHandleMock();
     const { engine, mocks } = setupEngine({
       database: {
@@ -1019,9 +1019,8 @@ describe('policy-engine/engine', () => {
       project_id: 'Torque',
     });
 
-    expect(mocks.database.getDb).toHaveBeenCalled();
-    expect(fallbackDbHandle.__state.upserts).toHaveLength(1);
-    expect(fallbackDbHandle.__state.upserts[0][0]).toBe('boundary-fallback');
+    expect(mocks.database.getDb).not.toHaveBeenCalled();
+    expect(fallbackDbHandle.__state.upserts).toHaveLength(0);
   });
 
   it('summarizePolicyResults counts warned and blocked failures separately', () => {

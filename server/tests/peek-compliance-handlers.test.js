@@ -9,6 +9,7 @@ const MODULE_PATH = require.resolve('../handlers/peek/compliance');
 let currentModules = {};
 
 vi.mock('../database', () => currentModules.database);
+vi.mock('../db/peek-policy-audit', () => currentModules.database);
 vi.mock('../logger', () => currentModules.logger);
 vi.mock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
 vi.mock('../handlers/peek/rollback', () => currentModules.rollback);
@@ -56,11 +57,13 @@ function installCjsModuleMock(modulePath, exportsValue) {
 function loadCompliance() {
   vi.resetModules();
   vi.doMock('../database', () => currentModules.database);
+  vi.doMock('../db/peek-policy-audit', () => currentModules.database);
   vi.doMock('../logger', () => currentModules.logger);
   vi.doMock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
   vi.doMock('../handlers/peek/rollback', () => currentModules.rollback);
 
   installCjsModuleMock('../database', currentModules.database);
+  installCjsModuleMock('../db/peek-policy-audit', currentModules.database);
   installCjsModuleMock('../logger', currentModules.logger);
   installCjsModuleMock('../handlers/peek/webhook-outbound', currentModules.webhookOutbound);
   installCjsModuleMock('../handlers/peek/rollback', currentModules.rollback);

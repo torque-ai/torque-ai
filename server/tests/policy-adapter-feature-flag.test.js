@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const { installMock } = require('./cjs-mock');
 
 const SUBJECT_MODULE = '../policy-engine/adapters/feature-flag';
-const DATABASE_MODULE = '../database';
+const DATABASE_MODULE = '../db/backup-core';
 const MATCHERS_MODULE = '../policy-engine/matchers';
 const FS_MODULE = 'fs';
 const CRYPTO_MODULE = 'crypto';

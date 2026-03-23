@@ -146,7 +146,7 @@ function createSubject({ webhooks = [], httpOptions = {}, httpsOptions = {}, int
   const http = createRequestModule(httpOptions);
   const https = createRequestModule(httpsOptions);
   const mod = loadWebhookOutbound({
-    '../../database': database,
+    '../../db/webhooks-streaming': database,
     '../../logger': logger.module,
     '../shared': shared,
     http: http.module,
@@ -258,7 +258,9 @@ function createRecoveryHandlerSubject({ fireWebhookForEvent = vi.fn(() => Promis
     '../../policy-engine/task-hooks': taskHooks,
     './webhook-outbound': { fireWebhookForEvent },
     '../../logger': logger.module,
-    '../../database': database,
+    '../../db/config-core': database,
+    '../../db/peek-recovery-approvals': database,
+    '../../db/recovery-metrics': database,
   });
 
   return {
@@ -308,7 +310,10 @@ function createArtifactsHandlerSubject({ fireWebhookForEvent = vi.fn(() => Promi
 
   const mod = loadPeekArtifacts({
     fs: fsMock,
-    '../../database': database,
+    '../../db/task-core': database,
+    '../../db/task-metadata': database,
+    '../../db/workflow-engine': database,
+    '../../db/peek-policy-audit': database,
     '../../contracts/peek': contracts,
     './shared': shared,
     './webhook-outbound': { fireWebhookForEvent },

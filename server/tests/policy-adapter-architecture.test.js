@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const require = createRequire(import.meta.url);
 
 const SUBJECT_MODULE = '../policy-engine/adapters/architecture';
-const DATABASE_MODULE = '../database';
+const DATABASE_MODULE = '../db/backup-core';
 const MATCHERS_MODULE = '../policy-engine/matchers';
 const FS_MODULE = 'fs';
 const CRYPTO_MODULE = 'crypto';

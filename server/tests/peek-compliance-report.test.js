@@ -312,6 +312,7 @@ describe('peek compliance report handler', () => {
     databaseFacade = createDatabaseFacade(db);
     compliance = loadCompliance({
       '../../database': databaseFacade,
+      '../../db/peek-policy-audit': databaseFacade,
       '../../logger': loggerMock.module,
     });
   });
@@ -620,6 +621,7 @@ describe('peek compliance report handler', () => {
     });
     compliance = loadCompliance({
       '../../database': databaseFacade,
+      '../../db/peek-policy-audit': databaseFacade,
       '../../logger': loggerMock.module,
     });
 

@@ -83,7 +83,11 @@ describe('peek bundle signing helpers', () => {
       expires_at: '2026-04-09T00:00:00.000Z',
     }));
 
-    const refs = storePeekArtifactsForTask('task-peek-signing', [{
+    delete require.cache[require.resolve('../handlers/peek/artifacts')];
+    delete require.cache[require.resolve('../handlers/peek-handlers')];
+    const { storePeekArtifactsForTask: freshStorePeekArtifactsForTask } = require('../handlers/peek-handlers');
+
+    const refs = freshStorePeekArtifactsForTask('task-peek-signing', [{
       source: 'peek_diagnose',
       kind: 'bundle_json',
       name: 'bundle.json',

@@ -182,7 +182,7 @@ function createSubject(options = {}) {
     crypto,
     http: http.module,
     https: https.module,
-    '../../database': database,
+    '../../db/webhooks-streaming': database,
     '../../logger': logger.module,
     '../shared': shared,
   });

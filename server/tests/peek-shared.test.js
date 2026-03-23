@@ -8,6 +8,10 @@ const http = require('http');
 const https = require('https');
 const { EventEmitter } = require('events');
 const { createConfigMock } = require('./test-helpers');
+const TASK_CORE_MODULE = '../db/task-core';
+const WORKFLOW_ENGINE_MODULE = '../db/workflow-engine';
+const TASK_METADATA_MODULE = '../db/task-metadata';
+const EMAIL_PEEK_MODULE = '../db/email-peek';
 
 const mockDb = {
   getTask: vi.fn(),
@@ -27,7 +31,10 @@ const mockHandlerShared = {
   makeError: vi.fn((code, message) => ({ code, message })),
 };
 
-vi.mock('../database', () => mockDb);
+vi.mock('../db/task-core', () => mockDb);
+vi.mock('../db/workflow-engine', () => mockDb);
+vi.mock('../db/task-metadata', () => mockDb);
+vi.mock('../db/email-peek', () => mockDb);
 vi.mock('../handlers/shared', () => mockHandlerShared);
 
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -42,7 +49,10 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadPeekShared() {
   delete require.cache[require.resolve('../handlers/peek/shared')];
-  installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock(TASK_CORE_MODULE, mockDb);
+  installCjsModuleMock(WORKFLOW_ENGINE_MODULE, mockDb);
+  installCjsModuleMock(TASK_METADATA_MODULE, mockDb);
+  installCjsModuleMock(EMAIL_PEEK_MODULE, mockDb);
   installCjsModuleMock('../handlers/shared', mockHandlerShared);
   return require('../handlers/peek/shared');
 }

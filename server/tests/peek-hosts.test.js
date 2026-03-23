@@ -22,12 +22,12 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/peek/hosts')];
-  installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/email-peek', mockDb);
   installCjsModuleMock('../handlers/peek/shared', mockPeekShared);
   return require('../handlers/peek/hosts');
 }
 
-vi.mock('../database', () => mockDb);
+vi.mock('../db/email-peek', () => mockDb);
 vi.mock('../handlers/peek/shared', () => mockPeekShared);
 
 function resetMockDefaults() {

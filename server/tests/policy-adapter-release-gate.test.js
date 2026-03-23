@@ -14,7 +14,7 @@ function installMock(modulePath, exportsValue) {
 }
 
 const SUBJECT_MODULE = '../policy-engine/adapters/release-gate';
-const DATABASE_MODULE = '../database';
+const DATABASE_MODULE = '../db/backup-core';
 const subjectPath = require.resolve(SUBJECT_MODULE);
 const databasePath = require.resolve(DATABASE_MODULE);
 
@@ -24,13 +24,13 @@ const mockDatabase = {
   getDbInstance: vi.fn(() => currentDb),
 };
 
-vi.mock('../database', () => mockDatabase);
+vi.mock('../db/backup-core', () => mockDatabase);
 
 delete require.cache[subjectPath];
 delete require.cache[databasePath];
 installMock(DATABASE_MODULE, mockDatabase);
 
-const { evaluateGates } = require(SUBJECT_MODULE);
+let evaluateGates;
 
 function createGateRow(overrides = {}) {
   const row = {
@@ -199,6 +199,8 @@ describe('policy-engine/adapters/release-gate', () => {
     vi.setSystemTime(new Date('2026-03-11T12:00:00.000Z'));
     mockDatabase.getDbInstance = vi.fn(() => currentDb);
     installMock(DATABASE_MODULE, mockDatabase);
+    delete require.cache[subjectPath];
+    ({ evaluateGates } = require(SUBJECT_MODULE));
   });
 
   afterEach(() => {
@@ -235,6 +237,9 @@ describe('policy-engine/adapters/release-gate', () => {
       it('returns a blocking empty result when the database module exposes no getDbInstance helper', () => {
         currentDb = createMockDb();
         delete mockDatabase.getDbInstance;
+        installMock(DATABASE_MODULE, mockDatabase);
+        delete require.cache[subjectPath];
+        ({ evaluateGates } = require(SUBJECT_MODULE));
 
         expect(evaluateGates('release-1', 'Torque')).toEqual({
           gates: [],
