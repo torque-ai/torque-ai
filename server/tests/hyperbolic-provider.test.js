@@ -50,7 +50,10 @@ describe('HyperbolicProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['qwen-72b', 'llama-70b']);
+      expect(result.models).toEqual([
+        { model_name: 'qwen-72b', id: 'qwen-72b', owned_by: null, context_window: null },
+        { model_name: 'llama-70b', id: 'llama-70b', owned_by: null, context_window: null },
+      ]);
       expect(fetch).toHaveBeenCalledWith(
         'https://api.hyperbolic.xyz/v1/models',
         expect.objectContaining({
