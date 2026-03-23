@@ -74,7 +74,7 @@ describe('AnthropicProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['claude-sonnet-4-20250514', 'claude-haiku-4-20250514']);
+      expect(result.models.map(model => model.model_name)).toEqual(['claude-sonnet-4-20250514', 'claude-haiku-4-20250514']);
     });
 
     it('sends x-api-key and anthropic-version headers', async () => {
@@ -132,7 +132,7 @@ describe('AnthropicProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['claude-sonnet-4-20250514']);
+      expect(result.models.map(model => model.model_name)).toEqual(['claude-sonnet-4-20250514']);
     });
 
     it('filters out falsy model ids', async () => {
@@ -143,7 +143,7 @@ describe('AnthropicProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['claude-opus-4-20250514']);
+      expect(result.models.map(model => model.model_name)).toEqual(['claude-opus-4-20250514']);
     });
   });
 

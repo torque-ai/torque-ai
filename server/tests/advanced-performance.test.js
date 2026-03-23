@@ -1,14 +1,8 @@
 'use strict';
 
 // require.cache manipulation is intentionally used here rather than vi.mock().
-// The database module (database.js) re-exports functions defined in sub-modules
-// that hold a reference to the internal SQLite connection, not to the exported
-// object. vi.mock('../database') replaces the require() return value but cannot
-// intercept those internal references, so the real sub-module functions still run
-// against the uninitialized SQLite connection (db = null) and throw.
-// installMock() directly patches require.cache so the handler picks up mockDb when
-// it first loads. The handler cache entry is evicted on every beforeEach so it
-// reloads and re-binds to the fresh mock.
+// The performance handler imports db/project-config-core.js directly, so the test
+// patches that sub-module boundary before the handler loads.
 
 const realShared = require('../handlers/shared');
 
@@ -36,8 +30,18 @@ const mockDb = {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/advanced/performance')];
-  installMock('../database', mockDb);
-  installMock('../handlers/shared', realShared);
+  installMock('../db/project-config-core', {
+    getSlowQueries: mockDb.getSlowQueries,
+    getFrequentQueries: mockDb.getFrequentQueries,
+    vacuumDatabase: mockDb.vacuumDatabase,
+    analyzeDatabase: mockDb.analyzeDatabase,
+    integrityCheck: mockDb.integrityCheck,
+    clearCacheStats: mockDb.clearCacheStats,
+    explainQueryPlan: mockDb.explainQueryPlan,
+    getDatabaseStats: mockDb.getDatabaseStats,
+    getIndexStats: mockDb.getIndexStats,
+    getOptimizationHistory: mockDb.getOptimizationHistory,
+  });
   return require('../handlers/advanced/performance');
 }
 

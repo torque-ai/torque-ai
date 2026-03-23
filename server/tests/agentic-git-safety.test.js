@@ -1,67 +1,226 @@
 'use strict';
 
-/**
- * agentic-git-safety.test.js — Tests for the git safety net module.
- *
- * Uses real temporary git repositories to verify snapshot/revert/authorize
- * behavior under a variety of scenarios.
- */
-
-// Restore real git — this test creates real repos and the production code
-// (agentic-git-safety.js) calls execFileSync('git') directly.
-const cp = require('child_process');
-if (cp._realExecFileSync) cp.execFileSync = cp._realExecFileSync;
-if (cp._realSpawnSync) cp.spawnSync = cp._realSpawnSync;
-
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
 
-const { captureSnapshot, checkAndRevert } = require('../providers/agentic-git-safety');
-
-// ---------------------------------------------------------------------------
-// Per-test repo setup
-// ---------------------------------------------------------------------------
+const SUBJECT_PATH = require.resolve('../providers/agentic-git-safety');
+const LOGGER_PATH = require.resolve('../logger');
+const ORIGINAL_LOGGER_CACHE = require.cache[LOGGER_PATH];
 
 let repoDir;
+let tempDirs;
+let trackedFiles;
+let gitRepos;
+let loggerMock;
+let captureSnapshot;
+let checkAndRevert;
+
+function installMock(modulePath, exportsValue) {
+  require.cache[modulePath] = {
+    id: modulePath,
+    filename: modulePath,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+function formatGitOutput(text, encoding) {
+  if (encoding === 'utf8' || encoding === 'utf-8') {
+    return text;
+  }
+  return Buffer.from(text);
+}
+
+function normalizeRelative(rootDir, absolutePath) {
+  return path.relative(rootDir, absolutePath).replace(/\\/g, '/');
+}
+
+function listFiles(rootDir) {
+  const results = [];
+
+  function visit(currentDir) {
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        visit(fullPath);
+        continue;
+      }
+      results.push(normalizeRelative(rootDir, fullPath));
+    }
+  }
+
+  visit(rootDir);
+  return results.sort();
+}
+
+function isIgnored(cwd, relativePath) {
+  const ignorePath = path.join(cwd, '.gitignore');
+  if (!fs.existsSync(ignorePath)) {
+    return false;
+  }
+
+  const rules = fs.readFileSync(ignorePath, 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return rules.some((rule) => {
+    if (rule.endsWith('/')) {
+      return relativePath.startsWith(rule);
+    }
+    return relativePath === rule;
+  });
+}
+
+function getDirtyTrackedFiles(cwd) {
+  const dirty = [];
+
+  for (const [relativePath, baseline] of trackedFiles.entries()) {
+    const fullPath = path.join(cwd, relativePath);
+    if (!fs.existsSync(fullPath)) {
+      dirty.push(relativePath);
+      continue;
+    }
+
+    const current = fs.readFileSync(fullPath, 'utf8');
+    if (current !== baseline) {
+      dirty.push(relativePath);
+    }
+  }
+
+  return dirty.sort();
+}
+
+function getUntrackedFiles(cwd) {
+  return listFiles(cwd)
+    .filter((relativePath) => !trackedFiles.has(relativePath) && !isIgnored(cwd, relativePath))
+    .sort();
+}
+
+function buildGitMock() {
+  return vi.spyOn(childProcess, 'execFileSync').mockImplementation((file, args, options = {}) => {
+    if (file !== 'git') {
+      throw new Error(`Unexpected command: ${file}`);
+    }
+
+    const cwd = options.cwd;
+    if (!gitRepos.has(cwd)) {
+      const err = new Error('not a git repository');
+      err.status = 128;
+      throw err;
+    }
+
+    const [subcommand, ...rest] = args;
+
+    if (subcommand === 'diff' && rest.length === 1 && rest[0] === '--name-only') {
+      const output = getDirtyTrackedFiles(cwd).join('\n');
+      return formatGitOutput(output ? `${output}\n` : '', options.encoding);
+    }
+
+    if (subcommand === 'status' && rest.length === 1 && rest[0] === '--porcelain') {
+      const output = getUntrackedFiles(cwd).map((relativePath) => `?? ${relativePath}`).join('\n');
+      return formatGitOutput(output ? `${output}\n` : '', options.encoding);
+    }
+
+    if (subcommand === 'ls-files') {
+      const relativeRoot = rest[rest.length - 1] || '';
+      const output = getUntrackedFiles(cwd)
+        .filter((relativePath) => relativePath.startsWith(relativeRoot))
+        .join('\n');
+      return formatGitOutput(output ? `${output}\n` : '', options.encoding);
+    }
+
+    if (subcommand === 'check-ignore') {
+      const relativePath = rest[rest.length - 1];
+      if (isIgnored(cwd, relativePath)) {
+        return formatGitOutput('', options.encoding);
+      }
+
+      const err = new Error('not ignored');
+      err.status = 1;
+      throw err;
+    }
+
+    if (subcommand === 'checkout') {
+      const relativePath = rest[rest.length - 1];
+      const baseline = trackedFiles.get(relativePath);
+      if (baseline === undefined) {
+        const err = new Error(`pathspec '${relativePath}' did not match any file(s) known to git`);
+        err.status = 1;
+        throw err;
+      }
+
+      fs.mkdirSync(path.dirname(path.join(cwd, relativePath)), { recursive: true });
+      fs.writeFileSync(path.join(cwd, relativePath), baseline, 'utf8');
+      return formatGitOutput('', options.encoding);
+    }
+
+    return formatGitOutput('', options.encoding);
+  });
+}
+
+function setupRepo() {
+  repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-git-'));
+  tempDirs.push(repoDir);
+  gitRepos.add(repoDir);
+
+  trackedFiles = new Map([
+    ['main.cs', 'original'],
+    ['.gitignore', 'build/\n'],
+  ]);
+
+  fs.writeFileSync(path.join(repoDir, 'main.cs'), 'original', 'utf8');
+  fs.writeFileSync(path.join(repoDir, '.gitignore'), 'build/\n', 'utf8');
+}
+
+function readFile(relativePath) {
+  return fs.readFileSync(path.join(repoDir, relativePath), 'utf8');
+}
+
+function writeFile(relativePath, content) {
+  const fullPath = path.join(repoDir, relativePath);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, content, 'utf8');
+}
+
+function fileExists(relativePath) {
+  return fs.existsSync(path.join(repoDir, relativePath));
+}
 
 beforeEach(() => {
-  repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-git-'));
-  execFileSync('git', ['init'], { cwd: repoDir });
-  execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: repoDir });
-  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repoDir });
-  fs.writeFileSync(path.join(repoDir, 'main.cs'), 'original');
-  fs.writeFileSync(path.join(repoDir, '.gitignore'), 'build/\n');
-  execFileSync('git', ['add', '.'], { cwd: repoDir });
-  execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir });
+  tempDirs = [];
+  gitRepos = new Set();
+  loggerMock = {
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+  };
+
+  buildGitMock();
+  installMock(LOGGER_PATH, loggerMock);
+  delete require.cache[SUBJECT_PATH];
+
+  ({ captureSnapshot, checkAndRevert } = require('../providers/agentic-git-safety'));
+  setupRepo();
 });
 
 afterEach(() => {
-  fs.rmSync(repoDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
+  delete require.cache[SUBJECT_PATH];
+  if (ORIGINAL_LOGGER_CACHE) {
+    require.cache[LOGGER_PATH] = ORIGINAL_LOGGER_CACHE;
+  } else {
+    delete require.cache[LOGGER_PATH];
+  }
+
+  for (const dir of tempDirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
-
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-
-function readFile(rel) {
-  return fs.readFileSync(path.join(repoDir, rel), 'utf-8');
-}
-
-function writeFile(rel, content) {
-  const full = path.join(repoDir, rel);
-  fs.mkdirSync(path.dirname(full), { recursive: true });
-  fs.writeFileSync(full, content, 'utf-8');
-}
-
-function fileExists(rel) {
-  return fs.existsSync(path.join(repoDir, rel));
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('captureSnapshot', () => {
   it('returns empty sets in a clean repo', () => {
@@ -85,14 +244,12 @@ describe('captureSnapshot', () => {
 
   it('returns isGitRepo: false for non-git directory', () => {
     const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-nongit-'));
-    try {
-      const snap = captureSnapshot(nonGit);
-      expect(snap.isGitRepo).toBe(false);
-      expect(snap.dirtyFiles.size).toBe(0);
-      expect(snap.untrackedFiles.size).toBe(0);
-    } finally {
-      fs.rmSync(nonGit, { recursive: true, force: true });
-    }
+    tempDirs.push(nonGit);
+
+    const snap = captureSnapshot(nonGit);
+    expect(snap.isGitRepo).toBe(false);
+    expect(snap.dirtyFiles.size).toBe(0);
+    expect(snap.untrackedFiles.size).toBe(0);
   });
 });
 
@@ -110,11 +267,9 @@ describe('checkAndRevert — authorized change', () => {
   it('keeps a dirty tracked file whose name appears in the task description', () => {
     const snap = captureSnapshot(repoDir);
     writeFile('main.cs', 'changed by task');
-    // "main.cs" appears in the description → authorized
     const result = checkAndRevert(repoDir, snap, 'refactor main.cs to use async', 'enforce');
     expect(result.kept).toContain('main.cs');
     expect(result.reverted).not.toContain('main.cs');
-    // File should still have the new content
     expect(readFile('main.cs')).toBe('changed by task');
   });
 
@@ -122,8 +277,7 @@ describe('checkAndRevert — authorized change', () => {
     const snap = captureSnapshot(repoDir);
     writeFile('Accounting/Account.cs', 'new accounting file');
     const result = checkAndRevert(repoDir, snap, 'add Accounting module', 'enforce');
-    // 'Accounting' is a path component → authorized
-    expect(result.kept.some(f => f.includes('Account.cs'))).toBe(true);
+    expect(result.kept.some((file) => file.includes('Accounting/Account.cs'))).toBe(true);
     expect(fileExists('Accounting/Account.cs')).toBe(true);
   });
 });
@@ -135,7 +289,6 @@ describe('checkAndRevert — unauthorized tracked file change', () => {
     const result = checkAndRevert(repoDir, snap, 'update README', 'enforce');
     expect(result.reverted).toContain('main.cs');
     expect(result.kept).not.toContain('main.cs');
-    // File should be restored to original content
     expect(readFile('main.cs')).toBe('original');
   });
 
@@ -153,56 +306,46 @@ describe('checkAndRevert — unauthorized new file', () => {
     const snap = captureSnapshot(repoDir);
     writeFile('stray.tmp', 'surprise file');
     const result = checkAndRevert(repoDir, snap, 'update Invoice model', 'enforce');
-    expect(result.reverted.some(f => f.includes('stray.tmp'))).toBe(true);
+    expect(result.reverted.some((file) => file.includes('stray.tmp'))).toBe(true);
     expect(fileExists('stray.tmp')).toBe(false);
   });
 });
 
 describe('checkAndRevert — gitignored new file', () => {
-  it('keeps a new file that matches a .gitignore pattern (not deleted)', () => {
+  it('leaves ignored files alone because git status omits them', () => {
     const snap = captureSnapshot(repoDir);
-    // 'build/' is in .gitignore
     writeFile('build/output.dll', 'compiled');
     const result = checkAndRevert(repoDir, snap, 'compile project', 'enforce');
-    // git check-ignore should recognize build/ files as ignored
-    expect(result.kept.some(f => f.includes('build'))).toBe(true);
-    // If git check-ignore is available and works, file stays
-    // (some CI envs may not have the .gitignore respected at nested level — verify existence)
     expect(fileExists('build/output.dll')).toBe(true);
-    expect(result.reverted.filter(f => f.includes('build'))).toHaveLength(0);
+    expect(result.reverted.filter((file) => file.includes('build'))).toHaveLength(0);
+    expect(result.kept.filter((file) => file.includes('build'))).toHaveLength(0);
   });
 });
 
 describe('checkAndRevert — pre-existing dirty state preserved', () => {
   it('does not revert files that were already dirty before snapshot', () => {
-    // Dirty main.cs BEFORE taking snapshot
     writeFile('main.cs', 'pre-existing modification');
     const snap = captureSnapshot(repoDir);
-    // No new changes after snapshot
     const result = checkAndRevert(repoDir, snap, 'update README', 'enforce');
     expect(result.reverted).not.toContain('main.cs');
-    // Content remains the pre-existing modification
     expect(readFile('main.cs')).toBe('pre-existing modification');
   });
 
   it('does not revert pre-existing untracked files', () => {
     writeFile('pre-existing.cs', 'was here before');
     const snap = captureSnapshot(repoDir);
-    // No additional changes
     const result = checkAndRevert(repoDir, snap, 'unrelated task', 'enforce');
-    expect(result.reverted.some(f => f.includes('pre-existing.cs'))).toBe(false);
+    expect(result.reverted.some((file) => file.includes('pre-existing.cs'))).toBe(false);
     expect(fileExists('pre-existing.cs')).toBe(true);
   });
 });
 
 describe('checkAndRevert — mode=warn', () => {
-  it('does not revert unauthorized changes but includes them in the report', () => {
+  it('does not revert unauthorized changes but includes them in kept', () => {
     const snap = captureSnapshot(repoDir);
     writeFile('main.cs', 'unauthorized in warn mode');
     const result = checkAndRevert(repoDir, snap, 'update README', 'warn');
-    // File should NOT be reverted
     expect(readFile('main.cs')).toBe('unauthorized in warn mode');
-    // Should be in kept (not reverted)
     expect(result.reverted).toHaveLength(0);
     expect(result.kept).toContain('main.cs');
   });
@@ -213,6 +356,7 @@ describe('checkAndRevert — mode=warn', () => {
     const result = checkAndRevert(repoDir, snap, 'update Invoice', 'warn');
     expect(fileExists('sneaky.cs')).toBe(true);
     expect(result.reverted).toHaveLength(0);
+    expect(result.kept).toContain('sneaky.cs');
   });
 });
 
@@ -225,7 +369,6 @@ describe('checkAndRevert — mode=off', () => {
     expect(result.reverted).toHaveLength(0);
     expect(result.kept).toHaveLength(0);
     expect(result.report).toBe('');
-    // Files should be untouched
     expect(readFile('main.cs')).toBe('modified');
     expect(fileExists('extra.cs')).toBe(true);
   });
@@ -234,15 +377,14 @@ describe('checkAndRevert — mode=off', () => {
 describe('checkAndRevert — non-git directory', () => {
   it('returns empty results gracefully when snapshot has isGitRepo: false', () => {
     const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-nongit-'));
-    try {
-      const snap = captureSnapshot(nonGit);
-      expect(snap.isGitRepo).toBe(false);
-      const result = checkAndRevert(nonGit, snap, 'any task', 'enforce');
-      expect(result.reverted).toHaveLength(0);
-      expect(result.kept).toHaveLength(0);
-      expect(result.report).toBe('');
-    } finally {
-      fs.rmSync(nonGit, { recursive: true, force: true });
-    }
+    tempDirs.push(nonGit);
+
+    const snap = captureSnapshot(nonGit);
+    expect(snap.isGitRepo).toBe(false);
+
+    const result = checkAndRevert(nonGit, snap, 'any task', 'enforce');
+    expect(result.reverted).toHaveLength(0);
+    expect(result.kept).toHaveLength(0);
+    expect(result.report).toBe('');
   });
 });

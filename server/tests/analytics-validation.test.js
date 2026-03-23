@@ -8,6 +8,7 @@
 
 const crypto = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const fileQuality = require('../db/file-quality');
 
 let db;
 
@@ -28,6 +29,7 @@ describe('Analytics & Validation proxy modules', () => {
   beforeAll(() => {
     const env = setupTestDb('analytics-validation');
     db = env.db;
+    fileQuality.setDb(db.getDbInstance());
   });
 
   afterAll(() => {
@@ -701,10 +703,10 @@ describe('Analytics & Validation proxy modules', () => {
   describe('updateProviderStats + getProviderStats', () => {
     it('records and retrieves provider stats', () => {
       const providerName = `test-prov-${Date.now()}`;
-      db.updateProviderStats(providerName, 'code', true, 85, 30);
-      db.updateProviderStats(providerName, 'code', false, 40, 120);
+      fileQuality.updateProviderStats(providerName, 'code', true, 85, 30);
+      fileQuality.updateProviderStats(providerName, 'code', false, 40, 120);
 
-      const stats = db.getProviderStats(providerName);
+      const stats = fileQuality.getProviderStats(providerName);
       expect(stats.length).toBeGreaterThanOrEqual(1);
       const codeStat = stats.find(s => s.task_type === 'code');
       expect(codeStat.total_tasks).toBe(2);
@@ -713,7 +715,7 @@ describe('Analytics & Validation proxy modules', () => {
     });
 
     it('getProviderStats returns all stats when no provider specified', () => {
-      const stats = db.getProviderStats();
+      const stats = fileQuality.getProviderStats();
       expect(Array.isArray(stats)).toBe(true);
     });
   });
@@ -746,9 +748,9 @@ describe('Analytics & Validation proxy modules', () => {
 
   describe('recordAuditEvent + getAuditTrail + getAuditSummary', () => {
     it('records and retrieves an audit event', () => {
-      db.recordAuditEvent('config_change', 'setting', 'max_concurrent', 'update', 'admin', '3', '5', { reason: 'scaling' });
+      fileQuality.recordAuditEvent('config_change', 'setting', 'max_concurrent', 'update', 'admin', '3', '5', { reason: 'scaling' });
 
-      const trail = db.getAuditTrail('setting', 'max_concurrent');
+      const trail = fileQuality.getAuditTrail('setting', 'max_concurrent');
       expect(trail.length).toBeGreaterThanOrEqual(1);
       const event = trail.find(e => e.action === 'update' && e.entity_id === 'max_concurrent');
       expect(event).toBeDefined();
@@ -757,23 +759,23 @@ describe('Analytics & Validation proxy modules', () => {
     });
 
     it('getAuditTrail filters by entity type only', () => {
-      db.recordAuditEvent('task_event', 'task', 'task-1', 'create', 'system');
+      fileQuality.recordAuditEvent('task_event', 'task', 'task-1', 'create', 'system');
 
-      const trail = db.getAuditTrail('task');
+      const trail = fileQuality.getAuditTrail('task');
       expect(trail.length).toBeGreaterThanOrEqual(1);
       expect(trail.every(e => e.entity_type === 'task')).toBe(true);
     });
 
     it('getAuditTrail returns all events when no filters', () => {
-      const trail = db.getAuditTrail(null, null, 10);
+      const trail = fileQuality.getAuditTrail(null, null, 10);
       expect(Array.isArray(trail)).toBe(true);
     });
 
     it('getAuditSummary returns grouped counts', () => {
-      db.recordAuditEvent('summary_test', 'widget', 'w1', 'activate');
-      db.recordAuditEvent('summary_test', 'widget', 'w2', 'activate');
+      fileQuality.recordAuditEvent('summary_test', 'widget', 'w1', 'activate');
+      fileQuality.recordAuditEvent('summary_test', 'widget', 'w2', 'activate');
 
-      const summary = db.getAuditSummary(1);
+      const summary = fileQuality.getAuditSummary(1);
       expect(Array.isArray(summary)).toBe(true);
       if (summary.length > 0) {
         expect(summary[0]).toHaveProperty('event_type');

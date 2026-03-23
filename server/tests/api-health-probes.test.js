@@ -7,16 +7,19 @@ const require = createRequire(import.meta.url);
 
 const HEALTH_PROBES_MODULE = '../api/health-probes';
 const DATABASE_MODULE = '../database';
+const TASK_CORE_MODULE = '../db/task-core';
 const TOOLS_MODULE = '../tools';
 const MIDDLEWARE_MODULE = '../api/middleware';
 const MODULE_PATHS = [
   HEALTH_PROBES_MODULE,
   DATABASE_MODULE,
+  TASK_CORE_MODULE,
   TOOLS_MODULE,
   MIDDLEWARE_MODULE,
 ];
 
 let mockDb;
+let mockTaskCore;
 let mockTools;
 let mockMiddleware;
 
@@ -48,6 +51,11 @@ function createMockDb() {
   return {
     getDbInstance: vi.fn(() => ({ open: true })),
     isDbClosed: vi.fn(() => false),
+  };
+}
+
+function createMockTaskCore() {
+  return {
     countTasks: vi.fn(({ status } = {}) => {
       if (status === 'queued') return 3;
       if (status === 'running') return 1;
@@ -78,6 +86,7 @@ function createMockMiddleware() {
 function loadHealthProbes() {
   clearModules();
   installCjsModuleMock(DATABASE_MODULE, mockDb);
+  installCjsModuleMock(TASK_CORE_MODULE, mockTaskCore);
   installCjsModuleMock(TOOLS_MODULE, mockTools);
   installCjsModuleMock(MIDDLEWARE_MODULE, mockMiddleware);
   return require(HEALTH_PROBES_MODULE);
@@ -113,6 +122,7 @@ function freezeNow(startMs = 1_000_000) {
 beforeEach(() => {
   vi.useRealTimers();
   mockDb = createMockDb();
+  mockTaskCore = createMockTaskCore();
   mockTools = createMockTools();
   mockMiddleware = createMockMiddleware();
   clearModules();
@@ -130,6 +140,7 @@ describe('api/health-probes', () => {
       const probes = loadHealthProbes();
 
       expect(Object.keys(probes).sort()).toEqual([
+        'createHealthProbes',
         'handleHealthz',
         'handleLivez',
         'handleReadyz',
@@ -163,7 +174,8 @@ describe('api/health-probes', () => {
       probes.handleLivez(createReq({ url: '/livez' }), createRes(), { ignored: true });
 
       expect(mockDb.getDbInstance).not.toHaveBeenCalled();
-      expect(mockDb.countTasks).not.toHaveBeenCalled();
+      expect(mockTaskCore.countTasks).not.toHaveBeenCalled();
+      expect(mockTaskCore.countTasksByStatus).not.toHaveBeenCalled();
       expect(mockTools.handleToolCall).not.toHaveBeenCalled();
     });
   });
@@ -178,8 +190,8 @@ describe('api/health-probes', () => {
       clock.advance(5_000);
       probes.handleReadyz(req, res);
 
-      expect(mockDb.countTasks).toHaveBeenCalledTimes(1);
-      expect(mockDb.countTasks).toHaveBeenCalledWith({ status: 'running' });
+      expect(mockTaskCore.countTasks).toHaveBeenCalledTimes(1);
+      expect(mockTaskCore.countTasks).toHaveBeenCalledWith({ status: 'running' });
       expect(mockMiddleware.sendJson).toHaveBeenCalledWith(res, { status: 'ready' }, 200, req);
       expect(res.body).toEqual({ status: 'ready' });
     });
@@ -236,7 +248,7 @@ describe('api/health-probes', () => {
 
     it('reports database not accessible when the readiness probe query throws', () => {
       const clock = freezeNow(50_000);
-      mockDb.countTasks.mockImplementation(() => {
+      mockTaskCore.countTasks.mockImplementation(() => {
         throw new Error('readiness probe failed');
       });
       const probes = loadHealthProbes();
@@ -321,8 +333,8 @@ describe('api/health-probes', () => {
       // probeDatabase() calls countTasks({ status: 'running' }) once for a lightweight
       // DB accessibility check; handleHealthz then calls countTasksByStatus() for the
       // batch queue/running metrics.
-      mockDb.countTasks.mockReturnValue(2);
-      mockDb.countTasksByStatus.mockReturnValue({ running: 2, queued: 7, completed: 0, failed: 0, pending: 0, cancelled: 0, blocked: 0 });
+      mockTaskCore.countTasks.mockReturnValue(2);
+      mockTaskCore.countTasksByStatus.mockReturnValue({ running: 2, queued: 7, completed: 0, failed: 0, pending: 0, cancelled: 0, blocked: 0 });
 
       await probes.handleHealthz(req, res);
 
@@ -330,10 +342,10 @@ describe('api/health-probes', () => {
         force_check: false,
       });
       // probeDatabase() makes one countTasks call for the DB accessibility probe
-      expect(mockDb.countTasks.mock.calls).toEqual([
+      expect(mockTaskCore.countTasks.mock.calls).toEqual([
         [{ status: 'running' }],
       ]);
-      expect(mockDb.countTasksByStatus).toHaveBeenCalledOnce();
+      expect(mockTaskCore.countTasksByStatus).toHaveBeenCalledOnce();
       expect(mockMiddleware.sendJson).toHaveBeenCalledWith(
         res,
         {
@@ -353,7 +365,7 @@ describe('api/health-probes', () => {
       const probes = loadHealthProbes();
       const res = createRes();
 
-      mockDb.countTasksByStatus.mockReturnValue({ running: 0, queued: 0, completed: 0, failed: 0, pending: 0, cancelled: 0, blocked: 0 });
+      mockTaskCore.countTasksByStatus.mockReturnValue({ running: 0, queued: 0, completed: 0, failed: 0, pending: 0, cancelled: 0, blocked: 0 });
 
       await probes.handleHealthz(createReq({ url: '/healthz' }), res);
 
@@ -460,7 +472,7 @@ describe('api/health-probes', () => {
       const res = createRes();
 
       vi.spyOn(process, 'uptime').mockReturnValue(0.2);
-      mockDb.countTasks.mockImplementation(() => {
+      mockTaskCore.countTasks.mockImplementation(() => {
         throw new Error('database query failed');
       });
 
@@ -482,7 +494,7 @@ describe('api/health-probes', () => {
       const probes = loadHealthProbes();
       const res = createRes();
 
-      mockDb.countTasks.mockImplementation(() => {
+      mockTaskCore.countTasks.mockImplementation(() => {
         throw {};
       });
 
@@ -498,8 +510,8 @@ describe('api/health-probes', () => {
 
       // probeDatabase() uses countTasks({ status: 'running' }) and succeeds;
       // then countTasksByStatus() throws — both metrics should go null.
-      mockDb.countTasks.mockReturnValue(4);
-      mockDb.countTasksByStatus.mockImplementation(() => {
+      mockTaskCore.countTasks.mockReturnValue(4);
+      mockTaskCore.countTasksByStatus.mockImplementation(() => {
         throw new Error('batch count failed');
       });
 
@@ -515,8 +527,8 @@ describe('api/health-probes', () => {
       const probes = loadHealthProbes();
       const res = createRes();
 
-      mockDb.countTasks.mockReturnValue(4);
-      mockDb.countTasksByStatus.mockImplementation(() => {
+      mockTaskCore.countTasks.mockReturnValue(4);
+      mockTaskCore.countTasksByStatus.mockImplementation(() => {
         throw new Error('running count failed');
       });
 

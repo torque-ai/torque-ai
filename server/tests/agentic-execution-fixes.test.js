@@ -147,6 +147,7 @@ function loadSubject(overrides = {}) {
   const ollamaSharedMock = {
     hasModelOnAnyHost: vi.fn(() => true),
     findBestAvailableModel: vi.fn(() => TEST_MODELS.DEFAULT),
+    resolveOllamaModel: vi.fn((task) => task.model || TEST_MODELS.DEFAULT),
   };
 
   installMock(LOGGER_PATH, loggerMock);

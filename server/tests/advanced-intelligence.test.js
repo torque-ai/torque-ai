@@ -5,16 +5,13 @@ const realShared = require('../handlers/shared');
 
 let currentModules = {};
 
-vi.mock('../database', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('../config', () => currentModules.config);
 
 // require.cache is used alongside vi.doMock() so that each test's loadHandlers()
-// call can inject a fresh set of mock instances with clean state. vi.mock() factory
-// functions run once at module load time, which would not allow per-test mock
-// replacement. The vi.resetModules() + vi.doMock() + require() cycle reloads the
-// handler on every beforeEach, while installCjsModuleMock ensures the CJS require()
-// inside the handler sees the new mock object (vi.doMock alone targets ESM import).
+// call can inject a fresh set of mock instances with clean state. The intelligence
+// handler now binds to focused DB sub-modules rather than the legacy database
+// facade, so those module boundaries are mocked directly before require().
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
@@ -134,11 +131,75 @@ function loadHandlers() {
   currentModules = createModules();
 
   vi.resetModules();
-  vi.doMock('../database', () => currentModules.db);
+  vi.doMock('../db/config-core', () => ({
+    setConfig: currentModules.db.setConfig,
+  }));
+  vi.doMock('../db/task-core', () => ({
+    getTask: currentModules.db.getTask,
+    updateTaskStatus: currentModules.db.updateTaskStatus,
+  }));
+  vi.doMock('../db/project-config-core', () => ({
+    cacheTaskResult: currentModules.db.cacheTaskResult,
+    lookupCache: currentModules.db.lookupCache,
+    invalidateCache: currentModules.db.invalidateCache,
+    getCacheStats: currentModules.db.getCacheStats,
+    warmCache: currentModules.db.warmCache,
+  }));
+  vi.doMock('../db/analytics', () => ({
+    computePriorityScore: currentModules.db.computePriorityScore,
+    getPriorityQueue: currentModules.db.getPriorityQueue,
+    boostPriority: currentModules.db.boostPriority,
+    predictFailureForTask: currentModules.db.predictFailureForTask,
+    learnFailurePattern: currentModules.db.learnFailurePattern,
+    deleteFailurePattern: currentModules.db.deleteFailurePattern,
+    suggestIntervention: currentModules.db.suggestIntervention,
+    analyzeRetryPatterns: currentModules.db.analyzeRetryPatterns,
+    getRetryRecommendation: currentModules.db.getRetryRecommendation,
+    updateIntelligenceOutcome: currentModules.db.updateIntelligenceOutcome,
+    getIntelligenceDashboard: currentModules.db.getIntelligenceDashboard,
+    createExperiment: currentModules.db.createExperiment,
+    getExperiment: currentModules.db.getExperiment,
+    concludeExperiment: currentModules.db.concludeExperiment,
+  }));
+  vi.doMock('../db/validation-rules', () => ({
+    getFailurePatterns: currentModules.db.getFailurePatterns,
+  }));
   vi.doMock('../task-manager', () => currentModules.taskManager);
   vi.doMock('../config', () => currentModules.config);
 
-  installCjsModuleMock('../database', currentModules.db);
+  installCjsModuleMock('../db/config-core', {
+    setConfig: currentModules.db.setConfig,
+  });
+  installCjsModuleMock('../db/task-core', {
+    getTask: currentModules.db.getTask,
+    updateTaskStatus: currentModules.db.updateTaskStatus,
+  });
+  installCjsModuleMock('../db/project-config-core', {
+    cacheTaskResult: currentModules.db.cacheTaskResult,
+    lookupCache: currentModules.db.lookupCache,
+    invalidateCache: currentModules.db.invalidateCache,
+    getCacheStats: currentModules.db.getCacheStats,
+    warmCache: currentModules.db.warmCache,
+  });
+  installCjsModuleMock('../db/analytics', {
+    computePriorityScore: currentModules.db.computePriorityScore,
+    getPriorityQueue: currentModules.db.getPriorityQueue,
+    boostPriority: currentModules.db.boostPriority,
+    predictFailureForTask: currentModules.db.predictFailureForTask,
+    learnFailurePattern: currentModules.db.learnFailurePattern,
+    deleteFailurePattern: currentModules.db.deleteFailurePattern,
+    suggestIntervention: currentModules.db.suggestIntervention,
+    analyzeRetryPatterns: currentModules.db.analyzeRetryPatterns,
+    getRetryRecommendation: currentModules.db.getRetryRecommendation,
+    updateIntelligenceOutcome: currentModules.db.updateIntelligenceOutcome,
+    getIntelligenceDashboard: currentModules.db.getIntelligenceDashboard,
+    createExperiment: currentModules.db.createExperiment,
+    getExperiment: currentModules.db.getExperiment,
+    concludeExperiment: currentModules.db.concludeExperiment,
+  });
+  installCjsModuleMock('../db/validation-rules', {
+    getFailurePatterns: currentModules.db.getFailurePatterns,
+  });
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../config', currentModules.config);
   installCjsModuleMock('../handlers/shared', realShared);
