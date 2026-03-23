@@ -630,6 +630,12 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     logger.debug(`Schema migration (model_roles): ${e.message}`);
   }
 
+  // Model capability columns for capability-driven routing (replaces hardcoded model name checks)
+  safeAddColumn('model_capabilities', 'can_create_files INTEGER DEFAULT 1');
+  safeAddColumn('model_capabilities', 'can_edit_safely INTEGER DEFAULT 1');
+  safeAddColumn('model_capabilities', 'max_safe_edit_lines INTEGER DEFAULT 250');
+  safeAddColumn('model_capabilities', 'is_agentic INTEGER DEFAULT 0');
+
   // Validate task statuses on startup
   if (logger) {
     try { validateTaskStatuses(db, logger); } catch (_e) { void _e; }

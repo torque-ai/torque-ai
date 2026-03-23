@@ -16,6 +16,8 @@ const { MAX_TASK_LENGTH, isPathTraversalSafe, checkProviderAvailability } = requ
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
+const modelRoles = require('../../db/model-roles');
+const modelCaps = require('../../db/model-capabilities');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');
 serverConfig.init({ db: configCore });
@@ -728,15 +730,10 @@ async function handleSmartSubmitTask(args) {
   // (line-number-based edits) which handles any file size safely. The 250-line limit
   // only applies to raw ollama which uses whole-file output.
   if (!taskModel && selectedProvider === 'ollama') {
-    // Detect modification tasks for routing decisions.
-    // R54/P75: codestral:22b best for greenfield (deepseek-r1 over-engineers).
-    // P83/R67: codestral:22b CANNOT modify existing files — route modifications to Codex.
+    // Detect modification tasks for capability-driven routing decisions.
+    // Models with low max_safe_edit_lines cannot safely modify existing files — route to Codex.
     const taskLower = task.toLowerCase();
-    // P89: Expanded modification detection to catch implicit patterns.
-    // Previous regex missed "implement X in file.ts", "complete the TODO in auth.ts",
-    // "extend the class", "enhance the handler". These would fall through to
-    // codestral:22b which destroys files during modification.
-    // Drill4: Added "fill .+ in " for Artillery stub-fill tasks ("Fill in ALL method bodies in scheduler.js")
+    // Expanded modification detection to catch implicit patterns (implement, complete, extend, enhance, fill).
     const modificationVerbs = /\b(fill .+ in |add .+ to (?:the |existing )?|modify |update |fix |refactor |change |rename |move |extract |remove .+ from |extend |enhance |complete .+ in |implement .+ in |replace .+ in |insert .+ in |append .+ to |delete .+ from |patch |rewrite )\b/;
 
     // P102: Extract filenames from task description BEFORE modification detection,
@@ -746,13 +743,12 @@ async function handleSmartSubmitTask(args) {
     const hasExistingFileContext = files?.length > 0 || taskFileNames.length > 0 || /\b(?:existing|current|in .+\.\w{1,5}\b)/i.test(taskLower);
     const isModificationTask = modificationVerbs.test(taskLower) && hasExistingFileContext;
 
-    // P83/R102-R104: Route modification tasks based on file size.
-    // R102: codestral:22b DESTROYS files >50 lines in whole format (P95 confirmed).
-    // R103-R104: qwen2.5-coder:32b is SAFE up to at least 233 lines in whole format.
-    // Strategy: Use qwen2.5-coder:32b for small-to-medium modifications (<250 lines),
-    // escalate to Codex for large files or when file size is unknown.
+    // Model capability check: route large files to codex if model's max_safe_edit_lines is exceeded.
+    // Look up the current default model's capabilities to determine safe edit thresholds.
     const codexEnabled = serverConfig.isOptIn('codex_enabled');
-    const modSafeLineLimit = PROVIDER_DEFAULTS.MOD_SAFE_LINE_LIMIT; // R104: qwen2.5-coder:32b PERFECT at 233 lines
+    const currentModel = modelRoles.getModelForRole('ollama', 'default') || DEFAULT_FALLBACK_MODEL;
+    const caps = modelCaps.getModelCapabilities(currentModel);
+    const modSafeLineLimit = caps?.max_safe_edit_lines || PROVIDER_DEFAULTS.MOD_SAFE_LINE_LIMIT;
 
     // Check file sizes — from explicit files array OR extracted from task description
     let maxFileLines = 0;
@@ -799,8 +795,8 @@ async function handleSmartSubmitTask(args) {
 
     const canUseLocalForMod = fileSizeKnown && maxFileLines < modSafeLineLimit;
     if (isModificationTask && canUseLocalForMod && !override_provider) {
-      // R103-R104: qwen2.5-coder:32b handles modifications safely on files <250 lines
-      taskModel = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
+      // Model capability check: local model handles modifications safely within max_safe_edit_lines
+      taskModel = modelRoles.getModelForRole('ollama', 'default') || DEFAULT_FALLBACK_MODEL;
       modRoutingReason = `Modification task (${maxFileLines} lines < ${modSafeLineLimit} limit) → local model (safe)`;
       logger.info(`[SmartRouting] R104: ${modRoutingReason}`);
     } else if (isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
@@ -817,24 +813,23 @@ async function handleSmartSubmitTask(args) {
         logger.info(`[SmartRouting] P83: ${modRoutingReason}`);
       }
     } else if (isModificationTask && !codexEnabled && !override_provider) {
-      // P86: Route modifications to claude-cli when Codex unavailable.
-      // R70 confirmed local LLMs (codestral:22b whole format) DESTROY existing
-      // files during modification (4/6 methods deleted from Queue class).
+      // Route modifications to claude-cli when Codex unavailable.
+      // Local LLMs with low max_safe_edit_lines destroy existing files during modification.
       // claude-cli can handle modifications safely via diff-based patches.
-      // P90: Verify claude-cli is actually available before routing to it.
       const claudeCliEnabled = serverConfig.getBool('claude_cli_enabled');
       if (claudeCliEnabled) {
         selectedProvider = 'claude-cli';
         taskModel = null; // claude-cli uses its own model
         logger.info(`[SmartRouting] P86: Modification task (Codex disabled) → claude-cli (safe fallback)`);
       } else {
-        // P90/R95: Both Codex and claude-cli disabled. Use codestral:22b as least-bad option.
-        // R93-R94: codestral handles modifications on small files (<30 lines).
-        // R95: On larger files (85+ lines), codestral replaces unchanged method bodies with
-        // stub comments ("// ... rest of the code remains unchanged ..."). P95 safeguard
-        // now detects this pattern and triggers auto-retry/rejection.
-        taskModel = 'codestral:22b';
-        logger.warn(`[SmartRouting] P90/R95: Modification task (Codex+claude-cli disabled) → codestral:22b (RISK: stub destruction on large files)`);
+        // Both Codex and claude-cli disabled. Use fallback model as least-bad option.
+        // Model capability check: fallback model may have low max_safe_edit_lines,
+        // so P95 safeguard detects stub destruction patterns and triggers auto-retry/rejection.
+        const fallbackModel = modelRoles.getModelForRole('ollama', 'fallback') || DEFAULT_FALLBACK_MODEL;
+        taskModel = fallbackModel;
+        const fallbackCaps = modelCaps.getModelCapabilities(fallbackModel);
+        const fallbackMaxLines = fallbackCaps?.max_safe_edit_lines || 50;
+        logger.warn(`[SmartRouting] Modification task (Codex+claude-cli disabled) → ${fallbackModel} (max_safe_edit_lines=${fallbackMaxLines}, RISK on large files)`);
       }
     } else if (!isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
       // EXP1: Ollama CANNOT create new files — all greenfield tasks must go to Codex.

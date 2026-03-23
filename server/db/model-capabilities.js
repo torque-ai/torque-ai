@@ -25,7 +25,8 @@ function upsertModelCapabilities(modelName, updates) {
     score_reasoning: 0.5, score_docs: 0.5,
     lang_typescript: 0.5, lang_javascript: 0.5, lang_python: 0.5,
     lang_csharp: 0.5, lang_go: 0.5, lang_rust: 0.5, lang_general: 0.5,
-    context_window: 8192, param_size_b: 0, is_thinking_model: 0, source: 'benchmark'
+    context_window: 8192, param_size_b: 0, is_thinking_model: 0, source: 'benchmark',
+    can_create_files: 1, can_edit_safely: 1, max_safe_edit_lines: 250, is_agentic: 0
   };
   const merged = { ...defaults, ...existing, ...updates, model_name: modelName };
   delete merged.updated_at;
@@ -33,13 +34,15 @@ function upsertModelCapabilities(modelName, updates) {
   db.prepare(`INSERT OR REPLACE INTO model_capabilities
     (model_name, score_code_gen, score_refactoring, score_testing, score_reasoning, score_docs,
      lang_typescript, lang_javascript, lang_python, lang_csharp, lang_go, lang_rust, lang_general,
-     context_window, param_size_b, is_thinking_model, source, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`).run(
+     context_window, param_size_b, is_thinking_model, source,
+     can_create_files, can_edit_safely, max_safe_edit_lines, is_agentic, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`).run(
     merged.model_name, merged.score_code_gen, merged.score_refactoring, merged.score_testing,
     merged.score_reasoning, merged.score_docs,
     merged.lang_typescript, merged.lang_javascript, merged.lang_python,
     merged.lang_csharp, merged.lang_go, merged.lang_rust, merged.lang_general,
-    merged.context_window, merged.param_size_b, merged.is_thinking_model, merged.source
+    merged.context_window, merged.param_size_b, merged.is_thinking_model, merged.source,
+    merged.can_create_files, merged.can_edit_safely, merged.max_safe_edit_lines, merged.is_agentic
   );
 }
 

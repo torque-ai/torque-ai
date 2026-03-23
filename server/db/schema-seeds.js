@@ -639,6 +639,17 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   } catch (e) {
     logger.debug(`Schema seed (model roles): ${e.message}`);
   }
+
+  // Seed model capabilities for qwen3-coder:30b (agentic, large context)
+  try {
+    const modelCaps = require('./model-capabilities');
+    modelCaps.setDb(db);
+    modelCaps.upsertModelCapabilities('qwen3-coder:30b', {
+      can_create_files: 1, can_edit_safely: 1,
+      max_safe_edit_lines: 500, is_agentic: 1,
+      context_window: 16384, param_size_b: 30,
+    });
+  } catch (e) { logger.debug('model capabilities seed: ' + e.message); }
 }
 
 module.exports = { seedDefaults };
