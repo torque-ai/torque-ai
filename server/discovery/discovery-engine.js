@@ -3,6 +3,7 @@
 const logger = require('../logger').child({ component: 'discovery-engine' });
 const { assignRolesForProvider } = require('./auto-role-assigner');
 const { applyHeuristicCapabilities } = require('./heuristic-capabilities');
+const registry = require('../models/registry');
 
 /**
  * Post-discovery processing: apply heuristic capabilities + auto-assign roles.
@@ -53,8 +54,6 @@ function runPostDiscovery(db, provider, syncResult) {
  * @returns {Promise<{ discovered: number, new: number, updated: number, removed: number, roles_assigned: object[], capabilities_set: number }>}
  */
 async function discoverFromAdapter(db, adapter, provider, hostId) {
-  const registry = require('../models/registry');
-
   let discoveryResult;
   try {
     discoveryResult = await adapter.discoverModels();
