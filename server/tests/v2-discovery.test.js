@@ -1,8 +1,11 @@
 const taskCore = require('../db/task-core');
 const configCore = require('../db/config-core');
 const providerRoutingCore = require('../db/provider-routing-core');
+const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 const adapterRegistry = require('../providers/adapter-registry');
 const { createV2Router } = require('../api/v2-router');
+
+const getDefaultTimeoutMs = (providerId) => PROVIDER_DEFAULT_TIMEOUTS[providerId] * 1000;
 
 let listProvidersSpy;
 let getDefaultProviderSpy;
@@ -140,7 +143,7 @@ describe('v2 provider discovery routes', () => {
     ]);
     expect(codex.limits).toMatchObject({
       max_concurrent: 6,
-      timeout_ms_default: 30000,
+      timeout_ms_default: getDefaultTimeoutMs('codex'),
       request_rate_per_minute: 120,
       queue_depth: 2,
     });
@@ -163,7 +166,7 @@ describe('v2 provider discovery routes', () => {
     ]);
     expect(ollama.limits).toMatchObject({
       max_concurrent: 4,
-      timeout_ms_default: 30000,
+      timeout_ms_default: getDefaultTimeoutMs('ollama'),
       queue_depth: 1,
     });
   });
@@ -226,7 +229,7 @@ describe('v2 provider discovery routes', () => {
     ]);
     expect(payload.data.provider.limits).toMatchObject({
       max_concurrent: 4,
-      timeout_ms_default: 30000,
+      timeout_ms_default: getDefaultTimeoutMs('ollama'),
       request_rate_per_minute: 120,
       queue_depth: 0,
     });

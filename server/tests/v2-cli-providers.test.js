@@ -12,7 +12,8 @@ function installMock(modulePath, exports) {
 const MODULE_PATH = '../providers/v2-cli-providers';
 const CHILD_PROCESS_MODULE = 'child_process';
 const FS_MODULE = 'fs';
-const DATABASE_MODULE = '../database';
+const CONFIG_CORE_MODULE = '../db/config-core';
+const PROVIDER_ROUTING_CORE_MODULE = '../db/provider-routing-core';
 const LOGGER_MODULE = '../logger';
 const CONSTANTS_MODULE = '../constants';
 const BASE_MODULE = '../providers/base';
@@ -27,7 +28,8 @@ function clearModuleCaches() {
     MODULE_PATH,
     CHILD_PROCESS_MODULE,
     FS_MODULE,
-    DATABASE_MODULE,
+    CONFIG_CORE_MODULE,
+    PROVIDER_ROUTING_CORE_MODULE,
     LOGGER_MODULE,
     CONSTANTS_MODULE,
     BASE_MODULE,
@@ -64,10 +66,16 @@ function createBaseProviderMock() {
   return { MockBaseProvider, constructorCalls };
 }
 
-function createDbMock(overrides = {}) {
+function createConfigCoreMock(overrides = {}) {
+  return {
+    getConfig: vi.fn(() => null),
+    ...overrides,
+  };
+}
+
+function createProviderRoutingCoreMock(overrides = {}) {
   return {
     getProvider: vi.fn(() => ({})),
-    getConfig: vi.fn(() => null),
     ...overrides,
   };
 }
@@ -84,7 +92,8 @@ function loadProviders(options = {}) {
   clearModuleCaches();
 
   const base = createBaseProviderMock();
-  const db = createDbMock(options.db);
+  const configCore = createConfigCoreMock(options.configCore);
+  const providerRoutingCore = createProviderRoutingCoreMock(options.providerRoutingCore);
   const prompts = createPromptsMock(options.prompts);
   const providerLogger = {
     info: vi.fn(),
@@ -123,7 +132,8 @@ function loadProviders(options = {}) {
 
   installMock(CHILD_PROCESS_MODULE, childProcess);
   installMock(FS_MODULE, fs);
-  installMock(DATABASE_MODULE, db);
+  installMock(CONFIG_CORE_MODULE, configCore);
+  installMock(PROVIDER_ROUTING_CORE_MODULE, providerRoutingCore);
   installMock(LOGGER_MODULE, logger);
   installMock(CONSTANTS_MODULE, constants);
   installMock(BASE_MODULE, base.MockBaseProvider);
@@ -135,7 +145,8 @@ function loadProviders(options = {}) {
     ...providers,
     BaseProvider: base.MockBaseProvider,
     baseConstructorCalls: base.constructorCalls,
-    db,
+    configCore,
+    providerRoutingCore,
     prompts,
     childProcess,
     fs,
@@ -164,7 +175,9 @@ describe('v2-cli-providers', () => {
     const loaded = loadProviders();
     const provider = new loaded.CodexCliProvider();
 
-    expect(loaded.prompts.init).toHaveBeenCalledWith({ db: loaded.db });
+    expect(loaded.prompts.init).toHaveBeenCalledWith({
+      db: { getConfig: loaded.configCore.getConfig },
+    });
     expect(provider).toBeInstanceOf(loaded.BaseProvider);
     expect(provider.providerId).toBe('codex');
     expect(provider.supportsStreaming).toBe(false);
@@ -237,7 +250,7 @@ describe('v2-cli-providers', () => {
   it('submits Codex CLI jobs with resolved Windows cli_path, prompt input, and spawn options', async () => {
     setPlatform('win32');
     const loaded = loadProviders({
-      db: {
+      providerRoutingCore: {
         getProvider: vi.fn(() => ({ cli_path: 'C:\\Tools\\codex' })),
       },
       childProcess: {
@@ -257,7 +270,7 @@ describe('v2-cli-providers', () => {
       timeout: 2,
     });
 
-    expect(loaded.db.getProvider).toHaveBeenCalledWith('codex');
+    expect(loaded.providerRoutingCore.getProvider).toHaveBeenCalledWith('codex');
     expect(loaded.childProcess.spawnSync).toHaveBeenCalledWith(
       'C:\\Tools\\codex.cmd',
       ['exec', '--skip-git-repo-check', '-m', 'gpt-5-codex', '--full-auto', '-C', 'C:\\repo', '-'],
@@ -444,7 +457,7 @@ describe('v2-cli-providers', () => {
       }),
     });
     const loaded = loadProviders({
-      db: {
+      configCore: {
         getConfig: vi.fn((key) => {
           if (key === 'openai_base_url') return 'https://example.test/';
           if (key === 'codex_api_model') return 'db-model';

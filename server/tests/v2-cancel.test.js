@@ -10,11 +10,56 @@
  * 4. cancelled: true is only returned on actual success
  */
 
-const taskCore = require('../db/task-core');
-const webhooksStreaming = require('../db/webhooks-streaming');
-const apiServer = require('../api-server.core');
+const MODULE_PATH = '../api/v2-core-handlers';
+const TASK_CORE_MODULE = '../db/task-core';
+const WEBHOOKS_STREAMING_MODULE = '../db/webhooks-streaming';
 
-const { handleV2TaskCancel, setV2TaskManager } = apiServer._testing;
+function installMock(modulePath, exports) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports,
+  };
+}
+
+function clearModuleCaches() {
+  for (const modulePath of [MODULE_PATH, TASK_CORE_MODULE, WEBHOOKS_STREAMING_MODULE]) {
+    try {
+      delete require.cache[require.resolve(modulePath)];
+    } catch {
+      // Ignore missing cache entries.
+    }
+  }
+}
+
+const mockTaskCore = {
+  getTask: vi.fn(),
+  updateTaskStatus: vi.fn(),
+};
+
+const mockWebhooksStreaming = {
+  recordTaskEvent: vi.fn(),
+  getTaskEvents: vi.fn(),
+};
+
+let handlers;
+
+function loadHandlers() {
+  clearModuleCaches();
+  installMock(TASK_CORE_MODULE, mockTaskCore);
+  installMock(WEBHOOKS_STREAMING_MODULE, mockWebhooksStreaming);
+  return require(MODULE_PATH);
+}
+
+function setV2TaskManager(taskManager) {
+  handlers.initTaskManager(taskManager);
+}
+
+async function handleV2TaskCancel(...args) {
+  return handlers.handleV2TaskCancel(...args);
+}
 
 // Minimal mock response that captures writeHead + end calls
 function createMockRes() {
@@ -39,18 +84,29 @@ function parseLastResponse(res) {
 }
 
 beforeEach(() => {
-  vi.resetAllMocks();
-  // Reset taskManager to null before each test
+  vi.restoreAllMocks();
+  mockTaskCore.getTask.mockReset();
+  mockTaskCore.updateTaskStatus.mockReset();
+  mockWebhooksStreaming.recordTaskEvent.mockReset();
+  mockWebhooksStreaming.getTaskEvents.mockReset();
+  mockTaskCore.getTask.mockReturnValue(null);
+  mockTaskCore.updateTaskStatus.mockReturnValue(undefined);
+  mockWebhooksStreaming.recordTaskEvent.mockReturnValue(undefined);
+  mockWebhooksStreaming.getTaskEvents.mockReturnValue([]);
+  handlers = loadHandlers();
   setV2TaskManager(null);
-  // Silence recordTaskEvent so recordV2TaskEvent never throws
-  vi.spyOn(webhooksStreaming, 'recordTaskEvent').mockReturnValue(undefined);
+});
+
+afterEach(() => {
+  clearModuleCaches();
+  vi.restoreAllMocks();
 });
 
 // ─── Task not found ────────────────────────────────────────────────────────────
 
 describe('handleV2TaskCancel — task not found', () => {
   it('returns 404 when the task does not exist', async () => {
-    vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
+    mockTaskCore.getTask.mockReturnValue(null);
 
     const res = createMockRes();
     await handleV2TaskCancel(null, res, { requestId: 'req-001' }, 'nonexistent-id', null);
@@ -67,7 +123,7 @@ describe('handleV2TaskCancel — terminal task', () => {
   it.each(['completed', 'failed', 'cancelled'])(
     'returns 409 Conflict when task status is %s',
     async (status) => {
-      vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-term', status, provider: 'codex', model: null });
+      mockTaskCore.getTask.mockReturnValue({ id: 'task-term', status, provider: 'codex', model: null });
 
       const res = createMockRes();
       await handleV2TaskCancel(null, res, { requestId: 'req-002' }, 'task-term', null);
@@ -86,7 +142,7 @@ describe('handleV2TaskCancel — terminal task', () => {
 describe('handleV2TaskCancel — running task with taskManager', () => {
   it('calls taskManager.cancelTask() and reports cancelled: true', async () => {
     const taskRow = { id: 'task-run', status: 'running', provider: 'codex', model: null };
-    vi.spyOn(taskCore, 'getTask')
+    mockTaskCore.getTask
       .mockReturnValueOnce(taskRow)   // getV2TaskStatusRow (pre-cancel lookup)
       .mockReturnValueOnce({ ...taskRow, status: 'cancelled' }); // getV2TaskStatusRow (post-cancel lookup)
 
@@ -107,11 +163,11 @@ describe('handleV2TaskCancel — running task with taskManager', () => {
 
   it('does NOT call db.updateTaskStatus when taskManager is available', async () => {
     const taskRow = { id: 'task-run2', status: 'queued', provider: 'ollama', model: null };
-    vi.spyOn(taskCore, 'getTask')
+    mockTaskCore.getTask
       .mockReturnValueOnce(taskRow)
       .mockReturnValueOnce({ ...taskRow, status: 'cancelled' });
 
-    const updateSpy = vi.spyOn(taskCore, 'updateTaskStatus');
+    const updateSpy = mockTaskCore.updateTaskStatus;
     const mockTaskManager = { cancelTask: vi.fn() };
     setV2TaskManager(mockTaskManager);
 
@@ -128,11 +184,11 @@ describe('handleV2TaskCancel — running task with taskManager', () => {
 describe('handleV2TaskCancel — running task without taskManager', () => {
   it('falls back to db.updateTaskStatus when taskManager is not set', async () => {
     const taskRow = { id: 'task-run3', status: 'running', provider: 'hashline-ollama', model: null };
-    vi.spyOn(taskCore, 'getTask')
+    mockTaskCore.getTask
       .mockReturnValueOnce(taskRow)
       .mockReturnValueOnce({ ...taskRow, status: 'cancelled' });
 
-    const updateSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockReturnValue(undefined);
+    const updateSpy = mockTaskCore.updateTaskStatus.mockReturnValue(undefined);
     // setV2TaskManager was reset to null in beforeEach
 
     const res = createMockRes();
@@ -150,7 +206,7 @@ describe('handleV2TaskCancel — running task without taskManager', () => {
 describe('handleV2TaskCancel — cancellation errors propagate', () => {
   it('returns 500 when taskManager.cancelTask() throws', async () => {
     const taskRow = { id: 'task-err', status: 'running', provider: 'codex', model: null };
-    vi.spyOn(taskCore, 'getTask').mockReturnValue(taskRow);
+    mockTaskCore.getTask.mockReturnValue(taskRow);
 
     const mockTaskManager = {
       cancelTask: vi.fn().mockImplementation(() => {
@@ -172,8 +228,8 @@ describe('handleV2TaskCancel — cancellation errors propagate', () => {
 
   it('returns 500 when db.updateTaskStatus() throws (no taskManager)', async () => {
     const taskRow = { id: 'task-dberr', status: 'queued', provider: 'ollama', model: null };
-    vi.spyOn(taskCore, 'getTask').mockReturnValue(taskRow);
-    vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => { throw new Error('DB locked'); });
+    mockTaskCore.getTask.mockReturnValue(taskRow);
+    mockTaskCore.updateTaskStatus.mockImplementation(() => { throw new Error('DB locked'); });
 
     const res = createMockRes();
     await handleV2TaskCancel(null, res, { requestId: 'req-007' }, 'task-dberr', null);
