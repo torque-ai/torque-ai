@@ -9,9 +9,13 @@
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 
 let db;
+let taskManager;
 
 beforeAll(() => {
   ({ db } = setupTestDb('tool-consolidation'));
+  taskManager = require('../task-manager');
+  if (typeof taskManager.initEarlyDeps === 'function') taskManager.initEarlyDeps();
+  if (typeof taskManager.initSubModules === 'function') taskManager.initSubModules();
 });
 afterAll(() => teardownTestDb());
 
@@ -413,6 +417,10 @@ describe('manage_webhook', () => {
 describe('submit_task auto_route', () => {
   const cwd = process.cwd();
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('auto_route=true (default, no provider) delegates to smart routing', async () => {
     const result = await safeTool('submit_task', {
       task: 'Write a unit test for the widget module in tests/widget.test.js',
@@ -424,22 +432,32 @@ describe('submit_task auto_route', () => {
   });
 
   it('explicit provider bypasses smart routing', async () => {
+    const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
+
     const result = await safeTool('submit_task', {
       task: 'Write documentation for the API',
       provider: 'codex',
       working_directory: cwd,
     });
+
+    expect(result.isError).toBeFalsy();
+    expect(startTaskSpy).toHaveBeenCalledTimes(1);
     const text = getText(result);
     // With explicit provider, goes through direct submit path
     expect(text).toMatch(/task|started|queued|codex|provider/i);
   });
 
   it('auto_route=false uses direct submission path', async () => {
+    const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
+
     const result = await safeTool('submit_task', {
       task: 'Simple doc update',
       auto_route: false,
       working_directory: cwd,
     });
+
+    expect(result.isError).toBeFalsy();
+    expect(startTaskSpy).toHaveBeenCalledTimes(1);
     const text = getText(result);
     // Direct path — uses default provider
     expect(text).toMatch(/task|started|queued|provider|no.*available/i);
