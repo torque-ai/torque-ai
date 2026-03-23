@@ -606,7 +606,7 @@ describe('db/host-selection (real DB)', () => {
       const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
       try {
-        const result = mod.selectHostWithModelVariant('codestral');
+        const result = mod.selectHostWithModelVariant('qwen3-coder');
 
         expect(result.host.id).toBe(warmHostId);
         expect(result.model).toBe('qwen3-coder:30b');

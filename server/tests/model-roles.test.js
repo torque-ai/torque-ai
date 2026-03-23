@@ -51,8 +51,8 @@ describe('db/model-roles module', () => {
 
     it('prefers the exact role over the fallback', () => {
       mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      mod.setModelRole('ollama', 'fast', 'qwen3-coder:30b');
-      expect(mod.getModelForRole('ollama', 'fast')).toBe('qwen3-coder:30b');
+      mod.setModelRole('ollama', 'fast', 'codestral:22b');
+      expect(mod.getModelForRole('ollama', 'fast')).toBe('codestral:22b');
     });
 
     it('resolves roles independently per provider', () => {
@@ -80,8 +80,8 @@ describe('db/model-roles module', () => {
 
     it('replaces an existing assignment', () => {
       mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      expect(mod.getModelForRole('ollama', 'default')).toBe('qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', 'codestral:22b');
+      expect(mod.getModelForRole('ollama', 'default')).toBe('codestral:22b');
 
       // Should only have one row, not two
       const rows = rawDb().prepare(

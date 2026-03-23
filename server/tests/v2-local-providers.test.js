@@ -206,7 +206,7 @@ describe('v2-local-providers helpers', () => {
   it('parses model sizes from b-suffixed names', () => {
     const { providers } = loadProviders();
 
-    expect(providers.parseModelSize('qwen3-coder:30b')).toBe(32);
+    expect(providers.parseModelSize('qwen3-coder:30b')).toBe(30);
     expect(providers.parseModelSize('CODESTRAL:22B')).toBe(22);
   });
 
