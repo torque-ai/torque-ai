@@ -95,6 +95,7 @@ const routes = [
   { method: 'PUT',    pattern: /^\/api\/hosts\/([^/]+)\/credentials\/(ssh|http_auth|windows)$/,        handler: infrastructure.handleSaveCredential, compat: true },
   { method: 'DELETE', pattern: /^\/api\/hosts\/([^/]+)\/credentials\/(ssh|http_auth|windows)$/,        handler: infrastructure.handleDeleteCredential, compat: true },
   { method: 'POST',   pattern: /^\/api\/hosts\/([^/]+)\/credentials\/(ssh|http_auth|windows)\/test$/,  handler: infrastructure.handleTestCredential },
+  { method: 'PATCH',  pattern: /^\/api\/hosts\/([^/]+)$/,          handler: infrastructure.handleUpdateHost, compat: true },
   { method: 'DELETE', pattern: /^\/api\/hosts\/([^/]+)$/,          handler: infrastructure.handleDeleteHost, compat: true },
   { method: 'GET',    pattern: /^\/api\/hosts\/([^/]+)$/,          handler: infrastructure.handleGetHost, compat: true },
 

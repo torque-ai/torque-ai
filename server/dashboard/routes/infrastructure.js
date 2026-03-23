@@ -410,6 +410,27 @@ function handleGetHost(req, res, query, hostId) {
 }
 
 /**
+ * PATCH /api/hosts/:id - Update host settings (e.g. default_model, name)
+ */
+async function handleUpdateHost(req, res, query, hostId) {
+  const host = hostManagement.getOllamaHost(hostId);
+  if (!host) return sendError(res, 'Host not found', 404);
+
+  const body = await parseBody(req);
+  const updates = {};
+  if (body.default_model !== undefined) updates.default_model = body.default_model;
+  if (body.name !== undefined) updates.name = body.name;
+
+  if (Object.keys(updates).length === 0) {
+    return sendError(res, 'No valid fields to update', 400);
+  }
+
+  hostManagement.updateOllamaHost(hostId, updates);
+  const updated = hostManagement.getOllamaHost(hostId);
+  return sendJson(res, { success: true, host: updated });
+}
+
+/**
  * DELETE /api/hosts/:id - Remove a host
  */
 function handleDeleteHost(req, res, query, hostId) {
@@ -976,6 +997,7 @@ function createDashboardInfraRoutes() {
     handleHostScan,
     handleHostToggle,
     handleGetHost,
+    handleUpdateHost,
     handleDeleteHost,
     handleListProviders,
     handleProviderQuotas,
@@ -1011,6 +1033,7 @@ module.exports = {
   handleHostScan,
   handleHostToggle,
   handleGetHost,
+  handleUpdateHost,
   handleDeleteHost,
   // Providers
   handleListProviders,

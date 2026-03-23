@@ -455,6 +455,7 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpDeleteWorkstation: v2InfrastructureHandlers.handleDeleteWorkstation,
   handleV2CpListHosts: v2InfrastructureHandlers.handleListHosts,
   handleV2CpGetHost: v2InfrastructureHandlers.handleGetHost,
+  handleV2CpUpdateHost: v2InfrastructureHandlers.handleUpdateHost,
   handleV2CpToggleHost: v2InfrastructureHandlers.handleToggleHost,
   handleV2CpDeleteHost: v2InfrastructureHandlers.handleDeleteHost,
   handleV2CpHostScan: v2InfrastructureHandlers.handleHostScan,

@@ -225,6 +225,33 @@ async function handleGetHost(req, res) {
   sendSuccess(res, requestId, { ...host, settings }, 200, req);
 }
 
+async function handleUpdateHost(req, res) {
+  const requestId = resolveRequestId(req);
+  const hostId = req.params?.host_id;
+  const body = req.body || await parseBody(req);
+
+  const host = hostManagement.getOllamaHost ? hostManagement.getOllamaHost(hostId) : null;
+  if (!host) {
+    return sendError(res, requestId, 'host_not_found', `Host not found: ${hostId}`, 404, {}, req);
+  }
+
+  const updates = {};
+  if (body.default_model !== undefined) updates.default_model = body.default_model;
+  if (body.name !== undefined) updates.name = body.name;
+
+  if (Object.keys(updates).length === 0) {
+    return sendError(res, requestId, 'validation_error', 'No valid fields to update', 400, {}, req);
+  }
+
+  try {
+    hostManagement.updateOllamaHost(hostId, updates);
+    const updated = hostManagement.getOllamaHost(hostId);
+    sendSuccess(res, requestId, { success: true, host: updated }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
 async function handleToggleHost(req, res) {
   const requestId = resolveRequestId(req);
   const hostId = req.params?.host_id;
@@ -709,6 +736,7 @@ function createV2InfrastructureHandlers(deps) {
     handleDeleteWorkstation,
     handleListHosts,
     handleGetHost,
+    handleUpdateHost,
     handleToggleHost,
     handleDeleteHost,
     handleHostScan,
@@ -743,6 +771,7 @@ module.exports = {
   // Ollama Hosts
   handleListHosts,
   handleGetHost,
+  handleUpdateHost,
   handleToggleHost,
   handleDeleteHost,
   handleHostScan,

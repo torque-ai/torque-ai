@@ -1000,6 +1000,15 @@ const routes = [
     }),
   },
   {
+    method: 'PATCH',
+    path: /^\/api\/v2\/hosts\/([^/]+)$/,
+    handlerName: 'handleV2CpUpdateHost',
+    mapParams: ['host_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('host_id', 'host id'),
+    }),
+  },
+  {
     method: 'DELETE',
     path: /^\/api\/v2\/hosts\/([^/]+)$/,
     handlerName: 'handleV2CpDeleteHost',
