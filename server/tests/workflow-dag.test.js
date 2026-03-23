@@ -21,6 +21,8 @@ function installMock(modulePath, exports) {
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/workflow/dag')];
   installMock('../database', mockDb);
+  installMock('../db/task-core', mockDb);
+  installMock('../db/workflow-engine', mockDb);
   installMock('../handlers/shared', realShared);
   return require('../handlers/workflow/dag');
 }

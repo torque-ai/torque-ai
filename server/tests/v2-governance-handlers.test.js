@@ -11,6 +11,7 @@ const MODULE_PATHS = [
   '../db/project-config-core',
   '../db/provider-routing-core',
   '../db/scheduling-automation',
+  '../db/task-core',
   '../db/validation-rules',
   '../db/webhooks-streaming',
   '../handlers/policy-handlers',
@@ -97,6 +98,7 @@ function loadHandlers() {
   installCjsModuleMock('../db/project-config-core', currentModules.db);
   installCjsModuleMock('../db/provider-routing-core', currentModules.db);
   installCjsModuleMock('../db/scheduling-automation', currentModules.db);
+  installCjsModuleMock('../db/task-core', currentModules.db);
   installCjsModuleMock('../db/validation-rules', currentModules.db);
   installCjsModuleMock('../db/webhooks-streaming', currentModules.db);
   installCjsModuleMock('../api/middleware', currentModules.middleware);

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 
+const fileBaselines = require('../db/file-baselines');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 
 let db;
@@ -142,7 +143,7 @@ describe('Validation File Handlers', () => {
       });
 
       const payload = parseResult(result);
-      const changes = db.getTaskFileChanges(task.id);
+      const changes = fileBaselines.getTaskFileChanges(task.id);
 
       expect(result.isError).toBeFalsy();
       expect(payload.is_outside_workdir).toBe(true);
@@ -163,7 +164,7 @@ describe('Validation File Handlers', () => {
       });
 
       const payload = parseResult(result);
-      const [change] = db.getTaskFileChanges(task.id);
+      const [change] = fileBaselines.getTaskFileChanges(task.id);
 
       expect(result.isError).toBeFalsy();
       expect(payload.is_outside_workdir).toBe(false);
@@ -556,7 +557,6 @@ describe('Validation File Handlers', () => {
     });
   });
 });
-
 
 
 

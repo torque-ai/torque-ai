@@ -7,9 +7,11 @@ const MODULE_PATHS = [
   CONTROL_PLANE_MODULE,
   '../api/middleware',
   '../database',
+  '../db/config-core',
   '../db/file-tracking',
   '../db/host-management',
   '../db/provider-routing-core',
+  '../db/task-core',
 ];
 
 const mockDb = {
@@ -24,6 +26,7 @@ const mockDb = {
   updateProvider: vi.fn(),
   listProviders: vi.fn(),
   countTasks: vi.fn(),
+  getConfig: vi.fn(),
 };
 
 const mockParseBody = vi.fn();
@@ -63,9 +66,11 @@ function clearLoadedModules() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/config-core', mockDb);
   installCjsModuleMock('../db/file-tracking', mockDb);
   installCjsModuleMock('../db/host-management', mockDb);
   installCjsModuleMock('../db/provider-routing-core', mockDb);
+  installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   require(CONTROL_PLANE_MODULE);
   return require(HANDLER_MODULE);
@@ -175,6 +180,7 @@ function resetMockDefaults() {
   mockDb.updateProvider.mockReset().mockReturnValue(undefined);
   mockDb.listProviders.mockReset().mockReturnValue([]);
   mockDb.countTasks.mockReset().mockReturnValue(0);
+  mockDb.getConfig.mockReset().mockReturnValue(undefined);
 
   mockParseBody.mockReset().mockResolvedValue({});
   mockSendJson.mockReset().mockImplementation((res, data, status = 200, req = null) => {

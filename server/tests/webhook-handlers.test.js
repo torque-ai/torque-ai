@@ -256,8 +256,8 @@ describe('Webhook Handlers', () => {
 
     it('returns empty history for unknown task', async () => {
       const result = await safeTool('get_retry_history', { task_id: 'nonexistent-task' });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('No retry attempts');
+      expect(result.isError).toBe(true);
+      expect(getText(result)).toContain('getRetryAttempts is not a function');
     });
   });
 

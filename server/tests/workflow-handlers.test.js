@@ -7,12 +7,19 @@ const MOCKED_MODULES = [
   '../config',
   '../task-manager',
   '../logger',
+  '../db/coordination',
+  '../db/provider-routing-core',
+  '../db/workflow-engine',
+  '../policy-engine/task-hooks',
+  '../policy-engine/engine',
+  '../policy-engine/shadow-enforcer',
   '../execution/workflow-runtime',
   '../handlers/shared',
   '../handlers/workflow/templates',
   '../handlers/workflow/dag',
   '../handlers/workflow/await',
   '../handlers/workflow/advanced',
+  '../handlers/workflow/feature-workflow',
   'uuid',
 ];
 
@@ -101,7 +108,7 @@ function buildTaskCounts(status) {
   return counts;
 }
 
-function createSharedMock() {
+function createSharedMock(db) {
   const shared = {
     __restartGuard: null,
     __visibility: null,
@@ -156,7 +163,7 @@ function createSharedMock() {
       if (!isoString) return 'N/A';
       return new Date(isoString).toLocaleString('en-US', { timeZone: 'America/Denver' });
     },
-    requireWorkflow(db, workflowId) {
+    requireWorkflow(workflowId) {
       if (!workflowId) return { error: shared.makeError(shared.ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required') };
       const workflow = db.getWorkflow(workflowId);
       if (!workflow) return { error: shared.makeError(shared.ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow not found: ${workflowId}`) };
@@ -325,9 +332,31 @@ function createUuidMock() {
 
 function createTestContext() {
   const db = createMockDb();
-  const shared = createSharedMock();
+  const shared = createSharedMock(db);
   const workflowRuntime = {
     evaluateWorkflowDependencies: vi.fn(),
+  };
+  const coordination = {
+    recordCoordinationEvent: vi.fn(),
+  };
+  const providerRoutingCore = {
+    getProvider: vi.fn(() => ({ enabled: 1 })),
+  };
+  const taskPolicyHooks = {
+    evaluateTaskSubmissionPolicy: vi.fn(() => null),
+  };
+  const policyEngine = {
+    evaluatePolicies: vi.fn(() => ({
+      summary: { blocked: 0, failed: 0, warned: 0 },
+      total_results: 0,
+    })),
+  };
+  const shadowEnforcer = {
+    isEngineEnabled: vi.fn(() => false),
+    isShadowOnly: vi.fn(() => false),
+  };
+  const featureWorkflow = {
+    init: vi.fn(),
   };
   const logger = {
     debug: vi.fn(),
@@ -343,12 +372,19 @@ function createTestContext() {
   installCjsModuleMock('../config', createConfigMock(db));
   installCjsModuleMock('../task-manager', taskManager);
   installCjsModuleMock('../logger', logger);
+  installCjsModuleMock('../db/coordination', coordination);
+  installCjsModuleMock('../db/provider-routing-core', providerRoutingCore);
+  installCjsModuleMock('../db/workflow-engine', db);
+  installCjsModuleMock('../policy-engine/task-hooks', taskPolicyHooks);
+  installCjsModuleMock('../policy-engine/engine', policyEngine);
+  installCjsModuleMock('../policy-engine/shadow-enforcer', shadowEnforcer);
   installCjsModuleMock('../execution/workflow-runtime', workflowRuntime);
   installCjsModuleMock('../handlers/shared', shared);
   installCjsModuleMock('../handlers/workflow/templates', {});
   installCjsModuleMock('../handlers/workflow/dag', {});
   installCjsModuleMock('../handlers/workflow/await', {});
   installCjsModuleMock('../handlers/workflow/advanced', {});
+  installCjsModuleMock('../handlers/workflow/feature-workflow', featureWorkflow);
   installCjsModuleMock('uuid', { v4: uuid.v4 });
 
   delete require.cache[require.resolve(MODULE_PATH)];

@@ -16,9 +16,11 @@ const MODULE_PATHS = [
   '../api/v2-control-plane',
   '../api/middleware',
   '../database',
+  '../db/config-core',
   '../db/file-tracking',
   '../db/host-management',
   '../db/provider-routing-core',
+  '../db/task-core',
   '../db/webhooks-streaming',
   '../handlers/policy-handlers',
   '../handlers/automation-handlers',
@@ -40,6 +42,7 @@ const mockDb = {
   deleteProjectTuning: vi.fn(),
   // Provider Stats
   getProviderStats: vi.fn(),
+  getConfig: vi.fn(),
   countTasks: vi.fn(),
   getProvider: vi.fn(),
   updateProvider: vi.fn(),
@@ -124,9 +127,11 @@ function clearLoadedModules() {
 function loadHandlers() {
   clearLoadedModules();
   installMock('../database', mockDb);
+  installMock('../db/config-core', mockDb);
   installMock('../db/file-tracking', mockDb);
   installMock('../db/host-management', mockDb);
   installMock('../db/provider-routing-core', mockDb);
+  installMock('../db/task-core', mockDb);
   installMock('../db/webhooks-streaming', mockDb);
   installMock('../api/middleware', mockMiddleware);
   installMock('../handlers/policy-handlers', mockPolicyCores);
@@ -202,6 +207,7 @@ function resetAllMocks() {
   mockDb.setProjectTuning.mockReturnValue(undefined);
   mockDb.deleteProjectTuning.mockReturnValue(undefined);
   mockDb.getProviderStats.mockReturnValue({});
+  mockDb.getConfig.mockReturnValue(undefined);
   mockDb.countTasks.mockReturnValue(0);
   mockDb.getProvider.mockReturnValue(null);
   mockDb.updateProvider.mockReturnValue(undefined);

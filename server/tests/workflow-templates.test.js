@@ -29,8 +29,16 @@ function installMock(modulePath, exports) {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/workflow/templates')];
+  delete require.cache[require.resolve('../db/task-core')];
+  delete require.cache[require.resolve('../db/provider-routing-core')];
+  delete require.cache[require.resolve('../db/scheduling-automation')];
+  delete require.cache[require.resolve('../db/workflow-engine')];
   installMock('uuid', mockUuid);
   installMock('../database', mockDb);
+  installMock('../db/task-core', mockDb);
+  installMock('../db/provider-routing-core', mockDb);
+  installMock('../db/scheduling-automation', mockDb);
+  installMock('../db/workflow-engine', mockDb);
   installMock('../handlers/shared', realShared);
   return require('../handlers/workflow/templates');
 }

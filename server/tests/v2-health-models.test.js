@@ -2,6 +2,7 @@ const { EventEmitter } = require('events');
 const http = require('http');
 const db = require('../database');
 const configCore = require('../db/config-core');
+const fileTracking = require('../db/file-tracking');
 const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const hostManagement = require('../db/host-management');
@@ -165,7 +166,7 @@ describe('v2 provider health and model inventory endpoints', () => {
       failureRate: 0,
     });
     isProviderHealthySpy = vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
-    getProviderStatsSpy = vi.spyOn(providerRoutingCore, 'getProviderStats').mockReturnValue({
+    getProviderStatsSpy = vi.spyOn(fileTracking, 'getProviderStats').mockReturnValue({
       provider: 'groq',
       total_tasks: 0,
       successful_tasks: 0,
@@ -356,7 +357,7 @@ describe('v2 provider health and model inventory endpoints', () => {
 
   it('returns cloud health using the v2 envelope and normalized success ratio', async () => {
     setProvider('groq');
-    configValues.groq_api_key = 'groq-test-key';
+    process.env.GROQ_API_KEY = 'groq-test-key';
     getProviderHealthSpy.mockReturnValue({
       successes: 9,
       failures: 1,
@@ -383,10 +384,10 @@ describe('v2 provider health and model inventory endpoints', () => {
     expect(payload.meta.request_id).toEqual(expect.any(String));
     expect(payload.data).toEqual(expect.objectContaining({
       provider_id: 'groq',
-      status: 'unavailable',
+      status: 'degraded',
       latency_ms: 1800,
       success_ratio: 0.9,
-      last_error: 'No API key configured',
+      last_error: 'provider has recent failures',
       checked_at: expect.any(String),
     }));
 

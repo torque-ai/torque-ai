@@ -19,6 +19,7 @@ const mockDb = {
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/xaml')];
   installMock('../database', mockDb);
+  installMock('../db/file-tracking', mockDb);
   installMock('../handlers/shared', realShared);
   return require('../handlers/validation/xaml');
 }

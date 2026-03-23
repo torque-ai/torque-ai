@@ -27,6 +27,7 @@ const mockDb = {
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/failure')];
   installMock('../database', mockDb);
+  installMock('../db/validation-rules', mockDb);
   installMock('../handlers/shared', realShared);
   return require('../handlers/validation/failure');
 }

@@ -4,6 +4,11 @@ const MODULE_PATH = '../handlers/workflow/advanced';
 const MOCKED_MODULES = [
   MODULE_PATH,
   '../database',
+  '../db/task-core',
+  '../db/event-tracking',
+  '../db/provider-routing-core',
+  '../db/scheduling-automation',
+  '../db/workflow-engine',
   '../task-manager',
   '../logger',
   '../handlers/shared',
@@ -82,15 +87,15 @@ const mockShared = {
       ...(details !== undefined ? { details } : {}),
     };
   },
-  requireTask(db, taskId) {
+  requireTask(taskId) {
     if (!taskId) return { error: mockShared.makeError(mockShared.ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required') };
-    const task = db.getTask(taskId);
+    const task = mockDb.getTask(taskId);
     if (!task) return { error: mockShared.makeError(mockShared.ErrorCodes.TASK_NOT_FOUND, `Task not found: ${taskId}`) };
     return { task };
   },
-  requireWorkflow(db, workflowId) {
+  requireWorkflow(workflowId) {
     if (!workflowId) return { error: mockShared.makeError(mockShared.ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required') };
-    const workflow = db.getWorkflow(workflowId);
+    const workflow = mockDb.getWorkflow(workflowId);
     if (!workflow) return { error: mockShared.makeError(mockShared.ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow not found: ${workflowId}`) };
     return { workflow };
   },
@@ -191,6 +196,11 @@ function loadHandlers() {
   }
 
   installMock('../database', mockDb);
+  installMock('../db/task-core', mockDb);
+  installMock('../db/event-tracking', mockDb);
+  installMock('../db/provider-routing-core', mockDb);
+  installMock('../db/scheduling-automation', mockDb);
+  installMock('../db/workflow-engine', mockDb);
   installMock('../task-manager', mockTaskManager);
   installMock('../logger', mockLogger);
   installMock('../handlers/shared', mockShared);

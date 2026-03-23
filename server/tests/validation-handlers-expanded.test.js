@@ -1,4 +1,5 @@
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const costTracking = require('../db/cost-tracking');
 
 let db;
 
@@ -43,7 +44,7 @@ describe('Validation Handlers — Expanded Coverage', () => {
       });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      const match = text.match(/id['":\s]+([a-f0-9-]{36})/i) || text.match(/([a-f0-9-]{36})/);
+      const match = text.match(/\*\*ID:\*\*\s+([^\s]+)/) || text.match(/([a-f0-9-]{36})/i);
       ruleId = match ? match[1] : JSON.parse(text).id;
     });
 
@@ -52,28 +53,28 @@ describe('Validation Handlers — Expanded Coverage', () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, enabled: false });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('updated');
+      expect(text).toContain('Validation Rule Updated');
     });
 
     it('re-enables a disabled rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, enabled: true });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('updated');
+      expect(text).toContain('Validation Rule Updated');
     });
 
     it('updates severity of existing rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, severity: 'critical' });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('updated');
+      expect(text).toContain('Validation Rule Updated');
     });
 
     it('updates auto_fail of existing rule', async () => {
       const result = await safeTool('update_validation_rule', { rule_id: ruleId, auto_fail: true });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('updated');
+      expect(text).toContain('Validation Rule Updated');
     });
 
     it('updates multiple fields at once', async () => {
@@ -85,7 +86,7 @@ describe('Validation Handlers — Expanded Coverage', () => {
       });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('updated');
+      expect(text).toContain('Validation Rule Updated');
     });
   });
 
@@ -966,7 +967,7 @@ describe('Validation Handlers — Expanded Coverage', () => {
     };
 
     beforeEach(() => {
-      getCostForecastSpy = vi.spyOn(db, 'getCostForecast').mockReturnValue(mockedForecast);
+      getCostForecastSpy = vi.spyOn(costTracking, 'getCostForecast').mockReturnValue(mockedForecast);
     });
 
     afterEach(() => {

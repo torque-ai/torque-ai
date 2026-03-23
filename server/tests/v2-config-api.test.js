@@ -6,6 +6,7 @@ const MODULE_PATHS = [
   '../api/v2-control-plane',
   '../api/middleware',
   '../database',
+  '../db/config-core',
   '../handlers/policy-handlers',
   '../tools',
 ];
@@ -129,6 +130,7 @@ function loadHandlers() {
   clearLoadedModules();
 
   installCjsModuleMock('../database', currentModules.db);
+  installCjsModuleMock('../db/config-core', currentModules.db);
   installCjsModuleMock('../api/middleware', currentModules.middleware);
   installCjsModuleMock('../api/v2-control-plane', currentModules.controlPlane);
   installCjsModuleMock('../handlers/policy-handlers', currentModules.policyHandlers);

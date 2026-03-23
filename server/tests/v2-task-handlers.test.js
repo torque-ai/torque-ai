@@ -59,6 +59,7 @@ vi.mock('uuid', () => ({
   v4: mockUuidV4,
 }));
 vi.mock('../database', () => mockDb);
+vi.mock('../db/task-core', () => mockDb);
 vi.mock('../config', () => mockConfig);
 vi.mock('../constants', () => mockConstants);
 vi.mock('../api/v2-control-plane', () => mockControlPlane);
@@ -80,6 +81,7 @@ function loadHandlers() {
   delete require.cache[require.resolve('../api/v2-task-handlers')];
   installCjsModuleMock('uuid', { v4: mockUuidV4 });
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../db/provider-routing-core', mockDb);
   installCjsModuleMock('../db/file-tracking', mockDb);
   installCjsModuleMock('../config', mockConfig);

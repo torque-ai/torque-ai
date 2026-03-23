@@ -24,6 +24,8 @@ const mockDb = {
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/security')];
   installMock('../database', mockDb);
+  installMock('../db/file-tracking', mockDb);
+  installMock('../db/task-core', mockDb);
   installMock('../handlers/shared', realShared);
   return require('../handlers/validation/security');
 }

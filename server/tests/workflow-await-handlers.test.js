@@ -252,8 +252,8 @@ beforeEach(() => {
   mocks.db.getTaskFileChanges.mockImplementation((taskId) => deepClone(mocks.state.taskFileChanges.get(taskId) || []));
   mocks.db.listArtifacts.mockImplementation((taskId) => deepClone(mocks.state.artifacts.get(taskId) || []));
 
-  mocks.requireTask.mockImplementation((db, taskId) => {
-    const task = db.getTask(taskId);
+  mocks.requireTask.mockImplementation((taskId) => {
+    const task = mocks.db.getTask(taskId);
     return task
       ? { task, error: null }
       : {
@@ -265,8 +265,8 @@ beforeEach(() => {
         },
       };
   });
-  mocks.requireWorkflow.mockImplementation((db, workflowId) => {
-    const workflow = db.getWorkflow(workflowId);
+  mocks.requireWorkflow.mockImplementation((workflowId) => {
+    const workflow = mocks.db.getWorkflow(workflowId);
     return workflow
       ? { workflow, error: null }
       : {
@@ -304,6 +304,12 @@ beforeEach(() => {
   mocks.validateShellCommand.mockReturnValue({ ok: true });
 
   installCjsModuleMock('../database', mocks.db);
+  installCjsModuleMock('../db/task-core', mocks.db);
+  installCjsModuleMock('../db/file-tracking', mocks.db);
+  installCjsModuleMock('../db/workflow-engine', mocks.db);
+  installCjsModuleMock('../db/task-metadata', {
+    listArtifacts: mocks.db.listArtifacts,
+  });
   installCjsModuleMock('../contracts/peek', {
     buildPeekArtifactReferencesFromTaskArtifacts: mocks.buildPeekRefs,
     formatPeekArtifactReferenceSection: mocks.formatPeekSection,
