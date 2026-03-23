@@ -8,6 +8,7 @@
 
 const Database = require('better-sqlite3');
 const { assignRolesForProvider } = require('../discovery/auto-role-assigner');
+const { TEST_MODELS } = require('./test-helpers');
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -61,7 +62,7 @@ describe('assignRolesForProvider', () => {
     const db = makeDb();
     insertModel(db, 'ollama', 'gemma3:4b', 4);
     insertModel(db, 'ollama', 'deepseek-r1:14b', 14);
-    insertModel(db, 'ollama', 'qwen2.5-coder:32b', 32);
+    insertModel(db, 'ollama', TEST_MODELS.QUALITY, 32);
 
     const result = assignRolesForProvider(db, 'ollama');
 
@@ -70,12 +71,12 @@ describe('assignRolesForProvider', () => {
     expect(roles.fast.size).toBe(4);
     expect(roles.balanced.model).toBe('deepseek-r1:14b');
     expect(roles.balanced.size).toBe(14);
-    expect(roles.quality.model).toBe('qwen2.5-coder:32b');
+    expect(roles.quality.model).toBe(TEST_MODELS.QUALITY);
     expect(roles.quality.size).toBe(32);
 
     expect(getRole(db, 'ollama', 'fast').model_name).toBe('gemma3:4b');
     expect(getRole(db, 'ollama', 'balanced').model_name).toBe('deepseek-r1:14b');
-    expect(getRole(db, 'ollama', 'quality').model_name).toBe('qwen2.5-coder:32b');
+    expect(getRole(db, 'ollama', 'quality').model_name).toBe(TEST_MODELS.QUALITY);
   });
 
   it('does NOT overwrite an existing role assignment when the model is still alive (status=approved)', () => {
@@ -109,15 +110,15 @@ describe('assignRolesForProvider', () => {
     const db = makeDb();
     insertModel(db, 'ollama', 'gemma3:4b', 4);
     insertModel(db, 'ollama', 'deepseek-r1:14b', 14);
-    insertModel(db, 'ollama', 'qwen2.5-coder:32b', 32);
+    insertModel(db, 'ollama', TEST_MODELS.QUALITY, 32);
 
     const result = assignRolesForProvider(db, 'ollama');
 
     const defaultAssignment = result.find(r => r.role === 'default');
     expect(defaultAssignment).toBeDefined();
-    expect(defaultAssignment.model).toBe('qwen2.5-coder:32b');
+    expect(defaultAssignment.model).toBe(TEST_MODELS.QUALITY);
     expect(defaultAssignment.size).toBe(32);
-    expect(getRole(db, 'ollama', 'default').model_name).toBe('qwen2.5-coder:32b');
+    expect(getRole(db, 'ollama', 'default').model_name).toBe(TEST_MODELS.QUALITY);
   });
 
   it('returns a summary array of assignments made: [{role, model, size}]', () => {

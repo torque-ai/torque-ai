@@ -9,6 +9,7 @@ const {
 const { sanitizeLLMOutput, stripMarkdownFences, stripArtifactMarkers } = require('../utils/sanitize');
 const { parseModelSizeB, isSmallModel, getModelSizeCategory, isThinkingModel } = require('../utils/model');
 const { parseGitStatusLine } = require('../utils/git');
+const { TEST_MODELS } = require('./test-helpers');
 
 // ─── constants.js ────────────────────────────────────────────────────────────
 
@@ -222,7 +223,7 @@ describe('utils/sanitize.js', () => {
 describe('utils/model.js', () => {
   describe('parseModelSizeB', () => {
     it('parses colon-delimited sizes', () => {
-      expect(parseModelSizeB('qwen2.5-coder:32b')).toBe(32);
+      expect(parseModelSizeB(TEST_MODELS.QUALITY)).toBe(32);
       expect(parseModelSizeB('gemma3:4b')).toBe(4);
       expect(parseModelSizeB('qwen3:8b')).toBe(8);
     });
@@ -255,8 +256,8 @@ describe('utils/model.js', () => {
     });
 
     it('returns false for large models', () => {
-      expect(isSmallModel('qwen2.5-coder:32b')).toBe(false);
-      expect(isSmallModel('codestral:22b')).toBe(false);
+      expect(isSmallModel(TEST_MODELS.QUALITY)).toBe(false);
+      expect(isSmallModel(TEST_MODELS.BALANCED)).toBe(false);
     });
 
     it('detects mini/tiny keywords', () => {
@@ -275,7 +276,7 @@ describe('utils/model.js', () => {
       expect(getModelSizeCategory('gemma3:4b')).toBe('small');
       expect(getModelSizeCategory('qwen3:8b')).toBe('small');
       expect(getModelSizeCategory('deepseek-r1:14b')).toBe('medium');
-      expect(getModelSizeCategory('qwen2.5-coder:32b')).toBe('large');
+      expect(getModelSizeCategory(TEST_MODELS.QUALITY)).toBe('large');
     });
 
     it('returns unknown for unparseable', () => {

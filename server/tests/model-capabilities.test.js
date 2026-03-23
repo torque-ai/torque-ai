@@ -1,12 +1,47 @@
 'use strict';
 
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 let mod;
 
 describe('Model Capabilities Registry', () => {
   beforeAll(() => {
     ({ mod } = setupTestDbModule('../db/host-management', 'model-caps'));
+    mod.upsertModelCapabilities(TEST_MODELS.QUALITY, {
+      score_code_gen: 0.9,
+      score_refactoring: 0.85,
+      score_testing: 0.8,
+      score_reasoning: 0.7,
+      score_docs: 0.65,
+      lang_typescript: 0.9,
+      lang_javascript: 0.9,
+      lang_python: 0.75,
+      lang_csharp: 0.7,
+      lang_go: 0.65,
+      lang_rust: 0.6,
+      lang_general: 0.75,
+      context_window: 16384,
+      param_size_b: 32,
+      source: 'fixture',
+    });
+    mod.upsertModelCapabilities(TEST_MODELS.BALANCED, {
+      score_code_gen: 0.75,
+      score_refactoring: 0.7,
+      score_testing: 0.65,
+      score_reasoning: 0.6,
+      score_docs: 0.7,
+      lang_typescript: 0.75,
+      lang_javascript: 0.75,
+      lang_python: 0.7,
+      lang_csharp: 0.65,
+      lang_go: 0.6,
+      lang_rust: 0.55,
+      lang_general: 0.7,
+      context_window: 8192,
+      param_size_b: 14,
+      source: 'fixture',
+    });
   });
   afterAll(() => teardownTestDb());
 
@@ -16,8 +51,8 @@ describe('Model Capabilities Registry', () => {
       expect(rows.length).toBeGreaterThan(0);
     });
 
-    it('qwen2.5-coder:32b has highest code_gen score', () => {
-      const row = rawDb().prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get('qwen2.5-coder:32b');
+    it('the quality test model has highest code_gen score', () => {
+      const row = rawDb().prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get(TEST_MODELS.QUALITY);
       expect(row).toBeTruthy();
       expect(row.score_code_gen).toBeGreaterThanOrEqual(0.85);
     });
@@ -42,9 +77,9 @@ describe('Model Capabilities Registry', () => {
 
   describe('getModelCapabilities', () => {
     it('returns capabilities for a known model', () => {
-      const caps = mod.getModelCapabilities('qwen2.5-coder:32b');
+      const caps = mod.getModelCapabilities(TEST_MODELS.QUALITY);
       expect(caps).toBeTruthy();
-      expect(caps.model_name).toBe('qwen2.5-coder:32b');
+      expect(caps.model_name).toBe(TEST_MODELS.QUALITY);
       expect(caps.context_window).toBeGreaterThan(0);
     });
 
@@ -78,19 +113,19 @@ describe('Model Capabilities Registry', () => {
   });
 
   describe('selectBestModel', () => {
-    it('ranks qwen2.5-coder:32b first for code_gen + typescript', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'complex', ['qwen2.5-coder:32b', 'codestral:22b', 'qwen3:8b', 'deepseek-r1:14b']);
+    it('ranks the quality test model first for code_gen + typescript', () => {
+      const result = mod.selectBestModel('code_gen', 'typescript', 'complex', [TEST_MODELS.QUALITY, TEST_MODELS.BALANCED, 'qwen3:8b', 'deepseek-r1:14b']);
       expect(result.length).toBeGreaterThan(0);
-      expect(result[0].model).toBe('qwen2.5-coder:32b');
+      expect(result[0].model).toBe(TEST_MODELS.QUALITY);
     });
 
     it('ranks deepseek-r1:14b first for reasoning tasks', () => {
-      const result = mod.selectBestModel('reasoning', 'general', 'normal', ['qwen2.5-coder:32b', 'codestral:22b', 'deepseek-r1:14b', 'qwen3:8b']);
+      const result = mod.selectBestModel('reasoning', 'general', 'normal', [TEST_MODELS.QUALITY, TEST_MODELS.BALANCED, 'deepseek-r1:14b', 'qwen3:8b']);
       expect(result[0].model).toBe('deepseek-r1:14b');
     });
 
     it('filters models by context window', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['qwen2.5-coder:32b', 'gemma3:4b'], { estimatedTokens: 5000 });
+      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', [TEST_MODELS.QUALITY, 'gemma3:4b'], { estimatedTokens: 5000 });
       expect(result.map(r => r.model)).not.toContain('gemma3:4b');
     });
 
@@ -105,13 +140,13 @@ describe('Model Capabilities Registry', () => {
     });
 
     it('applies complexity bonus for larger models on complex tasks', () => {
-      const complexResult = mod.selectBestModel('code_gen', 'general', 'complex', ['qwen2.5-coder:32b', 'qwen3:8b']);
-      const simpleResult = mod.selectBestModel('code_gen', 'general', 'simple', ['qwen2.5-coder:32b', 'qwen3:8b']);
+      const complexResult = mod.selectBestModel('code_gen', 'general', 'complex', [TEST_MODELS.QUALITY, 'qwen3:8b']);
+      const simpleResult = mod.selectBestModel('code_gen', 'general', 'simple', [TEST_MODELS.QUALITY, 'qwen3:8b']);
       expect(complexResult[0].score - complexResult[1].score).toBeGreaterThan(simpleResult[0].score - simpleResult[1].score);
     });
 
     it('returns results sorted by score descending', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['gemma3:4b', 'qwen2.5-coder:32b', 'codestral:22b', 'qwen3:8b']);
+      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['gemma3:4b', TEST_MODELS.QUALITY, TEST_MODELS.BALANCED, 'qwen3:8b']);
       for (let i = 1; i < result.length; i++) {
         expect(result[i - 1].score).toBeGreaterThanOrEqual(result[i].score);
       }
@@ -123,14 +158,14 @@ describe('Model Capabilities Registry', () => {
       mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'javascript', 1, 30);
       mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'javascript', 1, 25);
       mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'javascript', 0, 40);
-      mod.recordTaskOutcome('codestral:22b', 'code_gen', 'javascript', 1, 20);
-      mod.recordTaskOutcome('codestral:22b', 'code_gen', 'javascript', 1, 18);
+      mod.recordTaskOutcome(TEST_MODELS.BALANCED, 'code_gen', 'javascript', 1, 20);
+      mod.recordTaskOutcome(TEST_MODELS.BALANCED, 'code_gen', 'javascript', 1, 18);
     });
 
     it('should return models ranked by success rate', () => {
       const lb = mod.getModelLeaderboard();
       expect(lb.length).toBeGreaterThan(0);
-      expect(lb[0].model_name).toBe('codestral:22b');
+      expect(lb[0].model_name).toBe(TEST_MODELS.BALANCED);
       expect(lb[0].success_rate).toBe(100);
     });
 

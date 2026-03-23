@@ -1,6 +1,7 @@
 'use strict';
 /* global describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi */
 
+const { randomUUID } = require('crypto');
 const Database = require('better-sqlite3');
 const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
@@ -131,6 +132,20 @@ function insertHostRow(connection, overrides = {}) {
 
 function insertHost(overrides = {}) {
   return insertHostRow(rawDb(), overrides);
+}
+
+function insertRegistryModel(modelName, parameterSizeB, overrides = {}) {
+  rawDb().prepare(`
+    INSERT INTO model_registry (
+      id, provider, host_id, model_name, parameter_size_b, status, first_seen_at, last_seen_at
+    ) VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))
+  `).run(
+    overrides.id || `model-${randomUUID()}`,
+    overrides.provider || 'ollama',
+    modelName,
+    parameterSizeB,
+    overrides.status || 'approved',
+  );
 }
 
 describe('db/host-selection (real DB)', () => {
@@ -403,6 +418,7 @@ describe('db/host-selection (real DB)', () => {
     });
 
     it('returns unique available models when no host has the requested model', () => {
+      insertRegistryModel(TEST_MODELS.QUALITY, 32);
       insertHost({
         name: 'Available One',
         models: [
@@ -415,32 +431,33 @@ describe('db/host-selection (real DB)', () => {
         models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
 
-      const result = mod.selectOllamaHostForModel('qwen2.5-coder:32b');
+      const result = mod.selectOllamaHostForModel(TEST_MODELS.QUALITY);
 
       expect(result.host).toBeNull();
-      expect(result.reason).toBe("No host has model 'qwen2.5-coder:32b' available");
+      expect(result.reason).toBe(`No host has model '${TEST_MODELS.QUALITY}' available`);
       expect(result.availableModels.sort()).toEqual([TEST_MODELS.FAST, TEST_MODELS.SMALL].sort());
       expect(result.modelTier).toBe('quality');
     });
 
     it('prefers tier-hinted hosts for known model tiers', () => {
+      insertRegistryModel(TEST_MODELS.QUALITY, 32);
       const qualityHost = insertHost({
         id: 'quality-host',
         name: 'Quality Host',
         running_tasks: 1,
-        models: [{ name: 'qwen2.5-coder:32b', size: 2 * 1024 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.QUALITY, size: 2 * 1024 * 1024 * 1024 }],
       });
       insertHost({
         id: 'fast-host',
         name: 'Fast Host',
         running_tasks: 0,
-        models: [{ name: 'qwen2.5-coder:32b', size: 2 * 1024 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.QUALITY, size: 2 * 1024 * 1024 * 1024 }],
       });
 
       mod.setHostTierHint(qualityHost, 'quality');
       mod.setHostTierHint('fast-host', 'fast');
 
-      const result = mod.selectOllamaHostForModel('qwen2.5-coder:32b');
+      const result = mod.selectOllamaHostForModel(TEST_MODELS.QUALITY);
 
       expect(result.modelTier).toBe('quality');
       expect(result.host.id).toBe(qualityHost);
