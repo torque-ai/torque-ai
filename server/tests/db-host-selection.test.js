@@ -414,10 +414,10 @@ describe('db/host-selection (real DB)', () => {
         models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
       });
 
-      const result = mod.selectOllamaHostForModel('qwen3-coder:30b');
+      const result = mod.selectOllamaHostForModel('qwen2.5-coder:32b');
 
       expect(result.host).toBeNull();
-      expect(result.reason).toBe("No host has model 'qwen3-coder:30b' available");
+      expect(result.reason).toBe("No host has model 'qwen2.5-coder:32b' available");
       expect(result.availableModels.sort()).toEqual(['gemma3:4b', 'qwen3:8b']);
       expect(result.modelTier).toBe('quality');
     });
@@ -427,19 +427,19 @@ describe('db/host-selection (real DB)', () => {
         id: 'quality-host',
         name: 'Quality Host',
         running_tasks: 1,
-        models: [{ name: 'qwen3-coder:30b', size: 2 * 1024 * 1024 * 1024 }],
+        models: [{ name: 'qwen2.5-coder:32b', size: 2 * 1024 * 1024 * 1024 }],
       });
       insertHost({
         id: 'fast-host',
         name: 'Fast Host',
         running_tasks: 0,
-        models: [{ name: 'qwen3-coder:30b', size: 2 * 1024 * 1024 * 1024 }],
+        models: [{ name: 'qwen2.5-coder:32b', size: 2 * 1024 * 1024 * 1024 }],
       });
 
       mod.setHostTierHint(qualityHost, 'quality');
       mod.setHostTierHint('fast-host', 'fast');
 
-      const result = mod.selectOllamaHostForModel('qwen3-coder:30b');
+      const result = mod.selectOllamaHostForModel('qwen2.5-coder:32b');
 
       expect(result.modelTier).toBe('quality');
       expect(result.host.id).toBe(qualityHost);
