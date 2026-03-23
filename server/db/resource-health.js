@@ -10,7 +10,7 @@ const { safeJsonParse } = require('../utils/json');
 // ============================================================
 
 let db = null;
-let _deps = {
+const _deps = {
   getConfig: () => null,
   cleanupWebhookLogs: () => 0,
   cleanupStreamData: () => 0,

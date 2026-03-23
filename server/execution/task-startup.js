@@ -303,7 +303,7 @@ function startTask(taskId) {
       logger.warn(`Starting task ${taskId} under high resource pressure - performance may be degraded`);
     }
   }
-  let usedEditFormat = null;
+  const usedEditFormat = null;
 
   // === PRE-FLIGHT CHECKS ===
   runPreflightChecks(task);
@@ -592,7 +592,7 @@ function startTask(taskId) {
     PYTHONIOENCODING: 'utf-8'
   };
 
-  let selectedOllamaHostId = null;
+  const selectedOllamaHostId = null;
 
   recordTaskStartedAuditEvent(task, taskId, provider);
 
