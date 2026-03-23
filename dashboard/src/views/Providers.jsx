@@ -427,7 +427,7 @@ export default function Providers({ statsVersion, tasksTick }) {
         providersApi.trends(days).catch(() => null),
         requestV2('/config/codex_exhausted').catch(() => null),
         request('/provider-quotas').catch(() => ({})),
-        request('/free-tier/history?days=7').catch(() => ({ history: [] })),
+        request('/quota/history?days=7').catch(() => ({ history: [] })),
       ]);
       if (!mountedRef.current) return;
       setProvidersList(providersData);

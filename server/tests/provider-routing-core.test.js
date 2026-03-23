@@ -1087,7 +1087,7 @@ describe('provider-routing-core', () => {
               progress_percent: 55,
               metadata: {
                 provider_switch_target: 'claude-cli',
-                free_tier_overflow: true,
+                quota_overflow: true,
                 original_provider: 'codex',
               },
             },

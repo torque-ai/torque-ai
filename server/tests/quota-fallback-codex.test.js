@@ -259,13 +259,13 @@ afterEach(() => {
   restoreModuleCache();
 });
 
-describe('free-tier Codex fallback', () => {
-  it('requeues a failed free-tier overflow task back to codex', async () => {
+describe('quota Codex fallback', () => {
+  it('requeues a failed quota overflow task back to codex', async () => {
     const { mod, loggerInstance } = loadExecuteApiSubject();
     const task = makeTask({
       provider: 'openrouter',
       metadata: JSON.stringify({
-        free_tier_overflow: true,
+        quota_overflow: true,
         original_provider: 'codex',
       }),
     });
@@ -299,20 +299,20 @@ describe('free-tier Codex fallback', () => {
       output: null,
       error_output: null,
       metadata: expect.objectContaining({
-        free_tier_fallback_attempted: true,
+        quota_fallback_attempted: true,
       }),
     }));
     expect(deps.readTask(task.id)).toMatchObject({
       status: 'queued',
       provider: 'codex',
     });
-    expect(deps.readTask(task.id).metadata.free_tier_fallback_attempted).toBe(true);
-    expect(deps.readTask(task.id).metadata.free_tier_overflow).toBeUndefined();
+    expect(deps.readTask(task.id).metadata.quota_fallback_attempted).toBe(true);
+    expect(deps.readTask(task.id).metadata.quota_overflow).toBeUndefined();
     expect(deps.readTask(task.id).metadata.original_provider).toBeUndefined();
     expect(deps.dashboard.notifyTaskUpdated).toHaveBeenCalledTimes(2);
     expect(deps.processQueue).toHaveBeenCalledTimes(1);
     expect(loggerInstance.info).toHaveBeenCalledWith(
-      expect.stringContaining(`API provider task ${task.id} free-tier overflow failed, requeued to original provider codex`),
+      expect.stringContaining(`API provider task ${task.id} quota overflow failed, requeued to original provider codex`),
       expect.objectContaining({
         taskId: task.id,
         failedProvider: 'openrouter',
@@ -321,14 +321,14 @@ describe('free-tier Codex fallback', () => {
     );
   });
 
-  it('does not attempt fallback again when free_tier_fallback_attempted is already set', async () => {
+  it('does not attempt fallback again when quota_fallback_attempted is already set', async () => {
     const { mod } = loadExecuteApiSubject();
     const task = makeTask({
       provider: 'openrouter',
       metadata: JSON.stringify({
-        free_tier_overflow: true,
+        quota_overflow: true,
         original_provider: 'codex',
-        free_tier_fallback_attempted: true,
+        quota_fallback_attempted: true,
       }),
     });
     const deps = makeExecuteDeps([task]);
@@ -355,7 +355,7 @@ describe('free-tier Codex fallback', () => {
     const task = makeTask({
       provider: 'openrouter',
       metadata: JSON.stringify({
-        free_tier_overflow: true,
+        quota_overflow: true,
         original_provider: 'codex',
       }),
     });
@@ -382,7 +382,7 @@ describe('free-tier Codex fallback', () => {
     const task = makeTask({
       provider: 'openrouter',
       metadata: JSON.stringify({
-        free_tier_overflow: true,
+        quota_overflow: true,
         original_provider: 'codex',
       }),
     });
@@ -420,7 +420,7 @@ describe('free-tier Codex fallback', () => {
         model: null,
         metadata: JSON.stringify({
           original_provider: 'codex',
-          free_tier_overflow: true,
+          quota_overflow: true,
         }),
       })
       .mockReturnValueOnce({

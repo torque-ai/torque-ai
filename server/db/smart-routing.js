@@ -862,7 +862,7 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
     ? { ...task.metadata }
     : (safeJsonParse(task.metadata, {}) || {});
   currentMetadata.user_provider_override = true;
-  delete currentMetadata.free_tier_overflow;
+  delete currentMetadata.quota_overflow;
   delete currentMetadata.original_provider;
 
   const stmt = db.prepare(`

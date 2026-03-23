@@ -154,7 +154,7 @@ describe('OpenRouterProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns the static OpenRouter free-tier model list', async () => {
+    it('returns the static OpenRouter quota model list', async () => {
       await expect(provider.listModels()).resolves.toEqual([
         'qwen/qwen3-coder:free',
         'qwen/qwen3-next-80b-a3b-instruct:free',
@@ -199,7 +199,7 @@ describe('OpenRouterProvider', () => {
         expect(provider._estimateCost(null, 'openai/gpt-4o')).toBe(0);
       });
 
-      it('returns zero for free-tier models', () => {
+      it('returns zero for quota models', () => {
         expect(provider._estimateCost({ total_tokens: 1_000_000 }, 'qwen/qwen3-coder:free')).toBe(0);
       });
 

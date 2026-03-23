@@ -1,5 +1,5 @@
 /**
- * Tests for smart free-tier overflow routing in FreeQuotaTracker.
+ * Tests for smart quota overflow routing in FreeQuotaTracker.
  *
  * Covers:
  * - estimateTokenNeed() heuristic
@@ -10,7 +10,7 @@
  * - Token budget estimation skipping providers with insufficient quota
  * - Latency tiebreaker behavior
  * - Backward compatibility of getAvailableProviders()
- * - Integration with queue-scheduler free-tier overflow path
+ * - Integration with queue-scheduler quota overflow path
  */
 
 const FreeQuotaTracker = require('../free-quota-tracker');
@@ -418,7 +418,7 @@ describe('static exports', () => {
     expect(FreeQuotaTracker.COMPLEXITY_WEIGHTS).toHaveProperty('complex');
   });
 
-  it('PROVIDER_TRAITS cover expected free-tier providers', () => {
+  it('PROVIDER_TRAITS cover expected quota providers', () => {
     const traits = FreeQuotaTracker.PROVIDER_TRAITS;
     expect(traits).toHaveProperty('groq');
     expect(traits).toHaveProperty('cerebras');
@@ -430,7 +430,7 @@ describe('static exports', () => {
 // ---------------------------------------------------------------------------
 // Queue scheduler integration (unit-level mock test)
 // ---------------------------------------------------------------------------
-describe('queue-scheduler free-tier overflow integration', () => {
+describe('queue-scheduler quota overflow integration', () => {
   // This tests the logic path in queue-scheduler.js that calls
   // getAvailableProvidersSmart when available
 

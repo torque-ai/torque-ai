@@ -734,6 +734,11 @@ function start(options = {}) {
       debugLog(`Listening on http://127.0.0.1:${ssePort}/sse`);
       sessionMod.cleanExpiredSubscriptions();
       trackInterval(setInterval(sessionMod.cleanExpiredSubscriptions, 60 * 60 * 1000));
+      // Reap stale sessions every 60s to prevent per-IP counter drift
+      trackInterval(setInterval(() => {
+        const reaped = sessionMod.reapStaleSessions();
+        if (reaped > 0) debugLog(`Reaped ${reaped} stale session(s) (${sessions.size} remaining)`);
+      }, 60000));
       resolve({ success: true, port: ssePort });
     });
   });

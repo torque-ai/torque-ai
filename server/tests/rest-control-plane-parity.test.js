@@ -75,7 +75,7 @@ installCjsModuleMock('../api/v2-analytics-handlers', handlerModule([
   'handleThroughputMetrics',
   'handleBudgetSummary', 'handleBudgetStatus', 'handleSetBudget',
   'handleStrategicStatus', 'handleRoutingDecisions', 'handleProviderHealth',
-  'handleFreeTierStatus', 'handleFreeTierHistory', 'handleFreeTierAutoScale',
+  'handleQuotaStatus', 'handleQuotaHistory', 'handleQuotaAutoScale',
   'handlePrometheusMetrics', 'handleStrategicOperations',
 ]));
 installCjsModuleMock('../api/v2-infrastructure-handlers', handlerModule([
@@ -257,9 +257,9 @@ describe('REST control-plane parity', () => {
         'handleGetDashboard',      // coordination — no v2
         'handleListRoutingRules',  // coordination — no v2
         'handleListClaims',        // coordination — no v2
-        'handleFreeTierStatus',    // free tier — no v2
-        'handleFreeTierHistory',   // free tier — no v2
-        'handleFreeTierAutoScale', // free tier — no v2
+        'handleQuotaStatus',    // provider quota — no v2
+        'handleQuotaHistory',   // provider quota — no v2
+        'handleQuotaAutoScale', // provider quota — no v2
       ];
       for (const handler of exemptPatterns) {
         // Find the line with this handler — it should NOT have compat: true
@@ -275,7 +275,7 @@ describe('REST control-plane parity', () => {
       const exemptCount = totalRouteLines - compatLines;
       // 18 routes have no v2 equivalent: activity, percentiles, task-actions (partial),
       // instances, get-tuning, workflow-tasks, operations, peek-test, peek-update,
-      // credential-test, coordination(4), free-tier(3), coordination-agents
+      // credential-test, coordination(4), quota(3), coordination-agents
       expect(exemptCount).toBeLessThanOrEqual(18);
     });
   });

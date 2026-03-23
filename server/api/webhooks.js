@@ -8,8 +8,8 @@ const { sendJson } = require('./middleware');
 const RAW_WEBHOOK_BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
 
 // Dependency-injected getter for FreeQuotaTracker (set by api-server.core.js)
-let _freeTierTrackerGetter = null;
-function setFreeTierTrackerGetter(getter) { _freeTierTrackerGetter = getter; }
+let _quotaTrackerGetter = null;
+function setQuotaTrackerGetter(getter) { _quotaTrackerGetter = getter; }
 
 /**
  * Verify HMAC-SHA256 signature using constant-time comparison.
@@ -170,15 +170,15 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
   }
 
   // Route based on trigger_type
-  const isFreeTierTrigger = actionConfig.trigger_type === 'free_tier_task';
+  const isQuotaTrigger = actionConfig.trigger_type === 'quota_task';
   let result;
-  let freeTierProvider = null;
+  let quotaProvider = null;
 
-  if (isFreeTierTrigger) {
-    // Free-tier routing: pick best available free-tier provider, skip Codex/smart routing
+  if (isQuotaTrigger) {
+    // Free-tier routing: pick best available quota provider, skip Codex/smart routing
 
-    if (typeof _freeTierTrackerGetter === 'function') {
-      const tracker = _freeTierTrackerGetter();
+    if (typeof _quotaTrackerGetter === 'function') {
+      const tracker = _quotaTrackerGetter();
       if (tracker) {
         const taskMeta = {
           complexity: actionConfig.complexity || 'normal',
@@ -186,36 +186,36 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
         };
         const available = tracker.getAvailableProvidersSmart(taskMeta);
         if (available.length > 0) {
-          freeTierProvider = available[0].provider;
+          quotaProvider = available[0].provider;
         }
       }
     }
 
-    if (freeTierProvider) {
-      // Submit directly to the free-tier provider via submit_task
-      const freeTierArgs = {
+    if (quotaProvider) {
+      // Submit directly to the quota provider via submit_task
+      const quotaArgs = {
         task: taskDescription,
-        provider: freeTierProvider,
+        provider: quotaProvider,
         working_directory: actionConfig.working_directory || undefined,
       };
-      if (actionConfig.tags) freeTierArgs.tags = actionConfig.tags;
+      if (actionConfig.tags) quotaArgs.tags = actionConfig.tags;
 
       try {
-        result = await handleToolCall('submit_task', freeTierArgs);
+        result = await handleToolCall('submit_task', quotaArgs);
       } catch (err) {
-        sendJson(res, { error: `Failed to create free-tier task: ${err.message}` }, 500, req);
+        sendJson(res, { error: `Failed to create quota task: ${err.message}` }, 500, req);
         return;
       }
     } else {
-      // No free-tier provider available — fall back to smart_submit_task with metadata hint
+      // No quota provider available — fall back to smart_submit_task with metadata hint
       taskArgs.task = taskArgs.task_description;
       delete taskArgs.task_description;
-      taskArgs.free_tier_preferred = true;
+      taskArgs.quota_preferred = true;
 
       try {
         result = await handleToolCall('smart_submit_task', taskArgs);
       } catch (err) {
-        sendJson(res, { error: `Failed to create task (no free-tier providers available): ${err.message}` }, 500, req);
+        sendJson(res, { error: `Failed to create task (no quota providers available): ${err.message}` }, 500, req);
         return;
       }
     }
@@ -255,22 +255,22 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
     webhook: webhookName,
     trigger_count: (webhook.trigger_count || 0) + 1,
   };
-  if (isFreeTierTrigger) {
-    responseBody.trigger_type = 'free_tier_task';
-    responseBody.free_tier_provider = freeTierProvider || null;
+  if (isQuotaTrigger) {
+    responseBody.trigger_type = 'quota_task';
+    responseBody.quota_provider = quotaProvider || null;
   }
 
   sendJson(res, responseBody, 200, req);
 }
 
 function createWebhooks(_deps) {
-  return { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setFreeTierTrackerGetter };
+  return { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setQuotaTrackerGetter };
 }
 
 module.exports = {
   handleInboundWebhook,
   verifyWebhookSignature,
   substitutePayload,
-  setFreeTierTrackerGetter,
+  setQuotaTrackerGetter,
   createWebhooks,
 };

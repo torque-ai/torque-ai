@@ -27,7 +27,7 @@ const PROVIDER_TRAITS = {
 };
 
 // Free providers are scan-only: they can read context-stuffed files but cannot produce code.
-// Only these task types are allowed to route to free-tier providers.
+// Only these task types are allowed to route to quota providers.
 const FREE_PROVIDER_SCAN_ONLY_TYPES = new Set(['scan', 'reasoning', 'docs']);
 
 // Complexity → trait weight preferences
@@ -246,7 +246,7 @@ class FreeQuotaTracker {
     // Scan-only enforcement: free providers only accept scan/reasoning/docs tasks.
     // Coding tasks (code_gen, testing, refactoring) must stay on paid providers.
     if (taskType && !FREE_PROVIDER_SCAN_ONLY_TYPES.has(taskType)) {
-      logger.info(`[free-quota] Blocked free-tier routing: taskType '${taskType}' is not scan-only`);
+      logger.info(`[free-quota] Blocked quota routing: taskType '${taskType}' is not scan-only`);
       return [];
     }
     const estimatedTokens = estimateTokenNeed(descriptionLength);
@@ -377,7 +377,7 @@ class FreeQuotaTracker {
   /**
    * Set the DB module for persisting daily snapshots.
    * Expects an object with a `recordDailySnapshot(provider, stats)` method
-   * (i.e., the free-tier-history db module).
+   * (i.e., the quota-history db module).
    *
    * @param {object} dbModule
    */

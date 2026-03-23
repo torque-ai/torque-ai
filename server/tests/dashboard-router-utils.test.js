@@ -496,7 +496,7 @@ describe('dashboard/router', () => {
       ['GET', '/api/workflows/wf-1/history', 'analytics', 'handleGetWorkflowHistory', true],
       ['POST', '/api/plan-projects/import', 'admin', 'handleImportPlanApi', true],
       ['GET', '/api/coordination', 'admin', 'handleGetDashboard', false],
-      ['GET', '/api/free-tier/auto-scale', 'analytics', 'handleFreeTierAutoScale', false],
+      ['GET', '/api/quota/auto-scale', 'analytics', 'handleQuotaAutoScale', false],
     ])('registers %s %s on %s.%s', (method, url, group, handlerName, compat) => {
       const route = router.routes.find((entry) => entry.method === method && entry.pattern.test(url));
 

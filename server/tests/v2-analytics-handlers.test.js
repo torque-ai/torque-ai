@@ -1578,11 +1578,11 @@ describe('api/v2-analytics-handlers', () => {
     });
   });
 
-  describe('handleFreeTierStatus', () => {
+  describe('handleQuotaStatus', () => {
     it('returns empty providers and a status message', async () => {
       const res = createMockRes();
 
-      await handlers.handleFreeTierStatus(createReq(), res);
+      await handlers.handleQuotaStatus(createReq(), res);
 
       expect(expectSuccess(res)).toEqual({
         providers: {},
@@ -1593,7 +1593,7 @@ describe('api/v2-analytics-handlers', () => {
     it('returns 200 even when called with extra query params', async () => {
       const res = createMockRes();
 
-      await handlers.handleFreeTierStatus(
+      await handlers.handleQuotaStatus(
         createReq({ query: { extra: 'ignored' } }),
         res,
       );
@@ -1605,7 +1605,7 @@ describe('api/v2-analytics-handlers', () => {
     });
   });
 
-  describe('handleFreeTierHistory', () => {
+  describe('handleQuotaHistory', () => {
     it('returns usage history with default seven days', async () => {
       const res = createMockRes();
 
@@ -1614,7 +1614,7 @@ describe('api/v2-analytics-handlers', () => {
         { date: '2026-03-10', requests: 15 },
       ]);
 
-      await handlers.handleFreeTierHistory(createReq(), res);
+      await handlers.handleQuotaHistory(createReq(), res);
 
       expect(mockDb.getUsageHistory).toHaveBeenCalledWith(7);
       expect(expectSuccess(res)).toEqual({
@@ -1629,7 +1629,7 @@ describe('api/v2-analytics-handlers', () => {
     it('respects the days query param and clamps to valid range', async () => {
       const res = createMockRes();
 
-      await handlers.handleFreeTierHistory(
+      await handlers.handleQuotaHistory(
         createReq({ query: { days: '30' } }),
         res,
       );
@@ -1641,7 +1641,7 @@ describe('api/v2-analytics-handlers', () => {
     it('clamps days to a minimum of one', async () => {
       const res = createMockRes();
 
-      await handlers.handleFreeTierHistory(
+      await handlers.handleQuotaHistory(
         createReq({ query: { days: '-5' } }),
         res,
       );
@@ -1653,7 +1653,7 @@ describe('api/v2-analytics-handlers', () => {
     it('clamps days to a maximum of ninety', async () => {
       const res = createMockRes();
 
-      await handlers.handleFreeTierHistory(
+      await handlers.handleQuotaHistory(
         createReq({ query: { days: '500' } }),
         res,
       );
@@ -1666,7 +1666,7 @@ describe('api/v2-analytics-handlers', () => {
       const res = createMockRes();
 
       await withPatchedProperties(mockDb, { getUsageHistory: null }, async () => {
-        await handlers.handleFreeTierHistory(createReq(), res);
+        await handlers.handleQuotaHistory(createReq(), res);
       });
 
       expect(expectSuccess(res)).toEqual({
@@ -1682,7 +1682,7 @@ describe('api/v2-analytics-handlers', () => {
         throw new Error('history failed');
       });
 
-      await handlers.handleFreeTierHistory(createReq(), res);
+      await handlers.handleQuotaHistory(createReq(), res);
 
       expectError(res, {
         status: 500,
@@ -1692,7 +1692,7 @@ describe('api/v2-analytics-handlers', () => {
     });
   });
 
-  describe('handleFreeTierAutoScale', () => {
+  describe('handleQuotaAutoScale', () => {
     it('returns auto-scale config with defaults', async () => {
       const res = createMockRes();
 
@@ -1700,11 +1700,11 @@ describe('api/v2-analytics-handlers', () => {
       mockServerConfig.getInt.mockImplementation((key, fallback) => fallback);
       mockDb.listTasks.mockReturnValue([]);
 
-      await handlers.handleFreeTierAutoScale(createReq(), res);
+      await handlers.handleQuotaAutoScale(createReq(), res);
 
-      expect(mockServerConfig.isOptIn).toHaveBeenCalledWith('free_tier_auto_scale_enabled');
-      expect(mockServerConfig.getInt).toHaveBeenCalledWith('free_tier_queue_depth_threshold', 3);
-      expect(mockServerConfig.getInt).toHaveBeenCalledWith('free_tier_cooldown_seconds', 60);
+      expect(mockServerConfig.isOptIn).toHaveBeenCalledWith('quota_auto_scale_enabled');
+      expect(mockServerConfig.getInt).toHaveBeenCalledWith('quota_queue_depth_threshold', 3);
+      expect(mockServerConfig.getInt).toHaveBeenCalledWith('quota_cooldown_seconds', 60);
       expect(expectSuccess(res)).toEqual({
         enabled: false,
         queue_depth_threshold: 3,
@@ -1718,8 +1718,8 @@ describe('api/v2-analytics-handlers', () => {
 
       mockServerConfig.isOptIn.mockReturnValue(true);
       mockServerConfig.getInt.mockImplementation((key, fallback) => {
-        if (key === 'free_tier_queue_depth_threshold') return 5;
-        if (key === 'free_tier_cooldown_seconds') return 120;
+        if (key === 'quota_queue_depth_threshold') return 5;
+        if (key === 'quota_cooldown_seconds') return 120;
         return fallback;
       });
       mockDb.listTasks.mockReturnValue([
@@ -1728,7 +1728,7 @@ describe('api/v2-analytics-handlers', () => {
         { id: 'task-3', provider: 'codex', status: 'queued' },
       ]);
 
-      await handlers.handleFreeTierAutoScale(createReq(), res);
+      await handlers.handleQuotaAutoScale(createReq(), res);
 
       expect(expectSuccess(res)).toEqual({
         enabled: true,
@@ -1747,7 +1747,7 @@ describe('api/v2-analytics-handlers', () => {
         ],
       });
 
-      await handlers.handleFreeTierAutoScale(createReq(), res);
+      await handlers.handleQuotaAutoScale(createReq(), res);
 
       expect(expectSuccess(res).codex_queue_depth).toBe(1);
     });
@@ -1759,7 +1759,7 @@ describe('api/v2-analytics-handlers', () => {
         throw new Error('config failed');
       });
 
-      await handlers.handleFreeTierAutoScale(createReq(), res);
+      await handlers.handleQuotaAutoScale(createReq(), res);
 
       expectError(res, {
         status: 500,

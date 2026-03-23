@@ -180,9 +180,9 @@ function requeueTaskAfterAttemptedStart(taskId, patch = {}) {
   });
 }
 
-function getFreeTierFallback(task) {
+function getQuotaFallback(task) {
   const metadata = parseTaskMetadata(task);
-  if (!metadata.free_tier_overflow || metadata.free_tier_fallback_attempted) {
+  if (!metadata.quota_overflow || metadata.quota_fallback_attempted) {
     return null;
   }
 
@@ -198,10 +198,10 @@ function getFreeTierFallback(task) {
 
   const nextMetadata = {
     ...metadata,
-    free_tier_fallback_attempted: true,
+    quota_fallback_attempted: true,
   };
-  delete nextMetadata.free_tier_overflow;
-  delete nextMetadata.free_tier_auto_scale;
+  delete nextMetadata.quota_overflow;
+  delete nextMetadata.quota_auto_scale;
   delete nextMetadata.original_provider;
   delete nextMetadata.overflow;
 
@@ -213,7 +213,7 @@ function getFreeTierFallback(task) {
 
 function getFreeProviderRetryFallback(task) {
   const metadata = parseTaskMetadata(task);
-  if (metadata.free_tier_overflow || metadata.free_provider_retry) {
+  if (metadata.quota_overflow || metadata.free_provider_retry) {
     return null;
   }
 
@@ -453,7 +453,7 @@ async function executeApiProvider(task, provider) {
 
     logger.info(`API provider task failed`, { taskId, provider: provider.name, error: redactSecrets(err.message) });
 
-    // Record rate limit to free-tier quota tracker for cooldown
+    // Record rate limit to quota quota tracker for cooldown
     const is429 = err.message && (err.message.includes('(429)') || err.message.includes('rate_limit'));
     if (is429 && typeof _getFreeQuotaTracker === 'function') {
       try {
@@ -464,19 +464,19 @@ async function executeApiProvider(task, provider) {
       } catch { /* non-fatal */ }
     }
 
-    const freeTierFallback = getFreeTierFallback(currentTask || taskClone);
-    if (freeTierFallback) {
+    const quotaFallback = getQuotaFallback(currentTask || taskClone);
+    if (quotaFallback) {
       requeueTaskAfterAttemptedStart(taskId, {
-        provider: freeTierFallback.originalProvider,
+        provider: quotaFallback.originalProvider,
         model: null,
-        metadata: freeTierFallback.metadata,
+        metadata: quotaFallback.metadata,
         output: null,
         error_output: null,
       });
-      logger.info(`API provider task ${taskId} free-tier overflow failed, requeued to original provider ${freeTierFallback.originalProvider}`, {
+      logger.info(`API provider task ${taskId} quota overflow failed, requeued to original provider ${quotaFallback.originalProvider}`, {
         taskId,
         failedProvider: provider.name,
-        fallbackProvider: freeTierFallback.originalProvider,
+        fallbackProvider: quotaFallback.originalProvider,
       });
       dashboard.notifyTaskUpdated(taskId);
       try { if (processQueue) processQueue(); } catch { /* ignore */ }
@@ -546,7 +546,7 @@ module.exports = {
   init,
   setFreeQuotaTracker,
   parseTaskMetadata,
-  getFreeTierFallback,
+  getQuotaFallback,
   getFreeProviderRetryFallback,
   enrichTaskDescription,
   executeApiProvider,

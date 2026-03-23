@@ -442,9 +442,9 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpStrategicStatus: v2AnalyticsHandlers.handleStrategicStatus,
   handleV2CpRoutingDecisions: v2AnalyticsHandlers.handleRoutingDecisions,
   handleV2CpProviderHealthCards: v2AnalyticsHandlers.handleProviderHealth,
-  handleV2CpFreeTierStatus: v2AnalyticsHandlers.handleFreeTierStatus,
-  handleV2CpFreeTierHistory: v2AnalyticsHandlers.handleFreeTierHistory,
-  handleV2CpFreeTierAutoScale: v2AnalyticsHandlers.handleFreeTierAutoScale,
+  handleV2CpQuotaStatus: v2AnalyticsHandlers.handleQuotaStatus,
+  handleV2CpQuotaHistory: v2AnalyticsHandlers.handleQuotaHistory,
+  handleV2CpQuotaAutoScale: v2AnalyticsHandlers.handleQuotaAutoScale,
   handleV2CpPrometheusMetrics: v2AnalyticsHandlers.handlePrometheusMetrics,
   handleV2CpStrategicOperations: v2AnalyticsHandlers.handleStrategicOperations,
   // Infrastructure

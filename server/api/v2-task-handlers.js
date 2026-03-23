@@ -484,7 +484,7 @@ async function handleReassignTaskProvider(req, res) {
       user_provider_override: true,
     };
     // Item 14: Clear stale overflow metadata since operator reassigned explicitly
-    delete metadata.free_tier_overflow;
+    delete metadata.quota_overflow;
     delete metadata.original_provider;
 
     const updateFields = { provider, metadata };
@@ -730,7 +730,7 @@ async function handleApproveSwitch(req, res) {
       user_provider_override: true,
     };
     // Item 14: Clear stale overflow metadata since operator approved explicitly
-    delete updatedMetadata.free_tier_overflow;
+    delete updatedMetadata.quota_overflow;
     delete updatedMetadata.original_provider;
 
     // Item 19: Clear stale runtime/failure state when re-queueing
@@ -823,7 +823,7 @@ async function handleRejectSwitch(req, res) {
       ...metadata,
     };
     // Items 20+21: Clear stale overflow/original-provider metadata after rejection
-    delete updatedMetadata.free_tier_overflow;
+    delete updatedMetadata.quota_overflow;
     delete updatedMetadata.original_provider;
 
     // Item 19: Clear stale runtime/failure state when re-queueing

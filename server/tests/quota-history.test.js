@@ -5,7 +5,7 @@ const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 let mod;
 
 function setup() {
-  ({ mod } = setupTestDbModule('../db/cost-tracking', 'free-tier-history'));
+  ({ mod } = setupTestDbModule('../db/cost-tracking', 'quota-history'));
 }
 
 function teardown() {
@@ -13,7 +13,7 @@ function teardown() {
 }
 
 function resetState() {
-  rawDb().prepare('DELETE FROM free_tier_daily_usage').run();
+  rawDb().prepare('DELETE FROM quota_daily_usage').run();
 }
 
 /** Helper: returns YYYY-MM-DD for today minus N days */
@@ -21,7 +21,7 @@ function daysAgo(n) {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-describe('free-tier-history module', () => {
+describe('quota-history module', () => {
   beforeAll(() => { setup(); });
   afterAll(() => { teardown(); });
   beforeEach(() => { resetState(); });
@@ -38,7 +38,7 @@ describe('free-tier-history module', () => {
         avg_latency_ms: 42.5,
       });
 
-      const rows = rawDb().prepare('SELECT * FROM free_tier_daily_usage WHERE provider = ?').all('groq');
+      const rows = rawDb().prepare('SELECT * FROM quota_daily_usage WHERE provider = ?').all('groq');
       expect(rows).toHaveLength(1);
       expect(rows[0].provider).toBe('groq');
       expect(rows[0].date).toBe('2026-03-01');
@@ -62,7 +62,7 @@ describe('free-tier-history module', () => {
         avg_latency_ms: 33.3,
       });
 
-      const rows = rawDb().prepare('SELECT * FROM free_tier_daily_usage WHERE provider = ? AND date = ?').all('groq', '2026-03-01');
+      const rows = rawDb().prepare('SELECT * FROM quota_daily_usage WHERE provider = ? AND date = ?').all('groq', '2026-03-01');
       expect(rows).toHaveLength(1);
       expect(rows[0].total_requests).toBe(120);
       expect(rows[0].total_tokens).toBe(8000);
@@ -75,7 +75,7 @@ describe('free-tier-history module', () => {
       mod.recordDailySnapshot('deepinfra', { date: '2026-03-01', total_requests: 20 });
       mod.recordDailySnapshot('hyperbolic', { date: '2026-03-01', total_requests: 30 });
 
-      const rows = rawDb().prepare('SELECT * FROM free_tier_daily_usage WHERE date = ?').all('2026-03-01');
+      const rows = rawDb().prepare('SELECT * FROM quota_daily_usage WHERE date = ?').all('2026-03-01');
       expect(rows).toHaveLength(3);
     });
 
@@ -83,7 +83,7 @@ describe('free-tier-history module', () => {
       const today = new Date().toISOString().slice(0, 10);
       mod.recordDailySnapshot('groq', { total_requests: 7 });
 
-      const rows = rawDb().prepare('SELECT * FROM free_tier_daily_usage WHERE provider = ?').all('groq');
+      const rows = rawDb().prepare('SELECT * FROM quota_daily_usage WHERE provider = ?').all('groq');
       expect(rows).toHaveLength(1);
       expect(rows[0].date).toBe(today);
     });
@@ -91,7 +91,7 @@ describe('free-tier-history module', () => {
     it('defaults numeric stats to 0 when not provided', () => {
       mod.recordDailySnapshot('groq', { date: '2026-03-01' });
 
-      const row = rawDb().prepare('SELECT * FROM free_tier_daily_usage WHERE provider = ? AND date = ?').get('groq', '2026-03-01');
+      const row = rawDb().prepare('SELECT * FROM quota_daily_usage WHERE provider = ? AND date = ?').get('groq', '2026-03-01');
       expect(row.total_requests).toBe(0);
       expect(row.total_tokens).toBe(0);
       expect(row.rate_limit_hits).toBe(0);
@@ -101,7 +101,7 @@ describe('free-tier-history module', () => {
     it('defaults stats to 0 when stats object is omitted entirely', () => {
       mod.recordDailySnapshot('groq');
 
-      const rows = rawDb().prepare('SELECT * FROM free_tier_daily_usage WHERE provider = ?').all('groq');
+      const rows = rawDb().prepare('SELECT * FROM quota_daily_usage WHERE provider = ?').all('groq');
       expect(rows).toHaveLength(1);
       expect(rows[0].total_requests).toBe(0);
       expect(rows[0].total_tokens).toBe(0);
@@ -116,7 +116,7 @@ describe('free-tier-history module', () => {
         avg_latency_ms: NaN,
       });
 
-      const row = rawDb().prepare('SELECT * FROM free_tier_daily_usage WHERE provider = ? AND date = ?').get('groq', '2026-03-01');
+      const row = rawDb().prepare('SELECT * FROM quota_daily_usage WHERE provider = ? AND date = ?').get('groq', '2026-03-01');
       expect(row.total_requests).toBe(0);
       expect(row.total_tokens).toBe(0);
       expect(row.rate_limit_hits).toBe(0);
@@ -316,7 +316,7 @@ describe('free-tier-history module', () => {
     it('coerces null/undefined stat values to 0 in mapped output', () => {
       // Insert directly with NULL values to test mapRow coercion
       rawDb().prepare(`
-        INSERT INTO free_tier_daily_usage (provider, date, total_requests, total_tokens, rate_limit_hits, avg_latency_ms)
+        INSERT INTO quota_daily_usage (provider, date, total_requests, total_tokens, rate_limit_hits, avg_latency_ms)
         VALUES (?, ?, NULL, NULL, NULL, NULL)
       `).run('test-null', daysAgo(0));
 
@@ -335,7 +335,7 @@ describe('free-tier-history module', () => {
   describe('setDb', () => {
     it('creates the table on setDb call', () => {
       // Table already exists from setup, verify it's queryable
-      const count = rawDb().prepare('SELECT COUNT(*) as cnt FROM free_tier_daily_usage').get();
+      const count = rawDb().prepare('SELECT COUNT(*) as cnt FROM quota_daily_usage').get();
       expect(count.cnt).toBe(0);
     });
   });

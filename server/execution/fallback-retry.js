@@ -124,7 +124,7 @@ function tryOllamaCloudFallback(taskId, task, errorMsg) {
       if (p === 'claude-cli') return serverConfig.getBool('claude_cli_enabled');
       const pConfig = db.getProvider(p);
       if (!pConfig || !pConfig.enabled) return false;
-      // Skip free-tier providers in cooldown or quota-exhausted
+      // Skip quota providers in cooldown or quota-exhausted
       if (typeof _getFreeQuotaTracker === 'function') {
         const tracker = _getFreeQuotaTracker();
         const status = tracker.getStatus();

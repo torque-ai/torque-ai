@@ -57,7 +57,7 @@ function resetMinuteWindow(tracker, provider) {
   tracker.tick();
 }
 
-describe('FreeQuotaTracker free-tier overflow integration', () => {
+describe('FreeQuotaTracker quota overflow integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
@@ -161,7 +161,7 @@ describe('FreeQuotaTracker free-tier overflow integration', () => {
   });
 });
 
-describe('queue-scheduler free-tier overflow slot gating', () => {
+describe('queue-scheduler quota overflow slot gating', () => {
   let scheduler;
   let mockDb;
   let mockTracker;
@@ -211,8 +211,8 @@ describe('queue-scheduler free-tier overflow slot gating', () => {
     });
     configValues = {
       codex_enabled: '1',
-      free_tier_auto_scale_enabled: 'true',
-      free_tier_cooldown_seconds: '0',
+      quota_auto_scale_enabled: 'true',
+      quota_cooldown_seconds: '0',
       codex_overflow_to_local: '0',
       auto_compute_max_concurrent: 'true',
     };
@@ -335,8 +335,8 @@ describe('queue-scheduler free-tier overflow slot gating', () => {
 
     const metadata = JSON.parse(rerouteCall[2].metadata);
     expect(metadata.original_provider).toBe('codex');
-    expect(metadata.free_tier_overflow).toBe(true);
-    expect(metadata.free_tier_auto_scale).toBe(true);
+    expect(metadata.quota_overflow).toBe(true);
+    expect(metadata.quota_auto_scale).toBe(true);
   });
 
   it('never overflows tasks with user_provider_override', () => {

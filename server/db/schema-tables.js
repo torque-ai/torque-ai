@@ -59,7 +59,7 @@ const VALID_TABLE_NAMES = new Set([
   'file_location_anomalies',
   'file_locks',
   'format_success_rates',
-  'free_tier_daily_usage',
+  'quota_daily_usage',
   'github_issues',
   'health_status',
   'host_credentials',

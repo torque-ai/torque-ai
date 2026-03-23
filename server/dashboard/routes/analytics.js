@@ -664,15 +664,15 @@ async function handleSetBudget(req, res) {
   return sendJson(res, result, 201);
 }
 
-let _freeTierTrackerGetter = null;
+let _quotaTrackerGetter = null;
 
-function setFreeTierTrackerGetter(getter) {
-  _freeTierTrackerGetter = getter;
+function setQuotaTrackerGetter(getter) {
+  _quotaTrackerGetter = getter;
 }
 
-function handleFreeTierStatus(req, res) {
+function handleQuotaStatus(req, res) {
   try {
-    const tracker = typeof _freeTierTrackerGetter === 'function' ? _freeTierTrackerGetter() : null;
+    const tracker = typeof _quotaTrackerGetter === 'function' ? _quotaTrackerGetter() : null;
     if (!tracker) {
       sendJson(res, { status: 'ok', providers: {}, message: 'FreeQuotaTracker not initialized' });
       return;
@@ -683,7 +683,7 @@ function handleFreeTierStatus(req, res) {
   }
 }
 
-function handleFreeTierHistory(req, res, query) {
+function handleQuotaHistory(req, res, query) {
   try {
     const days = Math.max(1, Math.min(90, parseInt(query.days, 10) || 7));
     const history = costTracking.getUsageHistory(days);
@@ -693,11 +693,11 @@ function handleFreeTierHistory(req, res, query) {
   }
 }
 
-function handleFreeTierAutoScale(req, res) {
+function handleQuotaAutoScale(req, res) {
   try {
-    const enabled = serverConfig.get('free_tier_auto_scale_enabled') === 'true';
-    const queueDepthThreshold = serverConfig.getInt('free_tier_queue_depth_threshold', 3);
-    const cooldownSeconds = serverConfig.getInt('free_tier_cooldown_seconds', 60);
+    const enabled = serverConfig.get('quota_auto_scale_enabled') === 'true';
+    const queueDepthThreshold = serverConfig.getInt('quota_queue_depth_threshold', 3);
+    const cooldownSeconds = serverConfig.getInt('quota_cooldown_seconds', 60);
 
     let codexQueueDepth = 0;
     try {
@@ -807,10 +807,10 @@ function createDashboardAnalyticsRoutes() {
     handleBudgetSummary,
     handleBudgetStatus,
     handleSetBudget,
-    handleFreeTierStatus,
-    handleFreeTierHistory,
-    handleFreeTierAutoScale,
-    setFreeTierTrackerGetter,
+    handleQuotaStatus,
+    handleQuotaHistory,
+    handleQuotaAutoScale,
+    setQuotaTrackerGetter,
     handleListWorkflows,
     handleGetWorkflow,
     handleGetWorkflowTasks,
@@ -839,10 +839,10 @@ module.exports = {
   handleBudgetSummary,
   handleBudgetStatus,
   handleSetBudget,
-  handleFreeTierStatus,
-  handleFreeTierHistory,
-  handleFreeTierAutoScale,
-  setFreeTierTrackerGetter,
+  handleQuotaStatus,
+  handleQuotaHistory,
+  handleQuotaAutoScale,
+  setQuotaTrackerGetter,
   // Workflows
   handleListWorkflows,
   handleGetWorkflow,

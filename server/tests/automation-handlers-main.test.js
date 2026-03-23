@@ -553,20 +553,20 @@ describe('automation-handlers main unit suite', () => {
     });
   });
 
-  describe('handleConfigureFreeTierAutoScale', () => {
+  describe('handleConfigureQuotaAutoScale', () => {
     it('clamps thresholds and stores the configuration', () => {
       const { handlers, mocks } = loadAutomationModule();
 
-      const result = handlers.handleConfigureFreeTierAutoScale({
+      const result = handlers.handleConfigureQuotaAutoScale({
         enabled: true,
         queue_depth_threshold: 0.3,
         cooldown_seconds: -8,
       });
       const text = getText(result);
 
-      expect(mocks.configCore.__stores.configStore.get('free_tier_auto_scale_enabled')).toBe('true');
-      expect(mocks.configCore.__stores.configStore.get('free_tier_queue_depth_threshold')).toBe('1');
-      expect(mocks.configCore.__stores.configStore.get('free_tier_cooldown_seconds')).toBe('0');
+      expect(mocks.configCore.__stores.configStore.get('quota_auto_scale_enabled')).toBe('true');
+      expect(mocks.configCore.__stores.configStore.get('quota_queue_depth_threshold')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('quota_cooldown_seconds')).toBe('0');
       expect(text).toContain('Free-tier auto-scale: enabled');
       expect(text).toContain('| Queue depth threshold | 1 |');
       expect(text).toContain('| Cooldown (seconds) | 0 |');
@@ -575,7 +575,7 @@ describe('automation-handlers main unit suite', () => {
     it('shows default values when no config exists', () => {
       const { handlers } = loadAutomationModule();
 
-      const result = handlers.handleConfigureFreeTierAutoScale({});
+      const result = handlers.handleConfigureQuotaAutoScale({});
       const text = getText(result);
 
       expect(text).toContain('| Enabled | false |');

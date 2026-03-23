@@ -883,20 +883,20 @@ const routes = [
   // Free-tier
   {
     method: 'GET',
-    path: '/api/v2/free-tier/status',
-    handlerName: 'handleV2CpFreeTierStatus',
+    path: '/api/v2/quota/status',
+    handlerName: 'handleV2CpQuotaStatus',
     middleware: buildV2Middleware(),
   },
   {
     method: 'GET',
-    path: '/api/v2/free-tier/history',
-    handlerName: 'handleV2CpFreeTierHistory',
+    path: '/api/v2/quota/history',
+    handlerName: 'handleV2CpQuotaHistory',
     middleware: buildV2Middleware(),
   },
   {
     method: 'GET',
-    path: '/api/v2/free-tier/auto-scale',
-    handlerName: 'handleV2CpFreeTierAutoScale',
+    path: '/api/v2/quota/auto-scale',
+    handlerName: 'handleV2CpQuotaAutoScale',
     middleware: buildV2Middleware(),
   },
 
@@ -1209,10 +1209,10 @@ const routes = [
   { method: 'POST', path: '/api/snapscope/views', tool: 'capture_views', mapBody: true },
   { method: 'POST', path: '/api/snapscope/validate', tool: 'validate_manifest', mapBody: true },
 
-  // Free-tier quota status (TDA-09: deprecated — use /api/v2/free-tier/* instead)
-  { method: 'GET', path: '/api/free-tier/status', handlerName: 'handleGetFreeTierStatus', deprecated: '/api/v2/free-tier/status' },
-  { method: 'GET', path: '/api/free-tier/history', handlerName: 'handleGetFreeTierHistory', deprecated: '/api/v2/free-tier/history' },
-  { method: 'GET', path: '/api/free-tier/auto-scale', handlerName: 'handleGetFreeTierAutoScale', deprecated: '/api/v2/free-tier/auto-scale' },
+  // Free-tier quota status (TDA-09: deprecated — use /api/v2/quota/* instead)
+  { method: 'GET', path: '/api/quota/status', handlerName: 'handleGetQuotaStatus', deprecated: '/api/v2/quota/status' },
+  { method: 'GET', path: '/api/quota/history', handlerName: 'handleGetQuotaHistory', deprecated: '/api/v2/quota/history' },
+  { method: 'GET', path: '/api/quota/auto-scale', handlerName: 'handleGetQuotaAutoScale', deprecated: '/api/v2/quota/auto-scale' },
 
   // Concurrency limits
   { method: 'GET', path: '/api/v2/concurrency', handlerName: 'handleV2CpGetConcurrencyLimits', middleware: buildV2Middleware() },

@@ -98,7 +98,7 @@ const routes = [
   // ─── automation (26 routes) ───────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/automation/run-remote-command', tool: 'run_remote_command', mapBody: true },
   { method: 'POST', path: '/api/v2/automation/run-tests', tool: 'run_tests', mapBody: true },
-  { method: 'POST', path: '/api/v2/automation/configure-free-tier-auto-scale', tool: 'configure_free_tier_auto_scale', mapBody: true },
+  { method: 'POST', path: '/api/v2/automation/configure-quota-auto-scale', tool: 'configure_quota_auto_scale', mapBody: true },
   { method: 'POST', path: '/api/v2/automation/add-ts-interface-members', tool: 'add_ts_interface_members', mapBody: true },
   { method: 'POST', path: '/api/v2/automation/inject-class-dependency', tool: 'inject_class_dependency', mapBody: true },
   { method: 'POST', path: '/api/v2/automation/add-ts-union-members', tool: 'add_ts_union_members', mapBody: true },

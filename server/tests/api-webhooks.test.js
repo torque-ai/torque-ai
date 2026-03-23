@@ -657,15 +657,15 @@ describe('api/webhooks.handleInboundWebhook', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('routes free-tier triggers to submit_task with the best available provider', async () => {
+  it('routes quota triggers to submit_task with the best available provider', async () => {
     const webhook = createWebhook({
       action_config: {
         task_description: 'Free-tier {{payload.job}}',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
         provider: undefined,
         model: undefined,
         tags: 'free',
-        working_directory: '/tmp/free-tier',
+        working_directory: '/tmp/quota',
       },
     });
     const body = JSON.stringify({ job: 'lint' });
@@ -676,7 +676,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
         { provider: 'cerebras' },
       ]),
     };
-    subject.mod.setFreeTierTrackerGetter(() => tracker);
+    subject.mod.setQuotaTrackerGetter(() => tracker);
 
     const { res } = await runInboundRequest(subject, {
       body,
@@ -690,7 +690,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
     expect(subject.handleToolCall).toHaveBeenCalledWith('submit_task', {
       task: 'Free-tier lint',
       provider: 'groq',
-      working_directory: '/tmp/free-tier',
+      working_directory: '/tmp/quota',
       tags: 'free',
     });
     expect(res.body).toEqual({
@@ -698,16 +698,16 @@ describe('api/webhooks.handleInboundWebhook', () => {
       task_id: 'task-123',
       webhook: 'unit-hook',
       trigger_count: 3,
-      trigger_type: 'free_tier_task',
-      free_tier_provider: 'groq',
+      trigger_type: 'quota_task',
+      quota_provider: 'groq',
     });
   });
 
-  it('passes custom complexity metadata to the free-tier tracker', async () => {
+  it('passes custom complexity metadata to the quota tracker', async () => {
     const webhook = createWebhook({
       action_config: {
         task_description: 'Complex {{payload.job}}',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
         complexity: 'complex',
       },
     });
@@ -716,7 +716,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
     const tracker = {
       getAvailableProvidersSmart: vi.fn(() => [{ provider: 'deepinfra' }]),
     };
-    subject.mod.setFreeTierTrackerGetter(() => tracker);
+    subject.mod.setQuotaTrackerGetter(() => tracker);
 
     await runInboundRequest(subject, {
       body,
@@ -729,11 +729,11 @@ describe('api/webhooks.handleInboundWebhook', () => {
     });
   });
 
-  it('falls back to smart_submit_task when no free-tier tracker getter is configured', async () => {
+  it('falls back to smart_submit_task when no quota tracker getter is configured', async () => {
     const webhook = createWebhook({
       action_config: {
         task_description: 'Fallback {{payload.job}}',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
         provider: undefined,
         model: undefined,
         tags: undefined,
@@ -750,16 +750,16 @@ describe('api/webhooks.handleInboundWebhook', () => {
 
     expect(subject.handleToolCall).toHaveBeenCalledWith('smart_submit_task', {
       task: 'Fallback review',
-      free_tier_preferred: true,
+      quota_preferred: true,
     });
-    expect(res.body.free_tier_provider).toBeNull();
+    expect(res.body.quota_provider).toBeNull();
   });
 
   it('falls back to smart_submit_task when the tracker getter returns null', async () => {
     const webhook = createWebhook({
       action_config: {
         task_description: 'Null tracker',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
         provider: undefined,
         model: undefined,
         tags: undefined,
@@ -768,7 +768,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
     });
     const body = JSON.stringify({});
     const subject = createSubject({ webhook });
-    subject.mod.setFreeTierTrackerGetter(() => null);
+    subject.mod.setQuotaTrackerGetter(() => null);
 
     await runInboundRequest(subject, {
       body,
@@ -777,7 +777,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
 
     expect(subject.handleToolCall).toHaveBeenCalledWith('smart_submit_task', {
       task: 'Null tracker',
-      free_tier_preferred: true,
+      quota_preferred: true,
     });
   });
 
@@ -785,7 +785,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
     const webhook = createWebhook({
       action_config: {
         task_description: 'No providers',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
         provider: undefined,
         model: undefined,
         tags: undefined,
@@ -797,7 +797,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
     const tracker = {
       getAvailableProvidersSmart: vi.fn(() => []),
     };
-    subject.mod.setFreeTierTrackerGetter(() => tracker);
+    subject.mod.setQuotaTrackerGetter(() => tracker);
 
     const { res } = await runInboundRequest(subject, {
       body,
@@ -806,16 +806,16 @@ describe('api/webhooks.handleInboundWebhook', () => {
 
     expect(subject.handleToolCall).toHaveBeenCalledWith('smart_submit_task', {
       task: 'No providers',
-      free_tier_preferred: true,
+      quota_preferred: true,
     });
-    expect(res.body.free_tier_provider).toBeNull();
+    expect(res.body.quota_provider).toBeNull();
   });
 
-  it('returns 500 when submit_task fails for a free-tier route', async () => {
+  it('returns 500 when submit_task fails for a quota route', async () => {
     const webhook = createWebhook({
       action_config: {
         task_description: 'Will fail',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
     const body = JSON.stringify({});
@@ -833,7 +833,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
         }),
       },
     });
-    subject.mod.setFreeTierTrackerGetter(() => ({
+    subject.mod.setQuotaTrackerGetter(() => ({
       getAvailableProvidersSmart: vi.fn(() => [{ provider: 'groq' }]),
     }));
 
@@ -843,14 +843,14 @@ describe('api/webhooks.handleInboundWebhook', () => {
     });
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Failed to create free-tier task: provider unavailable' });
+    expect(res.body).toEqual({ error: 'Failed to create quota task: provider unavailable' });
   });
 
-  it('returns 500 when the free-tier fallback smart_submit_task call throws', async () => {
+  it('returns 500 when the quota fallback smart_submit_task call throws', async () => {
     const webhook = createWebhook({
       action_config: {
         task_description: 'Fallback will fail',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
     const body = JSON.stringify({});
@@ -868,7 +868,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
         }),
       },
     });
-    subject.mod.setFreeTierTrackerGetter(() => ({
+    subject.mod.setQuotaTrackerGetter(() => ({
       getAvailableProvidersSmart: vi.fn(() => []),
     }));
 
@@ -879,15 +879,15 @@ describe('api/webhooks.handleInboundWebhook', () => {
 
     expect(res.statusCode).toBe(500);
     expect(res.body).toEqual({
-      error: 'Failed to create task (no free-tier providers available): all providers exhausted',
+      error: 'Failed to create task (no quota providers available): all providers exhausted',
     });
   });
 
-  it('returns a structured 400 when a free-tier task submission returns an MCP error result', async () => {
+  it('returns a structured 400 when a quota task submission returns an MCP error result', async () => {
     const webhook = createWebhook({
       action_config: {
         task_description: 'Free-tier error',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
     const body = JSON.stringify({});
@@ -900,7 +900,7 @@ describe('api/webhooks.handleInboundWebhook', () => {
         })),
       },
     });
-    subject.mod.setFreeTierTrackerGetter(() => ({
+    subject.mod.setQuotaTrackerGetter(() => ({
       getAvailableProvidersSmart: vi.fn(() => [{ provider: 'groq' }]),
     }));
 

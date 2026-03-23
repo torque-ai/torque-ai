@@ -55,10 +55,10 @@ const REGISTRY = {
   adaptive_retry_enabled:  { default: true,  type: 'bool' },
   tsserver_enabled:        { default: false, type: 'bool-optin' },
 
-  // Free-tier auto-scale
-  free_tier_auto_scale_enabled:    { default: false, type: 'bool-optin' },
-  free_tier_queue_depth_threshold: { default: 3,     type: 'int' },
-  free_tier_cooldown_seconds:      { default: 60,    type: 'int' },
+  // Provider quota auto-scale
+  quota_auto_scale_enabled:    { default: false, type: 'bool-optin' },
+  quota_queue_depth_threshold: { default: 3,     type: 'int' },
+  quota_cooldown_seconds:      { default: 60,    type: 'int' },
 
   // Maintenance
   auto_archive_days:       { default: 30,    type: 'int' },

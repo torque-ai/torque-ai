@@ -73,9 +73,9 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertConfig.run('codex_overflow_to_local', '0');
   insertConfig.run('codex_probe_interval_minutes', '15');
   insertConfig.run('overflow_max_complexity', 'normal');
-  insertConfig.run('free_tier_auto_scale_enabled', 'false');
-  insertConfig.run('free_tier_queue_depth_threshold', '3');
-  insertConfig.run('free_tier_cooldown_seconds', '60');
+  insertConfig.run('quota_auto_scale_enabled', 'false');
+  insertConfig.run('quota_queue_depth_threshold', '3');
+  insertConfig.run('quota_cooldown_seconds', '60');
   insertConfig.run('resource_gating_enabled', '1');
   insertConfig.run('scheduling_mode', 'legacy');
   insertConfig.run('policy_engine_enabled', '0');

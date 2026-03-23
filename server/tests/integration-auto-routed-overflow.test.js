@@ -1,5 +1,5 @@
 /**
- * Integration proof: auto_routed tasks overflow to local/free-tier
+ * Integration proof: auto_routed tasks overflow to local/quota
  * when codex slots are full.
  *
  * Exercises the REAL createTask + processQueue pipeline.
@@ -201,7 +201,7 @@ describe('auto_routed overflow — proof of integration', () => {
       mockServerConfig.get.mockReset();
       mockServerConfig.isOptIn.mockImplementation((key) => {
         if (key === 'codex_enabled') return true;
-        if (key === 'free_tier_auto_scale_enabled') return false;
+        if (key === 'quota_auto_scale_enabled') return false;
         return false;
       });
       mockServerConfig.getBool.mockImplementation((key) => {

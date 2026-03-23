@@ -294,19 +294,19 @@ describe('automation-handlers', () => {
       expect(text).toContain('**Max attempts:** 4');
     });
 
-    it('clamps free-tier auto-scale thresholds before persisting them', () => {
+    it('clamps quota auto-scale thresholds before persisting them', () => {
       const { handlers, mocks } = loadHandlers();
 
-      const result = handlers.handleConfigureFreeTierAutoScale({
+      const result = handlers.handleConfigureQuotaAutoScale({
         enabled: true,
         queue_depth_threshold: 0.2,
         cooldown_seconds: -9,
       });
       const text = getText(result);
 
-      expect(mocks.configCore.__stores.configStore.get('free_tier_auto_scale_enabled')).toBe('true');
-      expect(mocks.configCore.__stores.configStore.get('free_tier_queue_depth_threshold')).toBe('1');
-      expect(mocks.configCore.__stores.configStore.get('free_tier_cooldown_seconds')).toBe('0');
+      expect(mocks.configCore.__stores.configStore.get('quota_auto_scale_enabled')).toBe('true');
+      expect(mocks.configCore.__stores.configStore.get('quota_queue_depth_threshold')).toBe('1');
+      expect(mocks.configCore.__stores.configStore.get('quota_cooldown_seconds')).toBe('0');
       expect(text).toContain('Free-tier auto-scale: enabled');
       expect(text).toContain('| Queue depth threshold | 1 |');
       expect(text).toContain('| Cooldown (seconds) | 0 |');

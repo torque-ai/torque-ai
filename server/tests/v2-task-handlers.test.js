@@ -1718,7 +1718,7 @@ describe('api/v2-task-handlers.handleRejectSwitch', () => {
       retry_count: 2,
       metadata: {
         original_provider: 'codex',
-        free_tier_overflow: true,
+        quota_overflow: true,
         retained_flag: 'keep-me',
       },
     };
@@ -1779,7 +1779,7 @@ describe('api/v2-task-handlers.handleRejectSwitch', () => {
       retry_count: 1,
       metadata: {
         original_provider: 'codex',
-        free_tier_overflow: true,
+        quota_overflow: true,
         retained_flag: 'keep-me',
       },
     };

@@ -151,31 +151,31 @@ function handleConfigureStallDetection(args) {
 
 // ─── Free-tier Auto-scale Configuration ──────────────────────────────────────
 
-function handleConfigureFreeTierAutoScale(args) {
+function handleConfigureQuotaAutoScale(args) {
   const changes = [];
 
   if (typeof args.enabled === 'boolean') {
-    configCore().setConfig('free_tier_auto_scale_enabled', args.enabled ? 'true' : 'false');
+    configCore().setConfig('quota_auto_scale_enabled', args.enabled ? 'true' : 'false');
     changes.push(`Free-tier auto-scale: ${args.enabled ? 'enabled' : 'disabled'}`);
   }
 
   if (typeof args.queue_depth_threshold === 'number') {
     const threshold = Math.max(1, Math.floor(args.queue_depth_threshold));
-    configCore().setConfig('free_tier_queue_depth_threshold', String(threshold));
+    configCore().setConfig('quota_queue_depth_threshold', String(threshold));
     changes.push(`Queue depth threshold: ${threshold}`);
   }
 
   if (typeof args.cooldown_seconds === 'number') {
     const cooldown = Math.max(0, Math.floor(args.cooldown_seconds));
-    configCore().setConfig('free_tier_cooldown_seconds', String(cooldown));
+    configCore().setConfig('quota_cooldown_seconds', String(cooldown));
     changes.push(`Cooldown: ${cooldown}s`);
   }
 
   // Read back current config
   const config = {
-    enabled: configCore().getConfig('free_tier_auto_scale_enabled') === 'true',
-    queue_depth_threshold: parseInt(configCore().getConfig('free_tier_queue_depth_threshold') || '3', 10),
-    cooldown_seconds: parseInt(configCore().getConfig('free_tier_cooldown_seconds') || '60', 10),
+    enabled: configCore().getConfig('quota_auto_scale_enabled') === 'true',
+    queue_depth_threshold: parseInt(configCore().getConfig('quota_queue_depth_threshold') || '3', 10),
+    cooldown_seconds: parseInt(configCore().getConfig('quota_cooldown_seconds') || '60', 10),
   };
 
   let output = '## Free-Tier Auto-Scale Configuration\n\n';
@@ -191,7 +191,7 @@ function handleConfigureFreeTierAutoScale(args) {
   output += `| Enabled | ${config.enabled} |\n`;
   output += `| Queue depth threshold | ${config.queue_depth_threshold} |\n`;
   output += `| Cooldown (seconds) | ${config.cooldown_seconds} |\n`;
-  output += '\nWhen enabled, tasks are proactively routed to free-tier providers (groq, cerebras, google-ai, openrouter) when more than ' +
+  output += '\nWhen enabled, tasks are proactively routed to quota providers (groq, cerebras, google-ai, openrouter) when more than ' +
     `${config.queue_depth_threshold} Codex tasks are queued.\n`;
 
   return { content: [{ type: 'text', text: output }] };
@@ -996,7 +996,7 @@ const batchOrchestration = require('./automation-batch-orchestration');
 function createAutomationHandlers() {
   return {
     handleConfigureStallDetection,
-    handleConfigureFreeTierAutoScale,
+    handleConfigureQuotaAutoScale,
     handleAutoVerifyAndFix,
     handleGenerateTestTasks,
     handleSetProjectDefaults,
@@ -1015,7 +1015,7 @@ function createAutomationHandlers() {
 module.exports = {
   // Project/config automation (local to this file)
   handleConfigureStallDetection,
-  handleConfigureFreeTierAutoScale,
+  handleConfigureQuotaAutoScale,
   handleAutoVerifyAndFix,
   handleGenerateTestTasks,
   handleSetProjectDefaults,

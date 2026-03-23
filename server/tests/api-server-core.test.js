@@ -140,9 +140,9 @@ beforeEach(() => {
   db.setConfig('v2_auth_mode', 'permissive');
   db.setConfig('v2_rate_policy', 'enforced');
   db.setConfig('v2_rate_limit', '120');
-  db.setConfig('free_tier_auto_scale_enabled', '');
-  db.setConfig('free_tier_queue_depth_threshold', '');
-  db.setConfig('free_tier_cooldown_seconds', '');
+  db.setConfig('quota_auto_scale_enabled', '');
+  db.setConfig('quota_queue_depth_threshold', '');
+  db.setConfig('quota_cooldown_seconds', '');
 });
 
 afterEach(() => {
@@ -379,14 +379,14 @@ describe('api-server.core helpers', () => {
 });
 
 describe('exported route handlers', () => {
-  it('handleGetFreeTierHistory clamps days and returns usage rows', async () => {
+  it('handleGetQuotaHistory clamps days and returns usage rows', async () => {
     const getUsageHistorySpy = vi.spyOn(costTracking, 'getUsageHistory').mockReturnValue([
       { day: '2026-03-08', provider: 'codex', requests: 3 },
     ]);
-    const req = createMockRequest({ url: '/api/free-tier/history?days=500' });
+    const req = createMockRequest({ url: '/api/quota/history?days=500' });
     const { response } = createMockResponse();
 
-    await api.handleGetFreeTierHistory(req, response);
+    await api.handleGetQuotaHistory(req, response);
 
     expect(getUsageHistorySpy).toHaveBeenCalledWith(90);
     expect(response.statusCode).toBe(200);
@@ -398,10 +398,10 @@ describe('exported route handlers', () => {
     getUsageHistorySpy.mockRestore();
   });
 
-  it('handleGetFreeTierAutoScale returns config, queue depth, and last activation', async () => {
-    db.setConfig('free_tier_auto_scale_enabled', 'true');
-    db.setConfig('free_tier_queue_depth_threshold', '5');
-    db.setConfig('free_tier_cooldown_seconds', '120');
+  it('handleGetQuotaAutoScale returns config, queue depth, and last activation', async () => {
+    db.setConfig('quota_auto_scale_enabled', 'true');
+    db.setConfig('quota_queue_depth_threshold', '5');
+    db.setConfig('quota_cooldown_seconds', '120');
 
     const listTasksSpy = vi.spyOn(taskCore, 'listTasks').mockReturnValue([
       { provider: 'codex' },
@@ -413,7 +413,7 @@ describe('exported route handlers', () => {
       .mockReturnValue(Date.parse('2025-01-02T03:04:05.000Z'));
     const { response } = createMockResponse();
 
-    await api.handleGetFreeTierAutoScale(createMockRequest(), response);
+    await api.handleGetQuotaAutoScale(createMockRequest(), response);
 
     expect(listTasksSpy).toHaveBeenCalledWith({ status: 'queued', limit: 1000 });
     expect(response.statusCode).toBe(200);
@@ -898,16 +898,16 @@ describe('captured request handler dispatch', () => {
   });
 
   describe('TDA-09/TDA-10: deprecation headers on legacy routes', () => {
-    it('legacy free-tier routes include Deprecation and Link headers', async () => {
+    it('legacy quota routes include Deprecation and Link headers', async () => {
       const response = await dispatchRequest(requestHandler, {
         method: 'GET',
-        url: '/api/free-tier/status',
+        url: '/api/quota/status',
       });
 
       expect(response.setHeader).toHaveBeenCalledWith('Deprecation', 'true');
       expect(response.setHeader).toHaveBeenCalledWith(
         'Link',
-        '</api/v2/free-tier/status>; rel="successor-version"',
+        '</api/v2/quota/status>; rel="successor-version"',
       );
     });
 
@@ -927,7 +927,7 @@ describe('captured request handler dispatch', () => {
     it('v2 routes do NOT include deprecation headers', async () => {
       const response = await dispatchRequest(requestHandler, {
         method: 'GET',
-        url: '/api/v2/free-tier/status',
+        url: '/api/v2/quota/status',
       });
 
       expect(response.setHeader).not.toHaveBeenCalledWith('Deprecation', expect.anything());

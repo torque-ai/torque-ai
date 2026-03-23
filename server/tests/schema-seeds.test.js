@@ -39,7 +39,7 @@ const EXPECTED_CONFIG_DEFAULTS = {
   max_per_host: '4',
   rate_limiting_enabled: '1',
   file_locking_enabled: '1',
-  free_tier_auto_scale_enabled: 'false',
+  quota_auto_scale_enabled: 'false',
   scheduling_mode: 'legacy',
 };
 

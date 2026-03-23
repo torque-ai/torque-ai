@@ -114,7 +114,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   'task_replays', 'regression_results',
   // Rate limiting & costs
   'rate_limits', 'provider_rate_limits', 'rate_limit_events', 'task_quotas',
-  'cost_tracking', 'cost_budgets', 'free_tier_daily_usage',
+  'cost_tracking', 'cost_budgets', 'quota_daily_usage',
   // Resources & usage
   'resource_usage', 'resource_limits', 'resource_estimates',
   // Providers

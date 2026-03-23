@@ -113,9 +113,9 @@ const V2_ANALYTICS_HANDLER_NAMES = [
   'handleStrategicStatus',
   'handleRoutingDecisions',
   'handleProviderHealth',
-  'handleFreeTierStatus',
-  'handleFreeTierHistory',
-  'handleFreeTierAutoScale',
+  'handleQuotaStatus',
+  'handleQuotaHistory',
+  'handleQuotaAutoScale',
   'handlePrometheusMetrics',
   'handleStrategicOperations',
 ];
@@ -161,9 +161,9 @@ const SPECIAL_HANDLER_NAMES = [
   'handleV2ProviderDetail',
   'handleV2RemoteRun',
   'handleV2RemoteTest',
-  'handleGetFreeTierStatus',
-  'handleGetFreeTierHistory',
-  'handleGetFreeTierAutoScale',
+  'handleGetQuotaStatus',
+  'handleGetQuotaHistory',
+  'handleGetQuotaAutoScale',
   'handleShutdown',
 ];
 
@@ -770,10 +770,10 @@ describe('api/routes route table', () => {
     expect(findStringRoute('GET', '/api/v2/metrics/prometheus').handlerName).toBe('handleV2CpPrometheusMetrics');
   });
 
-  it('registers administrative free-tier and shutdown routes', () => {
-    expect(findStringRoute('GET', '/api/free-tier/status').handlerName).toBe('handleGetFreeTierStatus');
-    expect(findStringRoute('GET', '/api/free-tier/history').handlerName).toBe('handleGetFreeTierHistory');
-    expect(findStringRoute('GET', '/api/free-tier/auto-scale').handlerName).toBe('handleGetFreeTierAutoScale');
+  it('registers administrative quota and shutdown routes', () => {
+    expect(findStringRoute('GET', '/api/quota/status').handlerName).toBe('handleGetQuotaStatus');
+    expect(findStringRoute('GET', '/api/quota/history').handlerName).toBe('handleGetQuotaHistory');
+    expect(findStringRoute('GET', '/api/quota/auto-scale').handlerName).toBe('handleGetQuotaAutoScale');
     expect(findStringRoute('POST', '/api/shutdown').handlerName).toBe('handleShutdown');
   });
 
@@ -824,7 +824,7 @@ describe('api/routes route table', () => {
   it('covers analytics control-plane routes broadly', () => {
     const analyticsRoutes = routes.filter((route) => (
       typeof route.handlerName === 'string'
-      && /Stats|TimeSeries|Quality|Budget|Strategic|FreeTier|Prometheus|Routing|Notification/.test(route.handlerName)
+      && /Stats|TimeSeries|Quality|Budget|Strategic|Quota|Prometheus|Routing|Notification/.test(route.handlerName)
     ));
 
     expect(analyticsRoutes.length).toBeGreaterThanOrEqual(20);
@@ -1423,13 +1423,13 @@ describe('auth, error, and not-found integration', () => {
   });
 
   it('returns a 500 payload for thrown legacy handler errors', async () => {
-    specialHandlers.handleGetFreeTierStatus.mockImplementationOnce(() => {
+    specialHandlers.handleGetQuotaStatus.mockImplementationOnce(() => {
       throw new Error('free tier failure');
     });
 
     const result = await dispatchRequest({
       method: 'GET',
-      url: '/api/free-tier/status',
+      url: '/api/quota/status',
     });
 
     expect(result.res.statusCode).toBe(500);

@@ -34,7 +34,7 @@ function handleCreateInboundWebhook(args) {
     return makeError(ErrorCodes.INVALID_PARAM, `source_type must be one of: ${validSourceTypes.join(', ')}`);
   }
 
-  const validTriggerTypes = ['standard', 'free_tier_task'];
+  const validTriggerTypes = ['standard', 'quota_task'];
   if (trigger_type && !validTriggerTypes.includes(trigger_type)) {
     return makeError(ErrorCodes.INVALID_PARAM, `trigger_type must be one of: ${validTriggerTypes.join(', ')}`);
   }

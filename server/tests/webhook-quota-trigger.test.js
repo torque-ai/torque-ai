@@ -1,14 +1,14 @@
 /**
- * Tests for webhook free-tier trigger routing.
+ * Tests for webhook quota trigger routing.
  *
  * Covers:
- * 1. Creating webhooks with trigger_type: free_tier_task (stored in action_config)
+ * 1. Creating webhooks with trigger_type: quota_task (stored in action_config)
  * 2. Creating webhooks with trigger_type: standard (default, not stored)
  * 3. Rejecting invalid trigger_type values
- * 4. Free-tier trigger routes to best available free-tier provider via submit_task
- * 5. Fallback to smart_submit_task when no free-tier providers available
+ * 4. Free-tier trigger routes to best available quota provider via submit_task
+ * 5. Fallback to smart_submit_task when no quota providers available
  * 6. Standard webhooks still use smart_submit_task (regression check)
- * 7. Response includes trigger_type and free_tier_provider fields
+ * 7. Response includes trigger_type and quota_provider fields
  */
 
 const { EventEmitter } = require('events');
@@ -20,11 +20,11 @@ let db, handleToolCall;
 let toolCallSpy;
 let realHandleToolCall;
 let handleInboundWebhook;
-let setFreeTierTrackerGetter;
+let setQuotaTrackerGetter;
 
 beforeAll(() => {
   // 1. Set up DB and load tools module
-  ({ db, handleToolCall } = setupTestDb('wh-free-tier'));
+  ({ db, handleToolCall } = setupTestDb('wh-quota'));
   realHandleToolCall = handleToolCall;
 
   // 2. Spy on tools.handleToolCall BEFORE webhooks.js is required.
@@ -38,12 +38,12 @@ beforeAll(() => {
   // 3. NOW require webhooks.js — it captures the spied handleToolCall
   const webhooksModule = require('../api/webhooks');
   handleInboundWebhook = webhooksModule.handleInboundWebhook;
-  setFreeTierTrackerGetter = webhooksModule.setFreeTierTrackerGetter;
+  setQuotaTrackerGetter = webhooksModule.setQuotaTrackerGetter;
 });
 
 afterAll(() => {
   if (toolCallSpy) toolCallSpy.mockRestore();
-  if (setFreeTierTrackerGetter) setFreeTierTrackerGetter(null);
+  if (setQuotaTrackerGetter) setQuotaTrackerGetter(null);
   teardownTestDb();
 });
 
@@ -64,7 +64,7 @@ beforeEach(() => {
     toolCallSpy.mockReset();
     toolCallSpy.mockImplementation(realHandleToolCall);
   }
-  if (setFreeTierTrackerGetter) setFreeTierTrackerGetter(null);
+  if (setQuotaTrackerGetter) setQuotaTrackerGetter(null);
 });
 
 // ============================================
@@ -72,22 +72,22 @@ beforeEach(() => {
 // ============================================
 
 describe('handleCreateInboundWebhook trigger_type', () => {
-  it('stores trigger_type: free_tier_task in action_config', async () => {
+  it('stores trigger_type: quota_task in action_config', async () => {
     const result = await safeTool('create_inbound_webhook', {
-      name: 'free-tier-hook',
-      task_description: 'Run free-tier task',
-      trigger_type: 'free_tier_task',
+      name: 'quota-hook',
+      task_description: 'Run quota task',
+      trigger_type: 'quota_task',
     });
 
     expect(result.isError).toBeFalsy();
     const text = getText(result);
     expect(text).toContain('Inbound Webhook Created');
-    expect(text).toContain('free-tier-hook');
+    expect(text).toContain('quota-hook');
 
-    const webhook = db.getInboundWebhook('free-tier-hook');
+    const webhook = db.getInboundWebhook('quota-hook');
     expect(webhook).toBeTruthy();
-    expect(webhook.action_config.trigger_type).toBe('free_tier_task');
-    expect(webhook.action_config.task_description).toBe('Run free-tier task');
+    expect(webhook.action_config.trigger_type).toBe('quota_task');
+    expect(webhook.action_config.task_description).toBe('Run quota task');
   });
 
   it('does not store trigger_type for standard (default)', async () => {
@@ -144,30 +144,30 @@ describe('handleCreateInboundWebhook trigger_type', () => {
   it('stores trigger_type alongside provider and tags', async () => {
     const result = await safeTool('create_inbound_webhook', {
       name: 'full-free-hook',
-      task_description: 'Full free-tier',
-      trigger_type: 'free_tier_task',
+      task_description: 'Full quota',
+      trigger_type: 'quota_task',
       tags: 'free,overflow',
-      working_directory: '/tmp/free-tier',
+      working_directory: '/tmp/quota',
     });
 
     expect(result.isError).toBeFalsy();
 
     const webhook = db.getInboundWebhook('full-free-hook');
     expect(webhook.action_config).toMatchObject({
-      trigger_type: 'free_tier_task',
-      task_description: 'Full free-tier',
+      trigger_type: 'quota_task',
+      task_description: 'Full quota',
       tags: 'free,overflow',
-      working_directory: '/tmp/free-tier',
+      working_directory: '/tmp/quota',
     });
   });
 });
 
 describe('handleListInboundWebhooks trigger_type display', () => {
-  it('shows trigger_type for free_tier_task webhooks', async () => {
+  it('shows trigger_type for quota_task webhooks', async () => {
     await safeTool('create_inbound_webhook', {
       name: 'list-free-hook',
       task_description: 'Free tier listed',
-      trigger_type: 'free_tier_task',
+      trigger_type: 'quota_task',
     });
 
     const result = await safeTool('list_inbound_webhooks', {});
@@ -175,7 +175,7 @@ describe('handleListInboundWebhooks trigger_type display', () => {
     const text = getText(result);
     expect(text).toContain('list-free-hook');
     expect(text).toContain('Trigger Type:');
-    expect(text).toContain('free_tier_task');
+    expect(text).toContain('quota_task');
   });
 
   it('does not show trigger_type for standard webhooks', async () => {
@@ -196,7 +196,7 @@ describe('handleListInboundWebhooks trigger_type display', () => {
 // 4-7: Webhook trigger endpoint routing tests
 // ============================================
 
-describe('handleInboundWebhook free-tier routing', () => {
+describe('handleInboundWebhook quota routing', () => {
   function createMockRes() {
     let resolvePromise;
     const done = new Promise((resolve) => { resolvePromise = resolve; });
@@ -266,12 +266,12 @@ describe('handleInboundWebhook free-tier routing', () => {
 
   beforeEach(() => {
     mockToolCallForRouting();
-    setFreeTierTrackerGetter(null);
+    setQuotaTrackerGetter(null);
   });
 
-  // --- Test 4: Free-tier trigger routes to best free-tier provider via submit_task ---
+  // --- Test 4: Free-tier trigger routes to best quota provider via submit_task ---
 
-  it('routes free_tier_task trigger to submit_task with best free-tier provider', async () => {
+  it('routes quota_task trigger to submit_task with best quota provider', async () => {
     const secret = crypto.randomBytes(32).toString('hex');
     db.createInboundWebhook({
       name: 'free-trigger-hook',
@@ -279,7 +279,7 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Free-tier job: {{payload.job}}',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
         tags: 'free',
         working_directory: '/tmp/free',
       },
@@ -291,7 +291,7 @@ describe('handleInboundWebhook free-tier routing', () => {
         { provider: 'cerebras', dailyRemainingPct: 60, score: 8.0, avgLatencyMs: 300, estimatedTokens: 500 },
       ]),
     };
-    setFreeTierTrackerGetter(() => mockTracker);
+    setQuotaTrackerGetter(() => mockTracker);
 
     const { statusCode, body } = await triggerWebhook('free-trigger-hook', { job: 'lint-check' });
 
@@ -299,7 +299,7 @@ describe('handleInboundWebhook free-tier routing', () => {
     expect(body.success).toBe(true);
     expect(body.task_id).toBe('task-submit_task-001');
 
-    // Should call submit_task (not smart_submit_task) with the best free-tier provider
+    // Should call submit_task (not smart_submit_task) with the best quota provider
     expect(toolCallSpy).toHaveBeenCalledWith('submit_task', expect.objectContaining({
       task: 'Free-tier job: lint-check',
       provider: 'groq',
@@ -328,7 +328,7 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Complex free task',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
         complexity: 'complex',
       },
     });
@@ -338,7 +338,7 @@ describe('handleInboundWebhook free-tier routing', () => {
         { provider: 'deepinfra', dailyRemainingPct: 70, score: 8.0, avgLatencyMs: 400, estimatedTokens: 2000 },
       ]),
     };
-    setFreeTierTrackerGetter(() => mockTracker);
+    setQuotaTrackerGetter(() => mockTracker);
 
     const { statusCode } = await triggerWebhook('complex-free-hook', {});
 
@@ -348,7 +348,7 @@ describe('handleInboundWebhook free-tier routing', () => {
     );
   });
 
-  // --- Test 5: Fallback to smart_submit_task when no free-tier providers available ---
+  // --- Test 5: Fallback to smart_submit_task when no quota providers available ---
 
   it('falls back to smart_submit_task when FreeQuotaTracker returns no providers', async () => {
     const secret = crypto.randomBytes(32).toString('hex');
@@ -358,7 +358,7 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Needs fallback',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
         tags: 'overflow',
       },
     });
@@ -366,7 +366,7 @@ describe('handleInboundWebhook free-tier routing', () => {
     const mockTracker = {
       getAvailableProvidersSmart: vi.fn(() => []),
     };
-    setFreeTierTrackerGetter(() => mockTracker);
+    setQuotaTrackerGetter(() => mockTracker);
 
     const { statusCode, body } = await triggerWebhook('no-free-hook', {});
 
@@ -376,7 +376,7 @@ describe('handleInboundWebhook free-tier routing', () => {
 
     expect(toolCallSpy).toHaveBeenCalledWith('smart_submit_task', expect.objectContaining({
       task: 'Needs fallback',
-      free_tier_preferred: true,
+      quota_preferred: true,
     }));
 
     const submitCalls = toolCallSpy.mock.calls.filter(c => c[0] === 'submit_task');
@@ -391,11 +391,11 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'No tracker',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
 
-    setFreeTierTrackerGetter(null);
+    setQuotaTrackerGetter(null);
 
     const { statusCode, body } = await triggerWebhook('null-tracker-hook', {});
 
@@ -404,7 +404,7 @@ describe('handleInboundWebhook free-tier routing', () => {
 
     expect(toolCallSpy).toHaveBeenCalledWith('smart_submit_task', expect.objectContaining({
       task: 'No tracker',
-      free_tier_preferred: true,
+      quota_preferred: true,
     }));
   });
 
@@ -416,18 +416,18 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Tracker returns null',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
 
-    setFreeTierTrackerGetter(() => null);
+    setQuotaTrackerGetter(() => null);
 
     const { statusCode } = await triggerWebhook('null-tracker-result-hook', {});
 
     expect(statusCode).toBe(200);
     expect(toolCallSpy).toHaveBeenCalledWith('smart_submit_task', expect.objectContaining({
       task: 'Tracker returns null',
-      free_tier_preferred: true,
+      quota_preferred: true,
     }));
   });
 
@@ -451,7 +451,7 @@ describe('handleInboundWebhook free-tier routing', () => {
         { provider: 'groq', dailyRemainingPct: 90, score: 10, avgLatencyMs: 100, estimatedTokens: 200 },
       ]),
     };
-    setFreeTierTrackerGetter(() => mockTracker);
+    setQuotaTrackerGetter(() => mockTracker);
 
     const { statusCode, body } = await triggerWebhook('standard-trigger-hook', { action: 'push' });
 
@@ -494,9 +494,9 @@ describe('handleInboundWebhook free-tier routing', () => {
     }));
   });
 
-  // --- Test 7: Response includes trigger_type and free_tier_provider fields ---
+  // --- Test 7: Response includes trigger_type and quota_provider fields ---
 
-  it('free-tier response includes trigger_type and free_tier_provider when provider found', async () => {
+  it('quota response includes trigger_type and quota_provider when provider found', async () => {
     const secret = crypto.randomBytes(32).toString('hex');
     db.createInboundWebhook({
       name: 'resp-fields-hook',
@@ -504,7 +504,7 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Check response fields',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
 
@@ -513,18 +513,18 @@ describe('handleInboundWebhook free-tier routing', () => {
         { provider: 'cerebras', dailyRemainingPct: 50, score: 7.5, avgLatencyMs: 250, estimatedTokens: 800 },
       ]),
     };
-    setFreeTierTrackerGetter(() => mockTracker);
+    setQuotaTrackerGetter(() => mockTracker);
 
     const { statusCode, body } = await triggerWebhook('resp-fields-hook', {});
 
     expect(statusCode).toBe(200);
-    expect(body.trigger_type).toBe('free_tier_task');
-    expect(body.free_tier_provider).toBe('cerebras');
+    expect(body.trigger_type).toBe('quota_task');
+    expect(body.quota_provider).toBe('cerebras');
     expect(body.success).toBe(true);
     expect(body.webhook).toBe('resp-fields-hook');
   });
 
-  it('free-tier response includes trigger_type with null free_tier_provider on fallback', async () => {
+  it('quota response includes trigger_type with null quota_provider on fallback', async () => {
     const secret = crypto.randomBytes(32).toString('hex');
     db.createInboundWebhook({
       name: 'resp-fallback-hook',
@@ -532,24 +532,24 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Fallback response fields',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
 
     const mockTracker = {
       getAvailableProvidersSmart: vi.fn(() => []),
     };
-    setFreeTierTrackerGetter(() => mockTracker);
+    setQuotaTrackerGetter(() => mockTracker);
 
     const { statusCode, body } = await triggerWebhook('resp-fallback-hook', {});
 
     expect(statusCode).toBe(200);
-    expect(body.trigger_type).toBe('free_tier_task');
-    expect(body.free_tier_provider).toBeNull();
+    expect(body.trigger_type).toBe('quota_task');
+    expect(body.quota_provider).toBeNull();
     expect(body.success).toBe(true);
   });
 
-  it('standard response does NOT include trigger_type or free_tier_provider', async () => {
+  it('standard response does NOT include trigger_type or quota_provider', async () => {
     const secret = crypto.randomBytes(32).toString('hex');
     db.createInboundWebhook({
       name: 'resp-std-hook',
@@ -565,12 +565,12 @@ describe('handleInboundWebhook free-tier routing', () => {
     expect(statusCode).toBe(200);
     expect(body.success).toBe(true);
     expect(body.trigger_type).toBeUndefined();
-    expect(body.free_tier_provider).toBeUndefined();
+    expect(body.quota_provider).toBeUndefined();
   });
 
   // --- Error handling ---
 
-  it('returns 500 when submit_task fails for free-tier route', async () => {
+  it('returns 500 when submit_task fails for quota route', async () => {
     const secret = crypto.randomBytes(32).toString('hex');
     db.createInboundWebhook({
       name: 'fail-free-hook',
@@ -578,7 +578,7 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Will fail',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
 
@@ -587,7 +587,7 @@ describe('handleInboundWebhook free-tier routing', () => {
         { provider: 'groq', dailyRemainingPct: 90, score: 10, avgLatencyMs: 100, estimatedTokens: 200 },
       ]),
     };
-    setFreeTierTrackerGetter(() => mockTracker);
+    setQuotaTrackerGetter(() => mockTracker);
 
     toolCallSpy.mockReset();
     toolCallSpy.mockImplementation(async (name) => {
@@ -600,11 +600,11 @@ describe('handleInboundWebhook free-tier routing', () => {
     const { statusCode, body } = await triggerWebhook('fail-free-hook', {});
 
     expect(statusCode).toBe(500);
-    expect(body.error).toContain('Failed to create free-tier task');
+    expect(body.error).toContain('Failed to create quota task');
     expect(body.error).toContain('Provider unavailable');
   });
 
-  it('returns 500 when smart_submit_task fails on free-tier fallback', async () => {
+  it('returns 500 when smart_submit_task fails on quota fallback', async () => {
     const secret = crypto.randomBytes(32).toString('hex');
     db.createInboundWebhook({
       name: 'fail-fallback-hook',
@@ -612,11 +612,11 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Will fail on fallback',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
 
-    setFreeTierTrackerGetter(() => ({
+    setQuotaTrackerGetter(() => ({
       getAvailableProvidersSmart: vi.fn(() => []),
     }));
 
@@ -631,13 +631,13 @@ describe('handleInboundWebhook free-tier routing', () => {
     const { statusCode, body } = await triggerWebhook('fail-fallback-hook', {});
 
     expect(statusCode).toBe(500);
-    expect(body.error).toContain('no free-tier providers available');
+    expect(body.error).toContain('no quota providers available');
     expect(body.error).toContain('All providers exhausted');
   });
 
-  // --- Payload substitution in free-tier path ---
+  // --- Payload substitution in quota path ---
 
-  it('substitutes payload variables in free-tier task description', async () => {
+  it('substitutes payload variables in quota task description', async () => {
     const secret = crypto.randomBytes(32).toString('hex');
     db.createInboundWebhook({
       name: 'subst-free-hook',
@@ -645,7 +645,7 @@ describe('handleInboundWebhook free-tier routing', () => {
       secret,
       action_config: {
         task_description: 'Lint {{payload.repo}} on {{payload.branch}}',
-        trigger_type: 'free_tier_task',
+        trigger_type: 'quota_task',
       },
     });
 
@@ -654,7 +654,7 @@ describe('handleInboundWebhook free-tier routing', () => {
         { provider: 'groq', dailyRemainingPct: 80, score: 9.0, avgLatencyMs: 200, estimatedTokens: 500 },
       ]),
     };
-    setFreeTierTrackerGetter(() => mockTracker);
+    setQuotaTrackerGetter(() => mockTracker);
 
     const { statusCode } = await triggerWebhook('subst-free-hook', { repo: 'torque', branch: 'develop' });
 

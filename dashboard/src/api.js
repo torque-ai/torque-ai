@@ -430,7 +430,7 @@ export const coordination = {
 
 const LEGACY_FREE_TIER_BASE = `/${['free', 'tier'].join('-')}`;
 
-export const freeTier = {
+export const quota = {
   status: () => request(`${LEGACY_FREE_TIER_BASE}/status`),
   history: (days = 7) => request(`${LEGACY_FREE_TIER_BASE}/history?days=${days}`),
 };

@@ -534,7 +534,7 @@ async function handleProviderHealth(req, res) {
 
 // ─── Free-Tier Status ──────────────────────────────────────────────────────
 
-async function handleFreeTierStatus(req, res) {
+async function handleQuotaStatus(req, res) {
   const requestId = resolveRequestId(req);
   try {
     // Free-tier tracker may not be initialized
@@ -547,7 +547,7 @@ async function handleFreeTierStatus(req, res) {
 
 // ─── Free-Tier History ─────────────────────────────────────────────────────
 
-async function handleFreeTierHistory(req, res) {
+async function handleQuotaHistory(req, res) {
   const requestId = resolveRequestId(req);
   const query = req.query || {};
   const days = Math.max(1, Math.min(90, parseInt(query.days, 10) || 7));
@@ -561,12 +561,12 @@ async function handleFreeTierHistory(req, res) {
 
 // ─── Free-Tier Auto-Scale ──────────────────────────────────────────────────
 
-async function handleFreeTierAutoScale(req, res) {
+async function handleQuotaAutoScale(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    const enabled = serverConfig.isOptIn('free_tier_auto_scale_enabled');
-    const queueDepthThreshold = serverConfig.getInt('free_tier_queue_depth_threshold', 3);
-    const cooldownSeconds = serverConfig.getInt('free_tier_cooldown_seconds', 60);
+    const enabled = serverConfig.isOptIn('quota_auto_scale_enabled');
+    const queueDepthThreshold = serverConfig.getInt('quota_queue_depth_threshold', 3);
+    const cooldownSeconds = serverConfig.getInt('quota_cooldown_seconds', 60);
 
     let codexQueueDepth = 0;
     try {
@@ -638,9 +638,9 @@ function createV2AnalyticsHandlers(_deps) {
     handleStrategicStatus,
     handleRoutingDecisions,
     handleProviderHealth,
-    handleFreeTierStatus,
-    handleFreeTierHistory,
-    handleFreeTierAutoScale,
+    handleQuotaStatus,
+    handleQuotaHistory,
+    handleQuotaAutoScale,
     handlePrometheusMetrics,
     handleStrategicOperations,
   };
@@ -667,9 +667,9 @@ module.exports = {
   handleRoutingDecisions,
   handleProviderHealth,
   // Free-Tier
-  handleFreeTierStatus,
-  handleFreeTierHistory,
-  handleFreeTierAutoScale,
+  handleQuotaStatus,
+  handleQuotaHistory,
+  handleQuotaAutoScale,
   // Metrics
   handlePrometheusMetrics,
   // Strategic Operations

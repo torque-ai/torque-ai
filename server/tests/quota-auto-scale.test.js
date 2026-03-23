@@ -156,9 +156,9 @@ describe('Free-tier auto-scale', () => {
   function setupConfigForAutoScale(overrides = {}) {
     configValues = {
       codex_enabled: '1',
-      free_tier_auto_scale_enabled: overrides.enabled !== undefined ? String(overrides.enabled) : 'true',
-      free_tier_queue_depth_threshold: String(overrides.threshold || 3),
-      free_tier_cooldown_seconds: String(overrides.cooldown !== undefined ? overrides.cooldown : 60),
+      quota_auto_scale_enabled: overrides.enabled !== undefined ? String(overrides.enabled) : 'true',
+      quota_queue_depth_threshold: String(overrides.threshold || 3),
+      quota_cooldown_seconds: String(overrides.cooldown !== undefined ? overrides.cooldown : 60),
       codex_overflow_to_local: '0',
       auto_compute_max_concurrent: 'true',
       ...overrides.extraConfig,
@@ -208,9 +208,9 @@ describe('Free-tier auto-scale', () => {
 
       scheduler.processQueueInternal();
 
-      // No updateTaskStatus calls for free-tier rerouting
+      // No updateTaskStatus calls for quota rerouting
       const rerouteCalls = mockDb.updateTaskStatus.mock.calls.filter(
-        (c) => c[2]?.metadata && JSON.parse(c[2].metadata).free_tier_auto_scale
+        (c) => c[2]?.metadata && JSON.parse(c[2].metadata).quota_auto_scale
       );
       expect(rerouteCalls).toHaveLength(0);
     });
@@ -222,7 +222,7 @@ describe('Free-tier auto-scale', () => {
       scheduler.processQueueInternal();
 
       const rerouteCalls = mockDb.updateTaskStatus.mock.calls.filter(
-        (c) => c[2]?.metadata && JSON.parse(c[2].metadata).free_tier_auto_scale
+        (c) => c[2]?.metadata && JSON.parse(c[2].metadata).quota_auto_scale
       );
       expect(rerouteCalls).toHaveLength(0);
     });
@@ -237,7 +237,7 @@ describe('Free-tier auto-scale', () => {
 
       scheduler.processQueueInternal();
 
-      // Should have rerouted at least one task to free-tier
+      // Should have rerouted at least one task to quota
       const rerouteCalls = mockDb.updateTaskStatus.mock.calls.filter(
         (c) => c[2]?.provider === 'groq' && c[2]?.metadata
       );
@@ -245,8 +245,8 @@ describe('Free-tier auto-scale', () => {
 
       // Verify metadata includes auto-scale flag
       const meta = JSON.parse(rerouteCalls[0][2].metadata);
-      expect(meta.free_tier_auto_scale).toBe(true);
-      expect(meta.free_tier_overflow).toBe(true);
+      expect(meta.quota_auto_scale).toBe(true);
+      expect(meta.quota_overflow).toBe(true);
       expect(meta.original_provider).toBe('codex');
     });
 
@@ -258,7 +258,7 @@ describe('Free-tier auto-scale', () => {
 
       const rerouteCalls = mockDb.updateTaskStatus.mock.calls.filter(
         (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-          c[2].metadata.includes('free_tier_auto_scale')
+          c[2].metadata.includes('quota_auto_scale')
       );
       expect(rerouteCalls).toHaveLength(0);
     });
@@ -296,7 +296,7 @@ describe('Free-tier auto-scale', () => {
       expect(normalReroute).toHaveLength(1);
     });
 
-    it('does NOT trigger when no free-tier providers available', () => {
+    it('does NOT trigger when no quota providers available', () => {
       setupConfigForAutoScale({ threshold: 1, cooldown: 0 });
       setupCodexQueueWithDepth(4);
 
@@ -307,7 +307,7 @@ describe('Free-tier auto-scale', () => {
 
       const rerouteCalls = mockDb.updateTaskStatus.mock.calls.filter(
         (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-          c[2].metadata.includes('free_tier_auto_scale')
+          c[2].metadata.includes('quota_auto_scale')
       );
       expect(rerouteCalls).toHaveLength(0);
     });
@@ -327,7 +327,7 @@ describe('Free-tier auto-scale', () => {
         scheduler.processQueueInternal();
         const firstReroute = mockDb.updateTaskStatus.mock.calls.filter(
           (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-            c[2].metadata.includes('free_tier_auto_scale')
+            c[2].metadata.includes('quota_auto_scale')
         );
         expect(firstReroute.length).toBeGreaterThan(0);
 
@@ -341,7 +341,7 @@ describe('Free-tier auto-scale', () => {
 
         const secondReroute = mockDb.updateTaskStatus.mock.calls.filter(
           (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-            c[2].metadata.includes('free_tier_auto_scale')
+            c[2].metadata.includes('quota_auto_scale')
         );
         expect(secondReroute).toHaveLength(0);
       } finally {
@@ -369,7 +369,7 @@ describe('Free-tier auto-scale', () => {
 
         const secondReroute = mockDb.updateTaskStatus.mock.calls.filter(
           (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-            c[2].metadata.includes('free_tier_auto_scale')
+            c[2].metadata.includes('quota_auto_scale')
         );
         expect(secondReroute.length).toBeGreaterThan(0);
       } finally {
@@ -396,7 +396,7 @@ describe('Free-tier auto-scale', () => {
 
       const reroutes = mockDb.updateTaskStatus.mock.calls.filter(
         (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-          c[2].metadata.includes('free_tier_auto_scale')
+          c[2].metadata.includes('quota_auto_scale')
       );
       expect(reroutes.length).toBeGreaterThan(0);
     });
@@ -458,7 +458,7 @@ describe('Free-tier auto-scale', () => {
 
       const rerouteCalls = mockDb.updateTaskStatus.mock.calls.filter(
         (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-          c[2].metadata.includes('free_tier_auto_scale')
+          c[2].metadata.includes('quota_auto_scale')
       );
       expect(rerouteCalls).toHaveLength(0);
     });
@@ -510,7 +510,7 @@ describe('Free-tier auto-scale', () => {
 
   // ── Config CRUD (MCP handler) ──────────────────────────────
 
-  describe('configure_free_tier_auto_scale handler', () => {
+  describe('configure_quota_auto_scale handler', () => {
     let handler;
     let configCoreModule;
     let setConfigSpy;
@@ -534,59 +534,59 @@ describe('Free-tier auto-scale', () => {
     });
 
     it('sets enabled config', () => {
-      const result = handler.handleConfigureFreeTierAutoScale({ enabled: true });
+      const result = handler.handleConfigureQuotaAutoScale({ enabled: true });
 
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_auto_scale_enabled', 'true');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_auto_scale_enabled', 'true');
       expect(result.content[0].text).toContain('enabled');
     });
 
     it('sets queue_depth_threshold config', () => {
-      handler.handleConfigureFreeTierAutoScale({ queue_depth_threshold: 5 });
+      handler.handleConfigureQuotaAutoScale({ queue_depth_threshold: 5 });
 
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_queue_depth_threshold', '5');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_queue_depth_threshold', '5');
     });
 
     it('sets cooldown_seconds config', () => {
-      handler.handleConfigureFreeTierAutoScale({ cooldown_seconds: 120 });
+      handler.handleConfigureQuotaAutoScale({ cooldown_seconds: 120 });
 
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_cooldown_seconds', '120');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_cooldown_seconds', '120');
     });
 
     it('clamps threshold to minimum of 1', () => {
-      handler.handleConfigureFreeTierAutoScale({ queue_depth_threshold: 0 });
+      handler.handleConfigureQuotaAutoScale({ queue_depth_threshold: 0 });
 
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_queue_depth_threshold', '1');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_queue_depth_threshold', '1');
     });
 
     it('clamps cooldown to minimum of 0', () => {
-      handler.handleConfigureFreeTierAutoScale({ cooldown_seconds: -10 });
+      handler.handleConfigureQuotaAutoScale({ cooldown_seconds: -10 });
 
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_cooldown_seconds', '0');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_cooldown_seconds', '0');
     });
 
     it('returns current settings when no args provided', () => {
-      const result = handler.handleConfigureFreeTierAutoScale({});
+      const result = handler.handleConfigureQuotaAutoScale({});
 
       expect(result.content[0].text).toContain('Free-Tier Auto-Scale Configuration');
       expect(result.content[0].text).toContain('Current Settings');
     });
 
     it('sets all three configs at once', () => {
-      handler.handleConfigureFreeTierAutoScale({
+      handler.handleConfigureQuotaAutoScale({
         enabled: true,
         queue_depth_threshold: 10,
         cooldown_seconds: 30,
       });
 
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_auto_scale_enabled', 'true');
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_queue_depth_threshold', '10');
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_cooldown_seconds', '30');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_auto_scale_enabled', 'true');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_queue_depth_threshold', '10');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_cooldown_seconds', '30');
     });
 
     it('disabling auto-scale sets config to false', () => {
-      handler.handleConfigureFreeTierAutoScale({ enabled: false });
+      handler.handleConfigureQuotaAutoScale({ enabled: false });
 
-      expect(setConfigSpy).toHaveBeenCalledWith('free_tier_auto_scale_enabled', 'false');
+      expect(setConfigSpy).toHaveBeenCalledWith('quota_auto_scale_enabled', 'false');
     });
   });
 
@@ -629,7 +629,7 @@ describe('Free-tier auto-scale', () => {
       expect(() => scheduler.processQueueInternal()).not.toThrow();
     });
 
-    it('clears model when rerouting to free-tier', () => {
+    it('clears model when rerouting to quota', () => {
       setupConfigForAutoScale({ threshold: 1, cooldown: 0 });
       setupCodexQueueWithDepth(3);
       setRunningCodexCount(3); // Fill Codex slots to trigger overflow rerouting
@@ -638,7 +638,7 @@ describe('Free-tier auto-scale', () => {
 
       const rerouteCalls = mockDb.updateTaskStatus.mock.calls.filter(
         (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-          c[2].metadata.includes('free_tier_auto_scale')
+          c[2].metadata.includes('quota_auto_scale')
       );
 
       expect(rerouteCalls.length).toBeGreaterThan(0);
@@ -662,14 +662,14 @@ describe('Free-tier auto-scale', () => {
   // ── Schema seed defaults ───────────────────────────────────
 
   describe('schema seed defaults', () => {
-    it('seeds free_tier_auto_scale_enabled as false', () => {
+    it('seeds quota_auto_scale_enabled as false', () => {
       // This tests that the default config values are correct
       // by verifying the feature is disabled by default in the scheduler
       configValues = {
         codex_enabled: '1',
-        free_tier_auto_scale_enabled: 'false',
-        free_tier_queue_depth_threshold: '3',
-        free_tier_cooldown_seconds: '60',
+        quota_auto_scale_enabled: 'false',
+        quota_queue_depth_threshold: '3',
+        quota_cooldown_seconds: '60',
         auto_compute_max_concurrent: 'true',
       };
 
@@ -679,7 +679,7 @@ describe('Free-tier auto-scale', () => {
       // With enabled=false, no auto-scale should happen despite deep queue
       const rerouteCalls = mockDb.updateTaskStatus.mock.calls.filter(
         (c) => c[2]?.metadata && typeof c[2].metadata === 'string' &&
-          c[2].metadata.includes('free_tier_auto_scale')
+          c[2].metadata.includes('quota_auto_scale')
       );
       expect(rerouteCalls).toHaveLength(0);
     });

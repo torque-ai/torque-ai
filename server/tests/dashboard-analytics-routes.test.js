@@ -273,7 +273,7 @@ function resetMockDefaults() {
   }));
 
   mockConfig.get.mockReset().mockImplementation((key) => {
-    if (key === 'free_tier_auto_scale_enabled') return 'false';
+    if (key === 'quota_auto_scale_enabled') return 'false';
     return undefined;
   });
   mockConfig.getInt.mockReset().mockImplementation((_key, fallback) => fallback);
@@ -1005,9 +1005,9 @@ describe('dashboard analytics route handlers', () => {
       expect(res.payload).toEqual({ id: 'budget-42', created: true });
     });
 
-    it('handleFreeTierStatus returns a not-initialized response when no tracker getter is configured', () => {
+    it('handleQuotaStatus returns a not-initialized response when no tracker getter is configured', () => {
       const res = createMockRes();
-      analytics.handleFreeTierStatus({}, res);
+      analytics.handleQuotaStatus({}, res);
 
       expect(res.payload).toEqual({
         status: 'ok',
@@ -1016,13 +1016,13 @@ describe('dashboard analytics route handlers', () => {
       });
     });
 
-    it('handleFreeTierStatus returns tracker state when a getter is configured', () => {
-      analytics.setFreeTierTrackerGetter(() => ({
+    it('handleQuotaStatus returns tracker state when a getter is configured', () => {
+      analytics.setQuotaTrackerGetter(() => ({
         getStatus: () => ({ codex: { remaining: 42 } }),
       }));
 
       const res = createMockRes();
-      analytics.handleFreeTierStatus({}, res);
+      analytics.handleQuotaStatus({}, res);
 
       expect(res.payload).toEqual({
         status: 'ok',
@@ -1032,11 +1032,11 @@ describe('dashboard analytics route handlers', () => {
       });
     });
 
-    it('handleFreeTierHistory clamps the day range before loading history', () => {
+    it('handleQuotaHistory clamps the day range before loading history', () => {
       mockDb.getUsageHistory.mockReturnValue([{ day: '2026-03-10', tokens: 100 }]);
 
       const res = createMockRes();
-      analytics.handleFreeTierHistory({}, res, { days: '999' });
+      analytics.handleQuotaHistory({}, res, { days: '999' });
 
       expect(mockDb.getUsageHistory).toHaveBeenCalledWith(90);
       expect(res.payload).toEqual({
@@ -1045,26 +1045,26 @@ describe('dashboard analytics route handlers', () => {
       });
     });
 
-    it('handleFreeTierHistory returns a 500 payload on DB errors', () => {
+    it('handleQuotaHistory returns a 500 payload on DB errors', () => {
       mockDb.getUsageHistory.mockImplementation(() => {
         throw new Error('usage history unavailable');
       });
 
       const res = createMockRes();
-      analytics.handleFreeTierHistory({}, res, { days: '7' });
+      analytics.handleQuotaHistory({}, res, { days: '7' });
 
       expect(res.statusCode).toBe(500);
       expect(res.payload).toEqual({ error: 'usage history unavailable' });
     });
 
-    it('handleFreeTierAutoScale returns queue depth, config values, and the last activation timestamp', () => {
+    it('handleQuotaAutoScale returns queue depth, config values, and the last activation timestamp', () => {
       mockConfig.get.mockImplementation((key) => {
-        if (key === 'free_tier_auto_scale_enabled') return 'true';
+        if (key === 'quota_auto_scale_enabled') return 'true';
         return undefined;
       });
       mockConfig.getInt.mockImplementation((key) => ({
-        free_tier_queue_depth_threshold: 5,
-        free_tier_cooldown_seconds: 120,
+        quota_queue_depth_threshold: 5,
+        quota_cooldown_seconds: 120,
       }[key]));
       mockDb.listTasks.mockReturnValue({
         tasks: [
@@ -1076,7 +1076,7 @@ describe('dashboard analytics route handlers', () => {
       mockQueueScheduler._getLastAutoScaleActivation.mockReturnValue(Date.parse('2026-03-10T11:00:00.000Z'));
 
       const res = createMockRes();
-      analytics.handleFreeTierAutoScale({}, res);
+      analytics.handleQuotaAutoScale({}, res);
 
       expect(res.payload).toEqual({
         status: 'ok',
@@ -1090,13 +1090,13 @@ describe('dashboard analytics route handlers', () => {
       });
     });
 
-    it('handleFreeTierAutoScale returns a 500 payload when config access fails', () => {
+    it('handleQuotaAutoScale returns a 500 payload when config access fails', () => {
       mockConfig.get.mockImplementation(() => {
         throw new Error('config unavailable');
       });
 
       const res = createMockRes();
-      analytics.handleFreeTierAutoScale({}, res);
+      analytics.handleQuotaAutoScale({}, res);
 
       expect(res.statusCode).toBe(500);
       expect(res.payload).toEqual({ error: 'config unavailable' });

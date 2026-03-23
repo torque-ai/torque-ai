@@ -440,7 +440,7 @@ describe('execute-api.js', () => {
   });
 
   describe('executeApiProvider', () => {
-    it('completes non-streaming tasks, records usage, and tracks free-tier quotas', async () => {
+    it('completes non-streaming tasks, records usage, and tracks quota quotas', async () => {
       const { mod, contextStuffingMock } = loadSubject({
         stuffContext: async () => ({ enrichedDescription: 'ENRICHED TASK' }),
       });

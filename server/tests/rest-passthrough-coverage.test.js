@@ -71,7 +71,7 @@ installCjsModuleMock('../api/v2-analytics-handlers', handlerModule([
   'handleThroughputMetrics',
   'handleBudgetSummary', 'handleBudgetStatus', 'handleSetBudget',
   'handleStrategicStatus', 'handleRoutingDecisions', 'handleProviderHealth',
-  'handleFreeTierStatus', 'handleFreeTierHistory', 'handleFreeTierAutoScale',
+  'handleQuotaStatus', 'handleQuotaHistory', 'handleQuotaAutoScale',
   'handlePrometheusMetrics', 'handleStrategicOperations',
 ]));
 installCjsModuleMock('../api/v2-infrastructure-handlers', handlerModule([

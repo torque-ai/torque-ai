@@ -439,7 +439,7 @@ function checkBudgetReset() {
 }
 
 /**
- * Route queued Codex tasks to free-tier providers only after Codex capacity
+ * Route queued Codex tasks to quota providers only after Codex capacity
  * has been confirmed full.
  *
  * @param {object[]} codexTasks - Mutable array of codex tasks; rerouted tasks are spliced out
@@ -449,14 +449,14 @@ function checkBudgetReset() {
 function attemptFreeProviderOverflow(codexTasks, capacity = {}) {
   if (codexTasks.length === 0 || typeof _getFreeQuotaTracker !== 'function') return 0;
 
-  const autoScaleEnabled = serverConfig.isOptIn('free_tier_auto_scale_enabled');
+  const autoScaleEnabled = serverConfig.isOptIn('quota_auto_scale_enabled');
   if (!autoScaleEnabled) return 0;
 
   const runningCodexCount = Number(capacity.runningCodexCount) || 0;
   const maxCodexConcurrent = Number(capacity.maxCodexConcurrent) || 0;
   if (maxCodexConcurrent <= 0 || runningCodexCount < maxCodexConcurrent) return 0;
 
-  const cooldownSec = serverConfig.getInt('free_tier_cooldown_seconds', 60);
+  const cooldownSec = serverConfig.getInt('quota_cooldown_seconds', 60);
   const codexQueueDepth = codexTasks.length;
 
   const nowMs = Date.now();
@@ -496,17 +496,17 @@ function attemptFreeProviderOverflow(codexTasks, capacity = {}) {
           ...metadata,
           overflow: true,
           original_provider: 'codex',
-          free_tier_overflow: true,
-          free_tier_auto_scale: true,
+          quota_overflow: true,
+          quota_auto_scale: true,
         }),
         // TDA-02: narrate auto-scale movement
-        _provider_switch_reason: `codex -> ${target.provider} (free-tier auto-scale, taskType=${taskType})`,
+        _provider_switch_reason: `codex -> ${target.provider} (quota auto-scale, taskType=${taskType})`,
       };
       db.updateTaskStatus(task.id, 'queued', statusUpdates);
       notifyDashboard(task.id, { status: 'queued', ...statusUpdates });
       codexTasks.splice(i, 1);
       autoScaleCount++;
-      logger.info(`processQueue: free-tier auto-scale → ${target.provider} for ${task.id.slice(0,8)} (slots=${runningCodexCount}/${maxCodexConcurrent}, queue_depth=${codexQueueDepth}, taskType=${taskType})`);
+      logger.info(`processQueue: quota auto-scale → ${target.provider} for ${task.id.slice(0,8)} (slots=${runningCodexCount}/${maxCodexConcurrent}, queue_depth=${codexQueueDepth}, taskType=${taskType})`);
     } catch (e) {
       logger.debug(`processQueue: auto-scale metadata parse error for ${task.id.slice(0,8)}: ${e.message}`);
     }
@@ -514,14 +514,14 @@ function attemptFreeProviderOverflow(codexTasks, capacity = {}) {
 
   if (autoScaleCount > 0) {
     _lastAutoScaleActivation = nowMs;
-    logger.info(`processQueue: free-tier auto-scale activated — rerouted ${autoScaleCount} task(s), slots=${runningCodexCount}/${maxCodexConcurrent}, queue_depth=${codexQueueDepth}`);
+    logger.info(`processQueue: quota auto-scale activated — rerouted ${autoScaleCount} task(s), slots=${runningCodexCount}/${maxCodexConcurrent}, queue_depth=${codexQueueDepth}`);
   }
   return autoScaleCount;
 }
 
 /**
  * When Codex slots are full, attempt to overflow a single task to local Ollama
- * or free-tier API providers. Only reroutes tasks that weren't user-specified.
+ * or quota API providers. Only reroutes tasks that weren't user-specified.
  *
  * @param {object} codexTask - The codex task to try overflowing
  * @returns {boolean} True if task was rerouted (caller should `continue`)
@@ -583,13 +583,13 @@ function attemptCodexOverflow(codexTask) {
         const statusUpdates = {
           provider: target.provider,
           model: null,
-          metadata: JSON.stringify({ ...metadata, overflow: true, original_provider: 'codex', free_tier_overflow: true }),
+          metadata: JSON.stringify({ ...metadata, overflow: true, original_provider: 'codex', quota_overflow: true }),
           // TDA-02: narrate the movement with a specific reason
-          _provider_switch_reason: `codex -> ${target.provider} (codex overflow to free-tier, complexity=${taskComplexity}, taskType=${taskType})`,
+          _provider_switch_reason: `codex -> ${target.provider} (codex overflow to quota, complexity=${taskComplexity}, taskType=${taskType})`,
         };
         db.updateTaskStatus(codexTask.id, 'queued', statusUpdates);
         notifyDashboard(codexTask.id, { status: 'queued', ...statusUpdates });
-        logger.info(`processQueue: Codex overflow -> free-tier ${target.provider} for ${codexTask.id.slice(0,8)} (${taskComplexity}, taskType=${taskType})`);
+        logger.info(`processQueue: Codex overflow -> quota ${target.provider} for ${codexTask.id.slice(0,8)} (${taskComplexity}, taskType=${taskType})`);
         return true;
       }
     }
@@ -864,7 +864,7 @@ function processQueueInternal(options = {}) {
       }
 
       if (runningCodex + codexStarted >= maxCodexConcurrent) {
-        // Codex slots full — try overflow to local LLM or free-tier
+        // Codex slots full — try overflow to local LLM or quota
         if (attemptCodexOverflow(codexTask)) continue;
         pendingFreeProviderOverflow.push(codexTask);
         continue; // Ineligible for overflow — skip, check remaining tasks

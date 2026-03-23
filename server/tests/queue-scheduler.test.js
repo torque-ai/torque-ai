@@ -1706,9 +1706,9 @@ describe('Queue Scheduler', () => {
         expect(overflowCalls).toHaveLength(0);
       });
 
-      it('does not trigger free-tier auto-assignment while Codex still has capacity', () => {
+      it('does not trigger quota auto-assignment while Codex still has capacity', () => {
         const queuedTask = makeTask({
-          id: 'free-tier-open-slot',
+          id: 'quota-open-slot',
           provider: 'codex',
           task_description: 'Write docs',
           metadata: JSON.stringify({ complexity: 'normal', smart_routing: true }),
@@ -1726,7 +1726,7 @@ describe('Queue Scheduler', () => {
           hostMaxConcurrent: 4,
           configOverrides: {
             codex_enabled: '1',
-            free_tier_auto_scale_enabled: '1',
+            quota_auto_scale_enabled: '1',
           },
         });
 
@@ -1738,17 +1738,17 @@ describe('Queue Scheduler', () => {
 
         scheduler.processQueueInternal();
 
-        expect(mocks.safeStartTask).toHaveBeenCalledWith('free-tier-open-slot', 'codex');
+        expect(mocks.safeStartTask).toHaveBeenCalledWith('quota-open-slot', 'codex');
         expect(getFreeQuotaTracker).not.toHaveBeenCalled();
         expect(tracker.getAvailableProvidersSmart).not.toHaveBeenCalled();
 
-        const freeTierUpdates = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'free-tier-open-slot' && c[2]?.provider === 'anthropic'
+        const quotaUpdates = mockDb.updateTaskStatus.mock.calls.filter(
+          (c) => c[0] === 'quota-open-slot' && c[2]?.provider === 'anthropic'
         );
-        expect(freeTierUpdates).toHaveLength(0);
+        expect(quotaUpdates).toHaveLength(0);
       });
 
-      it('does not free-tier auto-scale Codex tasks awaiting approval', () => {
+      it('does not quota auto-scale Codex tasks awaiting approval', () => {
         mockDb.checkApprovalRequired.mockReturnValue({ required: true, status: 'pending' });
         const queuedTask = makeTask({
           id: 'approval-pending-codex',
@@ -1769,7 +1769,7 @@ describe('Queue Scheduler', () => {
           hostMaxConcurrent: 4,
           configOverrides: {
             codex_enabled: '1',
-            free_tier_auto_scale_enabled: '1',
+            quota_auto_scale_enabled: '1',
           },
         });
 
@@ -1785,15 +1785,15 @@ describe('Queue Scheduler', () => {
         expect(mocks.safeStartTask).not.toHaveBeenCalled();
         expect(getFreeQuotaTracker).not.toHaveBeenCalled();
 
-        const freeTierUpdates = mockDb.updateTaskStatus.mock.calls.filter(
+        const quotaUpdates = mockDb.updateTaskStatus.mock.calls.filter(
           (c) => c[0] === 'approval-pending-codex' && c[2]?.provider === 'anthropic'
         );
-        expect(freeTierUpdates).toHaveLength(0);
+        expect(quotaUpdates).toHaveLength(0);
       });
 
-      it('does not free-tier auto-scale top-level user-override Codex tasks', () => {
+      it('does not quota auto-scale top-level user-override Codex tasks', () => {
         const queuedTask = makeTask({
-          id: 'free-tier-top-level-override',
+          id: 'quota-top-level-override',
           provider: 'codex',
           user_provider_override: true,
           task_description: 'Pinned Codex task',
@@ -1812,7 +1812,7 @@ describe('Queue Scheduler', () => {
           hostMaxConcurrent: 4,
           configOverrides: {
             codex_enabled: '1',
-            free_tier_auto_scale_enabled: '1',
+            quota_auto_scale_enabled: '1',
           },
         });
 
@@ -1826,10 +1826,10 @@ describe('Queue Scheduler', () => {
 
         expect(tracker.getAvailableProvidersSmart).not.toHaveBeenCalled();
 
-        const freeTierUpdates = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'free-tier-top-level-override' && c[2]?.provider === 'anthropic'
+        const quotaUpdates = mockDb.updateTaskStatus.mock.calls.filter(
+          (c) => c[0] === 'quota-top-level-override' && c[2]?.provider === 'anthropic'
         );
-        expect(freeTierUpdates).toHaveLength(0);
+        expect(quotaUpdates).toHaveLength(0);
       });
 
       it('does not overflow when local LLM host has no available capacity', () => {
@@ -1857,9 +1857,9 @@ describe('Queue Scheduler', () => {
         expect(overflowCalls).toHaveLength(0);
       });
 
-      it('does not burn the free-tier auto-scale cooldown on a no-op pass', () => {
+      it('does not burn the quota auto-scale cooldown on a no-op pass', () => {
         const queuedTask = makeTask({
-          id: 'free-tier-cooldown-noop',
+          id: 'quota-cooldown-noop',
           provider: 'codex',
           task_description: 'Write docs',
           metadata: JSON.stringify({ complexity: 'normal', smart_routing: true }),
@@ -1880,7 +1880,7 @@ describe('Queue Scheduler', () => {
           configOverrides: {
             codex_enabled: '1',
             codex_overflow_to_local: '0',
-            free_tier_auto_scale_enabled: '1',
+            quota_auto_scale_enabled: '1',
           },
         });
 
@@ -1900,7 +1900,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
-          'free-tier-cooldown-noop',
+          'quota-cooldown-noop',
           'queued',
           expect.objectContaining({
             provider: 'anthropic',
@@ -1908,7 +1908,7 @@ describe('Queue Scheduler', () => {
           }),
         );
         expect(mocks.notifyDashboard).toHaveBeenCalledWith(
-          'free-tier-cooldown-noop',
+          'quota-cooldown-noop',
           expect.objectContaining({
             status: 'queued',
             provider: 'anthropic',

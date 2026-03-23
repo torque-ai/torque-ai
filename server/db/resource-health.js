@@ -187,7 +187,7 @@ function cleanupHealthHistory(daysToKeep = 7) {
  * - coordination_events:   retain 7 days
  * - health_status:         retain 7 days
  * - task_file_writes:      retain 30 days (no FK constraint -- no cascade delete)
- * - free_tier_daily_usage: retain 90 days (aggregated usage metrics)
+ * - quota_daily_usage: retain 90 days (aggregated usage metrics)
  * - task-file-write-snapshots/: disk files older than 30 days (content-addressed
  *   JSON blobs written by file-tracking.js conflict detection)
  *
@@ -195,7 +195,7 @@ function cleanupHealthHistory(daysToKeep = 7) {
  * @param {object} [opts]
  * @param {string} [opts.dataDir] - Override data directory for snapshot cleanup
  *   (defaults to process.env.TORQUE_DATA_DIR or process.cwd())
- * @returns {{ coordination_events: number, health_status: number, task_file_writes: number, free_tier_daily_usage: number, snapshot_files: number }}
+ * @returns {{ coordination_events: number, health_status: number, task_file_writes: number, quota_daily_usage: number, snapshot_files: number }}
  */
 function purgeGrowthTables(dbInstance, opts = {}) {
   const conn = dbInstance || db;
@@ -208,7 +208,7 @@ function purgeGrowthTables(dbInstance, opts = {}) {
     coordination_events: 0,
     health_status: 0,
     task_file_writes: 0,
-    free_tier_daily_usage: 0,
+    quota_daily_usage: 0,
     snapshot_files: 0,
   };
 
@@ -232,10 +232,10 @@ function purgeGrowthTables(dbInstance, opts = {}) {
   } catch (_e) { void _e; }
 
   try {
-    // free_tier_daily_usage aggregates daily per-provider request counts.
+    // quota_daily_usage aggregates daily per-provider request counts.
     // 90 days is sufficient for billing/trend analysis; older rows waste space.
-    deleted.free_tier_daily_usage = conn.prepare(
-      'DELETE FROM free_tier_daily_usage WHERE date < ?'
+    deleted.quota_daily_usage = conn.prepare(
+      'DELETE FROM quota_daily_usage WHERE date < ?'
     ).run(ninetyDaysAgo.slice(0, 10)).changes; // date column is 'YYYY-MM-DD'
   } catch (_e) { void _e; }
 

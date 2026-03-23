@@ -8,7 +8,7 @@
  *
  * Tests verify:
  *   (a) override_provider → task uses that provider, not smart-routed
- *   (b) override_provider → task NOT eligible for free-tier overflow
+ *   (b) override_provider → task NOT eligible for quota overflow
  *   (c) no override → normal smart routing applies
  *   (d) the three-stage fix from 1c010cd actually works (regression)
  */
@@ -417,7 +417,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
       ...(configOverrides || {}),
     }));
 
-    // Inject free-tier quota tracker if provided
+    // Inject quota quota tracker if provided
     if (freeQuotaTracker) {
       scheduler.init({ db: mockDb, ...mocks, getFreeQuotaTracker: () => freeQuotaTracker });
       // Re-wrap with skip guard
@@ -459,9 +459,9 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     expect(overflowCalls).toHaveLength(0);
   });
 
-  // ── (b) user_provider_override blocks free-tier overflow ──
+  // ── (b) user_provider_override blocks quota overflow ──
 
-  it('does NOT overflow to free-tier providers when user_provider_override is true', () => {
+  it('does NOT overflow to quota providers when user_provider_override is true', () => {
     const freeQuotaTracker = {
       getAvailableProviders: vi.fn().mockReturnValue([
         { provider: 'groq', dailyRemainingPct: 0.8 },
@@ -469,7 +469,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     };
 
     const queuedTask = makeTask({
-      id: 'bug001-no-free-tier',
+      id: 'bug001-no-quota',
       provider: 'codex',
       task_description: 'Important Codex task',
       metadata: JSON.stringify({
@@ -482,7 +482,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     setupCodexOverflow({
       runningCodexCount: 3,
       queuedTask,
-      hostStatus: 'down', // local LLM down, would normally try free-tier
+      hostStatus: 'down', // local LLM down, would normally try quota
       hostRunning: 0,
       hostMaxConcurrent: 4,
       freeQuotaTracker,
@@ -490,11 +490,11 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
 
     scheduler.processQueueInternal();
 
-    // Should NOT have been rerouted to free-tier
-    const freeTierCalls = mockDb.updateTaskStatus.mock.calls.filter(
-      (c) => c[0] === 'bug001-no-free-tier' && c[2]?.provider === 'groq'
+    // Should NOT have been rerouted to quota
+    const quotaCalls = mockDb.updateTaskStatus.mock.calls.filter(
+      (c) => c[0] === 'bug001-no-quota' && c[2]?.provider === 'groq'
     );
-    expect(freeTierCalls).toHaveLength(0);
+    expect(quotaCalls).toHaveLength(0);
 
     // Free-tier tracker should NOT have been consulted at all
     // (the overflow loop skips the task entirely due to user_provider_override)
@@ -531,7 +531,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     expect(overflowCalls).toHaveLength(1);
   });
 
-  it('DOES overflow smart-routed tasks to free-tier when local LLM unavailable', () => {
+  it('DOES overflow smart-routed tasks to quota when local LLM unavailable', () => {
     const freeQuotaTracker = {
       getAvailableProviders: vi.fn().mockReturnValue([
         { provider: 'groq', dailyRemainingPct: 0.9 },
@@ -539,7 +539,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     };
 
     const queuedTask = makeTask({
-      id: 'bug001-smart-free-tier',
+      id: 'bug001-smart-quota',
       provider: 'codex',
       task_description: 'Write docs (smart-routed)',
       metadata: JSON.stringify({
@@ -560,10 +560,10 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
 
     scheduler.processQueueInternal();
 
-    const freeTierCalls = mockDb.updateTaskStatus.mock.calls.filter(
-      (c) => c[0] === 'bug001-smart-free-tier' && c[2]?.provider === 'groq'
+    const quotaCalls = mockDb.updateTaskStatus.mock.calls.filter(
+      (c) => c[0] === 'bug001-smart-quota' && c[2]?.provider === 'groq'
     );
-    expect(freeTierCalls).toHaveLength(1);
+    expect(quotaCalls).toHaveLength(1);
   });
 
   // ── (d) regression: mixed queue with override + smart-routed tasks ──

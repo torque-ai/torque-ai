@@ -385,8 +385,8 @@ const tools = [
         },
         trigger_type: {
           type: 'string',
-          enum: ['standard', 'free_tier_task'],
-          description: 'How to route created tasks. standard: use smart_submit_task (default). free_tier_task: route to free-tier providers (groq, cerebras, google-ai, openrouter), skipping paid providers.',
+          enum: ['standard', 'quota_task'],
+          description: 'How to route created tasks. standard: use smart_submit_task (default). quota_task: route to quota providers (groq, cerebras, google-ai, openrouter), skipping paid providers.',
           default: 'standard'
         },
         provider: {
@@ -481,7 +481,7 @@ const tools = [
         // Inbound webhook params
         source_type: { type: 'string', enum: ['generic', 'github', 'gitlab'], description: 'Source type for signature verification' },
         task_description: { type: 'string', description: 'Task description template' },
-        trigger_type: { type: 'string', enum: ['standard', 'free_tier_task'], description: 'How to route created tasks' },
+        trigger_type: { type: 'string', enum: ['standard', 'quota_task'], description: 'How to route created tasks' },
         provider: { type: 'string', description: 'Provider for created tasks' },
         model: { type: 'string', description: 'Model for created tasks' },
         tags: { type: 'string', description: 'Comma-separated tags' },

@@ -42,7 +42,7 @@ const {
   applyMiddleware,
   DEFAULT_RATE_WINDOW_MS,
 } = middleware;
-const { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setFreeTierTrackerGetter: setWebhookFreeTierTrackerGetter } = webhooks;
+const { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setQuotaTrackerGetter: setWebhookQuotaTrackerGetter } = webhooks;
 const { handleHealthz, handleReadyz, handleLivez } = require('./api/health-probes');
 const authMiddleware = require('./auth/middleware');
 const { requireRole } = require('./auth/role-guard');
@@ -624,9 +624,9 @@ const ROUTE_HANDLER_LOOKUP = {
   handleUpdateMe,
   handleClaudeEvent,
   handleClaudeFiles,
-  handleGetFreeTierStatus,
-  handleGetFreeTierHistory,
-  handleGetFreeTierAutoScale,
+  handleGetQuotaStatus,
+  handleGetQuotaHistory,
+  handleGetQuotaAutoScale,
   handleGetProviderQuotas,
   handleBootstrapWorkstation: require('./api/bootstrap').handleBootstrapWorkstation,
   // V2 Control-Plane: Tasks
@@ -805,20 +805,20 @@ function createApiServer(deps = {}) {
 const LOCALHOST_IPS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 /**
- * GET /api/free-tier/status — return free-tier provider quota status.
+ * GET /api/quota/status — return quota provider quota status.
  */
-let _freeTierTrackerGetter = null;
-function setFreeTierTrackerGetter(getter) {
-  _freeTierTrackerGetter = getter;
-  // Forward to webhook module so free_tier_task triggers can use it
-  if (typeof setWebhookFreeTierTrackerGetter === 'function') {
-    setWebhookFreeTierTrackerGetter(getter);
+let _quotaTrackerGetter = null;
+function setQuotaTrackerGetter(getter) {
+  _quotaTrackerGetter = getter;
+  // Forward to webhook module so quota_task triggers can use it
+  if (typeof setWebhookQuotaTrackerGetter === 'function') {
+    setWebhookQuotaTrackerGetter(getter);
   }
 }
 
-async function handleGetFreeTierStatus(_req, res, _context = {}) {
+async function handleGetQuotaStatus(_req, res, _context = {}) {
   try {
-    const tracker = typeof _freeTierTrackerGetter === 'function' ? _freeTierTrackerGetter() : null;
+    const tracker = typeof _quotaTrackerGetter === 'function' ? _quotaTrackerGetter() : null;
     if (!tracker) {
       sendJson(res, { status: 'ok', providers: {}, message: 'FreeQuotaTracker not initialized' }, 200, _req);
       return;
@@ -839,9 +839,9 @@ async function handleGetProviderQuotas(req, res, _context = {}) {
 }
 
 /**
- * GET /api/free-tier/history?days=7 — return free-tier daily usage history.
+ * GET /api/quota/history?days=7 — return quota daily usage history.
  */
-async function handleGetFreeTierHistory(req, res, _context = {}) {
+async function handleGetQuotaHistory(req, res, _context = {}) {
   try {
     const query = parseQuery(req.url);
     const days = Math.max(1, Math.min(90, parseInt(query.days, 10) || 7));
@@ -853,13 +853,13 @@ async function handleGetFreeTierHistory(req, res, _context = {}) {
 }
 
 /**
- * GET /api/free-tier/auto-scale — return free-tier auto-scale config + current status.
+ * GET /api/quota/auto-scale — return quota auto-scale config + current status.
  */
-async function handleGetFreeTierAutoScale(_req, res, _context = {}) {
+async function handleGetQuotaAutoScale(_req, res, _context = {}) {
   try {
-    const enabled = serverConfig.isOptIn('free_tier_auto_scale_enabled');
-    const queueDepthThreshold = serverConfig.getInt('free_tier_queue_depth_threshold', 3);
-    const cooldownSeconds = serverConfig.getInt('free_tier_cooldown_seconds', 60);
+    const enabled = serverConfig.isOptIn('quota_auto_scale_enabled');
+    const queueDepthThreshold = serverConfig.getInt('quota_queue_depth_threshold', 3);
+    const cooldownSeconds = serverConfig.getInt('quota_cooldown_seconds', 60);
 
     // Count currently queued codex tasks
     let codexQueueDepth = 0;
@@ -1397,9 +1397,9 @@ module.exports = {
   handleLivez,
   verifyWebhookSignature,
   substitutePayload,
-  setFreeTierTrackerGetter,
-  handleGetFreeTierHistory,
-  handleGetFreeTierAutoScale,
+  setQuotaTrackerGetter,
+  handleGetQuotaHistory,
+  handleGetQuotaAutoScale,
   _testing: {
     handleV2TaskCancel,
     setV2TaskManager: (tm) => { _initV2TaskManager(tm); },

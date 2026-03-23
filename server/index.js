@@ -729,15 +729,15 @@ function init() {
     debugLog(`Startup worktree cleanup error: ${err.message}`);
   }
 
-  // Wire free-tier quota tracker to REST API and dashboard routes
+  // Wire quota quota tracker to REST API and dashboard routes
   const apiServerCore = require('./api-server.core');
-  if (apiServerCore.setFreeTierTrackerGetter && taskManager.getFreeQuotaTracker) {
-    apiServerCore.setFreeTierTrackerGetter(taskManager.getFreeQuotaTracker);
+  if (apiServerCore.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
+    apiServerCore.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);
   }
   try {
     const analyticsRoutes = require('./dashboard/routes/analytics');
-    if (analyticsRoutes.setFreeTierTrackerGetter && taskManager.getFreeQuotaTracker) {
-      analyticsRoutes.setFreeTierTrackerGetter(taskManager.getFreeQuotaTracker);
+    if (analyticsRoutes.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
+      analyticsRoutes.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);
     }
   } catch (_e) { void _e; }
 

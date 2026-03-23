@@ -25,7 +25,7 @@ let getTaskFn;
 function setDb(dbInstance) {
   db = dbInstance;
   if (db && typeof db.prepare === 'function') {
-    _ensureFreeTierTable();
+    _ensureQuotaTable();
   }
 }
 
@@ -659,14 +659,14 @@ function getWorkflowCostSummary(workflowId) {
 }
 
 // ============================================================
-// Free Tier History (merged from free-tier-history.js)
+// Provider Quota History (merged from quota-history.js)
 // ============================================================
 
-function _ensureFreeTierTable() {
+function _ensureQuotaTable() {
   if (!db) return;
   try {
     db.prepare(`
-      CREATE TABLE IF NOT EXISTS free_tier_daily_usage (
+      CREATE TABLE IF NOT EXISTS quota_daily_usage (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         provider TEXT NOT NULL,
         date TEXT NOT NULL,
@@ -679,12 +679,12 @@ function _ensureFreeTierTable() {
       )
     `).run();
     db.prepare(`
-      CREATE INDEX IF NOT EXISTS idx_free_tier_daily_usage_date
-        ON free_tier_daily_usage(date)
+      CREATE INDEX IF NOT EXISTS idx_quota_daily_usage_date
+        ON quota_daily_usage(date)
     `).run();
     db.prepare(`
-      CREATE INDEX IF NOT EXISTS idx_free_tier_daily_usage_provider_date
-        ON free_tier_daily_usage(provider, date)
+      CREATE INDEX IF NOT EXISTS idx_quota_daily_usage_provider_date
+        ON quota_daily_usage(provider, date)
     `).run();
   } catch {
     // Table may already exist
@@ -695,7 +695,7 @@ function recordDailySnapshot(provider, stats = {}) {
   if (!provider || typeof provider !== 'string') {
     throw new Error('provider is required');
   }
-  _ensureFreeTierTable();
+  _ensureQuotaTable();
 
   const date = stats.date || new Date().toISOString().slice(0, 10);
   const totalRequests = Number(stats.total_requests) || 0;
@@ -704,7 +704,7 @@ function recordDailySnapshot(provider, stats = {}) {
   const avgLatencyMs = Number(stats.avg_latency_ms) || 0;
 
   db.prepare(`
-    INSERT INTO free_tier_daily_usage (provider, date, total_requests, total_tokens, rate_limit_hits, avg_latency_ms)
+    INSERT INTO quota_daily_usage (provider, date, total_requests, total_tokens, rate_limit_hits, avg_latency_ms)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider, date) DO UPDATE SET
       total_requests = excluded.total_requests,
@@ -717,35 +717,35 @@ function recordDailySnapshot(provider, stats = {}) {
 }
 
 function getUsageHistory(days = 7) {
-  _ensureFreeTierTable();
+  _ensureQuotaTable();
   const safeDays = Number.isFinite(Number(days)) ? Math.max(1, Number(days)) : 7;
   const cutoffDate = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   return db.prepare(`
     SELECT provider, date, total_requests, total_tokens, rate_limit_hits, avg_latency_ms, created_at
-    FROM free_tier_daily_usage
+    FROM quota_daily_usage
     WHERE date >= ?
     ORDER BY date ASC, provider ASC
-  `).all(cutoffDate).map(_mapFreeTierRow);
+  `).all(cutoffDate).map(_mapQuotaRow);
 }
 
 function getProviderHistory(provider, days = 7) {
   if (!provider || typeof provider !== 'string') {
     return [];
   }
-  _ensureFreeTierTable();
+  _ensureQuotaTable();
   const safeDays = Number.isFinite(Number(days)) ? Math.max(1, Number(days)) : 7;
   const cutoffDate = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   return db.prepare(`
     SELECT provider, date, total_requests, total_tokens, rate_limit_hits, avg_latency_ms, created_at
-    FROM free_tier_daily_usage
+    FROM quota_daily_usage
     WHERE provider = ? AND date >= ?
     ORDER BY date ASC
-  `).all(provider, cutoffDate).map(_mapFreeTierRow);
+  `).all(provider, cutoffDate).map(_mapQuotaRow);
 }
 
-function _mapFreeTierRow(row) {
+function _mapQuotaRow(row) {
   if (!row) return row;
   return {
     provider: row.provider,
@@ -816,7 +816,7 @@ module.exports = {
   getWorkflowCostSummary,
   // Cost Forecasting
   getCostForecast,
-  // Free Tier History (from free-tier-history.js)
+  // Provider Quota History (from quota-history.js)
   recordDailySnapshot,
   getUsageHistory,
   getProviderHistory,

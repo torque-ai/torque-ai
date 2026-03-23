@@ -21,7 +21,7 @@ const MAX_PENDING_EVENTS = 100;
 const CHECK_NOTIFICATIONS_MIN_INTERVAL_MS = 1000;
 const DEDUP_WINDOW_MS = 5000;
 const MAX_SSE_SESSIONS = 50;
-const MAX_SESSIONS_PER_IP = 10;
+const MAX_SESSIONS_PER_IP = 25;
 const MAX_SUBSCRIPTIONS_PER_SESSION = 200;
 const EVENT_AGGREGATION_WINDOW_MS = 10000;
 const ALL_TASKS_SUBSCRIPTION_KEY = '__all_tasks__';
@@ -738,6 +738,39 @@ function clearAllSessionState() {
   aggregationBuffers.clear();
 }
 
+/**
+ * Reap stale sessions whose response has ended but weren't cleaned up by
+ * the `close` event (e.g., abrupt TCP drops without FIN). Decrements the
+ * per-IP counter for each reaped session to prevent counter drift.
+ */
+function reapStaleSessions() {
+  const reaped = [];
+  for (const [id, session] of sessions) {
+    if (session.res && session.res.writableEnded) {
+      reaped.push(id);
+    }
+  }
+  for (const id of reaped) {
+    const dead = sessions.get(id);
+    if (!dead) continue;
+    removeSessionFromTaskSubscriptions(id, dead.taskFilter);
+    if (dead.keepaliveTimer) clearTrackedInterval(dead.keepaliveTimer);
+    if (dead._ip) {
+      const ipCount = _perIpSessionCount.get(dead._ip) || 1;
+      if (ipCount <= 1) _perIpSessionCount.delete(dead._ip);
+      else _perIpSessionCount.set(dead._ip, ipCount - 1);
+    }
+    const aggrBuf = aggregationBuffers.get(id);
+    if (aggrBuf) {
+      if (aggrBuf.timer) clearTimeout(aggrBuf.timer);
+      aggregationBuffers.delete(id);
+    }
+    sessions.delete(id);
+    notificationMetrics.deadSessionsCleaned++;
+  }
+  return reaped.length;
+}
+
 module.exports = {
   // Constants
   MAX_PENDING_EVENTS,
@@ -790,4 +823,5 @@ module.exports = {
   nextEventId,
   clearAllSessionState,
   clearTrackedInterval,
+  reapStaleSessions,
 };

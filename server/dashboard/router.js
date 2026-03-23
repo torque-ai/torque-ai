@@ -148,10 +148,10 @@ const routes = [
   { method: 'GET',  pattern: /^\/api\/strategic\/decisions$/,          handler: analytics.handleGetRoutingDecisions, compat: true },
   { method: 'GET',  pattern: /^\/api\/strategic\/provider-health$/,    handler: analytics.handleGetProviderHealth, compat: true },
 
-  // --- Free Tier ---
-  { method: 'GET',  pattern: /^\/api\/free-tier\/status$/,             handler: analytics.handleFreeTierStatus },
-  { method: 'GET',  pattern: /^\/api\/free-tier\/history$/,            handler: analytics.handleFreeTierHistory },
-  { method: 'GET',  pattern: /^\/api\/free-tier\/auto-scale$/,         handler: analytics.handleFreeTierAutoScale },
+  // --- Provider Quotas ---
+  { method: 'GET',  pattern: /^\/api\/quota\/status$/,             handler: analytics.handleQuotaStatus },
+  { method: 'GET',  pattern: /^\/api\/quota\/history$/,            handler: analytics.handleQuotaHistory },
+  { method: 'GET',  pattern: /^\/api\/quota\/auto-scale$/,         handler: analytics.handleQuotaAutoScale },
 ];
 
 /**

@@ -171,12 +171,12 @@ const tools = [
     }
   },
   {
-    name: 'configure_free_tier_auto_scale',
-    description: 'Configure free-tier auto-scaling rules. When enabled and provider queue depth exceeds the threshold, new eligible tasks are proactively routed to free-tier API providers (groq, cerebras, google-ai, openrouter) instead of waiting for a provider queue slot. GLOBAL: applies to all projects.',
+    name: 'configure_quota_auto_scale',
+    description: 'Configure quota auto-scaling rules. When enabled and provider queue depth exceeds the threshold, new eligible tasks are proactively routed to quota API providers (groq, cerebras, google-ai, openrouter) instead of waiting for a provider queue slot. GLOBAL: applies to all projects.',
     inputSchema: {
       type: 'object',
       properties: {
-        enabled: { type: 'boolean', description: 'Enable or disable free-tier auto-scaling (default: false)' },
+        enabled: { type: 'boolean', description: 'Enable or disable quota auto-scaling (default: false)' },
         queue_depth_threshold: { type: 'number', description: 'Activate overflow when more than N tasks are queued (default: 3)' },
         cooldown_seconds: { type: 'number', description: 'Minimum seconds between auto-scale activations to avoid thrashing (default: 60)' },
       },

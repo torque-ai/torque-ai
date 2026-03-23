@@ -148,7 +148,7 @@ function getAllConfig() {
 }
 
 /**
- * Get provider rate limits for free-tier providers.
+ * Get provider rate limits for quota providers.
  * @returns {Array}
  */
 function getProviderRateLimits() {
