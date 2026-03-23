@@ -625,6 +625,20 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   } catch (e) {
     logger.debug(`Schema seed (routing templates): ${e.message}`);
   }
+
+  // Seed default model roles if none exist for ollama
+  try {
+    const modelRoles = require('./model-roles');
+    modelRoles.setDb(db);
+    const existingRoles = modelRoles.listModelRoles('ollama');
+    if (existingRoles.length === 0) {
+      const defaultModel = (extras.getConfig && extras.getConfig('ollama_model')) || 'qwen3-coder:30b';
+      modelRoles.setModelRole('ollama', 'default', defaultModel);
+      modelRoles.setModelRole('ollama', 'fallback', defaultModel);
+    }
+  } catch (e) {
+    logger.debug(`Schema seed (model roles): ${e.message}`);
+  }
 }
 
 module.exports = { seedDefaults };
