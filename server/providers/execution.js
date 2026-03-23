@@ -57,7 +57,7 @@ const PROVIDER_HOST_MAP = {
 // Default models per provider — chosen from comprehensive baseline testing (2026-03-18)
 const PROVIDER_DEFAULT_MODEL = {
   groq: 'llama-3.3-70b-versatile',                     // Production-stable, 280 T/s, reliable tool calling (qwen3-32b is preview)
-  cerebras: 'gpt-oss-120b',                           // 3000 T/s, best reasoning, production-stable (qwen-3-235b is preview-only)
+  cerebras: 'llama3.1-8b',                             // 2200 T/s, only stable model available (gpt-oss-120b temporarily removed)
   deepinfra: 'Qwen/Qwen2.5-72B-Instruct',
   openrouter: 'qwen/qwen3-coder:free',               // 480B MoE, 262K ctx, strongest free coding model with tool calling
   hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
