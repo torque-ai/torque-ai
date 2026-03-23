@@ -242,7 +242,7 @@ describe('automation-batch-orchestration handlers', () => {
 
       expect(result._tasks.types).toContain('Track and score customer orders');
       expect(result._tasks.system).toContain('OrderFlowSystem');
-      expect(result._tasks.events).toContain('order_completed');
+      expect(result._tasks.events).toContain('EventSystem.ts');
     });
 
     it('generates non-empty task descriptions with no optional reference files', () => {

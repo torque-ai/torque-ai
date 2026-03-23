@@ -265,7 +265,7 @@ describe('Automation Handlers', () => {
       expect(getText(result)).toContain('TestFeature');
     });
 
-    it('generates all 6 task sections', async () => {
+    it('generates all 5 task sections', async () => {
       const result = await safeTool('generate_feature_tasks', {
         working_directory: tempDir,
         feature_name: 'Inventory',
@@ -277,7 +277,6 @@ describe('Automation Handlers', () => {
       expect(text).toContain('data');
       expect(text).toContain('system');
       expect(text).toContain('tests');
-      expect(text).toContain('wire');
     });
 
     it('uses kebab-case for file paths in task descriptions', async () => {

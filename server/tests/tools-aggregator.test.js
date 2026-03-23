@@ -99,7 +99,6 @@ module.exports.__testHelpers = {
   pascalToSnake,
   FIXUPS,
   FILE_WRITE_TOOL_NAMES,
-  DEFAULT_FILE_WRITE_PATHS,
   isToolError,
   resolveWrittenFilePaths,
   readTaskExecutionContextFromEnv,
