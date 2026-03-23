@@ -5,7 +5,6 @@ const acorn = require('acorn');
 // Internal handler callbacks that are NOT MCP tools — exempt from try/catch requirement.
 // Mirrors INTERNAL_HANDLER_EXPORTS in tools.js but avoids heavy side-effects of require('../tools').
 const INTERNAL_HANDLER_CALLBACKS = new Set([
-  'handleContinuousBatchSubmission',
 ]);
 
 // Handler files where async handlers use delegated error handling (e.g., wrapper functions)

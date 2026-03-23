@@ -690,64 +690,6 @@ describe('workflow-runtime', () => {
       expect(workflow.completed_at).toBeTruthy();
     });
 
-    it('fires continuous batch submission after completed workflows without blocking completion', async () => {
-      let resolveBatch;
-      const batchPromise = new Promise((resolve) => {
-        resolveBatch = resolve;
-      });
-      const handleContinuousBatchSubmission = vi.fn(() => batchPromise);
-      initRuntime({ handleContinuousBatchSubmission });
-
-      const workflowId = createWorkflow({ name: 'wf-complete-continuous-batch' });
-      createWorkflowTask(workflowId, 'A', 'completed');
-      createWorkflowTask(workflowId, 'B', 'skipped');
-
-      mod.checkWorkflowCompletion(workflowId);
-
-      const workflow = workflowEngine.getWorkflow(workflowId);
-      expect(workflow.status).toBe('completed');
-      await Promise.resolve();
-      expect(handleContinuousBatchSubmission).toHaveBeenCalledWith(
-        workflowId,
-        expect.objectContaining({ id: workflowId, status: 'completed' }),
-        expect.objectContaining({ db, logger: expect.any(Object) })
-      );
-
-      resolveBatch({ status: 'submitted' });
-      await batchPromise;
-    });
-
-    it('swallows continuous batch submission failures after completion', async () => {
-      const handleContinuousBatchSubmission = vi.fn().mockRejectedValue(new Error('batch boom'));
-      initRuntime({ handleContinuousBatchSubmission });
-
-      const workflowId = createWorkflow({ name: 'wf-complete-continuous-batch-reject' });
-      createWorkflowTask(workflowId, 'A', 'completed');
-      createWorkflowTask(workflowId, 'B', 'skipped');
-
-      expect(() => mod.checkWorkflowCompletion(workflowId)).not.toThrow();
-      expect(workflowEngine.getWorkflow(workflowId).status).toBe('completed');
-
-      await Promise.resolve();
-      expect(handleContinuousBatchSubmission).toHaveBeenCalledTimes(1);
-    });
-
-    it('swallows synchronous continuous batch submission throws after completion', async () => {
-      const handleContinuousBatchSubmission = vi.fn(() => {
-        throw new Error('sync batch boom');
-      });
-      initRuntime({ handleContinuousBatchSubmission });
-
-      const workflowId = createWorkflow({ name: 'wf-complete-continuous-batch-throw' });
-      createWorkflowTask(workflowId, 'A', 'completed');
-      createWorkflowTask(workflowId, 'B', 'skipped');
-
-      expect(() => mod.checkWorkflowCompletion(workflowId)).not.toThrow();
-      expect(workflowEngine.getWorkflow(workflowId).status).toBe('completed');
-
-      await Promise.resolve();
-      expect(handleContinuousBatchSubmission).toHaveBeenCalledTimes(1);
-    });
   });
 
   describe('injectDependencyOutputs', () => {

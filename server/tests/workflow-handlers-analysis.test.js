@@ -827,7 +827,7 @@ describe('Workflow Handlers', () => {
         data_task: 'Create inventory data',
         system_task: 'Create InventorySystem class',
         tests_task: 'Write inventory tests',
-        wire_task: 'Wire inventory into GameScene'
+        wire_task: 'Wire inventory into main app'
       });
       expect(result.isError).toBeFalsy();
       const text = getText(result);

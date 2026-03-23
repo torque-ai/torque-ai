@@ -1173,7 +1173,6 @@ const routes = [
   // Automation & batch
   { method: 'POST', path: '/api/verify', tool: 'auto_verify_and_fix', mapBody: true },
   { method: 'POST', path: '/api/batch', tool: 'run_batch', mapBody: true },
-  { method: 'POST', path: '/api/batch/full', tool: 'run_full_batch', mapBody: true },
   { method: 'POST', path: '/api/batch/commit', tool: 'auto_commit_batch', mapBody: true },
   { method: 'POST', path: /^\/api\/batch\/([^/]+)\/summary$/, tool: 'get_batch_summary', mapParams: ['workflow_id'] },
   { method: 'POST', path: '/api/batch/conflicts', tool: 'detect_file_conflicts', mapBody: true },

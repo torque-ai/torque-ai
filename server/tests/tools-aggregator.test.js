@@ -322,25 +322,6 @@ describe('tools.js aggregator source-loader', () => {
       })).toEqual([fileOne, fileTwo]);
     });
 
-    it('resolveWrittenFilePaths uses default EventSystem path when no explicit file is provided', () => {
-      const { helpers } = createToolsSubject();
-      const workspaceDir = path.resolve('tmp-tools-workspace');
-
-      expect(helpers.resolveWrittenFilePaths('wire_events_to_eventsystem', {
-        working_directory: ` ${workspaceDir} `,
-      })).toEqual([path.join(workspaceDir, 'src', 'systems', 'EventSystem.ts')]);
-    });
-
-    it('resolveWrittenFilePaths prefers an explicit file path over the default mapped path', () => {
-      const { helpers } = createToolsSubject();
-      const explicitPath = path.resolve('src', 'systems', 'CustomEventSystem.ts');
-
-      expect(helpers.resolveWrittenFilePaths('wire_events_to_eventsystem', {
-        working_directory: path.resolve('tmp-tools-workspace'),
-        file_path: ` ${explicitPath} `,
-      })).toEqual([explicitPath]);
-    });
-
     it('readTaskExecutionContextFromEnv returns null when TORQUE_TASK_ID is missing', () => {
       const { helpers } = createToolsSubject();
 
@@ -576,26 +557,6 @@ describe('tools.js aggregator source-loader', () => {
       expect(subject.hooks.fireHook).toHaveBeenCalledWith('file_write', expect.objectContaining({
         tool_name: 'hashline_edit',
         file_path: filePath,
-        working_directory: workspaceDir,
-      }));
-    });
-
-    it('uses default file paths for mapped write tools when dispatching hooks', async () => {
-      const handleWireNotificationsToBridge = vi.fn(async () => ({ saved: true }));
-      const subject = createToolsSubject({
-        modules: {
-          './handlers/automation-handlers': { handleWireNotificationsToBridge },
-        },
-      });
-      const workspaceDir = path.resolve('tmp-handle-tool-call-default');
-
-      await subject.mod.handleToolCall('wire_notifications_to_bridge', {
-        working_directory: workspaceDir,
-      });
-
-      expect(subject.hooks.fireHook).toHaveBeenCalledWith('file_write', expect.objectContaining({
-        tool_name: 'wire_notifications_to_bridge',
-        file_path: path.join(workspaceDir, 'src', 'systems', 'NotificationBridge.ts'),
         working_directory: workspaceDir,
       }));
     });

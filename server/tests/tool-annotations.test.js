@@ -75,7 +75,6 @@ describe('tool-annotations', () => {
       ['manage_host', IDEMPOTENT],
       ['add_ts_interface_members', IDEMPOTENT],
       ['inject_class_dependency', IDEMPOTENT],
-      ['wire_system_to_gamescene', IDEMPOTENT],
       ['normalize_interface_formatting', IDEMPOTENT],
       ['update_project_stats', IDEMPOTENT],
       ['register_agent', IDEMPOTENT],

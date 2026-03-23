@@ -223,7 +223,6 @@ const FIXUPS = {
 // Exported handle* functions that are internal callbacks, not MCP tools.
 // These get auto-discovered by the pascalToSnake loop but should be excluded.
 const INTERNAL_HANDLER_EXPORTS = new Set([
-  'handleContinuousBatchSubmission', // workflow-runtime callback, not user-facing
 ]);
 
 const routeMap = new Map();
@@ -252,38 +251,13 @@ const FILE_WRITE_TOOL_NAMES = new Set([
   'inject_method_calls',
   'normalize_interface_formatting',
   'replace_ts_method_body',
-  'wire_events_to_eventsystem',
-  'wire_notifications_to_bridge',
-  'wire_system_to_gamescene',
 ]);
-
-const DEFAULT_FILE_WRITE_PATHS = {
-  wire_events_to_eventsystem: (args) => {
-    if (typeof args.file_path === 'string' && args.file_path.trim()) return [args.file_path.trim()];
-    if (typeof args.working_directory !== 'string' || !args.working_directory.trim()) return [];
-    return [path.join(args.working_directory.trim(), 'src', 'systems', 'EventSystem.ts')];
-  },
-  wire_notifications_to_bridge: (args) => {
-    if (typeof args.file_path === 'string' && args.file_path.trim()) return [args.file_path.trim()];
-    if (typeof args.working_directory !== 'string' || !args.working_directory.trim()) return [];
-    return [path.join(args.working_directory.trim(), 'src', 'systems', 'NotificationBridge.ts')];
-  },
-  wire_system_to_gamescene: (args) => {
-    if (typeof args.file_path === 'string' && args.file_path.trim()) return [args.file_path.trim()];
-    if (typeof args.working_directory !== 'string' || !args.working_directory.trim()) return [];
-    return [path.join(args.working_directory.trim(), 'src', 'scenes', 'GameScene.ts')];
-  },
-};
 
 function isToolError(result) {
   return !!(result && typeof result === 'object' && result.isError === true);
 }
 
 function resolveWrittenFilePaths(toolName, args) {
-  if (DEFAULT_FILE_WRITE_PATHS[toolName]) {
-    return [...new Set(DEFAULT_FILE_WRITE_PATHS[toolName](args).filter(Boolean))];
-  }
-
   const filePaths = [];
   if (typeof args.file_path === 'string' && args.file_path.trim()) {
     filePaths.push(args.file_path.trim());

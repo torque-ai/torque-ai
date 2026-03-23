@@ -156,7 +156,7 @@ describe('EXTENDED_TOOL_NAMES (Tier 1 + 2)', () => {
 
   it('includes batch orchestration tools in Tier 2', () => {
     expect(EXTENDED_TOOL_NAMES).toEqual(
-      expect.arrayContaining(['run_batch', 'run_full_batch', 'generate_test_tasks']),
+      expect.arrayContaining(['run_batch', 'generate_test_tasks']),
     );
   });
 });

@@ -125,8 +125,8 @@ export enum Size {
 
   it('parses class with methods and fields', () => {
     const input = `
-// src/systems/GameScene.ts
-export class GameScene {
+// src/systems/UserService.ts
+export class UserService {
   private score: number;
   protected name: string;
   public getPlayer(): Player;
@@ -135,7 +135,7 @@ export class GameScene {
 }`;
     const result = parseTypeSignatures(input);
     expect(result.classes).toHaveLength(1);
-    expect(result.classes[0].name).toBe('GameScene');
+    expect(result.classes[0].name).toBe('UserService');
     expect(result.classes[0].fields).toEqual(['score', 'name']);
     expect(result.classes[0].methods).toEqual(['getPlayer', 'loadLevel', 'resetState']);
   });
@@ -294,10 +294,10 @@ describe('validateTaskAgainstTypes', () => {
     const typesWithClass = {
       ...parsedTypes,
       classes: [
-        { name: 'GameScene', file: 'src/scenes/GameScene.ts', methods: ['getPlayer', 'loadLevel', 'resetState'], fields: ['score'] },
+        { name: 'UserService', file: 'src/services/UserService.ts', methods: ['getPlayer', 'loadLevel', 'resetState'], fields: ['score'] },
       ],
     };
-    const task = 'Call the GameScene getUser method to fetch the player';
+    const task = 'Call the UserService getUser method to fetch the player';
     const result = validateTaskAgainstTypes(task, typesWithClass);
     const classHint = result.hints.find(h => h.includes('getUser'));
     expect(classHint).toBeDefined();
@@ -308,11 +308,11 @@ describe('validateTaskAgainstTypes', () => {
     const typesWithClass = {
       enums: [], interfaces: [], types: [],
       classes: [
-        { name: 'GameScene', file: 'src/scenes/GameScene.ts', methods: ['getPlayer', 'loadLevel'], fields: [] },
+        { name: 'UserService', file: 'src/services/UserService.ts', methods: ['getPlayer', 'loadLevel'], fields: [] },
       ],
     };
     // Only use the class name + valid method — no extra tokens to trigger false positives
-    const task = 'In GameScene, call loadLevel';
+    const task = 'In UserService, call loadLevel';
     const result = validateTaskAgainstTypes(task, typesWithClass);
     // loadLevel is a valid method — should not produce a hint about it
     const methodHints = result.hints.filter(h => h.includes('loadLevel') && h.includes('No'));

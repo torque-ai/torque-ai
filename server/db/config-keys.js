@@ -50,7 +50,6 @@ const VALID_CONFIG_KEYS = new Set([
   'codex_spark_enabled',
   'continuous_batch_enabled',
   'continuous_batch_working_directory',
-  'continuous_batch_deluge_path',
   'continuous_batch_step_providers',
   'cost_tracking_enabled',
   'cleanup_log_days',

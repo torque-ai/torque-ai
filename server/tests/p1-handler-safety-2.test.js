@@ -22,11 +22,6 @@ function setup() {
 
 function teardown() {
   teardownTestDb();
-  // Clean up feature-gaps cache that handleRunFullBatch may have written
-  try {
-    const cacheFile = path.join(__dirname, '..', '.cache', 'feature-gaps.json');
-    if (fs.existsSync(cacheFile)) fs.unlinkSync(cacheFile);
-  } catch { /* ok */ }
 }
 
 function resetDb() {
@@ -194,63 +189,4 @@ describe('P1 handler safety fixes (part 2)', () => {
     });
   });
 
-  describe('#52: Multi-step orchestration error propagation', () => {
-    it('returns error result instead of throwing when handleRunBatch fails inside handleRunFullBatch', async () => {
-      const batchOrch = require('../handlers/automation-batch-orchestration');
-
-      // handleRunFullBatch is async — must await it
-      let result;
-      let threw = false;
-
-      try {
-        result = await batchOrch.handleRunFullBatch({
-          working_directory: testDir,
-          feature_name: 'NonexistentFeature',
-          // Intentionally skip deluge_path and spec to trigger run_batch with minimal input
-          // that will fail during workflow creation
-        });
-      } catch (_err) {
-        threw = true;
-        // If it throws, that's the bug — the handler should return makeError, not throw
-      }
-
-      // The handler should NOT throw — it should return a structured error or success
-      if (!threw) {
-        expect(result).toBeDefined();
-      } else {
-        // Bug confirmed: handleRunFullBatch throws instead of returning error
-        expect(threw).toBe(false);
-      }
-    });
-
-    it('returns error when plan step fails with invalid deluge path', async () => {
-      const batchOrch = require('../handlers/automation-batch-orchestration');
-
-      let result;
-      let threw = false;
-
-      try {
-        result = await batchOrch.handleRunFullBatch({
-          working_directory: testDir,
-          deluge_path: path.join(testDir, 'nonexistent-deluge'),
-          // No feature_name — forces planning step which may fail
-        });
-      } catch (_err) {
-        threw = true;
-      }
-
-      if (!threw) {
-        const text = result.content?.[0]?.text || '';
-        // Must indicate failure — either isError or error text or empty feature
-        const indicatesFailure = result.isError ||
-          text.includes('Error') || text.includes('error') ||
-          text.includes('Could not determine') || text.includes('not found') ||
-          text.includes('failed');
-        expect(indicatesFailure).toBe(true);
-      } else {
-        // Bug: unhandled throw
-        expect(threw).toBe(false);
-      }
-    });
-  });
 });

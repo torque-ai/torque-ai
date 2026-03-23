@@ -952,7 +952,6 @@ _workflowRuntimeModule.init({
   cancelTask,
   processQueue,
   dashboard,
-  handleContinuousBatchSubmission: require('./handlers/automation-batch-orchestration').handleContinuousBatchSubmission,
 });
 registerTaskStatusTransitionListener();
 

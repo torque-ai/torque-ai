@@ -10,7 +10,7 @@
  * 6. update_project_stats — count tests/features/coverage, update memory file
  *
  * Additional handlers are re-exported from sub-modules:
- * - automation-ts-tools.js — TypeScript structural tools, semantic tools, Headwaters wrappers
+ * - automation-ts-tools.js — TypeScript structural tools, semantic tools
  * - automation-batch-orchestration.js — batch orchestration, feature gaps, commit, spec extraction
  */
 
@@ -873,132 +873,6 @@ function handleGetBatchSummary(args) {
   };
 }
 
-// ─── Feature 14: Update Project Stats ────────────────────────────────────────
-
-function handleUpdateProjectStats(args) {
-  const workingDir = args.working_directory;
-  if (!workingDir) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
-  }
-
-  const memoryPath = args.memory_path;
-  if (!memoryPath) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'memory_path is required (path to MEMORY.md)');
-  }
-
-  // Configurable parameters with Headwaters defaults
-  const featureDir = args.feature_dir || 'src/systems';
-  const featureLabel = args.feature_label || 'systems';
-  const featurePattern = args.feature_pattern || '.ts';
-  const sourceDir = args.source_dir || 'src';
-  const testPattern = args.test_pattern || '.test.ts';
-  const statsPattern = args.stats_pattern || 'Test coverage is currently \\*\\*[\\d/]+ source files \\(\\d+%\\)\\*\\*, \\d+ tests passing';
-  const statsTemplate = args.stats_template || 'Test coverage is currently **{tested}/{total} source files ({percent}%)**, {tests} tests passing';
-
-  // Resolve test command: explicit arg > project defaults > fallback
-  let testCommand = args.test_command;
-  if (!testCommand) {
-    try {
-      const defaults = configCore().getConfig(`project_defaults_${workingDir}`);
-      if (defaults) {
-        const parsed = JSON.parse(defaults);
-        testCommand = parsed.verify_command;
-      }
-    } catch (err) {
-      logger.debug('[automation-handlers] non-critical error reading feature defaults:', err.message || err);
-    }
-  }
-  if (!testCommand) testCommand = 'npx vitest run --reporter=verbose';
-
-  let output = `## Update Project Stats\n\n`;
-
-  // Count tests
-  let testCount = 0;
-  let testFileCount = 0;
-  try {
-    // testCommand is intentionally a user-provided shell command (e.g. "npx vitest run")
-    const testResult = safeExecChain(testCommand, {
-      cwd: workingDir, timeout: TASK_TIMEOUTS.VERIFY_COMMAND, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
-    });
-    const testOutput = testResult.exitCode === 0 ? testResult.output : `${testResult.output}\n${testResult.error || ''}`;
-    // Try vitest/jest pattern, then mocha pattern
-    const testMatch = testOutput.match(/(\d+)\s+(?:passed|passing)/);
-    if (testMatch) testCount = parseInt(testMatch[1], 10);
-    const fileMatch = testOutput.match(/(\d+)\s+passed\s*\((\d+)\)/) || testOutput.match(/Test Files\s+(\d+)\s+passed/);
-    if (fileMatch) testFileCount = parseInt(fileMatch[fileMatch.length > 2 ? 2 : 1], 10);
-  } catch (err) {
-    const stderr = (err.stdout || '') + '\n' + (err.stderr || '');
-    const testMatch = stderr.match(/(\d+)\s+(?:passed|passing)/);
-    if (testMatch) testCount = parseInt(testMatch[1], 10);
-    const fileMatch = stderr.match(/Test Files\s+(\d+)\s+passed/);
-    if (fileMatch) testFileCount = parseInt(fileMatch[1], 10);
-  }
-
-  // Count features (configurable dir + pattern)
-  let featureCount = 0;
-  const featureDirFull = path.join(workingDir, featureDir);
-  try {
-    const files = fs.readdirSync(featureDirFull);
-    featureCount = files.filter(f => f.endsWith(featurePattern) && !f.includes('__tests__') && !f.startsWith('.')).length;
-    } catch (err) {
-      logger.debug('[automation-handlers] non-critical error counting features:', err.message || err);
-    }
-
-  // Count source files and test coverage
-  let sourceFileCount = 0;
-  let testedFileCount = 0;
-  const sourceFiles = [];
-  const testFiles = new Set();
-  const srcDir = path.join(workingDir, sourceDir);
-  if (fs.existsSync(srcDir)) {
-    scanDirectory(srcDir, workingDir, sourceFiles, testFiles, testPattern);
-    sourceFileCount = sourceFiles.length;
-    testedFileCount = testFiles.size;
-  }
-
-  const coveragePercent = sourceFileCount > 0
-    ? Math.round((testedFileCount / sourceFileCount) * 100)
-    : 0;
-
-  output += `**Tests:** ${testCount} passing across ${testFileCount} test files\n`;
-  output += `**${featureLabel.charAt(0).toUpperCase() + featureLabel.slice(1)}:** ${featureCount} in ${featureDir}\n`;
-  output += `**Source files:** ${sourceFileCount}\n`;
-  output += `**Test files:** ${testedFileCount}\n`;
-  output += `**Coverage:** ${testedFileCount}/${sourceFileCount} source files (${coveragePercent}%)\n\n`;
-
-  // Update MEMORY.md if it exists
-  if (fs.existsSync(memoryPath)) {
-    try {
-      let memContent = fs.readFileSync(memoryPath, 'utf8');
-
-      const coverageRegex = new RegExp(statsPattern);
-      const newCoverageLine = statsTemplate
-        .replace('{tested}', testedFileCount)
-        .replace('{total}', sourceFileCount)
-        .replace('{percent}', coveragePercent)
-        .replace('{tests}', testCount);
-
-      if (coverageRegex.test(memContent)) {
-        memContent = memContent.replace(coverageRegex, newCoverageLine);
-        fs.writeFileSync(memoryPath, memContent, 'utf8');
-        output += `### Memory Updated\n\nUpdated coverage stats in ${memoryPath}\n`;
-      } else {
-        output += `### Memory Not Updated\n\nCould not find stats pattern in ${memoryPath}. Manual update needed:\n\n`;
-        output += `\`${newCoverageLine}\`\n`;
-      }
-    } catch (err) {
-      output += `Error updating memory: ${err.message}\n`;
-    }
-  } else {
-    output += `Memory file not found: ${memoryPath}\n`;
-  }
-
-  return {
-    content: [{ type: 'text', text: output }],
-    _stats: { testCount, testFileCount, featureCount, sourceFileCount, testedFileCount, coveragePercent },
-  };
-}
-
 // ─── Feature 7: Task Event History ───────────────────────────────────────────
 
 function handleGetTaskEvents(args) {
@@ -1128,7 +1002,6 @@ function createAutomationHandlers() {
     handleSetProjectDefaults,
     handleGetProjectDefaults,
     handleGetBatchSummary,
-    handleUpdateProjectStats,
     handleGetTaskEvents,
     handleCreateTaskTemplate,
     handleListTaskTemplates,
@@ -1148,7 +1021,6 @@ module.exports = {
   handleSetProjectDefaults,
   handleGetProjectDefaults,
   handleGetBatchSummary,
-  handleUpdateProjectStats,
   handleGetTaskEvents,
   // Task prompt templates
   handleCreateTaskTemplate,

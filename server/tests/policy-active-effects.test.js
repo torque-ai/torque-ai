@@ -116,7 +116,7 @@ describe('applyActiveEffects', () => {
         outcome: 'pass',
         active_effects: [{
           type: 'trigger_tool',
-          tool_name: 'validate_event_consistency',
+          tool_name: 'scan_project',
           tool_args: { working_directory: '{{working_directory}}' },
         }],
       }],

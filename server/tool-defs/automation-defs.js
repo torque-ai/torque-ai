@@ -102,24 +102,11 @@ const tools = [
         feature_name: { type: 'string', description: 'PascalCase feature name (e.g., "Referral", "FamilyAccount"). Used to generate file paths.' },
         feature_description: { type: 'string', description: 'Brief description of the feature and what it does' },
         types_spec: { type: 'string', description: 'Optional: specific enums, interfaces, and fields to define in the types file' },
-        events_spec: { type: 'string', description: 'Optional: specific event names and payloads to add to EventSystem' },
+        events_spec: { type: 'string', description: 'Optional: specific event names and payloads to add to the events interface' },
         data_spec: { type: 'string', description: 'Optional: specific data definitions (entries, categories, counts)' },
         system_spec: { type: 'string', description: 'Optional: specific system methods and behavior to implement' }
       },
       required: ['working_directory', 'feature_name']
-    }
-  },
-  {
-    name: 'cache_feature_gaps',
-    description: 'Scan a game project and its companion platform to identify which platform features have not been gamified yet. Caches the result for 24h. Use to quickly decide what to build next without re-scanning. GLOBAL: works with any game+platform project pair.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        headwaters_path: { type: 'string', description: 'Path to the game project (e.g., Headwaters)' },
-        deluge_path: { type: 'string', description: 'Path to the platform project (e.g., Deluge)' },
-        force_refresh: { type: 'boolean', description: 'Force re-scan even if cache is fresh (default: false)' }
-      },
-      required: ['headwaters_path', 'deluge_path']
     }
   },
   {
@@ -181,43 +168,6 @@ const tools = [
         commit_message: { type: 'string', description: 'Override entire commit message (default: auto-generated)' }
       },
       required: ['working_directory', 'batch_name']
-    }
-  },
-  {
-    name: 'extract_feature_spec',
-    description: 'Read a Deluge plan .md file and extract a structured feature spec (Prisma models, status enums, entity fields) ready to pass into generate_feature_tasks or run_batch. Saves manual spec-writing.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        plan_path: { type: 'string', description: 'Absolute path to Deluge plan .md file (e.g., /path/to/deluge/docs/plans/plan-14.md)' },
-        feature_name: { type: 'string', description: 'Override feature name (default: extracted from plan title)' }
-      },
-      required: ['plan_path']
-    }
-  },
-  {
-    name: 'plan_next_batch',
-    description: 'Analyze Deluge vs Headwaters feature gaps, score each by plan doc quality (Prisma schemas, phases, game-term matches), and recommend the top N features to build next. Returns ranked list with ready-to-use run_batch params.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        headwaters_path: { type: 'string', description: 'Headwaters project root (default: cwd)' },
-        deluge_path: { type: 'string', description: 'Deluge project root' },
-        count: { type: 'number', description: 'Number of recommendations (default: 3)' }
-      },
-      required: ['deluge_path']
-    }
-  },
-  {
-    name: 'update_project_stats',
-    description: 'Count tests, systems, and coverage in a Headwaters project and update the MEMORY.md file with current stats. Zero LLM cost — pure filesystem + vitest dry-run.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        working_directory: { type: 'string', description: 'Project root directory' },
-        memory_path: { type: 'string', description: 'Path to MEMORY.md file to update' }
-      },
-      required: ['working_directory', 'memory_path']
     }
   },
   {
@@ -309,115 +259,6 @@ const tools = [
     }
   },
   {
-    name: 'wire_system_to_gamescene',
-    description: 'Headwaters convenience wrapper around inject_class_dependency. Wires a system into GameScene.ts with Headwaters-specific anchors. Pass file_path to use with any class file.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        working_directory: { type: 'string', description: 'Project root directory' },
-        system_name: { type: 'string', description: 'PascalCase system name (e.g., "FooBar" or "FooBarSystem")' },
-        import_path: { type: 'string', description: 'Override import path (default: "../systems/{SystemName}")' },
-        constructor_args: { type: 'string', description: 'Constructor arguments (default: empty)' },
-        file_path: { type: 'string', description: 'Override target file (default: src/scenes/GameScene.ts)' },
-        anchors: { type: 'object', description: 'Override anchor patterns (see inject_class_dependency)' }
-      },
-      required: ['working_directory', 'system_name']
-    }
-  },
-  {
-    name: 'wire_events_to_eventsystem',
-    description: 'Headwaters convenience wrapper around add_ts_interface_members. Adds events to GameEvents interface. Pass file_path and interface_name to use with any interface.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        working_directory: { type: 'string', description: 'Project root directory' },
-        events: {
-          type: 'array', description: 'Events to add',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string', description: 'Event name' },
-              payload: { type: 'object', description: 'Payload fields as {field: type}', additionalProperties: { type: 'string' } }
-            },
-            required: ['name', 'payload']
-          }
-        },
-        file_path: { type: 'string', description: 'Override file (default: src/systems/EventSystem.ts)' },
-        interface_name: { type: 'string', description: 'Override interface name (default: GameEvents)' }
-      },
-      required: ['working_directory', 'events']
-    }
-  },
-  {
-    name: 'wire_notifications_to_bridge',
-    description: 'Headwaters convenience wrapper. Uses add_ts_union_members + inject_method_calls. Pass file_path, union_type_name, bind_marker to use with any notification/handler pattern.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        working_directory: { type: 'string', description: 'Project root directory' },
-        notifications: {
-          type: 'array', description: 'Notification bindings',
-          items: {
-            type: 'object',
-            properties: {
-              event_name: { type: 'string' }, toast_template: { type: 'string' },
-              color: { type: 'string' }, icon: { type: 'string' },
-              condition: { type: 'string' }, else_template: { type: 'string' },
-              else_color: { type: 'string' }, else_icon: { type: 'string' }
-            },
-            required: ['event_name', 'toast_template', 'color']
-          }
-        },
-        file_path: { type: 'string', description: 'Override file (default: src/systems/NotificationBridge.ts)' },
-        union_type_name: { type: 'string', description: 'Override union type name (default: NotificationEvent)' },
-        bind_marker: { type: 'string', description: 'Override marker for bind insertion (default: "this.connected = true;")' }
-      },
-      required: ['working_directory', 'notifications']
-    }
-  },
-  {
-    name: 'run_full_batch',
-    description: 'End-to-end batch orchestration: plan → spec → batch → wire instructions → commit. Single tool call replaces 8 sequential invocations. Provide feature_name to skip planning, plan_path to skip to spec extraction, or deluge_path for auto-planning.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        working_directory: { type: 'string', description: 'Project root directory' },
-        deluge_path: { type: 'string', description: 'Deluge project root (for auto-planning)' },
-        feature_name: { type: 'string', description: 'Skip planning, use this feature name directly' },
-        plan_path: { type: 'string', description: 'Skip planning, extract spec from this plan doc' },
-        spec: { type: 'string', description: 'Skip extraction, use this spec directly' },
-        batch_label: { type: 'string', description: 'Custom batch label for commit message' },
-        auto_commit: { type: 'boolean', description: 'Auto-commit after completion (default: true)' },
-        push: { type: 'boolean', description: 'Push after commit (default: true)' },
-        provider: { type: 'string', description: 'Execution provider (default: codex). Overridden by step_providers for individual steps.' },
-        step_providers: {
-          type: 'object',
-          description: 'Per-step provider overrides. Keys: types, events, data, system, tests, wire, parallel.',
-          properties: {
-            types: { type: 'string' }, events: { type: 'string' }, data: { type: 'string' },
-            system: { type: 'string' }, tests: { type: 'string' }, wire: { type: 'string' },
-            parallel: { type: 'string' }
-          }
-        }
-      },
-      required: ['working_directory']
-    }
-  },
-  {
-    name: 'validate_event_consistency',
-    description: 'UNIVERSAL: Static analysis — cross-check emit() calls against a TypeScript events interface and notification union type. Reports undeclared events, orphan declarations, and missing notification bindings. Zero LLM cost.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        working_directory: { type: 'string', description: 'Project root directory' },
-        event_system_path: { type: 'string', description: 'Path to events file (default: src/systems/EventSystem.ts)' },
-        bridge_path: { type: 'string', description: 'Path to notification bridge file (default: src/systems/NotificationBridge.ts)' },
-        source_dir: { type: 'string', description: 'Source directory to scan (default: src/)' }
-      },
-      required: ['working_directory']
-    }
-  },
-  {
     name: 'normalize_interface_formatting',
     description: 'UNIVERSAL: Normalize indentation in any TypeScript interface. Fixes accumulated drift from multiple edits. Idempotent — safe to run repeatedly.',
     inputSchema: {
@@ -428,21 +269,6 @@ const tools = [
         indent: { type: 'string', description: 'Target indentation string (default: "  ")' }
       },
       required: ['file_path', 'interface_name']
-    }
-  },
-  {
-    name: 'audit_class_completeness',
-    description: 'UNIVERSAL: Check if all files matching a pattern in a directory are wired into a target class file (imported, instantiated, with getters). Reports gaps and orphans.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        working_directory: { type: 'string', description: 'Project root directory' },
-        systems_dir: { type: 'string', description: 'Directory to scan for system files (default: src/systems)' },
-        target_file: { type: 'string', description: 'Class file to check (default: src/scenes/GameScene.ts)' },
-        file_pattern: { type: 'string', description: 'Regex pattern for files to check (default: "System\\.ts$")' },
-        exclude_files: { type: 'array', items: { type: 'string' }, description: 'Files to exclude (default: EventSystem.ts, NotificationBridge.ts, etc.)' }
-      },
-      required: ['working_directory']
     }
   },
   {

@@ -107,7 +107,7 @@ describe('Path traversal hardening', () => {
     it('rejects traversal in handleAddTsMethodToClass', () => {
       const result = automationTsTools.handleAddTsMethodToClass({
         file_path: '../../../etc/passwd',
-        class_name: 'GameScene',
+        class_name: 'AppService',
         method_code: 'public test() {}',
       });
       expectInvalidParam(result);
@@ -116,7 +116,7 @@ describe('Path traversal hardening', () => {
     it('rejects traversal in handleReplaceTsMethodBody', () => {
       const result = automationTsTools.handleReplaceTsMethodBody({
         file_path: '..\\\\..\\\\',
-        class_name: 'GameScene',
+        class_name: 'AppService',
         method_name: 'setup',
         new_body: 'console.log("ok");',
       });
@@ -131,35 +131,6 @@ describe('Path traversal hardening', () => {
       expectInvalidParam(result);
     });
 
-    it('rejects traversal in handleWireSystemToGamescene', () => {
-      const workDir = createTempDir();
-      const result = automationTsTools.handleWireSystemToGamescene({
-        working_directory: workDir,
-        system_name: 'OrderSystem',
-        file_path: '..\\\\..\\\\GameScene.ts',
-      });
-      expectInvalidParam(result);
-    });
-
-    it('rejects traversal in handleWireEventsToEventsystem', () => {
-      const workDir = createTempDir();
-      const result = automationTsTools.handleWireEventsToEventsystem({
-        working_directory: workDir,
-        events: [{ name: 'event', payload: { foo: 'string' } }],
-        file_path: '../../../etc/passwd',
-      });
-      expectInvalidParam(result);
-    });
-
-    it('rejects null-byte path in handleWireNotificationsToBridge', () => {
-      const workDir = createTempDir();
-      const result = automationTsTools.handleWireNotificationsToBridge({
-        working_directory: workDir,
-        notifications: [{ event_name: 'order_ready', toast_template: 'Order ready' }],
-        file_path: 'file\x00.ts',
-      });
-      expectInvalidParam(result);
-    });
   });
 
   describe('task-core sync_files', () => {
@@ -187,20 +158,6 @@ describe('Path traversal hardening', () => {
       expectInvalidParam(result);
     });
 
-    it('rejects traversal in handleExtractFeatureSpec plan_path', () => {
-      const result = automationBatch.handleExtractFeatureSpec({
-        plan_path: '../../../plans/plan-14.md',
-      });
-      expectInvalidParam(result);
-    });
-
-    it('rejects traversal in handleRunFullBatch working_directory', async () => {
-      const result = await automationBatch.handleRunFullBatch({
-        working_directory: '..\\\\..\\\\',
-        feature_name: 'TraversalFeature',
-      });
-      expectInvalidParam(result);
-    });
   });
 
   describe('integration-plans', () => {

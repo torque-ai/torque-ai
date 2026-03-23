@@ -50,18 +50,13 @@ const TIER_2 = [
   // Batch orchestration
   'generate_feature_tasks', 'generate_test_tasks', 'run_batch',
   'detect_file_conflicts', 'auto_commit_batch', 'get_batch_summary',
-  // Batch lifecycle
-  'plan_next_batch', 'extract_feature_spec', 'update_project_stats',
-  'cache_feature_gaps', 'run_full_batch',
   // Universal TypeScript structural tools
   'add_ts_interface_members', 'inject_class_dependency', 'add_ts_union_members',
   'inject_method_calls', 'add_ts_enum_members',
   // Semantic TypeScript tools (Harness Problem mitigation)
   'add_ts_method_to_class', 'replace_ts_method_body', 'add_import_statement',
-  // Headwaters wiring wrappers
-  'wire_system_to_gamescene', 'wire_events_to_eventsystem', 'wire_notifications_to_bridge',
   // Validation & maintenance
-  'validate_event_consistency', 'normalize_interface_formatting', 'audit_class_completeness',
+  'normalize_interface_formatting',
   // SnapScope & Peek
   'capture_screenshots', 'capture_view', 'capture_views', 'validate_manifest',
   'peek_ui', 'peek_interact', 'peek_launch', 'peek_discover', 'peek_open_url',

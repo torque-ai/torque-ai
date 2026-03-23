@@ -3,14 +3,10 @@
  * Extracted from automation-handlers.js — Part 2 decomposition.
  *
  * Contains:
- * - generate_feature_tasks — generate 6 task descriptions for a feature workflow
- * - cache_feature_gaps — scan Deluge vs Headwaters for implemented/missing features
+ * - generate_feature_tasks — generate 5 task descriptions for a feature workflow
  * - run_batch — full one-shot orchestration (generate + workflow + execute)
  * - detect_file_conflicts — post-workflow file conflict detection
  * - auto_commit_batch — verify + commit + push in one call
- * - extract_feature_spec — extract structured spec from a Deluge plan doc
- * - plan_next_batch — rank unimplemented features by readiness score
- * - run_full_batch — end-to-end: plan -> spec -> batch -> wire -> commit
  */
 
 const path = require('path');
@@ -205,44 +201,13 @@ function handleGenerateFeatureTasks(args) {
   const refData = findLargestFile(dataDir, '.ts', ['index.ts']);
   const refTest = findLargestFile(testsDir, '.test.ts', []);
 
-  // Read EventSystem to find event pattern
-  const eventSystemPath = path.join(systemsDir, 'EventSystem.ts');
-  let lastEventName = 'business_tier_up';
-  try {
-    const esContent = fs.readFileSync(eventSystemPath, 'utf8');
-    const eventMatches = [...esContent.matchAll(/^\s+(\w+):\s*\{/gm)];
-    if (eventMatches.length > 0) {
-      lastEventName = eventMatches[eventMatches.length - 1][1];
-    }
-  } catch (err) {
-    logger.debug('[automation-batch-orchestration] non-critical error parsing event names from route file:', err.message || err);
-  }
-
-  // Read GameScene to find wiring pattern
-  const gameScenePath = path.join(workingDir, 'src', 'scenes', 'GameScene.ts');
-  let lastSystemImport = '';
-  let lastSystemField = '';
-  try {
-    const gsContent = fs.readFileSync(gameScenePath, 'utf8');
-    const importMatches = [...gsContent.matchAll(/import\s*\{\s*(\w+System)\s*\}\s*from/g)];
-    if (importMatches.length > 0) {
-      lastSystemImport = importMatches[importMatches.length - 1][1];
-    }
-    const fieldMatches = [...gsContent.matchAll(/private\s+(\w+System)!/g)];
-    if (fieldMatches.length > 0) {
-      lastSystemField = fieldMatches[fieldMatches.length - 1][1];
-    }
-  } catch (err) {
-    logger.debug('[automation-batch-orchestration] non-critical error parsing fields from route file:', err.message || err);
-  }
-
   // Extract user-provided specs
   const typesSpec = args.types_spec || '';
   const eventsSpec = args.events_spec || '';
   const dataSpec = args.data_spec || '';
   const systemSpec = args.system_spec || '';
 
-  // Build the 6 task descriptions
+  // Build the 5 task descriptions
   const tasks = {};
 
   // 1. Types task
@@ -253,7 +218,7 @@ ${description ? `Feature description: ${description}\n` : ''}${typesSpec ? `\nTy
   // 2. Events task
   tasks.events = `Edit src/systems/EventSystem.ts to add event types for the ${pascal} feature.
 
-Add new event types to the GameEvents interface after the "${lastEventName}" event (before the closing brace of GameEvents).
+Add new event types to the events interface (before the closing brace).
 
 ${eventsSpec ? `Events to add:\n${eventsSpec}` : `Add 3-4 events with typed payloads for the key actions in this feature (e.g., creation, completion, milestone).`}
 
@@ -296,21 +261,6 @@ Test the following areas:
 
 Use EventSystem.instance.subscribe to listen for events. Use Date.now = vi.fn(() => 1000) to control timestamps.`;
 
-  // 6. Wire task
-  tasks.wire = `Edit two existing files to wire ${pascal}System into the game:
-
-1. src/scenes/GameScene.ts:
-- Add import: import { ${pascal}System } from "../systems/${pascal}System";
-- Add private field: private ${kebab.replace(/-./g, c => c[1].toUpperCase())}System!: ${pascal}System;${lastSystemField ? ` (near ${lastSystemField})` : ''}
-- In the create() method, after the last system instantiation, add: this.${kebab.replace(/-./g, c => c[1].toUpperCase())}System = new ${pascal}System();
-- Add public getter: public get${pascal}System(): ${pascal}System { return this.${kebab.replace(/-./g, c => c[1].toUpperCase())}System; }
-
-2. src/systems/NotificationBridge.ts:
-- Add a relevant event name to the NotificationEvent type union
-- In the connect() method, add a new bind call with an appropriate toast notification
-
-Follow the EXACT same patterns as the existing ${lastSystemImport || 'system'} wiring in both files.`;
-
   let output = `## Generated Task Descriptions: ${pascal}System\n\n`;
   output += `**Feature:** ${featureName}\n`;
   output += `**Description:** ${description || '(none provided)'}\n\n`;
@@ -332,7 +282,6 @@ Follow the EXACT same patterns as the existing ${lastSystemImport || 'system'} w
     data_task: tasks.data,
     system_task: tasks.system,
     tests_task: tasks.tests,
-    wire_task: tasks.wire,
   }, null, 2).substring(0, 200) + '...\n```\n';
 
   return {
@@ -374,258 +323,6 @@ function findLargestFile(dirPath, ext, exclude, skipTests) {
   return best;
 }
 
-// ─── Feature 8: Feature Gap Cache ────────────────────────────────────────────
-
-const CACHE_DIR = path.join(__dirname, '..', '.cache');
-const GAP_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-function handleCacheFeatureGaps(args) {
-  const headwatersPath = args.headwaters_path || args.game_path;
-  const delugePath = args.deluge_path || args.platform_path;
-
-  if (!headwatersPath || !delugePath) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Both headwaters_path and deluge_path are required');
-  }
-
-  const cacheFile = path.join(CACHE_DIR, 'feature-gaps.json');
-  const forceRefresh = args.force_refresh === true;
-
-  // Scan Headwaters for existing systems (needed for both cache check and fresh scan)
-  const systemsDir = path.join(headwatersPath, 'src', 'systems');
-  const existingSystems = new Set();
-  try {
-    const files = fs.readdirSync(systemsDir);
-    for (const f of files) {
-      if (f.endsWith('System.ts') && !f.includes('__tests__') && !f.startsWith('.')) {
-        existingSystems.add(f.replace('.ts', ''));
-      }
-    }
-  } catch (err) {
-    logger.debug('[automation-batch-orchestration] non-critical error scanning feature systems:', err.message || err);
-  }
-
-  // Check cache freshness — invalidate if TTL expired OR system count changed
-  if (!forceRefresh && fs.existsSync(cacheFile)) {
-    try {
-      const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-      const withinTTL = cached.timestamp && (Date.now() - cached.timestamp) < GAP_CACHE_TTL_MS;
-      const systemCountMatch = cached.systemCount === existingSystems.size;
-      if (withinTTL && systemCountMatch) {
-        let output = `## Feature Gap Analysis (cached ${new Date(cached.timestamp).toLocaleString()})\n\n`;
-        output += formatGapAnalysis(cached);
-        output += `\n*Cache expires in ${Math.round((GAP_CACHE_TTL_MS - (Date.now() - cached.timestamp)) / 3600000)}h. Use \`force_refresh: true\` to update.*\n`;
-        return { content: [{ type: 'text', text: output }] };
-      }
-    } catch (err) {
-      logger.debug('[automation-batch-orchestration] non-critical error reading gap cache:', err.message || err);
-    }
-  }
-
-  // Scan Deluge for feature modules
-  const delugeFeatures = [];
-
-  // Scan src/lib/ for feature files
-  const libDir = path.join(delugePath, 'src', 'lib');
-  if (fs.existsSync(libDir)) {
-    try {
-      const libFiles = fs.readdirSync(libDir);
-      for (const f of libFiles) {
-        if (f.endsWith('.ts') && !f.startsWith('_') && !f.startsWith('.')) {
-          const name = f.replace('.ts', '');
-          const fullPath = path.join(libDir, f);
-          let lines = 0;
-          try {
-            lines = fs.readFileSync(fullPath, 'utf8').split('\n').length;
-          } catch (err) {
-            logger.debug('[automation-batch-orchestration] non-critical error reading lib feature file:', err.message || err);
-          }
-          delugeFeatures.push({ name, path: `src/lib/${f}`, lines, source: 'lib' });
-        }
-      }
-    } catch (err) {
-      logger.debug('[automation-batch-orchestration] non-critical error scanning lib feature directory:', err.message || err);
-    }
-  }
-
-  // Scan docs/plans/ for feature plans
-  const plansDir = path.join(delugePath, 'docs', 'plans');
-  if (fs.existsSync(plansDir)) {
-    try {
-      const plans = fs.readdirSync(plansDir);
-      for (const f of plans) {
-        if (f.endsWith('.md')) {
-          const name = f.replace(/^plan-\d+-/, '').replace('.md', '').replace(/-/g, ' ');
-          delugeFeatures.push({ name, path: `docs/plans/${f}`, lines: 0, source: 'plan' });
-        }
-      }
-    } catch (err) {
-      logger.debug('[automation-batch-orchestration] non-critical error scanning docs plans directory:', err.message || err);
-    }
-  }
-
-  // Map Deluge features to potential Headwaters systems
-  // Static map for non-obvious mappings
-  const systemNameMap = {
-    'volunteer': 'VolunteerSystem',
-    'referral': 'ReferralSystem',
-    'family': 'FamilySystem',
-    'verification': 'VerificationSystem',
-    'badges': 'BadgeSystem',
-    'circles': 'CircleSystem',
-    'notifications': 'NotificationSystem',
-    'donations': 'DonationSystem',
-    'giving': 'GivingSystem',
-    'matching': 'MatchingSystem',
-    'impact': 'ImpactTrackingSystem',
-    'skills': 'SkillsSystem',
-    'in-kind': 'InKindSystem',
-    'streak': 'StreakSystem',
-    'seasonal': 'SeasonalSystem',
-    'community-trust': 'CommunityTrustSystem',
-    'loans': 'LoanSystem',
-    'projects': 'ProjectManager',
-    'voting': 'CommunityVotingSystem',
-    'sponsorship': 'SponsorshipSystem',
-    'rally': 'RallySystem',
-    'business': 'BusinessDirectorySystem',
-  };
-
-  // Build a lowercase lookup set from existing systems for fuzzy matching
-  const systemNamesLower = new Map();
-  for (const sys of existingSystems) {
-    // "CreditBureauSystem" -> "creditbureau", "AmbassadorSystem" -> "ambassador"
-    systemNamesLower.set(sys.replace(/System$/, '').toLowerCase(), sys);
-  }
-
-  // Derive a PascalCase system name from a feature name
-  // "credit bureau" -> "CreditBureauSystem", "ambassador program" -> "AmbassadorProgramSystem"
-  function deriveSystemName(featureName) {
-    const pascal = featureName
-      .split(/[\s\-_]+/)
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join('');
-    return pascal + 'System';
-  }
-
-  // Check if a derived system name (or any prefix of it) matches an existing system
-  function findDerivedMatch(featureName) {
-    const derived = deriveSystemName(featureName);
-    // Exact match: "CreditBureauSystem" exists
-    if (existingSystems.has(derived)) return derived;
-    // Fuzzy: strip trailing words and check
-    const words = featureName.split(/[\s\-_]+/);
-    for (let len = words.length; len >= 1; len--) {
-      const prefix = words.slice(0, len).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('');
-      const candidate = prefix + 'System';
-      if (existingSystems.has(candidate)) return candidate;
-      // Also check lowercase fuzzy against the set
-      const lower = prefix.toLowerCase();
-      if (systemNamesLower.has(lower)) return systemNamesLower.get(lower);
-    }
-    return null;
-  }
-
-  // Categorize features
-  const implemented = [];
-  const gaps = [];
-  const partialMatches = [];
-
-  for (const feature of delugeFeatures) {
-    const featureKey = feature.name.toLowerCase().replace(/[^a-z]/g, '');
-
-    // 1. Try static map first
-    const matchedSystem = Object.entries(systemNameMap).find(([key]) => featureKey.includes(key));
-
-    if (matchedSystem && existingSystems.has(matchedSystem[1])) {
-      implemented.push({ ...feature, system: matchedSystem[1] });
-    } else if (matchedSystem) {
-      // Static map matched but system doesn't exist yet — check derived match too
-      const derived = findDerivedMatch(feature.name);
-      if (derived) {
-        implemented.push({ ...feature, system: derived });
-      } else {
-        partialMatches.push({ ...feature, suggestedSystem: matchedSystem[1] });
-      }
-    } else {
-      // 2. No static map match — try deriving system name from feature name
-      const derived = findDerivedMatch(feature.name);
-      if (derived) {
-        implemented.push({ ...feature, system: derived });
-      } else {
-        // 3. Suggest a system name for the gap
-        const suggested = deriveSystemName(feature.name);
-        gaps.push({ ...feature, suggestedSystem: suggested });
-      }
-    }
-  }
-
-  // Sort gaps by relevance (plan docs first, then by lines)
-  gaps.sort((a, b) => {
-    if (a.source === 'plan' && b.source !== 'plan') return -1;
-    if (a.source !== 'plan' && b.source === 'plan') return 1;
-    return b.lines - a.lines;
-  });
-
-  const cacheData = {
-    timestamp: Date.now(),
-    headwatersPath,
-    delugePath,
-    existingSystems: [...existingSystems],
-    systemCount: existingSystems.size,
-    implemented,
-    gaps,
-    partialMatches,
-    totalDelugeFeatures: delugeFeatures.length,
-  };
-
-  // Write cache
-  if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
-  }
-  fs.writeFileSync(cacheFile, JSON.stringify(cacheData, null, 2));
-
-  let output = '## Feature Gap Analysis (fresh scan)\n\n';
-  output += formatGapAnalysis(cacheData);
-
-  return { content: [{ type: 'text', text: output }] };
-}
-
-function formatGapAnalysis(data) {
-  let output = `**Headwaters systems:** ${data.existingSystems.length}\n`;
-  output += `**Deluge features:** ${data.totalDelugeFeatures}\n`;
-  output += `**Implemented:** ${data.implemented.length}\n`;
-  output += `**Gaps:** ${data.gaps.length}\n\n`;
-
-  if (data.gaps.length > 0) {
-    output += '### Unimplemented Features\n\n';
-    output += '| Feature | Source | Lines | Path |\n|---------|--------|-------|------|\n';
-    for (const gap of data.gaps.slice(0, 15)) {
-      output += `| ${gap.name} | ${gap.source} | ${gap.lines || '-'} | ${gap.path} |\n`;
-    }
-    output += '\n';
-  }
-
-  if (data.partialMatches.length > 0) {
-    output += '### Partially Matched (Deluge feature exists, system name identified)\n\n';
-    output += '| Feature | Suggested System | Path |\n|---------|-----------------|------|\n';
-    for (const pm of data.partialMatches) {
-      output += `| ${pm.name} | ${pm.suggestedSystem} | ${pm.path} |\n`;
-    }
-    output += '\n';
-  }
-
-  if (data.implemented.length > 0) {
-    output += '### Already Implemented\n\n';
-    output += '| Deluge Feature | Headwaters System |\n|---------------|------------------|\n';
-    for (const imp of data.implemented) {
-      output += `| ${imp.name} | ${imp.system} |\n`;
-    }
-    output += '\n';
-  }
-
-  return output;
-}
-
 // ─── Feature 9: Run Batch (Full Orchestration) ──────────────────────────────
 
 async function handleRunBatch(args) {
@@ -645,7 +342,7 @@ async function handleRunBatch(args) {
 
   const featureName = args.feature_name;
   if (!featureName) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'feature_name is required. Use `cache_feature_gaps` to identify the next feature.');
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'feature_name is required');
   }
   if (typeof featureName !== 'string') {
     return makeError(ErrorCodes.INVALID_PARAM, 'feature_name must be a string');
@@ -693,7 +390,7 @@ async function handleRunBatch(args) {
   if (!tasks) {
     return makeError(ErrorCodes.OPERATION_FAILED, output + 'Failed to generate task descriptions.');
   }
-  output += `Generated 6 task descriptions.\n\n`;
+  output += `Generated 5 task descriptions.\n\n`;
 
   // Step 2: Generate parallel test tasks
   // Note: handleGenerateTestTasks is imported from the main automation-handlers module
@@ -732,7 +429,6 @@ async function handleRunBatch(args) {
     data_task: tasks.data,
     system_task: tasks.system,
     tests_task: tasks.tests,
-    wire_task: tasks.wire,
     parallel_tasks: parallelTasks.map(t => ({
       node_id: t.node_id,
       task: t.task,
@@ -752,7 +448,7 @@ async function handleRunBatch(args) {
   }
 
   output += `Workflow created and running: \`${workflowId}\`\n`;
-  output += `**Total tasks:** ${6 + parallelTasks.length} (6 feature + ${parallelTasks.length} parallel tests)\n\n`;
+  output += `**Total tasks:** ${5 + parallelTasks.length} (5 feature + ${parallelTasks.length} parallel tests)\n\n`;
 
   // Step 4: Return workflow ID for monitoring
   output += '### Next Steps\n\n';
@@ -762,7 +458,7 @@ async function handleRunBatch(args) {
     workflow_id: workflowId,
     verify_command: 'npx tsc --noEmit && npx vitest run',
     auto_commit: true,
-    commit_message: `feat: add ${featureName}System + batch tests`,
+    commit_message: `feat: add ${featureName} + batch tests`,
     auto_push: false,
   }, null, 2);
   output += '\n```\n';
@@ -941,544 +637,19 @@ autoCommitBatch.init({
 });
 const { handleAutoCommitBatch } = autoCommitBatch;
 
-// ─── Feature 12: Extract Feature Spec from Deluge Plan ───────────────────────
-
-function handleExtractFeatureSpec(args) {
-  const planPath = args.plan_path;
-  if (!planPath) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'plan_path is required (e.g., "/path/to/deluge/docs/plans/plan-14-giving-circles.md")');
-  }
-  if (!isPathTraversalSafe(planPath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'plan_path contains path traversal');
-  }
-
-  if (!fs.existsSync(planPath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Plan file not found: ${planPath}`);
-  }
-
-  const planContent = fs.readFileSync(planPath, 'utf8');
-  const planFileName = path.basename(planPath, '.md');
-
-  // Extract feature name from filename (plan-14-giving-circles -> GivingCircles)
-  const nameFromFile = planFileName
-    .replace(/^plan-\d+-/, '')
-    .split('-')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-    .join('');
-
-  const featureName = args.feature_name || nameFromFile;
-
-  // Extract key sections from the plan
-  const sections = {};
-
-  // Get overview/description
-  const overviewMatch = planContent.match(/## Overview\s*\n+([\s\S]*?)(?=\n##\s|\n---)/);
-  sections.overview = overviewMatch ? overviewMatch[1].trim() : '';
-
-  // Extract Prisma schema models (entities)
-  const prismaBlocks = [...planContent.matchAll(/```prisma\n([\s\S]*?)```/g)];
-  const entities = [];
-  for (const block of prismaBlocks) {
-    const modelMatches = [...block[1].matchAll(/model\s+(\w+)\s*\{([\s\S]*?)\}/g)];
-    for (const m of modelMatches) {
-      const modelName = m[1];
-      const fields = [];
-      const fieldMatches = [...m[2].matchAll(/^\s+(\w+)\s+(String|Int|Float|Boolean|DateTime|Json)(\?)?/gm)];
-      for (const f of fieldMatches) {
-        fields.push({ name: f[1], type: f[2], optional: !!f[3] });
-      }
-      entities.push({ name: modelName, fields });
-    }
-  }
-
-  // Extract enums / status values from prisma models
-  const statusValues = [];
-  for (const entity of entities) {
-    for (const field of entity.fields) {
-      if (field.name === 'status' || field.name === 'type' || field.name === 'role') {
-        // Look for inline comments describing values
-        const commentMatch = planContent.match(new RegExp(`${field.name}\\s+String.*?//\\s*(.+)`));
-        if (commentMatch) {
-          statusValues.push({ entity: entity.name, field: field.name, values: commentMatch[1].trim() });
-        }
-      }
-    }
-  }
-
-  // Extract file references
-  const fileRefs = [...planContent.matchAll(/`(src\/[^`]+)`/g)].map(m => m[1]);
-
-  // Build the structured spec
-  const spec = {
-    feature_name: featureName,
-    description: sections.overview,
-    entities: entities.map(e => ({
-      name: e.name,
-      fields: e.fields.map(f => `${f.name}: ${f.type}${f.optional ? '?' : ''}`),
-    })),
-    status_enums: statusValues,
-    file_references: [...new Set(fileRefs)],
-  };
-
-  // Generate game-specific adaptation suggestions
-  const gameEntities = [];
-  const gameEnums = [];
-  const gameEvents = [];
-
-  for (const entity of entities) {
-    const isMain = entity.fields.length > 5;
-    if (isMain) {
-      gameEntities.push(entity.name);
-      // Convert PascalCase entity name to snake_case for event naming
-      const snakeName = entity.name.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
-      // Generate status-transition events from status/type fields instead of mechanical _created/_completed
-      const entityStatuses = statusValues.filter(sv => sv.entity === entity.name && sv.field === 'status');
-      if (entityStatuses.length > 0) {
-        // Use actual status values for meaningful events
-        const vals = entityStatuses[0].values.split(/[,|/]/).map(v => v.trim().toLowerCase()).filter(Boolean);
-        for (const val of vals) {
-          gameEvents.push(`${snakeName}_${val}`);
-        }
-      } else {
-        // Fallback: generate action-based events from entity purpose
-        const hasAmount = entity.fields.some(f => f.name === 'amount' || f.name === 'total');
-        const hasDate = entity.fields.some(f => f.name === 'date' || f.name === 'startDate' || f.name === 'endDate');
-        gameEvents.push(`${snakeName}_started`);
-        if (hasAmount) gameEvents.push(`${snakeName}_funded`);
-        if (hasDate) gameEvents.push(`${snakeName}_scheduled`);
-        gameEvents.push(`${snakeName}_completed`);
-      }
-    }
-  }
-
-  for (const sv of statusValues) {
-    gameEnums.push(`${sv.entity}${sv.field.charAt(0).toUpperCase() + sv.field.slice(1)}: ${sv.values}`);
-  }
-
-  // Build types spec
-  const typesSpec = entities.map(e => {
-    const relevantFields = e.fields.filter(f =>
-      !['createdAt', 'updatedAt', 'id'].includes(f.name) &&
-      !f.name.endsWith('Id') // skip foreign keys
-    );
-    return `interface ${e.name} { ${relevantFields.map(f => `${f.name}: ${f.type === 'Float' ? 'number' : f.type === 'Int' ? 'number' : f.type === 'Boolean' ? 'boolean' : f.type === 'DateTime' ? 'number' : f.type === 'Json' ? 'unknown' : 'string'}${f.optional ? ' | null' : ''}`).join('; ')} }`;
-  }).join('\n');
-
-  // Build events spec
-  const eventsSpec = gameEvents.map(e => `${e}: { id: string; /* key fields */ }`).join('\n');
-
-  let output = `## Feature Spec: ${featureName}\n\n`;
-  output += `**Source:** ${planPath}\n`;
-  output += `**Description:** ${sections.overview.substring(0, 200)}${sections.overview.length > 200 ? '...' : ''}\n\n`;
-
-  output += `### Entities (${entities.length})\n\n`;
-  for (const entity of entities) {
-    output += `- **${entity.name}** (${entity.fields.length} fields): ${entity.fields.slice(0, 5).map(f => f.name).join(', ')}${entity.fields.length > 5 ? '...' : ''}\n`;
-  }
-
-  output += `\n### Status Enums\n\n`;
-  for (const sv of statusValues) {
-    output += `- **${sv.entity}.${sv.field}:** ${sv.values}\n`;
-  }
-
-  output += `\n### Suggested Game Events\n\n`;
-  for (const event of gameEvents) {
-    output += `- ${event}\n`;
-  }
-
-  output += `\n### Ready-to-Use Parameters\n\n`;
-  output += 'Pass these directly to `generate_feature_tasks` or `run_batch`:\n\n';
-  output += '```json\n';
-  output += JSON.stringify({
-    feature_name: featureName,
-    feature_description: sections.overview.substring(0, 500),
-    types_spec: typesSpec,
-    events_spec: eventsSpec,
-  }, null, 2);
-  output += '\n```\n';
-
-  return {
-    content: [{ type: 'text', text: output }],
-    _spec: spec,
-    _params: {
-      feature_name: featureName,
-      feature_description: sections.overview.substring(0, 500),
-      types_spec: typesSpec,
-      events_spec: eventsSpec,
-    },
-  };
-}
-
-// ─── Feature 13: Plan Next Batch ─────────────────────────────────────────────
-
-function handlePlanNextBatch(args) {
-  const headwatersPath = args.headwaters_path || args.working_directory || process.cwd();
-  const delugePath = args.deluge_path;
-  const count = Math.min(Math.max(args.count || 3, 1), 10);
-
-  if (!delugePath) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'deluge_path is required');
-  }
-
-  // Step 1: Get or refresh gap analysis
-  handleCacheFeatureGaps({
-    headwaters_path: headwatersPath,
-    deluge_path: delugePath,
-  });
-
-  // Parse the cached data
-  const cacheFile = path.join(CACHE_DIR, 'feature-gaps.json');
-  let cacheData;
-  try {
-    cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-  } catch {
-    return makeError(ErrorCodes.OPERATION_FAILED, 'Could not read feature gap cache. Run cache_feature_gaps first.');
-  }
-
-  // Step 2: Score and rank gaps
-  const recommendations = [];
-
-  for (const gap of cacheData.gaps) {
-    if (gap.source !== 'plan') continue; // Only recommend features with plan docs
-
-    const planFile = path.join(delugePath, gap.path);
-    if (!fs.existsSync(planFile)) continue;
-
-    let planContent = '';
-    try {
-      planContent = fs.readFileSync(planFile, 'utf8');
-    } catch { continue; }
-
-    // Score based on:
-    // 1. Has Prisma schema (well-defined data model) = +3
-    // 2. Has clear phases = +2
-    // 3. Document size (longer = more thorough) = +1 per 1000 chars, max 3
-    // 4. References existing Headwaters concepts (loans, drops, etc.) = +2
-    let score = 0;
-
-    const hasPrisma = planContent.includes('```prisma');
-    if (hasPrisma) score += 3;
-
-    const phaseCount = (planContent.match(/## Phase \d/g) || []).length;
-    if (phaseCount >= 2) score += 2;
-
-    score += Math.min(3, Math.floor(planContent.length / 1000));
-
-    const gameTerms = ['drops', 'ripples', 'cascade', 'watershed', 'community', 'loan', 'project'];
-    const termMatches = gameTerms.filter(t => planContent.toLowerCase().includes(t)).length;
-    if (termMatches >= 2) score += 2;
-
-    // Extract a brief description
-    const overviewMatch = planContent.match(/## Overview\s*\n+([\s\S]*?)(?=\n##\s|\n---)/);
-    const overview = overviewMatch ? overviewMatch[1].trim().substring(0, 200) : '';
-
-    // Extract feature name from filename
-    const planFileName = path.basename(planFile, '.md');
-    const featureName = planFileName
-      .replace(/^plan-\d+-/, '')
-      .split('-')
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join('');
-
-    // Count Prisma models (complexity estimate)
-    const modelCount = (planContent.match(/^model\s+/gm) || []).length;
-
-    recommendations.push({
-      featureName,
-      planFile: gap.path,
-      fullPlanPath: planFile,
-      score,
-      overview,
-      hasPrisma,
-      phaseCount,
-      modelCount,
-      termMatches,
-    });
-  }
-
-  // Sort by score descending
-  recommendations.sort((a, b) => b.score - a.score);
-  const topPicks = recommendations.slice(0, count);
-
-  let output = `## Next Batch Recommendations\n\n`;
-  output += `**Existing systems:** ${cacheData.existingSystems.length}\n`;
-  output += `**Unimplemented features:** ${cacheData.gaps.length}\n`;
-  output += `**Scored candidates:** ${recommendations.length}\n\n`;
-
-  if (topPicks.length === 0) {
-    output += 'No suitable features found with plan documentation.\n';
-    return { content: [{ type: 'text', text: output }] };
-  }
-
-  output += `### Top ${topPicks.length} Recommendations\n\n`;
-
-  for (let i = 0; i < topPicks.length; i++) {
-    const rec = topPicks[i];
-    output += `#### ${i + 1}. ${rec.featureName} (score: ${rec.score})\n`;
-    output += `- **Plan:** ${rec.planFile}\n`;
-    output += `- **Prisma models:** ${rec.modelCount || 'none'} | **Phases:** ${rec.phaseCount} | **Game terms:** ${rec.termMatches}\n`;
-    output += `- **Overview:** ${rec.overview}${rec.overview.length >= 200 ? '...' : ''}\n\n`;
-  }
-
-  // Generate ready-to-use commands
-  output += '### Quick Start\n\n';
-  output += 'Extract spec and run batch for the top pick:\n\n';
-  output += '```\n';
-  output += `1. extract_feature_spec({ plan_path: "${topPicks[0].fullPlanPath.replace(/\\/g, '/')}" })\n`;
-  output += `2. run_batch({ working_directory: "${headwatersPath.replace(/\\/g, '/')}", feature_name: "${topPicks[0].featureName}", ... })\n`;
-  output += '```\n';
-
-  return {
-    content: [{ type: 'text', text: output }],
-    _recommendations: topPicks,
-  };
-}
-
-// ─── Phase 5: Final Automation Tools ────────────────────────────────────────
-
-/**
- * End-to-end batch orchestration: plan -> spec -> batch -> wire -> commit -> stats.
- * Single tool call replaces an entire conversation of sequential tool invocations.
- */
-async function handleRunFullBatch(args) {
-  try {
-  
-  const workDir = args.working_directory;
-  const delugePath = args.deluge_path;
-  if (!workDir) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
-  }
-  
-  if (!isPathTraversalSafe(workDir)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'working_directory contains path traversal');
-  }
-
-  const featureName = args.feature_name;       // Optional: skip planning, use this feature directly
-  const planPath = args.plan_path;             // Optional: skip planning, use this plan doc
-  if (planPath && !isPathTraversalSafe(planPath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'plan_path contains path traversal');
-  }
-  const spec = args.spec;                       // Optional: skip extraction, use this spec
-  const batchLabel = args.batch_label;          // Optional: custom batch label
-  const skipPlan = !!featureName || !!planPath;
-  const skipSpec = !!spec;
-  const autoCommit = args.auto_commit !== false;
-  const _push = args.push !== false;
-  const provider = args.provider || 'codex';
-
-  // Merge saved step_providers with per-call overrides (per-call wins)
-  const project = projectConfigCore().getProjectFromPath(workDir);
-  const savedStepProviders = (() => {
-    try { return JSON.parse(projectConfigCore().getProjectMetadata(project, 'step_providers') || '{}'); }
-    catch { return {}; }
-  })();
-  const stepProviders = { ...savedStepProviders, ...(args.step_providers || {}) };
-
-  try {
-    let output = '## Run Full Batch\n\n';
-    let resolvedFeatureName = featureName;
-    let resolvedSpec = spec;
-
-    // Step 1: Plan (unless feature_name or plan_path provided)
-    if (!skipPlan && delugePath) {
-      output += '### Step 1: Planning next batch...\n\n';
-      const planResult = handlePlanNextBatch({
-        headwaters_path: workDir,
-        deluge_path: delugePath,
-        count: 1,
-      });
-      if (planResult?.isError) {
-        return makeError(
-          ErrorCodes.INTERNAL_ERROR,
-          `Planning step failed: ${planResult.content?.[0]?.text || 'unknown error'}`
-        );
-      }
-      const planText = planResult.content?.[0]?.text || '';
-      output += planText + '\n\n';
-
-      // Extract top recommendation
-      const featureMatch = planText.match(/\*\*Feature:\*\*\s*`?(\w+)`?/);
-      const planPathMatch = planText.match(/\*\*Plan:\*\*\s*`?([^`\n]+)`?/);
-      if (featureMatch) resolvedFeatureName = featureMatch[1];
-      if (planPathMatch && !planPath) {
-        // Use extracted plan path for spec extraction
-        const extractedPlanPath = planPathMatch[1].trim();
-        if (!skipSpec && fs.existsSync(extractedPlanPath)) {
-          output += '### Step 2: Extracting spec...\n\n';
-          const specResult = handleExtractFeatureSpec({
-            plan_path: extractedPlanPath,
-            feature_name: resolvedFeatureName,
-          });
-          if (specResult?.isError) {
-            return makeError(
-              ErrorCodes.INTERNAL_ERROR,
-              `Spec extraction failed: ${specResult.content?.[0]?.text || 'unknown error'}`
-            );
-          }
-          const specText = specResult.content?.[0]?.text || '';
-          output += specText + '\n\n';
-          if (specResult._spec) resolvedSpec = specResult._spec;
-        }
-      }
-    } else if (planPath && !skipSpec) {
-      output += '### Step 1: Extracting spec from plan...\n\n';
-      const specResult = handleExtractFeatureSpec({
-        plan_path: planPath,
-        feature_name: resolvedFeatureName,
-      });
-      if (specResult?.isError) {
-        return makeError(
-          ErrorCodes.INTERNAL_ERROR,
-          `Spec extraction failed: ${specResult.content?.[0]?.text || 'unknown error'}`
-        );
-      }
-      const specText = specResult.content?.[0]?.text || '';
-      output += specText + '\n\n';
-      if (specResult._spec) resolvedSpec = specResult._spec;
-      if (specResult._params?.feature_name && !resolvedFeatureName) {
-        resolvedFeatureName = specResult._params.feature_name;
-      }
-    }
-
-    if (!resolvedFeatureName) {
-      output += '\n**Error:** Could not determine feature name. Provide `feature_name`, `plan_path`, or `deluge_path` for auto-planning.\n';
-      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, output);
-    }
-
-    // Step 3: Run batch (generate tasks + create workflow + execute)
-    output += `### Step 3: Running batch for ${resolvedFeatureName}...\n\n`;
-    const batchResult = await handleRunBatch({
-      working_directory: workDir,
-      feature_name: resolvedFeatureName,
-      spec: resolvedSpec || `Implement ${resolvedFeatureName} system`,
-      provider,
-      step_providers: stepProviders,
-      batch_name: batchLabel || `Full Batch — ${resolvedFeatureName}System`,
-    });
-    if (batchResult?.isError) {
-      return makeError(
-        ErrorCodes.INTERNAL_ERROR,
-        `Batch run failed: ${batchResult.content?.[0]?.text || 'unknown error'}`
-      );
-    }
-    const batchText = batchResult.content?.[0]?.text || '';
-    output += batchText + '\n\n';
-
-    // Extract workflow ID for monitoring
-    const wfMatch = batchText.match(/Workflow ID:\s*`?([a-f0-9-]+)`?/i) || batchText.match(/workflow_id.*?([a-f0-9-]{36})/i);
-    const workflowId = wfMatch ? wfMatch[1] : null;
-
-    output += '### Next Steps\n\n';
-    output += `1. Monitor workflow: \`workflow_status({ workflow_id: "${workflowId || '...'}" })\`\n`;
-    output += `2. Or use: \`await_workflow({ workflow_id: "${workflowId || '...'}" })\`\n`;
-    output += `3. After completion, wire the system:\n`;
-    output += `   - \`wire_system_to_gamescene({ working_directory: "${workDir}", system_name: "${resolvedFeatureName}" })\`\n`;
-    output += `   - \`wire_events_to_eventsystem({ ... })\`\n`;
-    output += `   - \`wire_notifications_to_bridge({ ... })\`\n`;
-    if (autoCommit) {
-      output += `4. Commit: \`auto_commit_batch({ working_directory: "${workDir}", batch_name: "${batchLabel || resolvedFeatureName}" })\`\n`;
-    }
-
-    return {
-      content: [{ type: 'text', text: output }],
-      _workflow_id: workflowId,
-      _feature_name: resolvedFeatureName,
-    };
-  } catch (err) {
-    return makeError(ErrorCodes.INTERNAL_ERROR, `Run full batch failed: ${err?.message}`);
-  }
-  } catch (err) {
-    return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
-  }}
-
-async function handleContinuousBatchSubmission(completedWorkflowId, workflowData, deps = {}) {
-  const database = deps.db || {
-    getConfig: (...args) => configCore().getConfig(...args),
-    recordEvent: (...args) => eventTracking().recordEvent(...args),
-  };
-  const log = deps.logger || logger;
-  const planNextBatch = deps.handlePlanNextBatch || handlePlanNextBatch;
-  const runBatch = deps.handleRunBatch || handleRunBatch;
-
-  try {
-    if (database.getConfig('continuous_batch_enabled') !== '1') {
-      return null;
-    }
-
-    const workingDir = workflowData?.working_directory || database.getConfig('continuous_batch_working_directory');
-    const delugePath = database.getConfig('continuous_batch_deluge_path');
-
-    if (!workingDir || !delugePath) {
-      log.warn('[Continuous Batch] Missing working_directory or deluge_path; skipping submission');
-      return null;
-    }
-
-    const planResult = await planNextBatch({
-      working_directory: workingDir,
-      deluge_path: delugePath,
-      count: 1,
-    });
-    const recommendation = planResult?._recommendations?.[0];
-
-    if (!recommendation) {
-      log.info('No features available for continuous batch');
-      return null;
-    }
-
-    const rawStepProviders = database.getConfig('continuous_batch_step_providers');
-    let stepProviders;
-    if (rawStepProviders) {
-      try { stepProviders = JSON.parse(rawStepProviders); } catch { stepProviders = undefined; }
-    }
-
-    const runResult = await runBatch({
-      working_directory: workingDir,
-      feature_name: recommendation.featureName,
-      step_providers: stepProviders,
-      batch_name: `auto-batch-${recommendation.featureName}`,
-    });
-    const workflowId = runResult?._workflow_id;
-
-    database.recordEvent('continuous_batch_submitted', completedWorkflowId, {
-      next_workflow_id: workflowId,
-      feature_name: recommendation.featureName,
-      score: recommendation.score,
-    });
-    log.info(`[Continuous Batch] Submitted ${recommendation.featureName} as workflow ${workflowId}`);
-
-    return {
-      workflow_id: workflowId,
-      feature_name: recommendation.featureName,
-    };
-  } catch (err) {
-    log.warn('[Continuous Batch] Failed to submit next batch:', err?.message || err);
-    return null;
-  }
-}
-
 function createAutomationBatchOrchestration() {
   return {
     handleGenerateFeatureTasks,
-    handleCacheFeatureGaps,
     handleRunBatch,
     handleDetectFileConflicts,
     handleAutoCommitBatch,
-    handleExtractFeatureSpec,
-    handlePlanNextBatch,
-    handleRunFullBatch,
-    handleContinuousBatchSubmission,
   };
 }
 
 module.exports = {
   handleGenerateFeatureTasks,
-  handleCacheFeatureGaps,
   handleRunBatch,
   handleDetectFileConflicts,
   handleAutoCommitBatch,
-  handleExtractFeatureSpec,
-  handlePlanNextBatch,
-  handleRunFullBatch,
-  handleContinuousBatchSubmission,
   createAutomationBatchOrchestration,
 };

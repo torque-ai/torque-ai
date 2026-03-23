@@ -90,7 +90,7 @@ function createFeatureFixture(workingDir) {
   );
 
   fs.writeFileSync(
-    path.join(systemsDir, 'NotificationBridge.ts'),
+    path.join(systemsDir, 'SampleBridge.ts'),
     `export type NotificationEvent = 'order_completed' | 'order_canceled';`
   );
 
@@ -115,10 +115,10 @@ function createFeatureFixture(workingDir) {
   );
 
   fs.writeFileSync(
-    path.join(scenesDir, 'GameScene.ts'),
+    path.join(scenesDir, 'AppScene.ts'),
     `import { SampleSystem } from "../systems/SampleSystem";
 
-export class GameScene {
+export class AppScene {
   private sampleSystem!: SampleSystem;
 
   create() {
@@ -128,47 +128,6 @@ export class GameScene {
   );
 }
 
-function createPlanFixture(workingDir) {
-  const plansDir = path.join(workingDir, 'docs', 'plans');
-  fs.mkdirSync(plansDir, { recursive: true });
-  const planPath = path.join(plansDir, 'plan-14-donation-points.md');
-
-  const planContent = `# Plan 14: Donation Points
-
-## Overview
-
-Donation points coordinate community rewards and tracking.
-
-## Phase 1
-
-Foundation schema for point awards.
-
-\`\`\`prisma
-model Reward {
-  id       String @id
-  userId   String
-  amount   Float
-  status   String // pending, granted, redeemed
-  createdAt DateTime
-}
-
-model RewardLedger {
-  id       String @id
-  rewardId String
-  total    Float
-  type     String // credit, debit
-  date     DateTime
-}
-\`\`\`
-
-## Phase 2
-
-Add redemption and reporting.
-`;
-
-  fs.writeFileSync(planPath, planContent);
-  return planPath;
-}
 
 function createJsSource(workingDir, relativePath, lines = 24) {
   const fullPath = path.join(workingDir, 'src', relativePath);
@@ -245,7 +204,7 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result.isError).toBe(true);
     });
 
-    it('generates six task descriptions for a valid feature with reference project files', () => {
+    it('generates five task descriptions for a valid feature with reference project files', () => {
       const workingDir = createTempDir();
       createFeatureFixture(workingDir);
 
@@ -265,7 +224,6 @@ describe('automation-batch-orchestration handlers', () => {
       expect(text).toContain('#### data');
       expect(text).toContain('#### system');
       expect(text).toContain('#### tests');
-      expect(text).toContain('#### wire');
 
       const sections = Object.keys(result._tasks);
       expect(sections).toEqual(expect.arrayContaining([
@@ -274,9 +232,9 @@ describe('automation-batch-orchestration handlers', () => {
         'data',
         'system',
         'tests',
-        'wire',
       ]));
-      expect((text.match(/#### /g) || []).length).toBe(6);
+      expect(sections).not.toContain('wire');
+      expect((text.match(/#### /g) || []).length).toBe(5);
       for (const section of sections) {
         expect(typeof result._tasks[section]).toBe('string');
         expect(result._tasks[section].trim().length).toBeGreaterThan(0);
@@ -285,7 +243,6 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result._tasks.types).toContain('Track and score customer orders');
       expect(result._tasks.system).toContain('OrderFlowSystem');
       expect(result._tasks.events).toContain('order_completed');
-      expect(result._tasks.wire).toContain('orderFlowSystem');
     });
 
     it('generates non-empty task descriptions with no optional reference files', () => {
@@ -307,23 +264,9 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result._tasks.events).toContain('Edit src/systems/EventSystem.ts');
       expect(result._tasks.system).toContain('Create src/systems/QuickShipSystem.ts implementing the QuickShip feature.');
       expect(result._tasks.tests).toContain('Create src/systems/__tests__/QuickShipSystem.test.ts');
-      expect(result._tasks.wire).toContain('Edit two existing files');
     });
   });
 
-  describe('handleCacheFeatureGaps', () => {
-    it('returns error when headwaters_path is missing', () => {
-      const result = handlers.handleCacheFeatureGaps({});
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toMatch(/headwaters_path|working_directory/i);
-    });
-
-    it('returns error when deluge_path is missing', () => {
-      const result = handlers.handleCacheFeatureGaps({ headwaters_path: '/tmp' });
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toMatch(/deluge_path/i);
-    });
-  });
 
   describe('handleDetectFileConflicts', () => {
     it('returns error when workflow_id is missing', () => {
@@ -611,89 +554,6 @@ describe('automation-batch-orchestration handlers', () => {
     });
   });
 
-  describe('handleExtractFeatureSpec', () => {
-    it('returns error when plan_path is missing', () => {
-      const result = handlers.handleExtractFeatureSpec({});
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toMatch(/plan_path/i);
-    });
-
-    it('returns error when plan file does not exist', () => {
-      const result = handlers.handleExtractFeatureSpec({ plan_path: '/nonexistent/plan.md' });
-      expect(result.isError).toBe(true);
-    });
-
-    it('extracts entities and fields from prisma blocks', () => {
-      const workingDir = createTempDir();
-      const planPath = createPlanFixture(workingDir);
-
-      const result = handlers.handleExtractFeatureSpec({ plan_path: planPath });
-
-      expect(result.isError).toBeFalsy();
-      const text = result.content[0].text;
-
-      expect(result._spec).toBeDefined();
-      expect(result._spec.entities).toHaveLength(2);
-      expect(result._spec.entities[0].name).toBe('Reward');
-      expect(result._spec.entities[1].name).toBe('RewardLedger');
-      expect(result._spec.entities[0].fields).toContain('id: String');
-      expect(text).toContain('### Entities (2)');
-      expect(text).toContain('Reward');
-      expect(text).toContain('RewardLedger');
-    });
-
-    it('extracts status enum values from inline field comments', () => {
-      const workingDir = createTempDir();
-      const planPath = createPlanFixture(workingDir);
-
-      const result = handlers.handleExtractFeatureSpec({ plan_path: planPath });
-
-      expect(result.isError).toBeFalsy();
-      expect(result._spec.status_enums).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            entity: 'Reward',
-            field: 'status',
-            values: expect.stringContaining('pending'),
-          }),
-          expect.objectContaining({
-            entity: 'RewardLedger',
-            field: 'type',
-            values: expect.stringContaining('credit'),
-          }),
-        ])
-      );
-      expect(result.content[0].text).toContain('pending');
-      expect(result.content[0].text).toContain('credit');
-    });
-
-    it('extracts file references from backtick code in the plan', () => {
-      const workingDir = createTempDir();
-      const planPath = createPlanFixture(workingDir);
-      fs.appendFileSync(planPath, '\nAlso referenced in `src/lib/rewards/engine.ts`.\n');
-
-      const result = handlers.handleExtractFeatureSpec({ plan_path: planPath });
-
-      expect(result.isError).toBeFalsy();
-      expect(result._spec.file_references).toContain('src/lib/rewards/engine.ts');
-    });
-
-    it('derives feature name from plan filename and honors override', () => {
-      const workingDir = createTempDir();
-      const planPath = createPlanFixture(workingDir);
-
-      const derived = handlers.handleExtractFeatureSpec({ plan_path: planPath });
-      const override = handlers.handleExtractFeatureSpec({
-        plan_path: planPath,
-        feature_name: 'ManualDonationPoints',
-      });
-
-      expect(derived.isError).toBeFalsy();
-      expect(override.isError).toBeFalsy();
-      expect(derived.content[0].text).toContain('DonationPoints');
-      expect(override.content[0].text).toContain('ManualDonationPoints');
-    });
-  });
 
   describe('handleGenerateTestTasks', () => {
     it('returns error when working_directory is missing', () => {
@@ -835,51 +695,6 @@ describe('automation-batch-orchestration handlers', () => {
     });
   });
 
-  describe('handlePlanNextBatch', () => {
-    it('returns recommendations with models and phases parsed when plan doc has phases', () => {
-      const headwatersDir = createTempDir();
-      const delugeDir = createTempDir();
-      fs.mkdirSync(path.join(headwatersDir, 'src', 'systems'), { recursive: true });
-
-      const planPath = path.join(delugeDir, 'docs', 'plans');
-      fs.mkdirSync(planPath, { recursive: true });
-      fs.writeFileSync(
-        path.join(planPath, 'plan-66-aurora-wave.md'),
-        `# Plan 66: Credit Flow
-
-## Overview
-
-Explore an experimental pipeline.
-
-## Phase 1
-
-Model setup.
-
-\`\`\`prisma
-model Credit {
-  id String @id
-}
-\`\`\`
-
-## Phase 2
-
-Add runtime behavior.
-`
-      );
-
-      const result = handlers.handlePlanNextBatch({
-        headwaters_path: headwatersDir,
-        deluge_path: delugeDir,
-        count: 1,
-      });
-
-      expect(result.isError).toBeFalsy();
-      expect(result.content[0].text).toContain('Next Batch Recommendations');
-      expect(result._recommendations).toBeInstanceOf(Array);
-      expect(result._recommendations[0].phaseCount).toBe(2);
-      expect(result._recommendations[0].modelCount).toBeGreaterThanOrEqual(0);
-    });
-  });
 
   describe('handleRunBatch', () => {
     it('returns error when working_directory is missing', async () => {
@@ -895,139 +710,4 @@ Add runtime behavior.
     });
   });
 
-  describe('handleContinuousBatchSubmission', () => {
-    it('returns null when continuous batch submission is disabled', async () => {
-      const planNextBatch = vi.fn();
-      const runBatch = vi.fn();
-      const result = await handlers.handleContinuousBatchSubmission(
-        'wf-complete',
-        { working_directory: '/repo' },
-        {
-          db: {
-            getConfig: vi.fn().mockImplementation(createConfigMock({
-              continuous_batch_enabled: '0',
-            })),
-            recordEvent: vi.fn(),
-          },
-          logger: { info: vi.fn(), warn: vi.fn() },
-          handlePlanNextBatch: planNextBatch,
-          handleRunBatch: runBatch,
-        }
-      );
-
-      expect(result).toBeNull();
-      expect(planNextBatch).not.toHaveBeenCalled();
-      expect(runBatch).not.toHaveBeenCalled();
-    });
-
-    it('logs and returns null when no recommendation is available', async () => {
-      const info = vi.fn();
-      const runBatch = vi.fn();
-      const result = await handlers.handleContinuousBatchSubmission(
-        'wf-complete',
-        { working_directory: '/repo' },
-        {
-          db: {
-            getConfig: vi.fn().mockImplementation(createConfigMock({
-              continuous_batch_enabled: '1',
-              continuous_batch_deluge_path: '/deluge',
-            })),
-            recordEvent: vi.fn(),
-          },
-          logger: { info, warn: vi.fn() },
-          handlePlanNextBatch: vi.fn().mockResolvedValue({ _recommendations: [] }),
-          handleRunBatch: runBatch,
-        }
-      );
-
-      expect(result).toBeNull();
-      expect(info).toHaveBeenCalledWith('No features available for continuous batch');
-      expect(runBatch).not.toHaveBeenCalled();
-    });
-
-    it('plans and submits the next workflow using configured defaults', async () => {
-      const recordEvent = vi.fn();
-      const getConfig = vi.fn().mockImplementation(createConfigMock({
-        continuous_batch_enabled: '1',
-        continuous_batch_working_directory: '/configured-repo',
-        continuous_batch_deluge_path: '/deluge',
-        continuous_batch_step_providers: '{"wire":"ollama","tests":"codex"}',
-      }));
-      const info = vi.fn();
-      const warn = vi.fn();
-      const handlePlanNextBatch = vi.fn().mockResolvedValue({
-        _recommendations: [{ featureName: 'AuroraWave', score: 9 }],
-      });
-      const handleRunBatch = vi.fn().mockResolvedValue({
-        _workflow_id: 'workflow-123',
-      });
-
-      const result = await handlers.handleContinuousBatchSubmission(
-        'wf-complete',
-        {},
-        {
-          db: { getConfig, recordEvent },
-          logger: { info, warn },
-          handlePlanNextBatch,
-          handleRunBatch,
-        }
-      );
-
-      expect(handlePlanNextBatch).toHaveBeenCalledWith({
-        working_directory: '/configured-repo',
-        deluge_path: '/deluge',
-        count: 1,
-      });
-      expect(handleRunBatch).toHaveBeenCalledWith({
-        working_directory: '/configured-repo',
-        feature_name: 'AuroraWave',
-        step_providers: { wire: 'ollama', tests: 'codex' },
-        batch_name: 'auto-batch-AuroraWave',
-      });
-      expect(recordEvent).toHaveBeenCalledWith('continuous_batch_submitted', 'wf-complete', {
-        next_workflow_id: 'workflow-123',
-        feature_name: 'AuroraWave',
-        score: 9,
-      });
-      expect(info).toHaveBeenCalledWith('[Continuous Batch] Submitted AuroraWave as workflow workflow-123');
-      expect(result).toEqual({
-        workflow_id: 'workflow-123',
-        feature_name: 'AuroraWave',
-      });
-      expect(warn).not.toHaveBeenCalled();
-    });
-
-    it('swallows errors and logs a warning', async () => {
-      const warn = vi.fn();
-      const error = new Error('planner failed');
-
-      const result = await handlers.handleContinuousBatchSubmission(
-        'wf-complete',
-        { working_directory: '/repo' },
-        {
-          db: {
-            getConfig: vi.fn().mockImplementation(createConfigMock({
-              continuous_batch_enabled: '1',
-              continuous_batch_deluge_path: '/deluge',
-            })),
-            recordEvent: vi.fn(),
-          },
-          logger: { info: vi.fn(), warn },
-          handlePlanNextBatch: vi.fn().mockRejectedValue(error),
-          handleRunBatch: vi.fn(),
-        }
-      );
-
-      expect(result).toBeNull();
-      expect(warn).toHaveBeenCalledWith('[Continuous Batch] Failed to submit next batch:', 'planner failed');
-    });
-  });
-
-  describe('handleRunFullBatch', () => {
-    it('returns error when working_directory is missing', async () => {
-      const result = await handlers.handleRunFullBatch({});
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toMatch(/working_directory/i);
-    });
-  });
 });

@@ -281,7 +281,7 @@ Set `heartbeat_minutes: 0` to disable heartbeats (legacy behavior).
 
 ## Workflow Discipline
 
-When TORQUE is the execution engine for a project (e.g., Headwaters):
+When TORQUE is the execution engine for a project:
 - **NEVER manually implement what TORQUE should produce** — types, data, events, systems, tests, and wiring are TORQUE's job
 - **Claude's role: architect + orchestrator** — plan, submit, verify, integrate, resolve conflicts
 - **On TORQUE failure: diagnose → fix root cause → resubmit** — do NOT bypass by writing the code manually

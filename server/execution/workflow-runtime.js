@@ -27,7 +27,6 @@ let _startTask = null;
 let _cancelTask = null;
 let _processQueue = null;
 let _dashboard = null;
-let _continuousBatchHandler = null;
 const terminalGuards = new Map(); // workflowId -> boolean
 const terminalPending = new Map(); // workflowId -> Set of taskIds waiting for re-evaluation
 
@@ -47,8 +46,6 @@ function init(deps) {
   if (deps.cancelTask) _cancelTask = deps.cancelTask;
   if (deps.processQueue) _processQueue = deps.processQueue;
   if (deps.dashboard) _dashboard = deps.dashboard;
-  _continuousBatchHandler = null;
-  if (deps.handleContinuousBatchSubmission) _continuousBatchHandler = deps.handleContinuousBatchSubmission;
 }
 
 // ---------------------------------------------------------------------------
@@ -1074,22 +1071,6 @@ function checkWorkflowCompletion(workflowId) {
     // Finalize audit run status when audit workflow completes
     maybeFinalizeAuditRun(workflowId, finalStatus);
 
-    // Continuous batch submission - auto-queue next feature if enabled
-    if (finalStatus === 'completed' && _continuousBatchHandler) {
-      const completedWorkflow = db.getWorkflow ? db.getWorkflow(workflowId) : null;
-      if (completedWorkflow) {
-        const activeLogger = logger || console;
-        Promise.resolve()
-          .then(() => _continuousBatchHandler(workflowId, completedWorkflow, {
-            db,
-            logger: activeLogger,
-          }))
-          .catch(err => {
-            const message = err && err.message ? err.message : String(err);
-            activeLogger.warn(`[Continuous Batch] Auto-submission failed: ${message}`);
-          });
-      }
-    }
     if (finalStatus === 'completed') {
       try {
         const conflictResult = resolveWorkflowConflicts(workflowId);
