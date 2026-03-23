@@ -602,6 +602,15 @@ function init() {
     // Non-fatal during migration — existing require() paths still work
   }
 
+  // Migrate legacy config keys (ollama_model, hashline_capable_models, etc.) into
+  // model_roles and model_capabilities. Idempotent — safe on every startup.
+  try {
+    const { migrateConfigToRegistry } = require('./discovery/config-migrator');
+    migrateConfigToRegistry(db.getDbInstance());
+  } catch (err) {
+    logger.warn(`Config-to-registry migration: ${err.message}`);
+  }
+
   // Initialize remote agent registry (needs raw better-sqlite3 instance)
   agentRegistry = new RemoteAgentRegistry(db.getDbInstance());
 
