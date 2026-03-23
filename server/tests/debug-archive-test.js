@@ -1,6 +1,6 @@
 'use strict';
 process.chdir(__dirname + '/..');
-const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, safeTool } = require('./vitest-setup');
 const { v4: uuidv4 } = require('uuid');
 
 async function main() {
