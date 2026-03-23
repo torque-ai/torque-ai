@@ -81,6 +81,8 @@ Step 4 replaces all hardcoded `'qwen2.5-coder:32b'` references. If a host has mo
 - `server/orchestrator/strategic-brain.js` (line 25) — `DEFAULT_MODELS.ollama`
 - `server/providers/ollama-strategic.js` (line 28) — `this.defaultModel` fallback
 - `server/db/host-complexity.js` (lines 198-200) — three tier model fallbacks
+- `server/db/smart-routing.js` (line 826) — hardcoded `'qwen3-coder:30b'` fallback
+- `server/db/host-selection.js` (line 33) — model-to-tier mapping references `'qwen2.5-coder:32b'`
 
 **API layer (new PATCH endpoint — does not currently exist):**
 - `server/dashboard/routes/infrastructure.js` — add `PATCH /hosts/:id` endpoint
