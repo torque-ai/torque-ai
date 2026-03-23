@@ -6,7 +6,6 @@
 const configCore = require('../db/config-core');
 const hostManagement = require('../db/host-management');
 const serverConfig = require('../config');
-serverConfig.init({ db: configCore });
 const { ErrorCodes, makeError } = require('./error-codes');
 
 /**
@@ -723,7 +722,7 @@ function handleGetHardwareTuning(_args) {
   output += `| RTX 3090/4090 | 24GB | 70 (32B), Full (16B and below) |\n\n`;
   output += `**Benchmark Results (RTX 3090/4090):**\n`;
   output += `- qwen3-coder:30b-a3b (MoE): ~112 tok/s @ auto (recommended)\n`;
-  output += `- qwen2.5-coder:32b: 36 tok/s @ num_gpu=70 (legacy)\n`;
+  output += `- (legacy 32b models): ~36 tok/s @ num_gpu=70\n`;
   output += `- deepseek-coder-v2:16b: 192 tok/s @ auto\n`;
   output += `- phi3:14b: 77 tok/s @ auto\n\n`;
 
