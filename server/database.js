@@ -665,45 +665,40 @@ function resetForTest(buffer) {
 // are now in db/backup-core.js and db/email-peek.js (Phase 5.2 / D1)
 
 // ============================================================
-// Exports: core functions + merged sub-module APIs
+// Exports: Connection lifecycle + core utilities ONLY
 // ============================================================
+//
+// The facade merge loop that re-exported 800+ functions from 47 sub-modules
+// has been REMOVED. All consumers now import sub-modules directly:
+//
+//   const taskCore = require('./db/task-core');
+//   const configCore = require('./db/config-core');
+//   const workflowEngine = require('./db/workflow-engine');
+//
+// This module exports ONLY connection lifecycle and core utility functions.
+// For sub-module access, use the DI container: container.get('taskCore')
 
-// Dependency-injection wiring functions (internal, not part of public API)
-const _DI_INTERNALS = new Set([
-  'setDb', 'setGetTask', 'setDbFunctions', 'setRecordEvent',
-  'setRecordTaskEvent', 'setGetPipeline', 'setCreatePipeline',
-  'setGetTaskEvents', 'setGetRetryHistory', 'setRecordAuditLog',
-  'setGetApprovalHistory', 'setCreateTask', 'setHostManagement',
-  'setGetProjectRoot', 'setDataDir', 'setInternals', 'setGetProjectMetadata',
-  'setExternalFns', 'setDbClosed',
-  // Factory functions (DI setup, not public API)
-  'createConfigCore', 'createTaskCore', 'createWebhooksStreaming',
-  'createCodeAnalysis', 'createAuditStore', 'createEmailPeek',
-  'createPeekFixtureCatalog', 'createPackRegistry', 'createPeekPolicyAudit',
-  'createPeekRecoveryApprovals', 'createRecoveryMetrics', 'createInboundWebhooks',
-  'createCiCache', 'createWorkflowEngine', 'createCostTracking',
-  'createCoordination', 'createFileTracking', 'createHostManagement',
-  'createSchedulingAutomation', 'createTaskMetadata', 'createProviderRoutingCore',
-  'createEventTracking', 'createAnalytics', 'createProjectConfigCore',
-  'createBackupCore', 'createValidationRules', 'createPolicyProfileStore',
-  'createPolicyEvaluationStore',
-]);
-
-const coreExports = {
-  // Utility functions
-  safeJsonParse,
-  safeAddColumn,
-  validateColumnName,
-  getDataDir: () => DATA_DIR,
-  getDbPath: () => DB_PATH,
+module.exports = {
+  // Connection lifecycle
+  init,
+  close,
+  onClose,
+  resetForTest,
   getDbInstance,
   isDbClosed: () => dbClosed,
   isReady: () => !!db && !dbClosed,
-  // DI wiring helpers — retained for backward compat (container.js is the preferred path)
+  getDataDir: () => DATA_DIR,
+  getDbPath: () => DB_PATH,
+
+  // Core utilities (no sub-module equivalent)
+  safeJsonParse,
+  safeAddColumn,
+  validateColumnName,
+
+  // DI wiring (internal)
   _wireAllModules,
-  // Legacy DI wiring functions removed — use _wireAllModules() instead
-  // Core task operations
-  init,
+
+  // Core task operations (thin wrappers → taskCore)
   createTask,
   getTask,
   updateTask,
@@ -712,20 +707,16 @@ const coreExports = {
   requeueTaskAfterAttemptedStart,
   updateTaskProgress,
   listTasks,
-  listQueuedTasksLightweight,
-  checkApprovalRequired: schedulingAutomation.checkApprovalRequired,
   deleteTask,
   deleteTasks,
   countTasks,
   countTasksByStatus,
-  archiveOldTasks,
-  purgeOldTaskOutput,
   getRunningCount,
   getRunningCountByProvider,
   getRunningTasksLightweight,
   getNextQueuedTask,
   tryClaimTaskSlot,
-  // Named service methods (no raw SQL in callers)
+  listQueuedTasksLightweight,
   patchTaskMetadata,
   patchTaskSlotBinding,
   getRecentSuccessfulTasks,
@@ -733,91 +724,17 @@ const coreExports = {
   clearProviderIfNotRunning,
   getTaskStatus,
   requeueAfterSlotFailure,
-  // Configuration
+  archiveOldTasks,
+  purgeOldTaskOutput,
+
+  // Core config operations (thin wrappers → configCore)
   getConfig,
   setConfig,
   setConfigDefault,
   getAllConfig,
   getProviderRateLimits,
-  close,
-  onClose,
+
+  // Listeners
   addTaskStatusTransitionListener,
   removeTaskStatusTransitionListener,
-  // Test-only
-  resetForTest,
-  // Backup/restore (delegated to db/backup-core.js)
-  backupDatabase: (...a) => backupCore.backupDatabase(...a),
-  startBackupScheduler: (...a) => backupCore.startBackupScheduler(...a),
-  stopBackupScheduler: () => backupCore.stopBackupScheduler(),
-  restoreDatabase: (...a) => backupCore.restoreDatabase(...a),
-  listBackups: (...a) => backupCore.listBackups(...a),
-  cleanupOldBackups: (...a) => backupCore.cleanupOldBackups(...a),
-  // Failover/email/peek (delegated to db/email-peek.js)
-  recordFailoverEvent: (...a) => emailPeek.recordFailoverEvent(...a),
-  getFailoverEvents: (...a) => emailPeek.getFailoverEvents(...a),
-  recordEmailNotification: (...a) => emailPeek.recordEmailNotification(...a),
-  listEmailNotifications: (...a) => emailPeek.listEmailNotifications(...a),
-  getEmailNotification: (...a) => emailPeek.getEmailNotification(...a),
-  updateEmailNotificationStatus: (...a) => emailPeek.updateEmailNotificationStatus(...a),
-  registerPeekHost: (...a) => emailPeek.registerPeekHost(...a),
-  unregisterPeekHost: (...a) => emailPeek.unregisterPeekHost(...a),
-  listPeekHosts: () => emailPeek.listPeekHosts(),
-  getDefaultPeekHost: () => emailPeek.getDefaultPeekHost(),
-  getPeekHost: (...a) => emailPeek.getPeekHost(...a),
-  updatePeekHost: (...a) => emailPeek.updatePeekHost(...a),
 };
-
-// Sub-modules whose exports are merged into the database API surface
-const _subModules = [
-  codeAnalysis, costTracking, hostManagement, workflowEngine, fileTracking,
-  schedulingAutomation, taskMetadata, coordination,
-  providerRoutingCore,
-  eventTracking, analytics,
-  webhooksStreaming, inboundWebhooks,
-  projectConfigCore, validationRules,
-  backupCore, emailPeek, peekFixtureCatalog, packRegistry,
-  peekPolicyAudit, peekRecoveryApprovals, recoveryMetrics,
-  policyProfileStore, policyEvaluationStore,
-  auditStore,
-  {
-    mod: ciCache,
-    fns: [
-      'upsertCiRunCache',
-      'getCiRunCache',
-      'listCiRunCache',
-      'pruneCiRunCache',
-      'upsertCiWatch',
-      'getCiWatch',
-      'deactivateCiWatch',
-      'listActiveCiWatches',
-    ],
-  },
-];
-
-// Build merged exports: core functions take precedence, DI wiring is excluded.
-// Sub-module functions use live-binding getters so that vi.spyOn(subModule, 'fn')
-// is visible through db.fn() — enables test DI migration to sub-module targets.
-const mergedExports = { ...coreExports };
-for (const modOrSpec of _subModules) {
-  const mod = modOrSpec.mod || modOrSpec;
-  const onlyFns = Array.isArray(modOrSpec.fns) ? new Set(modOrSpec.fns) : null;
-  for (const [key, value] of Object.entries(mod)) {
-    if (onlyFns && !onlyFns.has(key)) {
-      continue;
-    }
-    if (!_DI_INTERNALS.has(key) && !(key in mergedExports)) {
-      // Use getter to create live binding: db.fn() delegates to subModule.fn()
-      // at call time, so vi.spyOn(subModule, 'fn') is visible through db.fn().
-      const sourceModule = mod;
-      const sourceKey = key;
-      Object.defineProperty(mergedExports, key, {
-        get() { return sourceModule[sourceKey]; },
-        set(v) { sourceModule[sourceKey] = v; },
-        enumerable: true,
-        configurable: true,
-      });
-    }
-  }
-}
-
-module.exports = mergedExports;
