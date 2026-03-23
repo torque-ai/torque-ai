@@ -821,9 +821,9 @@ describe('fallback-retry module', () => {
         model: 'qwen2.5-coder:14b'
       });
 
-      const originalUpdate = taskCore.updateTaskStatus;
+      const originalUpdate = db.updateTaskStatus;
       let call = 0;
-      taskCore.updateTaskStatus = vi.fn((id, status, updates) => {
+      db.updateTaskStatus = vi.fn((id, status, updates) => {
         call++;
         if (call === 1 && status === 'queued') {
           throw new Error('Cannot update status');
@@ -835,7 +835,7 @@ describe('fallback-retry module', () => {
         const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 500 });
         expect(ok).toBe(true);
       } finally {
-        taskCore.updateTaskStatus = originalUpdate;
+        db.updateTaskStatus = originalUpdate;
       }
 
       const updated = taskCore.getTask(task.id);
@@ -909,19 +909,19 @@ describe('fallback-retry module', () => {
 
   describe('findLargerAvailableModel', () => {
     it('returns null when getAggregatedModels returns empty array', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => []);
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => []);
 
       try {
         expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBeNull();
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('returns null when current model is already the largest available', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => [
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => [
         { name: 'qwen2.5-coder:70b', hosts: [{ status: 'healthy', enabled: 1 }] },
         { name: 'qwen3-coder:30b', hosts: [{ status: 'healthy', enabled: 1 }] }
       ]);
@@ -929,13 +929,13 @@ describe('fallback-retry module', () => {
       try {
         expect(findLargerAvailableModel('qwen2.5-coder:70b')).toBeNull();
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('returns the next larger coder model on a healthy host', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => [
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => [
         { name: 'qwen2.5-coder:22b', hosts: [{ status: 'healthy', enabled: 1 }] },
         { name: 'qwen3-coder:30b', hosts: [{ status: 'healthy', enabled: 1 }] }
       ]);
@@ -943,13 +943,13 @@ describe('fallback-retry module', () => {
       try {
         expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBe('qwen2.5-coder:22b');
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('skips candidates on unhealthy or disabled hosts', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => [
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => [
         { name: 'qwen2.5-coder:22b', hosts: [{ status: 'unhealthy', enabled: 1 }] },
         { name: 'qwen3-coder:30b', hosts: [{ status: 'healthy', enabled: 0 }] },
         { name: 'qwen2.5-coder:70b', hosts: [{ status: 'healthy', enabled: 1 }] }
@@ -958,13 +958,13 @@ describe('fallback-retry module', () => {
       try {
         expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBe('qwen2.5-coder:70b');
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('handles models with unsupported sizes without throwing', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => [
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => [
         { name: 'qwen2.5-coder:14b', hosts: [{ status: 'healthy', enabled: 1 }] },
         { name: 'qwen3-coder:30b', hosts: [{ status: 'healthy', enabled: 1 }] }
       ]);
@@ -973,26 +973,26 @@ describe('fallback-retry module', () => {
         expect(() => findLargerAvailableModel('qwen2.5-coder:18b')).not.toThrow();
         expect(findLargerAvailableModel('qwen2.5-coder:18b')).toBeNull();
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('returns null when current model size cannot be parsed', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => [
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => [
         { name: 'qwen3-coder:30b', hosts: [{ status: 'healthy', enabled: 1 }] },
       ]);
 
       try {
         expect(findLargerAvailableModel('qwen2.5-coder')).toBeNull();
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('ignores non-coder model candidates when selecting escalation target', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => [
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => [
         { name: 'llama3:70b', hosts: [{ status: 'healthy', enabled: 1 }] },
         { name: 'qwen2.5-coder:22b', hosts: [{ status: 'healthy', enabled: 1 }] },
         { name: 'deepseek-coder:32b', hosts: [{ status: 'healthy', enabled: 1 }] },
@@ -1001,13 +1001,13 @@ describe('fallback-retry module', () => {
       try {
         expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBe('qwen2.5-coder:22b');
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('picks the smallest larger model even when model list is unsorted', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => [
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => [
         { name: 'qwen2.5-coder:70b', hosts: [{ status: 'healthy', enabled: 1 }] },
         { name: 'qwen2.5-coder:22b', hosts: [{ status: 'healthy', enabled: 1 }] },
         { name: 'qwen3-coder:30b', hosts: [{ status: 'healthy', enabled: 1 }] },
@@ -1016,13 +1016,13 @@ describe('fallback-retry module', () => {
       try {
         expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBe('qwen2.5-coder:22b');
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('treats models with missing host metadata as available', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => [
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => [
         { name: 'qwen2.5-coder:14b' },
         { name: 'qwen2.5-coder:32b', hosts: [] },
       ]);
@@ -1030,20 +1030,20 @@ describe('fallback-retry module', () => {
       try {
         expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBe('qwen2.5-coder:32b');
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
 
     it('returns null when larger-model discovery throws', () => {
-      const originalGetAggregatedModels = hostManagement.getAggregatedModels;
-      hostManagement.getAggregatedModels = vi.fn(() => {
+      const originalGetAggregatedModels = db.getAggregatedModels;
+      db.getAggregatedModels = vi.fn(() => {
         throw new Error('aggregated models unavailable');
       });
 
       try {
         expect(findLargerAvailableModel('qwen2.5-coder:14b')).toBeNull();
       } finally {
-        hostManagement.getAggregatedModels = originalGetAggregatedModels;
+        db.getAggregatedModels = originalGetAggregatedModels;
       }
     });
   });
@@ -1341,41 +1341,56 @@ describe('fallback-retry module', () => {
     it('forces standard hashline when the model has repeated format failures', () => {
       configCore.setConfig('hashline_model_formats', '{}');
       configCore.setConfig('hashline_format_auto_select', '0');
-      hostManagement.getModelFormatFailures = vi.fn(() => ([
+      const originalGetModelFormatFailures = db.getModelFormatFailures;
+      db.getModelFormatFailures = vi.fn(() => ([
         { model_name: 'qwen2.5-coder', failure_count: 2 },
         { model_name: 'qwen2.5-coder:14b', failure_count: 1 },
       ]));
 
-      expect(mod.selectHashlineFormat('qwen2.5-coder:14b', null)).toEqual({
-        format: 'whole',
-        reason: 'auto_learned (3 hashline failures → whole)'
-      });
+      try {
+        expect(mod.selectHashlineFormat('qwen2.5-coder:14b', null)).toEqual({
+          format: 'whole',
+          reason: 'auto_learned (3 hashline failures → whole)'
+        });
+      } finally {
+        db.getModelFormatFailures = originalGetModelFormatFailures;
+      }
     });
 
     it('falls back to the default format when auto-learn checks fail', () => {
       configCore.setConfig('hashline_model_formats', '{}');
       configCore.setConfig('hashline_format_auto_select', '0');
-      hostManagement.getModelFormatFailures = vi.fn(() => {
+      const originalGetModelFormatFailures = db.getModelFormatFailures;
+      db.getModelFormatFailures = vi.fn(() => {
         throw new Error('telemetry store unavailable');
       });
 
-      expect(mod.selectHashlineFormat('qwen2.5-coder:14b', null)).toEqual({
-        format: 'hashline',
-        reason: 'default'
-      });
+      try {
+        expect(mod.selectHashlineFormat('qwen2.5-coder:14b', null)).toEqual({
+          format: 'hashline',
+          reason: 'default'
+        });
+      } finally {
+        db.getModelFormatFailures = originalGetModelFormatFailures;
+      }
     });
 
     it('uses auto-routing when enabled and falls back to default when no recommendation exists', () => {
       configCore.setConfig('hashline_model_formats', '{}');
       configCore.setConfig('hashline_format_auto_select', '1');
-      eventTracking.getBestFormatForModel = () => ({ format: 'hashline-lite', reason: 'lite_outperforms' });
+      const originalGetBestFormat = db.getBestFormatForModel;
+      db.getBestFormatForModel = () => ({ format: 'hashline-lite', reason: 'lite_outperforms' });
 
-      const auto = mod.selectHashlineFormat('qwen2.5-coder:14b', null);
-      expect(auto).toEqual({ format: 'hashline-lite', reason: 'auto_lite_outperforms' });
+      try {
+        const auto = mod.selectHashlineFormat('qwen2.5-coder:14b', null);
+        expect(auto).toEqual({ format: 'hashline-lite', reason: 'auto_lite_outperforms' });
 
-      eventTracking.getBestFormatForModel = () => ({ format: null, reason: 'insufficient_data' });
-      const fallback = mod.selectHashlineFormat('qwen2.5-coder:14b', null);
-      expect(fallback).toEqual({ format: 'hashline', reason: 'default' });
+        db.getBestFormatForModel = () => ({ format: null, reason: 'insufficient_data' });
+        const fallback = mod.selectHashlineFormat('qwen2.5-coder:14b', null);
+        expect(fallback).toEqual({ format: 'hashline', reason: 'default' });
+      } finally {
+        db.getBestFormatForModel = originalGetBestFormat;
+      }
     });
   });
 });

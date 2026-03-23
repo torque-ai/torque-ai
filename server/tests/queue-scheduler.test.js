@@ -388,7 +388,13 @@ describe('Queue Scheduler', () => {
 
       mockDb.prepare.mockImplementation((sql) => {
         if (sql.includes("SELECT id FROM tasks")) return selectStatement;
-        return { all: vi.fn().mockReturnValue([]), run: vi.fn() };
+        if (sql.includes('SELECT value FROM config')) {
+          return { get: (key) => {
+            const val = mockDb.getConfig(key);
+            return val != null ? { value: val } : undefined;
+          }};
+        }
+        return { all: vi.fn().mockReturnValue([]), run: vi.fn(), get: vi.fn() };
       });
 
       const eventBus = require('../event-bus');
@@ -428,7 +434,6 @@ describe('Queue Scheduler', () => {
     });
 
     it('does not expire tasks when queue TTL is zero', () => {
-      mockDb.prepare.mockReturnValue({ all: vi.fn(), run: vi.fn() });
       mockDb.getRunningCount.mockReturnValue(0);
       mockDb.listTasks.mockReturnValue([]);
 
@@ -443,7 +448,9 @@ describe('Queue Scheduler', () => {
 
       scheduler.processQueueInternal();
 
-      expect(mockDb.prepare).not.toHaveBeenCalled();
+      expect(mockDb.prepare).not.toHaveBeenCalledWith(
+        expect.stringContaining("SELECT id FROM tasks")
+      );
     });
 
     it('excludes workflow tasks from queue TTL cleanup', () => {
@@ -454,7 +461,13 @@ describe('Queue Scheduler', () => {
       mockDb.prepare.mockImplementation((sql) => {
         if (sql.includes("SELECT id FROM tasks")) return selectStatement;
         if (sql.includes("UPDATE tasks SET status = 'cancelled'")) return runStatement;
-        throw new Error(`unexpected sql: ${sql}`);
+        if (sql.includes('SELECT value FROM config')) {
+          return { get: (key) => {
+            const val = mockDb.getConfig(key);
+            return val != null ? { value: val } : undefined;
+          }};
+        }
+        return { all: vi.fn().mockReturnValue([]), run: vi.fn(), get: vi.fn() };
       });
 
       mockDb.getRunningCount.mockReturnValue(0);
@@ -492,13 +505,14 @@ describe('Queue Scheduler', () => {
     it('does not reset budgets again within 60 seconds', () => {
       const now = 200000;
       const nowSpy = vi.spyOn(Date, 'now');
-      nowSpy.mockReturnValueOnce(now);
-      nowSpy.mockReturnValueOnce(now + 30000);
+      nowSpy.mockReturnValue(now);
 
       mockDb.getRunningCount.mockReturnValue(0);
       mockDb.listTasks.mockReturnValue([]);
 
       scheduler.processQueueInternal();
+
+      nowSpy.mockReturnValue(now + 30000);
       scheduler.processQueueInternal();
 
       expect(mockDb.resetExpiredBudgets).toHaveBeenCalledTimes(1);
@@ -508,15 +522,17 @@ describe('Queue Scheduler', () => {
     it('resets budgets again after interval expiry', () => {
       const now = 500000;
       const nowSpy = vi.spyOn(Date, 'now');
-      nowSpy.mockReturnValueOnce(now);
-      nowSpy.mockReturnValueOnce(now + 10000);
-      nowSpy.mockReturnValueOnce(now + 70001);
+      nowSpy.mockReturnValue(now);
 
       mockDb.getRunningCount.mockReturnValue(0);
       mockDb.listTasks.mockReturnValue([]);
 
       scheduler.processQueueInternal();
+
+      nowSpy.mockReturnValue(now + 10000);
       scheduler.processQueueInternal();
+
+      nowSpy.mockReturnValue(now + 70001);
       scheduler.processQueueInternal();
 
       expect(mockDb.resetExpiredBudgets).toHaveBeenCalledTimes(2);
