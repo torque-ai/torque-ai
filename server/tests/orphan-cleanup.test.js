@@ -7,9 +7,14 @@
 
 describe('Orphan Cleanup', () => {
   let orphanCleanup;
+  let serverConfig;
 
   beforeEach(() => {
+    vi.resetModules();
     orphanCleanup = require('../maintenance/orphan-cleanup');
+    serverConfig = require('../config');
+    vi.spyOn(serverConfig, 'get').mockReturnValue(null);
+    vi.spyOn(serverConfig, 'getBool').mockImplementation((key) => key === 'stall_recovery_enabled');
   });
 
   afterEach(() => {
@@ -76,7 +81,7 @@ describe('Orphan Cleanup', () => {
     });
 
     it('returns runtime config override when set', () => {
-      mockDb.getConfig.mockImplementation((key) => {
+      serverConfig.get.mockImplementation((key) => {
         if (key === 'stall_threshold_ollama') return '120';
         return null;
       });
@@ -84,7 +89,7 @@ describe('Orphan Cleanup', () => {
     });
 
     it('returns null when config explicitly disabled (value "0")', () => {
-      mockDb.getConfig.mockImplementation((key) => {
+      serverConfig.get.mockImplementation((key) => {
         if (key === 'stall_threshold_hashline') return '0';
         return null;
       });
@@ -138,7 +143,7 @@ describe('Orphan Cleanup', () => {
 
     it('config value "null" disables stall detection (returns null)', () => {
       // Config value "null" is treated as explicit disable — returns null
-      mockDb.getConfig.mockImplementation((key) => {
+      serverConfig.get.mockImplementation((key) => {
         if (key === 'stall_threshold_hashline') return 'null';
         return null;
       });
@@ -263,10 +268,7 @@ describe('Orphan Cleanup', () => {
     });
 
     it('calls cancelTask when autoCancel=true but recovery disabled', () => {
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'stall_recovery_enabled') return '0';
-        return '1';
-      });
+      serverConfig.getBool.mockReturnValue(false);
       runningProcesses.set('task-1', { process: { pid: 1 } });
       orphanCleanup.init({
         db: mockDb,
@@ -320,10 +322,7 @@ describe('Orphan Cleanup', () => {
       const logger = { info: vi.fn(), warn: vi.fn() };
       const activity = { isStalled: true, lastActivitySeconds: 150, stallThreshold: 100 };
       runningProcesses.set('task-2', { process: { pid: 456 } });
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'stall_recovery_enabled') return '0';
-        return '1';
-      });
+      serverConfig.getBool.mockReturnValue(false);
       vi.spyOn(process, 'kill').mockImplementation(() => {
         const err = new Error('process missing');
         err.code = 'ESRCH';
@@ -459,10 +458,22 @@ describe('Orphan Cleanup', () => {
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
     });
 
-    it('defaults to 30 min timeout if timeout_minutes is undefined', () => {
-      const pastTime = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+    it('defaults to 480 min safety-ceiling timeout if timeout_minutes is undefined', () => {
+      // Task started 35 min ago with no explicit timeout — should NOT be cancelled
+      // because the safety-ceiling default is now 480 minutes
+      const recentPast = new Date(Date.now() - 35 * 60 * 1000).toISOString();
       mockDb.getRunningTasksLightweight.mockReturnValue([
-        { id: 'task-default', started_at: pastTime, timeout_minutes: undefined },
+        { id: 'task-default', started_at: recentPast, timeout_minutes: undefined },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+    });
+
+    it('cancels task that exceeds the 480 min safety ceiling', () => {
+      const longPast = new Date(Date.now() - 490 * 60 * 1000).toISOString();
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        { id: 'task-ancient', started_at: longPast, timeout_minutes: undefined },
       ]);
 
       orphanCleanup.checkStaleRunningTasks();
