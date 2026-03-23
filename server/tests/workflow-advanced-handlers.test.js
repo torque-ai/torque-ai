@@ -3,11 +3,6 @@
 const MAX_SANITIZE_SLICE = 10240; // matches workflow-runtime.js slice(-10240)
 const MAX_ERROR_SLICE = 5120;     // matches workflow-runtime.js slice(-5120)
 
-function sanitizeForCondition(text) {
-  if (typeof text !== 'string') return '';
-  return text; // no secrets in test data, just return as-is
-}
-
 const { dbMock, taskManagerMock, loggerMock, loggerModuleMock, workflowRuntimeMock } = vi.hoisted(() => {
   const _dbMock = {
     getWorkflow: vi.fn(),
