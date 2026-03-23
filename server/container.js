@@ -21,6 +21,9 @@
 
 const logger = require('./logger').child({ component: 'container' });
 
+const { createFamilyTemplates } = require('./db/family-templates');
+const { migrateConfigToRegistry } = require('./discovery/config-migrator');
+
 /**
  * Topological sort using Kahn's algorithm.
  * @param {Map<string, string[]>} graph - service name → dependency names
@@ -181,6 +184,11 @@ function createContainer() {
 
 // ── Legacy compatibility ────────────────────────────────────────────────────
 const _defaultContainer = createContainer();
+
+// ── DI-factory registrations ─────────────────────────────────────────────────
+// Register services that use the proper DI factory pattern (createXxx(deps)).
+// These are resolved at boot() time, after all values (e.g. 'db') are registered.
+_defaultContainer.register('familyTemplates', ['db'], createFamilyTemplates);
 
 function initModules(db, serverConfig) {
   if (!_defaultContainer.has('db')) {
@@ -442,6 +450,16 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('featureFlagAdapter', require('./policy-engine/adapters/feature-flag'));
     _defaultContainer.registerValue('refactorDebtAdapter', require('./policy-engine/adapters/refactor-debt'));
     _defaultContainer.registerValue('releaseGateAdapter', require('./policy-engine/adapters/release-gate'));
+  }
+
+  // Run config-to-registry migration now that DB is available and schema migrations
+  // have already run (they complete during database.js initialization, before initModules).
+  // All operations in migrateConfigToRegistry are idempotent — safe to call on every startup.
+  try {
+    migrateConfigToRegistry(db);
+    logger.info('Container: config-to-registry migration complete');
+  } catch (err) {
+    logger.warn(`Container: config-to-registry migration failed (non-fatal): ${err.message}`);
   }
 
   logger.info('Container: core modules initialized (legacy path)');
