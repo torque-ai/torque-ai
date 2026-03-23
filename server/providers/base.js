@@ -42,6 +42,24 @@ class BaseProvider {
   }
 
   /**
+   * Discover available models with rich metadata.
+   * Default calls checkHealth() which already queries /v1/models on cloud providers.
+   * Override in subclasses for provider-specific discovery.
+   * @returns {Promise<{models: Array<{model_name: string, sizeBytes?: number}>, provider: string}>}
+   */
+  async discoverModels() {
+    try {
+      const health = await this.checkHealth();
+      const models = (health?.models || []).map(m =>
+        typeof m === 'string' ? { model_name: m } : m
+      );
+      return { models, provider: this.name };
+    } catch {
+      return { models: [], provider: this.name };
+    }
+  }
+
+  /**
    * Check if provider can accept more tasks
    */
   hasCapacity() {

@@ -10,6 +10,7 @@
  *  - normalizeResult
  *  - checkHealth
  *  - listModels
+ *  - discoverModels
  *  - capability metadata
  */
 
@@ -165,6 +166,11 @@ function registerApiAdapter(providerId, ProviderClass, capabilities = {}) {
       async listModels() {
         const providerInstance = resolveProvider();
         return providerInstance.listModels();
+      },
+
+      async discoverModels() {
+        const providerInstance = resolveProvider();
+        return providerInstance.discoverModels();
       },
     };
   });
