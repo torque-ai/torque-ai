@@ -122,6 +122,12 @@ const MIGRATIONS = [
     ].join('; '),
     down: '',
   },
+  {
+    version: 9,
+    name: 'add_host_default_model',
+    up: 'ALTER TABLE ollama_hosts ADD COLUMN default_model TEXT',
+    down: '',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

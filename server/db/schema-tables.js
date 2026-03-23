@@ -1852,6 +1852,7 @@ function createTables(db, logger) {
         running_tasks INTEGER DEFAULT 0,
         models_cache TEXT,
         models_updated_at TEXT,
+        default_model TEXT,
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_ollama_hosts_enabled ON ollama_hosts(enabled);

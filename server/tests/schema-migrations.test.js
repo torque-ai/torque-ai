@@ -481,6 +481,19 @@ describe('db/migrations.js', () => {
     expect(tables).toContain('benchmark_results');
   });
 
+  it('migration v9 adds default_model to ollama_hosts', () => {
+    const conn = getMigrationsDbInstance();
+    const cols = conn.prepare('PRAGMA table_info(ollama_hosts)').all().map(c => c.name);
+    expect(cols).toContain('default_model');
+
+    // Verify migration v9 is recorded
+    const applied = conn.prepare(
+      "SELECT * FROM schema_migrations WHERE version = 9"
+    ).get();
+    expect(applied).toBeDefined();
+    expect(applied.name).toBe('add_host_default_model');
+  });
+
   it('migration v8 removes aider config keys and renames stall threshold', () => {
     const conn = getMigrationsDbInstance();
 

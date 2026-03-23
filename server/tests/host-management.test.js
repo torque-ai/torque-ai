@@ -1149,6 +1149,35 @@ describe('host-management module', () => {
       expect(result.host.id).toBe('mem-ok-host');
     });
   });
+
+  // ================================================================
+  // 26. default_model field on hosts
+  // ================================================================
+  describe('default_model field', () => {
+    it('updateOllamaHost accepts default_model', () => {
+      const host = makeHost({ id: 'dm-host' });
+      mod.updateOllamaHost('dm-host', { default_model: 'qwen3-coder:30b' });
+      const updated = mod.getOllamaHost('dm-host');
+      expect(updated.default_model).toBe('qwen3-coder:30b');
+    });
+
+    it('default_model is null by default', () => {
+      const host = makeHost({ id: 'dm-null' });
+      const fetched = mod.getOllamaHost('dm-null');
+      expect(fetched.default_model).toBeNull();
+    });
+
+    it('default_model can be cleared by setting to null', () => {
+      makeHost({ id: 'dm-clear' });
+      mod.updateOllamaHost('dm-clear', { default_model: 'some-model:7b' });
+      let host = mod.getOllamaHost('dm-clear');
+      expect(host.default_model).toBe('some-model:7b');
+
+      mod.updateOllamaHost('dm-clear', { default_model: null });
+      host = mod.getOllamaHost('dm-clear');
+      expect(host.default_model).toBeNull();
+    });
+  });
 });
 
 // ================================================================

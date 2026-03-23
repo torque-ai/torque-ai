@@ -201,7 +201,8 @@ function listOllamaHosts(options = {}) {
 function updateOllamaHost(hostId, updates) {
   const allowedFields = ['name', 'url', 'enabled', 'status', 'consecutive_failures',
     'last_health_check', 'last_healthy', 'running_tasks', 'models_cache', 'models_updated_at',
-    'memory_limit_mb', 'max_concurrent', 'priority', 'settings', 'gpu_metrics_port', 'vram_factor'];
+    'memory_limit_mb', 'max_concurrent', 'priority', 'settings', 'gpu_metrics_port', 'vram_factor',
+    'default_model'];
   const fields = [];
   const values = [];
 
