@@ -354,6 +354,11 @@ function handleAddOllamaHost(args) {
     if (args.gpu_metrics_port) {
       hostManagement.updateOllamaHost(id, { gpu_metrics_port: args.gpu_metrics_port });
     }
+
+    // Persist default_model if provided
+    if (args.default_model) {
+      hostManagement.updateOllamaHost(id, { default_model: args.default_model });
+    }
     const memoryLimitGb = host.memory_limit_mb ? (host.memory_limit_mb / 1024).toFixed(1) : 'Not set';
 
     let output = `## Ollama Host Added\n\n`;
@@ -367,6 +372,9 @@ function handleAddOllamaHost(args) {
     output += `| Enabled | ${host.enabled ? 'Yes' : 'No'} |\n`;
     if (args.gpu_metrics_port) {
       output += `| GPU Metrics Port | ${args.gpu_metrics_port} |\n`;
+    }
+    if (args.default_model) {
+      output += `| Default Model | ${args.default_model} |\n`;
     }
     output += `\n`;
     output += `Use \`refresh_host_models host_id="${id}"\` to fetch available models.`;
@@ -506,6 +514,7 @@ function handleListOllamaHosts(args) {
     running_tasks: host.running_tasks || 0,
     max_concurrent: host.max_concurrent || 0,
     memory_limit_mb: host.memory_limit_mb || null,
+    default_model: host.default_model || null,
     models: Array.isArray(host.models) ? host.models.map(m => typeof m === 'string' ? m : m.name || String(m)) : [],
   }));
 
@@ -1165,9 +1174,13 @@ function handleGetHostSettings(args) {
     };
   }
 
+  // Fetch host record for host-level columns (default_model, etc.)
+  const host = hostManagement.getOllamaHost(host_id);
+
   let output = `## Host Settings: ${settings.hostName}\n\n`;
   output += `| Setting | Value | Description |\n`;
   output += `|---------|-------|-------------|\n`;
+  output += `| default_model | ${host?.default_model || 'Not set'} | Model used when no model specified |\n`;
   output += `| num_gpu | ${settings.num_gpu} | GPU layers (-1=auto, 0=CPU, N=layers) |\n`;
   output += `| num_thread | ${settings.num_thread} | CPU threads (0=auto) |\n`;
   output += `| keep_alive | ${settings.keep_alive} | Model memory retention |\n`;
@@ -1190,7 +1203,7 @@ function handleGetHostSettings(args) {
  * @returns {Object} Response payload.
  */
 function handleSetHostSettings(args) {
-  const { host_id, num_gpu, num_ctx, num_thread, keep_alive, temperature, top_k, top_p, max_concurrent, gpu_metrics_port } = args;
+  const { host_id, num_gpu, num_ctx, num_thread, keep_alive, temperature, top_k, top_p, max_concurrent, gpu_metrics_port, default_model } = args;
 
   if (!host_id) {
     return {
@@ -1276,6 +1289,12 @@ function handleSetHostSettings(args) {
   if (gpu_metrics_port !== undefined) {
     hostManagement.updateOllamaHost(host_id, { gpu_metrics_port: gpu_metrics_port || null });
     updates.push(`gpu_metrics_port → ${gpu_metrics_port || 'disabled'}`);
+  }
+
+  // default_model is a host-level column (model used when no model specified)
+  if (default_model !== undefined) {
+    hostManagement.updateOllamaHost(host_id, { default_model: default_model || null });
+    updates.push(`default_model → ${default_model || 'cleared'}`);
   }
 
   if (updates.length === 0) {
