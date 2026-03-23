@@ -291,7 +291,7 @@ function createTask(task) {
       status,
       task.task_description,
       task.working_directory || null,
-      task.timeout_minutes ?? 30,
+      task.timeout_minutes ?? 480,
       task.auto_approve ? 1 : 0,
       task.priority || 0,
       task.context ? JSON.stringify(task.context) : null,

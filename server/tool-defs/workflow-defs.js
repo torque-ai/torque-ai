@@ -28,9 +28,9 @@ const tools = [
         },
         timeout_minutes: {
           type: 'number',
-          description: 'Override timeout for all steps',
+          description: 'Safety-ceiling timeout for all steps in minutes (default: 480). Stall detection and heartbeats handle active monitoring.',
           minimum: 1,
-          maximum: 60
+          maximum: 480
         },
         description: {
           type: 'string',
@@ -140,9 +140,9 @@ const tools = [
               },
               timeout_minutes: {
                 type: 'number',
-                description: 'Task timeout in minutes',
+                description: 'Safety-ceiling task timeout in minutes (default: 480)',
                 minimum: 1,
-                maximum: 60
+                maximum: 480
               },
               auto_approve: {
                 type: 'boolean',
@@ -226,10 +226,10 @@ const tools = [
         },
         timeout_minutes: {
           type: 'number',
-          description: 'Task timeout in minutes',
-          default: 30,
+          description: 'Safety-ceiling task timeout in minutes (default: 480)',
+          default: 480,
           minimum: 1,
-          maximum: 60
+          maximum: 480
         },
         auto_approve: {
           type: 'boolean',
@@ -377,7 +377,7 @@ const tools = [
             properties: {
               node_id: { type: 'string' },
               task_description: { type: 'string' },
-              timeout_minutes: { type: 'number', minimum: 1, maximum: 60 },
+              timeout_minutes: { type: 'number', minimum: 1, maximum: 480 },
               auto_approve: { type: 'boolean' },
               tags: { type: 'array', items: { type: 'string' } }
             },
@@ -778,7 +778,7 @@ const tools = [
       type: 'object',
       properties: {
         workflow_id: { type: 'string', description: 'Workflow ID to wait for' },
-        timeout_minutes: { type: 'number', description: 'Max wait time in minutes (default: 30, max: 60)', minimum: 1, maximum: 60 },
+        timeout_minutes: { type: 'number', description: 'Max await call duration in minutes (default: 60, max: 60). Re-invoke after each heartbeat to continue waiting.', minimum: 1, maximum: 60 },
         poll_interval_ms: { type: 'number', description: 'Fallback poll interval in ms if push notifications unavailable (default: 5000). Usually not needed — tasks wake the loop instantly via event bus.' },
         heartbeat_minutes: {
           type: 'number',
@@ -796,12 +796,12 @@ const tools = [
   },
   {
     name: 'await_task',
-    description: 'Block until a standalone task completes or fails, then return its result. Wakes instantly via event-bus push notifications (no polling delay). Optionally runs verify_command and auto-commits on success. Use this instead of polling check_status in a loop. Returns heartbeat progress snapshots every N minutes while waiting. GLOBAL: works with any project.',
+    description: 'Block until a standalone task completes or fails, then return its result. Wakes instantly via event-bus push notifications (no polling delay). Optionally runs verify_command and auto-commits on success. Use this instead of polling check_status in a loop. Returns heartbeat progress snapshots with decision signals every N minutes while waiting. GLOBAL: works with any project.',
     inputSchema: {
       type: 'object',
       properties: {
         task_id: { type: 'string', description: 'Task ID to wait for' },
-        timeout_minutes: { type: 'number', description: 'Max wait time in minutes (default: 30, max: 60)', minimum: 1, maximum: 60 },
+        timeout_minutes: { type: 'number', description: 'Max await call duration in minutes (default: 60, max: 60). Re-invoke after each heartbeat to continue waiting.', minimum: 1, maximum: 60 },
         poll_interval_ms: { type: 'number', description: 'Fallback poll interval in ms if push notifications unavailable (default: 5000). Usually not needed — tasks wake the loop instantly via event bus.' },
         heartbeat_minutes: {
           type: 'number',

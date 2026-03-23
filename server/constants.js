@@ -74,7 +74,7 @@ const TASK_TIMEOUTS = {
   PROVIDER_CHECK: 10000,
   STARTUP: 60000,
   FORCE_KILL_DELAY: 5000,
-  DEFAULT_TASK_MINUTES: 30,
+  DEFAULT_TASK_MINUTES: 480,
   OLLAMA_API: 30000,
   HTTP_REQUEST: 30000,
   HEALTH_CHECK: 5000,
@@ -83,21 +83,23 @@ const TASK_TIMEOUTS = {
   SNAPSCOPE_CAPTURE: 300000,
 };
 
-// All values in MINUTES
+// All values in MINUTES — safety ceiling only.
+// Stall detection and heartbeat-driven decisions are the primary timeout mechanisms.
+// These are last-resort kill timers, not decision-makers.
 const PROVIDER_DEFAULT_TIMEOUTS = {
-  'codex': 30,
-  'codex-spark': 30,
-  'claude-cli': 30,
-  'hashline-ollama': 30,
-  'ollama': 30,
-  'anthropic': 15,
-  'deepinfra': 20,
-  'cerebras': 10,
-  'google-ai': 15,
-  'groq': 10,
-  'ollama-cloud': 15,
-  'openrouter': 15,
-  'hyperbolic': 20,
+  'codex': 480,
+  'codex-spark': 480,
+  'claude-cli': 480,
+  'hashline-ollama': 480,
+  'ollama': 480,
+  'anthropic': 480,
+  'deepinfra': 480,
+  'cerebras': 480,
+  'google-ai': 480,
+  'groq': 480,
+  'ollama-cloud': 480,
+  'openrouter': 480,
+  'hyperbolic': 480,
 };
 
 // ─── Provider Defaults ─────────────────────────────────────────────────

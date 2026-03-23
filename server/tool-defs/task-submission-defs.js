@@ -19,10 +19,10 @@ module.exports = [
         },
         "timeout_minutes": {
           "type": "number",
-          "description": "Timeout in minutes before auto-cancellation (default: 30)",
-          "default": 30,
+          "description": "Safety-ceiling timeout in minutes (default: 480). Stall detection and heartbeat-driven decisions are the primary timeout mechanisms — this is a last-resort kill timer.",
+          "default": 480,
           "minimum": 1,
-          "maximum": 60
+          "maximum": 480
         },
         "auto_approve": {
           "type": "boolean",

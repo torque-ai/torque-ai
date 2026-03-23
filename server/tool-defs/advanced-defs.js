@@ -133,10 +133,10 @@ const tools = [
         },
         timeout_minutes: {
           type: 'number',
-          description: 'Timeout in minutes',
-          default: 30,
+          description: 'Safety-ceiling timeout in minutes (default: 480)',
+          default: 480,
           minimum: 1,
-          maximum: 60
+          maximum: 480
         },
         enabled: {
           type: 'boolean',

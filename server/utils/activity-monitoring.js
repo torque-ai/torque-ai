@@ -277,7 +277,8 @@ function getTaskActivity(taskId, opts = {}) {
     model: proc.model,
     provider: proc.provider,
     startTime: proc.startTime,
-    elapsedSeconds: Math.floor((now - proc.startTime) / 1000)
+    elapsedSeconds: Math.floor((now - proc.startTime) / 1000),
+    outputBytes: proc.output ? proc.output.length : 0
   };
 }
 

@@ -17,6 +17,7 @@ const { safeExecChain } = require('../../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../../execution/command-policy');
 const { checkResourceGate } = require('../../utils/resource-gate');
 const hostMonitoring = require('../../utils/host-monitoring');
+const activityMonitoring = require('../../utils/activity-monitoring');
 let _commitMutex = null, _cmLoaded = false;
 function getCommitMutex() {
   if (!_cmLoaded) { _cmLoaded = true; try { _commitMutex = require('../../utils/commit-mutex'); } catch { _commitMutex = null; } }
@@ -187,6 +188,50 @@ function formatDuration(ms) {
 }
 
 /**
+ * Detect repeated error lines in partial output.
+ * Returns array of { line, count } for errors appearing 3+ times.
+ */
+function detectRepeatedErrors(text) {
+  if (!text || text.length === 0) return [];
+  const tail = text.slice(-3000);
+  const errorPattern = /(?:Error:|FAIL|error\[|ERR!|FATAL|panic:|Exception:)/i;
+  const lineCounts = new Map();
+  for (const line of tail.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length > 10 && errorPattern.test(trimmed)) {
+      // Normalize whitespace for dedup
+      const key = trimmed.replace(/\s+/g, ' ').slice(0, 200);
+      lineCounts.set(key, (lineCounts.get(key) || 0) + 1);
+    }
+  }
+  const repeated = [];
+  for (const [line, count] of lineCounts) {
+    if (count >= 3) repeated.push({ line, count });
+  }
+  return repeated.sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Generate a recommended action string from decision signals.
+ */
+function recommendAction(signals) {
+  const { outputDelta, lastActivitySeconds, stallThreshold, isStalled, repeatedErrors } = signals;
+  if (isStalled) {
+    return 'Consider cancelling — task appears stalled (no output or filesystem activity).';
+  }
+  if (repeatedErrors && repeatedErrors.length > 0) {
+    return `Task may be looping on errors (${repeatedErrors[0].line.slice(0, 80)}... seen ${repeatedErrors[0].count}x) — review output and consider cancelling.`;
+  }
+  if (outputDelta !== null && outputDelta === 0 && lastActivitySeconds > (stallThreshold || 180) * 0.5) {
+    return 'Output unchanged since last heartbeat — monitor closely.';
+  }
+  if (signals.filesModifiedCount > 0 || (outputDelta !== null && outputDelta > 0)) {
+    return 'Continue waiting — task is making progress.';
+  }
+  return 'Re-invoke to continue waiting, or take action (cancel, resubmit, etc.)';
+}
+
+/**
  * Format a heartbeat response for await_task / await_workflow.
  * Pure formatter — no side effects, no DB access.
  * Returns a markdown string suitable for returning as an MCP text content block.
@@ -194,7 +239,9 @@ function formatDuration(ms) {
 function formatHeartbeat(opts) {
   const {
     taskId, reason, elapsedMs, runningTasks = [], taskCounts = {},
-    partialOutput, alerts = [], nextUpTasks
+    partialOutput, alerts = [], nextUpTasks,
+    // Decision signal fields (optional — absent in older callers)
+    decisionSignals
   } = opts;
 
   const elapsed = formatDuration(elapsedMs);
@@ -216,6 +263,50 @@ function formatHeartbeat(opts) {
       const desc = (t.description || '').slice(0, 80);
       lines.push(`| ${t.id} | ${t.provider || '-'} | ${t.host || '-'} | ${formatDuration(t.elapsedMs)} | ${desc} |`);
     }
+    lines.push('');
+  }
+
+  // Decision signals section — gives Claude actionable data to judge progress
+  if (decisionSignals) {
+    const ds = decisionSignals;
+    lines.push('### Decision Signals');
+
+    const formatBytes = (b) => b > 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} MB` : b > 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} bytes`;
+
+    if (ds.outputBytes !== undefined) {
+      const rate = ds.elapsedSeconds > 0 ? Math.round(ds.outputBytes / ds.elapsedSeconds) : 0;
+      lines.push(`- **Output volume:** ${formatBytes(ds.outputBytes)} (${rate} bytes/sec)`);
+    }
+    if (ds.outputDelta !== null && ds.outputDelta !== undefined) {
+      const deltaSign = ds.outputDelta > 0 ? '+' : '';
+      lines.push(`- **Output delta:** ${deltaSign}${formatBytes(ds.outputDelta)} since last heartbeat`);
+    }
+    if (ds.filesModified && ds.filesModified.length > 0) {
+      const fileList = ds.filesModified.slice(0, 8).join(', ');
+      const more = ds.filesModified.length > 8 ? ` (+${ds.filesModified.length - 8} more)` : '';
+      lines.push(`- **Files modified:** ${ds.filesModified.length} (${fileList}${more})`);
+    } else if (ds.filesModifiedCount !== undefined) {
+      lines.push(`- **Files modified:** ${ds.filesModifiedCount}`);
+    }
+    if (ds.lastActivitySeconds !== undefined) {
+      lines.push(`- **Last activity:** ${ds.lastActivitySeconds}s ago`);
+    }
+    if (ds.isStalled !== undefined) {
+      lines.push(`- **Stall status:** ${ds.isStalled ? 'STALLED' : 'Not stalled'}`);
+    }
+    if (ds.repeatedErrors && ds.repeatedErrors.length > 0) {
+      for (const err of ds.repeatedErrors.slice(0, 3)) {
+        lines.push(`- **Repeated error (${err.count}x):** ${err.line.slice(0, 120)}`);
+      }
+    } else {
+      lines.push('- **Repeated errors:** None detected');
+    }
+    lines.push('');
+
+    // Recommended action
+    const action = recommendAction(ds);
+    lines.push(`### Recommended Action`);
+    lines.push(action);
     lines.push('');
   }
 
@@ -248,8 +339,10 @@ function formatHeartbeat(opts) {
     lines.push('');
   }
 
-  lines.push('### Action');
-  lines.push('Re-invoke to continue waiting, or take action (cancel, resubmit, etc.)');
+  if (!decisionSignals) {
+    lines.push('### Action');
+    lines.push('Re-invoke to continue waiting, or take action (cancel, resubmit, etc.)');
+  }
 
   return lines.join('\n');
 }
@@ -341,7 +434,7 @@ async function handleAwaitWorkflow(args) {
   try {
 
   const pollMs = Math.min(Math.max(args.poll_interval_ms || 5000, 1000), 30000);
-  const timeoutMs = Math.min(Math.max(args.timeout_minutes || 30, 0.01) * 60000, 3600000);
+  const timeoutMs = Math.min(Math.max(args.timeout_minutes || 60, 0.01) * 60000, 3600000);
   const startTime = Date.now();
   const shutdownSignal = args.__shutdownSignal;
 
@@ -350,6 +443,9 @@ async function handleAwaitWorkflow(args) {
   const heartbeatMinutes = Math.min(Math.max(rawHeartbeat, 0), 30);
   const heartbeatEnabled = heartbeatMinutes > 0;
   const heartbeatMs = heartbeatMinutes * 60 * 1000;
+
+  // Per-session heartbeat state for computing deltas between heartbeats
+  const heartbeatState = { prevOutputBytes: 0, heartbeatCount: 0 };
 
   // Reason name mapping for notable events
   const REASON_MAP = {
@@ -615,6 +711,37 @@ async function handleAwaitWorkflow(args) {
           alerts.push(`Approaching stall threshold (${notablePayload.elapsed || '?'}s / ${notablePayload.threshold || '?'}s) — consider cancelling if no progress`);
         }
 
+        // Gather decision signals from the primary running task
+        const partialOutput = primaryTask?.partial_output || null;
+        let decisionSignals = null;
+        if (primaryRunning) {
+          const activity = activityMonitoring.getTaskActivity(primaryRunning.id, { skipGitCheck: true });
+          const outputBytes = activity?.outputBytes || 0;
+          const outputDelta = heartbeatState.heartbeatCount > 0
+            ? outputBytes - heartbeatState.prevOutputBytes
+            : null;
+          const elapsedSeconds = activity?.elapsedSeconds || Math.floor((Date.now() - startTime) / 1000);
+          const repeatedErrors = detectRepeatedErrors(partialOutput);
+          // Extract files from primary task's current output
+          const filesModified = primaryTask?.files_modified
+            ? (Array.isArray(primaryTask.files_modified) ? primaryTask.files_modified : [])
+            : [];
+
+          decisionSignals = {
+            outputBytes,
+            outputDelta,
+            elapsedSeconds,
+            lastActivitySeconds: activity?.lastActivitySeconds ?? null,
+            isStalled: activity?.isStalled ?? false,
+            stallThreshold: activity?.stallThreshold ?? null,
+            repeatedErrors,
+            filesModified,
+            filesModifiedCount: filesModified.length
+          };
+          heartbeatState.prevOutputBytes = outputBytes;
+        }
+        heartbeatState.heartbeatCount++;
+
         return { content: [{ type: 'text', text: formatHeartbeat({
           taskId: args.workflow_id,
           isWorkflow: true,
@@ -622,9 +749,10 @@ async function handleAwaitWorkflow(args) {
           elapsedMs: Date.now() - startTime,
           runningTasks,
           taskCounts: counts,
-          partialOutput: primaryTask?.partial_output || null,
+          partialOutput,
           alerts,
-          nextUpTasks
+          nextUpTasks,
+          decisionSignals
         }) }] };
       }
       // If there are unacked terminal tasks, fall through to the top of the loop
@@ -939,7 +1067,7 @@ function formatStandaloneTaskResult(task, startTime) {
 async function handleAwaitTask(args) {
   try {
     const pollMs = Math.min(Math.max(args.poll_interval_ms || 5000, 1000), 30000);
-    const timeoutMinutes = Math.min(Math.max(args.timeout_minutes || 30, 0.01), 60);
+    const timeoutMinutes = Math.min(Math.max(args.timeout_minutes || 60, 0.01), 60);
     const timeoutMs = timeoutMinutes * 60000;
     const awaitStartTime = Date.now();
     const terminalStates = ['completed', 'failed', 'cancelled', 'skipped'];
@@ -951,6 +1079,9 @@ async function handleAwaitTask(args) {
     const heartbeatMinutes = Math.min(Math.max(rawHeartbeat, 0), 30);
     const heartbeatEnabled = heartbeatMinutes > 0;
     const heartbeatMs = heartbeatMinutes * 60 * 1000;
+
+    // Per-session heartbeat state for computing deltas between heartbeats
+    const heartbeatState = { prevOutputBytes: 0, heartbeatCount: 0 };
 
     // Reason name mapping for notable events
     const REASON_MAP = {
@@ -1259,6 +1390,35 @@ async function handleAwaitTask(args) {
 
         const partialOutput = currentTask?.partial_output || null;
 
+        // Gather decision signals for this task
+        let decisionSignals = null;
+        if (currentTask && currentTask.status === 'running') {
+          const activity = activityMonitoring.getTaskActivity(taskId, { skipGitCheck: true });
+          const outputBytes = activity?.outputBytes || 0;
+          const outputDelta = heartbeatState.heartbeatCount > 0
+            ? outputBytes - heartbeatState.prevOutputBytes
+            : null;
+          const elapsedSeconds = activity?.elapsedSeconds || Math.floor((Date.now() - awaitStartTime) / 1000);
+          const repeatedErrors = detectRepeatedErrors(partialOutput);
+          const filesModified = currentTask?.files_modified
+            ? (Array.isArray(currentTask.files_modified) ? currentTask.files_modified : [])
+            : [];
+
+          decisionSignals = {
+            outputBytes,
+            outputDelta,
+            elapsedSeconds,
+            lastActivitySeconds: activity?.lastActivitySeconds ?? null,
+            isStalled: activity?.isStalled ?? false,
+            stallThreshold: activity?.stallThreshold ?? null,
+            repeatedErrors,
+            filesModified,
+            filesModifiedCount: filesModified.length
+          };
+          heartbeatState.prevOutputBytes = outputBytes;
+        }
+        heartbeatState.heartbeatCount++;
+
         return {
           content: [{
             type: 'text',
@@ -1275,6 +1435,7 @@ async function handleAwaitTask(args) {
               },
               partialOutput,
               alerts,
+              decisionSignals,
             })
           }]
         };
@@ -1293,6 +1454,8 @@ function createWorkflowAwaitHandlers(_deps) {
     handleAwaitWorkflow,
     handleAwaitTask,
     formatFinalSummary,
+    detectRepeatedErrors,
+    recommendAction,
   };
 }
 
@@ -1304,4 +1467,6 @@ module.exports = {
   handleAwaitTask,
   formatFinalSummary,
   createWorkflowAwaitHandlers,
+  detectRepeatedErrors,
+  recommendAction,
 };

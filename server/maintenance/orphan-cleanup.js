@@ -214,11 +214,11 @@ function checkStaleRunningTasks() {
       if (!task.started_at) continue;
 
       const elapsedMs = Date.now() - new Date(task.started_at).getTime();
-      const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
+      const timeoutMs = (task.timeout_minutes || 480) * 60 * 1000;
 
       if (elapsedMs > timeoutMs) {
         const elapsedMin = Math.round(elapsedMs / 60000);
-        logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${task.timeout_minutes || 30}min) - cancelling`);
+        logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${task.timeout_minutes || 480}min) - cancelling`);
 
         // Cancel via cancelTask if process is tracked, otherwise update DB directly
         if (runningProcesses.has(task.id)) {
@@ -226,7 +226,7 @@ function checkStaleRunningTasks() {
         } else {
           // Process not tracked (server restarted) - update DB directly
           db.updateTaskStatus(task.id, 'cancelled', {
-            error_output: `Auto-cancelled: Task exceeded ${task.timeout_minutes || 30} minute timeout (detected by stale check)`
+            error_output: `Auto-cancelled: Task exceeded ${task.timeout_minutes || 480} minute timeout (detected by stale check)`
           });
           // Reconcile again after direct DB update to fix host counts
           try {

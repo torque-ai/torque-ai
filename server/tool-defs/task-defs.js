@@ -211,9 +211,9 @@ module.exports = [
               },
               "timeout_minutes": {
                 "type": "number",
-                "description": "Timeout for this step",
+                "description": "Safety-ceiling timeout for this step in minutes (default: 480)",
                 "minimum": 1,
-                "maximum": 60
+                "maximum": 480
               }
             },
             "required": [

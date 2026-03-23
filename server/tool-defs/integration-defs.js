@@ -451,9 +451,9 @@ const tools = [
         },
         timeout_minutes: {
           type: 'number',
-          description: 'Task timeout in minutes',
+          description: 'Safety-ceiling task timeout in minutes (default: 480)',
           minimum: 1,
-          maximum: 60
+          maximum: 480
         },
         priority: {
           type: 'number',
