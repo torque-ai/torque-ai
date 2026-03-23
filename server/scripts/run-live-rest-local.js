@@ -62,6 +62,7 @@ function startTorqueServer(serverLogStream) {
     cwd: SERVER_ROOT,
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
 
   child.stdout.on('data', (chunk) => {
@@ -133,6 +134,7 @@ function runIntegrationTests(testLogStream) {
       cwd: SERVER_ROOT,
       env: integrationEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     });
     child.stdout.on('data', (chunk) => {
       process.stdout.write(chunk);

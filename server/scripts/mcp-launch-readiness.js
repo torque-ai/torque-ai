@@ -383,6 +383,7 @@ async function main() {
         TORQUE_MCP_GATEWAY_PORT: process.env.TORQUE_MCP_GATEWAY_PORT || '3459',
       },
       stdio: 'pipe',
+      windowsHide: true,
     });
 
     const healthy = await waitForHealth();
