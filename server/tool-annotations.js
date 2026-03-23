@@ -147,6 +147,7 @@ const OVERRIDES = Object.freeze({
   // ── Tools added by TORQUE competitive features workflow ──
   review_task_output:              Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   discover_agents:                 Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  discover_models:                 Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: true  }),
   polish_task_description:         Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   index_project:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
 });
