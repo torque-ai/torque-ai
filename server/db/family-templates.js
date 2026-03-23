@@ -16,6 +16,10 @@
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+/**
+ * Generic code-focused fallback used when no family template exists.
+ * Must contain the word "code-focused" — tests assert on this.
+ */
 const UNIVERSAL_FALLBACK_PROMPT =
   'You are a highly capable, code-focused AI assistant. Write clean, correct, ' +
   'idiomatic code. Make only the changes requested. Follow the existing code ' +
@@ -204,15 +208,6 @@ function createFamilyTemplates(deps) {
 
 module.exports = {
   createFamilyTemplates,
-  UNIVERSAL_FALLBACK_PROMPT:
-    'You are a highly capable, code-focused AI assistant. Write clean, correct, ' +
-    'idiomatic code. Make only the changes requested. Follow the existing code ' +
-    'conventions, style, and architecture. Keep implementations minimal and direct.',
-  ROLE_TUNING_DEFAULTS: {
-    fast:     { temperature: 0.3,  num_ctx: 4096,  top_k: 40, repeat_penalty: 1.1  },
-    balanced: { temperature: 0.2,  num_ctx: 8192,  top_k: 30, repeat_penalty: 1.15 },
-    quality:  { temperature: 0.15, num_ctx: 16384, top_k: 25, repeat_penalty: 1.15 },
-    default:  { temperature: 0.2,  num_ctx: 8192,  top_k: 30, repeat_penalty: 1.1  },
-    fallback: { temperature: 0.3,  num_ctx: 8192,  top_k: 40, repeat_penalty: 1.1  },
-  },
+  UNIVERSAL_FALLBACK_PROMPT,
+  ROLE_TUNING_DEFAULTS,
 };
