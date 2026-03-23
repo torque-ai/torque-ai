@@ -1,6 +1,5 @@
 'use strict';
 
-const logger = require('../logger').child({ component: 'model-handlers' });
 const modelRoles = require('../db/model-roles');
 
 function getRegistry() {

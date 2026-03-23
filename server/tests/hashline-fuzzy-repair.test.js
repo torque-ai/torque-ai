@@ -23,7 +23,7 @@ describe('attemptFuzzySearchRepair — multi-block index stability', () => {
     mockLineSimilarity = vi.fn().mockReturnValue(1.0);
 
     hashlineVerify.init({
-      computeLineHash: vi.fn((line) => '00'),
+      computeLineHash: vi.fn((_line) => '00'),
       getFileChangesForValidation: vi.fn().mockReturnValue([]),
       lineSimilarity: mockLineSimilarity,
     });

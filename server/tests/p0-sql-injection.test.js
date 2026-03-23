@@ -2,9 +2,6 @@
  * P0 SQL injection and token validation security tests.
  */
 
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
 
 let testDir;
@@ -13,7 +10,7 @@ let projectCache;
 const costTracking = require('../db/cost-tracking');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
   ({ db, testDir } = setupTestDb('injection-'));

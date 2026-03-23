@@ -2,10 +2,10 @@
 
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 
-let db, mod;
+let mod;
 
 function setup() {
-  ({ db, mod } = setupTestDbModule('../db/cost-tracking', 'free-tier-history'));
+  ({ mod } = setupTestDbModule('../db/cost-tracking', 'free-tier-history'));
 }
 
 function teardown() {

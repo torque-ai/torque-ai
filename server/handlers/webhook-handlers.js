@@ -8,7 +8,6 @@ const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
 const configCore = require('../db/config-core');
-const costTracking = require('../db/cost-tracking');
 const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
 const projectConfigCore = require('../db/project-config-core');

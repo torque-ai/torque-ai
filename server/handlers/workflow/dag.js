@@ -373,7 +373,7 @@ function handleBlockedTasks(args) {
   };
 }
 
-function createWorkflowDagHandlers(deps) {
+function createWorkflowDagHandlers(_deps) {
   return {
     handleDependencyGraph,
     handleCriticalPath,

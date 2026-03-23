@@ -1,11 +1,12 @@
+const path = require('path');
 const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
-let db, mod;
+let testDir, mod;
 
 function setup() {
-  ({ db, mod } = setupTestDbModule('../db/coordination', 'coordination'));
+  ({ mod, testDir } = setupTestDbModule('../db/coordination', 'coordination'));
   mod.setGetTask(taskCore.getTask);
 }
 

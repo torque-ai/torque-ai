@@ -484,7 +484,7 @@ function handleSkipTask(args) {
   };
 }
 
-function createWorkflowAdvancedHandlers(deps) {
+function createWorkflowAdvancedHandlers(_deps) {
   return {
     handleForkWorkflow,
     handleMergeWorkflows,

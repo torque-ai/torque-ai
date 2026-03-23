@@ -5,10 +5,13 @@
  * Uses isolated temp DB via vitest-setup.js pattern.
  */
 
+const path = require('path');
+const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let db;
+let testDir;
 let taskCore;
 let configCore;
 let fileTracking;
@@ -19,7 +22,7 @@ let emitShutdownSpy;
 let emitTaskUpdatedSpy;
 
 function setupDb() {
-  ({ db } = setupTestDb('database'));
+  ({ db, testDir } = setupTestDb('database'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   fileTracking = require('../db/file-tracking');

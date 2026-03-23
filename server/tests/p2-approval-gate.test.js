@@ -1,12 +1,9 @@
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const { randomUUID } = require('crypto');
 
 const schedulingAutomation = require('../db/scheduling-automation');
 const hostManagement = require('../db/host-management');
 const taskCore = require('../db/task-core');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 vi.mock('../providers/registry', () => ({
   getProviderInstance: vi.fn().mockReturnValue({}),

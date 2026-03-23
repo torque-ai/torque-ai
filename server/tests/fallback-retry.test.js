@@ -11,7 +11,6 @@ let taskCore;
 let configCore;
 let hostManagement;
 let providerRoutingCore;
-let eventTracking;
 let mod;
 
 let processQueueCalls;
@@ -36,7 +35,6 @@ function setup() {
   configCore = require('../db/config-core');
   hostManagement = require('../db/host-management');
   providerRoutingCore = require('../db/provider-routing-core');
-  eventTracking = require('../db/event-tracking');
 
   // Remove auto-created 'default' host to prevent test contamination
   // (migrateToMultiHost creates it from the seeded ollama_host config)

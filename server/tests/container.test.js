@@ -51,13 +51,13 @@ describe('container', () => {
 
   describe('topological sort', () => {
     it('detects circular dependencies', () => {
-      container.register('a', ['b'], ({ b }) => ({}));
-      container.register('b', ['a'], ({ a }) => ({}));
+      container.register('a', ['b'], () => ({}));
+      container.register('b', ['a'], () => ({}));
       expect(() => container.boot()).toThrow(/circular/i);
     });
 
     it('detects missing dependencies', () => {
-      container.register('a', ['missing'], ({ missing }) => ({}));
+      container.register('a', ['missing'], () => ({}));
       expect(() => container.boot()).toThrow(/missing/i);
     });
 

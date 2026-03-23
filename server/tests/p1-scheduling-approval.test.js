@@ -1,6 +1,3 @@
-const path = require('path');
-const os = require('os');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
 
 let testDir;
@@ -10,7 +7,7 @@ let hostMod;
 
 const projectConfigCore = require('../db/project-config-core');
 const taskCore = require('../db/task-core');
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
   ({ db, testDir } = setupTestDb('p1-sched-approval-'));

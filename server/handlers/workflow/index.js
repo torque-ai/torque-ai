@@ -1446,7 +1446,7 @@ function handleImportWorkflow(args) {
   return createResult;
 }
 
-function createWorkflowHandlers(deps) {
+function createWorkflowHandlers(_deps) {
   return {
     ...workflowTemplates,
     ...workflowDag,

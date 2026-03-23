@@ -1364,7 +1364,7 @@ function handleGetArchiveStats(_args) {
 }
 
 
-function createTaskOperationsHandlers(deps) {
+function createTaskOperationsHandlers(_deps) {
   return {
     handleTagTask,
     handleUntagTask,

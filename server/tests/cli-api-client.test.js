@@ -17,6 +17,12 @@ const path = require('path');
 // Paths are absolute so these work regardless of cwd
 const SHARED_PATH = path.resolve(__dirname, '../../cli/shared.js');
 const API_CLIENT_PATH = path.resolve(__dirname, '../../cli/api-client.js');
+const DOMExceptionCtor = globalThis.DOMException || class extends Error {
+  constructor(message, name = 'Error') {
+    super(message);
+    this.name = name;
+  }
+};
 
 // Helper: load a fresh module instance with specific env vars set,
 // then restore env and purge the module cache.
@@ -220,7 +226,7 @@ describe('cli/api-client — request timeout', () => {
   });
 
   it('converts TimeoutError to a descriptive ApiError', async () => {
-    const timeoutErr = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    const timeoutErr = new DOMExceptionCtor('The operation was aborted due to timeout', 'TimeoutError');
     // DOMException sets .name automatically; simulate what AbortSignal.timeout throws
     fetchMock.mockRejectedValueOnce(timeoutErr);
 

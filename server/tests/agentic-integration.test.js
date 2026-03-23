@@ -177,8 +177,7 @@ describe('Group 2: Mock OpenAI-Compatible Integration', () => {
         requestCount = 0;
 
         mockServer = http.createServer((req, res) => {
-          let body = '';
-          req.on('data', (chunk) => { body += chunk; });
+          req.on('data', () => {});
           req.on('end', () => {
             if (req.url !== '/v1/chat/completions' || req.method !== 'POST') {
               res.writeHead(404);

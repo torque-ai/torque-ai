@@ -3,7 +3,6 @@
  * Extracted from validation-handlers.js
  */
 
-const taskCore = require('../../db/task-core');
 const fileTracking = require('../../db/file-tracking');
 const { CODE_EXTENSIONS, SOURCE_EXTENSIONS } = require('../../constants');
 const { ErrorCodes, makeError, requireTask } = require('../shared');

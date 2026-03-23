@@ -343,7 +343,7 @@ function handleRetryPlanProject(args) {
 }
 
 
-function createIntegrationPlansHandlers(deps) {
+function createIntegrationPlansHandlers(_deps) {
   return {
     handleImportPlan,
     handleListPlanProjects,

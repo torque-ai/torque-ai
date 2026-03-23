@@ -10,7 +10,6 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const taskCore = require('../../db/task-core');
 const { storeArtifact, listArtifacts, getArtifact, deleteArtifact, getArtifactConfig, setArtifactConfig } = require('../../db/task-metadata');
 const { validateArtifactMimeType, isPathTraversalSafe, validateObjectDepth, requireTask, ErrorCodes, makeError } = require('../shared');
 const logger = require('../../logger').child({ component: 'advanced-artifacts' });

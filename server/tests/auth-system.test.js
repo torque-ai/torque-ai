@@ -215,7 +215,7 @@ describe('key-manager', () => {
     });
 
     it('throws for already-revoked key', () => {
-      const key1 = keyManager.createKey({ name: 'keep' });
+      keyManager.createKey({ name: 'keep' });
       const key2 = keyManager.createKey({ name: 'revoke-twice' });
       keyManager.revokeKey(key2.id);
       expect(() => keyManager.revokeKey(key2.id)).toThrow('Key already revoked');
@@ -243,7 +243,7 @@ describe('key-manager', () => {
     });
 
     it('includes revoked keys', () => {
-      const key1 = keyManager.createKey({ name: 'active-key' });
+      keyManager.createKey({ name: 'active-key' });
       const key2 = keyManager.createKey({ name: 'revoked-key' });
       keyManager.revokeKey(key2.id);
       const keys = keyManager.listKeys();
@@ -1021,7 +1021,7 @@ describe('auth integration', () => {
     expect(ticketManager.consumeTicket(ticket)).toBeNull();
 
     // 6. Revoke key — need a second admin so we can revoke
-    const { id: id2 } = keyManager.createKey({ name: 'keep-alive', role: 'admin' });
+    keyManager.createKey({ name: 'keep-alive', role: 'admin' });
     keyManager.revokeKey(id);
     expect(keyManager.validateKey(key)).toBeNull();
   });

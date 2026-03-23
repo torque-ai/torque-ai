@@ -2,11 +2,11 @@
 
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 
-let db, mod;
+let mod;
 
 describe('Model Capabilities Registry', () => {
   beforeAll(() => {
-    ({ db, mod } = setupTestDbModule('../db/host-management', 'model-caps'));
+    ({ mod } = setupTestDbModule('../db/host-management', 'model-caps'));
   });
   afterAll(() => teardownTestDb());
 

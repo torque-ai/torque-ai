@@ -120,7 +120,7 @@ describe('elicitation — protocol layer', () => {
       p2.then(v => results.push(v));
 
       // Simulate disconnect cleanup
-      for (const [id, pending] of pendingRequests) {
+      for (const [, pending] of pendingRequests) {
         clearTimeout(pending.timeout);
         pending.resolve({ action: 'cancel' });
       }

@@ -938,7 +938,7 @@ function handleSetDefaultLimits(args) {
 }
 
 
-function createTaskProjectHandlers(deps) {
+function createTaskProjectHandlers(_deps) {
   return {
     handleRecordUsage,
     handleGetTaskUsage,

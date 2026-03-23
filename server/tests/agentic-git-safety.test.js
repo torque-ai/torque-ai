@@ -165,7 +165,7 @@ describe('checkAndRevert — gitignored new file', () => {
     writeFile('build/output.dll', 'compiled');
     const result = checkAndRevert(repoDir, snap, 'compile project', 'enforce');
     // git check-ignore should recognize build/ files as ignored
-    const buildFiles = result.kept.filter(f => f.includes('build'));
+    expect(result.kept.some(f => f.includes('build'))).toBe(true);
     // If git check-ignore is available and works, file stays
     // (some CI envs may not have the .gitignore respected at nested level — verify existence)
     expect(fileExists('build/output.dll')).toBe(true);

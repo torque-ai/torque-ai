@@ -1,6 +1,3 @@
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
 const { EventEmitter } = require('events');
 const http = require('http');
 
@@ -11,7 +8,7 @@ const dbCoord = require('../db/coordination');
 const eventDispatch = require('../hooks/event-dispatch');
 const mcpSse = require('../mcp-sse');
 
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function createMockResponse() {
   const chunks = [];

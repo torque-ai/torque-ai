@@ -6,7 +6,6 @@ const workflowEngine = require('../db/workflow-engine');
 const taskManager = require('../task-manager');
 const { getTaskInfoPressureLevel } = require('./task/core');
 const { ErrorCodes, makeError, getWorkflowTaskCounts, evaluateWorkflowVisibility } = require('./shared');
-const logger = require('../logger');
 
 const MAX_RUNNING = 5;
 const MAX_QUEUED = 5;

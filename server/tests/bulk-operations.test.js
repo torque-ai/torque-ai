@@ -2,10 +2,10 @@ const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
-let testDir, db, mod;
+let testDir, mod;
 
 function setup() {
-  ({ db, mod, testDir } = setupTestDbModule('../db/task-metadata', 'bulk-operations'));
+  ({ mod, testDir } = setupTestDbModule('../db/task-metadata', 'bulk-operations'));
 }
 
 function teardown() {

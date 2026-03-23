@@ -20,7 +20,7 @@ const WORKER_PATH = path.join(__dirname, '../providers/agentic-worker.js');
 // Returns { exitCode, messages, result?, error? }
 // ---------------------------------------------------------------------------
 function runWorker(workerData, { abortAfterMs } = {}) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const worker = new Worker(WORKER_PATH, { workerData });
     const messages = [];
     let settled = false;

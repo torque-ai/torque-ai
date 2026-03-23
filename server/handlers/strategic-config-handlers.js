@@ -26,7 +26,7 @@ function resolveWorkingDirectory(args) {
   return null;
 }
 
-function addSources(merged, project, user, defaults) {
+function addSources(merged, project, user, _defaults) {
   // Annotate each top-level section with _sources showing origin
   const sources = {};
 

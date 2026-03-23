@@ -42,8 +42,6 @@ function setupE2eDb(suiteName) {
 
   const db = require('../database');
 
-  const taskCore = require('../db/task-core');
-
   const configCore = require('../db/config-core');
 
   // Swap to fresh in-memory DB from buffer (~5-10ms)

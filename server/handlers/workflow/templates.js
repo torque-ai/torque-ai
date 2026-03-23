@@ -317,7 +317,7 @@ function handleTemplateLoop(args) {
   return { content: [{ type: 'text', text: output }] };
 }
 
-function createWorkflowTemplatesHandlers(deps) {
+function createWorkflowTemplatesHandlers(_deps) {
   return {
     handleCreateWorkflowTemplate,
     handleListWorkflowTemplates,

@@ -10,12 +10,12 @@
  */
 
 const crypto = require('crypto');
-const { setupTestDb, teardownTestDb, safeTool, getText, rawDb, resetTables } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, safeTool, getText, rawDb } = require('./vitest-setup');
 
-let db, handleToolCall, mod;
+let db, mod;
 
 beforeAll(() => {
-  ({ db, handleToolCall } = setupTestDb('inbound-webhooks'));
+  ({ db } = setupTestDb('inbound-webhooks'));
   mod = require('../db/inbound-webhooks');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
 });

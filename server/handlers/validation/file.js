@@ -1,7 +1,6 @@
 'use strict';
 
 const fileTracking = require('../../db/file-tracking');
-const taskCore = require('../../db/task-core');
 const { ErrorCodes, makeError, requireTask } = require('../shared');
 
 /**

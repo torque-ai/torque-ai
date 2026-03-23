@@ -1341,7 +1341,7 @@ function handleDeleteRoutingRule(args) {
 }
 
 
-function createIntegrationRoutingHandlers(deps) {
+function createIntegrationRoutingHandlers(_deps) {
   return {
     handleSmartSubmitTask,
     handleTestRouting,

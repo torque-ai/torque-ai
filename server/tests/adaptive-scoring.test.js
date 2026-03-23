@@ -2,10 +2,10 @@
 
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 
-let db, mod, modelCaps;
+let mod, modelCaps;
 
 function setup() {
-  ({ db, mod } = setupTestDbModule('../db/host-management', 'adaptive'));
+  ({ mod } = setupTestDbModule('../db/host-management', 'adaptive'));
   modelCaps = require('../db/model-capabilities');
 }
 

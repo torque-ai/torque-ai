@@ -66,7 +66,7 @@ function getVerifyRouter() {
     }
     _verifyRouter = createRemoteTestRouter({
       agentRegistry,
-      db: db(),
+      db: database(),
       logger,
     });
   }

@@ -874,7 +874,7 @@ function handleAnalyzeTask(args) {
 }
 
 
-function createTaskPipelineHandlers(deps) {
+function createTaskPipelineHandlers(_deps) {
   return {
     handleSaveTemplate,
     handleListTemplates,

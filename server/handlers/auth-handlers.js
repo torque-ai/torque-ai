@@ -38,7 +38,7 @@ function handleCreateApiKey(args) {
   return { content: [{ type: 'text', text }] };
 }
 
-function handleListApiKeys(args) {
+function handleListApiKeys(_args) {
   let keys;
   try {
     keys = keyManager.listKeys();

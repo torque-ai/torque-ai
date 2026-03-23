@@ -589,17 +589,28 @@ function checkForControlChars(str, fieldName = 'value') {
   if (str.includes('\x00')) {
     return { safe: false, reason: `${fieldName} contains null bytes` };
   }
-  const DANGEROUS_CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F]/;
-  if (DANGEROUS_CONTROL_CHARS.test(str)) {
-    return { safe: false, reason: `${fieldName} contains dangerous control characters` };
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if ((code >= 0 && code <= 8) || code === 11 || code === 12 || (code >= 14 && code <= 31)) {
+      return { safe: false, reason: `${fieldName} contains dangerous control characters` };
+    }
   }
   return { safe: true };
 }
 
-const CONTROL_CHARS_REPLACE = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
 function sanitizeControlChars(str) {
   if (typeof str !== 'string') return str;
-  return str.replace(CONTROL_CHARS_REPLACE, '');
+
+  let sanitized = '';
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if ((code >= 0 && code <= 8) || code === 11 || code === 12 || (code >= 14 && code <= 31)) {
+      continue;
+    }
+    sanitized += str[i];
+  }
+
+  return sanitized;
 }
 
 /**

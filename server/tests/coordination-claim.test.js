@@ -27,11 +27,10 @@ const taskCore = require('../db/task-core');
 // ----------------------------------------------------------------
 
 let testDir;
-let db;
 let mod;
 
 function setup() {
-  ({ db, mod, testDir } = setupTestDbModule('../db/coordination', 'coord-claim'));
+  ({ mod, testDir } = setupTestDbModule('../db/coordination', 'coord-claim'));
   mod.setGetTask(taskCore.getTask);
 }
 

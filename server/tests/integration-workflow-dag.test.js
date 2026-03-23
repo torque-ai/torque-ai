@@ -7,7 +7,6 @@ const workflowEngine = require('../db/workflow-engine');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
-let db;
 let taskCore;
 
 function createWorkflowTask(workflowId, nodeId, status = 'blocked') {
@@ -34,7 +33,7 @@ function createWorkflowTask(workflowId, nodeId, status = 'blocked') {
 
 describe('Integration: Workflow DAG', () => {
   beforeAll(() => {
-    ({ db, testDir } = setupTestDb('integration-wfdag'));
+    ({ testDir } = setupTestDb('integration-wfdag'));
     taskCore = require('../db/task-core');
   });
   afterAll(() => { teardownTestDb(); });

@@ -987,7 +987,7 @@ function handleFullProjectAudit(args) {
   return { content: [{ type: 'text', text: output }] };
 }
 
-function createIntegrationInfraHandlers(deps) {
+function createIntegrationInfraHandlers(_deps) {
   return {
     handleConfigureIntegration,
     handleSetHostPriority,

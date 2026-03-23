@@ -373,7 +373,6 @@ describe('task lifecycle coordination', () => {
   it('event dispatch records coordination event for task completion', () => {
     const agentId = randomUUID();
     const taskId = randomUUID();
-    const now = new Date().toISOString();
 
     coord.registerAgent({
       id: agentId,

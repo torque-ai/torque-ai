@@ -1,9 +1,9 @@
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 
-let db, mod;
+let mod;
 
 function setup() {
-  ({ db, mod } = setupTestDbModule('../db/analytics', 'experimentation'));
+  ({ mod } = setupTestDbModule('../db/analytics', 'experimentation'));
   mod.setDbFunctions({
     getCacheStats: () => ({ hits: 0, misses: 0, total: 0 }),
     setCacheConfig: (_v) => {}

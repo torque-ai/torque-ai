@@ -16,8 +16,7 @@
 const path = require('path');
 const fs = require('fs');
 const { TASK_TIMEOUTS } = require('../constants');
-const { safeExecChain } = require('../utils/safe-exec');
-const { executeValidatedCommand, executeValidatedCommandSync } = require('../execution/command-policy');
+const { executeValidatedCommandSync } = require('../execution/command-policy');
 const { ErrorCodes, makeError, isPathTraversalSafe } = require('./shared');
 const logger = require('../logger').child({ component: 'automation-batch' });
 const autoCommitBatch = require('./auto-commit-batch');
@@ -27,6 +26,8 @@ let _taskCore;
 function taskCore() { return _taskCore || (_taskCore = require('../db/task-core')); }
 let _configCore;
 function configCore() { return _configCore || (_configCore = require('../db/config-core')); }
+let _eventTracking;
+function eventTracking() { return _eventTracking || (_eventTracking = require('../db/event-tracking')); }
 let _fileTracking;
 function fileTracking() { return _fileTracking || (_fileTracking = require('../db/file-tracking')); }
 let _projectConfigCore;
@@ -1391,7 +1392,10 @@ async function handleRunFullBatch(args) {
   }}
 
 async function handleContinuousBatchSubmission(completedWorkflowId, workflowData, deps = {}) {
-  const database = deps.db || db();
+  const database = deps.db || {
+    getConfig: (...args) => configCore().getConfig(...args),
+    recordEvent: (...args) => eventTracking().recordEvent(...args),
+  };
   const log = deps.logger || logger;
   const planNextBatch = deps.handlePlanNextBatch || handlePlanNextBatch;
   const runBatch = deps.handleRunBatch || handleRunBatch;

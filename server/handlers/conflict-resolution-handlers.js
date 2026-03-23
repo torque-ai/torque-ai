@@ -1,6 +1,5 @@
 'use strict';
 
-const workflowEngine = require('../db/workflow-engine');
 const { resolveWorkflowConflicts } = require('../execution/conflict-resolver');
 const { requireWorkflow, ErrorCodes, makeError } = require('./shared');
 

@@ -957,7 +957,7 @@ const routingHandlers = require('./routing');
 const planHandlers = require('./plans');
 const infraHandlers = require('./infra');
 
-function createIntegrationHandlers(deps) {
+function createIntegrationHandlers(_deps) {
   return {
     handleExportReportCSV,
     handleExportReportJSON,

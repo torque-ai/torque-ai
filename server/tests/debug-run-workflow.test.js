@@ -1,5 +1,5 @@
 'use strict';
-const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, safeTool } = require('./vitest-setup');
 const { randomUUID } = require('crypto');
 
 describe('Debug run_workflow', () => {

@@ -1092,7 +1092,7 @@ function handleDeleteTask(args) {
 }
 
 
-function createTaskIntelligenceHandlers(deps) {
+function createTaskIntelligenceHandlers(_deps) {
   return {
     handleStreamTaskOutput,
     handleGetTaskLogs,

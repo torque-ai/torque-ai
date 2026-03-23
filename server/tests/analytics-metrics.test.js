@@ -5,10 +5,10 @@ const projectConfigCore = require('../db/project-config-core');
 const taskCore = require('../db/task-core');
 const configCore = require('../db/config-core');
 
-let db, mod;
+let testDir, mod;
 
 function setup() {
-  ({ db, mod } = setupTestDbModule('../db/analytics-metrics', 'analytics'));
+  ({ mod, testDir } = setupTestDbModule('../db/analytics-metrics', 'analytics'));
   mod.setGetTask(taskCore.getTask);
   mod.setDbFunctions({
     getCacheStats: projectConfigCore.getCacheStats,

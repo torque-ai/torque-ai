@@ -59,7 +59,7 @@ async function handleAutoCommitBatch(args) {
     const { hostActivityCache } = require('../utils/host-monitoring');
     if (hostActivityCache && hostActivityCache.size > 0) {
       for (const [hostId] of hostActivityCache) {
-        const gateResult = checkResourceGate(hostActivityCache, hostId, db());
+        const gateResult = checkResourceGate(hostActivityCache, hostId, configCore());
         if (gateResult && !gateResult.allowed) {
           logger.info(`[auto-commit-batch] Resource warning: host ${hostId} overloaded — ${gateResult.reason || 'CPU/RAM >= 85%'}`);
           break;

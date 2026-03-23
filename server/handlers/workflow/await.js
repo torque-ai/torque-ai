@@ -699,7 +699,7 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
   const _wfMutex = getCommitMutex();
   let _wfMutexRelease = null;
   if (_wfMutex && (args.verify_command || args.auto_commit) && wfStatus === 'completed') {
-    try { _wfMutexRelease = await _wfMutex.acquire(60000); } catch (e) {
+    try { _wfMutexRelease = await _wfMutex.acquire(60000); } catch (_e) {
       output += '\n**Commit mutex timeout** — another workflow is committing. Skipping verify/commit.\n';
       return output;
     }
@@ -983,7 +983,7 @@ async function handleAwaitTask(args) {
         const _taskMutex = getCommitMutex();
         let _taskMutexRelease = null;
         if (_taskMutex && (args.verify_command || args.auto_commit) && task.status === 'completed') {
-          try { _taskMutexRelease = await _taskMutex.acquire(60000); } catch (e) {
+          try { _taskMutexRelease = await _taskMutex.acquire(60000); } catch (_e) {
             output += '\n**Commit mutex timeout** — another task is committing. Skipping verify/commit.\n';
             return { content: [{ type: 'text', text: output }] };
           }
@@ -1285,7 +1285,7 @@ async function handleAwaitTask(args) {
   }
 }
 
-function createWorkflowAwaitHandlers(deps) {
+function createWorkflowAwaitHandlers(_deps) {
   return {
     formatDuration,
     formatHeartbeat,

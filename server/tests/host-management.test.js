@@ -5,8 +5,8 @@ const { randomUUID } = require('crypto');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
 
-let testDir, origDataDir, db, mod;
-const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+let testDir, db, mod;
+const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
   ({ db, testDir } = setupTestDb('host-mgmt-'));
@@ -1155,14 +1155,14 @@ describe('host-management module', () => {
   // ================================================================
   describe('default_model field', () => {
     it('updateOllamaHost accepts default_model', () => {
-      const host = makeHost({ id: 'dm-host' });
+      makeHost({ id: 'dm-host' });
       mod.updateOllamaHost('dm-host', { default_model: 'qwen3-coder:30b' });
       const updated = mod.getOllamaHost('dm-host');
       expect(updated.default_model).toBe('qwen3-coder:30b');
     });
 
     it('default_model is null by default', () => {
-      const host = makeHost({ id: 'dm-null' });
+      makeHost({ id: 'dm-null' });
       const fetched = mod.getOllamaHost('dm-null');
       expect(fetched.default_model).toBeNull();
     });

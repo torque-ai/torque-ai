@@ -3,10 +3,10 @@
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 describe('context-handler', () => {
-  let db, workflowEngine;
+  let workflowEngine;
 
   beforeAll(() => {
-    ({ db } = setupTestDb('context-handler'));
+    setupTestDb('context-handler');
     workflowEngine = require('../db/workflow-engine');
   });
 

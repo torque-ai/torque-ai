@@ -3,10 +3,10 @@ const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 const schedulingAutomation = require('../db/scheduling-automation');
 
-let testDir, db, mod;
+let testDir, mod;
 
 function setup() {
-  ({ db, mod, testDir } = setupTestDbModule('../db/analytics', 'duration-prediction'));
+  ({ mod, testDir } = setupTestDbModule('../db/analytics', 'duration-prediction'));
   mod.setDbFunctions({
     getTemplate: schedulingAutomation.getTemplate
   });

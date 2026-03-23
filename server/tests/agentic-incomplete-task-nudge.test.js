@@ -5,7 +5,7 @@
  * responds with text describing what it would create — but doesn't actually
  * call write_file — the loop should nudge it to complete the work.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // Inline mock of the agentic loop's nudge logic
 // (testing the condition, not the full loop — the loop has too many deps)
