@@ -216,6 +216,10 @@ export const hosts = {
     method: 'POST',
     body: JSON.stringify({ enabled }),
   }),
+  update: (id, data) => requestV2(`/hosts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
   scan: () => requestV2('/hosts/scan', { method: 'POST', timeout: 120000 }),
   remove: (id) => requestV2(`/hosts/${id}`, { method: 'DELETE' }),
 };

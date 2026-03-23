@@ -181,6 +181,43 @@ function getApiErrorMessage(payload, response) {
   return `HTTP ${response.status}`;
 }
 
+function DefaultModelDropdown({ host, onUpdate }) {
+  const models = safeParseJson(host.models_cache || host.models, []);
+  const modelNames = models.map(m => typeof m === 'string' ? m : m.name).filter(Boolean);
+  const [value, setValue] = useState(host.default_model || '');
+  const addToast = useToast();
+
+  const handleChange = async (e) => {
+    const newModel = e.target.value || null;
+    setValue(e.target.value);
+    try {
+      await hostsApi.update(host.id, { default_model: newModel });
+      addToast.success('Default model updated');
+      onUpdate?.();
+    } catch (err) {
+      addToast.error('Failed to update default model');
+    }
+  };
+
+  if (modelNames.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <label className="text-xs text-slate-400 block mb-1">Default Model</label>
+      <select
+        value={value}
+        onChange={handleChange}
+        className="w-full bg-slate-700 text-slate-200 text-xs rounded px-2 py-1 border border-slate-600 focus:border-blue-500 focus:outline-none"
+      >
+        <option value="">None (use global default)</option>
+        {modelNames.map(name => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurrencyData }) {
   const addToast = useToast();
   const [localVramFactor, setLocalVramFactor] = useState(
@@ -411,6 +448,9 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
           </div>
         </div>
       )}
+
+      {/* Default model dropdown */}
+      <DefaultModelDropdown host={host} onUpdate={onRefreshHosts} />
 
       {/* Last check & uptime */}
       <div className="flex items-center justify-between mt-3 text-xs text-slate-500">
