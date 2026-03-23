@@ -166,3 +166,77 @@ describe('handleDiffusionStatus', () => {
     expect(result.isError).toBeFalsy();
   });
 });
+
+describe('full pipeline: scout output → create_diffusion_plan → workflow', () => {
+  let handlers;
+  beforeEach(() => { handlers = loadHandlers(); });
+
+  it('creates a valid workflow from a scout-produced plan', () => {
+    const scoutOutput = {
+      summary: 'Migrate 15 test files from direct DB import to DI container',
+      patterns: [
+        {
+          id: 'direct-db-import',
+          description: 'Files using require("../database") directly',
+          transformation: 'Replace with container.get("taskCore")',
+          exemplar_files: ['server/tests/task-manager.test.js'],
+          exemplar_diff: '- const db = require("../database");\n+ const { taskCore } = container;',
+          file_count: 15,
+        },
+      ],
+      manifest: Array.from({ length: 15 }, (_, i) => ({
+        file: `server/tests/test-${i}.test.js`,
+        pattern: 'direct-db-import',
+      })),
+      shared_dependencies: [],
+      estimated_subtasks: 15,
+      isolation_confidence: 0.95,
+      recommended_batch_size: 3,
+    };
+
+    const result = handlers.handleCreateDiffusionPlan({
+      plan: scoutOutput,
+      working_directory: '/project',
+      batch_size: 3,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('Workflow ID');
+    expect(result.content[0].text).toContain('optimistic');
+    expect(result.content[0].text).toContain('Fan-out tasks');
+  });
+
+  it('creates DAG workflow when shared dependencies exist', () => {
+    const plan = {
+      summary: 'Refactor handlers to use new base class',
+      patterns: [
+        {
+          id: 'handler-refactor',
+          description: 'Handler files extending old BaseHandler',
+          transformation: 'Extend NewBaseHandler instead',
+          exemplar_files: ['server/handlers/task.js'],
+          exemplar_diff: '- class TaskHandler extends BaseHandler\n+ class TaskHandler extends NewBaseHandler',
+          file_count: 8,
+        },
+      ],
+      manifest: Array.from({ length: 8 }, (_, i) => ({
+        file: `server/handlers/handler-${i}.js`,
+        pattern: 'handler-refactor',
+      })),
+      shared_dependencies: [
+        { file: 'server/handlers/new-base-handler.js', change: 'Create the new base handler class' },
+      ],
+      estimated_subtasks: 9,
+      isolation_confidence: 0.4,
+    };
+
+    const result = handlers.handleCreateDiffusionPlan({
+      plan,
+      working_directory: '/project',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('dag');
+    expect(result.content[0].text).toContain('Anchor tasks');
+  });
+});
