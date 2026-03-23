@@ -257,7 +257,7 @@ describe('v2-local-providers helpers', () => {
       },
     });
 
-    expect(providers.parseProviderModels()).toEqual(['qwen3-coder:30b', 'llama3:latest', 'qwen2.5-coder:7b']);
+    expect(providers.parseProviderModels()).toEqual(['llama3:latest', 'qwen2.5-coder:7b', 'qwen3-coder:30b']);
   });
 
   it('returns no models when host lookup throws', () => {
@@ -441,7 +441,7 @@ describe('v2-local-providers selection and payload behavior', () => {
     const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
 
     await expect(provider._selectExecutionTarget('missing:7b')).rejects.toThrow(
-      "No Ollama host has model 'missing:7b'. Available models: qwen3-coder:30b, qwen2.5-coder:7b",
+      "No Ollama host has model 'missing:7b'. Available models: qwen2.5-coder:7b, qwen3-coder:30b",
     );
   });
 
@@ -1032,7 +1032,7 @@ describe('v2-local-providers health checks', () => {
 
     await expect(provider.checkHealth()).resolves.toEqual({
       available: true,
-      models: ['qwen3-coder:30b', 'qwen2.5-coder:7b'],
+      models: ['qwen2.5-coder:7b', 'qwen3-coder:30b'],
       host: 'Good Host',
     });
   });
