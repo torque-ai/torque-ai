@@ -161,6 +161,51 @@ const COMPLETION_GRACE_CODEX_MS = 30000;
 /** Last-resort fallback model when no tier/host model is available */
 const DEFAULT_FALLBACK_MODEL = 'qwen3-coder:30b';
 
+/**
+ * Dynamic fallback model lookup.
+ *
+ * Tries three levels:
+ * 1. `model_roles` for provider='ollama' AND role='default'
+ * 2. `model_registry` for provider='ollama' AND status='approved', most recently seen
+ * 3. Static DEFAULT_FALLBACK_MODEL constant
+ *
+ * @param {object|null} db - better-sqlite3 Database instance (or null/undefined)
+ * @returns {string} model name
+ */
+function getDefaultFallbackModel(db) {
+  if (!db || typeof db.prepare !== 'function') {
+    return DEFAULT_FALLBACK_MODEL;
+  }
+
+  try {
+    const row = db
+      .prepare(
+        "SELECT model_name FROM model_roles WHERE provider='ollama' AND role='default' LIMIT 1"
+      )
+      .get();
+    if (row && row.model_name) {
+      return row.model_name;
+    }
+  } catch (_) {
+    // Table may not exist during initial migration — fall through
+  }
+
+  try {
+    const row = db
+      .prepare(
+        "SELECT model_name FROM model_registry WHERE provider='ollama' AND status='approved' ORDER BY last_seen_at DESC LIMIT 1"
+      )
+      .get();
+    if (row && row.model_name) {
+      return row.model_name;
+    }
+  } catch (_) {
+    // Table may not exist during initial migration — fall through
+  }
+
+  return DEFAULT_FALLBACK_MODEL;
+}
+
 // --- Streaming Output Cap ---
 
 /** Max characters to accumulate in fullOutput during streaming (10 MB) */
@@ -216,6 +261,7 @@ module.exports = {
   COMPLETION_GRACE_MS,
   COMPLETION_GRACE_CODEX_MS,
   DEFAULT_FALLBACK_MODEL,
+  getDefaultFallbackModel,
   MAX_STREAMING_OUTPUT,
   MAX_METADATA_SIZE,
   WS_MSG_RATE_LIMIT,
