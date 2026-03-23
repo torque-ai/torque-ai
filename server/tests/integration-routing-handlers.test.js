@@ -15,6 +15,8 @@ const MODULE_PATHS = [
   '../utils/smart-scan',
   '../logger',
   '../config',
+  '../db/model-roles',
+  '../db/model-capabilities',
   'uuid',
 ];
 
@@ -118,6 +120,32 @@ const mockUuid = {
   v4: vi.fn(),
 };
 
+const mockModelRoles = {
+  getModelForRole: vi.fn(),
+  setModelRole: vi.fn(),
+  clearModelRole: vi.fn(),
+  listModelRoles: vi.fn(),
+  VALID_ROLES: ['default', 'fallback', 'fast', 'balanced', 'quality'],
+  ROLE_FALLBACK_CHAINS: { fast: ['fast', 'default'], balanced: ['balanced', 'default'], quality: ['quality', 'default'], default: ['default'], fallback: ['fallback', 'default'] },
+  setDb: vi.fn(),
+  createModelRoles: vi.fn(),
+};
+
+const mockModelCaps = {
+  getModelCapabilities: vi.fn(),
+  listModelCapabilities: vi.fn(),
+  upsertModelCapabilities: vi.fn(),
+  selectBestModel: vi.fn(),
+  classifyTaskType: vi.fn(),
+  detectTaskLanguage: vi.fn(),
+  recordTaskOutcome: vi.fn(),
+  getModelFormatFailures: vi.fn(),
+  computeAdaptiveScores: vi.fn(),
+  getModelLeaderboard: vi.fn(),
+  setDb: vi.fn(),
+  createModelCapabilities: vi.fn(),
+};
+
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
@@ -190,6 +218,8 @@ function loadHandler() {
   installCjsModuleMock('../utils/smart-scan', mockSmartScan);
   installCjsModuleMock('../logger', mockLogger);
   installCjsModuleMock('../config', createConfigModuleMock());
+  installCjsModuleMock('../db/model-roles', mockModelRoles);
+  installCjsModuleMock('../db/model-capabilities', mockModelCaps);
   installCjsModuleMock('uuid', mockUuid);
   return require(HANDLER_MODULE);
 }
@@ -294,6 +324,17 @@ function resetMockState() {
   mockSmartScan.resolveContextFiles.mockReturnValue({
     contextFiles: [],
     reasons: new Map(),
+  });
+
+  mockModelRoles.getModelForRole.mockReset();
+  mockModelRoles.getModelForRole.mockReturnValue('mock-default-model');
+
+  mockModelCaps.getModelCapabilities.mockReset();
+  mockModelCaps.getModelCapabilities.mockReturnValue({
+    max_safe_edit_lines: 250,
+    can_create_files: 1,
+    can_edit_safely: 1,
+    is_agentic: 0,
   });
 
   mockDb.checkOllamaHealth.mockReset();
@@ -852,7 +893,7 @@ describe('integration routing handlers', () => {
 
       const task = taskFromResult(result);
       expect(task.provider).toBe('ollama');
-      expect(task.model).toBe('qwen2.5-coder:32b');
+      expect(task.model).toBe('mock-default-model');
       expect(textOf(result)).toContain('local model (safe)');
     });
 
@@ -894,8 +935,12 @@ describe('integration routing handlers', () => {
       expect(task.model).toBeNull();
     });
 
-    it('falls back to codestral when Codex and claude-cli are unavailable', async () => {
+    it('falls back to the model-roles fallback when Codex and claude-cli are unavailable', async () => {
       setMockDbConfig({ codex_enabled: '0', claude_cli_enabled: '0' });
+      mockModelRoles.getModelForRole.mockImplementation((provider, role) => {
+        if (role === 'fallback') return 'mock-fallback-model';
+        return 'mock-default-model';
+      });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'ollama',
         complexity: 'normal',
@@ -910,7 +955,7 @@ describe('integration routing handlers', () => {
 
       const task = taskFromResult(result);
       expect(task.provider).toBe('ollama');
-      expect(task.model).toBe('codestral:22b');
+      expect(task.model).toBe('mock-fallback-model');
     });
 
     it('uses smart model fallback when the primary host is busy', async () => {
