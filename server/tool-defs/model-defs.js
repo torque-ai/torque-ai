@@ -11,7 +11,7 @@ const tools = [
       type: 'object',
       properties: {
         provider: { type: 'string', description: 'Provider name (e.g., ollama, deepinfra)' },
-        model_name: { type: 'string', description: 'Model name (e.g., qwen2.5-coder:32b)' },
+        model_name: { type: 'string', description: 'Model name (e.g., my-model:14b)' },
         host_id: { type: 'string', description: 'Host ID (optional, for Ollama providers)' },
       },
       required: ['provider', 'model_name'],
@@ -60,7 +60,7 @@ const tools = [
       properties: {
         provider: { type: 'string', description: 'Provider name (e.g., ollama, deepinfra, codex)' },
         role: { type: 'string', enum: ['default', 'fallback', 'fast', 'balanced', 'quality'], description: 'Role to assign the model to' },
-        model_name: { type: 'string', description: 'Model name to assign to this role (e.g., qwen2.5-coder:32b)' },
+        model_name: { type: 'string', description: 'Model name to assign to this role (e.g., my-model:14b)' },
       },
       required: ['provider', 'role', 'model_name'],
     },

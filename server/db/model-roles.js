@@ -11,8 +11,8 @@
  *
  * Usage:
  *   const { getModelForRole, setModelRole } = require('./db/model-roles');
- *   setModelRole('ollama', 'default', 'qwen2.5-coder:32b');
- *   getModelForRole('ollama', 'fast');  // → 'qwen2.5-coder:32b' (falls back to default)
+ *   setModelRole('ollama', 'default', 'my-model:14b');
+ *   getModelForRole('ollama', 'fast');  // → 'my-model:14b' (falls back to default)
  */
 
 const logger = require('../logger').child({ component: 'model-roles' });

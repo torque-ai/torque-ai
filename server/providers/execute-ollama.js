@@ -274,8 +274,8 @@ async function executeOllamaTask(task) {
     }
 
     // Only try variant selection if no exact match AND user didn't specify exact version
-    // This allows "qwen2.5-coder" to match "qwen2.5-coder:7b" or "qwen2.5-coder:32b"
-    // But "qwen2.5-coder:7b" will ONLY match hosts with exactly ":7b"
+    // This allows "some-model" to match "some-model:7b" or "some-model:32b"
+    // But "some-model:7b" will ONLY match hosts with exactly ":7b"
     if (!selection && !hasExactVersion) {
       const variantSelection = db.selectHostWithModelVariant(baseModel);
       if (variantSelection.host) {

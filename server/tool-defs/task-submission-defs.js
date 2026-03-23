@@ -59,7 +59,7 @@ module.exports = [
         },
         "model": {
           "type": "string",
-          "description": "Model override. For ollama: e.g., qwen2.5-coder:32b. For codex: e.g., gpt-5.3-codex-spark."
+          "description": "Model override. For ollama: e.g., my-model:14b. For codex: e.g., gpt-5.3-codex-spark."
         },
         "files": {
           "type": "array",

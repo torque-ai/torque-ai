@@ -502,8 +502,8 @@ async function executeOllamaTaskWithAgentic(task) {
   if (!resolvedModel) {
     try {
       const modelRoles = require('../db/model-roles');
-      resolvedModel = modelRoles.getModelForRole('ollama', 'default') || 'qwen3-coder:30b';
-    } catch { resolvedModel = 'qwen3-coder:30b'; }
+      resolvedModel = modelRoles.getModelForRole('ollama', 'default') || null;
+    } catch { resolvedModel = null; }
   }
 
   // Resolve host

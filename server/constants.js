@@ -158,8 +158,8 @@ const COMPLETION_GRACE_CODEX_MS = 30000;
 
 // --- Provider Fallback Defaults ---
 
-/** Last-resort fallback model when no tier/host model is available */
-const DEFAULT_FALLBACK_MODEL = 'qwen3-coder:30b';
+/** Last-resort fallback model placeholder — callers should use getDefaultFallbackModel(db) instead */
+const DEFAULT_FALLBACK_MODEL = 'default-model';
 
 /**
  * Dynamic fallback model lookup.

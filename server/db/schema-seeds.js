@@ -68,7 +68,8 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertConfig.run('strategic_auto_diagnose', '0');
   insertConfig.run('strategic_auto_review', '0');
   insertConfig.run('strategic_provider', 'ollama');
-  insertConfig.run('strategic_model', 'qwen2.5-coder:32b');
+  // Legacy: populated dynamically by discovery engine
+  insertConfig.run('strategic_model', '');
   insertConfig.run('codex_overflow_to_local', '0');
   insertConfig.run('codex_probe_interval_minutes', '15');
   insertConfig.run('overflow_max_complexity', 'normal');
@@ -205,12 +206,14 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertRateLimit.run('openrouter', 1, 20, 50, null, null, 0, 'UTC', now);
   insertRateLimit.run('ollama-cloud', 1, 10, 500, 100000, null, 0, 'UTC', now);
   insertConfig.run('ollama_host', 'http://localhost:11434');
-  insertConfig.run('ollama_model', 'qwen2.5-coder:32b');
+  // Legacy: populated dynamically by discovery engine
+  insertConfig.run('ollama_model', '');
   insertConfig.run('smart_routing_enabled', '1');
   insertConfig.run('smart_routing_default_provider', 'hashline-ollama');
   insertConfig.run('ollama_fallback_provider', 'codex');
   insertConfig.run('ollama_health_check_enabled', '1');
-  insertConfig.run('hashline_capable_models', 'qwen3,qwen2.5-coder:32b,codellama:34b,codestral,gemma2,deepseek-coder-v2,deepseek-r1,qwen2.5:14b');
+  // Legacy: populated dynamically by discovery engine
+  insertConfig.run('hashline_capable_models', '');
   insertConfig.run('ollama_temperature', '0.3');
   insertConfig.run('ollama_num_ctx', '8192');
   insertConfig.run('ollama_top_p', '0.9');
@@ -228,6 +231,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       balanced: { temperature: 0.5, top_p: 0.9, top_k: 40, repeat_penalty: 1.1, num_ctx: 8192, mirostat: 2 },
       fast: { temperature: 0.3, top_p: 0.9, top_k: 40, repeat_penalty: 1.1, num_ctx: 4096, mirostat: 0 }
     }));
+  // Legacy fallback — superseded by model_family_templates
   insertConfig.run('ollama_model_settings', JSON.stringify({
       'qwen3:8b': { temperature: 0.25, top_k: 35, num_ctx: 8192, repeat_penalty: 1.15, description: 'Balanced tier — reliable workhorse for standard code gen' },
       'qwen3:32b': { temperature: 0.15, top_k: 25, num_ctx: 16384, repeat_penalty: 1.15, mirostat: 2, description: 'Quality tier — complex code, multi-file, deep reasoning' },
@@ -243,6 +247,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       mistral: { temperature: 0.5, top_k: 50, num_ctx: 8192, description: 'Good for writing and explanations' },
       phi3: { temperature: 0.3, top_k: 40, num_ctx: 4096, description: 'Lightweight tasks' }
     }));
+  // Legacy fallback — superseded by model_family_templates
   insertConfig.run('ollama_model_prompts', JSON.stringify({
       'qwen3:8b': `You are Qwen3, a highly capable code generation model. When editing code:
     - Make ONLY the changes requested - no extra refactoring
@@ -575,8 +580,8 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       db.prepare(`
         INSERT INTO complexity_routing (name, complexity, target_provider, target_host, model, priority, enabled, created_at) VALUES
         ('Complex tasks to Codex', 'complex', 'codex', NULL, NULL, 1, 1, ?),
-        ('Normal tasks to hashline', 'normal', 'hashline-ollama', NULL, 'qwen2.5-coder:32b', 2, 1, ?),
-        ('Simple tasks to hashline', 'simple', 'hashline-ollama', NULL, 'qwen2.5-coder:32b', 3, 1, ?)
+        ('Normal tasks to hashline', 'normal', 'hashline-ollama', NULL, NULL, 2, 1, ?),
+        ('Simple tasks to hashline', 'simple', 'hashline-ollama', NULL, NULL, 3, 1, ?)
       `).run(now, now, now);
     }
   try {
@@ -632,7 +637,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     modelRoles.setDb(db);
     const existingRoles = modelRoles.listModelRoles('ollama');
     if (existingRoles.length === 0) {
-      const defaultModel = (extras.getConfig && extras.getConfig('ollama_model')) || 'qwen3-coder:30b';
+      const defaultModel = (extras.getConfig && extras.getConfig('ollama_model')) || '';
       modelRoles.setModelRole('ollama', 'default', defaultModel);
       modelRoles.setModelRole('ollama', 'fallback', defaultModel);
     }
@@ -640,7 +645,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     logger.debug(`Schema seed (model roles): ${e.message}`);
   }
 
-  // Seed model capabilities for qwen3-coder:30b (agentic, large context)
+  // Seed model capabilities for qwen3-coder (agentic, large context) — example entry only
   try {
     const modelCaps = require('./model-capabilities');
     modelCaps.setDb(db);

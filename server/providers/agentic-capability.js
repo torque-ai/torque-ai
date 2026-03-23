@@ -11,7 +11,7 @@
  * Usage:
  *   const { init, isAgenticCapable } = require('./agentic-capability');
  *   init({ db, serverConfig });
- *   const { capable, reason, source } = isAgenticCapable('ollama', 'qwen2.5-coder:32b');
+ *   const { capable, reason, source } = isAgenticCapable('ollama', 'my-model:14b');
  */
 
 // ── Excluded providers ────────────────────────────────────────────────────────

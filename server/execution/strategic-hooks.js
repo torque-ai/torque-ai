@@ -10,8 +10,8 @@ const { resolveOllamaModel } = require('../providers/ollama-shared');
 const modelRoles = require('../db/model-roles');
 
 function getDefaultModel() {
-  try { return modelRoles.getModelForRole('ollama', 'default') || 'qwen3-coder:30b'; }
-  catch { return 'qwen3-coder:30b'; }
+  try { return modelRoles.getModelForRole('ollama', 'default') || null; }
+  catch { return null; }
 }
 
 const DEFAULT_PROVIDER = 'ollama';

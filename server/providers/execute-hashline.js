@@ -648,8 +648,8 @@ async function executeHashlineOllamaTask(task) {
 
     // Select edit format — file size can override to hashline-lite for small files,
     // but only when the model wasn't explicitly configured for a specific format.
-    // qwen2.5-coder:32b abbreviates SEARCH content in hashline-lite (fails fuzzy match)
-    // but handles standard hashline (line:hash references) reliably.
+    // Some models abbreviate SEARCH content in hashline-lite (fails fuzzy match)
+    // but handle standard hashline (line:hash references) reliably.
     const FILE_SIZE_THRESHOLD = serverConfig.getInt('hashline_file_size_threshold', 50);
     const formatSelection = selectHashlineFormat(ollamaModel, task);
     editFormat = formatSelection.format;

@@ -527,7 +527,7 @@ const tools = [
         },
         model: {
           type: 'string',
-          description: 'Model to use (e.g., qwen2.5-coder:32b). Uses smart routing if not specified.'
+          description: 'Model to use (e.g., my-model:14b). Uses smart routing if not specified.'
         },
         token_limit: {
           type: 'number',

@@ -527,7 +527,7 @@ function cleanupOrphanedHostTasks(hostId, hostName) {
 /**
  * Calculate dynamic stall threshold based on model size and provider.
  * Priority: runtime config override > model-size heuristic > provider default > base.
- * @param {string} model - Model name (e.g., "qwen2.5-coder:32b")
+ * @param {string} model - Model name (e.g., "some-model:32b")
  * @param {string} provider - Provider name (e.g., "hashline-ollama")
  * @returns {number|null} Stall threshold in seconds, or null if stall detection disabled for provider
  */
@@ -564,7 +564,7 @@ function getStallThreshold(model, provider) {
   const isThinkingModel = /^(qwen3|deepseek-r1)/i.test(model);
   const thinkingMultiplier = isThinkingModel ? 1.5 : 1;
 
-  // Extract size from model name (e.g., "32b" from "qwen2.5-coder:32b")
+  // Extract size from model name (e.g., "32b" from "some-model:32b")
   const sizeMatch = modelLower.match(/:(\d+)b/);
   if (sizeMatch) {
     const sizeB = parseInt(sizeMatch[1], 10);

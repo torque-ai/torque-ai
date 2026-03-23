@@ -8,7 +8,7 @@
 /**
  * Extract parameter count in billions from a model name.
  * Handles patterns like :32b, -7b, _14b, and decimals like :1.5b
- * @param {string} modelName - e.g. "qwen2.5-coder:32b", "gemma3:4b"
+ * @param {string} modelName - e.g. "some-model:32b", "gemma3:4b"
  * @returns {number} Size in billions, or 0 if unparseable
  */
 function parseModelSizeB(modelName) {
