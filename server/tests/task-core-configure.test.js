@@ -3,7 +3,15 @@
 const HANDLER_MODULE = '../handlers/task/core';
 const MODULE_PATHS = [
   HANDLER_MODULE,
-  '../database',
+  '../db/config-core',
+  '../db/cost-tracking',
+  '../db/task-core',
+  '../db/host-management',
+  '../db/project-config-core',
+  '../db/provider-routing-core',
+  '../db/scheduling-automation',
+  '../db/task-metadata',
+  '../db/webhooks-streaming',
   '../config',
   '../task-manager',
   '../contracts/peek',
@@ -44,6 +52,15 @@ const mockDb = {
   setConfig: vi.fn(),
   getAllConfig: vi.fn(),
 };
+
+const mockCostTracking = {};
+const mockTaskCoreDb = {};
+const mockHostManagement = {};
+const mockProjectConfigCore = {};
+const mockProviderRoutingCore = {};
+const mockSchedulingAutomation = {};
+const mockTaskMetadata = {};
+const mockWebhooksStreaming = {};
 
 const mockConfig = {
   init: vi.fn(),
@@ -199,7 +216,15 @@ function resetMockDefaults() {
 
 function loadHandlers() {
   clearLoadedModules();
-  installMock('../database', mockDb);
+  installMock('../db/config-core', mockDb);
+  installMock('../db/cost-tracking', mockCostTracking);
+  installMock('../db/task-core', mockTaskCoreDb);
+  installMock('../db/host-management', mockHostManagement);
+  installMock('../db/project-config-core', mockProjectConfigCore);
+  installMock('../db/provider-routing-core', mockProviderRoutingCore);
+  installMock('../db/scheduling-automation', mockSchedulingAutomation);
+  installMock('../db/task-metadata', mockTaskMetadata);
+  installMock('../db/webhooks-streaming', mockWebhooksStreaming);
   installMock('../config', mockConfig);
   installMock('../task-manager', mockTaskManager);
   installMock('../contracts/peek', mockPeek);

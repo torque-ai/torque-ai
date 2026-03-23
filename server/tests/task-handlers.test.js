@@ -7,7 +7,12 @@ function extractTaskId(result) {
 }
 
 describe('Task Handlers', () => {
-  beforeAll(() => { setupTestDb('task-handlers'); });
+  beforeAll(() => {
+    setupTestDb('task-handlers');
+    const tm = require('../task-manager');
+    if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+    if (typeof tm.initSubModules === 'function') tm.initSubModules();
+  });
   afterAll(() => { teardownTestDb(); });
 
   describe('ping', () => {
@@ -74,7 +79,7 @@ describe('Task Handlers', () => {
       const taskId = extractTaskId(qr);
       expect(taskId).toMatch(/^[a-f0-9-]{36}$/);
 
-      const cancelResult = await safeTool('cancel_task', { task_id: taskId });
+      const cancelResult = await safeTool('cancel_task', { task_id: taskId, confirm: true });
       expect(cancelResult.isError).toBeFalsy();
 
       // Verify task is now cancelled

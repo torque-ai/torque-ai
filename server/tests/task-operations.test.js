@@ -159,6 +159,10 @@ describe('task-operations handlers', () => {
     mockSpawnSync.mockReturnValue({ status: 0, stdout: '1.0.0\n', stderr: '', error: null });
     mockUuidV4.mockReset();
     mockUuidV4.mockReturnValue('11111111-1111-1111-1111-111111111111');
+    projectConfigCore.listScheduledTasks = vi.fn(() => []);
+    projectConfigCore.getScheduledTask = vi.fn(() => null);
+    projectConfigCore.deleteScheduledTask = vi.fn(() => false);
+    projectConfigCore.updateScheduledTask = vi.fn(() => undefined);
   });
 
   afterEach(() => {

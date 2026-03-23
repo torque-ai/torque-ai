@@ -2,17 +2,28 @@
 
 const fs = require('fs');
 const path = require('path');
-const { createConfigMock } = require('./test-helpers');
+const { createConfigMock, TEST_MODELS } = require('./test-helpers');
 
 const HANDLER_MODULE = '../handlers/task/core';
 const MODULE_PATHS = [
   HANDLER_MODULE,
-  '../database',
+  '../db/config-core',
+  '../db/cost-tracking',
+  '../db/task-core',
+  '../db/host-management',
+  '../db/project-config-core',
+  '../db/provider-routing-core',
+  '../db/scheduling-automation',
+  '../db/task-metadata',
+  '../db/webhooks-streaming',
   '../config',
   '../task-manager',
+  '../contracts/peek',
   '../handlers/integration/routing',
   '../handlers/shared',
   '../handlers/task/utils',
+  '../utils/context-stuffing',
+  '../utils/smart-scan',
   '../constants',
   '../logger',
   'uuid',
@@ -35,11 +46,14 @@ const mockDb = {
   analyzeTaskForRouting: vi.fn(),
   isCodexExhausted: vi.fn(),
   hasHealthyOllamaHost: vi.fn(),
+  listOllamaHosts: vi.fn(),
   estimateCost: vi.fn(),
   checkBudgetBeforeSubmission: vi.fn(),
   createTask: vi.fn(),
   getTask: vi.fn(),
   listTasks: vi.fn(),
+  patchTaskSlotBinding: vi.fn(),
+  patchTaskMetadata: vi.fn(),
   listArtifacts: vi.fn(),
   getOllamaHost: vi.fn(),
   getCurrentProject: vi.fn(),
@@ -68,6 +82,10 @@ const mockRouting = {
   handleSmartSubmitTask: vi.fn(),
 };
 
+const mockPeek = {
+  buildPeekArtifactReferencesFromTaskArtifacts: vi.fn(() => []),
+};
+
 const mockShared = {
   safeLimit: vi.fn(),
   MAX_BATCH_SIZE: 100,
@@ -87,9 +105,9 @@ const mockShared = {
   makeError: vi.fn(),
   isPathTraversalSafe: vi.fn(),
   checkProviderAvailability: vi.fn(() => null),
-  requireTask: vi.fn((db, taskId) => {
+  requireTask: vi.fn((taskId) => {
     if (!taskId) return { error: mockShared.makeError(mockShared.ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required') };
-    const task = db.getTask(taskId);
+    const task = mockDb.getTask(taskId);
     if (!task) return { error: mockShared.makeError(mockShared.ErrorCodes.TASK_NOT_FOUND, `Task not found: ${taskId}`) };
     return { task };
   }),
@@ -107,6 +125,14 @@ const mockConstants = {
   },
 };
 
+const mockContextStuffing = {
+  CONTEXT_STUFFING_PROVIDERS: new Set(['codex', 'claude-cli']),
+};
+
+const mockSmartScan = {
+  resolveContextFiles: vi.fn(() => []),
+};
+
 const mockLogger = {
   debug: vi.fn(),
 };
@@ -117,23 +143,37 @@ const mockUuid = {
 };
 
 const currentModules = {
-  database: mockDb,
+  db: mockDb,
   config: null,
   taskManager: mockTaskManager,
   routing: mockRouting,
+  peek: mockPeek,
   shared: mockShared,
   taskUtils: mockTaskUtils,
+  contextStuffing: mockContextStuffing,
+  smartScan: mockSmartScan,
   constants: mockConstants,
   logger: mockLogger,
   uuid: mockUuid,
 };
 
-vi.mock('../database', () => currentModules.database);
+vi.mock('../db/config-core', () => currentModules.db);
+vi.mock('../db/cost-tracking', () => currentModules.db);
+vi.mock('../db/task-core', () => currentModules.db);
+vi.mock('../db/host-management', () => currentModules.db);
+vi.mock('../db/project-config-core', () => currentModules.db);
+vi.mock('../db/provider-routing-core', () => currentModules.db);
+vi.mock('../db/scheduling-automation', () => currentModules.db);
+vi.mock('../db/task-metadata', () => currentModules.db);
+vi.mock('../db/webhooks-streaming', () => currentModules.db);
 vi.mock('../config', () => currentModules.config);
 vi.mock('../task-manager', () => currentModules.taskManager);
+vi.mock('../contracts/peek', () => currentModules.peek);
 vi.mock('../handlers/integration/routing', () => currentModules.routing);
 vi.mock('../handlers/shared', () => currentModules.shared);
 vi.mock('../handlers/task/utils', () => currentModules.taskUtils);
+vi.mock('../utils/context-stuffing', () => currentModules.contextStuffing);
+vi.mock('../utils/smart-scan', () => currentModules.smartScan);
 vi.mock('../constants', () => currentModules.constants);
 vi.mock('../logger', () => currentModules.logger);
 vi.mock('uuid', () => currentModules.uuid);
@@ -190,22 +230,36 @@ function clearLoadedModules() {
 
 function loadHandlers() {
   clearLoadedModules();
-  currentModules.database = mockDb;
+  currentModules.db = mockDb;
   currentModules.config = createDbConfigMock(mockDb);
   currentModules.taskManager = mockTaskManager;
   currentModules.routing = mockRouting;
+  currentModules.peek = mockPeek;
   currentModules.shared = mockShared;
   currentModules.taskUtils = mockTaskUtils;
+  currentModules.contextStuffing = mockContextStuffing;
+  currentModules.smartScan = mockSmartScan;
   currentModules.constants = mockConstants;
   currentModules.logger = mockLogger;
   currentModules.uuid = mockUuid;
 
-  installCjsModuleMock('../database', currentModules.database);
+  installCjsModuleMock('../db/config-core', currentModules.db);
+  installCjsModuleMock('../db/cost-tracking', currentModules.db);
+  installCjsModuleMock('../db/task-core', currentModules.db);
+  installCjsModuleMock('../db/host-management', currentModules.db);
+  installCjsModuleMock('../db/project-config-core', currentModules.db);
+  installCjsModuleMock('../db/provider-routing-core', currentModules.db);
+  installCjsModuleMock('../db/scheduling-automation', currentModules.db);
+  installCjsModuleMock('../db/task-metadata', currentModules.db);
+  installCjsModuleMock('../db/webhooks-streaming', currentModules.db);
   installCjsModuleMock('../config', currentModules.config);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
+  installCjsModuleMock('../contracts/peek', currentModules.peek);
   installCjsModuleMock('../handlers/integration/routing', currentModules.routing);
   installCjsModuleMock('../handlers/shared', currentModules.shared);
   installCjsModuleMock('../handlers/task/utils', currentModules.taskUtils);
+  installCjsModuleMock('../utils/context-stuffing', currentModules.contextStuffing);
+  installCjsModuleMock('../utils/smart-scan', currentModules.smartScan);
   installCjsModuleMock('../constants', currentModules.constants);
   installCjsModuleMock('../logger', currentModules.logger);
   installCjsModuleMock('uuid', currentModules.uuid);
@@ -322,6 +376,9 @@ function resetMockDefaults() {
   mockDb.hasHealthyOllamaHost.mockReset();
   mockDb.hasHealthyOllamaHost.mockReturnValue(true);
 
+  mockDb.listOllamaHosts.mockReset();
+  mockDb.listOllamaHosts.mockReturnValue([]);
+
   mockDb.estimateCost.mockReset();
   mockDb.estimateCost.mockReturnValue({ estimated_cost_usd: 0.25 });
 
@@ -341,6 +398,12 @@ function resetMockDefaults() {
 
   mockDb.listTasks.mockReset();
   mockDb.listTasks.mockReturnValue([]);
+
+  mockDb.patchTaskSlotBinding.mockReset();
+  mockDb.patchTaskSlotBinding.mockImplementation(() => undefined);
+
+  mockDb.patchTaskMetadata.mockReset();
+  mockDb.patchTaskMetadata.mockImplementation(() => undefined);
 
   mockDb.listArtifacts.mockReset();
   mockDb.listArtifacts.mockReturnValue([]);
@@ -398,6 +461,12 @@ function resetMockDefaults() {
     __subscribe_task_id: 'smart-task-1',
     content: [{ type: 'text', text: 'Smart routed task started.' }],
   });
+
+  mockPeek.buildPeekArtifactReferencesFromTaskArtifacts.mockReset();
+  mockPeek.buildPeekArtifactReferencesFromTaskArtifacts.mockReturnValue([]);
+
+  mockSmartScan.resolveContextFiles.mockReset();
+  mockSmartScan.resolveContextFiles.mockReturnValue([]);
 }
 
 describe('task-core handlers', () => {
@@ -783,7 +852,7 @@ describe('task-core handlers', () => {
         provider: 'ollama',
       });
 
-      expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith(mockDb, { hasExplicitProvider: true });
+      expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith({ hasExplicitProvider: true });
     });
 
     it('passes hasExplicitProvider=false to provider availability checks for default-provider submissions', () => {
@@ -792,7 +861,7 @@ describe('task-core handlers', () => {
         auto_route: false,
       });
 
-      expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith(mockDb, { hasExplicitProvider: false });
+      expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith({ hasExplicitProvider: false });
     });
 
     it('checks budget using the chosen provider and model hint', () => {
@@ -1133,7 +1202,7 @@ describe('task-core handlers', () => {
         provider: 'ollama',
       });
 
-      expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith(mockDb, { hasExplicitProvider: true });
+      expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith({ hasExplicitProvider: true });
     });
 
     it('rejects auto-routed queueing when no providers are available', () => {
@@ -1462,6 +1531,14 @@ describe('task-core handlers', () => {
         name: 'Local Host',
         url: 'http://localhost:11434',
       });
+      mockPeek.buildPeekArtifactReferencesFromTaskArtifacts.mockReturnValue([
+        {
+          name: 'bundle.json',
+          path: 'C:/artifacts/bundle.json',
+          artifact_id: 'artifact-1',
+          contract: { name: 'peek_investigation_bundle', version: 1 },
+        },
+      ]);
 
       const result = handlers.handleGetResult({ task_id: 'task-result' });
       const text = textOf(result);

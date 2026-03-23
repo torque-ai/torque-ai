@@ -181,7 +181,6 @@ describe('task-manager-delegations', () => {
       'recordModelOutcome', 'recordProviderHealth',
       'fireTerminalTaskHook', 'handlePostCompletion',
       'finalizeTask',
-      'buildAiderCommand', 'configureAiderHost',
       'categorizeQueuedTasks', 'processQueueInternal',
       'cleanupOrphanedHostTasks', 'getStallThreshold',
     ];

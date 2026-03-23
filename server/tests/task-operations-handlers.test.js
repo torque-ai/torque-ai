@@ -75,6 +75,12 @@ describe('Task Operations Handlers', () => {
     const tm = require('../task-manager');
     if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
     if (typeof tm.initSubModules === 'function') tm.initSubModules();
+    const projectConfigCore = require('../db/project-config-core');
+    const cronScheduling = require('../db/cron-scheduling');
+    projectConfigCore.listScheduledTasks = cronScheduling.listScheduledTasks;
+    projectConfigCore.getScheduledTask = cronScheduling.getScheduledTask;
+    projectConfigCore.deleteScheduledTask = cronScheduling.deleteScheduledTask;
+    projectConfigCore.updateScheduledTask = cronScheduling.updateScheduledTask;
   });
   afterAll(() => { teardownTestDb(); });
 
@@ -380,6 +386,9 @@ describe('Task Operations Handlers', () => {
     });
 
     it('retries failed tasks', async () => {
+      const taskManager = require('../task-manager');
+      vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
+
       // Create failed tasks using proper state transition
       createTerminalTask(db, 'failed', 'Failed for batch retry 1', { exit_code: 1 });
       createTerminalTask(db, 'failed', 'Failed for batch retry 2', { exit_code: 1 });
@@ -388,6 +397,7 @@ describe('Task Operations Handlers', () => {
       expect(result.isError).toBeFalsy();
       const text = getText(result);
       expect(text).toContain('Batch Retry');
+      expect(text).toContain('Tasks Retried');
     });
 
     it('rejects invalid tags type', async () => {

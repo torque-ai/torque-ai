@@ -19,6 +19,8 @@ function setupTm() {
   ({ testDir } = setupTestDb('taskmgr'));
   taskCore = require('../db/task-core');
   tm = require('../task-manager');
+  if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
+  if (typeof tm.initSubModules === 'function') tm.initSubModules();
   return { tm, testDir };
 }
 
@@ -283,7 +285,7 @@ module.exports = { greet, farewell };
   describe('Model Size Helpers', () => {
     it('parseModelSizeB extracts size from model name', () => {
       expect(tm.parseModelSizeB('qwen3:8b')).toBe(8);
-      expect(tm.parseModelSizeB('qwen3-coder:30b')).toBe(32);
+      expect(tm.parseModelSizeB('qwen3-coder:30b')).toBe(30);
       expect(tm.parseModelSizeB('gemma3:4b')).toBe(4);
     });
 

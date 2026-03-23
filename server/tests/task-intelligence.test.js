@@ -55,9 +55,6 @@ vi.mock('../db/task-metadata', () => ({
   dryRunBulkOperation() { return { total_tasks: 0, preview: [] }; },
   getBulkOperation() { return null; },
   listBulkOperations() { return []; },
-  setTaskReviewStatus() {},
-  getTasksPendingReview() { return []; },
-  getTasksNeedingCorrection() { return []; },
 }));
 
 vi.mock('../db/scheduling-automation', () => ({
@@ -98,6 +95,9 @@ vi.mock('../db/host-management', () => ({
       rule: 'Default',
     };
   },
+  setTaskReviewStatus() {},
+  getTasksPendingReview() { return []; },
+  getTasksNeedingCorrection() { return []; },
 }));
 
 vi.mock('../task-manager', () => ({
@@ -208,13 +208,13 @@ describe('task-intelligence handlers', () => {
       samples_processed: 0,
     });
     vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
-    vi.spyOn(taskMetadata, 'setTaskReviewStatus').mockImplementation(() => {});
-    vi.spyOn(taskMetadata, 'getTasksPendingReview').mockReturnValue([]);
-    vi.spyOn(taskMetadata, 'getTasksNeedingCorrection').mockReturnValue([]);
     vi.spyOn(hostManagement, 'routeTask').mockReturnValue({
       provider: 'desktop',
       rule: 'Default',
     });
+    vi.spyOn(hostManagement, 'setTaskReviewStatus').mockImplementation(() => {});
+    vi.spyOn(hostManagement, 'getTasksPendingReview').mockReturnValue([]);
+    vi.spyOn(hostManagement, 'getTasksNeedingCorrection').mockReturnValue([]);
     vi.spyOn(taskCore, 'deleteTasks').mockReturnValue({
       deleted: 0,
       status: 'queued',
@@ -1171,7 +1171,7 @@ describe('task-intelligence handlers', () => {
       });
       const text = getText(result);
 
-      expect(taskMetadata.setTaskReviewStatus).toHaveBeenCalledWith(
+      expect(hostManagement.setTaskReviewStatus).toHaveBeenCalledWith(
         'task-review',
         'needs_correction',
         'Retry with stricter verification output.'
@@ -1187,12 +1187,12 @@ describe('task-intelligence handlers', () => {
     it('reports when no completed tasks are awaiting review', () => {
       const result = handlers.handleListPendingReviews({});
 
-      expect(taskMetadata.getTasksPendingReview).toHaveBeenCalledWith(20);
+      expect(hostManagement.getTasksPendingReview).toHaveBeenCalledWith(20);
       expect(getText(result)).toContain('## No Tasks Pending Review');
     });
 
     it('formats pending review rows and next-step guidance', () => {
-      taskMetadata.getTasksPendingReview.mockReturnValue([
+      hostManagement.getTasksPendingReview.mockReturnValue([
         {
           id: 'task-review-1',
           task_description: 'Review the output bundle for the routing verification workflow',
@@ -1205,7 +1205,7 @@ describe('task-intelligence handlers', () => {
       const result = handlers.handleListPendingReviews({ limit: 1 });
       const text = getText(result);
 
-      expect(taskMetadata.getTasksPendingReview).toHaveBeenCalledWith(1);
+      expect(hostManagement.getTasksPendingReview).toHaveBeenCalledWith(1);
       expect(text).toContain('## Tasks Pending Review (1)');
       expect(text).toContain('| task-review-1 | Review the output bundle for the routing verificat...');
       expect(text).toContain('| complex | codex | 2026-03-12T12:00:00.000Z |');
@@ -1215,7 +1215,7 @@ describe('task-intelligence handlers', () => {
 
   describe('handleListTasksNeedingCorrection', () => {
     it('formats tasks requiring correction with fallback notes', () => {
-      taskMetadata.getTasksNeedingCorrection.mockReturnValue([
+      hostManagement.getTasksNeedingCorrection.mockReturnValue([
         {
           id: 'task-correct-1',
           task_description: 'Fix the validation step so routing bundles include every manifest artifact',
