@@ -6,6 +6,7 @@
  * - handleGetRecentOperations
  */
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const fileTracking = require('../db/file-tracking');
@@ -49,7 +50,7 @@ const mockTasks = [
     id: 'task-002-eeff0011',
     description: 'Fix import in types.ts',
     provider: 'hashline-ollama',
-    model: 'qwen3-coder:30b',
+    model: TEST_MODELS.DEFAULT,
     complexity: 'simple',
     status: 'running',
     created_at: '2026-03-08T11:30:00Z',
@@ -62,7 +63,7 @@ const mockTasks = [
     id: 'task-003-22334455',
     description: 'Non-routed manual task',
     provider: 'ollama',
-    model: 'qwen3-coder:30b',
+    model: TEST_MODELS.DEFAULT,
     complexity: 'normal',
     status: 'completed',
     created_at: '2026-03-08T11:00:00Z',
@@ -86,7 +87,7 @@ const mockTasks = [
     id: 'task-005-99aabb',
     description: 'Task with invalid metadata',
     provider: 'ollama',
-    model: 'qwen3-coder:30b',
+    model: TEST_MODELS.DEFAULT,
     complexity: 'normal',
     status: 'completed',
     created_at: '2026-03-08T09:00:00Z',

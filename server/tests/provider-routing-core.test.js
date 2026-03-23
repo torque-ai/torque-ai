@@ -1,6 +1,7 @@
 'use strict';
 
 const { EventEmitter } = require('events');
+const { TEST_MODELS } = require('./test-helpers');
 const http = require('http');
 
 const CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
@@ -638,7 +639,7 @@ describe('provider-routing-core', () => {
         routeTask: vi.fn(() => ({
           provider: 'ollama',
           hostId: 'host-local',
-          model: 'qwen3:8b',
+          model: TEST_MODELS.SMALL,
         })),
       });
       const { core } = loadCore({ hostManagement });
@@ -648,7 +649,7 @@ describe('provider-routing-core', () => {
       ]);
 
       expect(result.provider).toBe('hashline-ollama');
-      expect(result.model).toBe('qwen3:8b');
+      expect(result.model).toBe(TEST_MODELS.SMALL);
       expect(result.reason).toContain('hashline-ollama');
     });
 

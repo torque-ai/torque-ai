@@ -5,6 +5,7 @@ const Database = require('better-sqlite3');
 
 const hostComplexity = require('../db/host-complexity');
 const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 
 function insertConfig(key, value) {
   rawDb().prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run(key, String(value));
@@ -78,10 +79,10 @@ describe('db/host-complexity (real DB)', () => {
       });
     });
 
-    it('defaults to qwen3-coder:30b when no model config is present', () => {
+    it('uses the static fallback model when no model config is present', () => {
       expect(hostComplexity.getModelTierForComplexity('simple')).toEqual({
         tier: 'fast',
-        modelConfig: 'qwen3-coder:30b',
+        modelConfig: DEFAULT_FALLBACK_MODEL,
         description: 'Fast 8B model for docs, comments, simple renames',
       });
     });

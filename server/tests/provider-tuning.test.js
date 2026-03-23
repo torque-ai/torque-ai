@@ -4,6 +4,7 @@
  * instruction templates, hardware tuning, auto-tuning, and benchmark.
  */
 
+const { TEST_MODELS } = require('./test-helpers');
 const configCore = require('../db/config-core');
 const hostManagement = require('../db/host-management');
 const handlers = require('../handlers/provider-tuning');
@@ -341,33 +342,33 @@ describe('provider-tuning handlers', () => {
 
     it('returns all model settings when no model specified', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
-        'qwen3:8b': { temperature: 0.3, top_k: 40, num_ctx: 8192, description: 'Balanced' },
-        'gemma3:4b': { temperature: 0.5, top_k: 30, num_ctx: 4096, description: 'Fast' }
+        [TEST_MODELS.SMALL]: { temperature: 0.3, top_k: 40, num_ctx: 8192, description: 'Balanced' },
+        [TEST_MODELS.FAST]: { temperature: 0.5, top_k: 30, num_ctx: 4096, description: 'Fast' }
       }));
 
       const result = handlers.handleGetModelSettings({});
       const text = result.content[0].text;
 
       expect(text).toContain('Model-Specific Settings');
-      expect(text).toContain('qwen3:8b');
-      expect(text).toContain('gemma3:4b');
+      expect(text).toContain(TEST_MODELS.SMALL);
+      expect(text).toContain(TEST_MODELS.FAST);
     });
 
     it('returns specific model settings when model specified', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
-        'qwen3:8b': { temperature: 0.3, description: 'Balanced model' }
+        [TEST_MODELS.SMALL]: { temperature: 0.3, description: 'Balanced model' }
       }));
 
-      const result = handlers.handleGetModelSettings({ model: 'qwen3:8b' });
+      const result = handlers.handleGetModelSettings({ model: TEST_MODELS.SMALL });
       const text = result.content[0].text;
 
-      expect(text).toContain('Model Settings: qwen3:8b');
+      expect(text).toContain(`Model Settings: ${TEST_MODELS.SMALL}`);
       expect(text).toContain('Balanced model');
     });
 
     it('returns not-found when specific model not in settings', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
-        'qwen3:8b': { temperature: 0.3 }
+        [TEST_MODELS.SMALL]: { temperature: 0.3 }
       }));
 
       const result = handlers.handleGetModelSettings({ model: 'nonexistent' });
@@ -391,10 +392,10 @@ describe('provider-tuning handlers', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
       vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', temperature: 0.4 });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL, temperature: 0.4 });
       const text = result.content[0].text;
 
-      expect(text).toContain('Model Settings Updated: qwen3:8b');
+      expect(text).toContain(`Model Settings Updated: ${TEST_MODELS.SMALL}`);
       expect(text).toContain('temperature');
       expect(configCore.setConfig).toHaveBeenCalledWith('ollama_model_settings', expect.any(String));
     });
@@ -402,7 +403,7 @@ describe('provider-tuning handlers', () => {
     it('returns error for invalid temperature on model settings', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', temperature: 2.0 });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL, temperature: 2.0 });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('temperature must be between 0.1 and 1.0');
     });
@@ -410,7 +411,7 @@ describe('provider-tuning handlers', () => {
     it('returns error for invalid mirostat on model settings', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', mirostat: 5 });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL, mirostat: 5 });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('mirostat must be 0 (off), 1 (v1), or 2 (v2)');
     });
@@ -418,7 +419,7 @@ describe('provider-tuning handlers', () => {
     it('returns error for invalid num_ctx on model settings', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', num_ctx: 100 });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL, num_ctx: 100 });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('num_ctx must be between 1024 and 32768');
     });
@@ -426,7 +427,7 @@ describe('provider-tuning handlers', () => {
     it('returns error for invalid top_p on model settings', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', top_p: 1.5 });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL, top_p: 1.5 });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('top_p must be between 0.1 and 1.0');
     });
@@ -434,7 +435,7 @@ describe('provider-tuning handlers', () => {
     it('returns error for invalid top_k on model settings', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', top_k: 200 });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL, top_k: 200 });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('top_k must be between 1 and 100');
     });
@@ -442,7 +443,7 @@ describe('provider-tuning handlers', () => {
     it('returns error for invalid repeat_penalty on model settings', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', repeat_penalty: 3.0 });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL, repeat_penalty: 3.0 });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('repeat_penalty must be between 1.0 and 2.0');
     });
@@ -450,7 +451,7 @@ describe('provider-tuning handlers', () => {
     it('returns no-changes when no settings params provided', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b' });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL });
       const text = result.content[0].text;
 
       expect(text).toContain('No Changes');
@@ -460,14 +461,14 @@ describe('provider-tuning handlers', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
       vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
-      const result = handlers.handleSetModelSettings({ model: 'qwen3:8b', description: 'Test model' });
+      const result = handlers.handleSetModelSettings({ model: TEST_MODELS.SMALL, description: 'Test model' });
       const text = result.content[0].text;
 
       expect(text).toContain('description');
 
       const storedJson = configCore.setConfig.mock.calls[0][1];
       const stored = JSON.parse(storedJson);
-      expect(stored['qwen3:8b'].description).toBe('Test model');
+      expect(stored[TEST_MODELS.SMALL].description).toBe('Test model');
     });
   });
 
@@ -486,33 +487,33 @@ describe('provider-tuning handlers', () => {
 
     it('lists all prompts when no model specified', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
-        'qwen3:8b': 'You are a helpful coding assistant.\nAlways output code.',
-        'gemma3:4b': 'Be concise.\nOutput only code.'
+        [TEST_MODELS.SMALL]: 'You are a helpful coding assistant.\nAlways output code.',
+        [TEST_MODELS.FAST]: 'Be concise.\nOutput only code.'
       }));
 
       const result = handlers.handleGetModelPrompts({});
       const text = result.content[0].text;
 
       expect(text).toContain('Model System Prompts');
-      expect(text).toContain('qwen3:8b');
-      expect(text).toContain('gemma3:4b');
+      expect(text).toContain(TEST_MODELS.SMALL);
+      expect(text).toContain(TEST_MODELS.FAST);
     });
 
     it('returns specific model prompt', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
-        'qwen3:8b': 'You are a helpful coding assistant.'
+        [TEST_MODELS.SMALL]: 'You are a helpful coding assistant.'
       }));
 
-      const result = handlers.handleGetModelPrompts({ model: 'qwen3:8b' });
+      const result = handlers.handleGetModelPrompts({ model: TEST_MODELS.SMALL });
       const text = result.content[0].text;
 
-      expect(text).toContain('System Prompt: qwen3:8b');
+      expect(text).toContain(`System Prompt: ${TEST_MODELS.SMALL}`);
       expect(text).toContain('You are a helpful coding assistant.');
     });
 
     it('returns not-found for unknown model prompt', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue(JSON.stringify({
-        'qwen3:8b': 'prompt here'
+        [TEST_MODELS.SMALL]: 'prompt here'
       }));
 
       const result = handlers.handleGetModelPrompts({ model: 'nonexistent' });
@@ -530,7 +531,7 @@ describe('provider-tuning handlers', () => {
       const r1 = handlers.handleSetModelPrompt({});
       expect(r1.isError).toBe(true);
       expect(r1.content[0].text).toContain('model and prompt are required');
-      const r2 = handlers.handleSetModelPrompt({ model: 'qwen3:8b' });
+      const r2 = handlers.handleSetModelPrompt({ model: TEST_MODELS.SMALL });
       expect(r2.isError).toBe(true);
       expect(r2.content[0].text).toContain('model and prompt are required');
       const r3 = handlers.handleSetModelPrompt({ prompt: 'Be helpful.' });
@@ -542,16 +543,16 @@ describe('provider-tuning handlers', () => {
       vi.spyOn(configCore, 'getConfig').mockReturnValue('{}');
       vi.spyOn(configCore, 'setConfig').mockReturnValue(undefined);
 
-      const result = handlers.handleSetModelPrompt({ model: 'qwen3:8b', prompt: 'Be a coder.' });
+      const result = handlers.handleSetModelPrompt({ model: TEST_MODELS.SMALL, prompt: 'Be a coder.' });
       const text = result.content[0].text;
 
-      expect(text).toContain('System Prompt Updated: qwen3:8b');
+      expect(text).toContain(`System Prompt Updated: ${TEST_MODELS.SMALL}`);
       expect(text).toContain('Be a coder.');
       expect(configCore.setConfig).toHaveBeenCalledWith('ollama_model_prompts', expect.any(String));
 
       const storedJson = configCore.setConfig.mock.calls[0][1];
       const stored = JSON.parse(storedJson);
-      expect(stored['qwen3:8b']).toBe('Be a coder.');
+      expect(stored[TEST_MODELS.SMALL]).toBe('Be a coder.');
     });
   });
 
@@ -631,13 +632,13 @@ describe('provider-tuning handlers', () => {
       const template = 'Model-specific: {TASK_DESCRIPTION}';
       const result = handlers.handleSetInstructionTemplate({
         provider: 'hashline-ollama',
-        model: 'qwen3:8b',
+        model: TEST_MODELS.SMALL,
         template
       });
       const text = result.content[0].text;
 
-      expect(text).toContain('hashline-ollama (model: qwen3:8b)');
-      expect(configCore.setConfig).toHaveBeenCalledWith('instruction_template_hashline-ollama_qwen3:8b', template);
+      expect(text).toContain(`hashline-ollama (model: ${TEST_MODELS.SMALL})`);
+      expect(configCore.setConfig).toHaveBeenCalledWith(`instruction_template_hashline-ollama_${TEST_MODELS.SMALL}`, template);
     });
   });
 

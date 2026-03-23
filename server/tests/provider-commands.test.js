@@ -6,7 +6,7 @@
 
 const _os = require('os');
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
-const { createConfigMock: _createConfigMock } = require('./test-helpers');
+const { createConfigMock: _createConfigMock, TEST_MODELS } = require('./test-helpers');
 
 let db, tm, testDir, origDataDir;
 
@@ -30,7 +30,7 @@ function makeTask(overrides = {}) {
     task_description: overrides.description || 'Write a hello world function in hello.js',
     working_directory: overrides.workingDirectory || testDir,
     provider: overrides.provider || 'hashline-ollama',
-    model: overrides.model || 'qwen2.5-coder:7b',
+    model: overrides.model || TEST_MODELS.SMALL,
     retry_count: overrides.retry_count || 0,
     metadata: overrides.metadata || null,
     files: overrides.files || null,

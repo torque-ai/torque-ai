@@ -8,6 +8,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 const taskCore = require('../db/task-core');
 
 let db;
@@ -55,12 +56,12 @@ describe('Provider Switch — Model Clearing', () => {
 
     taskCore.updateTaskStatus(taskId, 'running', {
       provider: 'ollama',
-      model: 'qwen3-coder:30b',
+      model: TEST_MODELS.DEFAULT,
     });
 
     const task = taskCore.getTask(taskId);
     expect(task.provider).toBe('ollama');
-    expect(task.model).toBe('qwen3-coder:30b');
+    expect(task.model).toBe(TEST_MODELS.DEFAULT);
   });
 
   it('does not touch model when provider does not change', () => {

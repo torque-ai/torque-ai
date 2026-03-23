@@ -571,7 +571,7 @@ describe('task-core handlers', () => {
         provider: 'ollama',
         auto_approve: true,
         priority: 7,
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
       });
 
       expect(result.isError).toBeUndefined();
@@ -588,7 +588,7 @@ describe('task-core handlers', () => {
         auto_approve: true,
         priority: 7,
         provider: null,
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
       });
       expect(JSON.parse(createdTask.metadata)).toEqual({
         intended_provider: 'ollama',
@@ -850,7 +850,7 @@ describe('task-core handlers', () => {
         provider: 'ollama',
         auto_approve: 1,
         priority: 6,
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
       });
 
       expect(mockPolicyEngine.evaluate).toHaveBeenCalledWith({
@@ -861,7 +861,7 @@ describe('task-core handlers', () => {
         auto_approve: true,
         priority: 6,
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: {
           user_provider_override: true,
           intended_provider: 'ollama',
@@ -1375,7 +1375,7 @@ describe('task-core handlers', () => {
         status: 'queued',
         task_description: 'Queued task description',
         priority: 5,
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
       });
       const recentTask = makeTask({
         id: 'recent-abcdefgh',

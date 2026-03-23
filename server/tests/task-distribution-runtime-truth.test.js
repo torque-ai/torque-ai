@@ -1,6 +1,7 @@
 'use strict';
 
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('task distribution runtime truth', () => {
   describe('requeueTaskAfterAttemptedStart', () => {
@@ -26,7 +27,7 @@ describe('task distribution runtime truth', () => {
         task_description: 'Requeue after attempted start',
         working_directory: process.cwd(),
         provider: 'ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
       });
 
       db.updateTaskStatus(id, 'running', {
@@ -234,7 +235,7 @@ describe('provider execution attempted-start cleanup', () => {
       id: 'ollama-unwind-task',
       task_description: 'Test ollama unwind',
       provider: 'ollama',
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       metadata: null,
       error_output: '',
     };

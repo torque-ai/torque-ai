@@ -1,5 +1,6 @@
 'use strict';
 
+const { TEST_MODELS } = require('./test-helpers');
 const realErrorCodes = require('../handlers/error-codes');
 
 function installMock(modulePath, exports) {
@@ -400,12 +401,12 @@ describe('provider-handlers.js', () => {
         reason: 'higher success rate',
       });
 
-      const result = handlers.handleGetFormatSuccessRates({ model: 'qwen3-coder:30b' });
+      const result = handlers.handleGetFormatSuccessRates({ model: TEST_MODELS.DEFAULT });
 
-      expect(mockDb.getFormatSuccessRate).toHaveBeenNthCalledWith(1, 'qwen3-coder:30b', 'hashline');
-      expect(mockDb.getFormatSuccessRate).toHaveBeenNthCalledWith(2, 'qwen3-coder:30b', 'hashline-lite');
-      expect(mockDb.getBestFormatForModel).toHaveBeenCalledWith('qwen3-coder:30b');
-      expect(getText(result)).toContain('Format Success Rates: qwen3-coder:30b');
+      expect(mockDb.getFormatSuccessRate).toHaveBeenNthCalledWith(1, TEST_MODELS.DEFAULT, 'hashline');
+      expect(mockDb.getFormatSuccessRate).toHaveBeenNthCalledWith(2, TEST_MODELS.DEFAULT, 'hashline-lite');
+      expect(mockDb.getBestFormatForModel).toHaveBeenCalledWith(TEST_MODELS.DEFAULT);
+      expect(getText(result)).toContain(`Format Success Rates: ${TEST_MODELS.DEFAULT}`);
       expect(getText(result)).toContain('| hashline | 20 | 16 | 80% | 14s |');
       expect(getText(result)).toContain('| hashline-lite | 20 | 12 | 60% | 9s |');
       expect(getText(result)).toContain('**Recommended:** hashline (higher success rate)');
@@ -414,7 +415,7 @@ describe('provider-handlers.js', () => {
     it('returns the all-model summary table when no model is provided', () => {
       mockDb.getFormatSuccessRatesSummary.mockReturnValue([
         {
-          model: 'qwen3-coder:30b',
+          model: TEST_MODELS.DEFAULT,
           edit_format: 'hashline',
           total: 18,
           successes: 15,
@@ -429,7 +430,7 @@ describe('provider-handlers.js', () => {
 
       expect(mockDb.getFormatSuccessRatesSummary).toHaveBeenCalledTimes(1);
       expect(getText(result)).toContain('Format Success Rates (All Models)');
-      expect(getText(result)).toContain('| qwen3-coder:30b | hashline | 18 | 15 | 3 | 83% | 11s | timeout |');
+      expect(getText(result)).toContain(`| ${TEST_MODELS.DEFAULT} | hashline | 18 | 15 | 3 | 83% | 11s | timeout |`);
     });
   });
 
@@ -463,7 +464,7 @@ describe('provider-handlers.js', () => {
     it('returns the leaderboard payload as formatted JSON text', () => {
       mockDb.getModelLeaderboard.mockReturnValue([
         {
-          model: 'qwen3-coder:30b',
+          model: TEST_MODELS.DEFAULT,
           provider: 'ollama',
           success_rate: 0.92,
         },
@@ -484,7 +485,7 @@ describe('provider-handlers.js', () => {
       });
       expect(JSON.parse(getText(result))).toEqual([
         {
-          model: 'qwen3-coder:30b',
+          model: TEST_MODELS.DEFAULT,
           provider: 'ollama',
           success_rate: 0.92,
         },

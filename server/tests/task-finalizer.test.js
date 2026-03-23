@@ -13,6 +13,7 @@ const modelCapabilities = require('../db/model-capabilities');
 const providerPerformance = require('../db/provider-performance');
 const resumeContext = require('../utils/resume-context');
 const { createMockChild } = require('./mocks/process-mock');
+const { TEST_MODELS } = require('./test-helpers');
 
 function createTaskDb(overrides = {}) {
   const taskId = overrides.id || 'task-001';
@@ -269,7 +270,7 @@ describe('task-finalizer', () => {
 
       const dbBundle = createTaskDb({
         provider: 'hashline-ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         task_description: 'Write unit tests for src/app.ts',
         started_at: new Date(now.getTime() - 45_000).toISOString(),
       });
@@ -288,7 +289,7 @@ describe('task-finalizer', () => {
 
       expect(result.finalized).toBe(true);
       expect(outcomeRun).toHaveBeenCalledWith(
-        'qwen3-coder:30b',
+        TEST_MODELS.DEFAULT,
         'testing',
         'typescript',
         0,

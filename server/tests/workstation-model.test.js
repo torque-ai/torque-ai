@@ -1,4 +1,5 @@
 const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 const model = require('../workstation/model');
 const adapters = require('../workstation/adapters');
@@ -431,7 +432,7 @@ describe('workstation/model', () => {
           ollama: {
             detected: true,
             port: 11450,
-            models: ['qwen3:8b'],
+            models: [TEST_MODELS.SMALL],
           },
         },
       });
@@ -442,7 +443,7 @@ describe('workstation/model', () => {
         gpuName: 'RTX-4090',
         gpuVramMb: 24576,
         ollamaPort: 11450,
-        models: ['qwen3:8b'],
+        models: [TEST_MODELS.SMALL],
       });
       expect(parsed.capabilitiesJson).toBeTruthy();
     });
@@ -520,7 +521,7 @@ describe('workstation/model', () => {
         name: 'ollama-a',
         status: 'healthy',
         capabilities: { ollama: { detected: true } },
-        models_cache: JSON.stringify(['qwen3:8b', 'llama3']),
+        models_cache: JSON.stringify([TEST_MODELS.SMALL, 'llama3']),
       });
       createWs({
         name: 'ollama-b',

@@ -1,6 +1,7 @@
 'use strict';
 
 const { EventEmitter } = require('events');
+const { TEST_MODELS } = require('./test-helpers');
 
 const UTILS_MODULES = [
   '../dashboard/utils',
@@ -415,14 +416,14 @@ describe('dashboard/utils', () => {
       const task = {
         id: 'task-1',
         status: 'running',
-        model: 'qwen3:8b',
+        model: TEST_MODELS.SMALL,
         ollama_host_id: 'host-1',
       };
 
       const result = utils.enrichTaskWithHostName(task);
 
       expect(result.gpu_active).toBe(true);
-      expect(mockTaskManager.isModelLoadedOnHost).toHaveBeenCalledWith('host-1', 'qwen3:8b');
+      expect(mockTaskManager.isModelLoadedOnHost).toHaveBeenCalledWith('host-1', TEST_MODELS.SMALL);
     });
 
     it('sets gpu_active to null when task-manager lookup throws', () => {
@@ -433,7 +434,7 @@ describe('dashboard/utils', () => {
       const task = {
         id: 'task-1',
         status: 'running',
-        model: 'qwen3:8b',
+        model: TEST_MODELS.SMALL,
         ollama_host_id: 'host-1',
       };
 

@@ -9,6 +9,7 @@
  * Plan projects are covered by v2-governance-plan-projects.test.js
  */
 
+const { TEST_MODELS } = require('./test-helpers');
 const HANDLER_MODULE = '../api/v2-governance-handlers';
 const MODULE_PATHS = [
   HANDLER_MODULE,
@@ -703,11 +704,11 @@ describe('api/v2-governance-handlers remaining coverage', () => {
       mockDb.applyBenchmarkResults.mockReturnValue(result);
 
       const { req, res } = createMockContext({
-        body: { host_id: 'host-1', model: 'qwen3-coder:30b' },
+        body: { host_id: 'host-1', model: TEST_MODELS.DEFAULT },
       });
       await handlers.handleApplyBenchmark(req, res);
 
-      expect(mockDb.applyBenchmarkResults).toHaveBeenCalledWith('host-1', 'qwen3-coder:30b');
+      expect(mockDb.applyBenchmarkResults).toHaveBeenCalledWith('host-1', TEST_MODELS.DEFAULT);
       expectSuccessEnvelope(res, result);
     });
 

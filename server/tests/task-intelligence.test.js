@@ -120,6 +120,7 @@ vi.mock('../logger', () => {
   };
 });
 
+const { TEST_MODELS } = require('./test-helpers');
 const taskCore = require('../db/task-core');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const taskMetadata = require('../db/task-metadata');
@@ -1274,7 +1275,7 @@ describe('task-intelligence handlers', () => {
       hostManagement.routeTask.mockReturnValue({
         provider: 'ollama',
         host: 'desktop-01',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         rule: 'Complexity map',
       });
 
@@ -1285,7 +1286,7 @@ describe('task-intelligence handlers', () => {
       expect(text).toContain('## Complexity Routing for "complex"');
       expect(text).toContain('| Provider | ollama |');
       expect(text).toContain('| Host | desktop-01 |');
-      expect(text).toContain('| Model | qwen3-coder:30b |');
+      expect(text).toContain(`| Model | ${TEST_MODELS.DEFAULT} |`);
       expect(text).toContain('| Rule | Complexity map |');
     });
   });

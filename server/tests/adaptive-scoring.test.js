@@ -1,6 +1,7 @@
 'use strict';
 
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 let mod, modelCaps;
 
@@ -19,10 +20,10 @@ describe('Adaptive Scoring', () => {
 
   describe('recordTaskOutcome', () => {
     it('records a successful outcome', () => {
-      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', true, 45.2);
+      mod.recordTaskOutcome(TEST_MODELS.DEFAULT, 'code_gen', 'typescript', true, 45.2);
       const rows = rawDb().prepare(
         'SELECT * FROM model_task_outcomes WHERE model_name = ?'
-      ).all('qwen3-coder:30b');
+      ).all(TEST_MODELS.DEFAULT);
       expect(rows.length).toBe(1);
       expect(rows[0].success).toBe(1);
       expect(rows[0].task_type).toBe('code_gen');
@@ -32,48 +33,48 @@ describe('Adaptive Scoring', () => {
     });
 
     it('records a failed outcome', () => {
-      mod.recordTaskOutcome('qwen3-coder:30b', 'testing', 'javascript', false, 30.0, 'test_failure');
+      mod.recordTaskOutcome(TEST_MODELS.DEFAULT, 'testing', 'javascript', false, 30.0, 'test_failure');
       const rows = rawDb().prepare(
         'SELECT * FROM model_task_outcomes WHERE model_name = ?'
-      ).all('qwen3-coder:30b');
+      ).all(TEST_MODELS.DEFAULT);
       expect(rows.length).toBe(1);
       expect(rows[0].success).toBe(0);
       expect(rows[0].failure_category).toBe('test_failure');
     });
 
     it('records outcome with null language', () => {
-      mod.recordTaskOutcome('qwen3:8b', 'docs', null, true, 10.0);
+      mod.recordTaskOutcome(TEST_MODELS.SMALL, 'docs', null, true, 10.0);
       const rows = rawDb().prepare(
         'SELECT * FROM model_task_outcomes WHERE model_name = ? AND language IS NULL'
-      ).all('qwen3:8b');
+      ).all(TEST_MODELS.SMALL);
       expect(rows.length).toBe(1);
     });
 
     it('records outcome with null duration', () => {
-      mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'python', true, null);
+      mod.recordTaskOutcome(TEST_MODELS.SMALL, 'code_gen', 'python', true, null);
       const rows = rawDb().prepare(
         'SELECT * FROM model_task_outcomes WHERE model_name = ? AND duration_s IS NULL'
-      ).all('qwen3:8b');
+      ).all(TEST_MODELS.SMALL);
       expect(rows.length).toBe(1);
     });
   });
 
   describe('computeAdaptiveScores', () => {
     it('returns null with fewer than 5 outcomes', () => {
-      mod.recordTaskOutcome('qwen3:8b', 'docs', null, true, 10.0);
-      mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'python', true, null);
+      mod.recordTaskOutcome(TEST_MODELS.SMALL, 'docs', null, true, 10.0);
+      mod.recordTaskOutcome(TEST_MODELS.SMALL, 'code_gen', 'python', true, null);
 
-      expect(mod.computeAdaptiveScores('qwen3:8b')).toBeNull();
+      expect(mod.computeAdaptiveScores(TEST_MODELS.SMALL)).toBeNull();
     });
 
     it('returns per-task-type success rates with 5+ outcomes', () => {
-      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', true, 45.2);
-      mod.recordTaskOutcome('qwen3-coder:30b', 'testing', 'javascript', false, 30.0, 'test_failure');
-      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', true, 40);
-      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', true, 35);
-      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', false, 50);
+      mod.recordTaskOutcome(TEST_MODELS.DEFAULT, 'code_gen', 'typescript', true, 45.2);
+      mod.recordTaskOutcome(TEST_MODELS.DEFAULT, 'testing', 'javascript', false, 30.0, 'test_failure');
+      mod.recordTaskOutcome(TEST_MODELS.DEFAULT, 'code_gen', 'typescript', true, 40);
+      mod.recordTaskOutcome(TEST_MODELS.DEFAULT, 'code_gen', 'typescript', true, 35);
+      mod.recordTaskOutcome(TEST_MODELS.DEFAULT, 'code_gen', 'typescript', false, 50);
 
-      const scores = mod.computeAdaptiveScores('qwen3-coder:30b');
+      const scores = mod.computeAdaptiveScores(TEST_MODELS.DEFAULT);
       expect(scores).toBeTruthy();
       expect(scores.code_gen).toBeTruthy();
       expect(scores.code_gen.successRate).toBeCloseTo(0.75, 2); // 3 success / 4 total code_gen

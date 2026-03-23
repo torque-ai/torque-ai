@@ -2,6 +2,7 @@
 /* global describe, it, expect, beforeEach, afterEach, vi */
 
 const { installMock } = require('./cjs-mock');
+const { TEST_MODELS } = require('./test-helpers');
 
 const mockLogger = {
   info: vi.fn(),
@@ -36,7 +37,7 @@ function createScenario(options = {}) {
           retry_count: 0,
           max_retries: 4,
           provider: 'ollama',
-          model: 'qwen3:8b',
+          model: TEST_MODELS.SMALL,
           fallback_provider: null,
           provider_switch_reason: null,
           ...options.task,

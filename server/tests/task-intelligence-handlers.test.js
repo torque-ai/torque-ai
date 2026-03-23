@@ -132,6 +132,7 @@ vi.mock('../logger', () => ({
   child: vi.fn(() => loggerMock),
 }));
 
+const { TEST_MODELS } = require('./test-helpers');
 const taskCore = require('../db/task-core');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const taskMetadata = require('../db/task-metadata');
@@ -1158,7 +1159,7 @@ describe('task-intelligence handlers', () => {
       vi.spyOn(hostManagement, 'routeTask').mockReturnValue({
         provider: 'ollama',
         host: 'desktop-01',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         rule: 'Complexity routing table',
       });
 
@@ -1166,7 +1167,7 @@ describe('task-intelligence handlers', () => {
 
       expect(getText(result)).toContain('| Provider | ollama |');
       expect(getText(result)).toContain('| Host | desktop-01 |');
-      expect(getText(result)).toContain('| Model | qwen3-coder:30b |');
+      expect(getText(result)).toContain(`| Model | ${TEST_MODELS.DEFAULT} |`);
     });
   });
 

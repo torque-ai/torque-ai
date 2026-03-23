@@ -1,4 +1,5 @@
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('Advanced Handlers', () => {
   beforeAll(() => { setupTestDb('advanced-handlers'); });
@@ -330,8 +331,8 @@ describe('Advanced Handlers', () => {
       const result = await safeTool('create_experiment', {
         name: 'Test Experiment',
         description: 'Testing model performance',
-        variant_a: 'ollama:gemma3:4b',
-        variant_b: 'ollama:qwen3:8b',
+        variant_a: `ollama:${TEST_MODELS.FAST}`,
+        variant_b: `ollama:${TEST_MODELS.SMALL}`,
         sample_size: 50
       });
       // db.createExperiment may throw in clean test DB — both success and error are valid

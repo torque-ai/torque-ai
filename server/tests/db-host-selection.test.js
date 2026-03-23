@@ -3,6 +3,7 @@
 
 const Database = require('better-sqlite3');
 const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 const SUBJECT_PATH = '../db/host-selection';
 const BENCHMARKING_PATH = '../db/host-benchmarking';
@@ -96,7 +97,7 @@ function insertHostRow(connection, overrides = {}) {
   const maxConcurrent = overrides.max_concurrent ?? 4;
   const models = Object.prototype.hasOwnProperty.call(overrides, 'models')
     ? overrides.models
-    : [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }];
+    : [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }];
   const modelsCache = Object.prototype.hasOwnProperty.call(overrides, 'models_cache')
     ? overrides.models_cache
     : JSON.stringify(models);
@@ -194,21 +195,21 @@ describe('db/host-selection (real DB)', () => {
         status: 'healthy',
         models: [
           { name: 'mistral:7b', size: 512 * 1024 * 1024 },
-          { name: 'qwen3:8b', size: 768 * 1024 * 1024 },
+          { name: TEST_MODELS.SMALL, size: 768 * 1024 * 1024 },
         ],
       });
       const hostB = insertHost({
         id: 'agg-b',
         name: 'Agg B',
         status: 'healthy',
-        models: [{ name: 'qwen3:8b', size: 768 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 768 * 1024 * 1024 }],
       });
 
       const models = mod.getAggregatedModels();
 
-      expect(models.map((model) => model.name)).toEqual(['mistral:7b', 'qwen3:8b']);
-      expect(models.find((model) => model.name === 'qwen3:8b')).toEqual({
-        name: 'qwen3:8b',
+      expect(models.map((model) => model.name)).toEqual(['mistral:7b', TEST_MODELS.SMALL]);
+      expect(models.find((model) => model.name === TEST_MODELS.SMALL)).toEqual({
+        name: TEST_MODELS.SMALL,
         size: 768 * 1024 * 1024,
         hosts: expect.arrayContaining([
           { id: hostA, name: 'Agg A' },
@@ -273,16 +274,16 @@ describe('db/host-selection (real DB)', () => {
         id: 'disabled-only',
         enabled: false,
         status: 'healthy',
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
       insertHost({
         id: 'down-only',
         enabled: true,
         status: 'down',
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
 
-      const result = mod.selectOllamaHostForModel('qwen3:8b');
+      const result = mod.selectOllamaHostForModel(TEST_MODELS.SMALL);
 
       expect(ensureModelsLoadedSpy).toHaveBeenCalledTimes(1);
       expect(result).toEqual({
@@ -341,7 +342,7 @@ describe('db/host-selection (real DB)', () => {
       const chosenId = insertHost({
         name: 'Loaded Models',
         running_tasks: 1,
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
 
       const result = mod.selectOllamaHostForModel(null);
@@ -379,7 +380,7 @@ describe('db/host-selection (real DB)', () => {
         name: 'Available Other Host',
         running_tasks: 0,
         max_concurrent: 2,
-        models: [{ name: 'gemma3:4b', size: 256 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.FAST, size: 256 * 1024 * 1024 }],
       });
 
       const result = mod.selectOllamaHostForModel('llama3.2:3b');
@@ -392,33 +393,33 @@ describe('db/host-selection (real DB)', () => {
     it('supports base-model matching when the request has no explicit tag', () => {
       const hostId = insertHost({
         name: 'Base Match',
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
 
-      const result = mod.selectOllamaHostForModel('qwen3');
+      const result = mod.selectOllamaHostForModel(TEST_MODELS.SMALL.split(':')[0]);
 
       expect(result.host.id).toBe(hostId);
-      expect(result.reason).toContain("has model 'qwen3'");
+      expect(result.reason).toContain(`has model '${TEST_MODELS.SMALL.split(':')[0]}'`);
     });
 
     it('returns unique available models when no host has the requested model', () => {
       insertHost({
         name: 'Available One',
         models: [
-          { name: 'gemma3:4b', size: 256 * 1024 * 1024 },
-          { name: 'qwen3:8b', size: 512 * 1024 * 1024 },
+          { name: TEST_MODELS.FAST, size: 256 * 1024 * 1024 },
+          { name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 },
         ],
       });
       insertHost({
         name: 'Available Two',
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
 
       const result = mod.selectOllamaHostForModel('qwen2.5-coder:32b');
 
       expect(result.host).toBeNull();
       expect(result.reason).toBe("No host has model 'qwen2.5-coder:32b' available");
-      expect(result.availableModels.sort()).toEqual(['gemma3:4b', 'qwen3:8b']);
+      expect(result.availableModels.sort()).toEqual([TEST_MODELS.FAST, TEST_MODELS.SMALL].sort());
       expect(result.modelTier).toBe('quality');
     });
 
@@ -449,15 +450,15 @@ describe('db/host-selection (real DB)', () => {
       const excludedId = insertHost({
         name: 'Excluded Host',
         running_tasks: 0,
-        models: [{ name: 'gemma3:4b', size: 256 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.FAST, size: 256 * 1024 * 1024 }],
       });
       const allowedId = insertHost({
         name: 'Allowed Host',
         running_tasks: 1,
-        models: [{ name: 'gemma3:4b', size: 256 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.FAST, size: 256 * 1024 * 1024 }],
       });
 
-      const result = mod.selectOllamaHostForModel('gemma3:4b', {
+      const result = mod.selectOllamaHostForModel(TEST_MODELS.FAST, {
         excludeHostIds: [excludedId],
       });
 
@@ -522,10 +523,10 @@ describe('db/host-selection (real DB)', () => {
       insertHost({
         enabled: false,
         status: 'healthy',
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
 
-      const result = mod.selectHostWithModelVariant('qwen3');
+      const result = mod.selectHostWithModelVariant(TEST_MODELS.SMALL.split(':')[0]);
 
       expect(result).toEqual({
         host: null,
@@ -536,7 +537,7 @@ describe('db/host-selection (real DB)', () => {
 
     it('returns available model bases when no host has a matching variant', () => {
       insertHost({
-        models: [{ name: 'gemma3:4b', size: 256 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.FAST, size: 256 * 1024 * 1024 }],
       });
       insertHost({
         models: [{ name: 'llama3.2:3b', size: 256 * 1024 * 1024 }],
@@ -547,7 +548,7 @@ describe('db/host-selection (real DB)', () => {
       expect(result.host).toBeNull();
       expect(result.model).toBeNull();
       expect(result.reason).toContain("No host has model matching 'nonexistent-model'");
-      expect(result.availableModels.sort()).toEqual(['gemma3', 'llama3.2']);
+      expect(result.availableModels.sort()).toEqual([TEST_MODELS.FAST.split(':')[0], 'llama3.2'].sort());
     });
 
     it('skips full hosts and performs weighted selection based on available slots', () => {
@@ -557,28 +558,28 @@ describe('db/host-selection (real DB)', () => {
         name: 'Already Full',
         running_tasks: 2,
         max_concurrent: 2,
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
       insertHost({
         name: 'Many Slots',
         running_tasks: 0,
         max_concurrent: 6,
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
       const chosenId = insertHost({
         name: 'One Slot',
         running_tasks: 5,
         max_concurrent: 6,
-        models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.SMALL, size: 512 * 1024 * 1024 }],
       });
 
       const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99);
 
       try {
-        const result = mod.selectHostWithModelVariant('qwen3');
+        const result = mod.selectHostWithModelVariant(TEST_MODELS.SMALL.split(':')[0]);
 
         expect(result.host.id).toBe(chosenId);
-        expect(result.model).toBe('qwen3:8b');
+        expect(result.model).toBe(TEST_MODELS.SMALL);
         expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Already Full'));
       } finally {
         randomSpy.mockRestore();
@@ -592,24 +593,24 @@ describe('db/host-selection (real DB)', () => {
         name: 'Cold Host',
         running_tasks: 0,
         max_concurrent: 1,
-        models: [{ name: 'qwen3-coder:30b', size: 1024 * 1024 * 1024 }],
+        models: [{ name: TEST_MODELS.DEFAULT, size: 1024 * 1024 * 1024 }],
       });
       const warmHostId = insertHost({
         name: 'Warm Host',
         running_tasks: 0,
         max_concurrent: 1,
-        models: [{ name: 'qwen3-coder:30b', size: 1024 * 1024 * 1024 }],
-        last_model_used: 'qwen3-coder:30b',
+        models: [{ name: TEST_MODELS.DEFAULT, size: 1024 * 1024 * 1024 }],
+        last_model_used: TEST_MODELS.DEFAULT,
         model_loaded_at: new Date(Date.now() - 30 * 1000).toISOString(),
       });
 
       const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
       try {
-        const result = mod.selectHostWithModelVariant('qwen3-coder');
+        const result = mod.selectHostWithModelVariant(TEST_MODELS.DEFAULT.split(':')[0]);
 
         expect(result.host.id).toBe(warmHostId);
-        expect(result.model).toBe('qwen3-coder:30b');
+        expect(result.model).toBe(TEST_MODELS.DEFAULT);
         expect(result.reason).toContain('warm');
       } finally {
         randomSpy.mockRestore();

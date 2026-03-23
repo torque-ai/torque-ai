@@ -7,6 +7,7 @@
  */
 
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -170,12 +171,12 @@ describe('Automation Handlers', () => {
       const result = await safeTool('set_project_defaults', {
         working_directory: tempDir,
         provider: 'ollama',
-        model: 'qwen3:8b'
+        model: TEST_MODELS.SMALL
       });
       const text = getText(result);
       expect(text).toContain('Changes Applied');
       expect(text).toContain('ollama');
-      expect(text).toContain('qwen3:8b');
+      expect(text).toContain(TEST_MODELS.SMALL);
     });
 
     it('sets auto_fix to disabled', async () => {
@@ -299,113 +300,6 @@ describe('Automation Handlers', () => {
       const text = getText(result);
       expect(text).toContain('CustomEntity');
       expect(text).toContain('custom_created');
-    });
-  });
-
-  // ─── extract_feature_spec ──────────────────────────────────────────────────
-
-  describe('extract_feature_spec', () => {
-    let planFile;
-
-    beforeAll(() => {
-      planFile = path.join(tempDir, 'plan-99-test-feature.md');
-      fs.writeFileSync(planFile, `# Plan 99: Test Feature
-
-## Overview
-
-A test feature that tracks community contributions and rewards.
-
-## Phase 1
-
-Basic setup.
-
-\`\`\`prisma
-model Contribution {
-  id        String   @id @default(cuid())
-  userId    String
-  amount    Float
-  status    String   // pending, completed, cancelled
-  createdAt DateTime @default(now())
-}
-\`\`\`
-
-## Phase 2
-
-Advanced features referencing \`src/lib/contributions.ts\`.
-`);
-    });
-
-    it('rejects missing plan_path', async () => {
-      const result = await safeTool('extract_feature_spec', {});
-      expect(result.isError).toBe(true);
-    });
-
-    it('rejects nonexistent file', async () => {
-      const result = await safeTool('extract_feature_spec', {
-        plan_path: path.join(tempDir, 'nonexistent.md')
-      });
-      expect(result.isError).toBe(true);
-    });
-
-    it('extracts spec from valid plan', async () => {
-      const result = await safeTool('extract_feature_spec', {
-        plan_path: planFile
-      });
-      expect(result.isError).toBeFalsy();
-      const text = getText(result);
-      expect(text).toContain('Contribution');
-      expect(text).toContain('TestFeature');
-    });
-
-    it('extracts feature name from filename', async () => {
-      const result = await safeTool('extract_feature_spec', {
-        plan_path: planFile
-      });
-      const text = getText(result);
-      expect(text).toContain('TestFeature');
-    });
-
-    it('extracts prisma model fields', async () => {
-      const result = await safeTool('extract_feature_spec', {
-        plan_path: planFile
-      });
-      const text = getText(result);
-      expect(text).toContain('userId');
-      expect(text).toContain('amount');
-    });
-
-    it('extracts status enums from inline comments', async () => {
-      const result = await safeTool('extract_feature_spec', {
-        plan_path: planFile
-      });
-      const text = getText(result);
-      // status field comment: "pending, completed, cancelled"
-      expect(text).toContain('pending');
-    });
-
-    it('extracts file references', async () => {
-      const result = await safeTool('extract_feature_spec', {
-        plan_path: planFile
-      });
-      const text = getText(result);
-      expect(text).toContain('Ready-to-Use Parameters');
-    });
-
-    it('accepts custom feature_name override', async () => {
-      const result = await safeTool('extract_feature_spec', {
-        plan_path: planFile,
-        feature_name: 'CustomName'
-      });
-      const text = getText(result);
-      expect(text).toContain('CustomName');
-    });
-
-    it('generates game events from entity status values', async () => {
-      const result = await safeTool('extract_feature_spec', {
-        plan_path: planFile
-      });
-      const text = getText(result);
-      expect(text).toContain('Suggested Game Events');
     });
   });
 

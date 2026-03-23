@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { createRequire } = require('module');
 const { ErrorCodes, makeError } = require('../handlers/error-codes');
+const { TEST_MODELS } = require('./test-helpers');
 
 function getText(result) {
   return result?.content?.[0]?.text || '';
@@ -927,7 +928,7 @@ describe('automation-handlers main unit suite', () => {
         projectConfigs: {
           torque: {
             default_provider: 'ollama',
-            default_model: 'qwen3:8b',
+            default_model: TEST_MODELS.SMALL,
             verify_command: 'pnpm verify',
             auto_fix_enabled: 1,
             test_pattern: '.test.js',

@@ -5,6 +5,8 @@
  * including VRAM-aware scheduling, P71/P92 fallback, and provider routing.
  * All dependencies are mocked via init().
  */
+const { TEST_MODELS } = require('./test-helpers');
+
 // Provider registry mock — getCategory is used by categorizeQueuedTasks, not hoisted
 vi.mock('../providers/registry', () => {
   const cats = {
@@ -624,7 +626,7 @@ describe('Queue Scheduler', () => {
       mockDb.listTasks.mockImplementation(({ status }) => {
         if (status === 'queued') {
           return [
-            makeTask({ id: 'vram-blocked', provider: 'ollama', model: 'qwen3-coder:30b' }),
+            makeTask({ id: 'vram-blocked', provider: 'ollama', model: TEST_MODELS.DEFAULT }),
             makeTask({ id: 'vram-open', provider: 'ollama', model: 'mistral:7b' }),
           ];
         }
@@ -637,7 +639,7 @@ describe('Queue Scheduler', () => {
       });
       mockDb.getConfig.mockReturnValue(null);
       mocks.isLargeModelBlockedOnHost.mockImplementation((model) => {
-        if (model === 'qwen3-coder:30b') return { blocked: true, reason: 'qwen3-coder:30b blocked' };
+        if (model === TEST_MODELS.DEFAULT) return { blocked: true, reason: `${TEST_MODELS.DEFAULT} blocked` };
         return { blocked: false };
       });
 
@@ -652,7 +654,7 @@ describe('Queue Scheduler', () => {
       const queuedTask = makeTask({
         id: 'user-fallback-block',
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: JSON.stringify({}),
         task_description: 'Build report',
       });
@@ -666,7 +668,7 @@ describe('Queue Scheduler', () => {
         reason: 'all hosts at capacity',
       });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
+        if (key === 'ollama_balanced_model_fallback') return TEST_MODELS.BALANCED;
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -676,7 +678,7 @@ describe('Queue Scheduler', () => {
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalledWith(
         'user-fallback-block',
         'queued',
-        expect.objectContaining({ model: 'qwen3-coder:30b' }),
+        expect.objectContaining({ model: TEST_MODELS.DEFAULT }),
       );
       const fallbackCalls = mocks.safeStartTask.mock.calls.filter((c) => c[0] === 'user-fallback-block' && c[1] === 'P71-fallback');
       expect(fallbackCalls).toHaveLength(0);
@@ -687,7 +689,7 @@ describe('Queue Scheduler', () => {
       const queuedTask = makeTask({
         id: 'fall-simple',
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: JSON.stringify({ smart_routing: true, complexity: 'simple' }),
         task_description: 'Generate short note',
       });
@@ -696,11 +698,11 @@ describe('Queue Scheduler', () => {
         return [];
       });
       mockDb.selectOllamaHostForModel.mockImplementation((model) => {
-        if (model === 'qwen3-coder:30b') return { host: null, atCapacity: true, reason: 'capacity' };
+        if (model === TEST_MODELS.DEFAULT) return { host: null, atCapacity: true, reason: 'capacity' };
         return { host: { id: 'h2', name: 'fallback-host', running_tasks: 0 }, reason: 'fallback' };
       });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_fast_model_fallback') return 'gemma3:4b';
+        if (key === 'ollama_fast_model_fallback') return TEST_MODELS.FAST;
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -710,11 +712,11 @@ describe('Queue Scheduler', () => {
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
         'fall-simple',
         'queued',
-        expect.objectContaining({ model: 'gemma3:4b' }),
+        expect.objectContaining({ model: TEST_MODELS.FAST }),
       );
       expect(mocks.notifyDashboard).toHaveBeenCalledWith('fall-simple', {
         status: 'queued',
-        model: 'gemma3:4b',
+        model: TEST_MODELS.FAST,
       });
       expect(mocks.safeStartTask).toHaveBeenCalledWith('fall-simple', 'P71-fallback');
     });
@@ -724,7 +726,7 @@ describe('Queue Scheduler', () => {
       const queuedTask = makeTask({
         id: 'fall-complex',
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: JSON.stringify({ smart_routing: true, complexity: 'complex' }),
         task_description: 'Refactor architecture',
       });
@@ -733,7 +735,7 @@ describe('Queue Scheduler', () => {
         return [];
       });
       mockDb.selectOllamaHostForModel.mockImplementation((model) => {
-        if (model === 'qwen3-coder:30b') return { host: null, atCapacity: true, reason: 'capacity' };
+        if (model === TEST_MODELS.DEFAULT) return { host: null, atCapacity: true, reason: 'capacity' };
         return { host: { id: 'h2', name: 'fallback-host', running_tasks: 0 }, reason: 'fallback' };
       });
       mockDb.getConfig.mockImplementation((key) => {
@@ -757,7 +759,7 @@ describe('Queue Scheduler', () => {
       const queuedTask = makeTask({
         id: 'fall-async',
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: JSON.stringify({ smart_routing: true, complexity: 'normal' }),
         task_description: 'Run this with await and promise chaining',
       });
@@ -767,7 +769,7 @@ describe('Queue Scheduler', () => {
       });
       mockDb.selectOllamaHostForModel.mockReturnValue({ host: null, atCapacity: true, reason: 'capacity' });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
+        if (key === 'ollama_balanced_model_fallback') return TEST_MODELS.BALANCED;
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -777,7 +779,7 @@ describe('Queue Scheduler', () => {
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalledWith(
         'fall-async',
         'queued',
-        expect.objectContaining({ model: 'qwen3-coder:30b' }),
+        expect.objectContaining({ model: TEST_MODELS.DEFAULT }),
       );
       const fallbackCalls = mocks.safeStartTask.mock.calls.filter((c) => c[0] === 'fall-async' && c[1] === 'P71-fallback');
       expect(fallbackCalls).toHaveLength(0);
@@ -788,7 +790,7 @@ describe('Queue Scheduler', () => {
       const queuedTask = makeTask({
         id: 'fall-fail',
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: JSON.stringify({ smart_routing: true, complexity: 'normal' }),
       });
       mockDb.listTasks.mockImplementation(({ status }) => {
@@ -796,27 +798,27 @@ describe('Queue Scheduler', () => {
         return [];
       });
       mockDb.selectOllamaHostForModel.mockImplementation((model) => {
-        if (model === 'qwen3-coder:30b') return { host: null, atCapacity: true, reason: 'capacity' };
+        if (model === TEST_MODELS.DEFAULT) return { host: null, atCapacity: true, reason: 'capacity' };
         return { host: { id: 'h2', name: 'fallback-host', running_tasks: 0 }, reason: 'fallback' };
       });
       mocks.safeStartTask.mockImplementation((id, source) => source !== 'P71-fallback');
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
+        if (key === 'ollama_balanced_model_fallback') return TEST_MODELS.BALANCED;
         if (key === 'codex_enabled') return '0';
         return null;
       });
 
       scheduler.processQueueInternal();
 
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('fall-fail', 'queued', { model: 'codestral:22b' });
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('fall-fail', 'queued', { model: 'qwen3-coder:30b' });
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('fall-fail', 'queued', { model: TEST_MODELS.BALANCED });
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('fall-fail', 'queued', { model: TEST_MODELS.DEFAULT });
       expect(mocks.notifyDashboard).toHaveBeenNthCalledWith(1, 'fall-fail', {
         status: 'queued',
-        model: 'codestral:22b',
+        model: TEST_MODELS.BALANCED,
       });
       expect(mocks.notifyDashboard).toHaveBeenNthCalledWith(2, 'fall-fail', {
         status: 'queued',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
       });
     });
     it('does not call fallback when fallback model equals selected model', () => {
@@ -824,7 +826,7 @@ describe('Queue Scheduler', () => {
       const queuedTask = makeTask({
         id: 'fall-match',
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: JSON.stringify({ smart_routing: true, complexity: 'normal' }),
       });
       mockDb.listTasks.mockImplementation(({ status }) => {
@@ -833,7 +835,7 @@ describe('Queue Scheduler', () => {
       });
       mockDb.selectOllamaHostForModel.mockReturnValue({ host: null, atCapacity: true, reason: 'capacity' });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'qwen3-coder:30b';
+        if (key === 'ollama_balanced_model_fallback') return TEST_MODELS.DEFAULT;
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -843,7 +845,7 @@ describe('Queue Scheduler', () => {
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalledWith(
         'fall-match',
         'queued',
-        expect.objectContaining({ model: 'qwen3-coder:30b' }),
+        expect.objectContaining({ model: TEST_MODELS.DEFAULT }),
       );
       expect(mocks.safeStartTask).not.toHaveBeenCalled();
     });
@@ -1082,7 +1084,7 @@ describe('Queue Scheduler', () => {
       mockDb.getRunningCount.mockReturnValue(0);
       mockDb.listTasks.mockImplementation(({ status }) => {
         if (status === 'queued') {
-          return [makeTask({ id: 'ot-big', provider: 'ollama', model: 'qwen3-coder:30b' })];
+          return [makeTask({ id: 'ot-big', provider: 'ollama', model: TEST_MODELS.DEFAULT })];
         }
         return [];
       });
@@ -1096,7 +1098,7 @@ describe('Queue Scheduler', () => {
       mockDb.getConfig.mockReturnValue(null);
       mocks.isLargeModelBlockedOnHost.mockReturnValue({
         blocked: true,
-        reason: 'qwen3-coder:30b (20GB) would exceed VRAM on host1',
+        reason: `${TEST_MODELS.DEFAULT} (20GB) would exceed VRAM on host1`,
       });
 
       scheduler.processQueueInternal();
@@ -1113,7 +1115,7 @@ describe('Queue Scheduler', () => {
       const queuedTask = makeTask({
         id: 'ot-fall',
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         task_description: 'Write tests for module',
         metadata: JSON.stringify({ smart_routing: true, complexity: 'normal' }),
       });
@@ -1126,14 +1128,14 @@ describe('Queue Scheduler', () => {
         { id: 'h1', name: 'host1', status: 'up', running_tasks: 2 },
       ]);
       mockDb.selectOllamaHostForModel.mockImplementation((model) => {
-        if (model === 'qwen3-coder:30b') {
+        if (model === TEST_MODELS.DEFAULT) {
           return { host: null, atCapacity: true, reason: 'all hosts at capacity' };
         }
         // Fallback model has a host available
         return { host: { id: 'h2', name: 'host2', running_tasks: 0 }, reason: 'available' };
       });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
+        if (key === 'ollama_balanced_model_fallback') return TEST_MODELS.BALANCED;
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -1144,7 +1146,7 @@ describe('Queue Scheduler', () => {
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
         'ot-fall',
         'queued',
-        expect.objectContaining({ model: 'codestral:22b' })
+        expect.objectContaining({ model: TEST_MODELS.BALANCED })
       );
       expect(mocks.safeStartTask).toHaveBeenCalledWith('ot-fall', 'P71-fallback');
     });
@@ -1154,7 +1156,7 @@ describe('Queue Scheduler', () => {
       const queuedTask = makeTask({
         id: 'ot-user',
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         task_description: 'Write tests for module',
         metadata: JSON.stringify({}), // no smart_routing flag => user-specified
       });
@@ -1172,7 +1174,7 @@ describe('Queue Scheduler', () => {
         reason: 'all hosts at capacity',
       });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
+        if (key === 'ollama_balanced_model_fallback') return TEST_MODELS.BALANCED;
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -1425,8 +1427,8 @@ describe('Queue Scheduler', () => {
           if (configOverrides && key in configOverrides) return configOverrides[key];
           if (key === 'codex_enabled') return '1';
           if (key === 'codex_overflow_to_local') return '1';
-          if (key === 'ollama_balanced_model') return 'qwen3:8b';
-          if (key === 'ollama_fast_model') return 'gemma3:4b';
+          if (key === 'ollama_balanced_model') return TEST_MODELS.SMALL;
+          if (key === 'ollama_fast_model') return TEST_MODELS.FAST;
           return null;
         });
       }
@@ -1454,7 +1456,7 @@ describe('Queue Scheduler', () => {
           'queued',
           expect.objectContaining({
             provider: 'hashline-ollama',
-            model: 'qwen3:8b',
+            model: TEST_MODELS.SMALL,
           })
         );
         expect(mocks.notifyDashboard).toHaveBeenCalledWith(
@@ -1462,7 +1464,7 @@ describe('Queue Scheduler', () => {
           expect.objectContaining({
             status: 'queued',
             provider: 'hashline-ollama',
-            model: 'qwen3:8b',
+            model: TEST_MODELS.SMALL,
           }),
         );
         // Verify metadata includes overflow flag and original provider
@@ -1657,8 +1659,8 @@ describe('Queue Scheduler', () => {
         mockDb.getConfig.mockImplementation((key) => {
           if (key === 'codex_enabled') return '1';
           if (key === 'codex_overflow_to_local') return '1';
-          if (key === 'ollama_balanced_model') return 'qwen3:8b';
-          if (key === 'ollama_fast_model') return 'gemma3:4b';
+          if (key === 'ollama_balanced_model') return TEST_MODELS.SMALL;
+          if (key === 'ollama_fast_model') return TEST_MODELS.FAST;
           return null;
         });
 
@@ -1932,7 +1934,7 @@ describe('Queue Scheduler', () => {
           hostMaxConcurrent: 4,
           configOverrides: {
             codex_enabled: '1',
-            ollama_balanced_model: 'qwen3:8b',
+            ollama_balanced_model: TEST_MODELS.SMALL,
           },
         });
 
@@ -1941,7 +1943,7 @@ describe('Queue Scheduler', () => {
         expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
           'overflow-normal',
           'queued',
-          expect.objectContaining({ provider: 'hashline-ollama', model: 'qwen3:8b' }),
+          expect.objectContaining({ provider: 'hashline-ollama', model: TEST_MODELS.SMALL }),
         );
       });
 
@@ -1961,7 +1963,7 @@ describe('Queue Scheduler', () => {
           hostMaxConcurrent: 4,
           configOverrides: {
             codex_enabled: '1',
-            ollama_fast_model: 'gemma3:4b',
+            ollama_fast_model: TEST_MODELS.FAST,
           },
         });
 
@@ -1970,7 +1972,7 @@ describe('Queue Scheduler', () => {
         expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
           'overflow-simple',
           'queued',
-          expect.objectContaining({ provider: 'hashline-ollama', model: 'gemma3:4b' }),
+          expect.objectContaining({ provider: 'hashline-ollama', model: TEST_MODELS.FAST }),
         );
       });
       it('overflows tasks with null metadata (workflow default path)', () => {

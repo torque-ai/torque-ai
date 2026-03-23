@@ -1,5 +1,6 @@
 'use strict';
 
+const { TEST_MODELS } = require('./test-helpers');
 const providerConfig = require('../providers/config');
 
 describe('provider-config', () => {
@@ -88,10 +89,10 @@ describe('provider-config', () => {
 
     it('applies model-specific settings (Layer 3)', () => {
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_model_settings') return JSON.stringify({ 'qwen3-coder:30b': { temperature: 0.2, num_ctx: 16384 } });
+        if (key === 'ollama_model_settings') return JSON.stringify({ [TEST_MODELS.DEFAULT]: { temperature: 0.2, num_ctx: 16384 } });
         return null;
       });
-      const result = providerConfig.resolveOllamaTuning({ model: 'qwen3-coder:30b' });
+      const result = providerConfig.resolveOllamaTuning({ model: TEST_MODELS.DEFAULT });
       expect(result.temperature).toBe(0.2);
       expect(result.numCtx).toBe(16384);
     });

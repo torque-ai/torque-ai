@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { TEST_MODELS } = require('./test-helpers');
+
 const {
   mockDiagnose,
   mockReview,
@@ -130,7 +132,7 @@ describe('strategic-hooks', () => {
       setConfigValues({
         strategic_auto_diagnose: '1',
         strategic_provider: 'ollama',
-        strategic_model: 'qwen3-coder:30b',
+        strategic_model: TEST_MODELS.DEFAULT,
       });
       mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockDiagnose.mockResolvedValue(diagnosis);
@@ -139,7 +141,7 @@ describe('strategic-hooks', () => {
 
       expect(StrategicBrainMock).toHaveBeenCalledWith({
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
       });
       expect(mockDiagnose).toHaveBeenCalledWith({
         task_description: 'Investigate failing test',
@@ -217,7 +219,7 @@ describe('strategic-hooks', () => {
       setConfigValues({
         strategic_auto_review: '1',
         strategic_provider: 'ollama',
-        strategic_model: 'qwen3-coder:30b',
+        strategic_model: TEST_MODELS.DEFAULT,
       });
       mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockReview.mockResolvedValue(review);
@@ -226,7 +228,7 @@ describe('strategic-hooks', () => {
 
       expect(StrategicBrainMock).toHaveBeenCalledWith({
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
       });
       expect(mockReview).toHaveBeenCalledWith({
         task_description: 'Investigate failing test',

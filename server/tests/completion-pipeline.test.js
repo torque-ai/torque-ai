@@ -28,6 +28,7 @@ installMock('../logger', {
   }),
 });
 
+const { TEST_MODELS } = require('./test-helpers');
 const {
   init,
   fireTerminalTaskHook,
@@ -149,7 +150,7 @@ describe('completion-pipeline', () => {
     it('records via db.recordModelOutcome when available', () => {
       const task = {
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         task_description: 'write a test',
         started_at: '2026-03-10T10:00:00Z',
         completed_at: '2026-03-10T10:00:30Z',
@@ -160,7 +161,7 @@ describe('completion-pipeline', () => {
 
       expect(mockDeps.db.classifyTaskType).toHaveBeenCalledWith('write a test');
       expect(mockDeps.db.recordModelOutcome).toHaveBeenCalledWith(
-        'qwen3-coder:30b',
+        TEST_MODELS.DEFAULT,
         'code',
         true,
         expect.objectContaining({

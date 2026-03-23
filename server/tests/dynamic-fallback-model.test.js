@@ -1,16 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getDefaultFallbackModel, DEFAULT_FALLBACK_MODEL } from '../constants.js';
+import { TEST_MODELS } from './test-helpers.js';
 
 describe('getDefaultFallbackModel', () => {
   it('returns model_roles entry when db has ollama/default role', () => {
     const mockDb = {
       prepare: vi.fn().mockReturnValue({
-        get: vi.fn().mockReturnValue({ model_name: 'qwen3-coder:30b' }),
+        get: vi.fn().mockReturnValue({ model_name: TEST_MODELS.DEFAULT }),
       }),
     };
 
     const result = getDefaultFallbackModel(mockDb);
-    expect(result).toBe('qwen3-coder:30b');
+    expect(result).toBe(TEST_MODELS.DEFAULT);
     expect(mockDb.prepare).toHaveBeenCalledWith(
       expect.stringContaining('model_roles')
     );

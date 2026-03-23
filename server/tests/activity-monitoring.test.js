@@ -2,6 +2,8 @@
  * Unit Tests: activity-monitoring stall threshold multipliers
  */
 
+const { TEST_MODELS } = require('./test-helpers');
+
 describe('Activity Monitoring - Stall Threshold Multipliers', () => {
   let activityMonitoring;
   let runningProcesses;
@@ -25,7 +27,7 @@ describe('Activity Monitoring - Stall Threshold Multipliers', () => {
     const now = Date.now();
     runningProcesses.set('task-1', {
       process: {},
-      model: 'qwen2.5-coder:8b',
+      model: TEST_MODELS.SMALL,
       provider: 'ollama',
       metadata: JSON.stringify({ stall_grace_multiplier: '2', 'long-running': true, context_tokens: 12000 }),
       lastOutputAt: now - 800 * 1000,

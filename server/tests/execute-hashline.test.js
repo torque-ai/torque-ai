@@ -20,6 +20,7 @@ const { computeLineHash } = require('../utils/hashline-parser');
 const hostManagement = require('../db/host-management');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 let testDir;
 let db;
@@ -63,7 +64,7 @@ function teardown() {
   teardownTestDb();
 }
 
-function addHost({ id = randomUUID(), name = 'test-host', url = 'http://127.0.0.1:11434', model = 'qwen2.5-coder:7b' } = {}) {
+function addHost({ id = randomUUID(), name = 'test-host', url = 'http://127.0.0.1:11434', model = TEST_MODELS.SMALL } = {}) {
   hostManagement.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
   hostManagement.updateOllamaHost(id, {
     enabled: 1,
@@ -198,14 +199,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Do something with no file references',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Do something with no file references',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -247,7 +248,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('requeues when VRAM is blocked on dynamic host', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
 
       // Create a file for resolution
       const srcDir = path.join(testDir, 'src2');
@@ -265,14 +266,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix src2/app.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       const result = await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix src2/app.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -280,7 +281,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('requeues when slot reservation fails', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'src3');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'mod.js'), 'export default {};\n', 'utf8');
@@ -296,14 +297,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix src3/mod.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       const result = await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix src3/mod.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -343,7 +344,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('completes successfully when LLM returns no edits (escalates to fallback)', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'src5');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'index.js'), 'console.log("hello");\n', 'utf8');
@@ -361,14 +362,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix src5/index.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix src5/index.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -378,7 +379,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('sends hashline-annotated file context in prompt', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'src6');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'code.js'), 'const a = 1;\nconst b = 2;\n', 'utf8');
@@ -392,14 +393,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix src6/code.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix src6/code.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -411,7 +412,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('uses hashline-lite format for small files', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'src7');
       fs.mkdirSync(srcDir, { recursive: true });
       // Small file (< 50 lines default threshold)
@@ -431,14 +432,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix src7/tiny.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix src7/tiny.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -450,7 +451,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('handles HTTP failure from Ollama gracefully', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'src8');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'fail.js'), 'module.exports = {};\n', 'utf8');
@@ -467,14 +468,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix src8/fail.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix src8/fail.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -483,7 +484,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('handles AbortError from request error gracefully', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'src9_abort');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'abort.js'), 'module.exports = 1;\n', 'utf8');
@@ -498,7 +499,7 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix src9_abort/abort.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -518,7 +519,7 @@ describe('execute-hashline.js', () => {
         const execution = mod.executeHashlineOllamaTask({
           id: taskId,
           task_description: 'Fix src9_abort/abort.js',
-          model: 'qwen2.5-coder:7b',
+          model: TEST_MODELS.SMALL,
           working_directory: testDir,
         });
         await vi.advanceTimersByTimeAsync(1);
@@ -532,7 +533,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('uses pre-routed host when ollama_host_id is set', async () => {
-      const host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'src10');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'pre.js'), 'export const pre = true;\n', 'utf8');
@@ -546,14 +547,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix src10/pre.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix src10/pre.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         ollama_host_id: host.id,
         working_directory: testDir,
       });
@@ -564,7 +565,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('applies per-task tuning overrides', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'srcA');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'tune.js'), 'const tune = true;\n', 'utf8');
@@ -578,14 +579,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix srcA/tune.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix srcA/tune.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
         metadata: JSON.stringify({ tuning_overrides: { temperature: 0.05, num_ctx: 2048 } }),
       });
@@ -598,7 +599,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('notifies dashboard on task start and during execution', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'srcB');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'dash.js'), 'export default {};\n', 'utf8');
@@ -612,14 +613,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix srcB/dash.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix srcB/dash.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -627,7 +628,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('calls workflow termination after successful hashline completion', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'srcWf');
       fs.mkdirSync(srcDir, { recursive: true });
       const targetRel = 'srcWf/target.js';
@@ -658,14 +659,14 @@ describe('execute-hashline.js', () => {
         task_description: `Fix ${targetRel}`,
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: `Fix ${targetRel}`,
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -674,7 +675,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('escalates via tiered fallback when no edits parsed', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'srcC');
       fs.mkdirSync(srcDir, { recursive: true });
       fs.writeFileSync(path.join(srcDir, 'queue.js'), 'module.exports = 1;\n', 'utf8');
@@ -689,14 +690,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix srcC/queue.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix srcC/queue.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -725,14 +726,14 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix srcD/single.js',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix srcD/single.js',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -742,7 +743,7 @@ describe('execute-hashline.js', () => {
     });
 
     it('skips binary/unreadable files gracefully', async () => {
-      const _host = addHost({ url: mockUrl, model: 'qwen2.5-coder:7b' });
+      const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'srcE');
       fs.mkdirSync(srcDir, { recursive: true });
       // Reference a file that does not exist
@@ -755,7 +756,7 @@ describe('execute-hashline.js', () => {
         task_description: 'Fix srcE/missing-file.js that does not exist',
         status: 'running',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -763,7 +764,7 @@ describe('execute-hashline.js', () => {
       await mod.executeHashlineOllamaTask({
         id: taskId,
         task_description: 'Fix srcE/missing-file.js that does not exist',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 

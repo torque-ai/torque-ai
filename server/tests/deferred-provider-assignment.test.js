@@ -11,6 +11,8 @@
  * happens only when a real slot is claimed.
  */
 
+const { TEST_MODELS } = require('./test-helpers');
+
 // Provider registry mock
 vi.mock('../providers/registry', () => {
   const cats = {
@@ -144,7 +146,7 @@ describe('Deferred Provider Assignment', () => {
       const tasks = [{
         id: 'deferred-1',
         provider: null,
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: JSON.stringify({ intended_provider: 'ollama' }),
       }];
 
@@ -254,7 +256,7 @@ describe('Deferred Provider Assignment', () => {
       mockDb.listQueuedTasksLightweight = vi.fn().mockReturnValue([{
         id: 'ollama-deferred-1',
         provider: null,
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         task_description: 'Test deferred ollama task',
         metadata: JSON.stringify({ intended_provider: 'ollama' }),
         created_at: new Date().toISOString(),

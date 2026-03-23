@@ -17,6 +17,7 @@
 // The installMock / require fresh pattern ensures each test suite sees clean mocks.
 
 const Database = require('better-sqlite3');
+const { TEST_MODELS } = require('./test-helpers');
 
 // ---------------------------------------------------------------------------
 // Mock infrastructure — require.cache based
@@ -107,15 +108,15 @@ const { runPostDiscovery } = require('../discovery/discovery-engine');
 describe('runPostDiscovery', () => {
   it('calls applyHeuristicCapabilities for new models with a known family', () => {
     const db = makeDb();
-    seedApprovedModel(db, 'ollama', 'qwen3:8b', 8);
+    seedApprovedModel(db, 'ollama', TEST_MODELS.SMALL, 8);
 
     const syncResult = {
-      new: [{ model_name: 'qwen3:8b', family: 'qwen3' }],
+      new: [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }],
     };
 
     const result = runPostDiscovery(db, 'ollama', syncResult);
 
-    const row = db.prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get('qwen3:8b');
+    const row = db.prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get(TEST_MODELS.SMALL);
     expect(row).toBeDefined();
     expect(row.capability_source).toBe('heuristic');
     expect(row.cap_hashline).toBe(1); // qwen3 has hashline=true
@@ -124,10 +125,10 @@ describe('runPostDiscovery', () => {
 
   it('returns { capabilities_set, roles_assigned } with correct shape', () => {
     const db = makeDb();
-    seedApprovedModel(db, 'ollama', 'qwen3:8b', 8);
+    seedApprovedModel(db, 'ollama', TEST_MODELS.SMALL, 8);
 
     const syncResult = {
-      new: [{ model_name: 'qwen3:8b', family: 'qwen3' }],
+      new: [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }],
     };
 
     const result = runPostDiscovery(db, 'ollama', syncResult);
@@ -160,16 +161,16 @@ describe('runPostDiscovery', () => {
       prepare: () => { throw new Error('DB exploded'); },
     };
     const syncResult = {
-      new: [{ model_name: 'qwen3:8b', family: 'qwen3' }],
+      new: [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }],
     };
     expect(() => runPostDiscovery(brokenDb, 'ollama', syncResult)).not.toThrow();
   });
 
   it('auto-assigns roles for the provider after processing new models', () => {
     const db = makeDb();
-    seedApprovedModel(db, 'ollama', 'qwen3-coder:30b', 30);
+    seedApprovedModel(db, 'ollama', TEST_MODELS.DEFAULT, 30);
     const syncResult = {
-      new: [{ model_name: 'qwen3-coder:30b', family: 'qwen3' }],
+      new: [{ model_name: TEST_MODELS.DEFAULT, family: 'qwen3' }],
     };
     const result = runPostDiscovery(db, 'ollama', syncResult);
     expect(Array.isArray(result.roles_assigned)).toBe(true);
@@ -180,7 +181,7 @@ describe('runPostDiscovery', () => {
   it('returns roles_assigned=[] when no approved models are in the registry', () => {
     const db = makeDb();
     const syncResult = {
-      new: [{ model_name: 'qwen3:8b', family: 'qwen3' }],
+      new: [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }],
     };
     const result = runPostDiscovery(db, 'ollama', syncResult);
     expect(result.roles_assigned).toEqual([]);
@@ -227,7 +228,7 @@ describe('discoverFromAdapter', () => {
 
   it('calls adapter.discoverModels() and feeds models to registry', async () => {
     const models = [
-      { model_name: 'qwen3:8b', family: 'qwen3' },
+      { model_name: TEST_MODELS.SMALL, family: 'qwen3' },
       { model_name: 'llama3:7b', family: 'llama' },
     ];
     const adapter = {
@@ -244,7 +245,7 @@ describe('discoverFromAdapter', () => {
   });
 
   it('returns a summary with correct counts', async () => {
-    const newModels = [{ model_name: 'qwen3:8b', family: 'qwen3' }];
+    const newModels = [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }];
     const updatedModels = [{ model_name: 'phi3:3b', family: 'phi' }];
     const removedModels = [{ model_name: 'old:7b', family: 'llama' }];
     const adapter = {
@@ -330,7 +331,7 @@ describe('discoverFromAdapter', () => {
   });
 
   it('does NOT auto-approve new models from ollama (stays pending)', async () => {
-    const newModels = [{ model_name: 'qwen3:8b', family: 'qwen3' }];
+    const newModels = [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }];
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'ollama' }),
     };
@@ -344,7 +345,7 @@ describe('discoverFromAdapter', () => {
   });
 
   it('does NOT auto-approve new models from ollama-cloud (stays pending)', async () => {
-    const newModels = [{ model_name: 'qwen3:8b', family: 'qwen3' }];
+    const newModels = [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }];
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'ollama-cloud' }),
     };
@@ -358,7 +359,7 @@ describe('discoverFromAdapter', () => {
   });
 
   it('does NOT auto-approve new models from hashline-ollama (stays pending)', async () => {
-    const newModels = [{ model_name: 'qwen3:8b', family: 'qwen3' }];
+    const newModels = [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }];
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'hashline-ollama' }),
     };
@@ -386,7 +387,7 @@ describe('discoverFromAdapter', () => {
   });
 
   it('passes hostId to registry.syncModelsFromHealthCheck', async () => {
-    const models = [{ model_name: 'qwen3:8b' }];
+    const models = [{ model_name: TEST_MODELS.SMALL }];
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models, provider: 'ollama' }),
     };

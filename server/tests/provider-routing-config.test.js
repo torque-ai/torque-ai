@@ -1,5 +1,6 @@
 'use strict';
 
+const { TEST_MODELS } = require('./test-helpers');
 const CONFIG_MODULE_PATH = require.resolve('../db/provider-routing-core');
 const CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
 const DATABASE_MODULE_PATH = require.resolve('../database');
@@ -1359,7 +1360,7 @@ describe('provider-routing-core behaviors tied to config state', () => {
     const routeTask = vi.fn(() => ({
       provider: 'ollama',
       hostId: 'desktop-17',
-      model: 'qwen3:32b',
+      model: TEST_MODELS.QUALITY,
     }));
 
     core.setHostManagement({ determineTaskComplexity, routeTask });
@@ -1372,7 +1373,7 @@ describe('provider-routing-core behaviors tied to config state', () => {
       provider: 'ollama',
       hostId: 'desktop-17',
       selectedHost: 'desktop-17',
-      model: 'qwen3:32b',
+      model: TEST_MODELS.QUALITY,
     }));
   });
 

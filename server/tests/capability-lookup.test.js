@@ -6,6 +6,7 @@
 
 const { isHashlineCapable, isAgenticCapable, getModelCapabilities, hasCapability } =
   require('../discovery/capability-lookup');
+const { TEST_MODELS } = require('./test-helpers');
 
 // ---------------------------------------------------------------------------
 // Helpers — lightweight in-memory SQLite DB
@@ -52,7 +53,7 @@ function createTestDb() {
 function buildDb() {
   const db = createTestDb();
   db._insert({
-    model_name: 'qwen3-coder:30b',
+    model_name: TEST_MODELS.DEFAULT,
     cap_hashline: 1,
     cap_agentic: 1,
     cap_file_creation: 1,
@@ -79,7 +80,7 @@ describe('isHashlineCapable', () => {
   beforeEach(() => { db = buildDb(); });
 
   test('returns true for model with cap_hashline=1', () => {
-    expect(isHashlineCapable(db, 'qwen3-coder:30b')).toBe(true);
+    expect(isHashlineCapable(db, TEST_MODELS.DEFAULT)).toBe(true);
   });
 
   test('returns false for model with cap_hashline=0', () => {
@@ -91,16 +92,16 @@ describe('isHashlineCapable', () => {
   });
 
   test('returns false when db is null', () => {
-    expect(isHashlineCapable(null, 'qwen3-coder:30b')).toBe(false);
+    expect(isHashlineCapable(null, TEST_MODELS.DEFAULT)).toBe(false);
   });
 
   test('returns false when modelName is null', () => {
     expect(isHashlineCapable(db, null)).toBe(false);
   });
 
-  test('matches base name — qwen3-coder:7b resolves to qwen3-coder:30b entry', () => {
-    // qwen3-coder:7b is not in DB, but base name qwen3-coder matches qwen3-coder:30b (cap_hashline=1)
-    expect(isHashlineCapable(db, 'qwen3-coder:7b')).toBe(true);
+  test('matches base name — test-model:7b resolves to test-model:14b entry', () => {
+    // test-model:7b is not in DB, but base name test-model matches test-model:14b (cap_hashline=1)
+    expect(isHashlineCapable(db, 'test-model:7b')).toBe(true);
   });
 });
 
@@ -112,8 +113,8 @@ describe('isAgenticCapable', () => {
     expect(isAgenticCapable(db, 'llama3:8b')).toBe(true);
   });
 
-  test('returns true for qwen3-coder:30b with cap_agentic=1', () => {
-    expect(isAgenticCapable(db, 'qwen3-coder:30b')).toBe(true);
+  test('returns true for default test model with cap_agentic=1', () => {
+    expect(isAgenticCapable(db, TEST_MODELS.DEFAULT)).toBe(true);
   });
 
   test('returns false for unknown model', () => {
@@ -130,7 +131,7 @@ describe('getModelCapabilities', () => {
   beforeEach(() => { db = buildDb(); });
 
   test('returns full capability row for known model', () => {
-    const caps = getModelCapabilities(db, 'qwen3-coder:30b');
+    const caps = getModelCapabilities(db, TEST_MODELS.DEFAULT);
     expect(caps).not.toBeNull();
     expect(caps.cap_hashline).toBe(1);
     expect(caps.cap_agentic).toBe(1);
@@ -144,7 +145,7 @@ describe('getModelCapabilities', () => {
   });
 
   test('returns null when db is null', () => {
-    expect(getModelCapabilities(null, 'qwen3-coder:30b')).toBeNull();
+    expect(getModelCapabilities(null, TEST_MODELS.DEFAULT)).toBeNull();
   });
 
   test('returns null when modelName is null', () => {
@@ -156,8 +157,8 @@ describe('hasCapability (generic)', () => {
   let db;
   beforeEach(() => { db = buildDb(); });
 
-  test('cap_hashline on qwen3-coder:30b → true', () => {
-    expect(hasCapability(db, 'qwen3-coder:30b', 'cap_hashline')).toBe(true);
+  test('cap_hashline on default test model → true', () => {
+    expect(hasCapability(db, TEST_MODELS.DEFAULT, 'cap_hashline')).toBe(true);
   });
 
   test('cap_hashline on llama3:8b → false', () => {
@@ -165,7 +166,7 @@ describe('hasCapability (generic)', () => {
   });
 
   test('returns false when db is null', () => {
-    expect(hasCapability(null, 'qwen3-coder:30b', 'cap_hashline')).toBe(false);
+    expect(hasCapability(null, TEST_MODELS.DEFAULT, 'cap_hashline')).toBe(false);
   });
 
   test('returns false when modelName is null', () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'module';
-import { createConfigMock } from './test-helpers';
+import { createConfigMock, TEST_MODELS } from './test-helpers';
 
 const require = createRequire(import.meta.url);
 const actualPath = require('node:path');
@@ -825,7 +825,7 @@ describe('Task Project Handlers', () => {
     it('renders remote settings and parsed step providers', () => {
       mockDb.getProjectConfig.mockReturnValue({
         default_provider: 'ollama',
-        default_model: 'qwen3:8b',
+        default_model: TEST_MODELS.SMALL,
         verify_command: 'pnpm verify',
         auto_fix_enabled: 1,
         test_pattern: '.test.js',
@@ -845,7 +845,7 @@ describe('Task Project Handlers', () => {
       const text = textOf(result);
 
       expect(text).toContain('| Provider | ollama |');
-      expect(text).toContain('| Model | qwen3:8b |');
+      expect(text).toContain(`| Model | ${TEST_MODELS.SMALL} |`);
       expect(text).toContain('| Verify command | pnpm verify |');
       expect(text).toContain('| Auto-fix | Yes |');
       expect(text).toContain('| Remote agent | agent-1 |');

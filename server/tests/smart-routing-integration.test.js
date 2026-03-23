@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 let db;
 let handler;
@@ -99,7 +100,7 @@ function seedHosts() {
     'smart-testing-model',
     'smart-doc-model',
     'smart-code-model',
-    'qwen3:8b',
+    TEST_MODELS.SMALL,
   ]);
   const now = new Date().toISOString();
 

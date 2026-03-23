@@ -3,6 +3,7 @@
 
 const http = require('http');
 const Database = require('better-sqlite3');
+const { TEST_MODELS } = require('./test-helpers');
 const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 
 const SUBJECT_PATH = '../db/host-benchmarking';
@@ -109,7 +110,7 @@ function insertBenchmark(overrides = {}) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     overrides.host_id || 'bench-host',
-    overrides.model || 'qwen3:8b',
+    overrides.model || TEST_MODELS.SMALL,
     overrides.test_type || 'basic',
     overrides.prompt_type ?? null,
     Object.prototype.hasOwnProperty.call(overrides, 'tokens_per_second')
@@ -281,7 +282,7 @@ describe('db/host-benchmarking (real DB)', () => {
 
       mod.recordBenchmarkResult({
         hostId: 'bench-host',
-        model: 'qwen3:8b',
+        model: TEST_MODELS.SMALL,
         testType: 'stream',
         promptType: 'code',
         tokensPerSecond: 42.125,
@@ -299,7 +300,7 @@ describe('db/host-benchmarking (real DB)', () => {
 
       expect(result).toMatchObject({
         host_id: 'bench-host',
-        model: 'qwen3:8b',
+        model: TEST_MODELS.SMALL,
         test_type: 'stream',
         prompt_type: 'code',
         tokens_per_second: 42.125,
@@ -361,7 +362,7 @@ describe('db/host-benchmarking (real DB)', () => {
     it('getOptimalSettingsFromBenchmarks selects the fastest successful model-specific config', () => {
       insertBenchmark({
         host_id: 'bench-best-model',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         num_gpu: 1,
         num_ctx: 4096,
         tokens_per_second: 38.441,
@@ -369,7 +370,7 @@ describe('db/host-benchmarking (real DB)', () => {
       });
       insertBenchmark({
         host_id: 'bench-best-model',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         num_gpu: 2,
         num_ctx: 8192,
         tokens_per_second: 51.129,
@@ -377,20 +378,20 @@ describe('db/host-benchmarking (real DB)', () => {
       });
       insertBenchmark({
         host_id: 'bench-best-model',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         num_gpu: 4,
         num_ctx: 16384,
         tokens_per_second: 90,
         success: 0,
       });
 
-      const optimal = mod.getOptimalSettingsFromBenchmarks('bench-best-model', 'qwen3-coder:30b');
+      const optimal = mod.getOptimalSettingsFromBenchmarks('bench-best-model', TEST_MODELS.DEFAULT);
 
       expect(optimal).toEqual({
         numGpu: 2,
         numCtx: 8192,
         tokensPerSecond: 51.13,
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
       });
     });
 
@@ -459,14 +460,14 @@ describe('db/host-benchmarking (real DB)', () => {
       });
       insertBenchmark({
         host_id: 'apply-host',
-        model: 'qwen3:8b',
+        model: TEST_MODELS.SMALL,
         num_gpu: 2,
         num_ctx: 16384,
         tokens_per_second: 61.234,
         success: 1,
       });
 
-      const applied = mod.applyBenchmarkResults('apply-host', 'qwen3:8b');
+      const applied = mod.applyBenchmarkResults('apply-host', TEST_MODELS.SMALL);
 
       expect(applied).toEqual({
         applied: true,
@@ -606,11 +607,11 @@ describe('db/host-benchmarking (real DB)', () => {
       const server = await startHttpServer((req, res) => {
         expect(req.url).toBe('/api/tags');
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ models: [{ name: 'qwen3:8b' }] }));
+        res.end(JSON.stringify({ models: [{ name: TEST_MODELS.SMALL }] }));
       });
 
       await expect(mod.fetchModelsFromHost(`${server.baseUrl}/api/tags`)).resolves.toEqual({
-        models: [{ name: 'qwen3:8b' }],
+        models: [{ name: TEST_MODELS.SMALL }],
       });
     });
 
@@ -634,12 +635,12 @@ describe('db/host-benchmarking (real DB)', () => {
     it('fetchHostModelsSync returns parsed models from localhost hosts', async () => {
       const server = await startHttpServer((_req, res) => {
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ models: [{ name: 'qwen3:8b' }, { name: 'mistral:7b' }] }));
+        res.end(JSON.stringify({ models: [{ name: TEST_MODELS.SMALL }, { name: 'mistral:7b' }] }));
       });
 
       const result = await mod.fetchHostModelsSync(server.baseUrl);
 
-      expect(result).toEqual([{ name: 'qwen3:8b' }, { name: 'mistral:7b' }]);
+      expect(result).toEqual([{ name: TEST_MODELS.SMALL }, { name: 'mistral:7b' }]);
       expect(logger.warn).not.toHaveBeenCalled();
     });
 

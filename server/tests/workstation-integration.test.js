@@ -1,4 +1,5 @@
 const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 const failover = require('../workstation/failover');
 const routing = require('../workstation/routing');
@@ -147,7 +148,7 @@ describe('workstation integration', () => {
       const created = adapters.addOllamaHost({
         name: 'compat-host',
         url: '192.0.2.66:11555',
-        models: ['qwen3:8b', 'codellama'],
+        models: [TEST_MODELS.SMALL, 'codellama'],
         secret: 'compat-secret',
       });
 
@@ -160,7 +161,7 @@ describe('workstation integration', () => {
       expect(ws._capabilities).toMatchObject({
         ollama: { detected: true, port: 11555 },
       });
-      expect(ws.models_cache).toBe(JSON.stringify(['qwen3:8b', 'codellama']));
+      expect(ws.models_cache).toBe(JSON.stringify([TEST_MODELS.SMALL, 'codellama']));
     });
   });
 

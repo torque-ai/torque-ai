@@ -9,6 +9,7 @@
  */
 
 const { randomUUID } = require('crypto');
+const { TEST_MODELS } = require('./test-helpers');
 
 // ═══════════════════════════════════════════════════════════════════
 // Item 15: Workflow task creation validates provider overrides
@@ -305,7 +306,7 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
         auto_approve: false,
         priority: 0,
         provider: 'ollama',
-        model: 'qwen3-coder:30b',
+        model: TEST_MODELS.DEFAULT,
         metadata: '{"user_provider_override":true}',  // Explicitly user-chosen
       })
       .mockReturnValueOnce({
