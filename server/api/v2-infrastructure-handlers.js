@@ -9,10 +9,11 @@
  */
 const logger = require('../logger').child({ component: 'v2-infrastructure-handlers' });
 
-const database = require('../database');   // getDbInstance (raw SQL), getProviderPercentiles
+const dbModule = require('../database');   // getDbInstance (raw SQL)
 const emailPeek = require('../db/email-peek');
 const hostManagement = require('../db/host-management');
 const coordination = require('../db/coordination');
+const taskCore = require('../db/task-core');
 const {
   sendSuccess,
   sendError,
@@ -38,6 +39,34 @@ function resolveHostType(hostName) {
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getProviderPercentiles(providerId, days) {
+  const fromDate = new Date(Date.now() - days * 86400000).toISOString();
+  const rawTasks = taskCore.listTasks ? taskCore.listTasks({ provider: providerId, from_date: fromDate, limit: 1000 }) : [];
+  const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
+  const durations = taskList
+    .filter((task) => task?.completed_at && task?.started_at)
+    .map((task) => (new Date(task.completed_at) - new Date(task.started_at)) / 1000)
+    .filter((duration) => Number.isFinite(duration))
+    .sort((left, right) => left - right);
+
+  const percentileAt = (pct) => durations.length > 0
+    ? durations[Math.min(durations.length - 1, Math.floor(durations.length * pct / 100))]
+    : null;
+
+  return durations.length > 0
+    ? {
+        p50: percentileAt(50),
+        p75: percentileAt(75),
+        p90: percentileAt(90),
+        p95: percentileAt(95),
+        p99: percentileAt(99),
+        min: durations[0],
+        max: durations[durations.length - 1],
+        count: durations.length,
+      }
+    : {};
 }
 
 // ─── Workstations ───────────────────────────────────────────────────────────
@@ -422,8 +451,8 @@ function _getRegistry() {
 }
 
 function _getAgentDb() {
-  if (!database || typeof database.getDbInstance !== 'function') return null;
-  const inst = database.getDbInstance();
+  if (!dbModule || typeof dbModule.getDbInstance !== 'function') return null;
+  const inst = dbModule.getDbInstance();
   return inst && inst.prepare ? inst : null;
 }
 
@@ -647,8 +676,7 @@ async function handleProviderPercentiles(req, res) {
   }
 
   try {
-    const percentiles = typeof database.getProviderPercentiles === 'function'
-      ? database.getProviderPercentiles(providerId, days) : {};
+    const percentiles = getProviderPercentiles(providerId, days);
     sendSuccess(res, requestId, { provider: providerId, days, percentiles }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);

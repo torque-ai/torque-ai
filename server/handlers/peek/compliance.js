@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const database = require('../../database'); // facade-only: getDbInstance (raw DB handle for direct SQL queries)
+const dbModule = require('../../database'); // getDbInstance (raw DB handle for direct SQL queries)
 const peekPolicyAudit = require('../../db/peek-policy-audit');
 const { fireWebhookForEvent } = require('./webhook-outbound');
 const { classifyActionRisk } = require('./rollback');
@@ -27,11 +27,11 @@ function getAuditChainHash(entry) {
 }
 
 function getDatabaseHandle() {
-  if (database && typeof database.prepare === 'function') {
-    return database;
+  if (dbModule && typeof dbModule.prepare === 'function') {
+    return dbModule;
   }
-  if (database && typeof database.getDbInstance === 'function') {
-    return database.getDbInstance();
+  if (dbModule && typeof dbModule.getDbInstance === 'function') {
+    return dbModule.getDbInstance();
   }
   return null;
 }

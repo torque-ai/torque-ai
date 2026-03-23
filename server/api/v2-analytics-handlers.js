@@ -8,7 +8,7 @@
  * These return { data, meta } envelopes via v2-control-plane helpers.
  */
 
-const database = require('../database');   // getDbInstance (raw SQL), getRecentStrategicOperations
+const dbModule = require('../database');   // getDbInstance (raw SQL)
 const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
 const eventTracking = require('../db/event-tracking');
@@ -68,6 +68,19 @@ function buildTimeSeries(days, provider) {
   }
 
   return series;
+}
+
+function getRecentStrategicOperations(limit) {
+  const rawTasks = taskCore.listTasks ? taskCore.listTasks({ limit: limit * 3, order: 'desc' }) : [];
+  const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
+
+  return taskList.filter((task) => {
+    const description = String(task?.task_description || task?.description || '').toLowerCase();
+    return description.includes('strategic')
+      || description.includes('decompos')
+      || description.includes('diagnos')
+      || description.includes('review');
+  }).slice(0, limit);
 }
 
 // ─── Stats Overview ─────────────────────────────────────────────────────────
@@ -191,7 +204,7 @@ async function handleModelStats(req, res) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    const sqlDb = database.getDbInstance ? database.getDbInstance() : null;
+    const sqlDb = dbModule.getDbInstance ? dbModule.getDbInstance() : null;
     if (!sqlDb || !sqlDb.prepare) {
       return sendSuccess(res, requestId, { models: [], days }, 200, req);
     }
@@ -600,8 +613,7 @@ async function handleStrategicOperations(req, res) {
   const query = req.query || {};
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 100);
   try {
-    const operations = typeof database.getRecentStrategicOperations === 'function'
-      ? database.getRecentStrategicOperations(limit) : [];
+    const operations = getRecentStrategicOperations(limit);
     sendList(res, requestId, operations, operations.length, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);

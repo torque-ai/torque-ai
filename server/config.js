@@ -196,9 +196,9 @@ function getApiKey(provider) {
 
   // 2. provider_config.api_key_encrypted (decrypt)
   try {
-    const database = db || require('./database');
-    const rawDb = typeof database.getDbInstance === 'function' ? database.getDbInstance()
-      : typeof database.getDb === 'function' ? database.getDb()
+    const dbModule = db || require('./database');
+    const rawDb = typeof dbModule.getDbInstance === 'function'
+      ? dbModule.getDbInstance()
       : null;
     if (rawDb && typeof rawDb.prepare === 'function') {
       const row = rawDb.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(provider);

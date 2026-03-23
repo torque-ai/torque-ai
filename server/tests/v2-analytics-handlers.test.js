@@ -7,6 +7,7 @@ const MODULE_PATHS = [
   CONTROL_PLANE_MODULE,
   '../api/middleware',
   '../database',
+  '../db/task-core',
   '../db/cost-tracking',
   '../db/event-tracking',
   '../db/file-tracking',
@@ -95,6 +96,7 @@ function clearLoadedModules() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../db/cost-tracking', mockDb);
   installCjsModuleMock('../db/event-tracking', mockDb);
   installCjsModuleMock('../db/file-tracking', mockDb);
@@ -1831,18 +1833,19 @@ describe('api/v2-analytics-handlers', () => {
     it('returns recent strategic operations with default limit', async () => {
       const res = createMockRes();
 
-      mockDb.getRecentStrategicOperations.mockReturnValue([
-        { id: 'op-1', type: 'rebalance', created_at: '2026-03-10T11:00:00.000Z' },
-        { id: 'op-2', type: 'scale_up', created_at: '2026-03-10T10:00:00.000Z' },
+      mockDb.listTasks.mockReturnValue([
+        { id: 'op-1', task_description: 'Strategic rebalance of providers', created_at: '2026-03-10T11:00:00.000Z' },
+        { id: 'skip-1', task_description: 'Normal queued task', created_at: '2026-03-10T10:30:00.000Z' },
+        { id: 'op-2', task_description: 'Strategic review of workflow DAG', created_at: '2026-03-10T10:00:00.000Z' },
       ]);
 
       await handlers.handleStrategicOperations(createReq(), res);
 
-      expect(mockDb.getRecentStrategicOperations).toHaveBeenCalledWith(20);
+      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 60, order: 'desc' });
       const body = res._body;
       expect(body.data.items).toEqual([
-        { id: 'op-1', type: 'rebalance', created_at: '2026-03-10T11:00:00.000Z' },
-        { id: 'op-2', type: 'scale_up', created_at: '2026-03-10T10:00:00.000Z' },
+        { id: 'op-1', task_description: 'Strategic rebalance of providers', created_at: '2026-03-10T11:00:00.000Z' },
+        { id: 'op-2', task_description: 'Strategic review of workflow DAG', created_at: '2026-03-10T10:00:00.000Z' },
       ]);
       expect(body.data.total).toBe(2);
     });
@@ -1850,14 +1853,14 @@ describe('api/v2-analytics-handlers', () => {
     it('respects the limit query param', async () => {
       const res = createMockRes();
 
-      mockDb.getRecentStrategicOperations.mockReturnValue([]);
+      mockDb.listTasks.mockReturnValue([]);
 
       await handlers.handleStrategicOperations(
         createReq({ query: { limit: '5' } }),
         res,
       );
 
-      expect(mockDb.getRecentStrategicOperations).toHaveBeenCalledWith(5);
+      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 15, order: 'desc' });
     });
 
     it('clamps the limit to a minimum of one', async () => {
@@ -1868,7 +1871,7 @@ describe('api/v2-analytics-handlers', () => {
         res,
       );
 
-      expect(mockDb.getRecentStrategicOperations).toHaveBeenCalledWith(1);
+      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 3, order: 'desc' });
     });
 
     it('clamps the limit to a maximum of one hundred', async () => {
@@ -1879,13 +1882,13 @@ describe('api/v2-analytics-handlers', () => {
         res,
       );
 
-      expect(mockDb.getRecentStrategicOperations).toHaveBeenCalledWith(100);
+      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 300, order: 'desc' });
     });
 
-    it('returns empty list when db method is not a function', async () => {
+    it('returns empty list when listTasks is not a function', async () => {
       const res = createMockRes();
 
-      await withPatchedProperties(mockDb, { getRecentStrategicOperations: null }, async () => {
+      await withPatchedProperties(mockDb, { listTasks: null }, async () => {
         await handlers.handleStrategicOperations(createReq(), res);
       });
 
@@ -1894,10 +1897,10 @@ describe('api/v2-analytics-handlers', () => {
       expect(body.data.total).toBe(0);
     });
 
-    it('returns 500 when getRecentStrategicOperations throws', async () => {
+    it('returns 500 when listTasks throws', async () => {
       const res = createMockRes();
 
-      mockDb.getRecentStrategicOperations.mockImplementation(() => {
+      mockDb.listTasks.mockImplementation(() => {
         throw new Error('operations failed');
       });
 

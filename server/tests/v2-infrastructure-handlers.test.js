@@ -9,6 +9,8 @@ const MODULE_PATHS = [
   CONTROL_PLANE_MODULE,
   '../api/middleware',
   '../database',
+  '../db/email-peek',
+  '../db/task-core',
   '../db/host-management',
   '../db/coordination',
   '../workstation/model',
@@ -35,6 +37,7 @@ const mockDb = {
   updatePeekHost: vi.fn(),
   getDbInstance: vi.fn(),
   getProviderPercentiles: vi.fn(),
+  listTasks: vi.fn(),
 };
 
 const mockCoordination = {
@@ -488,6 +491,7 @@ function resetMockDefaults() {
   mockDiscovery.scanNetworkForOllama.mockReset().mockResolvedValue({ totalFound: 0, hosts: [] });
 
   mockHostMonitoring.getHostActivity.mockReset().mockReturnValue({});
+  mockDb.listTasks.mockReset().mockReturnValue([]);
   mockDb.getProviderPercentiles.mockReset().mockReturnValue({});
   mockCoordination.getCoordinationDashboard.mockReset().mockReturnValue({ agents: [], rules: [], claims: [] });
 
@@ -507,6 +511,8 @@ function resetMockDefaults() {
 function loadHandlers() {
   clearLoadedModules();
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/email-peek', mockDb);
+  installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../db/host-management', mockHostManagement);
   installCjsModuleMock('../db/coordination', mockCoordination);
   installCjsModuleMock('../workstation/model', mockWorkstationModel);
@@ -1927,36 +1933,63 @@ describe('api/v2-infrastructure-handlers', () => {
     it('returns percentile stats for a provider with default days', async () => {
       const res = createMockRes();
 
-      mockDb.getProviderPercentiles.mockReturnValue({
-        p50: 12.5,
-        p90: 45.2,
-        p99: 120.8,
-      });
+      mockDb.listTasks.mockReturnValue([
+        {
+          id: 'task-1',
+          started_at: '2026-03-10T12:00:00.000Z',
+          completed_at: '2026-03-10T12:00:10.000Z',
+        },
+        {
+          id: 'task-2',
+          started_at: '2026-03-10T12:00:00.000Z',
+          completed_at: '2026-03-10T12:00:20.000Z',
+        },
+        {
+          id: 'task-3',
+          started_at: '2026-03-10T12:00:00.000Z',
+          completed_at: '2026-03-10T12:00:40.000Z',
+        },
+      ]);
 
       await handlers.handleProviderPercentiles(
         createReq({ params: { provider_id: 'codex' } }),
         res,
       );
 
-      expect(mockDb.getProviderPercentiles).toHaveBeenCalledWith('codex', 7);
+      expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'codex',
+        limit: 1000,
+      }));
       expect(expectSuccess(res)).toEqual({
         provider: 'codex',
         days: 7,
-        percentiles: { p50: 12.5, p90: 45.2, p99: 120.8 },
+        percentiles: {
+          p50: 20,
+          p75: 40,
+          p90: 40,
+          p95: 40,
+          p99: 40,
+          min: 10,
+          max: 40,
+          count: 3,
+        },
       });
     });
 
     it('respects the days query param', async () => {
       const res = createMockRes();
 
-      mockDb.getProviderPercentiles.mockReturnValue({});
+      mockDb.listTasks.mockReturnValue([]);
 
       await handlers.handleProviderPercentiles(
         createReq({ params: { provider_id: 'ollama' }, query: { days: '30' } }),
         res,
       );
 
-      expect(mockDb.getProviderPercentiles).toHaveBeenCalledWith('ollama', 30);
+      expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'ollama',
+        limit: 1000,
+      }));
       expect(expectSuccess(res)).toEqual({
         provider: 'ollama',
         days: 30,
@@ -1972,7 +2005,10 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      expect(mockDb.getProviderPercentiles).toHaveBeenCalledWith('codex', 1);
+      expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'codex',
+        limit: 1000,
+      }));
       expect(expectSuccess(res).days).toBe(1);
     });
 
@@ -1984,7 +2020,10 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      expect(mockDb.getProviderPercentiles).toHaveBeenCalledWith('codex', 90);
+      expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'codex',
+        limit: 1000,
+      }));
       expect(expectSuccess(res).days).toBe(90);
     });
 
@@ -2003,17 +2042,17 @@ describe('api/v2-infrastructure-handlers', () => {
       });
     });
 
-    it('returns empty object when db method is not a function', async () => {
+    it('returns empty object when listTasks is not a function', async () => {
       const res = createMockRes();
-      const saved = mockDb.getProviderPercentiles;
-      mockDb.getProviderPercentiles = null;
+      const saved = mockDb.listTasks;
+      mockDb.listTasks = null;
       try {
         await handlers.handleProviderPercentiles(
           createReq({ params: { provider_id: 'codex' } }),
           res,
         );
       } finally {
-        mockDb.getProviderPercentiles = saved;
+        mockDb.listTasks = saved;
       }
 
       expect(expectSuccess(res)).toEqual({
@@ -2023,10 +2062,10 @@ describe('api/v2-infrastructure-handlers', () => {
       });
     });
 
-    it('returns 500 when getProviderPercentiles throws', async () => {
+    it('returns 500 when listTasks throws', async () => {
       const res = createMockRes();
 
-      mockDb.getProviderPercentiles.mockImplementation(() => {
+      mockDb.listTasks.mockImplementation(() => {
         throw new Error('percentiles failed');
       });
 
