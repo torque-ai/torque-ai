@@ -1025,6 +1025,41 @@ async function start(options = {}) {
     }
 
     if (urlPath.startsWith('/api/v2/')) {
+      // Pre-parse request body for mutating v2 requests so the body stream
+      // is available when async handlers call readJsonBody(req). Without this,
+      // the request stream's data events can be lost between the sync callback
+      // entry and the async handler's readJsonBody() listener attachment.
+      if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('end', () => {
+          try {
+            const raw = Buffer.concat(chunks).toString('utf8');
+            req.body = raw.trim() ? JSON.parse(raw) : {};
+          } catch (_e) {
+            req.body = null; // readJsonBody will re-throw as Invalid JSON
+          }
+        });
+        // Wait for body before dispatching
+        req.on('end', () => {
+          dispatchV2(req, res).then(handled => {
+            if (!handled) {
+              dispatch(req, res, routeContext).catch(err => {
+                process.stderr.write(`Unhandled API error: ${err.message}\n`);
+                if (!res.headersSent) {
+                  sendError(res, 'Internal server error', 500);
+                }
+              });
+            }
+          }).catch(err => {
+            process.stderr.write(`V2 dispatch error: ${err.message}\n`);
+            if (!res.headersSent) {
+              sendError(res, 'Internal server error', 500);
+            }
+          });
+        });
+        return;
+      }
       // V2 control-plane routes — served directly from v2 handler modules
       dispatchV2(req, res).then(handled => {
         if (!handled) {
