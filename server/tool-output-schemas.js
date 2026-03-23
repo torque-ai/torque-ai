@@ -494,6 +494,26 @@ const OUTPUT_SCHEMAS = {
     required: ['pending_count', 'models'],
   },
 
+  list_model_roles: {
+    type: 'object',
+    properties: {
+      count: { type: 'number' },
+      roles: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            provider: { type: 'string' },
+            role: { type: 'string' },
+            model_name: { type: 'string' },
+            updated_at: { type: 'string' },
+          },
+        },
+      },
+    },
+    required: ['count', 'roles'],
+  },
+
   list_archived: {
     type: 'object',
     properties: {

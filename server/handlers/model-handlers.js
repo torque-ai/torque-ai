@@ -1,6 +1,7 @@
 'use strict';
 
 const logger = require('../logger').child({ component: 'model-handlers' });
+const modelRoles = require('../db/model-roles');
 
 function getRegistry() {
   return require('../models/registry');
@@ -110,10 +111,54 @@ function handleListModels(args = {}) {
   }
 }
 
+function handleConfigureModelRoles(args) {
+  if (!args.provider) {
+    return { isError: true, content: [{ type: 'text', text: 'Error: provider is required' }] };
+  }
+  if (!args.role) {
+    return { isError: true, content: [{ type: 'text', text: 'Error: role is required' }] };
+  }
+  if (!args.model_name) {
+    return { isError: true, content: [{ type: 'text', text: 'Error: model_name is required' }] };
+  }
+
+  try {
+    modelRoles.setModelRole(args.provider, args.role, args.model_name);
+    return textResult(`Set ${args.provider}/${args.role} → ${args.model_name}`);
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text', text: `Error configuring model role: ${err.message}` }] };
+  }
+}
+
+function handleListModelRoles(args = {}) {
+  try {
+    const roles = modelRoles.listModelRoles(args.provider || undefined);
+    if (roles.length === 0) {
+      return textResult('No model role assignments found.');
+    }
+
+    const header = '| Provider | Role | Model | Updated At |';
+    const separator = '|----------|------|-------|------------|';
+    const rows = roles.map(r =>
+      `| ${r.provider} | ${r.role} | ${r.model_name} | ${r.updated_at || '—'} |`
+    );
+    const table = [header, separator, ...rows].join('\n');
+
+    return {
+      content: [{ type: 'text', text: table }],
+      structuredData: { count: roles.length, roles },
+    };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text', text: `Error listing model roles: ${err.message}` }] };
+  }
+}
+
 module.exports = {
   handleListPendingModels,
   handleApproveModel,
   handleDenyModel,
   handleBulkApproveModels,
   handleListModels,
+  handleConfigureModelRoles,
+  handleListModelRoles,
 };

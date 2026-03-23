@@ -52,6 +52,29 @@ const tools = [
       },
     },
   },
+  {
+    name: 'configure_model_roles',
+    description: 'Set which model fills a named role (default, fallback, fast, balanced, quality) for a provider. Roles determine which model is used for each tier of task complexity.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', description: 'Provider name (e.g., ollama, deepinfra, codex)' },
+        role: { type: 'string', enum: ['default', 'fallback', 'fast', 'balanced', 'quality'], description: 'Role to assign the model to' },
+        model_name: { type: 'string', description: 'Model name to assign to this role (e.g., qwen2.5-coder:32b)' },
+      },
+      required: ['provider', 'role', 'model_name'],
+    },
+  },
+  {
+    name: 'list_model_roles',
+    description: 'List current model role assignments. Shows which model is assigned to each role (default, fallback, fast, balanced, quality) per provider.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        provider: { type: 'string', description: 'Filter by provider (optional — omit to list all providers)' },
+      },
+    },
+  },
 ];
 
 module.exports = tools;
