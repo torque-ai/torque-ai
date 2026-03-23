@@ -1,6 +1,16 @@
 const validationRules = require('../db/validation-rules');
 const schedulingAutomation = require('../db/scheduling-automation');
-const handlers = require('../handlers/advanced/approval');
+
+function loadHandlers() {
+  delete require.cache[require.resolve('../handlers/advanced/approval')];
+  return require('../handlers/advanced/approval');
+}
+
+const handlers = new Proxy({}, {
+  get(_target, prop) {
+    return loadHandlers()[prop];
+  },
+});
 
 function textOf(result) {
   return result?.content?.[0]?.text || '';

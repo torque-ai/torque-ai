@@ -4,7 +4,17 @@ const path = require('path');
 const taskCore = require('../db/task-core');
 const taskMetadata = require('../db/task-metadata');
 const logger = require('../logger');
-const handlers = require('../handlers/advanced/artifacts');
+
+function loadHandlers() {
+  delete require.cache[require.resolve('../handlers/advanced/artifacts')];
+  return require('../handlers/advanced/artifacts');
+}
+
+const handlers = new Proxy({}, {
+  get(_target, prop) {
+    return loadHandlers()[prop];
+  },
+});
 
 function textOf(result) {
   return result?.content?.[0]?.text || '';

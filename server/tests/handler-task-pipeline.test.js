@@ -2,7 +2,7 @@ const childProcess = require('child_process');
 const schedulingAutomation = require('../db/scheduling-automation');
 const eventTracking = require('../db/event-tracking');
 const taskCore = require('../db/task-core');
-const pipelineCrud = require('../db/pipeline-crud');
+const projectConfigCore = require('../db/project-config-core');
 const taskMetadata = require('../db/task-metadata');
 const fileTracking = require('../db/file-tracking');
 const taskManager = require('../task-manager');
@@ -213,13 +213,13 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleCreatePipeline stores ordered steps and returns run hint', () => {
-    vi.spyOn(pipelineCrud, 'createPipeline').mockReturnValue({
+    vi.spyOn(projectConfigCore, 'createPipeline').mockReturnValue({
       id: 'pipeline-1',
       name: 'build-and-test',
       description: 'CI flow',
     });
-    const addStepSpy = vi.spyOn(pipelineCrud, 'addPipelineStep').mockReturnValue(undefined);
-    vi.spyOn(pipelineCrud, 'getPipeline').mockReturnValue({
+    const addStepSpy = vi.spyOn(projectConfigCore, 'addPipelineStep').mockReturnValue(undefined);
+    vi.spyOn(projectConfigCore, 'getPipeline').mockReturnValue({
       id: 'pipeline-1',
       steps: [
         { step_order: 1, name: 'Build', condition: 'on_success' },
@@ -243,7 +243,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleRunPipeline returns PIPELINE_NOT_FOUND when missing', () => {
-    vi.spyOn(pipelineCrud, 'getPipeline').mockReturnValue(null);
+    vi.spyOn(projectConfigCore, 'getPipeline').mockReturnValue(null);
 
     const result = handlers.handleRunPipeline({ pipeline_id: 'missing' });
 
@@ -252,7 +252,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleRunPipeline marks pipeline failed if first task cannot start', () => {
-    vi.spyOn(pipelineCrud, 'getPipeline').mockReturnValue({
+    vi.spyOn(projectConfigCore, 'getPipeline').mockReturnValue({
       id: 'pipe-1',
       name: 'pipe-1',
       status: 'pending',
@@ -262,8 +262,8 @@ describe('handler:task-pipeline', () => {
     vi.spyOn(eventTracking, 'recordEvent').mockReturnValue(undefined);
     vi.spyOn(taskCore, 'createTask').mockImplementation((task) => task);
     vi.spyOn(taskCore, 'getTask').mockReturnValue({ context: { pipeline_id: 'pipe-1', step_id: 'step-1' } });
-    const updateStatusSpy = vi.spyOn(pipelineCrud, 'updatePipelineStatus').mockReturnValue(undefined);
-    const updateStepSpy = vi.spyOn(pipelineCrud, 'updatePipelineStep').mockReturnValue(undefined);
+    const updateStatusSpy = vi.spyOn(projectConfigCore, 'updatePipelineStatus').mockReturnValue(undefined);
+    const updateStepSpy = vi.spyOn(projectConfigCore, 'updatePipelineStep').mockReturnValue(undefined);
     vi.spyOn(taskManager, 'startTask').mockImplementation(() => {
       throw new Error('scheduler offline');
     });
@@ -279,7 +279,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleGetPipelineStatus renders current step and rows', () => {
-    vi.spyOn(pipelineCrud, 'getPipeline').mockReturnValue({
+    vi.spyOn(projectConfigCore, 'getPipeline').mockReturnValue({
       id: 'pipe-2',
       name: 'pipe-2',
       status: 'running',
@@ -298,7 +298,7 @@ describe('handler:task-pipeline', () => {
   });
 
   it('handleListPipelines passes status and safe-limited limit', () => {
-    const listSpy = vi.spyOn(pipelineCrud, 'listPipelines').mockReturnValue([
+    const listSpy = vi.spyOn(projectConfigCore, 'listPipelines').mockReturnValue([
       {
         id: 'abcd1234-abcd-1234-abcd-123456789012',
         name: 'pipe-a',

@@ -72,7 +72,20 @@ describe('GroqProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['llama-3.3-70b-versatile', 'mixtral-8x7b-32768']);
+      expect(result.models).toEqual([
+        {
+          id: 'llama-3.3-70b-versatile',
+          model_name: 'llama-3.3-70b-versatile',
+          context_window: null,
+          owned_by: null,
+        },
+        {
+          id: 'mixtral-8x7b-32768',
+          model_name: 'mixtral-8x7b-32768',
+          context_window: null,
+          owned_by: null,
+        },
+      ]);
     });
 
     it('sends Authorization Bearer header', async () => {
@@ -127,7 +140,7 @@ describe('GroqProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['llama-3.3-70b-versatile']);
+      expect(result.models).toEqual([{ model_name: 'llama-3.3-70b-versatile' }]);
     });
 
     it('filters out falsy model ids', async () => {
@@ -138,7 +151,14 @@ describe('GroqProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['llama-3.1-8b-instant']);
+      expect(result.models).toEqual([
+        {
+          id: 'llama-3.1-8b-instant',
+          model_name: 'llama-3.1-8b-instant',
+          context_window: null,
+          owned_by: null,
+        },
+      ]);
     });
   });
 

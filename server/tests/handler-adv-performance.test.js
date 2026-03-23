@@ -1,5 +1,15 @@
-const projectCache = require('../db/project-cache');
-const handlers = require('../handlers/advanced/performance');
+const projectConfigCore = require('../db/project-config-core');
+
+function loadHandlers() {
+  delete require.cache[require.resolve('../handlers/advanced/performance')];
+  return require('../handlers/advanced/performance');
+}
+
+const handlers = new Proxy({}, {
+  get(_target, prop) {
+    return loadHandlers()[prop];
+  },
+});
 
 function getText(result) {
   return result?.content?.[0]?.text || '';
@@ -12,7 +22,7 @@ describe('handler:adv-performance', () => {
 
   describe('handleAnalyzeQueryPerformance', () => {
     it('runs both slow and frequent analysis by default', () => {
-      const slowSpy = vi.spyOn(projectCache,'getSlowQueries').mockReturnValue([
+      const slowSpy = vi.spyOn(projectConfigCore,'getSlowQueries').mockReturnValue([
         {
           query_pattern: 'SELECT * FROM tasks WHERE status = ?',
           avg_time_ms: 22.345,
@@ -20,7 +30,7 @@ describe('handler:adv-performance', () => {
           execution_count: 7
         }
       ]);
-      const frequentSpy = vi.spyOn(projectCache,'getFrequentQueries').mockReturnValue([
+      const frequentSpy = vi.spyOn(projectConfigCore,'getFrequentQueries').mockReturnValue([
         {
           query_pattern: 'UPDATE tasks SET status = ? WHERE id = ?',
           avg_time_ms: 3.1,
@@ -41,8 +51,8 @@ describe('handler:adv-performance', () => {
     });
 
     it('runs only slow-query analysis when analysis_type is slow', () => {
-      vi.spyOn(projectCache,'getSlowQueries').mockReturnValue([]);
-      const frequentSpy = vi.spyOn(projectCache,'getFrequentQueries').mockReturnValue([]);
+      vi.spyOn(projectConfigCore,'getSlowQueries').mockReturnValue([]);
+      const frequentSpy = vi.spyOn(projectConfigCore,'getFrequentQueries').mockReturnValue([]);
 
       const text = getText(handlers.handleAnalyzeQueryPerformance({
         analysis_type: 'slow',
@@ -55,8 +65,8 @@ describe('handler:adv-performance', () => {
     });
 
     it('runs only frequent-query analysis and shows empty-state text', () => {
-      vi.spyOn(projectCache,'getFrequentQueries').mockReturnValue([]);
-      const slowSpy = vi.spyOn(projectCache,'getSlowQueries').mockReturnValue([]);
+      vi.spyOn(projectConfigCore,'getFrequentQueries').mockReturnValue([]);
+      const slowSpy = vi.spyOn(projectConfigCore,'getSlowQueries').mockReturnValue([]);
 
       const text = getText(handlers.handleAnalyzeQueryPerformance({
         analysis_type: 'frequent',
@@ -69,7 +79,7 @@ describe('handler:adv-performance', () => {
     });
 
     it('truncates long query patterns in result tables', () => {
-      vi.spyOn(projectCache,'getSlowQueries').mockReturnValue([
+      vi.spyOn(projectConfigCore,'getSlowQueries').mockReturnValue([
         {
           query_pattern: 'SELECT * FROM very_long_table_name WHERE this_column = ? AND another_column = ? AND third_column = ?',
           avg_time_ms: 12,
@@ -77,7 +87,7 @@ describe('handler:adv-performance', () => {
           execution_count: 2
         }
       ]);
-      vi.spyOn(projectCache,'getFrequentQueries').mockReturnValue([]);
+      vi.spyOn(projectConfigCore,'getFrequentQueries').mockReturnValue([]);
 
       const text = getText(handlers.handleAnalyzeQueryPerformance({}));
       expect(text).toContain('...');
@@ -87,7 +97,7 @@ describe('handler:adv-performance', () => {
 
   describe('handleOptimizeDatabase', () => {
     it('runs analyze operation by default', () => {
-      const analyzeSpy = vi.spyOn(projectCache,'analyzeDatabase').mockReturnValue({
+      const analyzeSpy = vi.spyOn(projectConfigCore,'analyzeDatabase').mockReturnValue({
         duration_ms: 15,
         table: 'all'
       });
@@ -100,13 +110,13 @@ describe('handler:adv-performance', () => {
     });
 
     it('runs vacuum and integrity_check operations and prints issue details when not ok', () => {
-      vi.spyOn(projectCache,'vacuumDatabase').mockReturnValue({
+      vi.spyOn(projectConfigCore,'vacuumDatabase').mockReturnValue({
         duration_ms: 100,
         size_before: 40960,
         size_after: 20480,
         space_saved: 20480
       });
-      vi.spyOn(projectCache,'integrityCheck').mockReturnValue({
+      vi.spyOn(projectConfigCore,'integrityCheck').mockReturnValue({
         ok: false,
         result: ['rowid mismatch']
       });
@@ -122,7 +132,7 @@ describe('handler:adv-performance', () => {
     });
 
     it('ignores unknown optimization operations', () => {
-      vi.spyOn(projectCache,'analyzeDatabase').mockReturnValue({ duration_ms: 1, table: 'all' });
+      vi.spyOn(projectConfigCore,'analyzeDatabase').mockReturnValue({ duration_ms: 1, table: 'all' });
       const text = getText(handlers.handleOptimizeDatabase({
         operations: ['unknown-op', 'analyze']
       }));
@@ -133,7 +143,7 @@ describe('handler:adv-performance', () => {
 
   describe('handleClearCache', () => {
     it('clears cache stats by default and reports all caches', () => {
-      const spy = vi.spyOn(projectCache,'clearCacheStats').mockReturnValue({ changes: 12 });
+      const spy = vi.spyOn(projectConfigCore,'clearCacheStats').mockReturnValue({ changes: 12 });
 
       const text = getText(handlers.handleClearCache({}));
       expect(spy).toHaveBeenCalledWith(undefined);
@@ -142,7 +152,7 @@ describe('handler:adv-performance', () => {
     });
 
     it('supports named cache clears without touching stats when clear_stats is false', () => {
-      const spy = vi.spyOn(projectCache,'clearCacheStats').mockReturnValue({ changes: 99 });
+      const spy = vi.spyOn(projectConfigCore,'clearCacheStats').mockReturnValue({ changes: 99 });
 
       const text = getText(handlers.handleClearCache({
         cache_name: 'query_cache',
@@ -163,7 +173,7 @@ describe('handler:adv-performance', () => {
     });
 
     it('renders query plan errors', () => {
-      vi.spyOn(projectCache,'explainQueryPlan').mockReturnValue({
+      vi.spyOn(projectConfigCore,'explainQueryPlan').mockReturnValue({
         error: 'SQL parse error'
       });
 
@@ -172,7 +182,7 @@ describe('handler:adv-performance', () => {
     });
 
     it('adds scan and temporary table recommendations when applicable', () => {
-      vi.spyOn(projectCache,'explainQueryPlan').mockReturnValue({
+      vi.spyOn(projectConfigCore,'explainQueryPlan').mockReturnValue({
         plan: [
           { id: 1, parent: 0, detail: 'SCAN TABLE tasks' },
           { id: 2, parent: 1, detail: 'USING TEMPORARY B-TREE' }
@@ -186,7 +196,7 @@ describe('handler:adv-performance', () => {
     });
 
     it('adds index recommendation when plan uses indexes', () => {
-      vi.spyOn(projectCache,'explainQueryPlan').mockReturnValue({
+      vi.spyOn(projectConfigCore,'explainQueryPlan').mockReturnValue({
         plan: [{ id: 1, parent: 0, detail: 'SEARCH TABLE tasks USING INDEX idx_tasks_status' }]
       });
 
@@ -202,7 +212,7 @@ describe('handler:adv-performance', () => {
         row_count: 1000 + i,
         index_count: i % 3
       }));
-      vi.spyOn(projectCache,'getDatabaseStats').mockReturnValue({
+      vi.spyOn(projectConfigCore,'getDatabaseStats').mockReturnValue({
         database_size_mb: 12.5,
         database_size_bytes: 13107200,
         total_tables: 22,
@@ -224,7 +234,7 @@ describe('handler:adv-performance', () => {
         index_name: `idx_${i}`,
         columns: ['id', 'status']
       }));
-      vi.spyOn(projectCache,'getDatabaseStats').mockReturnValue({
+      vi.spyOn(projectConfigCore,'getDatabaseStats').mockReturnValue({
         database_size_mb: 1,
         database_size_bytes: 1048576,
         total_tables: 1,
@@ -232,7 +242,7 @@ describe('handler:adv-performance', () => {
         total_indexes: 31,
         tables
       });
-      vi.spyOn(projectCache,'getIndexStats').mockReturnValue(indexes);
+      vi.spyOn(projectConfigCore,'getIndexStats').mockReturnValue(indexes);
 
       const text = getText(handlers.handleDatabaseStats({ include_indexes: true }));
       expect(text).toContain('Index Details');
@@ -241,7 +251,7 @@ describe('handler:adv-performance', () => {
     });
 
     it('includes empty optimization history message when none exists', () => {
-      vi.spyOn(projectCache,'getDatabaseStats').mockReturnValue({
+      vi.spyOn(projectConfigCore,'getDatabaseStats').mockReturnValue({
         database_size_mb: 1,
         database_size_bytes: 1048576,
         total_tables: 1,
@@ -249,7 +259,7 @@ describe('handler:adv-performance', () => {
         total_indexes: 1,
         tables: [{ table_name: 'tasks', row_count: 1, index_count: 1 }]
       });
-      vi.spyOn(projectCache,'getOptimizationHistory').mockReturnValue([]);
+      vi.spyOn(projectConfigCore,'getOptimizationHistory').mockReturnValue([]);
 
       const text = getText(handlers.handleDatabaseStats({ include_history: true }));
       expect(text).toContain('Recent Optimization History');
@@ -257,7 +267,7 @@ describe('handler:adv-performance', () => {
     });
 
     it('renders optimization history rows when available', () => {
-      vi.spyOn(projectCache,'getDatabaseStats').mockReturnValue({
+      vi.spyOn(projectConfigCore,'getDatabaseStats').mockReturnValue({
         database_size_mb: 2,
         database_size_bytes: 2097152,
         total_tables: 1,
@@ -265,7 +275,7 @@ describe('handler:adv-performance', () => {
         total_indexes: 1,
         tables: [{ table_name: 'tasks', row_count: 2, index_count: 1 }]
       });
-      vi.spyOn(projectCache,'getOptimizationHistory').mockReturnValue([
+      vi.spyOn(projectConfigCore,'getOptimizationHistory').mockReturnValue([
         {
           operation_type: 'analyze',
           table_name: 'tasks',
