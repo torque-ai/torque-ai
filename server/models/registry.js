@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('crypto');
 const eventBus = require('../event-bus');
+const { classifyModel } = require('../discovery/family-classifier');
 
 let db = null;
 
@@ -113,7 +114,21 @@ function updateModelLastSeen(id, lastSeenAt, sizeBytes) {
     WHERE id = ?
   `).run(lastSeenAt, sizeBytes, id);
 
-  return getModelById(id);
+  const row = getModelById(id);
+
+  // Backfill family + parameter_size_b for pre-migration rows where they are NULL
+  if (row && row.family === null) {
+    const { family, parameterSizeB } = classifyModel(row.model_name, { sizeBytes: row.size_bytes });
+    getDb().prepare(`
+      UPDATE model_registry
+      SET family = ?,
+          parameter_size_b = ?
+      WHERE id = ?
+    `).run(family, parameterSizeB, id);
+    return getModelById(id);
+  }
+
+  return row;
 }
 
 function registerModelInternal({ provider, hostId, modelName, sizeBytes }) {
@@ -143,6 +158,13 @@ function registerModelInternal({ provider, hostId, modelName, sizeBytes }) {
   `).run(id, provider, hostId, modelName, sizeBytes, now, now);
 
   if (insertResult.changes > 0) {
+    const { family, parameterSizeB } = classifyModel(modelName, { sizeBytes });
+    database.prepare(`
+      UPDATE model_registry
+      SET family = ?,
+          parameter_size_b = ?
+      WHERE id = ?
+    `).run(family, parameterSizeB, id);
     return {
       inserted: true,
       model: getModelById(id),
@@ -498,6 +520,7 @@ function getModelCount(provider) {
 module.exports = {
   setDb,
   registerModel,
+  updateModelLastSeen,
   approveModel,
   denyModel,
   bulkApproveByProvider,
