@@ -633,7 +633,7 @@ describe('Queue Scheduler', () => {
         reason: 'all hosts at capacity',
       });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'qwen3-coder:30b';
+        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -734,7 +734,7 @@ describe('Queue Scheduler', () => {
       });
       mockDb.selectOllamaHostForModel.mockReturnValue({ host: null, atCapacity: true, reason: 'capacity' });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'qwen3-coder:30b';
+        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -768,18 +768,18 @@ describe('Queue Scheduler', () => {
       });
       mocks.safeStartTask.mockImplementation((id, source) => source !== 'P71-fallback');
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'qwen3-coder:30b';
+        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
         if (key === 'codex_enabled') return '0';
         return null;
       });
 
       scheduler.processQueueInternal();
 
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('fall-fail', 'queued', { model: 'qwen3-coder:30b' });
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('fall-fail', 'queued', { model: 'codestral:22b' });
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('fall-fail', 'queued', { model: 'qwen3-coder:30b' });
       expect(mocks.notifyDashboard).toHaveBeenNthCalledWith(1, 'fall-fail', {
         status: 'queued',
-        model: 'qwen3-coder:30b',
+        model: 'codestral:22b',
       });
       expect(mocks.notifyDashboard).toHaveBeenNthCalledWith(2, 'fall-fail', {
         status: 'queued',
@@ -1100,7 +1100,7 @@ describe('Queue Scheduler', () => {
         return { host: { id: 'h2', name: 'host2', running_tasks: 0 }, reason: 'available' };
       });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'qwen3-coder:30b';
+        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
         if (key === 'codex_enabled') return '0';
         return null;
       });
@@ -1111,7 +1111,7 @@ describe('Queue Scheduler', () => {
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
         'ot-fall',
         'queued',
-        expect.objectContaining({ model: 'qwen3-coder:30b' })
+        expect.objectContaining({ model: 'codestral:22b' })
       );
       expect(mocks.safeStartTask).toHaveBeenCalledWith('ot-fall', 'P71-fallback');
     });
@@ -1139,7 +1139,7 @@ describe('Queue Scheduler', () => {
         reason: 'all hosts at capacity',
       });
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_balanced_model_fallback') return 'qwen3-coder:30b';
+        if (key === 'ollama_balanced_model_fallback') return 'codestral:22b';
         if (key === 'codex_enabled') return '0';
         return null;
       });

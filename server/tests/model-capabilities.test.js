@@ -16,8 +16,8 @@ describe('Model Capabilities Registry', () => {
       expect(rows.length).toBeGreaterThan(0);
     });
 
-    it('qwen3-coder:30b has highest code_gen score', () => {
-      const row = rawDb().prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get('qwen3-coder:30b');
+    it('qwen2.5-coder:32b has highest code_gen score', () => {
+      const row = rawDb().prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get('qwen2.5-coder:32b');
       expect(row).toBeTruthy();
       expect(row.score_code_gen).toBeGreaterThanOrEqual(0.85);
     });
@@ -42,9 +42,9 @@ describe('Model Capabilities Registry', () => {
 
   describe('getModelCapabilities', () => {
     it('returns capabilities for a known model', () => {
-      const caps = mod.getModelCapabilities('qwen3-coder:30b');
+      const caps = mod.getModelCapabilities('qwen2.5-coder:32b');
       expect(caps).toBeTruthy();
-      expect(caps.model_name).toBe('qwen3-coder:30b');
+      expect(caps.model_name).toBe('qwen2.5-coder:32b');
       expect(caps.context_window).toBeGreaterThan(0);
     });
 
@@ -78,19 +78,19 @@ describe('Model Capabilities Registry', () => {
   });
 
   describe('selectBestModel', () => {
-    it('ranks qwen3-coder:30b first for code_gen + typescript', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'complex', ['qwen3-coder:30b', 'qwen3-coder:30b', 'qwen3:8b', 'deepseek-r1:14b']);
+    it('ranks qwen2.5-coder:32b first for code_gen + typescript', () => {
+      const result = mod.selectBestModel('code_gen', 'typescript', 'complex', ['qwen2.5-coder:32b', 'codestral:22b', 'qwen3:8b', 'deepseek-r1:14b']);
       expect(result.length).toBeGreaterThan(0);
-      expect(result[0].model).toBe('qwen3-coder:30b');
+      expect(result[0].model).toBe('qwen2.5-coder:32b');
     });
 
     it('ranks deepseek-r1:14b first for reasoning tasks', () => {
-      const result = mod.selectBestModel('reasoning', 'general', 'normal', ['qwen3-coder:30b', 'qwen3-coder:30b', 'deepseek-r1:14b', 'qwen3:8b']);
+      const result = mod.selectBestModel('reasoning', 'general', 'normal', ['qwen2.5-coder:32b', 'codestral:22b', 'deepseek-r1:14b', 'qwen3:8b']);
       expect(result[0].model).toBe('deepseek-r1:14b');
     });
 
     it('filters models by context window', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['qwen3-coder:30b', 'gemma3:4b'], { estimatedTokens: 5000 });
+      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['qwen2.5-coder:32b', 'gemma3:4b'], { estimatedTokens: 5000 });
       expect(result.map(r => r.model)).not.toContain('gemma3:4b');
     });
 
@@ -105,13 +105,13 @@ describe('Model Capabilities Registry', () => {
     });
 
     it('applies complexity bonus for larger models on complex tasks', () => {
-      const complexResult = mod.selectBestModel('code_gen', 'general', 'complex', ['qwen3-coder:30b', 'qwen3:8b']);
-      const simpleResult = mod.selectBestModel('code_gen', 'general', 'simple', ['qwen3-coder:30b', 'qwen3:8b']);
+      const complexResult = mod.selectBestModel('code_gen', 'general', 'complex', ['qwen2.5-coder:32b', 'qwen3:8b']);
+      const simpleResult = mod.selectBestModel('code_gen', 'general', 'simple', ['qwen2.5-coder:32b', 'qwen3:8b']);
       expect(complexResult[0].score - complexResult[1].score).toBeGreaterThan(simpleResult[0].score - simpleResult[1].score);
     });
 
     it('returns results sorted by score descending', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['gemma3:4b', 'qwen3-coder:30b', 'qwen3-coder:30b', 'qwen3:8b']);
+      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', ['gemma3:4b', 'qwen2.5-coder:32b', 'codestral:22b', 'qwen3:8b']);
       for (let i = 1; i < result.length; i++) {
         expect(result[i - 1].score).toBeGreaterThanOrEqual(result[i].score);
       }
@@ -123,14 +123,14 @@ describe('Model Capabilities Registry', () => {
       mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'javascript', 1, 30);
       mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'javascript', 1, 25);
       mod.recordTaskOutcome('qwen3:8b', 'code_gen', 'javascript', 0, 40);
-      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'javascript', 1, 20);
-      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'javascript', 1, 18);
+      mod.recordTaskOutcome('codestral:22b', 'code_gen', 'javascript', 1, 20);
+      mod.recordTaskOutcome('codestral:22b', 'code_gen', 'javascript', 1, 18);
     });
 
     it('should return models ranked by success rate', () => {
       const lb = mod.getModelLeaderboard();
       expect(lb.length).toBeGreaterThan(0);
-      expect(lb[0].model_name).toBe('qwen3-coder:30b');
+      expect(lb[0].model_name).toBe('codestral:22b');
       expect(lb[0].success_rate).toBe(100);
     });
 
