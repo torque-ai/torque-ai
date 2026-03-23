@@ -15,6 +15,7 @@ const { failoverBackoffMs } = require('../utils/backoff');
 const logger = require('../logger').child({ component: 'execute-ollama' });
 const { resolveFileReferences } = require('../utils/file-resolution');
 const ollamaShared = require('./ollama-shared');
+const { resolveOllamaModel } = require('./ollama-shared');
 const providerConfig = require('./config');
 const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
@@ -191,7 +192,7 @@ async function executeOllamaTask(task) {
       if (best) requestedModel = best.model_name;
     } catch (_e) { void _e; }
   }
-  if (!requestedModel) requestedModel = serverConfig.get('ollama_model') || '';
+  if (!requestedModel) requestedModel = resolveOllamaModel(task, null) || '';
 
   // If no model specified or configured model isn't available, find the best one on any healthy host
   if (!requestedModel || !_hasModelOnAnyHost(requestedModel)) {

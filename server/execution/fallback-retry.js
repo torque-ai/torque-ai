@@ -14,6 +14,7 @@ const logger = require('../logger').child({ component: 'fallback-retry' });
 const { STALL_REQUEUE_DEBOUNCE_MS, DEFAULT_FALLBACK_MODEL } = require('../constants');
 const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-routing-core');
 const serverConfig = require('../config');
+const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { safeJsonParse } = require('../utils/json');
 
 const BASE_RETRY_DELAY_MS = 5000;   // 5 seconds for first retry
@@ -645,7 +646,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
     const maxRetries = serverConfig.getInt('max_hashline_local_retries', 2);
 
     if (localAttempts < maxRetries) {
-      const currentModel = task.model || serverConfig.get('ollama_model') || DEFAULT_FALLBACK_MODEL;
+      const currentModel = resolveOllamaModel(task, null) || DEFAULT_FALLBACK_MODEL;
       const currentHost = task.ollama_host_id;
 
       // Step 1: Same model, different host (skip for model-capability issues, exclude current host)

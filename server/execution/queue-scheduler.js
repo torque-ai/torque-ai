@@ -16,6 +16,8 @@ const providerRegistry = require('../providers/registry');
 const serverConfig = require('../config');
 const gpuMetrics = require('../scripts/gpu-metrics-server');
 const { safeJsonParse } = require('../utils/json');
+const { DEFAULT_FALLBACK_MODEL } = require('../constants');
+const { resolveOllamaModel } = require('../providers/ollama-shared');
 const eventBus = require('../event-bus');
 
 // Dependency injection
@@ -550,7 +552,7 @@ function attemptCodexOverflow(codexTask) {
 
     if (localHosts.length > 0) {
       const tierName = taskComplexity === 'simple' ? 'fast' : 'balanced';
-      const localModel = serverConfig.get(`ollama_${tierName}_model`) || 'qwen2.5-coder:32b';
+      const localModel = serverConfig.get(`ollama_${tierName}_model`) || resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
       const statusUpdates = {
         provider: 'hashline-ollama',
         model: localModel,
@@ -798,7 +800,7 @@ function processQueueInternal(options = {}) {
         if (best) model = best.model_name;
       } catch (_e) { void _e; /* registry not available */ }
     }
-    if (!model) model = serverConfig.get('ollama_model') || 'qwen2.5-coder:32b';
+    if (!model) model = resolveOllamaModel(task, null) || DEFAULT_FALLBACK_MODEL;
     let selection = db.selectOllamaHostForModel(model);
 
     // If default model isn't available, try any host with any model

@@ -31,6 +31,7 @@ const { runAgenticLoop } = require('./ollama-agentic');
 const { isAgenticCapable, needsPromptInjection, init: initCapability } = require('./agentic-capability');
 const { createToolExecutor, TOOL_DEFINITIONS } = require('./ollama-tools');
 const { captureSnapshot, checkAndRevert } = require('./agentic-git-safety');
+const { resolveOllamaModel } = require('./ollama-shared');
 const ollamaChatAdapter = require('./adapters/ollama-chat');
 const openaiChatAdapter = require('./adapters/openai-chat');
 const googleChatAdapter = require('./adapters/google-chat');
@@ -459,7 +460,7 @@ async function executeOllamaTaskWithAgentic(task) {
   const provider = task.provider || 'ollama';
 
   // Check capability (handles excluded providers, kill switch, whitelist, probe cache)
-  const model = task.model || serverConfig.get('ollama_model') || '';
+  const model = resolveOllamaModel(task, null) || '';
   const capability = isAgenticCapable(provider, model);
 
   if (!capability.capable || !_agenticDeps) {
@@ -493,12 +494,12 @@ async function executeOllamaTaskWithAgentic(task) {
       if (best) resolvedModel = best.model_name;
     } catch { /* ignore */ }
   }
-  if (!resolvedModel) resolvedModel = serverConfig.get('ollama_model') || '';
+  if (!resolvedModel) resolvedModel = resolveOllamaModel(task, null) || '';
   if (!resolvedModel || !ollamaShared.hasModelOnAnyHost(resolvedModel)) {
     const best = ollamaShared.findBestAvailableModel();
     if (best) resolvedModel = best;
   }
-  if (!resolvedModel) resolvedModel = 'qwen3-coder:30b';
+  if (!resolvedModel) resolvedModel = resolveOllamaModel(null, null) || 'qwen3-coder:30b';
 
   // Resolve host
   const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];

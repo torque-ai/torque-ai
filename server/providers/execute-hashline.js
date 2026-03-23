@@ -22,6 +22,7 @@ const { checkSyntax } = require('../validation/post-task');
 const { buildHashlineErrorFeedbackPrompt, buildImportContext, enrichResolvedContext } = require('../utils/context-enrichment');
 const { parseTypeSignatures, validateTaskAgainstTypes, buildPreflightHints } = require('../validation/preflight-types');
 const ollamaShared = require('./ollama-shared');
+const { resolveOllamaModel } = require('./ollama-shared');
 const providerConfig = require('./config');
 const serverConfig = require('../config');
 
@@ -492,7 +493,7 @@ async function executeHashlineOllamaTask(task) {
       if (best) requestedModel = best.model_name;
     } catch (_e) { void _e; }
   }
-  if (!requestedModel) requestedModel = serverConfig.get('ollama_model') || '';
+  if (!requestedModel) requestedModel = resolveOllamaModel(task, null) || '';
 
   // If no model specified or configured model isn't available, find the best
   // hashline-capable model on any healthy host
