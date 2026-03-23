@@ -12,6 +12,7 @@
 
 const logger = require('../logger').child({ component: 'fallback-retry' });
 const { STALL_REQUEUE_DEBOUNCE_MS, DEFAULT_FALLBACK_MODEL } = require('../constants');
+const modelRoles = require('../db/model-roles');
 const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-routing-core');
 const serverConfig = require('../config');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
@@ -382,7 +383,11 @@ function tryStallRecovery(taskId, activity) {
 
   const proc = _runningProcesses.get(taskId);
   const currentEditFormat = proc?.editFormat || serverConfig.get('aider_edit_format') || 'diff';
-  const currentModel = task.model || 'qwen2.5-coder:14b';
+  let currentModel = task.model;
+  if (!currentModel) {
+    try { currentModel = modelRoles.getModelForRole(task.provider || 'ollama', 'default'); } catch (_e) { void _e; }
+  }
+  if (!currentModel) currentModel = DEFAULT_FALLBACK_MODEL;
   const currentProvider = task.provider || 'ollama';
 
   // Determine recovery strategy based on attempt number
@@ -646,7 +651,11 @@ function tryHashlineTieredFallback(taskId, task, reason) {
     const maxRetries = serverConfig.getInt('max_hashline_local_retries', 2);
 
     if (localAttempts < maxRetries) {
-      const currentModel = resolveOllamaModel(task, null) || DEFAULT_FALLBACK_MODEL;
+      let currentModel = resolveOllamaModel(task, null);
+      if (!currentModel) {
+        try { currentModel = modelRoles.getModelForRole('hashline-ollama', 'default') || modelRoles.getModelForRole('ollama', 'default'); } catch (_e) { void _e; }
+      }
+      if (!currentModel) currentModel = DEFAULT_FALLBACK_MODEL;
       const currentHost = task.ollama_host_id;
 
       // Step 1: Same model, different host (skip for model-capability issues, exclude current host)
