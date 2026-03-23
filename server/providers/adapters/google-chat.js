@@ -79,14 +79,21 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
         // Track the last function call name emitted by the assistant so that
         // a subsequent 'tool' message can reference it.
         if (msg.tool_calls && msg.tool_calls.length > 0) {
-          const parts = msg.tool_calls.map((tc) => ({
-            functionCall: {
-              name: tc.function.name,
-              args: typeof tc.function.arguments === 'string'
-                ? JSON.parse(tc.function.arguments)
-                : (tc.function.arguments || {}),
-            },
-          }));
+          const parts = msg.tool_calls.map((tc) => {
+            const part = {
+              functionCall: {
+                name: tc.function.name,
+                args: typeof tc.function.arguments === 'string'
+                  ? JSON.parse(tc.function.arguments)
+                  : (tc.function.arguments || {}),
+              },
+            };
+            // Gemini 3.x thought signatures — circulate back at part level
+            if (tc.thoughtSignature) {
+              part.thoughtSignature = tc.thoughtSignature;
+            }
+            return part;
+          });
           for (const tc of msg.tool_calls) {
             const functionName = tc.function.name;
             lastFunctionCallName = functionName;
@@ -210,13 +217,18 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
           if (Array.isArray(parts)) {
             for (const part of parts) {
               if (part.functionCall) {
-                toolCalls.push({
+                const tc = {
                   type: 'function',
                   function: {
                     name: part.functionCall.name,
                     arguments: part.functionCall.args || {},
                   },
-                });
+                };
+                // Gemini 3.x thought signatures — preserve for round-tripping
+                if (part.thoughtSignature) {
+                  tc.thoughtSignature = part.thoughtSignature;
+                }
+                toolCalls.push(tc);
               } else if (part.text) {
                 textContent += part.text;
               }

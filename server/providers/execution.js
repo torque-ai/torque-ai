@@ -56,10 +56,10 @@ const PROVIDER_HOST_MAP = {
 
 // Default models per provider — chosen from comprehensive baseline testing (2026-03-18)
 const PROVIDER_DEFAULT_MODEL = {
-  groq: 'qwen/qwen3-32b',                            // Grade A, 2.5s — llama-3.3-70b has intermittent "failed to call function" errors
-  cerebras: 'qwen-3-235b-a22b-instruct-2507',       // Grade A, 779ms, best overall
+  groq: 'llama-3.3-70b-versatile',                     // Production-stable, 280 T/s, reliable tool calling (qwen3-32b is preview)
+  cerebras: 'gpt-oss-120b',                           // 3000 T/s, best reasoning, production-stable (qwen-3-235b is preview-only)
   deepinfra: 'Qwen/Qwen2.5-72B-Instruct',
-  openrouter: 'nvidia/nemotron-3-nano-30b-a3b:free', // Grade A, 3.9s, best free model
+  openrouter: 'qwen/qwen3-coder:free',               // 480B MoE, 262K ctx, strongest free coding model with tool calling
   hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
   'ollama-cloud': 'kimi-k2:1t',                     // Grade A, 4.5s, most reliable (devstral intermittent)
   'google-ai': 'gemini-2.5-flash-lite',              // 1M ctx, 65K out, higher RPM than 2.5-flash, tool calls work

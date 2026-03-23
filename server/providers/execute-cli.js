@@ -110,10 +110,21 @@ function buildClaudeCliCommand(task, resolvedFileContext, providerConfig) {
       null,
       { files: task.files, project: task.project, fileContext: resolvedFileContext }
     );
+    // Flags for non-interactive autonomous execution:
+    // --dangerously-skip-permissions: auto-approve all file writes and commands
+    // --disable-slash-commands: prevent model from invoking slash commands
+    // --strict-mcp-config: only use explicitly configured MCP servers
+    // --bare: skip hooks, CLAUDE.md, plugins for faster deterministic startup
+    // --output-format json: structured output for programmatic parsing
+    // --max-turns 15: limit agentic iterations (matches TORQUE agentic_max_iterations)
+    // -p: print mode (non-interactive, output to stdout)
     const claudeArgs = [
       '--dangerously-skip-permissions',
       '--disable-slash-commands',
       '--strict-mcp-config',
+      '--bare',                    // Skip hooks, CLAUDE.md, plugins for faster deterministic startup
+      '--output-format', 'json',   // Structured JSON output for programmatic parsing
+      '--max-turns', '15',         // Limit agentic iterations (matches TORQUE default)
       '-p'
     ];
     const stdinPrompt = wrappedDescription;
