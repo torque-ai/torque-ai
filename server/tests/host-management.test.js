@@ -11,7 +11,7 @@ const { setupTestDb, setupTestDbModule, teardownTestDb, rawDb: _rawDb } = requir
 function setup() {
   ({ db, testDir } = setupTestDb('host-mgmt-'));
   mod = require('../db/host-management');
-  mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
+  mod.setDb(db.getDbInstance());
   mod.setGetTask((id) => taskCore.getTask(id));
   mod.setGetProjectRoot((dir) => dir); // identity for tests
 }

@@ -1,6 +1,7 @@
 const { EventEmitter } = require('events');
 const http = require('http');
 const db = require('../database');
+const configCore = require('../db/config-core');
 
 const { dispatch } = require('../dashboard/router');
 
@@ -122,7 +123,7 @@ describe('Security: MCP SSE CORS and dashboard API auth/CSRF', () => {
 
   beforeAll(() => {
     // Mock DB so mcp-sse.start() can call getConfig without a real database
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     vi.spyOn(db, 'getDbInstance').mockReturnValue({});
     if (typeof db.isDbClosed === 'function') {
       vi.spyOn(db, 'isDbClosed').mockReturnValue(false);

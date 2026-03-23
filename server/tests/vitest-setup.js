@@ -73,9 +73,9 @@ function setupTestDb(suiteName) {
 function setupTestDbModule(modulePath, suiteName) {
   const result = _initDb(suiteName);
   const mod = require(modulePath);
-  const dbHandle = db.getDb ? db.getDb() : db.getDbInstance();
+  const dbHandle = db.getDbInstance();
   if (typeof mod.setDb === 'function') mod.setDb(dbHandle);
-  return { ...result, mod, rawDb: () => (db.getDb ? db.getDb() : db.getDbInstance()) };
+  return { ...result, mod, rawDb: () => db.getDbInstance() };
 }
 
 function teardownTestDb() {
@@ -145,7 +145,7 @@ function mkTask(db, overrides = {}) {
   }
 
   // Fallback: direct SQL insert
-  const rawDbFn = db.getDb || db.getDbInstance;
+  const rawDbFn = db.getDbInstance;
   if (rawDbFn) {
     rawDbFn.call(db).prepare(`
       INSERT INTO tasks (id, task_description, status, provider, model, created_at, completed_at, output, error_output, exit_code, working_directory, metadata)
@@ -164,7 +164,7 @@ function mkTask(db, overrides = {}) {
  */
 function rawDb() {
   if (!db) throw new Error('rawDb() called before setupTestDb/setupTestDbModule');
-  return db.getDb ? db.getDb() : db.getDbInstance();
+  return db.getDbInstance();
 }
 
 /**

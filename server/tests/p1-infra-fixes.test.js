@@ -4,7 +4,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const http = require('http');
 
-const db = require('../database');
+const { getDbInstance } = require('../database');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
 const dbCoord = require('../db/coordination');
@@ -82,10 +82,7 @@ describe('P1 infra fixes', () => {
   describe('Coordination lock stale detection uses lease expiry', () => {
     beforeAll(() => {
       setupTestDb('p1-coord');
-      if (!db.getDb && db.getDbInstance) {
-        db.getDb = db.getDbInstance;
-      }
-      dbCoord.setDb(db.getDb());
+      dbCoord.setDb(getDbInstance());
       dbCoord.setGetTask(taskCore.getTask);
 
       rawDb().prepare('DELETE FROM distributed_locks').run();

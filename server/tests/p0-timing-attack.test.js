@@ -1,6 +1,8 @@
 const http = require('http');
 const crypto = require('crypto');
 const db = require('../database');
+const configCore = require('../db/config-core');
+const taskCore = require('../db/task-core');
 const tools = require('../tools');
 const authMiddleware = require('../auth/middleware');
 
@@ -72,8 +74,8 @@ describe('API key timing-safe authentication', () => {
   };
 
   beforeAll(() => {
-    vi.spyOn(db, 'getConfig').mockReturnValue(null);
-    vi.spyOn(db, 'countTasks').mockReturnValue(0);
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
+    vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
     vi.spyOn(db, 'getDbInstance').mockReturnValue({});
     if (typeof db.isDbClosed === 'function') {
       vi.spyOn(db, 'isDbClosed').mockReturnValue(false);
