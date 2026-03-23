@@ -641,6 +641,8 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     try { validateTaskStatuses(db, logger); } catch (_e) { void _e; }
   }
 
+  // Model-agnostic architecture columns and tables
+  migrateModelAgnostic(db);
   db.exec("RELEASE SAVEPOINT migration_batch");
   } catch (err) {
     try { db.exec("ROLLBACK TO SAVEPOINT migration_batch"); } catch (_e) { void _e; }
@@ -648,4 +650,58 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   }
 }
 
-module.exports = { runMigrations, validateTaskStatuses };
+
+/**
+ * Migrate model_registry and model_capabilities tables to support
+ * the model-agnostic architecture (Phase 1). Also creates the
+ * model_family_templates table.
+ *
+ * Uses a local safeAdd helper that wraps ALTER TABLE in try/catch so
+ * running this function twice is idempotent.
+ *
+ * @param {object} db - better-sqlite3 Database instance
+ */
+function migrateModelAgnostic(db) {
+  function safeAdd(table, colDef) {
+    try {
+      db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + colDef);
+    } catch (_e) {
+      void _e;
+      // Column already exists - safe to ignore
+    }
+  }
+
+  // model_registry: model-family classification and probing columns
+  safeAdd('model_registry', 'family TEXT');
+  safeAdd('model_registry', 'parameter_size_b REAL');
+  safeAdd('model_registry', 'quantization TEXT');
+  safeAdd('model_registry', 'role TEXT');
+  safeAdd('model_registry', 'tuning_json TEXT');
+  safeAdd('model_registry', 'prompt_template TEXT');
+  safeAdd('model_registry', "probe_status TEXT DEFAULT 'pending'");
+  safeAdd('model_registry', "source TEXT DEFAULT 'discovered'");
+
+  // model_capabilities: canonical capability columns
+  safeAdd('model_capabilities', 'cap_hashline INTEGER DEFAULT 0');
+  safeAdd('model_capabilities', 'cap_agentic INTEGER DEFAULT 0');
+  safeAdd('model_capabilities', 'cap_file_creation INTEGER DEFAULT 1');
+  safeAdd('model_capabilities', 'cap_multi_file INTEGER DEFAULT 0');
+  safeAdd('model_capabilities', "capability_source TEXT DEFAULT 'heuristic'");
+
+  // model_family_templates: per-family prompt templates and tuning overrides
+  try {
+    db.exec([
+      'CREATE TABLE IF NOT EXISTS model_family_templates (',
+      '  family TEXT PRIMARY KEY,',
+      '  system_prompt TEXT,',
+      '  tuning_json TEXT,',
+      '  size_overrides TEXT',
+      ')'
+    ].join(''));
+  } catch (_e) {
+    void _e;
+    // Table already exists
+  }
+}
+
+module.exports = { runMigrations, migrateModelAgnostic, validateTaskStatuses };
