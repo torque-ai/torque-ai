@@ -352,8 +352,7 @@ if (EXISTING_COMMANDS.has(command)) {
 } else if (command === 'dashboard') {
   require(path.join(__dirname, '..', 'cli', 'dashboard')).run();
 } else if (command === 'doctor') {
-  console.log('torque doctor is not yet implemented.');
-  process.exitCode = 1;
+  require(path.join(__dirname, '..', 'cli', 'doctor')).run().then(code => { process.exitCode = code; });
 } else if (command === 'logs') {
   console.log('torque logs is not yet implemented.');
   process.exitCode = 1;

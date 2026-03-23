@@ -2,6 +2,8 @@
 
 Common issues and how to fix them.
 
+**Start here:** Run `torque doctor` to check your setup. It verifies Node.js version, server connectivity, Ollama detection, CLI tools, API keys, and MCP configuration in one command.
+
 ## Server Won't Start
 
 ### Port already in use
