@@ -217,11 +217,6 @@ describe('adapter-registry discoverAllModels', () => {
     const mockDb = { name: 'mock-db' };
     await registry.discoverAllModels(mockDb);
 
-    // Every call must receive (db, adapter, providerId, null)
-    for (const [, args] of discoveryMock.discoverFromAdapter.mock.calls) {
-      expect(args).toBeUndefined(); // only positional — check via call args
-    }
-
     const calls = discoveryMock.discoverFromAdapter.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
     for (const call of calls) {
