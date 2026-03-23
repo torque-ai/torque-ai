@@ -141,7 +141,11 @@ Once connected, TORQUE exposes its tools progressively — starting with core ta
 
 ## Documentation
 
-Documentation is a work in progress. For now, the most complete reference is the project's [`CLAUDE.md`](CLAUDE.md), which covers architecture, provider configuration, workflows, and all MCP tools.
+- [Getting Started](docs/guides/getting-started.md) — install, configure, submit your first task
+- [Provider Guide](docs/guides/providers.md) — all 12 providers, setup, routing, multi-host
+- [Troubleshooting](docs/guides/troubleshooting.md) — common issues and solutions
+- [Architecture](docs/architecture.md) — system design and internals
+- [CLAUDE.md](CLAUDE.md) — full reference for MCP tools, workflows, and configuration
 
 ## Recommended Companion: Superpowers
 

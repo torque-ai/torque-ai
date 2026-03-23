@@ -8,7 +8,7 @@
 
 ## The Premise
 
-TORQUE positions itself as a Claude Code bandwidth multiplier. The pitch: you're already in Claude Code doing development, but Claude can only do one thing at a time. TORQUE lets Claude dispatch work to other AI providers in parallel — Codex writes your tests while Ollama handles your types while Claude Code stays free for architecture decisions. You stop babysitting and start orchestrating.
+TORQUE positions itself as a Claude Code bandwidth multiplier. The pitch: you're already in Claude Code doing development, but Claude can only do one thing at a time. TORQUE lets Claude dispatch work to other AI providers in parallel — Codex writes your tests while Ollama handles your types while Claude Code stays free for architecture decisions. You become the control tower, orchestrating work across every provider you have.
 
 This is a real problem. Claude Code users *do* hit a throughput ceiling. The question is whether TORQUE is the right shape solution.
 
@@ -66,11 +66,9 @@ What TORQUE *also* has:
 
 The result: a user who wanted a task dispatcher gets a kitchen sink. Each additional subsystem is more documentation to read, more tools to filter, more code to load, more surface area for bugs.
 
-### 4. The pricing model conflicts with the open-source positioning.
+### 4. ~~The pricing model conflicts with the open-source positioning.~~ (RESOLVED)
 
-BSL-1.1 is not open source. The README says "Free forever for individual use with local Ollama," then offers Pro at $9/mo with limits on concurrent tasks, hosts, workflow nodes, and safeguards. But the Pro tier doesn't exist — there's no license server, no payment integration, no enforcement in the code. It's aspirational pricing in a project that hasn't validated whether anyone would pay.
-
-Worse, the free tier is artificially limited (5 concurrent tasks, 1 host, 5 workflow nodes). For a tool whose *entire value proposition* is parallelism and distributed execution, capping the free tier at 5 concurrent tasks means the free version can't demonstrate the product's value.
+*Pricing tiers have been removed. TORQUE is fully unlocked for all users under BSL-1.1 (no commercial hosting). No artificial limits on concurrent tasks, hosts, or workflow nodes.*
 
 ### 5. The "never write code directly" philosophy is anti-adoption.
 
@@ -96,7 +94,7 @@ Everything else should be discoverable through use, not front-loaded as 26KB of 
 - **Ollama**: Can't create new files, degrades above 250 lines, context limit issues
 - **DeepInfra/Hyperbolic**: Cloud API wrappers that format prompts and parse responses
 - **Claude CLI**: Works but opens visible windows that steal focus
-- **Groq/Cerebras**: Free tier rate limits make them unreliable for burst work
+- **Groq/Cerebras**: Rate limits make them unreliable for burst work
 
 The honest story is: Codex is the only reliably good provider, Ollama works for small edits, and everything else is a fallback. A bandwidth multiplier that routes 80% of complex work to Codex is really a "Codex wrapper with retry logic." That's fine — but own it.
 
@@ -131,7 +129,7 @@ If TORQUE wants to be the "bandwidth multiplier for Claude Code," it needs to do
 3. **Collapse the CLAUDE.md** to ~3KB: here's how to submit, here's how to wait, here's how to review. Put everything else in docs/.
 4. **Default to 3 providers**: Ollama (free/local), Codex (reliable cloud), one API provider (user's choice). Others are opt-in and undocumented in the core instructions.
 5. **Kill the tier system** — ship 20 well-designed tools, not 494 with progressive unlock.
-6. **Make the free tier generous enough to demonstrate value** — at least 10 concurrent tasks, 3 hosts, unlimited workflow nodes.
+6. ~~**Make the free tier generous enough to demonstrate value**~~ — RESOLVED: no tiers, everything unlocked.
 7. **Remove the "never write code directly" posture** from CLAUDE.md — let TORQUE be additive, not exclusive.
 
 The best version of TORQUE is a small, fast, reliable task dispatcher that Claude Code users install in 30 seconds and never think about again. The current version is a fascinating piece of infrastructure that only its creator can operate.

@@ -27,8 +27,8 @@ export default function Onboarding({ onDismiss }) {
       <h3 className="text-base font-semibold text-slate-200 mb-3">Key Features</h3>
       <ul className="space-y-2 mb-8 text-slate-300 text-sm">
         <li>
-          <strong className="text-white">10 providers</strong>
-          {' — '}Local LLMs (Ollama) + Cloud (Codex, Claude, DeepInfra, etc.)
+          <strong className="text-white">12 providers</strong>
+          {' — '}Local LLMs (Ollama), CLI tools (Codex, Claude Code), and cloud APIs (DeepInfra, Groq, and more)
         </li>
         <li>
           <strong className="text-white">DAG workflows</strong>

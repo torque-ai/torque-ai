@@ -360,7 +360,7 @@ TORQUE uses a debounced push system for dashboard updates:
 | **Budget** | Cost tracking, trends, budget alerts |
 | **Strategic Brain** | AI decomposition/diagnosis/review + configuration |
 | **Models** | Model configuration, tier assignments |
-| + 6 more | Coordination, Approvals, Schedules, Batch History, Plan Projects, Free Tier |
+| + 6 more | Coordination, Approvals, Schedules, Batch History, Plan Projects, Routing Templates |
 
 ---
 
