@@ -611,6 +611,23 @@ function init() {
     logger.warn(`Config-to-registry migration: ${err.message}`);
   }
 
+  // Run initial cloud provider discovery after a short delay (non-blocking).
+  // Ollama models are discovered by the health check cycle (first check at ~15s).
+  // This 10s delay discovers cloud provider models (groq, deepinfra, etc.).
+  setTimeout(async () => {
+    try {
+      const { discoverAllModels } = require('./providers/adapter-registry');
+      const rawDb = db.getDbInstance();
+      const results = await discoverAllModels(rawDb);
+      const totalNew = Object.values(results).reduce((sum, r) => sum + (r.new || 0), 0);
+      if (totalNew > 0) {
+        logger.info(`Initial discovery: found ${totalNew} new model(s) across ${Object.keys(results).length} provider(s)`);
+      }
+    } catch (err) {
+      logger.warn(`Initial model discovery: ${err.message}`);
+    }
+  }, 10000); // 10 seconds after startup
+
   // Initialize remote agent registry (needs raw better-sqlite3 instance)
   agentRegistry = new RemoteAgentRegistry(db.getDbInstance());
 
