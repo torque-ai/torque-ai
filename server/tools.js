@@ -112,6 +112,7 @@ const HANDLER_MODULES = [
   require('./handlers/concurrency-handlers'),
   require('./handlers/model-handlers'),
   require('./handlers/discovery-handlers'),
+  require('./handlers/model-registry-handlers'),
   require('./handlers/routing-template-handlers'),
   require('./handlers/strategic-config-handlers'),
   require('./handlers/auth-handlers'),
