@@ -337,6 +337,9 @@ function clearCjsModules(modulePaths) {
 const AUTOMATION_MODULES = [
   '../handlers/automation-handlers',
   '../database',
+  '../db/config-core',
+  '../db/task-core',
+  '../db/project-config-core',
   '../task-manager',
   '../handlers/shared',
   '../logger',
@@ -353,10 +356,16 @@ const AUTOMATION_MODULES = [
 
 const INTEGRATION_MODULES = [
   '../handlers/integration/infra',
-  '../database',
+  '../db/backup-core',
+  '../db/config-core',
+  '../db/email-peek',
+  '../db/host-management',
+  '../db/provider-routing-core',
   '../logger',
   '../config',
   '../constants',
+  '../utils/context-stuffing',
+  '../execution/queue-scheduler',
   '../handlers/error-codes',
 ];
 
@@ -364,6 +373,9 @@ function loadAutomationHandlers() {
   vi.resetModules();
   clearCjsModules(AUTOMATION_MODULES);
   installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/config-core', mockDb);
+  installCjsModuleMock('../db/task-core', mockDb);
+  installCjsModuleMock('../db/project-config-core', mockDb);
   installCjsModuleMock('../task-manager', mockTaskManager);
   installCjsModuleMock('../handlers/shared', mockShared);
   installCjsModuleMock('../logger', mockLogger);
@@ -390,10 +402,20 @@ function loadAutomationHandlers() {
 function loadIntegrationHandlers() {
   vi.resetModules();
   clearCjsModules(INTEGRATION_MODULES);
-  installCjsModuleMock('../database', mockDb);
+  installCjsModuleMock('../db/backup-core', {});
+  installCjsModuleMock('../db/config-core', mockDb);
+  installCjsModuleMock('../db/email-peek', {});
+  installCjsModuleMock('../db/host-management', {});
+  installCjsModuleMock('../db/provider-routing-core', {});
   installCjsModuleMock('../logger', mockLogger);
   installCjsModuleMock('../config', mockConfig);
   installCjsModuleMock('../constants', mockConstants);
+  installCjsModuleMock('../utils/context-stuffing', {
+    PROVIDER_CONTEXT_BUDGETS: {},
+  });
+  installCjsModuleMock('../execution/queue-scheduler', {
+    COST_FREE_PROVIDERS: [],
+  });
   installCjsModuleMock('../handlers/error-codes', {
     ErrorCodes: mockShared.ErrorCodes,
     makeError: mockShared.makeError,
@@ -1401,275 +1423,10 @@ describe('Task Project Handlers', () => {
   });
 
   describe('handleUpdateProjectStats', () => {
-    it('returns a missing parameter error when working_directory is absent', () => {
+    it('is no longer exported from automation handlers', () => {
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleUpdateProjectStats({
-        memory_path: 'C:\\repo\\MEMORY.md',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.error_code).toBe(mockShared.ErrorCodes.MISSING_REQUIRED_PARAM.code);
-      expect(textOf(result)).toContain('working_directory is required');
-    });
-
-    it('returns a missing parameter error when memory_path is absent', () => {
-      const handlers = loadAutomationHandlers();
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: 'C:\\repo',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.error_code).toBe(mockShared.ErrorCodes.MISSING_REQUIRED_PARAM.code);
-      expect(textOf(result)).toContain('memory_path is required');
-    });
-
-    it('uses stored project defaults for the verify command and updates MEMORY.md', () => {
-      const workingDir = 'C:\\repo';
-      const memoryPath = actualPath.join(workingDir, 'MEMORY.md');
-      addVirtualFiles({
-        [actualPath.join(workingDir, 'src', 'systems', 'Alpha.ts')]: buildLines(10, 'alpha'),
-        [actualPath.join(workingDir, 'src', 'systems', 'Beta.ts')]: buildLines(12, 'beta'),
-        [actualPath.join(workingDir, 'src', 'util.js')]: buildLines(6, 'util'),
-        [actualPath.join(workingDir, 'src', 'systems', '__tests__', 'Alpha.test.ts')]: 'export {}',
-        [memoryPath]: 'Test coverage is currently **0/0 source files (0%)**, 0 tests passing',
-      });
-      mockDb.getConfig.mockImplementation(createConfigMock({
-        [`project_defaults_${workingDir}`]: JSON.stringify({ verify_command: 'pnpm verify:ci' }),
-      }));
-      mockSafeExecChain.mockReturnValue({
-        exitCode: 0,
-        output: '12 passed (4)',
-        error: '',
-      });
-      const handlers = loadAutomationHandlers();
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-      });
-      const text = textOf(result);
-
-      expect(mockSafeExecChain).toHaveBeenCalledWith(
-        'pnpm verify:ci',
-        expect.objectContaining({ cwd: workingDir }),
-      );
-      expect(result._stats).toEqual({
-        testCount: 12,
-        testFileCount: 4,
-        featureCount: 2,
-        sourceFileCount: 3,
-        testedFileCount: 1,
-        coveragePercent: 33,
-      });
-      expect(text).toContain('**Tests:** 12 passing across 4 test files');
-      expect(text).toContain('**Systems:** 2 in src/systems');
-      expect(text).toContain('**Coverage:** 1/3 source files (33%)');
-      expect(text).toContain('### Memory Updated');
-      expect(mockFs.__getFile(memoryPath)).toContain('Test coverage is currently **1/3 source files (33%)**, 12 tests passing');
-    });
-
-    it('prefers an explicit test_command over stored defaults', () => {
-      const workingDir = 'C:\\repo';
-      const memoryPath = actualPath.join(workingDir, 'MEMORY.md');
-      addVirtualFiles({
-        [actualPath.join(workingDir, 'src', 'systems', 'Alpha.ts')]: buildLines(8, 'alpha'),
-        [memoryPath]: 'Test coverage is currently **0/0 source files (0%)**, 0 tests passing',
-      });
-      mockDb.getConfig.mockReturnValue(JSON.stringify({ verify_command: 'pnpm verify:ci' }));
-      mockSafeExecChain.mockReturnValue({
-        exitCode: 0,
-        output: '3 passed (1)',
-        error: '',
-      });
-      const handlers = loadAutomationHandlers();
-
-      handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-        test_command: 'npm test -- --runInBand',
-      });
-
-      expect(mockSafeExecChain).toHaveBeenCalledWith(
-        'npm test -- --runInBand',
-        expect.objectContaining({ cwd: workingDir }),
-      );
-    });
-
-    it('parses counts from thrown command output and reports a missing memory file', () => {
-      const workingDir = 'C:\\repo';
-      const memoryPath = actualPath.join(workingDir, 'MEMORY.md');
-      addVirtualFiles({
-        [actualPath.join(workingDir, 'src', 'systems', 'Alpha.ts')]: buildLines(8, 'alpha'),
-      });
-      mockSafeExecChain.mockImplementation(() => {
-        throw { stdout: '5 passing', stderr: 'Test Files 2 passed' };
-      });
-      const handlers = loadAutomationHandlers();
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-      });
-      const text = textOf(result);
-
-      expect(text).toContain('**Tests:** 5 passing across 2 test files');
-      expect(text).toContain(`Memory file not found: ${memoryPath}`);
-    });
-
-    it('reports when the memory stats pattern is missing', () => {
-      const workingDir = 'C:\\repo';
-      const memoryPath = actualPath.join(workingDir, 'MEMORY.md');
-      addVirtualFiles({
-        [actualPath.join(workingDir, 'src', 'systems', 'Alpha.ts')]: buildLines(10, 'alpha'),
-        [actualPath.join(workingDir, 'src', 'systems', '__tests__', 'Alpha.test.ts')]: 'export {}',
-        [memoryPath]: '# Coverage\nNo matching stats line here.',
-      });
-      mockSafeExecChain.mockReturnValue({
-        exitCode: 0,
-        output: '4 passed (2)',
-        error: '',
-      });
-      const handlers = loadAutomationHandlers();
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-      });
-      const text = textOf(result);
-
-      expect(text).toContain('### Memory Not Updated');
-      expect(text).toContain('Test coverage is currently **1/1 source files (100%)**, 4 tests passing');
-      expect(mockFs.writeFileSync).not.toHaveBeenCalled();
-    });
-
-    it('reports file write failures when updating memory', () => {
-      const workingDir = 'C:\\repo';
-      const memoryPath = actualPath.join(workingDir, 'MEMORY.md');
-      addVirtualFiles({
-        [actualPath.join(workingDir, 'src', 'systems', 'Alpha.ts')]: buildLines(10, 'alpha'),
-        [memoryPath]: 'Test coverage is currently **0/0 source files (0%)**, 0 tests passing',
-      });
-      mockSafeExecChain.mockReturnValue({
-        exitCode: 0,
-        output: '4 passed (1)',
-        error: '',
-      });
-      mockFs.writeFileSync.mockImplementation(() => {
-        throw new Error('disk full');
-      });
-      const handlers = loadAutomationHandlers();
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-      });
-
-      expect(textOf(result)).toContain('Error updating memory: disk full');
-    });
-
-    it('logs invalid stored defaults and falls back to the default verify command', () => {
-      const workingDir = 'C:\\repo';
-      const memoryPath = actualPath.join(workingDir, 'MEMORY.md');
-      addVirtualFiles({
-        [actualPath.join(workingDir, 'src', 'systems', 'Alpha.ts')]: buildLines(10, 'alpha'),
-        [memoryPath]: 'Test coverage is currently **0/0 source files (0%)**, 0 tests passing',
-      });
-      mockDb.getConfig.mockReturnValue('{bad json');
-      mockSafeExecChain.mockReturnValue({
-        exitCode: 0,
-        output: '2 passed (1)',
-        error: '',
-      });
-      const handlers = loadAutomationHandlers();
-
-      handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-      });
-
-      expect(loggerChild.debug).toHaveBeenCalledWith(
-        '[automation-handlers] non-critical error reading feature defaults:',
-        expect.any(String),
-      );
-      expect(mockSafeExecChain).toHaveBeenCalledWith(
-        'npx vitest run --reporter=verbose',
-        expect.objectContaining({ cwd: workingDir }),
-      );
-    });
-
-    it('logs feature directory read errors and continues with zero features', () => {
-      const workingDir = 'C:\\repo';
-      const memoryPath = actualPath.join(workingDir, 'MEMORY.md');
-      addVirtualFiles({
-        [actualPath.join(workingDir, 'src', 'systems', 'Alpha.ts')]: buildLines(10, 'alpha'),
-        [actualPath.join(workingDir, 'src', '__tests__', 'Alpha.test.ts')]: 'export {}',
-        [memoryPath]: 'Test coverage is currently **0/0 source files (0%)**, 0 tests passing',
-      });
-      const featureDir = actualPath.join(workingDir, 'src', 'systems');
-      const defaultReadDir = mockFs.readdirSync.getMockImplementation();
-      mockFs.readdirSync.mockImplementation((dirPath, options) => {
-        if (normalizePath(dirPath) === normalizePath(featureDir) && !options) {
-          throw new Error('feature dir blocked');
-        }
-        return defaultReadDir(dirPath, options);
-      });
-      const handlers = loadAutomationHandlers();
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-      });
-      const text = textOf(result);
-
-      expect(loggerChild.debug).toHaveBeenCalledWith(
-        '[automation-handlers] non-critical error counting features:',
-        'feature dir blocked',
-      );
-      expect(text).toContain('**Systems:** 0 in src/systems');
-    });
-
-    it('supports custom feature, source, test, stats pattern, and stats template settings', () => {
-      const workingDir = 'C:\\repo';
-      const memoryPath = actualPath.join(workingDir, 'MEMORY.md');
-      addVirtualFiles({
-        [actualPath.join(workingDir, 'app', 'features', 'Dialog.jsx')]: buildLines(16, 'dialog'),
-        [actualPath.join(workingDir, 'app', 'lib', 'helper.js')]: buildLines(12, 'helper'),
-        [actualPath.join(workingDir, 'app', 'tests', 'helper.spec.js')]: 'export {}',
-        [memoryPath]: 'Coverage Snapshot: 0/0 modules (0%), 0 tests',
-      });
-      mockSafeExecChain.mockReturnValue({
-        exitCode: 0,
-        output: '7 passing\nTest Files 3 passed',
-        error: '',
-      });
-      const handlers = loadAutomationHandlers();
-
-      const result = handlers.handleUpdateProjectStats({
-        working_directory: workingDir,
-        memory_path: memoryPath,
-        feature_dir: 'app/features',
-        feature_label: 'modules',
-        feature_pattern: '.jsx',
-        source_dir: 'app',
-        test_pattern: '.spec.js',
-        stats_pattern: 'Coverage Snapshot: [\\d/]+ modules \\(\\d+%\\), \\d+ tests',
-        stats_template: 'Coverage Snapshot: {tested}/{total} modules ({percent}%), {tests} tests',
-      });
-      const text = textOf(result);
-
-      expect(result._stats).toEqual({
-        testCount: 7,
-        testFileCount: 3,
-        featureCount: 1,
-        sourceFileCount: 2,
-        testedFileCount: 1,
-        coveragePercent: 50,
-      });
-      expect(text).toContain('**Modules:** 1 in app/features');
-      expect(text).toContain('**Coverage:** 1/2 source files (50%)');
-      expect(mockFs.__getFile(memoryPath)).toContain('Coverage Snapshot: 1/2 modules (50%), 7 tests');
+      expect(handlers.handleUpdateProjectStats).toBeUndefined();
     });
   });
 });

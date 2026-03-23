@@ -192,9 +192,48 @@ function createDefaultModules(overrides = {}) {
   const startTask = overrides.startTask || vi.fn(() => ({}));
   const formatTime = overrides.formatTime || vi.fn((value) => `fmt:${value}`);
   const uuidValues = [...(overrides.uuidValues || [])];
+  const eventTrackingModule = {
+    recordEvent: db.recordEvent,
+    getAnalytics: overrides.getAnalytics || vi.fn(() => ({
+      tasksByStatus: {},
+      successRate: 0,
+      avgDurationMinutes: 0,
+      tasksLast24h: 0,
+      topTemplates: [],
+      recentEvents: [],
+    })),
+  };
+  const taskCoreModule = {
+    createTask: db.createTask,
+    getTask: db.getTask,
+  };
+  const projectConfigCoreModule = {
+    createPipeline: db.createPipeline,
+    addPipelineStep: db.addPipelineStep,
+    getPipeline: db.getPipeline,
+    updatePipelineStatus: db.updatePipelineStatus,
+    updatePipelineStep: db.updatePipelineStep,
+    listPipelines: db.listPipelines,
+  };
 
   return {
     db,
+    taskCoreModule,
+    eventTrackingModule,
+    fileTrackingModule: {
+      createRollback: overrides.createRollback || vi.fn(() => 'rollback-1'),
+    },
+    projectConfigCoreModule,
+    schedulingAutomationModule: {
+      saveTemplate: overrides.saveTemplate || vi.fn(),
+      listTemplates: overrides.listTemplates || vi.fn(() => []),
+      getTemplate: overrides.getTemplate || vi.fn(() => null),
+      incrementTemplateUsage: overrides.incrementTemplateUsage || vi.fn(),
+    },
+    taskMetadataModule: {
+      updateTaskGitState: overrides.updateTaskGitState || vi.fn(),
+      getTasksWithCommits: overrides.getTasksWithCommits || vi.fn(() => []),
+    },
     taskManager: {
       startTask,
     },
@@ -226,6 +265,12 @@ function loadHandlers(overrides = {}) {
   vi.doMock('child_process', () => currentModules.childProcessModule);
 
   installCjsModuleMock('../database', currentModules.db);
+  installCjsModuleMock('../db/task-core', currentModules.taskCoreModule);
+  installCjsModuleMock('../db/event-tracking', currentModules.eventTrackingModule);
+  installCjsModuleMock('../db/file-tracking', currentModules.fileTrackingModule);
+  installCjsModuleMock('../db/project-config-core', currentModules.projectConfigCoreModule);
+  installCjsModuleMock('../db/scheduling-automation', currentModules.schedulingAutomationModule);
+  installCjsModuleMock('../db/task-metadata', currentModules.taskMetadataModule);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../logger', currentModules.loggerModule);
   installCjsModuleMock('../handlers/task/utils', currentModules.taskUtilsModule);
