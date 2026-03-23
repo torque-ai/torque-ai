@@ -128,7 +128,7 @@ describe('Group 1: Live Ollama Integration', () => {
           taskPrompt:
             'Use list_directory to list files in the current directory, then read hello.txt and report its contents.',
           // timeoutMs is spread into the chatCompletion call so the HTTP request respects it
-          options: { host: ollamaHost, model: 'qwen2.5-coder:32b', timeoutMs: 120000 },
+          options: { host: ollamaHost, model: 'qwen3-coder:30b', timeoutMs: 120000 },
           maxIterations: 5,
           contextBudget: 8000,
           timeoutMs: 120000,

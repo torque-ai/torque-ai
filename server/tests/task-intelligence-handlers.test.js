@@ -1158,7 +1158,7 @@ describe('task-intelligence handlers', () => {
       vi.spyOn(hostManagement, 'routeTask').mockReturnValue({
         provider: 'ollama',
         host: 'desktop-01',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         rule: 'Complexity routing table',
       });
 
@@ -1166,7 +1166,7 @@ describe('task-intelligence handlers', () => {
 
       expect(getText(result)).toContain('| Provider | ollama |');
       expect(getText(result)).toContain('| Host | desktop-01 |');
-      expect(getText(result)).toContain('| Model | qwen2.5-coder:32b |');
+      expect(getText(result)).toContain('| Model | qwen3-coder:30b |');
     });
   });
 

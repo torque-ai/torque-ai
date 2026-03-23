@@ -65,7 +65,7 @@ describe('execution/stall-detection', () => {
         'qwen2.5-coder:14b': 14,
       },
       hostTasks: [
-        { id: 'task-large', state: 'running', model: 'qwen2.5-coder:32b' },
+        { id: 'task-large', state: 'running', model: 'qwen3-coder:30b' },
       ],
     });
 
@@ -107,7 +107,7 @@ describe('execution/stall-detection', () => {
         max_large_models_per_host: 2,
       },
       sizes: {
-        'qwen2.5-coder:32b': 32,
+        'qwen3-coder:30b': 32,
         'codellama:34b': 34,
         'qwen2.5-coder:7b': 7,
       },
@@ -117,19 +117,19 @@ describe('execution/stall-detection', () => {
       ],
     });
 
-    expect(handler.isLargeModelBlockedOnHost('qwen2.5-coder:32b', 'host-room')).toEqual({ blocked: false });
+    expect(handler.isLargeModelBlockedOnHost('qwen3-coder:30b', 'host-room')).toEqual({ blocked: false });
     expect(deps.db.getRunningTasksForHost).toHaveBeenCalledWith('host-room');
   });
 
   it('treats host query failures as non-blocking and logs a debug message', () => {
     const { handler, deps } = createHarness({
       sizes: {
-        'qwen2.5-coder:32b': 32,
+        'qwen3-coder:30b': 32,
       },
       dbError: new Error('database unavailable'),
     });
 
-    expect(handler.isLargeModelBlockedOnHost('qwen2.5-coder:32b', 'host-error')).toEqual({ blocked: false });
+    expect(handler.isLargeModelBlockedOnHost('qwen3-coder:30b', 'host-error')).toEqual({ blocked: false });
     expect(deps.logger.debug).toHaveBeenCalledWith('isLargeModelBlockedOnHost: query failed: database unavailable');
   });
 

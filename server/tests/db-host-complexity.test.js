@@ -78,10 +78,10 @@ describe('db/host-complexity (real DB)', () => {
       });
     });
 
-    it('defaults to qwen2.5-coder:32b when no model config is present', () => {
+    it('defaults to qwen3-coder:30b when no model config is present', () => {
       expect(hostComplexity.getModelTierForComplexity('simple')).toEqual({
         tier: 'fast',
-        modelConfig: 'qwen2.5-coder:32b',
+        modelConfig: 'qwen3-coder:30b',
         description: 'Fast 8B model for docs, comments, simple renames',
       });
     });

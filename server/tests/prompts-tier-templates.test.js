@@ -69,7 +69,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'ollama',
-      'qwen2.5-coder:32b'
+      'qwen3-coder:30b'
     );
 
     expect(result).not.toContain('SMALL MODEL CONSTRAINTS');
@@ -80,7 +80,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'ollama',
-      'qwen2.5-coder:32b'
+      'qwen3-coder:30b'
     );
 
     expect(result).toContain('LARGE MODEL CAPABILITIES');
@@ -113,7 +113,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'codex',
-      'qwen2.5-coder:32b'
+      'qwen3-coder:30b'
     );
 
     expect(result).toContain('LARGE MODEL CAPABILITIES');
@@ -124,7 +124,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'ollama',
-      'qwen2.5-coder:32b'
+      'qwen3-coder:30b'
     );
 
     expect(result).not.toContain('CLOUD MODEL CAPABILITIES');

@@ -141,7 +141,7 @@ describe('Host Distribution & Load Balancing', () => {
 
     it('exact tag: :7b does NOT match :32b on another host', () => {
       addHost('tag-7b-host', ['qwen2.5-coder:7b'], { runningTasks: 0 });
-      addHost('tag-32b-host', ['qwen2.5-coder:32b'], { runningTasks: 0 });
+      addHost('tag-32b-host', ['qwen3-coder:30b'], { runningTasks: 0 });
 
       const result = db.selectOllamaHostForModel('qwen2.5-coder:7b');
 
@@ -152,7 +152,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('base name without tag matches any variant', () => {
-      addHost('variant-host', ['qwen2.5-coder:32b'], { runningTasks: 0 });
+      addHost('variant-host', ['qwen3-coder:30b'], { runningTasks: 0 });
 
       const result = db.selectOllamaHostForModel('qwen2.5-coder');
 
@@ -264,7 +264,7 @@ describe('Host Distribution & Load Balancing', () => {
 
     it('selects from hosts with matching base model', () => {
       addHost('variant-a', ['qwen2.5-coder:7b'], { runningTasks: 0, maxConcurrent: 4 });
-      addHost('variant-b', ['qwen2.5-coder:32b'], { runningTasks: 0, maxConcurrent: 4 });
+      addHost('variant-b', ['qwen3-coder:30b'], { runningTasks: 0, maxConcurrent: 4 });
 
       const result = db.selectHostWithModelVariant('qwen2.5-coder');
 
@@ -516,7 +516,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('tries larger local model before any cloud provider', () => {
-      addHost('hl-dist-a', ['qwen2.5-coder:7b', 'qwen2.5-coder:32b'], { runningTasks: 0 });
+      addHost('hl-dist-a', ['qwen2.5-coder:7b', 'qwen3-coder:30b'], { runningTasks: 0 });
       db.setConfig('hashline_capable_models', 'qwen2.5-coder');
 
       const taskId = createTask('hashline-ollama', 'qwen2.5-coder:7b', null);
@@ -540,10 +540,10 @@ describe('Host Distribution & Load Balancing', () => {
       // Task with 2 prior local attempts (at max)
       const priorErrors = [
         '[Hashline-Local] Trying qwen2.5-coder:14b',
-        '[Hashline-Local] Trying qwen2.5-coder:32b'
+        '[Hashline-Local] Trying qwen3-coder:30b'
       ].join('\n');
 
-      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:32b', null);
+      const taskId = createTask('hashline-ollama', 'qwen3-coder:30b', null);
       db.updateTaskStatus(taskId, 'running', { error_output: priorErrors });
       const task = db.getTask(taskId);
 
@@ -603,14 +603,14 @@ describe('Host Distribution & Load Balancing', () => {
 
     it('aggregates models across all healthy hosts', () => {
       addHost('agg-a', ['qwen2.5-coder:7b', 'mistral:7b'], { status: 'healthy' });
-      addHost('agg-b', ['qwen2.5-coder:32b', 'deepseek-coder:6.7b'], { status: 'healthy' });
+      addHost('agg-b', ['qwen3-coder:30b', 'deepseek-coder:6.7b'], { status: 'healthy' });
 
       const models = db.getAggregatedModels();
 
       expect(models.length).toBeGreaterThanOrEqual(4);
       const names = models.map(m => m.name);
       expect(names).toContain('qwen2.5-coder:7b');
-      expect(names).toContain('qwen2.5-coder:32b');
+      expect(names).toContain('qwen3-coder:30b');
     });
 
     it('includes host info for each model', () => {
@@ -689,7 +689,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('parses size from standard model names', () => {
-      expect(taskManager.parseModelSizeB('qwen2.5-coder:32b')).toBe(32);
+      expect(taskManager.parseModelSizeB('qwen3-coder:30b')).toBe(32);
       expect(taskManager.parseModelSizeB('codellama:34b')).toBe(34);
       expect(taskManager.parseModelSizeB('mistral:7b')).toBe(7);
       expect(taskManager.parseModelSizeB('deepseek-coder-v2:16b')).toBe(16);
@@ -773,7 +773,7 @@ describe('Host Distribution & Load Balancing', () => {
         status: 'running',
         task_description: 'Already running large model',
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         working_directory: process.cwd()
       });
       db.updateTaskStatus(runningTaskId, 'running', { ollama_host_id: hostId });

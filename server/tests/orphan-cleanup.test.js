@@ -92,7 +92,7 @@ describe('Orphan Cleanup', () => {
     });
 
     it('scales threshold for 32b models', () => {
-      const threshold = orphanCleanup.getStallThreshold('qwen2.5-coder:32b', 'hashline-ollama');
+      const threshold = orphanCleanup.getStallThreshold('qwen3-coder:30b', 'hashline-ollama');
       expect(threshold).toBeGreaterThanOrEqual(360);
     });
 
@@ -119,9 +119,9 @@ describe('Orphan Cleanup', () => {
       expect(threshold).toBe(360);
     });
 
-    it('handles codestral with size suffix via size-based detection', () => {
-      // codestral:22b matches /:(\d+)b/ → sizeB=22 >= 14 → max(threshold, 240)
-      const threshold = orphanCleanup.getStallThreshold('codestral:22b', 'ollama');
+    it('handles large models with size suffix via size-based detection', () => {
+      // qwen3-coder:30b matches /:(\d+)b/ → sizeB=30 >= 14 → max(threshold, 240)
+      const threshold = orphanCleanup.getStallThreshold('qwen3-coder:30b', 'ollama');
       expect(threshold).toBeGreaterThanOrEqual(240);
     });
 

@@ -88,10 +88,10 @@ describe('provider-config', () => {
 
     it('applies model-specific settings (Layer 3)', () => {
       mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'ollama_model_settings') return JSON.stringify({ 'qwen2.5-coder:32b': { temperature: 0.2, num_ctx: 16384 } });
+        if (key === 'ollama_model_settings') return JSON.stringify({ 'qwen3-coder:30b': { temperature: 0.2, num_ctx: 16384 } });
         return null;
       });
-      const result = providerConfig.resolveOllamaTuning({ model: 'qwen2.5-coder:32b' });
+      const result = providerConfig.resolveOllamaTuning({ model: 'qwen3-coder:30b' });
       expect(result.temperature).toBe(0.2);
       expect(result.numCtx).toBe(16384);
     });

@@ -305,7 +305,7 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
         auto_approve: false,
         priority: 0,
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         metadata: '{"user_provider_override":true}',  // Explicitly user-chosen
       })
       .mockReturnValueOnce({

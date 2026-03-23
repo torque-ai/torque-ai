@@ -19,10 +19,10 @@ describe('Adaptive Scoring', () => {
 
   describe('recordTaskOutcome', () => {
     it('records a successful outcome', () => {
-      mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', true, 45.2);
+      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', true, 45.2);
       const rows = rawDb().prepare(
         'SELECT * FROM model_task_outcomes WHERE model_name = ?'
-      ).all('qwen2.5-coder:32b');
+      ).all('qwen3-coder:30b');
       expect(rows.length).toBe(1);
       expect(rows[0].success).toBe(1);
       expect(rows[0].task_type).toBe('code_gen');
@@ -32,10 +32,10 @@ describe('Adaptive Scoring', () => {
     });
 
     it('records a failed outcome', () => {
-      mod.recordTaskOutcome('qwen2.5-coder:32b', 'testing', 'javascript', false, 30.0, 'test_failure');
+      mod.recordTaskOutcome('qwen3-coder:30b', 'testing', 'javascript', false, 30.0, 'test_failure');
       const rows = rawDb().prepare(
         'SELECT * FROM model_task_outcomes WHERE model_name = ?'
-      ).all('qwen2.5-coder:32b');
+      ).all('qwen3-coder:30b');
       expect(rows.length).toBe(1);
       expect(rows[0].success).toBe(0);
       expect(rows[0].failure_category).toBe('test_failure');
@@ -67,13 +67,13 @@ describe('Adaptive Scoring', () => {
     });
 
     it('returns per-task-type success rates with 5+ outcomes', () => {
-      mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', true, 45.2);
-      mod.recordTaskOutcome('qwen2.5-coder:32b', 'testing', 'javascript', false, 30.0, 'test_failure');
-      mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', true, 40);
-      mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', true, 35);
-      mod.recordTaskOutcome('qwen2.5-coder:32b', 'code_gen', 'typescript', false, 50);
+      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', true, 45.2);
+      mod.recordTaskOutcome('qwen3-coder:30b', 'testing', 'javascript', false, 30.0, 'test_failure');
+      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', true, 40);
+      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', true, 35);
+      mod.recordTaskOutcome('qwen3-coder:30b', 'code_gen', 'typescript', false, 50);
 
-      const scores = mod.computeAdaptiveScores('qwen2.5-coder:32b');
+      const scores = mod.computeAdaptiveScores('qwen3-coder:30b');
       expect(scores).toBeTruthy();
       expect(scores.code_gen).toBeTruthy();
       expect(scores.code_gen.successRate).toBeCloseTo(0.75, 2); // 3 success / 4 total code_gen

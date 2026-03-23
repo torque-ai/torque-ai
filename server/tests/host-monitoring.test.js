@@ -288,7 +288,7 @@ describe('host-monitoring.js', () => {
       monitoring.hostActivityCache.set('host-a', {
         models: [
           { name: 'qwen3:8b', size_vram: 1_500_000_000, expires_at: '2026-01-01T00:00:00Z' },
-          { name: 'codestral:22b', size_vram: 500_000_000 },
+          { name: 'qwen3-coder:30b', size_vram: 500_000_000 },
         ],
         polledAt: 12345,
         gpuMetrics: {
@@ -302,7 +302,7 @@ describe('host-monitoring.js', () => {
         'host-a': {
           loadedModels: [
             { name: 'qwen3:8b', sizeVram: 1_500_000_000, expiresAt: '2026-01-01T00:00:00Z' },
-            { name: 'codestral:22b', sizeVram: 500_000_000, expiresAt: undefined },
+            { name: 'qwen3-coder:30b', sizeVram: 500_000_000, expiresAt: undefined },
           ],
           totalVramUsed: 2_000_000_000,
           gpuMetrics: {

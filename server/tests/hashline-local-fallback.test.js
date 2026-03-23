@@ -84,7 +84,7 @@ describe('Hashline Local Model Escalation', () => {
     }
 
     it('tries larger hashline-capable model before escalating to cloud', () => {
-      const hostA = registerHost('escalate-a', ['qwen2.5-coder:7b', 'qwen2.5-coder:32b']);
+      const hostA = registerHost('escalate-a', ['qwen2.5-coder:7b', 'qwen3-coder:30b']);
 
       db.setConfig('hashline_capable_models', 'qwen2.5-coder');
 
@@ -97,10 +97,10 @@ describe('Hashline Local Model Escalation', () => {
 
       const updated = db.getTask(taskId);
       expect(updated.provider).toBe('hashline-ollama');
-      expect(updated.model).toBe('qwen2.5-coder:32b');
+      expect(updated.model).toBe('qwen3-coder:30b');
       expect(updated.status).toBe('queued');
       expect(updated.error_output).toContain('[Hashline-Local]');
-      expect(updated.error_output).toContain('qwen2.5-coder:32b');
+      expect(updated.error_output).toContain('qwen3-coder:30b');
     });
 
     it('tries local retry before escalating on host-related failures', () => {
@@ -124,7 +124,7 @@ describe('Hashline Local Model Escalation', () => {
     });
 
     it('skips host fallback for model-capability issues and finds capable model', () => {
-      const hostA = registerHost('capability-a', ['phi3:3b', 'qwen2.5-coder:32b']);
+      const hostA = registerHost('capability-a', ['phi3:3b', 'qwen3-coder:30b']);
 
       db.setConfig('hashline_capable_models', 'qwen2.5-coder,qwen3');
 
@@ -151,10 +151,10 @@ describe('Hashline Local Model Escalation', () => {
       // Simulate a task that already had 2 local retry attempts
       const priorErrors = [
         '[Hashline-Local] Trying qwen2.5-coder:14b',
-        '[Hashline-Local] Trying qwen2.5-coder:32b'
+        '[Hashline-Local] Trying qwen3-coder:30b'
       ].join('\n');
 
-      const taskId = createHashlineTask('qwen2.5-coder:32b', null, priorErrors);
+      const taskId = createHashlineTask('qwen3-coder:30b', null, priorErrors);
       const task = db.getTask(taskId);
 
       const result = taskManager.tryHashlineTieredFallback(taskId, task, 'no edits parsed');
@@ -168,10 +168,10 @@ describe('Hashline Local Model Escalation', () => {
 
     it('escalates to codex when no other models are available', () => {
       // Only one model available and it's the one that failed — no alternative
-      registerHost('solo-model', ['qwen2.5-coder:32b']);
+      registerHost('solo-model', ['qwen3-coder:30b']);
       db.setConfig('hashline_capable_models', 'qwen2.5-coder');
 
-      const taskId = createHashlineTask('qwen2.5-coder:32b', null);
+      const taskId = createHashlineTask('qwen3-coder:30b', null);
       const task = db.getTask(taskId);
 
       // First attempt: no other host, no larger model → should try something
@@ -191,7 +191,7 @@ describe('Hashline Local Model Escalation', () => {
     });
 
     it('preserves error_output history across retries', () => {
-      registerHost('history-a', ['qwen2.5-coder:7b', 'qwen2.5-coder:32b']);
+      registerHost('history-a', ['qwen2.5-coder:7b', 'qwen3-coder:30b']);
       db.setConfig('hashline_capable_models', 'qwen2.5-coder');
 
       const taskId = createHashlineTask('qwen2.5-coder:7b', null);

@@ -325,15 +325,15 @@ function add(a, b) {
 
   describe('selectHashlineFormat', () => {
     it('returns config override for models in hashline_model_formats', () => {
-      // R-hashline migration configures qwen2.5-coder:32b → hashline (standard)
-      const result = selectHashlineFormat('qwen2.5-coder:32b', {});
+      // R-hashline migration configures qwen3-coder:30b → hashline (standard)
+      const result = selectHashlineFormat('qwen3-coder:30b', {});
       expect(result.format).toBe('hashline');
       expect(result.reason).toBe('config_override');
     });
 
     it('returns metadata override when hashline_format_override is set', () => {
       const task = { metadata: JSON.stringify({ hashline_format_override: 'hashline-lite' }) };
-      const result = selectHashlineFormat('qwen2.5-coder:32b', task);
+      const result = selectHashlineFormat('qwen3-coder:30b', task);
       expect(result.format).toBe('hashline-lite');
       expect(result.reason).toBe('fallback_override');
     });
@@ -654,7 +654,7 @@ function add(a, b) {
       expect(lineCount).toBeLessThan(50);
 
       // selectHashlineFormat returns 'hashline' for unconfigured model
-      const format = selectHashlineFormat('qwen2.5-coder:32b', {});
+      const format = selectHashlineFormat('qwen3-coder:30b', {});
       expect(format.format).toBe('hashline');
 
       // The actual file-size override happens in executeHashlineOllamaTask,

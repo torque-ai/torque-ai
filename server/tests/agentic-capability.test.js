@@ -50,7 +50,7 @@ beforeEach(() => {
 describe('isAgenticCapable — global kill switch', () => {
   it('returns false with source=config when agentic_enabled is "0"', () => {
     mockConfigStore['agentic_enabled'] = '0';
-    const result = isAgenticCapable('ollama', 'qwen2.5-coder:32b');
+    const result = isAgenticCapable('ollama', 'qwen3-coder:30b');
     expect(result.capable).toBe(false);
     expect(result.source).toBe('config');
   });
@@ -58,7 +58,7 @@ describe('isAgenticCapable — global kill switch', () => {
 
 describe('isAgenticCapable — excluded providers', () => {
   it('returns false for hashline-ollama with hashline reason', () => {
-    const result = isAgenticCapable('hashline-ollama', 'qwen2.5-coder:32b');
+    const result = isAgenticCapable('hashline-ollama', 'qwen3-coder:30b');
     expect(result.capable).toBe(false);
     expect(result.reason).toBe('hashline protocol preferred');
     expect(result.source).toBe('config');
@@ -81,8 +81,8 @@ describe('isAgenticCapable — excluded providers', () => {
 });
 
 describe('isAgenticCapable — whitelist (built-in)', () => {
-  it('returns true for qwen2.5-coder:32b on ollama — source=whitelist', () => {
-    const result = isAgenticCapable('ollama', 'qwen2.5-coder:32b');
+  it('returns true for qwen3-coder:30b on ollama — source=whitelist', () => {
+    const result = isAgenticCapable('ollama', 'qwen3-coder:30b');
     expect(result.capable).toBe(true);
     expect(result.source).toBe('whitelist');
   });
@@ -97,7 +97,7 @@ describe('isAgenticCapable — whitelist (built-in)', () => {
 describe('isAgenticCapable — per-provider config overrides', () => {
   it('returns false when per-provider override is "0" — source=config', () => {
     mockConfigStore['agentic_provider_ollama'] = '0';
-    const result = isAgenticCapable('ollama', 'qwen2.5-coder:32b');
+    const result = isAgenticCapable('ollama', 'qwen3-coder:30b');
     expect(result.capable).toBe(false);
     expect(result.source).toBe('config');
   });

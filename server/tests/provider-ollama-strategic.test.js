@@ -84,7 +84,7 @@ describe('OllamaStrategicProvider', () => {
       expect(provider.activeTasks).toBe(0);
       expect(provider.host).toBe('http://localhost:11434');
       expect(provider.baseUrl).toBe('http://localhost:11434/v1');
-      expect(provider.defaultModel).toBe('qwen2.5-coder:32b');
+      expect(provider.defaultModel).toBe('qwen3-coder:30b');
       expect(provider.defaultTemperature).toBe(0.3);
       expect(provider.hasCapacity()).toBe(true);
     });
@@ -169,8 +169,8 @@ describe('OllamaStrategicProvider', () => {
   describe('helpers', () => {
     it('extracts model names from string and object entries', () => {
       expect(provider._extractModelNames({
-        models: ['qwen2.5-coder:32b', { name: 'deepseek-r1:32b' }, { name: '' }, {}],
-      })).toEqual(['qwen2.5-coder:32b', 'deepseek-r1:32b']);
+        models: ['qwen3-coder:30b', { name: 'deepseek-r1:32b' }, { name: '' }, {}],
+      })).toEqual(['qwen3-coder:30b', 'deepseek-r1:32b']);
     });
 
     it('returns an empty array when the tags payload does not contain a models array', () => {
@@ -189,14 +189,14 @@ describe('OllamaStrategicProvider', () => {
     it('probes /api/tags and returns extracted model names', async () => {
       const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
       fetchMock.mockResolvedValue(jsonResponse({
-        models: ['qwen2.5-coder:32b', { name: 'deepseek-r1:32b' }],
+        models: ['qwen3-coder:30b', { name: 'deepseek-r1:32b' }],
       }));
 
       const result = await provider.checkHealth();
 
       expect(result).toEqual({
         available: true,
-        models: ['qwen2.5-coder:32b', 'deepseek-r1:32b'],
+        models: ['qwen3-coder:30b', 'deepseek-r1:32b'],
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'http://localhost:11434/api/tags',
@@ -215,7 +215,7 @@ describe('OllamaStrategicProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['qwen2.5-coder:32b'],
+        models: ['qwen3-coder:30b'],
       });
     });
 
@@ -256,16 +256,16 @@ describe('OllamaStrategicProvider', () => {
   describe('listModels', () => {
     it('returns extracted models from /api/tags', async () => {
       fetchMock.mockResolvedValue(jsonResponse({
-        models: [{ name: 'qwen2.5-coder:32b' }, { name: 'llama3.1:70b' }],
+        models: [{ name: 'qwen3-coder:30b' }, { name: 'llama3.1:70b' }],
       }));
 
-      await expect(provider.listModels()).resolves.toEqual(['qwen2.5-coder:32b', 'llama3.1:70b']);
+      await expect(provider.listModels()).resolves.toEqual(['qwen3-coder:30b', 'llama3.1:70b']);
     });
 
     it('falls back to the default model when tags are empty', async () => {
       fetchMock.mockResolvedValue(jsonResponse({ models: [] }));
 
-      await expect(provider.listModels()).resolves.toEqual(['qwen2.5-coder:32b']);
+      await expect(provider.listModels()).resolves.toEqual(['qwen3-coder:30b']);
     });
 
     it('returns an empty array when model discovery fails', async () => {
@@ -298,7 +298,7 @@ describe('OllamaStrategicProvider', () => {
         })
       );
       expect(requestBody(fetchMock)).toEqual({
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         messages: [{ role: 'user', content: 'Diagnose the task' }],
         max_tokens: 4096,
         temperature: 0.3,
@@ -312,7 +312,7 @@ describe('OllamaStrategicProvider', () => {
           input_tokens: 11,
           output_tokens: 7,
           cost: 0,
-          model: 'qwen2.5-coder:32b',
+          model: 'qwen3-coder:30b',
         },
       });
       expect(result.usage.duration_ms).toBeGreaterThanOrEqual(0);
@@ -398,7 +398,7 @@ describe('OllamaStrategicProvider', () => {
           input_tokens: 0,
           output_tokens: 0,
           cost: 0,
-          model: 'qwen2.5-coder:32b',
+          model: 'qwen3-coder:30b',
         }),
       }));
       expect(result.usage.duration_ms).toBeGreaterThanOrEqual(0);

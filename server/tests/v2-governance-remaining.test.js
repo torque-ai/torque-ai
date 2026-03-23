@@ -703,11 +703,11 @@ describe('api/v2-governance-handlers remaining coverage', () => {
       mockDb.applyBenchmarkResults.mockReturnValue(result);
 
       const { req, res } = createMockContext({
-        body: { host_id: 'host-1', model: 'qwen2.5-coder:32b' },
+        body: { host_id: 'host-1', model: 'qwen3-coder:30b' },
       });
       await handlers.handleApplyBenchmark(req, res);
 
-      expect(mockDb.applyBenchmarkResults).toHaveBeenCalledWith('host-1', 'qwen2.5-coder:32b');
+      expect(mockDb.applyBenchmarkResults).toHaveBeenCalledWith('host-1', 'qwen3-coder:30b');
       expectSuccessEnvelope(res, result);
     });
 

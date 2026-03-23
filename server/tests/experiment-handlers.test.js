@@ -134,13 +134,13 @@ describe('experiment-handlers (Experiment 6)', () => {
         provider_b: 'ollama',
         working_directory: '/tmp',
         model_a: 'gpt-5.3-codex-spark',
-        model_b: 'qwen2.5-coder:32b',
+        model_b: 'qwen3-coder:30b',
       });
 
       const callA = mockDb.createTask.mock.calls[0][0];
       const callB = mockDb.createTask.mock.calls[1][0];
       expect(callA.model).toBe('gpt-5.3-codex-spark');
-      expect(callB.model).toBe('qwen2.5-coder:32b');
+      expect(callB.model).toBe('qwen3-coder:30b');
     });
 
     it('returns formatted response with task IDs', () => {

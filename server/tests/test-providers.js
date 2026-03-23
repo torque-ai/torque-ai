@@ -38,9 +38,9 @@ describe('Provider Routing & Fallback', { retry: 2 }, () => {
       expect(getText(result)).toMatch(/\|\s*Provider\s*\|\s*\*\*codex\*\*\s*\|/i);
     });
 
-    it('routes explicit "test task" prompts with qwen2.5-coder:32b to codex', async () => {
+    it('routes explicit "test task" prompts with qwen3-coder:30b to codex', async () => {
       const result = await safeTool('smart_submit_task', {
-        task: 'Test task for qwen2.5-coder:32b'
+        task: 'Test task for qwen3-coder:30b'
       });
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toMatch(/\|\s*Provider\s*\|\s*\*\*codex\*\*\s*\|/i);
@@ -55,9 +55,9 @@ describe('Provider Routing & Fallback', { retry: 2 }, () => {
       expect(getText(result)).toMatch(/\|\s*Provider\s*\|\s*\*\*hashline-ollama\*\*\s*\|/i);
     });
 
-    it('respects override_provider on explicit "test task" prompts with qwen2.5-coder:32b', async () => {
+    it('respects override_provider on explicit "test task" prompts with qwen3-coder:30b', async () => {
       const result = await safeTool('smart_submit_task', {
-        task: 'Test task for qwen2.5-coder:32b',
+        task: 'Test task for qwen3-coder:30b',
         override_provider: 'hashline-ollama'
       });
       expect(result.isError).toBeFalsy();

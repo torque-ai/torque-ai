@@ -442,7 +442,7 @@ describe('executeWithFallback', () => {
 
     const chain = [
       { provider: 'cerebras', model: 'fast-model' },
-      { provider: 'ollama', model: 'qwen2.5-coder:32b' },
+      { provider: 'ollama', model: 'qwen3-coder:30b' },
     ];
     const task = { id: 'test-2', task_description: 'test task', working_directory: null };
 
@@ -467,7 +467,7 @@ describe('executeWithFallback', () => {
 
     const chain = [
       { provider: 'deepinfra', model: 'Qwen/Qwen2.5-72B-Instruct' },
-      { provider: 'ollama', model: 'qwen2.5-coder:32b' },
+      { provider: 'ollama', model: 'qwen3-coder:30b' },
     ];
     const task = { id: 'test-3', task_description: 'test task', working_directory: null };
 

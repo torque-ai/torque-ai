@@ -260,7 +260,7 @@ describe('audit end-to-end', () => {
         taskId: 'e2e-task-bad',
         output: 'This is not JSON at all, the LLM hallucinated.',
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         auditRunId,
         filePaths: ['src/app.js'],
       },

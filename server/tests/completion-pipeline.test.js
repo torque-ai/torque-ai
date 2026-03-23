@@ -149,7 +149,7 @@ describe('completion-pipeline', () => {
     it('records via db.recordModelOutcome when available', () => {
       const task = {
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         task_description: 'write a test',
         started_at: '2026-03-10T10:00:00Z',
         completed_at: '2026-03-10T10:00:30Z',
@@ -160,7 +160,7 @@ describe('completion-pipeline', () => {
 
       expect(mockDeps.db.classifyTaskType).toHaveBeenCalledWith('write a test');
       expect(mockDeps.db.recordModelOutcome).toHaveBeenCalledWith(
-        'qwen2.5-coder:32b',
+        'qwen3-coder:30b',
         'code',
         true,
         expect.objectContaining({

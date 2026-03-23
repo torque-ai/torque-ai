@@ -144,7 +144,7 @@ describe('Deferred Provider Assignment', () => {
       const tasks = [{
         id: 'deferred-1',
         provider: null,
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         metadata: JSON.stringify({ intended_provider: 'ollama' }),
       }];
 
@@ -254,7 +254,7 @@ describe('Deferred Provider Assignment', () => {
       mockDb.listQueuedTasksLightweight = vi.fn().mockReturnValue([{
         id: 'ollama-deferred-1',
         provider: null,
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         task_description: 'Test deferred ollama task',
         metadata: JSON.stringify({ intended_provider: 'ollama' }),
         created_at: new Date().toISOString(),

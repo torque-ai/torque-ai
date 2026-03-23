@@ -69,9 +69,9 @@ describe('host-complexity getModelTierForComplexity', () => {
   });
 
   it.each([
-    ['simple', 'fast', 'qwen2.5-coder:32b'],
-    ['normal', 'balanced', 'qwen2.5-coder:32b'],
-    ['complex', 'quality', 'qwen2.5-coder:32b'],
+    ['simple', 'fast', 'qwen3-coder:30b'],
+    ['normal', 'balanced', 'qwen3-coder:30b'],
+    ['complex', 'quality', 'qwen3-coder:30b'],
   ])('returns the expected tier config for %s complexity', (complexity, tier, modelConfig) => {
     expect(hostComplexity.getModelTierForComplexity(complexity)).toMatchObject({
       tier,

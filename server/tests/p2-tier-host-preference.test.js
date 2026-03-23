@@ -63,14 +63,14 @@ describe('tier-aware host selection', () => {
     const qualityHost = makeHost({ id: 'quality-host' });
     const fastHost = makeHost({ id: 'fast-host' });
 
-    setHostModels(qualityHost.id, ['qwen2.5-coder:32b']);
-    setHostModels(fastHost.id, ['qwen2.5-coder:32b']);
+    setHostModels(qualityHost.id, ['qwen3-coder:30b']);
+    setHostModels(fastHost.id, ['qwen3-coder:30b']);
     mod.setHostTierHint(qualityHost.id, 'quality');
     mod.setHostTierHint(fastHost.id, 'fast');
     mod.updateOllamaHost(qualityHost.id, { running_tasks: 1 });
     mod.updateOllamaHost(fastHost.id, { running_tasks: 0 });
 
-    const result = mod.selectOllamaHostForModel('qwen2.5-coder:32b');
+    const result = mod.selectOllamaHostForModel('qwen3-coder:30b');
 
     expect(result.modelTier).toBe('quality');
     expect(result.host.id).toBe('quality-host');

@@ -87,7 +87,7 @@ function loadSubject(overrides = {}) {
   const configMock = {
     get: vi.fn((key) => {
       const defaults = {
-        ollama_model: 'qwen2.5-coder:32b',
+        ollama_model: 'qwen3-coder:30b',
         ollama_agentic_enabled: '1',
         ollama_host: 'http://localhost:11434',
         agentic_max_iterations: '15',
@@ -144,7 +144,7 @@ function loadSubject(overrides = {}) {
   };
   const ollamaSharedMock = {
     hasModelOnAnyHost: vi.fn(() => true),
-    findBestAvailableModel: vi.fn(() => 'qwen2.5-coder:32b'),
+    findBestAvailableModel: vi.fn(() => 'qwen3-coder:30b'),
   };
 
   installMock(LOGGER_PATH, loggerMock);
@@ -265,13 +265,13 @@ describe('providers/execution agentic fixes', () => {
     await mod.executeOllamaTask({
       id: 'task-ollama',
       provider: 'ollama',
-      model: 'qwen2.5-coder:32b',
+      model: 'qwen3-coder:30b',
       task_description: 'Fix the bug',
       working_directory: 'C:/repo',
       timeout_minutes: 1,
     });
 
-    expect(db.tryReserveHostSlot).toHaveBeenCalledWith('host-1', 'qwen2.5-coder:32b');
+    expect(db.tryReserveHostSlot).toHaveBeenCalledWith('host-1', 'qwen3-coder:30b');
     expect(db.releaseHostSlot).toHaveBeenCalledWith('host-1');
     expect(db.decrementHostTasks).not.toHaveBeenCalled();
     expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(

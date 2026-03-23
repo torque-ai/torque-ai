@@ -379,7 +379,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     return {
       id: overrides.id || 'task-' + Math.random().toString(36).slice(2, 10),
       provider: overrides.provider || 'ollama',
-      model: overrides.model || 'qwen2.5-coder:32b',
+      model: overrides.model || 'qwen3-coder:30b',
       task_description: overrides.task_description || 'Test task',
       metadata: overrides.metadata || null,
       ...overrides,
@@ -409,7 +409,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     mockDb.getConfig.mockImplementation(createConfigMock({
       codex_enabled: '1',
       codex_overflow_to_local: '1',
-      ollama_balanced_model: 'qwen2.5-coder:32b',
+      ollama_balanced_model: 'qwen3-coder:30b',
       ollama_fast_model: 'qwen2.5-coder:7b',
       ...(configOverrides || {}),
     }));
@@ -604,7 +604,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     mockDb.getConfig.mockImplementation(createConfigMock({
       codex_enabled: '1',
       codex_overflow_to_local: '1',
-      ollama_balanced_model: 'qwen2.5-coder:32b',
+      ollama_balanced_model: 'qwen3-coder:30b',
     }));
 
     scheduler.processQueueInternal();

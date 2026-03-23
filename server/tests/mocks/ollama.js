@@ -100,8 +100,8 @@ function createMockOllama(options = {}) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           models: options.loadedModels || [{
-            name: 'codestral:22b',
-            model: 'codestral:22b',
+            name: 'qwen3-coder:30b',
+            model: 'qwen3-coder:30b',
             size: 12000000000,
             digest: 'abc123',
             details: { family: 'deepseek', parameter_size: '22B' },

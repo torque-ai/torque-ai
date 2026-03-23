@@ -131,8 +131,8 @@ async function test(name, adapter, opts, extra = {}) {
   await test('openrouter / llama-3.3-70b:free', openaiAdapter, openrouterOpts('meta-llama/llama-3.3-70b-instruct:free'));
 
   // --- LOCAL OLLAMA ---
-  await test('local / qwen2.5-coder:32b', ollamaAdapter, { host: ollamaHost, model: 'qwen2.5-coder:32b' });
-  await test('local / codestral:22b (prompt-inj)', ollamaAdapter, { host: ollamaHost, model: 'codestral:22b' }, { promptInjected: true });
+  await test('local / qwen3-coder:30b', ollamaAdapter, { host: ollamaHost, model: 'qwen3-coder:30b' });
+  await test('local / qwen3-coder:30b (prompt-inj)', ollamaAdapter, { host: ollamaHost, model: 'qwen3-coder:30b' }, { promptInjected: true });
 
   // --- SUMMARY ---
   console.log('\n' + '='.repeat(160));

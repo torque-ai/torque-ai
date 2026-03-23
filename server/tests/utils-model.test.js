@@ -5,7 +5,7 @@ const { parseModelSizeB, getModelSizeCategory, isSmallModel, isThinkingModel } =
 describe('utils/model', () => {
   describe('parseModelSizeB', () => {
     it('parses colon-delimited sizes', () => {
-      expect(parseModelSizeB('qwen2.5-coder:32b')).toBe(32);
+      expect(parseModelSizeB('qwen3-coder:30b')).toBe(32);
       expect(parseModelSizeB('gemma3:4b')).toBe(4);
       expect(parseModelSizeB('model:1.5b')).toBe(1.5);
     });
@@ -89,7 +89,7 @@ describe('utils/model', () => {
     });
 
     it('returns false for non-thinking models', () => {
-      expect(isThinkingModel('qwen2.5-coder:32b')).toBe(false);
+      expect(isThinkingModel('qwen3-coder:30b')).toBe(false);
       expect(isThinkingModel('llama3:70b')).toBe(false);
       expect(isThinkingModel(null)).toBe(false);
     });

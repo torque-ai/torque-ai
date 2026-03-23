@@ -169,7 +169,7 @@ describe('host-monitoring utility module', () => {
       const polledAt = Date.now();
       monitoring.hostActivityCache.set('h1', {
         models: [
-          { name: 'codestral:22b', size_vram: 2_000_000_000, expires_at: '2026-01-01T00:00:00Z' },
+          { name: 'qwen3-coder:30b', size_vram: 2_000_000_000, expires_at: '2026-01-01T00:00:00Z' },
           { name: 'mistral:7b', size_vram: 500_000_000, expires_at: '2026-01-01T00:00:00Z' },
         ],
         polledAt,

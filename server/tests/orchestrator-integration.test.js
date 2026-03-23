@@ -156,7 +156,7 @@ describe('orchestrator integration', () => {
       const StrategicBrain = loadFresh('../orchestrator/strategic-brain');
       const brain = new StrategicBrain({
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
       });
 
       global.fetch
@@ -226,7 +226,7 @@ describe('orchestrator integration', () => {
       }
 
       const firstRequest = JSON.parse(global.fetch.mock.calls[0][1].body);
-      expect(firstRequest.model).toBe('qwen2.5-coder:32b');
+      expect(firstRequest.model).toBe('qwen3-coder:30b');
       expect(firstRequest.max_tokens).toBe(4096);
       expect(firstRequest.temperature).toBe(0.3);
       expect(firstRequest.messages[0].content).toContain('OrchestratorIntegration');
@@ -243,7 +243,7 @@ describe('orchestrator integration', () => {
       const StrategicBrain = loadFresh('../orchestrator/strategic-brain');
       const brain = new StrategicBrain({
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
       });
 
       global.fetch.mockRejectedValue(new Error('connect ECONNREFUSED 192.0.2.100:11434'));
@@ -314,7 +314,7 @@ describe('orchestrator integration', () => {
       const hooks = loadHooks(tasks, {
         strategic_auto_diagnose: '1',
         strategic_provider: 'ollama',
-        strategic_model: 'qwen2.5-coder:32b',
+        strategic_model: 'qwen3-coder:30b',
       });
 
       mockDiagnose.mockResolvedValue(diagnosis);
@@ -330,7 +330,7 @@ describe('orchestrator integration', () => {
       expect(result).toEqual(diagnosis);
       expect(StrategicBrainMock).toHaveBeenCalledWith({
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
       });
       expect(mockDiagnose).toHaveBeenCalledWith({
         task_description: 'Investigate failing test',
@@ -350,7 +350,7 @@ describe('orchestrator integration', () => {
       const hooks = loadHooks(tasks, {
         strategic_auto_review: '1',
         strategic_provider: 'ollama',
-        strategic_model: 'qwen2.5-coder:32b',
+        strategic_model: 'qwen3-coder:30b',
       });
 
       mockReview.mockResolvedValue(review);
@@ -365,7 +365,7 @@ describe('orchestrator integration', () => {
       expect(result).toEqual(review);
       expect(StrategicBrainMock).toHaveBeenCalledWith({
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
       });
       expect(mockReview).toHaveBeenCalledWith({
         task_description: 'Investigate failing test',
@@ -439,7 +439,7 @@ describe('orchestrator integration', () => {
             '',
             '| ID | Status | Model | Host | Description | Created |',
             '|----|--------|-------|------|-------------|--------|',
-            '| task-123 | running | qwen2.5-coder:32b | omen | Ship orchestrator integration | 2026-03-08 10:00 |',
+            '| task-123 | running | qwen3-coder:30b | omen | Ship orchestrator integration | 2026-03-08 10:00 |',
           ].join('\n'),
         }));
 
@@ -493,7 +493,7 @@ describe('orchestrator integration', () => {
         feature: 'OrchestratorIntegration',
         directory: 'C:\\repo',
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
       }, {});
       const diagnoseResult = await handleDiagnose({
         taskId: 'task-failed',
@@ -514,7 +514,7 @@ describe('orchestrator integration', () => {
             feature: 'OrchestratorIntegration',
             working_directory: 'C:\\repo',
             provider: 'ollama',
-            model: 'qwen2.5-coder:32b',
+            model: 'qwen3-coder:30b',
           }),
         }),
       );

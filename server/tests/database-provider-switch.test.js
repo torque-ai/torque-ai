@@ -55,12 +55,12 @@ describe('Provider Switch — Model Clearing', () => {
 
     taskCore.updateTaskStatus(taskId, 'running', {
       provider: 'ollama',
-      model: 'qwen2.5-coder:32b',
+      model: 'qwen3-coder:30b',
     });
 
     const task = taskCore.getTask(taskId);
     expect(task.provider).toBe('ollama');
-    expect(task.model).toBe('qwen2.5-coder:32b');
+    expect(task.model).toBe('qwen3-coder:30b');
   });
 
   it('does not touch model when provider does not change', () => {

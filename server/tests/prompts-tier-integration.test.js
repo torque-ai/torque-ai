@@ -35,7 +35,7 @@ describe('Prompt tier integration', () => {
   it('classifies model sizes across the configured thresholds', () => {
     expect(getModelSizeCategory('qwen2.5-coder:7b')).toBe('small');
     expect(getModelSizeCategory('qwen2.5-coder:14b')).toBe('medium');
-    expect(getModelSizeCategory('qwen2.5-coder:32b')).toBe('large');
+    expect(getModelSizeCategory('qwen3-coder:30b')).toBe('large');
     expect(getModelSizeCategory('llama3:72b')).toBe('large');
   });
 
@@ -72,7 +72,7 @@ describe('Prompt tier integration', () => {
     const result = prompts.wrapWithInstructions(
       'Refactor provider prompt assembly across server/providers/prompts.js',
       'ollama',
-      'qwen2.5-coder:32b',
+      'qwen3-coder:30b',
       { fileContext, files: ['server/providers/prompts.js'] }
     );
 
@@ -99,7 +99,7 @@ describe('Prompt tier integration', () => {
     const result = prompts.wrapWithInstructions(
       'Implement the provider integration task',
       'codex',
-      'qwen2.5-coder:32b',
+      'qwen3-coder:30b',
       { files: ['server/providers/prompts.js'] }
     );
 

@@ -100,7 +100,7 @@ describe('Mock Ollama Server', () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.models).toHaveLength(1);
-    expect(data.models[0].name).toBe('codestral:22b');
+    expect(data.models[0].name).toBe('qwen3-coder:30b');
     expect(data.models[0].size_vram).toBe(12000000000);
   });
 

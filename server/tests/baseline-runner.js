@@ -96,7 +96,7 @@ async function test(name, adapter, opts) {
 
   // Local Ollama (sequential - shared GPU)
   await test('ollama (qwen2.5-32b)', ollamaAdapter, {
-    host: ollamaHost, model: 'qwen2.5-coder:32b',
+    host: ollamaHost, model: 'qwen3-coder:30b',
   });
 
   // Codestral needs prompt-injected tools
@@ -114,7 +114,7 @@ async function test(name, adapter, opts) {
       systemPrompt: codestralSystem,
       taskPrompt: TASK, tools: [], promptInjectedTools: true,
       toolExecutor: createToolExecutor(WD),
-      options: { host: ollamaHost, model: 'codestral:22b' },
+      options: { host: ollamaHost, model: 'qwen3-coder:30b' },
       workingDir: WD, timeoutMs: 90000, maxIterations: 5, contextBudget: 8000,
     });
     const ms = Date.now() - csStart;

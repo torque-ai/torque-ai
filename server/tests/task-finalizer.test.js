@@ -269,7 +269,7 @@ describe('task-finalizer', () => {
 
       const dbBundle = createTaskDb({
         provider: 'hashline-ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         task_description: 'Write unit tests for src/app.ts',
         started_at: new Date(now.getTime() - 45_000).toISOString(),
       });
@@ -288,7 +288,7 @@ describe('task-finalizer', () => {
 
       expect(result.finalized).toBe(true);
       expect(outcomeRun).toHaveBeenCalledWith(
-        'qwen2.5-coder:32b',
+        'qwen3-coder:30b',
         'testing',
         'typescript',
         0,

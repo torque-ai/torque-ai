@@ -206,7 +206,7 @@ describe('v2-local-providers helpers', () => {
   it('parses model sizes from b-suffixed names', () => {
     const { providers } = loadProviders();
 
-    expect(providers.parseModelSize('qwen2.5-coder:32b')).toBe(32);
+    expect(providers.parseModelSize('qwen3-coder:30b')).toBe(32);
     expect(providers.parseModelSize('CODESTRAL:22B')).toBe(22);
   });
 
@@ -251,13 +251,13 @@ describe('v2-local-providers helpers', () => {
       db: {
         listOllamaHosts: vi.fn(() => [
           makeHost({ models: ['llama3:latest', { name: 'qwen2.5-coder:7b' }, null] }),
-          makeHost({ id: 'host-2', models: ['llama3:latest', { name: 'codestral:22b' }] }),
+          makeHost({ id: 'host-2', models: ['llama3:latest', { name: 'qwen3-coder:30b' }] }),
           { id: 'host-3', models: null },
         ]),
       },
     });
 
-    expect(providers.parseProviderModels()).toEqual(['codestral:22b', 'llama3:latest', 'qwen2.5-coder:7b']);
+    expect(providers.parseProviderModels()).toEqual(['qwen3-coder:30b', 'llama3:latest', 'qwen2.5-coder:7b']);
   });
 
   it('returns no models when host lookup throws', () => {
@@ -432,7 +432,7 @@ describe('v2-local-providers selection and payload behavior', () => {
     const { providers } = loadProviders({
       db: {
         listOllamaHosts: vi.fn(() => [
-          makeHost({ models: ['qwen2.5-coder:7b', 'codestral:22b'] }),
+          makeHost({ models: ['qwen2.5-coder:7b', 'qwen3-coder:30b'] }),
         ]),
         selectOllamaHostForModel: vi.fn(() => null),
         selectHostWithModelVariant: vi.fn(() => null),
@@ -441,7 +441,7 @@ describe('v2-local-providers selection and payload behavior', () => {
     const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
 
     await expect(provider._selectExecutionTarget('missing:7b')).rejects.toThrow(
-      "No Ollama host has model 'missing:7b'. Available models: codestral:22b, qwen2.5-coder:7b",
+      "No Ollama host has model 'missing:7b'. Available models: qwen3-coder:30b, qwen2.5-coder:7b",
     );
   });
 
@@ -1015,7 +1015,7 @@ describe('v2-local-providers health checks', () => {
           models: [
             { name: 'qwen2.5-coder:7b' },
             { name: 'qwen2.5-coder:7b' },
-            'codestral:22b',
+            'qwen3-coder:30b',
           ],
         })]);
       },
@@ -1032,7 +1032,7 @@ describe('v2-local-providers health checks', () => {
 
     await expect(provider.checkHealth()).resolves.toEqual({
       available: true,
-      models: ['codestral:22b', 'qwen2.5-coder:7b'],
+      models: ['qwen3-coder:30b', 'qwen2.5-coder:7b'],
       host: 'Good Host',
     });
   });

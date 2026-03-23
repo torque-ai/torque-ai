@@ -778,12 +778,12 @@ describe('Provider Handlers', () => {
     });
 
     it('returns rates for a specific model', async () => {
-      const result = await safeTool('get_format_success_rates', { model: 'qwen2.5-coder:32b' });
+      const result = await safeTool('get_format_success_rates', { model: 'qwen3-coder:30b' });
       expect(result.isError).toBeFalsy();
     });
 
     it('shows table headers for specific model', async () => {
-      const result = await safeTool('get_format_success_rates', { model: 'qwen2.5-coder:32b' });
+      const result = await safeTool('get_format_success_rates', { model: 'qwen3-coder:30b' });
       const text = getText(result);
       expect(text).toContain('Format');
     });

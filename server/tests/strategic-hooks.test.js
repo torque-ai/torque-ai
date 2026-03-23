@@ -130,7 +130,7 @@ describe('strategic-hooks', () => {
       setConfigValues({
         strategic_auto_diagnose: '1',
         strategic_provider: 'ollama',
-        strategic_model: 'qwen2.5-coder:32b',
+        strategic_model: 'qwen3-coder:30b',
       });
       mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockDiagnose.mockResolvedValue(diagnosis);
@@ -139,7 +139,7 @@ describe('strategic-hooks', () => {
 
       expect(StrategicBrainMock).toHaveBeenCalledWith({
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
       });
       expect(mockDiagnose).toHaveBeenCalledWith({
         task_description: 'Investigate failing test',
@@ -217,7 +217,7 @@ describe('strategic-hooks', () => {
       setConfigValues({
         strategic_auto_review: '1',
         strategic_provider: 'ollama',
-        strategic_model: 'qwen2.5-coder:32b',
+        strategic_model: 'qwen3-coder:30b',
       });
       mockTaskCore.getTask.mockReturnValue(ctx.task);
       mockReview.mockResolvedValue(review);
@@ -226,7 +226,7 @@ describe('strategic-hooks', () => {
 
       expect(StrategicBrainMock).toHaveBeenCalledWith({
         provider: 'ollama',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
       });
       expect(mockReview).toHaveBeenCalledWith({
         task_description: 'Investigate failing test',

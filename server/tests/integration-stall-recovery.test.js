@@ -67,7 +67,7 @@ describe('Integration: Stall Detection & Recovery', () => {
   describe('Model size affects threshold', () => {
     it('32b model gets higher threshold than 8b model', () => {
       const small = tm.getStallThreshold('qwen2.5-coder:8b', 'ollama');
-      const large = tm.getStallThreshold('qwen2.5-coder:32b', 'ollama');
+      const large = tm.getStallThreshold('qwen3-coder:30b', 'ollama');
       expect(large).toBeGreaterThanOrEqual(small);
     });
 

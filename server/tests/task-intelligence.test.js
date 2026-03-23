@@ -1274,7 +1274,7 @@ describe('task-intelligence handlers', () => {
       hostManagement.routeTask.mockReturnValue({
         provider: 'ollama',
         host: 'desktop-01',
-        model: 'qwen2.5-coder:32b',
+        model: 'qwen3-coder:30b',
         rule: 'Complexity map',
       });
 
@@ -1285,7 +1285,7 @@ describe('task-intelligence handlers', () => {
       expect(text).toContain('## Complexity Routing for "complex"');
       expect(text).toContain('| Provider | ollama |');
       expect(text).toContain('| Host | desktop-01 |');
-      expect(text).toContain('| Model | qwen2.5-coder:32b |');
+      expect(text).toContain('| Model | qwen3-coder:30b |');
       expect(text).toContain('| Rule | Complexity map |');
     });
   });

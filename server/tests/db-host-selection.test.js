@@ -414,10 +414,10 @@ describe('db/host-selection (real DB)', () => {
         models: [{ name: 'qwen3:8b', size: 512 * 1024 * 1024 }],
       });
 
-      const result = mod.selectOllamaHostForModel('codestral:22b');
+      const result = mod.selectOllamaHostForModel('qwen3-coder:30b');
 
       expect(result.host).toBeNull();
-      expect(result.reason).toBe("No host has model 'codestral:22b' available");
+      expect(result.reason).toBe("No host has model 'qwen3-coder:30b' available");
       expect(result.availableModels.sort()).toEqual(['gemma3:4b', 'qwen3:8b']);
       expect(result.modelTier).toBe('quality');
     });
@@ -427,19 +427,19 @@ describe('db/host-selection (real DB)', () => {
         id: 'quality-host',
         name: 'Quality Host',
         running_tasks: 1,
-        models: [{ name: 'qwen2.5-coder:32b', size: 2 * 1024 * 1024 * 1024 }],
+        models: [{ name: 'qwen3-coder:30b', size: 2 * 1024 * 1024 * 1024 }],
       });
       insertHost({
         id: 'fast-host',
         name: 'Fast Host',
         running_tasks: 0,
-        models: [{ name: 'qwen2.5-coder:32b', size: 2 * 1024 * 1024 * 1024 }],
+        models: [{ name: 'qwen3-coder:30b', size: 2 * 1024 * 1024 * 1024 }],
       });
 
       mod.setHostTierHint(qualityHost, 'quality');
       mod.setHostTierHint('fast-host', 'fast');
 
-      const result = mod.selectOllamaHostForModel('qwen2.5-coder:32b');
+      const result = mod.selectOllamaHostForModel('qwen3-coder:30b');
 
       expect(result.modelTier).toBe('quality');
       expect(result.host.id).toBe(qualityHost);
@@ -592,14 +592,14 @@ describe('db/host-selection (real DB)', () => {
         name: 'Cold Host',
         running_tasks: 0,
         max_concurrent: 1,
-        models: [{ name: 'codestral:22b', size: 1024 * 1024 * 1024 }],
+        models: [{ name: 'qwen3-coder:30b', size: 1024 * 1024 * 1024 }],
       });
       const warmHostId = insertHost({
         name: 'Warm Host',
         running_tasks: 0,
         max_concurrent: 1,
-        models: [{ name: 'codestral:22b', size: 1024 * 1024 * 1024 }],
-        last_model_used: 'codestral:22b',
+        models: [{ name: 'qwen3-coder:30b', size: 1024 * 1024 * 1024 }],
+        last_model_used: 'qwen3-coder:30b',
         model_loaded_at: new Date(Date.now() - 30 * 1000).toISOString(),
       });
 
@@ -609,7 +609,7 @@ describe('db/host-selection (real DB)', () => {
         const result = mod.selectHostWithModelVariant('codestral');
 
         expect(result.host.id).toBe(warmHostId);
-        expect(result.model).toBe('codestral:22b');
+        expect(result.model).toBe('qwen3-coder:30b');
         expect(result.reason).toContain('warm');
       } finally {
         randomSpy.mockRestore();

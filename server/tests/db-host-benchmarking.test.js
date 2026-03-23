@@ -361,7 +361,7 @@ describe('db/host-benchmarking (real DB)', () => {
     it('getOptimalSettingsFromBenchmarks selects the fastest successful model-specific config', () => {
       insertBenchmark({
         host_id: 'bench-best-model',
-        model: 'codestral:22b',
+        model: 'qwen3-coder:30b',
         num_gpu: 1,
         num_ctx: 4096,
         tokens_per_second: 38.441,
@@ -369,7 +369,7 @@ describe('db/host-benchmarking (real DB)', () => {
       });
       insertBenchmark({
         host_id: 'bench-best-model',
-        model: 'codestral:22b',
+        model: 'qwen3-coder:30b',
         num_gpu: 2,
         num_ctx: 8192,
         tokens_per_second: 51.129,
@@ -377,20 +377,20 @@ describe('db/host-benchmarking (real DB)', () => {
       });
       insertBenchmark({
         host_id: 'bench-best-model',
-        model: 'codestral:22b',
+        model: 'qwen3-coder:30b',
         num_gpu: 4,
         num_ctx: 16384,
         tokens_per_second: 90,
         success: 0,
       });
 
-      const optimal = mod.getOptimalSettingsFromBenchmarks('bench-best-model', 'codestral:22b');
+      const optimal = mod.getOptimalSettingsFromBenchmarks('bench-best-model', 'qwen3-coder:30b');
 
       expect(optimal).toEqual({
         numGpu: 2,
         numCtx: 8192,
         tokensPerSecond: 51.13,
-        model: 'codestral:22b',
+        model: 'qwen3-coder:30b',
       });
     });
 

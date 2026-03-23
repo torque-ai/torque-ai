@@ -402,7 +402,7 @@ describe('utils-all', () => {
 
   describe('utils/model', () => {
     it('parses colon-delimited integer sizes', () => {
-      expect(parseModelSizeB('qwen2.5-coder:32b')).toBe(32);
+      expect(parseModelSizeB('qwen3-coder:30b')).toBe(32);
       expect(parseModelSizeB('gemma3:4b')).toBe(4);
     });
 
@@ -473,13 +473,13 @@ describe('utils-all', () => {
     });
 
     it('returns false for standard non-thinking models', () => {
-      expect(isThinkingModel('qwen2.5-coder:32b')).toBe(false);
+      expect(isThinkingModel('qwen3-coder:30b')).toBe(false);
       expect(isThinkingModel('llama3:70b')).toBe(false);
       expect(isThinkingModel('')).toBe(false);
     });
 
     it('supports numeric ordering by parsed model size', () => {
-      const models = ['qwen2.5-coder:32b', 'gpt-4', 'gemma3:4b', 'deepseek-r1:14b'];
+      const models = ['qwen3-coder:30b', 'gpt-4', 'gemma3:4b', 'deepseek-r1:14b'];
       const sorted = [...models].sort((left, right) => {
         const leftSize = parseModelSizeB(left) || Number.POSITIVE_INFINITY;
         const rightSize = parseModelSizeB(right) || Number.POSITIVE_INFINITY;
@@ -489,7 +489,7 @@ describe('utils-all', () => {
       expect(sorted).toEqual([
         'gemma3:4b',
         'deepseek-r1:14b',
-        'qwen2.5-coder:32b',
+        'qwen3-coder:30b',
         'gpt-4',
       ]);
     });

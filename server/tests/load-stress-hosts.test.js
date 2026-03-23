@@ -205,24 +205,24 @@ describe('Host distribution under load', () => {
   });
 
   it('VRAM-aware scheduling: large model routes to host with capacity', () => {
-    registerMockHost(ctx.db, 'http://small.local:11434', ['codellama:latest', 'qwen2.5-coder:32b'], { name: 'small-host', maxConcurrent: 2, id: 'small-host' });
+    registerMockHost(ctx.db, 'http://small.local:11434', ['codellama:latest', 'qwen3-coder:30b'], { name: 'small-host', maxConcurrent: 2, id: 'small-host' });
 
     // Verify isLargeModelBlockedOnHost works
     // With no running tasks, 32b model should NOT be blocked
-    const check1 = ctx.tm.isLargeModelBlockedOnHost('qwen2.5-coder:32b', 'small-host');
+    const check1 = ctx.tm.isLargeModelBlockedOnHost('qwen3-coder:30b', 'small-host');
     expect(check1.blocked).toBe(false);
 
     // Simulate a large model already running on host
     const taskId = createTestTask(ctx.db, {
       description: 'large model task',
       provider: 'ollama',
-      model: 'qwen2.5-coder:32b',
+      model: 'qwen3-coder:30b',
     });
     ctx.db.updateTaskStatus(taskId, 'running', { ollama_host_id: 'small-host' });
     ctx.db.incrementHostTasks('small-host');
 
     // Now another 32b model should be blocked (VRAM guard)
-    const check2 = ctx.tm.isLargeModelBlockedOnHost('qwen2.5-coder:32b', 'small-host');
+    const check2 = ctx.tm.isLargeModelBlockedOnHost('qwen3-coder:30b', 'small-host');
     expect(check2.blocked).toBe(true);
     expect(check2.reason).toContain('VRAM');
   });

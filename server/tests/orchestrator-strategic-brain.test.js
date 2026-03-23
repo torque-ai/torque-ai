@@ -410,7 +410,7 @@ describe('StrategicBrain', () => {
 
     it('uses default model for selected provider', () => {
       const brain = new StrategicBrain({ provider: 'ollama' });
-      expect(brain.model).toBe('qwen2.5-coder:32b');
+      expect(brain.model).toBe('qwen3-coder:30b');
     });
 
     it('allows model override', () => {

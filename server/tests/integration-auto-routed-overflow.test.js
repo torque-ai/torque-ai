@@ -210,8 +210,8 @@ describe('auto_routed overflow — proof of integration', () => {
       mockServerConfig.getInt.mockImplementation((_key, fallback) => fallback);
       mockServerConfig.get.mockImplementation((key) => {
         if (key === 'overflow_max_complexity') return 'normal';
-        if (key === 'ollama_balanced_model') return 'qwen2.5-coder:32b';
-        if (key === 'ollama_fast_model') return 'qwen2.5-coder:32b';
+        if (key === 'ollama_balanced_model') return 'qwen3-coder:30b';
+        if (key === 'ollama_fast_model') return 'qwen3-coder:30b';
         return null;
       });
 

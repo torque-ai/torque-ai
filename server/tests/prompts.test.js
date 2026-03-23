@@ -266,7 +266,7 @@ describe('Prompts Module', () => {
       const result = prompts.wrapWithInstructions(
         'Fix a bug in helper.js',
         'ollama',
-        'qwen2.5-coder:32b'
+        'qwen3-coder:30b'
       );
       expect(result).not.toContain('SMALL MODEL CONSTRAINTS');
     });
@@ -354,7 +354,7 @@ describe('Prompts Module', () => {
       const result = prompts.wrapWithInstructions(
         'Fix bug',
         'hashline-ollama',
-        'qwen2.5-coder:32b',
+        'qwen3-coder:30b',
         { fileContext }
       );
 
@@ -413,7 +413,7 @@ describe('Prompts Module', () => {
       const result = prompts.wrapWithInstructions(
         'Fix bug',
         'ollama',
-        'qwen2.5-coder:32b',
+        'qwen3-coder:30b',
         {}
       );
 
