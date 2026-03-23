@@ -60,6 +60,27 @@ class BaseProvider {
   }
 
   /**
+   * Get default tuning parameters for a model.
+   * Override in subclasses for provider-specific tuning.
+   * @param {string} model - Model name
+   * @returns {object} Tuning parameters (empty = use system defaults)
+   */
+  getDefaultTuning(_model) {
+    return {};
+  }
+
+  /**
+   * Get system prompt for a model.
+   * Override in subclasses for provider-specific prompts.
+   * @param {string} model - Model name
+   * @param {string} format - Edit format ('hashline', 'raw', 'agentic')
+   * @returns {string|null} System prompt, or null to use system default
+   */
+  getSystemPrompt(_model, _format) {
+    return null;
+  }
+
+  /**
    * Check if provider can accept more tasks
    */
   hasCapacity() {
