@@ -265,7 +265,10 @@ describe('GroqProvider', () => {
 
       expect(result).toEqual({
         available: true,
-        models: ['llama-3.3-70b-versatile', 'qwen/qwen3-32b'],
+        models: [
+          { model_name: 'llama-3.3-70b-versatile', id: 'llama-3.3-70b-versatile', owned_by: null, context_window: null },
+          { model_name: 'qwen/qwen3-32b', id: 'qwen/qwen3-32b', owned_by: null, context_window: null },
+        ],
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://api.groq.com/openai/v1/models',
@@ -281,7 +284,7 @@ describe('GroqProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['llama-3.3-70b-versatile'],
+        models: [{ model_name: 'llama-3.3-70b-versatile' }],
       });
     });
 

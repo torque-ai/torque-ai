@@ -150,7 +150,7 @@ describe('provider adapter registry', () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(submitResult.output).toBe('adapter-output');
-    expect(healthResult).toEqual({ available: true, models: ['claude-sonnet-4-20250514'] });
+    expect(healthResult).toEqual({ available: true, models: [{ model_name: 'claude-sonnet-4-20250514', id: 'claude-sonnet-4-20250514', owned_by: null, context_window: null }] });
     expect(modelsResult).toContain('claude-sonnet-4-20250514');
   });
 

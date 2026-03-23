@@ -816,7 +816,10 @@ describe('AnthropicProvider', () => {
 
       expect(result).toEqual({
         available: true,
-        models: ['claude-sonnet-4-20250514', 'claude-haiku-4-20250514'],
+        models: [
+          { model_name: 'claude-sonnet-4-20250514', id: 'claude-sonnet-4-20250514', owned_by: null, context_window: null },
+          { model_name: 'claude-haiku-4-20250514', id: 'claude-haiku-4-20250514', owned_by: null, context_window: null },
+        ],
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://api.anthropic.com/v1/models',
@@ -844,7 +847,7 @@ describe('AnthropicProvider', () => {
 
       await expect(customProvider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['claude-opus-4-20250514'],
+        models: [{ model_name: 'claude-opus-4-20250514' }],
       });
     });
 

@@ -546,7 +546,10 @@ describe('OllamaCloudProvider', () => {
       );
       expect(result).toEqual({
         available: true,
-        models: ['qwen3-coder:480b', 'deepseek-v3.2'],
+        models: [
+          { model_name: 'qwen3-coder:480b', sizeBytes: null, parameter_size: undefined },
+          { model_name: 'deepseek-v3.2', sizeBytes: null, parameter_size: undefined },
+        ],
       });
     });
 
@@ -558,7 +561,7 @@ describe('OllamaCloudProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['qwen3-coder:480b'],
+        models: [{ model_name: 'qwen3-coder:480b' }],
       });
     });
 

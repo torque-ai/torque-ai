@@ -220,7 +220,10 @@ describe('DeepInfraProvider', () => {
 
       expect(result).toEqual({
         available: true,
-        models: ['Qwen/Qwen2.5-72B-Instruct', 'deepseek-ai/DeepSeek-R1'],
+        models: [
+          { model_name: 'Qwen/Qwen2.5-72B-Instruct', id: 'Qwen/Qwen2.5-72B-Instruct', owned_by: null, context_window: null },
+          { model_name: 'deepseek-ai/DeepSeek-R1', id: 'deepseek-ai/DeepSeek-R1', owned_by: null, context_window: null },
+        ],
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://api.deepinfra.com/v1/openai/models',
@@ -236,7 +239,7 @@ describe('DeepInfraProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['Qwen/Qwen2.5-72B-Instruct'],
+        models: [{ model_name: 'Qwen/Qwen2.5-72B-Instruct' }],
       });
     });
 

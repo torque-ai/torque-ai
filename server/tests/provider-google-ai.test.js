@@ -204,7 +204,10 @@ describe('GoogleAIProvider', () => {
 
       expect(result).toEqual({
         available: true,
-        models: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+        models: [
+          { model_name: 'gemini-2.5-flash', context_window: null },
+          { model_name: 'gemini-2.5-pro', context_window: null },
+        ],
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://generativelanguage.googleapis.com/v1beta/models',
@@ -228,7 +231,7 @@ describe('GoogleAIProvider', () => {
 
       expect(result).toEqual({
         available: true,
-        models: ['gemini-2.5-pro'],
+        models: [{ model_name: 'gemini-2.5-pro' }],
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'http://localhost:9090/v1beta/models',

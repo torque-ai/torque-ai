@@ -6,18 +6,50 @@
  * Uses:
  *   - In-memory SQLite DB for runPostDiscovery tests (real applyHeuristicCapabilities
  *     and assignRolesForProvider need the actual tables)
- *   - vi.mock for discoverFromAdapter tests against the registry
+ *   - require.cache manipulation for discoverFromAdapter tests (CJS mock pattern
+ *     used throughout this codebase — vi.mock cannot reliably intercept modules
+ *     already loaded in pool:forks mode)
  */
+
+// NOTE: require.cache manipulation is intentionally used here rather than vi.mock().
+// In pool:forks + CJS mode, vi.mock() factory functions run once at module load time,
+// but modules already in the cache before the first test file loads are not replaced.
+// The installMock / require fresh pattern ensures each test suite sees clean mocks.
 
 const Database = require('better-sqlite3');
 
-vi.mock('../models/registry', () => ({
-  syncModelsFromHealthCheck: vi.fn(),
-  approveModel: vi.fn(),
-}));
+// ---------------------------------------------------------------------------
+// Mock infrastructure — require.cache based
+// ---------------------------------------------------------------------------
 
-const { runPostDiscovery, discoverFromAdapter } = require('../discovery/discovery-engine');
-const registry = require('../models/registry');
+const REGISTRY_PATH = require.resolve('../models/registry');
+const ENGINE_PATH = require.resolve('../discovery/discovery-engine');
+
+function installMock(resolvedPath, exportsValue) {
+  require.cache[resolvedPath] = {
+    id: resolvedPath,
+    filename: resolvedPath,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+function clearModule(resolvedPath) {
+  delete require.cache[resolvedPath];
+}
+
+function makeRegistryMock() {
+  return {
+    syncModelsFromHealthCheck: vi.fn().mockReturnValue({ new: [], updated: [], removed: [] }),
+    approveModel: vi.fn(),
+  };
+}
+
+function loadEngine(registryMock) {
+  clearModule(ENGINE_PATH);
+  installMock(REGISTRY_PATH, registryMock);
+  return require('../discovery/discovery-engine');
+}
 
 // ---------------------------------------------------------------------------
 // Helpers - minimal in-memory SQLite for runPostDiscovery (real DB modules)
@@ -67,6 +99,10 @@ function seedApprovedModel(db, provider, modelName, parameterSizeB) {
 // ---------------------------------------------------------------------------
 // runPostDiscovery - uses real heuristic-capabilities + auto-role-assigner
 // ---------------------------------------------------------------------------
+
+// Load a fresh discovery-engine for runPostDiscovery tests (real registry OK here
+// because runPostDiscovery does not use the registry — it only uses db directly)
+const { runPostDiscovery } = require('../discovery/discovery-engine');
 
 describe('runPostDiscovery', () => {
   it('calls applyHeuristicCapabilities for new models with a known family', () => {
@@ -160,14 +196,20 @@ describe('runPostDiscovery', () => {
 });
 
 // ---------------------------------------------------------------------------
-// discoverFromAdapter - uses mocked registry
+// discoverFromAdapter - uses require.cache-replaced registry mock
 // ---------------------------------------------------------------------------
 
 describe('discoverFromAdapter', () => {
   let db;
+  let registryMock;
+  let discoverFromAdapter;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    registryMock = makeRegistryMock();
+    const engine = loadEngine(registryMock);
+    discoverFromAdapter = engine.discoverFromAdapter;
+
     db = {
       prepare: () => ({
         all: () => [],
@@ -175,11 +217,12 @@ describe('discoverFromAdapter', () => {
         run: () => ({}),
       }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({
-      new: [],
-      updated: [],
-      removed: [],
-    });
+  });
+
+  afterEach(() => {
+    // Restore real registry in cache so other test files are not affected
+    clearModule(ENGINE_PATH);
+    clearModule(REGISTRY_PATH);
   });
 
   it('calls adapter.discoverModels() and feeds models to registry', async () => {
@@ -190,14 +233,14 @@ describe('discoverFromAdapter', () => {
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models, provider: 'ollama' }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({
       new: models,
       updated: [],
       removed: [],
     });
     await discoverFromAdapter(db, adapter, 'ollama', 'host-1');
     expect(adapter.discoverModels).toHaveBeenCalledOnce();
-    expect(registry.syncModelsFromHealthCheck).toHaveBeenCalledWith('ollama', 'host-1', models);
+    expect(registryMock.syncModelsFromHealthCheck).toHaveBeenCalledWith('ollama', 'host-1', models);
   });
 
   it('returns a summary with correct counts', async () => {
@@ -210,7 +253,7 @@ describe('discoverFromAdapter', () => {
         provider: 'ollama',
       }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({
       new: newModels,
       updated: updatedModels,
       removed: removedModels,
@@ -237,7 +280,7 @@ describe('discoverFromAdapter', () => {
       roles_assigned: [],
       capabilities_set: 0,
     });
-    expect(registry.syncModelsFromHealthCheck).not.toHaveBeenCalled();
+    expect(registryMock.syncModelsFromHealthCheck).not.toHaveBeenCalled();
   });
 
   it('returns zero counts when adapter returns empty models array', async () => {
@@ -253,7 +296,7 @@ describe('discoverFromAdapter', () => {
       roles_assigned: [],
       capabilities_set: 0,
     });
-    expect(registry.syncModelsFromHealthCheck).not.toHaveBeenCalled();
+    expect(registryMock.syncModelsFromHealthCheck).not.toHaveBeenCalled();
   });
 
   it('returns zero counts when adapter returns null models', async () => {
@@ -263,7 +306,7 @@ describe('discoverFromAdapter', () => {
     const result = await discoverFromAdapter(db, adapter, 'ollama', null);
     expect(result.discovered).toBe(0);
     expect(result.new).toBe(0);
-    expect(registry.syncModelsFromHealthCheck).not.toHaveBeenCalled();
+    expect(registryMock.syncModelsFromHealthCheck).not.toHaveBeenCalled();
   });
 
   it('auto-approves new models from cloud providers (deepinfra)', async () => {
@@ -273,13 +316,13 @@ describe('discoverFromAdapter', () => {
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'deepinfra' }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({
       new: newModels,
       updated: [],
       removed: [],
     });
     await discoverFromAdapter(db, adapter, 'deepinfra', null);
-    expect(registry.approveModel).toHaveBeenCalledWith(
+    expect(registryMock.approveModel).toHaveBeenCalledWith(
       'deepinfra',
       'Qwen/Qwen2.5-72B-Instruct',
       null,
@@ -291,13 +334,13 @@ describe('discoverFromAdapter', () => {
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'ollama' }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({
       new: newModels,
       updated: [],
       removed: [],
     });
     await discoverFromAdapter(db, adapter, 'ollama', 'host-1');
-    expect(registry.approveModel).not.toHaveBeenCalled();
+    expect(registryMock.approveModel).not.toHaveBeenCalled();
   });
 
   it('does NOT auto-approve new models from ollama-cloud (stays pending)', async () => {
@@ -305,13 +348,13 @@ describe('discoverFromAdapter', () => {
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'ollama-cloud' }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({
       new: newModels,
       updated: [],
       removed: [],
     });
     await discoverFromAdapter(db, adapter, 'ollama-cloud', null);
-    expect(registry.approveModel).not.toHaveBeenCalled();
+    expect(registryMock.approveModel).not.toHaveBeenCalled();
   });
 
   it('does NOT auto-approve new models from hashline-ollama (stays pending)', async () => {
@@ -319,13 +362,13 @@ describe('discoverFromAdapter', () => {
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'hashline-ollama' }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({
       new: newModels,
       updated: [],
       removed: [],
     });
     await discoverFromAdapter(db, adapter, 'hashline-ollama', null);
-    expect(registry.approveModel).not.toHaveBeenCalled();
+    expect(registryMock.approveModel).not.toHaveBeenCalled();
   });
 
   it('auto-approves new models from groq (cloud provider)', async () => {
@@ -333,13 +376,13 @@ describe('discoverFromAdapter', () => {
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'groq' }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({
       new: newModels,
       updated: [],
       removed: [],
     });
     await discoverFromAdapter(db, adapter, 'groq', null);
-    expect(registry.approveModel).toHaveBeenCalledWith('groq', 'llama3-70b-8192', null);
+    expect(registryMock.approveModel).toHaveBeenCalledWith('groq', 'llama3-70b-8192', null);
   });
 
   it('passes hostId to registry.syncModelsFromHealthCheck', async () => {
@@ -347,8 +390,8 @@ describe('discoverFromAdapter', () => {
     const adapter = {
       discoverModels: vi.fn().mockResolvedValue({ models, provider: 'ollama' }),
     };
-    registry.syncModelsFromHealthCheck.mockReturnValue({ new: [], updated: models, removed: [] });
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({ new: [], updated: models, removed: [] });
     await discoverFromAdapter(db, adapter, 'ollama', 'my-host-id');
-    expect(registry.syncModelsFromHealthCheck).toHaveBeenCalledWith('ollama', 'my-host-id', models);
+    expect(registryMock.syncModelsFromHealthCheck).toHaveBeenCalledWith('ollama', 'my-host-id', models);
   });
 });

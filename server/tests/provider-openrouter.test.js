@@ -302,7 +302,12 @@ describe('OpenRouterProvider', () => {
 
       expect(result).toEqual({
         available: true,
-        models: Array.from({ length: 50 }, (_, index) => `model-${index}`),
+        models: Array.from({ length: 50 }, (_, index) => ({
+          model_name: `model-${index}`,
+          id: `model-${index}`,
+          owned_by: null,
+          context_window: null,
+        })),
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://openrouter.ai/api/v1/models',
@@ -318,7 +323,7 @@ describe('OpenRouterProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['arcee-ai/trinity-large-preview:free'],
+        models: [{ model_name: 'arcee-ai/trinity-large-preview:free' }],
       });
     });
 

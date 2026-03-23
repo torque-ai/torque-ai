@@ -509,7 +509,10 @@ describe('CerebrasProvider', () => {
       );
       expect(result).toEqual({
         available: true,
-        models: ['llama3.1-8b', 'gpt-oss-120b'],
+        models: [
+          { model_name: 'llama3.1-8b', id: 'llama3.1-8b', owned_by: null, context_window: null },
+          { model_name: 'gpt-oss-120b', id: 'gpt-oss-120b', owned_by: null, context_window: null },
+        ],
       });
     });
 
@@ -521,7 +524,7 @@ describe('CerebrasProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: ['qwen-3-235b-a22b-instruct-2507'],
+        models: [{ model_name: 'qwen-3-235b-a22b-instruct-2507' }],
       });
     });
 

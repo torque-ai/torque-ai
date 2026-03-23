@@ -110,7 +110,10 @@ describe('CerebrasProvider', () => {
 
       expect(result).toEqual({
         available: true,
-        models: ['llama3.1-8b', 'qwen-3-235b-a22b-instruct-2507'],
+        models: [
+          { model_name: 'llama3.1-8b', id: 'llama3.1-8b', owned_by: null, context_window: null },
+          { model_name: 'qwen-3-235b-a22b-instruct-2507', id: 'qwen-3-235b-a22b-instruct-2507', owned_by: null, context_window: null },
+        ],
       });
       expect(fetch).toHaveBeenCalledWith(
         'https://api.cerebras.ai/v1/models',
@@ -129,7 +132,7 @@ describe('CerebrasProvider', () => {
       const result = await provider.checkHealth();
 
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['qwen-3-235b-a22b-instruct-2507']);
+      expect(result.models).toEqual([{ model_name: 'qwen-3-235b-a22b-instruct-2507' }]);
     });
 
     it('filters out falsy model ids', async () => {

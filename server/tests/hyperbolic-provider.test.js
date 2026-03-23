@@ -96,7 +96,7 @@ describe('HyperbolicProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['Qwen/Qwen2.5-72B-Instruct']);
+      expect(result.models).toEqual([{ model_name: 'Qwen/Qwen2.5-72B-Instruct' }]);
     });
   });
 
