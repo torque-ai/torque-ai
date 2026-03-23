@@ -41,17 +41,7 @@ const tools = [
       required: ['provider'],
     },
   },
-  {
-    name: 'list_models',
-    description: 'List all known models across all providers with their approval status, size, and host info.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        status: { type: 'string', enum: ['pending', 'approved', 'denied', 'removed'], description: 'Filter by status' },
-        provider: { type: 'string', description: 'Filter by provider' },
-      },
-    },
-  },
+  // list_models moved to discovery-defs.js (model-agnostic migration)
   {
     name: 'configure_model_roles',
     description: 'Set which model fills a named role (default, fallback, fast, balanced, quality) for a provider. Roles determine which model is used for each tier of task complexity.',
