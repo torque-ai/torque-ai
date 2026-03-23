@@ -677,11 +677,72 @@ function resetForTest(buffer) {
 //   const configCore = require('./db/config-core');
 //   const workflowEngine = require('./db/workflow-engine');
 //
-// This module exports ONLY connection lifecycle and core utility functions.
-// For sub-module access, use the DI container: container.get('taskCore')
+// This module re-exports sub-module functions as a flat namespace for backward
+// compatibility. The execution/ layer passes this facade as `db` via init({ db }).
+// New code should use the DI container: container.get('taskCore')
+//
+// Sub-module spreads are ordered to match import order at top of file.
+// Later spreads win on name collisions (same behavior as the original merge loop).
+
+const _SUB_MODULES = [
+  codeAnalysis,
+  costTracking,
+  hostManagement,
+  workflowEngine,
+  fileTracking,
+  schedulingAutomation,
+  taskMetadata,
+  coordination,
+  providerRoutingCore,
+  eventTracking,
+  analytics,
+  webhooksStreaming,
+  inboundWebhooks,
+  projectConfigCore,
+  validationRules,
+  backupCore,
+  emailPeek,
+  peekFixtureCatalog,
+  packRegistry,
+  peekPolicyAudit,
+  peekRecoveryApprovals,
+  recoveryMetrics,
+  policyProfileStore,
+  policyEvaluationStore,
+  auditStore,
+  ciCache,
+  modelRoles,
+  taskCore,
+  configCore,
+];
+
+// DI wiring internals and factory functions — excluded from the facade
+const _DI_INTERNALS = new Set([
+  'setDb', 'setGetTask', 'setDbFunctions', 'setRecordEvent',
+  'setRecordTaskEvent', 'setGetPipeline', 'setCreatePipeline',
+  'setGetTaskEvents', 'setGetRetryHistory', 'setRecordAuditLog',
+  'setGetApprovalHistory', 'setCreateTask', 'setHostManagement',
+  'setGetProjectRoot', 'setDataDir', 'setInternals', 'setGetProjectMetadata',
+  'setExternalFns', 'setDbClosed',
+]);
+
+// Merge all sub-module exports into a flat namespace, skipping DI internals
+// and factory functions (createXxx).
+const merged = {};
+for (const mod of _SUB_MODULES) {
+  for (const [key, value] of Object.entries(mod)) {
+    if (typeof value !== 'function') continue;
+    if (_DI_INTERNALS.has(key)) continue;
+    if (key.startsWith('create') && key[6] && key[6] === key[6].toUpperCase()) continue;
+    merged[key] = value;
+  }
+}
 
 module.exports = {
-  // Connection lifecycle
+  // Sub-module functions (flat namespace for backward compat)
+  ...merged,
+
+  // Connection lifecycle (override any sub-module collisions)
   init,
   close,
   onClose,
@@ -699,42 +760,6 @@ module.exports = {
 
   // DI wiring (internal)
   _wireAllModules,
-
-  // Core task operations (thin wrappers → taskCore)
-  createTask,
-  getTask,
-  updateTask,
-  resolveTaskId,
-  updateTaskStatus,
-  requeueTaskAfterAttemptedStart,
-  updateTaskProgress,
-  listTasks,
-  deleteTask,
-  deleteTasks,
-  countTasks,
-  countTasksByStatus,
-  getRunningCount,
-  getRunningCountByProvider,
-  getRunningTasksLightweight,
-  getNextQueuedTask,
-  tryClaimTaskSlot,
-  listQueuedTasksLightweight,
-  patchTaskMetadata,
-  patchTaskSlotBinding,
-  getRecentSuccessfulTasks,
-  claimSlotAtomic,
-  clearProviderIfNotRunning,
-  getTaskStatus,
-  requeueAfterSlotFailure,
-  archiveOldTasks,
-  purgeOldTaskOutput,
-
-  // Core config operations (thin wrappers → configCore)
-  getConfig,
-  setConfig,
-  setConfigDefault,
-  getAllConfig,
-  getProviderRateLimits,
 
   // Listeners
   addTaskStatusTransitionListener,

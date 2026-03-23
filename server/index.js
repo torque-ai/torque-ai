@@ -788,10 +788,28 @@ function init() {
     process.stderr.write(`[TORQUE] Dashboard failed to start: ${err.message}\n`);
   });
 
-  // Auto-start REST API server
+  // Auto-start REST API server and MCP SSE transport.
+  // If BOTH critical transports fail to bind, exit to avoid zombie processes.
+  let apiStarted = false;
+  let sseStarted = false;
+
+  function checkCriticalPorts() {
+    // Called after both API and SSE attempts resolve.
+    // If neither bound successfully, this process is a zombie — exit.
+    if (!apiStarted && !sseStarted) {
+      process.stderr.write(
+        `[TORQUE] FATAL: Both API (${serverConfig.getInt('api_port', 3457)}) and SSE (${serverConfig.getInt('mcp_sse_port', 3458)}) ports failed to bind.\n` +
+        `[TORQUE] Another TORQUE instance is likely running. Exiting to avoid zombie process.\n` +
+        `[TORQUE] Run: bash stop-torque.sh --force\n`
+      );
+      process.exit(1);
+    }
+  }
+
   const apiPort = serverConfig.getInt('api_port', 3457);
-  apiServer.start({ port: apiPort, taskManager }).then(apiResult => {
+  const apiPromise = apiServer.start({ port: apiPort, taskManager }).then(apiResult => {
     if (apiResult.success) {
+      apiStarted = true;
       debugLog(`REST API auto-started at http://127.0.0.1:${apiResult.port}`);
     }
   }).catch(err => {
@@ -801,14 +819,18 @@ function init() {
 
   // Auto-start MCP SSE transport (for plugin-based connections that survive context rollovers)
   const ssePort = serverConfig.getInt('mcp_sse_port', 3458);
-  mcpSse.start({ port: ssePort }).then(sseResult => {
+  const ssePromise = mcpSse.start({ port: ssePort }).then(sseResult => {
     if (sseResult.success) {
+      sseStarted = true;
       debugLog(`MCP SSE transport started at http://127.0.0.1:${sseResult.port}/sse`);
     }
   }).catch(err => {
     debugLog(`MCP SSE transport failed to start: ${err.message}`);
     process.stderr.write(`[TORQUE] MCP SSE transport failed to start: ${err.message}\n`);
   });
+
+  // After both port binding attempts resolve, check if we're a zombie
+  Promise.allSettled([apiPromise, ssePromise]).then(checkCriticalPorts);
 
   const enableMcpGateway = String(process.env.TORQUE_ENABLE_MCP_GATEWAY || '').toLowerCase();
   if (enableMcpGateway === '1' || enableMcpGateway === 'true' || enableMcpGateway === 'yes' || enableMcpGateway === 'on') {

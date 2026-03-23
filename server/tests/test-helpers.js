@@ -14,15 +14,22 @@ const _path = require('path');
  * Tests that mock db.getConfig should fall through to these
  * instead of returning null for unknown keys.
  */
+const TEST_MODELS = {
+  DEFAULT: 'qwen3-coder:30b',
+  FALLBACK: 'qwen3-coder:30b',
+  LEGACY: 'qwen2.5-coder:32b',
+  SMALL: 'qwen3-coder:7b',
+};
+
 const TEST_CONFIG_DEFAULTS = {
   default_provider: 'ollama',
   smart_routing_default_provider: 'hashline-ollama',
   v2_auth_mode: 'permissive',
   default_timeout: '300',
   budget_check_enabled: '1',
-  ollama_fast_model: 'qwen2.5-coder:32b',
-  ollama_balanced_model: 'qwen2.5-coder:32b',
-  ollama_quality_model: 'qwen2.5-coder:32b',
+  ollama_fast_model: 'qwen3-coder:30b',
+  ollama_balanced_model: 'qwen3-coder:30b',
+  ollama_quality_model: 'qwen3-coder:30b',
   max_concurrent: '2',
   stall_detection_enabled: '1',
   auto_start_ollama: '0',
@@ -82,4 +89,4 @@ describe('test-helpers', () => {
   });
 });
 
-module.exports = { uniqueId, sleep, extractTaskId, TEST_CONFIG_DEFAULTS, createConfigMock };
+module.exports = { uniqueId, sleep, extractTaskId, TEST_MODELS, TEST_CONFIG_DEFAULTS, createConfigMock };
