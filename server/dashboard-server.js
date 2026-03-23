@@ -28,6 +28,8 @@ const { execFile } = require('child_process');
 const { WS_MSG_RATE_LIMIT, WS_MSG_RATE_WINDOW_MS } = require('./constants');
 const { redactSecrets } = require('./utils/sanitize');
 const db = require('./database');
+const taskCore = require('./db/task-core');
+const hostManagement = require('./db/host-management');
 const serverConfig = require('./config');
 const { dispatch } = require('./dashboard/router');
 const { sendError } = require('./dashboard/utils');
@@ -600,7 +602,7 @@ function flushTaskUpdates() {
   const DELTA_FIELDS = ['id', 'status', 'progress_percent', 'exit_code', 'completed_at', 'started_at', 'output', 'error_output', 'provider', 'model', 'ollama_host_id'];
   const updates = [];
   for (const taskId of pendingTaskUpdates) {
-    const task = db.getTask(taskId);
+    const task = taskCore.getTask(taskId);
     if (task) {
       // Only include essential fields for delta update
       const delta = {};
@@ -670,13 +672,13 @@ function broadcastStatsUpdateNow() {
 
   if (clients.size === 0) return;
 
-  const allCounts = typeof db.countTasksByStatus === 'function'
-    ? db.countTasksByStatus()
+  const allCounts = typeof taskCore.countTasksByStatus === 'function'
+    ? taskCore.countTasksByStatus()
     : {
-      running: db.countTasks({ status: 'running' }),
-      queued: db.countTasks({ status: 'queued' }),
-      completed: db.countTasks({ status: 'completed' }),
-      failed: db.countTasks({ status: 'failed' }),
+      running: taskCore.countTasks({ status: 'running' }),
+      queued: taskCore.countTasks({ status: 'queued' }),
+      completed: taskCore.countTasks({ status: 'completed' }),
+      failed: taskCore.countTasks({ status: 'failed' }),
     };
   const stats = {
     running: allCounts.running,
@@ -1191,7 +1193,7 @@ function notifyHostActivityUpdated() {
 
   // Merge memory_limit_mb so dashboard can show VRAM bars for remote hosts
   try {
-    const allHosts = db.listOllamaHosts({ enabled: true });
+    const allHosts = hostManagement.listOllamaHosts({ enabled: true });
     for (const host of (allHosts || [])) {
       if (hostActivity[host.id]) {
         hostActivity[host.id].memoryLimitMb = host.memory_limit_mb || 0;
@@ -1199,7 +1201,7 @@ function notifyHostActivityUpdated() {
     }
   } catch { /* best-effort */ }
 
-  const runningTasks = db.listTasks({ status: 'running', limit: 100 });
+  const runningTasks = taskCore.listTasks({ status: 'running', limit: 100 });
   const taskList = runningTasks.tasks || runningTasks;
   const taskGpuStatus = {};
   for (const t of (Array.isArray(taskList) ? taskList : [])) {

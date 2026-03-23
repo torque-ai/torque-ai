@@ -10,6 +10,9 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const db = require('./database');
+const taskCore = require('./db/task-core');
+const coordination = require('./db/coordination');
+const providerRoutingCore = require('./db/provider-routing-core');
 const dashboard = require('./dashboard-server');
 const logger = require('./logger').child({ component: 'task-manager' });
 const providerRegistry = require('./providers/registry');
@@ -172,7 +175,7 @@ function fireTaskCompletionPolicyHook(...args) { return _taskExecutionHooks.fire
 function handleTaskStatusTransitionForWorkflow(taskId, status, previousStatus) {
   if (WORKFLOW_TERMINAL_STATUSES.has(status) && previousStatus !== status) {
     try {
-      const updatedTask = db.getTask(taskId);
+      const updatedTask = taskCore.getTask(taskId);
       fireTaskCompletionPolicyHook(updatedTask || { id: taskId, status });
     } catch (err) {
       logger.info(`[TaskManager] Failed to fire completion policy hook for ${taskId}: ${err.message}`);
@@ -339,13 +342,13 @@ function sanitizeTaskOutput(...args) { return _taskUtils.sanitizeTaskOutput(...a
 function safeUpdateTaskStatus(taskId, status, fields = {}) {
   try {
     // Use softFail mode to gracefully handle terminal state conflicts
-    return db.updateTaskStatus(taskId, status, { ...fields, _softFail: true });
+    return taskCore.updateTaskStatus(taskId, status, { ...fields, _softFail: true });
   } catch (err) {
     // Even with softFail, some errors may still occur (db corruption, etc.)
     if (err.message.includes('Cannot transition')) {
       logger.info(`[SafeUpdate] State conflict for ${taskId}: ${err.message.slice(0, 80)}`);
       try {
-        return db.getTask(taskId);
+        return taskCore.getTask(taskId);
       } catch {
         return null;
       }
@@ -572,7 +575,7 @@ function processQueue() {
 
   try {
     // Try to acquire distributed lock for cross-process coordination
-    const lockResult = db.acquireLock(
+    const lockResult = coordination.acquireLock(
       QUEUE_LOCK_NAME,
       QUEUE_LOCK_HOLDER_ID,
       QUEUE_LOCK_LEASE_SECONDS,
@@ -590,7 +593,7 @@ function processQueue() {
     } finally {
       // Release the distributed lock (guarded to prevent stalling queue on DB error)
       try {
-        db.releaseLock(QUEUE_LOCK_NAME, QUEUE_LOCK_HOLDER_ID);
+        coordination.releaseLock(QUEUE_LOCK_NAME, QUEUE_LOCK_HOLDER_ID);
       } catch (lockErr) {
         logger.info(`[Queue] Failed to release lock: ${lockErr.message}`);
       }
@@ -1081,7 +1084,7 @@ _queueScheduler.init({
   getProviderInstance: (name) => providerRegistry.getProviderInstance(name),
   getFreeQuotaTracker,
   cleanupOrphanedRetryTimeouts,
-  analyzeTaskForRouting: db.analyzeTaskForRouting,
+  analyzeTaskForRouting: providerRoutingCore.analyzeTaskForRouting,
   notifyDashboard: (taskId, updates = {}) => {
     if (!taskId) return;
     const payload = updates && typeof updates === 'object' ? updates : {};

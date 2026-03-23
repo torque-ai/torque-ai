@@ -10,6 +10,8 @@ const { randomUUID } = require('crypto');
 const tools = require('./tools');
 const { handleToolCall } = tools;
 const db = require('./database');
+const taskCore = require('./db/task-core');
+const costTracking = require('./db/cost-tracking');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'api-server' });
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
@@ -847,7 +849,7 @@ async function handleGetFreeTierHistory(req, res, _context = {}) {
   try {
     const query = parseQuery(req.url);
     const days = Math.max(1, Math.min(90, parseInt(query.days, 10) || 7));
-    const history = db.getUsageHistory(days);
+    const history = costTracking.getUsageHistory(days);
     sendJson(res, { status: 'ok', history }, 200, req);
   } catch (err) {
     sendJson(res, { error: err.message }, 500, req);
@@ -866,7 +868,7 @@ async function handleGetFreeTierAutoScale(_req, res, _context = {}) {
     // Count currently queued codex tasks
     let codexQueueDepth = 0;
     try {
-      const queued = db.listTasks({ status: 'queued', limit: 1000 });
+      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 });
       const queuedArr = Array.isArray(queued) ? queued : (queued.tasks || []);
       codexQueueDepth = queuedArr.filter(t => {
         if (t.provider === 'codex') return true;

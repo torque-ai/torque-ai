@@ -14,6 +14,8 @@ const http = require('http');
 const { generateOpenApiSpec } = require('../api/openapi-generator');
 const apiRoutes = require('../api/routes');
 const authMiddleware = require('../auth/middleware');
+const taskCore = require('../db/task-core');
+const costTracking = require('../db/cost-tracking');
 
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
@@ -371,7 +373,7 @@ describe('api-server.core helpers', () => {
 
 describe('exported route handlers', () => {
   it('handleGetFreeTierHistory clamps days and returns usage rows', async () => {
-    const getUsageHistorySpy = vi.spyOn(db, 'getUsageHistory').mockReturnValue([
+    const getUsageHistorySpy = vi.spyOn(costTracking, 'getUsageHistory').mockReturnValue([
       { day: '2026-03-08', provider: 'codex', requests: 3 },
     ]);
     const req = createMockRequest({ url: '/api/free-tier/history?days=500' });
@@ -394,7 +396,7 @@ describe('exported route handlers', () => {
     db.setConfig('free_tier_queue_depth_threshold', '5');
     db.setConfig('free_tier_cooldown_seconds', '120');
 
-    const listTasksSpy = vi.spyOn(db, 'listTasks').mockReturnValue([
+    const listTasksSpy = vi.spyOn(taskCore, 'listTasks').mockReturnValue([
       { provider: 'codex' },
       { provider: 'groq' },
       { provider: 'codex' },
