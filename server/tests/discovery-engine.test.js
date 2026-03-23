@@ -9,7 +9,6 @@
  *   - vi.mock for discoverFromAdapter tests against the registry
  */
 
-const { vi, describe, it, expect, beforeEach } = require('vitest');
 const Database = require('better-sqlite3');
 
 vi.mock('../models/registry', () => ({
