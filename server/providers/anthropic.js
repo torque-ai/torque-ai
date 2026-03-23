@@ -251,8 +251,13 @@ class AnthropicProvider extends BaseProvider {
       }
       const data = await response.json();
       const models = Array.isArray(data?.data)
-        ? data.data.map(m => m.id).filter(Boolean)
-        : [this.defaultModel];
+        ? data.data.map(m => ({
+            model_name: m.id,
+            id: m.id,
+            owned_by: m.owned_by || null,
+            context_window: m.context_length || m.context_window || null,
+          })).filter(m => m.model_name)
+        : [{ model_name: this.defaultModel }];
       return { available: true, models };
     } catch (err) {
       const msg = err.name === 'AbortError' ? 'Health check timed out (5s)' : err.message;

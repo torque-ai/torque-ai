@@ -249,9 +249,15 @@ class GoogleAIProvider extends BaseProvider {
       const models = Array.isArray(data?.models)
         ? data.models
             .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
-            .map(m => m.name?.replace('models/', ''))
+            .map(m => {
+              const modelName = m.name?.replace('models/', '');
+              return modelName ? {
+                model_name: modelName,
+                context_window: m.inputTokenLimit || null,
+              } : null;
+            })
             .filter(Boolean)
-        : [this.defaultModel];
+        : [{ model_name: this.defaultModel }];
       return { available: true, models };
     } catch (err) {
       const msg = err.name === 'AbortError' ? 'Health check timed out (5s)' : err.message;
@@ -262,7 +268,7 @@ class GoogleAIProvider extends BaseProvider {
   async listModels() {
     const health = await this.checkHealth();
     if (health.available && health.models.length > 0) {
-      return health.models;
+      return health.models.map(m => (typeof m === 'string' ? m : m.model_name || m.name)).filter(Boolean);
     }
     return [
       'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash',

@@ -342,7 +342,10 @@ describe('OpenRouterProvider', () => {
 
       const health = await provider.checkHealth();
       expect(health.available).toBe(true);
-      expect(health.models).toEqual(['model-a', 'model-b']);
+      expect(health.models).toEqual([
+        { model_name: 'model-a', id: 'model-a', owned_by: null, context_window: null },
+        { model_name: 'model-b', id: 'model-b', owned_by: null, context_window: null },
+      ]);
     });
 
     it('returns unavailable on API error', async () => {

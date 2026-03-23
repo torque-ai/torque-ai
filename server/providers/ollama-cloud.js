@@ -244,8 +244,12 @@ class OllamaCloudProvider extends BaseProvider {
       }
       const data = await response.json();
       const models = Array.isArray(data?.models)
-        ? data.models.map(m => m.name).filter(Boolean)
-        : [this.defaultModel];
+        ? data.models.map(m => ({
+            model_name: m.name,
+            sizeBytes: m.size || null,
+            parameter_size: m.details?.parameter_size || undefined,
+          })).filter(m => m.model_name)
+        : [{ model_name: this.defaultModel }];
       return { available: true, models };
     } catch (err) {
       const msg = err.name === 'AbortError' ? 'Health check timed out (10s)' : err.message;
@@ -256,7 +260,7 @@ class OllamaCloudProvider extends BaseProvider {
   async listModels() {
     const health = await this.checkHealth();
     if (health.available && health.models.length > 0) {
-      return health.models;
+      return health.models.map(m => (typeof m === 'string' ? m : m.model_name || m.name)).filter(Boolean);
     }
     return [
       'qwen3-coder:480b', 'deepseek-v3.1:671b', 'deepseek-v3.2',
