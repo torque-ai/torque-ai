@@ -144,7 +144,7 @@ describe('CerebrasProvider', () => {
       const result = await provider.checkHealth();
 
       expect(result.available).toBe(true);
-      expect(result.models).toEqual(['gpt-oss-120b']);
+      expect(result.models).toEqual([{ model_name: 'gpt-oss-120b', id: 'gpt-oss-120b', owned_by: null, context_window: null }]);
     });
 
     it('returns unavailable on HTTP error', async () => {
