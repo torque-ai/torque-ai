@@ -5,7 +5,6 @@ const {
   getText,
 } = require('./vitest-setup');
 
-const { getDbInstance } = require('../database');
 const model = require('../workstation/model');
 
 let handleToolCall;
@@ -52,7 +51,7 @@ describe('workstation handlers', () => {
   beforeEach(() => {
     // Re-bind model to current test db handle — critical when running alongside
     // other test files that may have loaded the model singleton with a different db
-    model.setDb(getDbInstance());
+    model.setDb(rawDb());
     rawDb().prepare('DELETE FROM workstations').run();
   });
 

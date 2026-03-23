@@ -6,12 +6,12 @@ const { randomUUID } = require('crypto');
 const {
   setupTestDb,
   teardownTestDb,
+  rawDb,
   safeTool,
 } = require('./vitest-setup');
 
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
-let getDbInstance;
 let resetForTest;
 let taskCore;
 let workflowEngine;
@@ -85,7 +85,7 @@ function createTask(overrides = {}) {
 describe('P1 workflow fixes', () => {
   beforeAll(() => {
     ({ testDir } = setupTestDb('workflow-fixes'));
-    ({ getDbInstance, resetForTest } = require('../database'));
+    ({ resetForTest } = require('../database'));
     taskCore = require('../db/task-core');
     workflowEngine = require('../db/workflow-engine');
     runtime = require('../execution/workflow-runtime');
@@ -131,7 +131,7 @@ describe('P1 workflow fixes', () => {
     });
     expect(wildcardLoop.isError).toBeFalsy();
 
-    const wildcardTask = getDbInstance().prepare(
+    const wildcardTask = rawDb().prepare(
       'SELECT task_description FROM tasks WHERE template_name = ? AND task_description LIKE ? ORDER BY created_at DESC LIMIT 1'
     ).get(templated, 'expanded=%');
     expect(wildcardTask.task_description).toBe('expanded=value-1, keep=${marker}, index=0');
@@ -151,7 +151,7 @@ describe('P1 workflow fixes', () => {
     });
     expect(crashLoop.isError).toBeFalsy();
 
-    const crashTask = getDbInstance().prepare(
+    const crashTask = rawDb().prepare(
       'SELECT task_description FROM tasks WHERE template_name = ? ORDER BY created_at DESC LIMIT 1'
     ).get(crashTemplate);
     expect(crashTask.task_description).toBe('value=escaped');
