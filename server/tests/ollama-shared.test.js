@@ -125,4 +125,74 @@ describe('ollama-shared', () => {
       expect(ollamaShared.findBestAvailableModel()).toBeNull();
     });
   });
+
+  // ── resolveOllamaModel ───────────────────────────────────────
+
+  describe('resolveOllamaModel', () => {
+    let serverConfig;
+
+    beforeEach(() => {
+      serverConfig = require('../config');
+    });
+
+    it('returns task.model when set', () => {
+      const task = { model: 'qwen2.5-coder:32b' };
+      const host = { default_model: 'codestral:22b', models: ['phi:3b'] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('qwen2.5-coder:32b');
+    });
+
+    it('returns host.default_model when task has no model', () => {
+      const task = { description: 'some work' };
+      const host = { default_model: 'codestral:22b', models: ['phi:3b'] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('codestral:22b');
+    });
+
+    it('falls back to global config when no host default', () => {
+      vi.spyOn(serverConfig, 'get').mockImplementation((key) => {
+        if (key === 'ollama_model') return 'global-model:7b';
+        return undefined;
+      });
+      const task = { description: 'some work' };
+      const host = { models: ['phi:3b'] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('global-model:7b');
+      serverConfig.get.mockRestore();
+    });
+
+    it('falls back to first cached model when no config', () => {
+      vi.spyOn(serverConfig, 'get').mockReturnValue(undefined);
+      const task = {};
+      const host = { models: ['phi:3b', 'codestral:22b'] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('phi:3b');
+      serverConfig.get.mockRestore();
+    });
+
+    it('falls back to first cached model object with name property', () => {
+      vi.spyOn(serverConfig, 'get').mockReturnValue(undefined);
+      const task = {};
+      const host = { models: [{ name: 'codestral:22b' }] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('codestral:22b');
+      serverConfig.get.mockRestore();
+    });
+
+    it('returns null when nothing available', () => {
+      vi.spyOn(serverConfig, 'get').mockReturnValue(undefined);
+      const task = {};
+      const host = { models: [] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBeNull();
+      serverConfig.get.mockRestore();
+    });
+
+    it('handles null task and host gracefully', () => {
+      vi.spyOn(serverConfig, 'get').mockReturnValue(undefined);
+      expect(ollamaShared.resolveOllamaModel(null, null)).toBeNull();
+      expect(ollamaShared.resolveOllamaModel(undefined, undefined)).toBeNull();
+      serverConfig.get.mockRestore();
+    });
+
+    it('task.model takes priority over host.default_model', () => {
+      const task = { model: 'task-model:7b' };
+      const host = { default_model: 'host-model:32b', models: ['cached:22b'] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('task-model:7b');
+    });
+  });
 });

@@ -11,6 +11,7 @@
  */
 
 const logger = require('../logger').child({ component: 'ollama-shared' });
+const serverConfig = require('../config');
 
 let db = null;
 
@@ -81,9 +82,32 @@ function findBestAvailableModel(filterFn) {
   }
 }
 
+/**
+ * Resolve the Ollama model to use for a task, walking a priority chain:
+ *   1. task.model          — explicit model from task submission
+ *   2. host.default_model  — per-host default
+ *   3. serverConfig 'ollama_model' — global config
+ *   4. First model in host.models — dynamic fallback from what's loaded
+ *   5. null                — caller handles the error
+ *
+ * Both parameters are optional (nullable).
+ */
+function resolveOllamaModel(task, host) {
+  if (task?.model) return task.model;
+  if (host?.default_model) return host.default_model;
+  const globalDefault = serverConfig.get('ollama_model');
+  if (globalDefault) return globalDefault;
+  if (host?.models?.length) {
+    const first = host.models[0];
+    return typeof first === 'string' ? first : first?.name || null;
+  }
+  return null;
+}
+
 module.exports = {
   init,
   hasModelOnAnyHost,
   hostHasModel,
   findBestAvailableModel,
+  resolveOllamaModel,
 };
