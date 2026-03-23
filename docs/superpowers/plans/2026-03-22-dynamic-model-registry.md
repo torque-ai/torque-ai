@@ -10,13 +10,21 @@
 
 **Test command:** `torque-remote "cd C:/Users/Kenten/Projects/torque-public/server && npx vitest run tests/<file>"`
 
+**Important context (2026-03-22):**
+- The codebase now uses a **DI container** (`server/container.js`) with 130+ registered services. New modules MUST export a `createXxx(deps)` factory and register in the container. Do NOT use `require('./database')` in new code.
+- **aider-ollama was removed** — skip any references to it.
+- Several files were **split by the OSS session**: `smart-routing.js` from provider-routing-core, `task-startup.js` from task-manager. Check these files too.
+- Tests should use `server/tests/test-container.js` for DI-based isolation.
+- Run `npm run lint:di` after changes to verify DI compliance.
+
 ---
 
 ## File Structure
 
 | File | Responsibility | Action |
 |------|---------------|--------|
-| `server/db/model-roles.js` | Role-based model lookup and assignment | Create |
+| `server/db/model-roles.js` | Role-based model lookup and assignment | Create (with `createModelRoles` factory) |
+| `server/container.js` | Register modelRoles service | Modify |
 | `server/db/schema-migrations.js` | Add model_roles table | Modify |
 | `server/handlers/model-registry-handlers.js` | MCP tool handlers for configure_model_roles | Modify |
 | `server/tool-defs/model-defs.js` | MCP tool definition for configure_model_roles | Modify |
@@ -25,9 +33,9 @@
 | `server/execution/queue-scheduler.js` | Replace hardcoded tier models with role lookup | Modify |
 | `server/execution/fallback-retry.js` | Replace hardcoded model escalation with role lookup | Modify |
 | `server/execution/strategic-hooks.js` | Replace DEFAULT_MODEL with role lookup | Modify |
-| `server/handlers/integration/routing.js` | Replace 16 model name checks with capability lookups | Modify |
+| `server/handlers/integration/routing.js` | Replace model name checks with capability lookups | Modify |
 | `server/db/provider-routing-core.js` | Replace hardcoded model in greenfield gate | Modify |
-| `server/tests/model-roles.test.js` | Unit tests for model-roles.js | Create |
+| `server/tests/model-roles.test.js` | Unit tests for model-roles.js (use test-container.js) | Create |
 | `server/tests/test-helpers.js` | Add TEST_MODEL constant for test fixtures | Modify |
 
 ---
@@ -61,10 +69,26 @@ Core functions:
 - `VALID_ROLES` constant: default, fallback, fast, balanced, quality
 - `ROLE_FALLBACK_CHAIN` map: fast->[fast,default], quality->[quality,default], etc.
 - Export `createModelRoles(deps)` factory for DI container
+- `deps.db` is the better-sqlite3 instance
 
-- [ ] **Step 5: Run tests — expect PASS**
+- [ ] **Step 5: Register in container.js**
 
-- [ ] **Step 6: Commit**
+In `server/container.js`, add registration alongside other db modules:
+```js
+_defaultContainer.register('modelRoles', ['db'], (deps) => {
+  const { createModelRoles } = require('./db/model-roles');
+  return createModelRoles(deps);
+});
+```
+
+- [ ] **Step 6: Run tests — expect PASS**
+
+Use `test-container.js` helper for test isolation:
+```js
+import { createTestDb } from './test-container.js';
+```
+
+- [ ] **Step 7: Commit**
 
 ---
 
@@ -120,14 +144,18 @@ Note: Cannot make this fully dynamic at require-time since it is used as a const
 
 - [ ] **Step 2: In execution.js, replace hardcoded fallback with role lookup**
 
+Use the DI container pattern. If the module already receives deps via init(), add modelRoles to its deps. Otherwise use lazy container access:
 ```js
 if (!resolvedModel) {
-  const modelRoles = require('../db/model-roles');
+  const { defaultContainer } = require('../container');
+  const modelRoles = defaultContainer.get('modelRoles');
   resolvedModel = modelRoles.getModelForRole(provider, 'default') || 'qwen3-coder:30b';
 }
 ```
 
 - [ ] **Step 3: In strategic-hooks.js, replace DEFAULT_MODEL with role lookup function**
+
+Same DI pattern. The 'qwen3-coder:30b' literal here is ONLY a bootstrap fallback for before the container is ready — not the configured default.
 
 - [ ] **Step 4: Run affected tests**
 
@@ -232,6 +260,10 @@ const TEST_MODELS = {
 Replace 'qwen2.5-coder:32b' with TEST_MODELS.DEFAULT and 'codestral:22b' with TEST_MODELS.FALLBACK. For files with 1-2 refs: inline string replacement. For files with 10+ refs: import TEST_MODELS.
 
 This is mechanical work — dispatch as parallel agent work.
+
+Note: 142 test files still import database.js for core functions (resetForTest, getDbInstance) — this is acceptable per OSS session guidance. Only new test setup code should use test-container.js.
+
+Also remove any remaining references to aider-ollama in test fixtures.
 
 - [ ] **Step 3: Run full test suite**
 
