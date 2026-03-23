@@ -6,8 +6,15 @@ const database = require('../database'); // facade: getDbInstance
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'strategic-hooks' });
 
+const { resolveOllamaModel } = require('../providers/ollama-shared');
+const modelRoles = require('../db/model-roles');
+
+function getDefaultModel() {
+  try { return modelRoles.getModelForRole('ollama', 'default') || 'qwen3-coder:30b'; }
+  catch { return 'qwen3-coder:30b'; }
+}
+
 const DEFAULT_PROVIDER = 'ollama';
-const DEFAULT_MODEL = 'qwen2.5-coder:32b';
 
 function normalizeMetadata(rawMetadata) {
   if (!rawMetadata) return {};
@@ -45,7 +52,7 @@ function isEnabled(key) {
 function getStrategicBrain() {
   return new StrategicBrain({
     provider: serverConfig.get('strategic_provider') || DEFAULT_PROVIDER,
-    model: serverConfig.get('strategic_model') || DEFAULT_MODEL,
+    model: serverConfig.get('strategic_model') || resolveOllamaModel(null, null) || getDefaultModel(),
   });
 }
 

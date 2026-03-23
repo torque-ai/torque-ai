@@ -10,11 +10,12 @@ const providerRoutingCore = require('../../db/provider-routing-core');
 const taskCore = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
 const taskManager = require('../../task-manager');
-const { PROVIDER_DEFAULTS } = require('../../constants');
+const { PROVIDER_DEFAULTS, DEFAULT_FALLBACK_MODEL } = require('../../constants');
 const { ErrorCodes, makeError } = require('../error-codes');
 const { MAX_TASK_LENGTH, isPathTraversalSafe, checkProviderAvailability } = require('../shared');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
+const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');
 serverConfig.init({ db: configCore });
@@ -346,7 +347,7 @@ async function handleSmartSubmitTask(args) {
   }
 
   // Both-providers-down gate: reject if Codex exhausted AND no local LLM available (RB-031)
-  const availCheck = checkProviderAvailability(db, { hasExplicitProvider: !!override_provider });
+  const availCheck = checkProviderAvailability(null, { hasExplicitProvider: !!override_provider });
   if (availCheck) return availCheck.error;
 
   // Validate provider
@@ -616,7 +617,7 @@ async function handleSmartSubmitTask(args) {
 
           workflowEngine.createWorkflow({ id: workflowId, name: `JS Auto: ${task.substring(0, 55)}${task.length > 55 ? '...' : ''}`, description: `Auto-decomposed: ${largestFile} (${largestLineCount} lines, ${boundaries.length} fns, ${batches.length} batches)`, status: 'pending' });
 
-          const subtaskModel = 'qwen2.5-coder:32b';
+          const subtaskModel = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
           const subtaskProvider = 'hashline-ollama';
           let prevTaskId = null;
           const createdTasks = [];
@@ -799,7 +800,7 @@ async function handleSmartSubmitTask(args) {
     const canUseLocalForMod = fileSizeKnown && maxFileLines < modSafeLineLimit;
     if (isModificationTask && canUseLocalForMod && !override_provider) {
       // R103-R104: qwen2.5-coder:32b handles modifications safely on files <250 lines
-      taskModel = 'qwen2.5-coder:32b';
+      taskModel = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
       modRoutingReason = `Modification task (${maxFileLines} lines < ${modSafeLineLimit} limit) → local model (safe)`;
       logger.info(`[SmartRouting] R104: ${modRoutingReason}`);
     } else if (isModificationTask && codexEnabled && !override_provider && !codexExhausted) {

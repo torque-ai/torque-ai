@@ -6,6 +6,8 @@
  */
 
 const BaseProvider = require('./base');
+const { resolveOllamaModel } = require('./ollama-shared');
+const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 
 function buildApiErrorMessage(status, errorBody) {
   return `Ollama API error (${status}): ${errorBody}`;
@@ -25,7 +27,7 @@ class OllamaStrategicProvider extends BaseProvider {
 
     this.host = rawHost.replace(/\/+$/, '');
     this.baseUrl = `${this.host}/v1`;
-    this.defaultModel = config.defaultModel || 'qwen2.5-coder:32b';
+    this.defaultModel = config.defaultModel || resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
     this.defaultTemperature = config.defaultTemperature ?? 0.3;
   }
 

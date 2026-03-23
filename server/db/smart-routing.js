@@ -823,7 +823,9 @@ function getNextFallbackProvider(taskId) {
   let ollamaIsAgentic = false;
   try {
     const { isAgenticCapable } = require('../providers/agentic-capability');
-    const ollamaModel = task.model || (typeof getDatabaseConfig === 'function' ? getDatabaseConfig('ollama_model') : null) || 'qwen3-coder:30b';
+    const { resolveOllamaModel } = require('../providers/ollama-shared');
+    const { DEFAULT_FALLBACK_MODEL } = require('../constants');
+    const ollamaModel = task.model || (typeof getDatabaseConfig === 'function' ? getDatabaseConfig('ollama_model') : null) || resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
     ollamaIsAgentic = isAgenticCapable('ollama', ollamaModel).capable;
   } catch { /* non-fatal — default to skipping */ }
 

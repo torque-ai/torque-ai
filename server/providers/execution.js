@@ -499,7 +499,12 @@ async function executeOllamaTaskWithAgentic(task) {
     const best = ollamaShared.findBestAvailableModel();
     if (best) resolvedModel = best;
   }
-  if (!resolvedModel) resolvedModel = resolveOllamaModel(null, null) || 'qwen3-coder:30b';
+  if (!resolvedModel) {
+    try {
+      const modelRoles = require('../db/model-roles');
+      resolvedModel = modelRoles.getModelForRole('ollama', 'default') || 'qwen3-coder:30b';
+    } catch { resolvedModel = 'qwen3-coder:30b'; }
+  }
 
   // Resolve host
   const hosts = db.listOllamaHosts ? db.listOllamaHosts() : [];

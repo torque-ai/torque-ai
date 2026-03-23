@@ -18,6 +18,7 @@ const gpuMetrics = require('../scripts/gpu-metrics-server');
 const { safeJsonParse } = require('../utils/json');
 const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
+const modelRoles = require('../db/model-roles');
 const eventBus = require('../event-bus');
 
 // Dependency injection
@@ -552,7 +553,11 @@ function attemptCodexOverflow(codexTask) {
 
     if (localHosts.length > 0) {
       const tierName = taskComplexity === 'simple' ? 'fast' : 'balanced';
-      const localModel = serverConfig.get(`ollama_${tierName}_model`) || resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
+      let localModel = serverConfig.get(`ollama_${tierName}_model`);
+      if (!localModel) {
+        try { localModel = modelRoles.getModelForRole('ollama', tierName) || modelRoles.getModelForRole('ollama', 'default'); } catch (_e) { void _e; }
+      }
+      if (!localModel) localModel = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
       const statusUpdates = {
         provider: 'hashline-ollama',
         model: localModel,
@@ -799,6 +804,9 @@ function processQueueInternal(options = {}) {
         const best = registry.selectBestApprovedModel(task._effectiveProvider || task.provider);
         if (best) model = best.model_name;
       } catch (_e) { void _e; /* registry not available */ }
+    }
+    if (!model) {
+      try { model = modelRoles.getModelForRole(task._effectiveProvider || task.provider || 'ollama', 'default'); } catch (_e) { void _e; }
     }
     if (!model) model = resolveOllamaModel(task, null) || DEFAULT_FALLBACK_MODEL;
     let selection = db.selectOllamaHostForModel(model);

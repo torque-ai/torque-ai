@@ -3,6 +3,8 @@
 const { buildPrompt } = require('./prompt-templates');
 const { extractJson } = require('./response-parser');
 const { fallbackDecompose, fallbackDiagnose, fallbackReview } = require('./deterministic-fallbacks');
+const { resolveOllamaModel } = require('../providers/ollama-shared');
+const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 const logger = require('../logger').child({ component: 'strategic-brain' });
 
 const CONFIDENCE_THRESHOLD = 0.4;
@@ -22,7 +24,7 @@ const PROVIDER_MAP = {
 const DEFAULT_MODELS = {
   deepinfra: 'meta-llama/Llama-3.1-405B-Instruct',
   hyperbolic: 'meta-llama/Llama-3.1-405B-Instruct',
-  ollama: 'qwen2.5-coder:32b',
+  get ollama() { return resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL; },
 };
 
 // Auto-detect chain: configured → deepinfra → hyperbolic → ollama

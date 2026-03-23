@@ -16,6 +16,8 @@ const taskManager = require('../../task-manager');
 const chunkedReview = require('../../chunked-review');
 const shared = require('../shared');
 const { isPathTraversalSafe, requireString, requireEnum, ErrorCodes, makeError } = shared;
+const { resolveOllamaModel } = require('../../providers/ollama-shared');
+const { DEFAULT_FALLBACK_MODEL } = require('../../constants');
 
 // ============================================================
 // Wave 9: Integration Expansion Handlers (Option 5)
@@ -904,7 +906,7 @@ List each potential bug with line numbers and explanation.`
     working_directory: process.cwd(),
     status: 'pending', // NOT queued - must be manually started after chunks complete
     provider: null,  // deferred assignment
-    model: model || 'qwen2.5-coder:32b',
+    model: model || resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL,
     timeout_minutes: 30,
     priority: priority || 0,
     metadata: JSON.stringify({

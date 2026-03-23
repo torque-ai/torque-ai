@@ -195,9 +195,12 @@ function determineTaskComplexity(taskDescription, files = []) {
  * @returns {{ tier: string, modelConfig: string, description: string }}
  */
 function getModelTierForComplexity(complexity) {
-  const fastModel = getConfig('ollama_fast_model') || 'qwen2.5-coder:32b';
-  const balancedModel = getConfig('ollama_balanced_model') || 'qwen2.5-coder:32b';
-  const qualityModel = getConfig('ollama_quality_model') || 'qwen2.5-coder:32b';
+  const { resolveOllamaModel } = require('../providers/ollama-shared');
+  const { DEFAULT_FALLBACK_MODEL } = require('../constants');
+  const modelFallback = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
+  const fastModel = getConfig('ollama_fast_model') || modelFallback;
+  const balancedModel = getConfig('ollama_balanced_model') || modelFallback;
+  const qualityModel = getConfig('ollama_quality_model') || modelFallback;
 
   switch (complexity) {
     case 'simple':
