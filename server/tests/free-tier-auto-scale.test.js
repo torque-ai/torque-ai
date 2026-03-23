@@ -10,6 +10,7 @@
  */
 
 const logger = require('../logger');
+const serverConfig = require('../config');
 
 const mockLogger = {
   debug: vi.fn(),
@@ -20,20 +21,62 @@ const mockLogger = {
 
 vi.spyOn(logger, 'child').mockReturnValue(mockLogger);
 
-vi.mock('../providers/registry', () => ({
-  getProviderInstance: vi.fn().mockReturnValue({}),
-  listProviders: vi.fn().mockReturnValue([]),
-  getProviderConfig: vi.fn(),
-  getCategory: vi.fn().mockReturnValue(null),
-}));
+vi.mock('../providers/registry', () => {
+  const categories = {
+    codex: 'codex',
+    'claude-cli': 'codex',
+    groq: 'api',
+    cerebras: 'api',
+    'google-ai': 'api',
+    openrouter: 'api',
+    anthropic: 'api',
+    deepinfra: 'api',
+    'ollama-cloud': 'api',
+    ollama: 'ollama',
+    'hashline-ollama': 'ollama',
+  };
+
+  return {
+    getProviderInstance: vi.fn().mockReturnValue({}),
+    listProviders: vi.fn().mockReturnValue([]),
+    getProviderConfig: vi.fn(),
+    getCategory: vi.fn().mockImplementation((provider) => categories[provider] || null),
+  };
+});
 
 describe('Free-tier auto-scale', () => {
   let scheduler;
   let mockDb;
   let mocks;
   let mockTracker;
+  let configValues;
 
   beforeEach(() => {
+    vi.spyOn(logger, 'child').mockReturnValue(mockLogger);
+
+    configValues = {};
+    vi.spyOn(serverConfig, 'isOptIn').mockImplementation((key) => {
+      const value = configValues[key];
+      if (value === null || value === undefined) return false;
+      const normalized = String(value).trim().toLowerCase();
+      return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+    });
+    vi.spyOn(serverConfig, 'getInt').mockImplementation((key, fallback) => {
+      const value = configValues[key];
+      if (value === null || value === undefined) return fallback ?? 0;
+      const parsed = parseInt(value, 10);
+      return Number.isNaN(parsed) ? (fallback ?? 0) : parsed;
+    });
+    vi.spyOn(serverConfig, 'getBool').mockImplementation((key, fallback) => {
+      const value = configValues[key];
+      if (value === null || value === undefined) {
+        if (key === 'auto_compute_max_concurrent') return true;
+        return fallback ?? false;
+      }
+      const normalized = String(value).trim().toLowerCase();
+      return normalized !== '0' && normalized !== 'false' && normalized !== 'no' && normalized !== '';
+    });
+
     // Clear module cache for fresh singleton state
     const modPath = require.resolve('../execution/queue-scheduler');
     delete require.cache[modPath];
@@ -111,16 +154,15 @@ describe('Free-tier auto-scale', () => {
   }
 
   function setupConfigForAutoScale(overrides = {}) {
-    const configValues = {
+    configValues = {
       codex_enabled: '1',
       free_tier_auto_scale_enabled: overrides.enabled !== undefined ? String(overrides.enabled) : 'true',
       free_tier_queue_depth_threshold: String(overrides.threshold || 3),
       free_tier_cooldown_seconds: String(overrides.cooldown !== undefined ? overrides.cooldown : 60),
       codex_overflow_to_local: '0',
+      auto_compute_max_concurrent: 'true',
       ...overrides.extraConfig,
     };
-
-    mockDb.getConfig.mockImplementation((key) => configValues[key] || null);
   }
 
   function setupCodexQueueWithDepth(count, metadataOverrides = {}) {
@@ -174,8 +216,7 @@ describe('Free-tier auto-scale', () => {
     });
 
     it('does NOT reroute when config is missing (defaults to disabled)', () => {
-      // getConfig returns null for all keys
-      mockDb.getConfig.mockReturnValue(null);
+      configValues = {};
       setupCodexQueueWithDepth(5);
 
       scheduler.processQueueInternal();
@@ -624,14 +665,13 @@ describe('Free-tier auto-scale', () => {
     it('seeds free_tier_auto_scale_enabled as false', () => {
       // This tests that the default config values are correct
       // by verifying the feature is disabled by default in the scheduler
-      mockDb.getConfig.mockImplementation((key) => {
-        if (key === 'codex_enabled') return '1';
-        // Return actual default values
-        if (key === 'free_tier_auto_scale_enabled') return 'false';
-        if (key === 'free_tier_queue_depth_threshold') return '3';
-        if (key === 'free_tier_cooldown_seconds') return '60';
-        return null;
-      });
+      configValues = {
+        codex_enabled: '1',
+        free_tier_auto_scale_enabled: 'false',
+        free_tier_queue_depth_threshold: '3',
+        free_tier_cooldown_seconds: '60',
+        auto_compute_max_concurrent: 'true',
+      };
 
       setupCodexQueueWithDepth(10);
       scheduler.processQueueInternal();

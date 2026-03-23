@@ -23,6 +23,7 @@ vi.mock('../providers/registry', () => {
 });
 
 const logger = require('../logger');
+const serverConfig = require('../config');
 
 const trackerLogger = {
   debug: vi.fn(),
@@ -166,6 +167,7 @@ describe('queue-scheduler free-tier overflow slot gating', () => {
   let mockTracker;
   let safeConfigInt;
   let safeStartTask;
+  let configValues;
 
   function makeTask(overrides = {}) {
     return {
@@ -207,17 +209,41 @@ describe('queue-scheduler free-tier overflow slot gating', () => {
       if (status === 'queued') return queuedTasks;
       return [];
     });
-    mockDb.getConfig.mockImplementation((key) => {
-      if (key === 'codex_enabled') return '1';
-      if (key === 'free_tier_auto_scale_enabled') return 'true';
-      if (key === 'free_tier_cooldown_seconds') return '0';
-      if (key === 'codex_overflow_to_local') return '0';
-      return null;
-    });
+    configValues = {
+      codex_enabled: '1',
+      free_tier_auto_scale_enabled: 'true',
+      free_tier_cooldown_seconds: '0',
+      codex_overflow_to_local: '0',
+      auto_compute_max_concurrent: 'true',
+    };
   }
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    vi.spyOn(logger, 'child').mockReturnValue(trackerLogger);
+
+    configValues = {};
+    vi.spyOn(serverConfig, 'isOptIn').mockImplementation((key) => {
+      const value = configValues[key];
+      if (value === null || value === undefined) return false;
+      const normalized = String(value).trim().toLowerCase();
+      return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+    });
+    vi.spyOn(serverConfig, 'getInt').mockImplementation((key, fallback) => {
+      const value = configValues[key];
+      if (value === null || value === undefined) return fallback ?? 0;
+      const parsed = parseInt(value, 10);
+      return Number.isNaN(parsed) ? (fallback ?? 0) : parsed;
+    });
+    vi.spyOn(serverConfig, 'getBool').mockImplementation((key, fallback) => {
+      const value = configValues[key];
+      if (value === null || value === undefined) {
+        if (key === 'auto_compute_max_concurrent') return true;
+        return fallback ?? false;
+      }
+      const normalized = String(value).trim().toLowerCase();
+      return normalized !== '0' && normalized !== 'false' && normalized !== 'no' && normalized !== '';
+    });
 
     const modPath = require.resolve('../execution/queue-scheduler');
     delete require.cache[modPath];
@@ -267,6 +293,7 @@ describe('queue-scheduler free-tier overflow slot gating', () => {
 
   afterEach(() => {
     scheduler.stop();
+    vi.clearAllMocks();
   });
 
   it('does NOT overflow when Codex still has available slots', () => {

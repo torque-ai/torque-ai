@@ -417,11 +417,12 @@ describe('handler:adv-artifacts', () => {
         expires_at: '2026-12-31T00:00:00.000Z',
         metadata: null
       });
+      const handleGetArtifact = loadHandlers().handleGetArtifact;
       vi.spyOn(fs, 'readFileSync').mockImplementationOnce(() => {
         throw new Error('disk failure');
       });
 
-      const result = handlers.handleGetArtifact({
+      const result = handleGetArtifact({
         artifact_id: 'art-3',
         include_content: true
       });
