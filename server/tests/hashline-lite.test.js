@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 // Dynamic imports — assigned after setupTestDb initializes the DB
 let parseHashlineLiteEdits, applyHashlineLiteEdits, selectHashlineFormat,
@@ -469,7 +470,7 @@ function add(a, b) {
         task_description: overrides.description || 'Test escalation task',
         status: overrides.status || 'running',
         provider: overrides.provider || 'hashline-ollama',
-        model: overrides.model || 'qwen3:8b',
+        model: overrides.model || TEST_MODELS.SMALL,
         working_directory: overrides.working_directory || tempDir,
         metadata: overrides.metadata || null,
       });

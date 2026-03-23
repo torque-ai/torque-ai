@@ -10,6 +10,7 @@
  */
 
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('Host Failover Chain', () => {
   let db;
@@ -51,7 +52,7 @@ describe('Host Failover Chain', () => {
       task_description: `Failover test task ${taskId}`,
       status,
       provider: 'hashline-ollama',
-      model: 'qwen3:8b',
+      model: TEST_MODELS.SMALL,
       working_directory: process.cwd(),
       ollama_host_id: hostId,
     });
@@ -65,7 +66,7 @@ describe('Host Failover Chain', () => {
 
   describe('3-consecutive-failure threshold', () => {
     it('1st failure → status becomes degraded', () => {
-      const hostId = addHost('threshold-1', ['qwen3:8b']);
+      const hostId = addHost('threshold-1', [TEST_MODELS.SMALL]);
 
       db.recordHostHealthCheck(hostId, false);
 
@@ -75,7 +76,7 @@ describe('Host Failover Chain', () => {
     });
 
     it('2nd failure → status stays degraded', () => {
-      const hostId = addHost('threshold-2', ['qwen3:8b']);
+      const hostId = addHost('threshold-2', [TEST_MODELS.SMALL]);
 
       db.recordHostHealthCheck(hostId, false);
       db.recordHostHealthCheck(hostId, false);
@@ -86,7 +87,7 @@ describe('Host Failover Chain', () => {
     });
 
     it('3rd failure → status transitions to down', () => {
-      const hostId = addHost('threshold-3', ['qwen3:8b']);
+      const hostId = addHost('threshold-3', [TEST_MODELS.SMALL]);
 
       db.recordHostHealthCheck(hostId, false);
       db.recordHostHealthCheck(hostId, false);
@@ -98,7 +99,7 @@ describe('Host Failover Chain', () => {
     });
 
     it('success resets failures back to 0 and status to healthy', () => {
-      const hostId = addHost('threshold-reset', ['qwen3:8b']);
+      const hostId = addHost('threshold-reset', [TEST_MODELS.SMALL]);
 
       // Fail twice (degraded)
       db.recordHostHealthCheck(hostId, false);
@@ -114,7 +115,7 @@ describe('Host Failover Chain', () => {
     });
 
     it('4th+ failures keep status as down', () => {
-      const hostId = addHost('threshold-4plus', ['qwen3:8b']);
+      const hostId = addHost('threshold-4plus', [TEST_MODELS.SMALL]);
 
       for (let i = 0; i < 5; i++) {
         db.recordHostHealthCheck(hostId, false);
@@ -130,7 +131,7 @@ describe('Host Failover Chain', () => {
 
   describe('host auto-recovery', () => {
     it('recovers from down to healthy on successful health check', () => {
-      const hostId = addHost('recovery-1', ['qwen3:8b']);
+      const hostId = addHost('recovery-1', [TEST_MODELS.SMALL]);
 
       // Mark host as down (3 failures)
       db.recordHostHealthCheck(hostId, false);
@@ -139,7 +140,7 @@ describe('Host Failover Chain', () => {
       expect(db.getOllamaHost(hostId).status).toBe('down');
 
       // Successful health check recovers
-      db.recordHostHealthCheck(hostId, true, [{ name: 'qwen3:8b' }]);
+      db.recordHostHealthCheck(hostId, true, [{ name: TEST_MODELS.SMALL }]);
 
       const host = db.getOllamaHost(hostId);
       expect(host.status).toBe('healthy');
@@ -155,15 +156,15 @@ describe('Host Failover Chain', () => {
 
       // Recover with new model list
       db.recordHostHealthCheck(hostId, true, [
-        { name: 'qwen3:8b' },
-        { name: 'gemma3:4b' },
+        { name: TEST_MODELS.SMALL },
+        { name: TEST_MODELS.FAST },
       ]);
 
       const host = db.getOllamaHost(hostId);
       const models = JSON.parse(host.models_cache);
       expect(models).toHaveLength(2);
-      expect(models.map(m => m.name)).toContain('qwen3:8b');
-      expect(models.map(m => m.name)).toContain('gemma3:4b');
+      expect(models.map(m => m.name)).toContain(TEST_MODELS.SMALL);
+      expect(models.map(m => m.name)).toContain(TEST_MODELS.FAST);
     });
   });
 
@@ -183,7 +184,7 @@ describe('Host Failover Chain', () => {
     });
 
     it('marks running tasks as failed with HOST FAILOVER and triggers retry', () => {
-      const hostId = addHost('cleanup-chain', ['qwen3:8b']);
+      const hostId = addHost('cleanup-chain', [TEST_MODELS.SMALL]);
       const taskId = addTask('chain-task-1', hostId);
 
       let retriedTaskId = null;
@@ -223,7 +224,7 @@ describe('Host Failover Chain', () => {
     });
 
     it('handles multiple tasks failing over simultaneously', () => {
-      const hostId = addHost('multi-cleanup', ['qwen3:8b']);
+      const hostId = addHost('multi-cleanup', [TEST_MODELS.SMALL]);
       const taskIds = ['multi-1', 'multi-2', 'multi-3', 'multi-4', 'multi-5'];
 
       const retriedTasks = [];
@@ -263,7 +264,7 @@ describe('Host Failover Chain', () => {
     });
 
     it('does not retry when max retries exhausted', () => {
-      const hostId = addHost('no-retry', ['qwen3:8b']);
+      const hostId = addHost('no-retry', [TEST_MODELS.SMALL]);
       const taskId = 'exhausted-task';
 
       const mockTryLocalFirst = vi.fn();
@@ -317,8 +318,8 @@ describe('Host Failover Chain', () => {
     });
 
     it('health check failures trigger cleanup on 3rd failure only', () => {
-      const primaryId = addHost('primary-full', ['qwen3:8b']);
-      const _backupId = addHost('backup-full', ['qwen3:8b']);
+      const primaryId = addHost('primary-full', [TEST_MODELS.SMALL]);
+      const _backupId = addHost('backup-full', [TEST_MODELS.SMALL]);
 
       const cleanupCalls = [];
 
@@ -381,9 +382,9 @@ describe('Host Failover Chain', () => {
     });
 
     it('degraded hosts are still available for task assignment', () => {
-      const _degradedId = addHost('degraded-avail', ['qwen3:8b'], { status: 'degraded', consecutiveFailures: 1 });
+      const _degradedId = addHost('degraded-avail', [TEST_MODELS.SMALL], { status: 'degraded', consecutiveFailures: 1 });
 
-      const result = db.selectOllamaHostForModel('qwen3:8b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.SMALL);
       expect(result).toBeTruthy();
       expect(result.host).toBeTruthy();
       // Degraded hosts should not be excluded (only 'down' hosts are filtered)
@@ -394,7 +395,7 @@ describe('Host Failover Chain', () => {
 
   describe('task metadata preservation during failover', () => {
     it('preserves error_output from original failure', () => {
-      const hostId = addHost('metadata-preserve', ['qwen3:8b']);
+      const hostId = addHost('metadata-preserve', [TEST_MODELS.SMALL]);
       const taskId = 'preserve-task';
 
       const capturedUpdates = [];

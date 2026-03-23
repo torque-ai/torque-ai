@@ -7,6 +7,7 @@ const taskCore = require('../db/task-core');
 
 let testDir, db, mod;
 const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 function setup() {
   ({ db, testDir } = setupTestDb('host-mgmt-'));
@@ -829,13 +830,13 @@ describe('host-management module', () => {
     it('routeTask applies dynamic fallback when target host is unavailable', () => {
       rawDb().prepare('DELETE FROM complexity_routing').run();
       makeHost({ id: 'route-fallback' });
-      setHostModels('route-fallback', ['qwen3:8b']);
+      setHostModels('route-fallback', [TEST_MODELS.SMALL]);
 
       // Insert directly into complexity_routing with a dead target_host
       rawDb().prepare(`
         INSERT INTO complexity_routing (name, complexity, target_provider, target_host, model, priority, enabled, created_at)
         VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-      `).run('fallback-route', 'normal', 'ollama', 'dead-host-id', 'qwen3:8b', 10, new Date().toISOString());
+      `).run('fallback-route', 'normal', 'ollama', 'dead-host-id', TEST_MODELS.SMALL, 10, new Date().toISOString());
 
       const routed = mod.routeTask('normal');
       expect(routed).toBeTruthy();
@@ -1156,9 +1157,9 @@ describe('host-management module', () => {
   describe('default_model field', () => {
     it('updateOllamaHost accepts default_model', () => {
       makeHost({ id: 'dm-host' });
-      mod.updateOllamaHost('dm-host', { default_model: 'qwen3-coder:30b' });
+      mod.updateOllamaHost('dm-host', { default_model: TEST_MODELS.DEFAULT });
       const updated = mod.getOllamaHost('dm-host');
-      expect(updated.default_model).toBe('qwen3-coder:30b');
+      expect(updated.default_model).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('default_model is null by default', () => {

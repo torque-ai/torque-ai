@@ -4,6 +4,8 @@
  * Tests for Experiment 6: A/B Provider Comparison Tool
  */
 
+const { TEST_MODELS } = require('./test-helpers');
+
 // rawDb mock with transaction support (returns a function that calls the callback)
 const mockRawDb = {
   transaction: vi.fn((fn) => fn),
@@ -134,13 +136,13 @@ describe('experiment-handlers (Experiment 6)', () => {
         provider_b: 'ollama',
         working_directory: '/tmp',
         model_a: 'gpt-5.3-codex-spark',
-        model_b: 'qwen3-coder:30b',
+        model_b: TEST_MODELS.DEFAULT,
       });
 
       const callA = mockDb.createTask.mock.calls[0][0];
       const callB = mockDb.createTask.mock.calls[1][0];
       expect(callA.model).toBe('gpt-5.3-codex-spark');
-      expect(callB.model).toBe('qwen3-coder:30b');
+      expect(callB.model).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('returns formatted response with task IDs', () => {

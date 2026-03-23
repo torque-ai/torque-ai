@@ -1,6 +1,7 @@
 const path = require('path');
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
@@ -22,7 +23,7 @@ function initExecution(overrides = {}) {
     shellEscape: (s) => s,
     getProjectDefaults: () => ({}),
     buildFileContextString: (fc) => fc || '',
-    getEffectiveModel: (task) => task.model || 'qwen3:8b',
+    getEffectiveModel: (task) => task.model || TEST_MODELS.SMALL,
     startTask: () => {},
     classifyError: () => 'unknown',
     detectTaskTypes: () => [],

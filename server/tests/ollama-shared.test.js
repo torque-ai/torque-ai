@@ -1,6 +1,7 @@
 'use strict';
 
 const ollamaShared = require('../providers/ollama-shared');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('ollama-shared', () => {
   let mockDb;
@@ -24,15 +25,15 @@ describe('ollama-shared', () => {
 
     it('returns true when exact match found', () => {
       mockDb.selectOllamaHostForModel.mockReturnValue({ host: 'localhost' });
-      expect(ollamaShared.hasModelOnAnyHost('qwen3-coder:30b')).toBe(true);
-      expect(mockDb.selectOllamaHostForModel).toHaveBeenCalledWith('qwen3-coder:30b');
+      expect(ollamaShared.hasModelOnAnyHost(TEST_MODELS.DEFAULT)).toBe(true);
+      expect(mockDb.selectOllamaHostForModel).toHaveBeenCalledWith(TEST_MODELS.DEFAULT);
     });
 
     it('returns true when variant match found', () => {
       mockDb.selectOllamaHostForModel.mockReturnValue({ host: null });
       mockDb.selectHostWithModelVariant.mockReturnValue({ host: 'remote' });
-      expect(ollamaShared.hasModelOnAnyHost('qwen3-coder:30b')).toBe(true);
-      expect(mockDb.selectHostWithModelVariant).toHaveBeenCalledWith('qwen3-coder');
+      expect(ollamaShared.hasModelOnAnyHost(TEST_MODELS.DEFAULT)).toBe(true);
+      expect(mockDb.selectHostWithModelVariant).toHaveBeenCalledWith('test-model');
     });
 
     it('returns false when no match found', () => {
@@ -56,25 +57,25 @@ describe('ollama-shared', () => {
     });
 
     it('matches exact model name (case-insensitive)', () => {
-      const host = { models: ['qwen3-coder:30b'] };
-      expect(ollamaShared.hostHasModel(host, 'qwen3-coder:30b')).toBe(true);
-      expect(ollamaShared.hostHasModel(host, 'Qwen3-Coder:30B')).toBe(true);
+      const host = { models: [TEST_MODELS.DEFAULT] };
+      expect(ollamaShared.hostHasModel(host, TEST_MODELS.DEFAULT)).toBe(true);
+      expect(ollamaShared.hostHasModel(host, TEST_MODELS.DEFAULT.toUpperCase())).toBe(true);
     });
 
     it('allows base-name fallback when no explicit version tag', () => {
-      const host = { models: ['qwen3-coder:30b'] };
-      expect(ollamaShared.hostHasModel(host, 'qwen3-coder')).toBe(true);
+      const host = { models: [TEST_MODELS.DEFAULT] };
+      expect(ollamaShared.hostHasModel(host, 'test-model')).toBe(true);
     });
 
     it('blocks base-name fallback when explicit version tag present', () => {
-      const host = { models: ['qwen3-coder:30b'] };
-      // :7b is an explicit version tag → should NOT match :30b
-      expect(ollamaShared.hostHasModel(host, 'qwen3-coder:7b')).toBe(false);
+      const host = { models: [TEST_MODELS.DEFAULT] };
+      // :7b is an explicit version tag → should NOT match :14b
+      expect(ollamaShared.hostHasModel(host, 'test-model:7b')).toBe(false);
     });
 
     it('handles model objects with name property', () => {
-      const host = { models: [{ name: 'qwen3-coder:30b' }] };
-      expect(ollamaShared.hostHasModel(host, 'qwen3-coder:30b')).toBe(true);
+      const host = { models: [{ name: TEST_MODELS.DEFAULT }] };
+      expect(ollamaShared.hostHasModel(host, TEST_MODELS.DEFAULT)).toBe(true);
     });
   });
 
@@ -87,26 +88,26 @@ describe('ollama-shared', () => {
 
     it('returns largest model by parameter count', () => {
       mockDb.getAggregatedModels.mockReturnValue([
-        { name: 'qwen3-coder:30b' },
-        { name: 'codestral:22b' },
+        { name: TEST_MODELS.QUALITY },
+        { name: TEST_MODELS.DEFAULT },
         { name: 'phi:3b' },
       ]);
-      expect(ollamaShared.findBestAvailableModel()).toBe('qwen3-coder:30b');
+      expect(ollamaShared.findBestAvailableModel()).toBe(TEST_MODELS.QUALITY);
     });
 
     it('applies optional filter function', () => {
       mockDb.getAggregatedModels.mockReturnValue([
-        { name: 'qwen3-coder:30b' },
-        { name: 'codestral:22b' },
+        { name: TEST_MODELS.QUALITY },
+        { name: TEST_MODELS.DEFAULT },
         { name: 'phi:3b' },
       ]);
-      const onlySmall = (name) => /\d+b/.test(name) && parseInt(name.match(/(\d+)b/)[1]) < 25;
-      expect(ollamaShared.findBestAvailableModel(onlySmall)).toBe('codestral:22b');
+      const onlySmall = (name) => /\d+b/.test(name) && parseInt(name.match(/(\d+)b/)[1]) < 20;
+      expect(ollamaShared.findBestAvailableModel(onlySmall)).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('returns null when filter excludes all models', () => {
       mockDb.getAggregatedModels.mockReturnValue([
-        { name: 'qwen3-coder:30b' },
+        { name: TEST_MODELS.DEFAULT },
       ]);
       expect(ollamaShared.findBestAvailableModel(() => false)).toBeNull();
     });
@@ -136,15 +137,15 @@ describe('ollama-shared', () => {
     });
 
     it('returns task.model when set', () => {
-      const task = { model: 'qwen3-coder:30b' };
-      const host = { default_model: 'qwen3-coder:30b', models: ['phi:3b'] };
-      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('qwen3-coder:30b');
+      const task = { model: TEST_MODELS.DEFAULT };
+      const host = { default_model: TEST_MODELS.DEFAULT, models: ['phi:3b'] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('returns host.default_model when task has no model', () => {
       const task = { description: 'some work' };
-      const host = { default_model: 'qwen3-coder:30b', models: ['phi:3b'] };
-      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('qwen3-coder:30b');
+      const host = { default_model: TEST_MODELS.DEFAULT, models: ['phi:3b'] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('falls back to global config when no host default', () => {
@@ -161,7 +162,7 @@ describe('ollama-shared', () => {
     it('falls back to first cached model when no config', () => {
       vi.spyOn(serverConfig, 'get').mockReturnValue(undefined);
       const task = {};
-      const host = { models: ['phi:3b', 'qwen3-coder:30b'] };
+      const host = { models: ['phi:3b', TEST_MODELS.DEFAULT] };
       expect(ollamaShared.resolveOllamaModel(task, host)).toBe('phi:3b');
       serverConfig.get.mockRestore();
     });
@@ -169,8 +170,8 @@ describe('ollama-shared', () => {
     it('falls back to first cached model object with name property', () => {
       vi.spyOn(serverConfig, 'get').mockReturnValue(undefined);
       const task = {};
-      const host = { models: [{ name: 'qwen3-coder:30b' }] };
-      expect(ollamaShared.resolveOllamaModel(task, host)).toBe('qwen3-coder:30b');
+      const host = { models: [{ name: TEST_MODELS.DEFAULT }] };
+      expect(ollamaShared.resolveOllamaModel(task, host)).toBe(TEST_MODELS.DEFAULT);
       serverConfig.get.mockRestore();
     });
 

@@ -3,6 +3,7 @@ const { randomUUID } = require('crypto');
 let db;
 let mod;
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 function setup() {
   ({ db } = setupTestDb('tier-pref-'));
@@ -59,14 +60,14 @@ describe('tier-aware host selection', () => {
     const qualityHost = makeHost({ id: 'quality-host' });
     const fastHost = makeHost({ id: 'fast-host' });
 
-    setHostModels(qualityHost.id, ['qwen3-coder:30b']);
-    setHostModels(fastHost.id, ['qwen3-coder:30b']);
+    setHostModels(qualityHost.id, [TEST_MODELS.DEFAULT]);
+    setHostModels(fastHost.id, [TEST_MODELS.DEFAULT]);
     mod.setHostTierHint(qualityHost.id, 'quality');
     mod.setHostTierHint(fastHost.id, 'fast');
     mod.updateOllamaHost(qualityHost.id, { running_tasks: 1 });
     mod.updateOllamaHost(fastHost.id, { running_tasks: 0 });
 
-    const result = mod.selectOllamaHostForModel('qwen3-coder:30b');
+    const result = mod.selectOllamaHostForModel(TEST_MODELS.DEFAULT);
 
     expect(result.modelTier).toBe('quality');
     expect(result.host.id).toBe('quality-host');
@@ -76,14 +77,14 @@ describe('tier-aware host selection', () => {
     const fastHost = makeHost({ id: 'fast-selected-host' });
     const qualityHost = makeHost({ id: 'quality-avoided-host' });
 
-    setHostModels(fastHost.id, ['gemma3:4b']);
-    setHostModels(qualityHost.id, ['gemma3:4b']);
+    setHostModels(fastHost.id, [TEST_MODELS.FAST]);
+    setHostModels(qualityHost.id, [TEST_MODELS.FAST]);
     mod.setHostTierHint(fastHost.id, 'fast');
     mod.setHostTierHint(qualityHost.id, 'quality');
     mod.updateOllamaHost(fastHost.id, { running_tasks: 0 });
     mod.updateOllamaHost(qualityHost.id, { running_tasks: 2 });
 
-    const result = mod.selectOllamaHostForModel('gemma3:4b');
+    const result = mod.selectOllamaHostForModel(TEST_MODELS.FAST);
 
     expect(result.modelTier).toBe('fast');
     expect(result.host.id).toBe('fast-selected-host');
@@ -93,14 +94,14 @@ describe('tier-aware host selection', () => {
     const candidateA = makeHost({ id: 'nonmatching-tier-a' });
     const candidateB = makeHost({ id: 'nonmatching-tier-b' });
 
-    setHostModels(candidateA.id, ['gemma3:4b']);
-    setHostModels(candidateB.id, ['gemma3:4b']);
+    setHostModels(candidateA.id, [TEST_MODELS.FAST]);
+    setHostModels(candidateB.id, [TEST_MODELS.FAST]);
     mod.setHostTierHint(candidateA.id, 'balanced');
     mod.setHostTierHint(candidateB.id, 'quality');
     mod.updateOllamaHost(candidateA.id, { running_tasks: 2 });
     mod.updateOllamaHost(candidateB.id, { running_tasks: 0 });
 
-    const result = mod.selectOllamaHostForModel('gemma3:4b');
+    const result = mod.selectOllamaHostForModel(TEST_MODELS.FAST);
 
     expect(result.host.id).toBe('nonmatching-tier-b');
     expect(result.modelTier).toBe('fast');

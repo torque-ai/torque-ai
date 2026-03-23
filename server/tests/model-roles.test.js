@@ -1,6 +1,7 @@
 'use strict';
 
 const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 let mod;
 
@@ -21,28 +22,28 @@ describe('db/model-roles module', () => {
     });
 
     it('returns the assigned model for an exact role match', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      expect(mod.getModelForRole('ollama', 'default')).toBe('qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      expect(mod.getModelForRole('ollama', 'default')).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('falls back from fast to default when no fast model assigned', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      expect(mod.getModelForRole('ollama', 'fast')).toBe('qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      expect(mod.getModelForRole('ollama', 'fast')).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('falls back from balanced to default when no balanced model assigned', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      expect(mod.getModelForRole('ollama', 'balanced')).toBe('qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      expect(mod.getModelForRole('ollama', 'balanced')).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('falls back from quality to default when no quality model assigned', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      expect(mod.getModelForRole('ollama', 'quality')).toBe('qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      expect(mod.getModelForRole('ollama', 'quality')).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('falls back from fallback to default when no fallback model assigned', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      expect(mod.getModelForRole('ollama', 'fallback')).toBe('qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      expect(mod.getModelForRole('ollama', 'fallback')).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('returns null when fallback chain exhausted (fast → default → null)', () => {
@@ -50,15 +51,15 @@ describe('db/model-roles module', () => {
     });
 
     it('prefers the exact role over the fallback', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      mod.setModelRole('ollama', 'fast', 'codestral:22b');
-      expect(mod.getModelForRole('ollama', 'fast')).toBe('codestral:22b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      mod.setModelRole('ollama', 'fast', TEST_MODELS.BALANCED);
+      expect(mod.getModelForRole('ollama', 'fast')).toBe(TEST_MODELS.BALANCED);
     });
 
     it('resolves roles independently per provider', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
       mod.setModelRole('deepinfra', 'default', 'Qwen/Qwen2.5-72B-Instruct');
-      expect(mod.getModelForRole('ollama', 'default')).toBe('qwen3-coder:30b');
+      expect(mod.getModelForRole('ollama', 'default')).toBe(TEST_MODELS.DEFAULT);
       expect(mod.getModelForRole('deepinfra', 'default')).toBe('Qwen/Qwen2.5-72B-Instruct');
     });
 
@@ -79,9 +80,9 @@ describe('db/model-roles module', () => {
     });
 
     it('replaces an existing assignment', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      mod.setModelRole('ollama', 'default', 'codestral:22b');
-      expect(mod.getModelForRole('ollama', 'default')).toBe('codestral:22b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      mod.setModelRole('ollama', 'default', TEST_MODELS.BALANCED);
+      expect(mod.getModelForRole('ollama', 'default')).toBe(TEST_MODELS.BALANCED);
 
       // Should only have one row, not two
       const rows = rawDb().prepare(
@@ -97,8 +98,8 @@ describe('db/model-roles module', () => {
 
   describe('clearModelRole', () => {
     it('removes an assignment', () => {
-      mod.setModelRole('ollama', 'fast', 'qwen3-coder:30b');
-      expect(mod.getModelForRole('ollama', 'fast')).toBe('qwen3-coder:30b');
+      mod.setModelRole('ollama', 'fast', TEST_MODELS.DEFAULT);
+      expect(mod.getModelForRole('ollama', 'fast')).toBe(TEST_MODELS.DEFAULT);
 
       mod.clearModelRole('ollama', 'fast');
       expect(mod.getModelForRole('ollama', 'fast')).toBeNull();
@@ -120,8 +121,8 @@ describe('db/model-roles module', () => {
     });
 
     it('returns all assignments', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      mod.setModelRole('ollama', 'fast', 'qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      mod.setModelRole('ollama', 'fast', TEST_MODELS.DEFAULT);
       mod.setModelRole('deepinfra', 'default', 'Qwen/Qwen2.5-72B-Instruct');
 
       const all = mod.listModelRoles();
@@ -131,8 +132,8 @@ describe('db/model-roles module', () => {
     });
 
     it('filters by provider', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
-      mod.setModelRole('ollama', 'fast', 'qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
+      mod.setModelRole('ollama', 'fast', TEST_MODELS.DEFAULT);
       mod.setModelRole('deepinfra', 'default', 'Qwen/Qwen2.5-72B-Instruct');
 
       const ollamaRoles = mod.listModelRoles('ollama');
@@ -145,11 +146,11 @@ describe('db/model-roles module', () => {
     });
 
     it('returns entries with all expected fields', () => {
-      mod.setModelRole('ollama', 'default', 'qwen3-coder:30b');
+      mod.setModelRole('ollama', 'default', TEST_MODELS.DEFAULT);
       const [entry] = mod.listModelRoles('ollama');
       expect(entry).toHaveProperty('provider', 'ollama');
       expect(entry).toHaveProperty('role', 'default');
-      expect(entry).toHaveProperty('model_name', 'qwen3-coder:30b');
+      expect(entry).toHaveProperty('model_name', TEST_MODELS.DEFAULT);
       expect(entry).toHaveProperty('updated_at');
     });
   });

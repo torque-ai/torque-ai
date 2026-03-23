@@ -2,6 +2,7 @@
 
 const { EventEmitter } = require('events');
 const realHttp = require('node:http');
+const { TEST_MODELS } = require('./test-helpers');
 const realHttps = require('node:https');
 
 const monitoringPath = require.resolve('../utils/host-monitoring');
@@ -264,7 +265,7 @@ describe('host-monitoring.js', () => {
     it('returns null when a host has not been polled yet', () => {
       const { monitoring } = setupTest();
 
-      expect(monitoring.isModelLoadedOnHost('missing-host', 'qwen3:8b')).toBeNull();
+      expect(monitoring.isModelLoadedOnHost('missing-host', TEST_MODELS.SMALL)).toBeNull();
     });
 
     it('matches loaded models using either name or model fields', () => {
@@ -273,12 +274,12 @@ describe('host-monitoring.js', () => {
       monitoring.hostActivityCache.set('host-a', {
         models: [
           { model: 'codellama:latest' },
-          { name: 'Qwen3:8B' },
+          { name: TEST_MODELS.SMALL.toUpperCase() },
         ],
       });
 
       expect(monitoring.isModelLoadedOnHost('host-a', 'codellama')).toBe(true);
-      expect(monitoring.isModelLoadedOnHost('host-a', 'qwen3:8b')).toBe(true);
+      expect(monitoring.isModelLoadedOnHost('host-a', TEST_MODELS.SMALL)).toBe(true);
       expect(monitoring.isModelLoadedOnHost('host-a', 'missing')).toBe(false);
     });
 
@@ -287,8 +288,8 @@ describe('host-monitoring.js', () => {
 
       monitoring.hostActivityCache.set('host-a', {
         models: [
-          { name: 'qwen3:8b', size_vram: 1_500_000_000, expires_at: '2026-01-01T00:00:00Z' },
-          { name: 'qwen3-coder:30b', size_vram: 500_000_000 },
+          { name: TEST_MODELS.SMALL, size_vram: 1_500_000_000, expires_at: '2026-01-01T00:00:00Z' },
+          { name: TEST_MODELS.DEFAULT, size_vram: 500_000_000 },
         ],
         polledAt: 12345,
         gpuMetrics: {
@@ -301,8 +302,8 @@ describe('host-monitoring.js', () => {
       expect(monitoring.getHostActivity()).toEqual({
         'host-a': {
           loadedModels: [
-            { name: 'qwen3:8b', sizeVram: 1_500_000_000, expiresAt: '2026-01-01T00:00:00Z' },
-            { name: 'qwen3-coder:30b', sizeVram: 500_000_000, expiresAt: undefined },
+            { name: TEST_MODELS.SMALL, sizeVram: 1_500_000_000, expiresAt: '2026-01-01T00:00:00Z' },
+            { name: TEST_MODELS.DEFAULT, sizeVram: 500_000_000, expiresAt: undefined },
           ],
           totalVramUsed: 2_000_000_000,
           gpuMetrics: {
@@ -343,7 +344,7 @@ describe('host-monitoring.js', () => {
         statusCode: 200,
         body: {
           models: [
-            { name: 'qwen3:8b' },
+            { name: TEST_MODELS.SMALL },
             { model: 'codellama:latest' },
             { name: '' },
           ],
@@ -352,8 +353,8 @@ describe('host-monitoring.js', () => {
 
       await monitoring.runHostHealthChecks();
 
-      expect(db.recordHostHealthCheck).toHaveBeenCalledWith('host-a', true, ['qwen3:8b', 'codellama:latest']);
-      expect(db.getOllamaHost('host-a').models).toEqual(['qwen3:8b', 'codellama:latest']);
+      expect(db.recordHostHealthCheck).toHaveBeenCalledWith('host-a', true, [TEST_MODELS.SMALL, 'codellama:latest']);
+      expect(db.getOllamaHost('host-a').models).toEqual([TEST_MODELS.SMALL, 'codellama:latest']);
     });
 
     it('treats invalid JSON as healthy without replacing cached models', async () => {
@@ -479,7 +480,7 @@ describe('host-monitoring.js', () => {
         expect(url).toContain('/api/ps');
         return createMockRequest({
           statusCode: 200,
-          body: { models: [{ name: 'qwen3:8b', size_vram: 100 }] },
+          body: { models: [{ name: TEST_MODELS.SMALL, size_vram: 100 }] },
         }).invoke(getCallback(_options, callback));
       });
 
@@ -488,7 +489,7 @@ describe('host-monitoring.js', () => {
       const activity = monitoring.getHostActivity();
       expect(mocks.httpModule.get).toHaveBeenCalledTimes(1);
       expect(activity['healthy-host'].loadedModels).toEqual([
-        { name: 'qwen3:8b', sizeVram: 100, expiresAt: undefined },
+        { name: TEST_MODELS.SMALL, sizeVram: 100, expiresAt: undefined },
       ]);
       expect(activity['down-host']).toBeUndefined();
       expect(activity['stale-host']).toBeUndefined();
@@ -553,7 +554,7 @@ describe('host-monitoring.js', () => {
 
       mocks.httpModule.get.mockImplementation((_url, _options, callback) => createMockRequest({
         statusCode: 200,
-        body: { models: [{ name: 'qwen3:8b', size_vram: 100 }] },
+        body: { models: [{ name: TEST_MODELS.SMALL, size_vram: 100 }] },
       }).invoke(getCallback(_options, callback)));
 
       await monitoring.pollHostActivity();
@@ -580,7 +581,7 @@ describe('host-monitoring.js', () => {
       const { monitoring, mocks } = setupTest({ hosts: [host] });
 
       monitoring.hostActivityCache.set('remote-host', {
-        models: [{ name: 'qwen3:8b', size_vram: 1_000_000_000 }],
+        models: [{ name: TEST_MODELS.SMALL, size_vram: 1_000_000_000 }],
       });
 
       mocks.httpModule.get.mockImplementation((url, _options, callback) => {

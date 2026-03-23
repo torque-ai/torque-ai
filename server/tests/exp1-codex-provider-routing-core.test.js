@@ -2,6 +2,7 @@
 
 const core = require('../db/provider-routing-core');
 const serverConfig = require('../config');
+const { TEST_MODELS } = require('./test-helpers');
 
 function createProviderRow(provider, overrides = {}) {
   return {
@@ -183,7 +184,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     const routeTask = vi.fn(() => ({
       provider: 'hashline-ollama',
       hostId: 'host-local',
-      model: 'qwen3:8b',
+      model: TEST_MODELS.SMALL,
     }));
 
     bindCore({

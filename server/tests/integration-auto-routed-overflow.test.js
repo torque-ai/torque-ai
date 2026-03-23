@@ -5,6 +5,8 @@
  * Exercises the REAL createTask + processQueue pipeline.
  */
 
+const { TEST_MODELS } = require('./test-helpers');
+
 const mockProviderRegistry = {
   getProviderInstance: vi.fn().mockReturnValue({}),
   listProviders: vi.fn().mockReturnValue([]),
@@ -210,8 +212,8 @@ describe('auto_routed overflow — proof of integration', () => {
       mockServerConfig.getInt.mockImplementation((_key, fallback) => fallback);
       mockServerConfig.get.mockImplementation((key) => {
         if (key === 'overflow_max_complexity') return 'normal';
-        if (key === 'ollama_balanced_model') return 'qwen3-coder:30b';
-        if (key === 'ollama_fast_model') return 'qwen3-coder:30b';
+        if (key === 'ollama_balanced_model') return TEST_MODELS.DEFAULT;
+        if (key === 'ollama_fast_model') return TEST_MODELS.DEFAULT;
         return null;
       });
 

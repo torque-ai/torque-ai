@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('project-config core', () => {
   let db;
@@ -478,7 +479,7 @@ describe('project-config core', () => {
       await Promise.all([
         Promise.resolve().then(() => db.setProjectConfig(project, { default_provider: 'codex', verify_command: 'echo one' })),
         Promise.resolve().then(() => db.setProjectConfig(project, { default_provider: 'ollama', verify_command: 'echo two' })),
-        Promise.resolve().then(() => db.setProjectConfig(project, { default_model: 'qwen3:8b' })),
+        Promise.resolve().then(() => db.setProjectConfig(project, { default_model: TEST_MODELS.SMALL })),
       ]);
 
       const config = db.getProjectConfig(project);
@@ -486,7 +487,7 @@ describe('project-config core', () => {
       expect(getProjectConfigRowCount(project)).toBe(1);
       expect(['codex', 'ollama']).toContain(config.default_provider);
       expect(['echo one', 'echo two']).toContain(config.verify_command);
-      expect([null, 'qwen3:8b']).toContain(config.default_model);
+      expect([null, TEST_MODELS.SMALL]).toContain(config.default_model);
     });
 
     it('keeps one config row and one step_providers row after rapid tool updates', async () => {

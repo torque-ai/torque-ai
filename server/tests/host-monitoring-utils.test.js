@@ -4,6 +4,7 @@ const { EventEmitter } = require('events');
 const childProcess = require('child_process');
 
 const hostManagement = require('../db/host-management');
+const { TEST_MODELS } = require('./test-helpers');
 
 let db;
 let configCore;
@@ -136,7 +137,7 @@ describe('host-monitoring utility module', () => {
 
   describe('isModelLoadedOnHost', () => {
     it('returns null when no activity is available', () => {
-      expect(monitoring.isModelLoadedOnHost('missing-host', 'qwen3:8b')).toBeNull();
+      expect(monitoring.isModelLoadedOnHost('missing-host', TEST_MODELS.SMALL)).toBeNull();
     });
 
     it('returns false for malformed cache data', () => {
@@ -144,14 +145,14 @@ describe('host-monitoring utility module', () => {
         models: null,
       });
 
-      expect(monitoring.isModelLoadedOnHost('bad-cache', 'qwen3:8b')).toBeNull();
+      expect(monitoring.isModelLoadedOnHost('bad-cache', TEST_MODELS.SMALL)).toBeNull();
     });
 
     it('detects loaded models using name and model fields', () => {
       monitoring.hostActivityCache.set('good-cache', {
         models: [
           { model: 'codellama:latest' },
-          { name: 'qwen3:8b' },
+          { name: TEST_MODELS.SMALL },
         ],
       });
 
@@ -166,7 +167,7 @@ describe('host-monitoring utility module', () => {
       const polledAt = Date.now();
       monitoring.hostActivityCache.set('h1', {
         models: [
-          { name: 'qwen3-coder:30b', size_vram: 2_000_000_000, expires_at: '2026-01-01T00:00:00Z' },
+          { name: TEST_MODELS.DEFAULT, size_vram: 2_000_000_000, expires_at: '2026-01-01T00:00:00Z' },
           { name: 'mistral:7b', size_vram: 500_000_000, expires_at: '2026-01-01T00:00:00Z' },
         ],
         polledAt,
@@ -236,7 +237,7 @@ describe('host-monitoring utility module', () => {
         const cb = typeof _options === 'function' ? _options : callback;
         const { req, res } = mockRequestResponse({
           statusCode: 200,
-          body: { models: [{ name: 'qwen3:8b' }, { name: 'codellama:latest' }] },
+          body: { models: [{ name: TEST_MODELS.SMALL }, { name: 'codellama:latest' }] },
         });
         cb(res);
         return req;
@@ -247,7 +248,7 @@ describe('host-monitoring utility module', () => {
       const host = hostManagement.getOllamaHost(hostId);
       expect(host.status).toBe('healthy');
       expect(host.consecutive_failures).toBe(0);
-      expect(host.models).toEqual(['qwen3:8b', 'codellama:latest']);
+      expect(host.models).toEqual([TEST_MODELS.SMALL, 'codellama:latest']);
       expect(getSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -460,7 +461,7 @@ describe('host-monitoring utility module', () => {
 
         const { req, res } = mockRequestResponse({
           statusCode: 200,
-          body: { models: [{ name: 'qwen3:8b', size_vram: 100 }] },
+          body: { models: [{ name: TEST_MODELS.SMALL, size_vram: 100 }] },
         });
         cb(res);
         return req;
@@ -472,7 +473,7 @@ describe('host-monitoring utility module', () => {
       const hostIds = Object.keys(activity);
       expect(hostIds).toContain('healthy-host');
       expect(hostIds).not.toContain('stale-host');
-      expect(activity['healthy-host'].loadedModels).toEqual([{ name: 'qwen3:8b', sizeVram: 100, expiresAt: undefined }]);
+      expect(activity['healthy-host'].loadedModels).toEqual([{ name: TEST_MODELS.SMALL, sizeVram: 100, expiresAt: undefined }]);
       expect(dashboard.notifyHostActivityUpdated).toHaveBeenCalledTimes(1);
       expect(getSpy).toHaveBeenCalledTimes(1);
     });
@@ -514,7 +515,7 @@ describe('host-monitoring utility module', () => {
 
         const { req, res } = mockRequestResponse({
           statusCode: 200,
-          body: { models: [{ name: 'qwen3:8b', size_vram: 100 }] },
+          body: { models: [{ name: TEST_MODELS.SMALL, size_vram: 100 }] },
         });
         cb(res);
         return req;
@@ -558,7 +559,7 @@ describe('host-monitoring utility module', () => {
           const hostId = parsed.port === '11434' ? parsed.hostname : null;
           const responseBody = {
             models: [{
-              name: hostId === '203.0.113.20' ? 'qwen3:8b' : 'llama3:latest',
+              name: hostId === '203.0.113.20' ? TEST_MODELS.SMALL : 'llama3:latest',
               size_vram: hostId === '203.0.113.20' ? 1_000_000_000 : 500_000_000,
             }],
           };
@@ -649,7 +650,7 @@ describe('host-monitoring utility module', () => {
         url: 'http://203.0.113.30:11434',
         status: 'healthy',
         gpu_metrics_port: 9009,
-        models: [{ name: 'qwen3:8b', size_vram: 1000_000_000 }],
+        models: [{ name: TEST_MODELS.SMALL, size_vram: 1000_000_000 }],
         memoryLimitMb: 8192,
       });
 

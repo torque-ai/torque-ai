@@ -8,6 +8,8 @@
 
 'use strict';
 
+const { TEST_MODELS } = require('./test-helpers');
+
 // ────────────────────────────────────────────────────────────────
 // prompt-templates.js
 // ────────────────────────────────────────────────────────────────
@@ -410,7 +412,7 @@ describe('StrategicBrain', () => {
 
     it('uses default model for selected provider', () => {
       const brain = new StrategicBrain({ provider: 'ollama' });
-      expect(brain.model).toBe('qwen3-coder:30b');
+      expect(brain.model).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('allows model override', () => {
