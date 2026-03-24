@@ -1,7 +1,4 @@
-import { screen, waitFor, act } from '@testing-library/react';
-import { render } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { ToastProvider } from './components/Toast';
+import { screen, waitFor, act, render } from '@testing-library/react';
 import { hosts as hostsApi } from './api';
 
 // Mock recharts (used by Kanban)
@@ -91,6 +88,7 @@ vi.mock('date-fns', () => ({
 
 // Create a mock WebSocket class
 let mockWsInstance = null;
+const fetchMock = vi.fn();
 class MockWebSocket {
   static CONNECTING = 0;
   static OPEN = 1;
@@ -119,6 +117,7 @@ class MockWebSocket {
 // Apply WebSocket mock using vi.stubGlobal for reliable override
 beforeAll(() => {
   vi.stubGlobal('WebSocket', MockWebSocket);
+  vi.stubGlobal('fetch', fetchMock);
 });
 afterAll(() => {
   vi.unstubAllGlobals();
@@ -128,6 +127,10 @@ afterAll(() => {
 beforeEach(() => {
   vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {});
+  fetchMock.mockReset();
+  fetchMock.mockResolvedValue({
+    json: vi.fn().mockResolvedValue({ authenticated: true }),
+  });
   hostsApi.activity.mockClear();
   hostsApi.activity.mockResolvedValue(null);
 });
@@ -136,6 +139,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   mockWsInstance = null;
   document.title = 'TORQUE';
+  window.history.replaceState({}, '', '/');
 });
 
 // Lazy import of App to ensure mocks are set up first
@@ -145,9 +149,18 @@ beforeAll(async () => {
   App = mod.default;
 });
 
-function renderApp(_route = '/') {
+function renderApp(route = '/') {
+  window.history.replaceState({}, '', route);
   return render(<App />, {
     wrapper: ({ children }) => children,
+  });
+}
+
+async function flushAppEffects() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
   });
 }
 
@@ -397,6 +410,7 @@ describe('App', () => {
       const intervalIds = [];
       for (let cycle = 0; cycle < 3; cycle += 1) {
         const { unmount } = renderApp('/');
+        await flushAppEffects();
 
         act(() => {
           vi.advanceTimersByTime(0);
@@ -425,6 +439,7 @@ describe('App', () => {
 
     try {
       const { rerender, unmount } = renderApp('/');
+      await flushAppEffects();
 
       act(() => {
         vi.advanceTimersByTime(0);
@@ -451,6 +466,7 @@ describe('App', () => {
 
     try {
       const { unmount } = renderApp('/');
+      await flushAppEffects();
       act(() => {
         vi.advanceTimersByTime(0);
       });
@@ -488,6 +504,7 @@ describe('App', () => {
 
     try {
       const { unmount } = renderApp('/');
+      await flushAppEffects();
       act(() => {
         vi.advanceTimersByTime(0);
       });
@@ -511,6 +528,7 @@ describe('App', () => {
 
     try {
       const { unmount } = renderApp('/');
+      await flushAppEffects();
       act(() => {
         vi.advanceTimersByTime(0);
       });

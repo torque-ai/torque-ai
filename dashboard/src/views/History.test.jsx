@@ -232,10 +232,9 @@ describe('History', () => {
     renderWithProviders(<History />, { route: '/history' });
 
     const select = await screen.findByLabelText('Reassign provider for task task-queue-1');
-    const disabledOption = Array.from(select.options).find((option) => option.value === 'ollama');
-    expect(disabledOption).toBeInTheDocument();
-    expect(disabledOption.disabled).toBe(true);
-    expect(disabledOption.textContent).toContain('(disabled)');
+    const disabledOption = await within(select).findByRole('option', { name: 'ollama (disabled)' });
+    expect(disabledOption).toBeDisabled();
+    expect(disabledOption).toHaveAttribute('value', 'ollama');
   });
 
   it('starts all selected bulk retries even if one never resolves', async () => {
