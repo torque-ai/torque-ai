@@ -138,21 +138,17 @@ afterEach(() => {
   document.title = 'TORQUE';
 });
 
-// Lazy import of AppInner to avoid exercising the auth wrapper in view tests
-let AppInner;
+// Lazy import of App to ensure mocks are set up first
+let App;
 beforeAll(async () => {
   const mod = await import('./App');
-  AppInner = mod.AppInner;
+  App = mod.default;
 });
 
-function renderApp(route = '/') {
-  return render(
-    <ToastProvider>
-      <MemoryRouter initialEntries={[route]}>
-        <AppInner />
-      </MemoryRouter>
-    </ToastProvider>
-  );
+function renderApp(_route = '/') {
+  return render(<App />, {
+    wrapper: ({ children }) => children,
+  });
 }
 
 function emitWsMessage(message) {
@@ -210,7 +206,8 @@ describe('App', () => {
   });
 
   it('renders the project settings route', async () => {
-    renderApp('/settings');
+    window.history.replaceState({}, '', '/settings');
+    renderApp();
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Project Settings' })).toBeInTheDocument();
     });
@@ -434,13 +431,7 @@ describe('App', () => {
       });
 
       const initialPollingCalls = setIntervalSpy.mock.calls.filter((call) => call[1] === 60000).length;
-      rerender(
-        <ToastProvider>
-          <MemoryRouter initialEntries={['/']}>
-            <AppInner />
-          </MemoryRouter>
-        </ToastProvider>
-      );
+      rerender(<App />);
 
       expect(setIntervalSpy.mock.calls.filter((call) => call[1] === 60000).length).toBe(initialPollingCalls);
 
