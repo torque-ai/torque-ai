@@ -52,7 +52,7 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
         console.error('Failed to load providers:', err);
         toastRef.current.error('Failed to load providers');
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load Ollama host models on mount
   useEffect(() => {

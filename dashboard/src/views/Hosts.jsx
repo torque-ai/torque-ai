@@ -150,25 +150,7 @@ function mergeWorkstations(workstationList, concurrencyData) {
   return merged;
 }
 
-async function parseApiResponse(response) {
-  const contentType = response.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    try {
-      return await response.json();
-    } catch {
-      return null;
-    }
-  }
-
-  try {
-    return await response.text();
-  } catch {
-    return null;
-  }
-}
-
-function getApiErrorMessage(payload, response) {
+function _getApiErrorMessage(payload, response) {
   if (payload && typeof payload === 'object') {
     if (payload.error?.message) return payload.error.message;
     if (payload.message) return payload.message;
@@ -194,7 +176,7 @@ function DefaultModelDropdown({ host, onUpdate }) {
       await hostsApi.update(host.id, { default_model: newModel });
       addToast.success('Default model updated');
       onUpdate?.();
-    } catch (err) {
+    } catch (_err) {
       addToast.error('Failed to update default model');
     }
   };
@@ -237,6 +219,7 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
   // Memoized so it doesn't recompute on every render unrelated to host.model_loaded_at
   const isModelWarm = useMemo(
     () => host.model_loaded_at &&
+      // eslint-disable-next-line react-hooks/purity -- intentional: freshness check needs wall-clock time
       (Date.now() - new Date(host.model_loaded_at).getTime()) < 5 * 60 * 1000,
     [host.model_loaded_at],
   );
@@ -1145,8 +1128,7 @@ export default function Hosts({ hostActivity }) {
   const [confirmRemove, setConfirmRemove] = useState(null); // { id, name }
   const [confirmRemoveWorkstation, setConfirmRemoveWorkstation] = useState(null); // { name }
   const [confirmRemovePeek, setConfirmRemovePeek] = useState(null); // { name }
-  const [showAddPeek, setShowAddPeek] = useState(false);
-  const toast = useToast();
+  const [_showAddPeek, setShowAddPeek] = useState(false);  const toast = useToast();
   const { execute: executeHostLoad } = useAbortableRequest();
   const { execute: executeWorkstationLoad } = useAbortableRequest();
 
@@ -1377,8 +1359,7 @@ export default function Hosts({ hostActivity }) {
 
   // --- Peek host handlers ---
 
-  async function handlePeekToggle(name, enabled) {
-    try {
+  async function _handlePeekToggle(name, enabled) {    try {
       await peekHostsApi.toggle(name, enabled);
       toast.success(`Peek host ${enabled ? 'enabled' : 'disabled'}`);
       await loadPeekHosts();
@@ -1387,8 +1368,7 @@ export default function Hosts({ hostActivity }) {
     }
   }
 
-  async function handleAddPeekHost(data) {
-    try {
+  async function _handleAddPeekHost(data) {    try {
       await peekHostsApi.create(data);
       toast.success(`Peek host "${data.name}" added`);
       setShowAddPeek(false);
@@ -1411,16 +1391,14 @@ export default function Hosts({ hostActivity }) {
     }
   }
 
-  async function handleTestPeekHost(name) {
-    try {
+  async function _handleTestPeekHost(name) {    try {
       return await peekHostsApi.test(name);
     } catch {
       return { reachable: false, latency_ms: null };
     }
   }
 
-  async function handleSaveCredential(hostName, credType, value, label) {
-    try {
+  async function _handleSaveCredential(hostName, credType, value, label) {    try {
       await peekHostsApi.saveCredential(hostName, credType, value, label);
       toast.success(`${CRED_LABELS[credType] || credType} credential saved`);
     } catch (err) {
@@ -1429,8 +1407,7 @@ export default function Hosts({ hostActivity }) {
     }
   }
 
-  async function handleDeleteCredential(hostName, credType) {
-    try {
+  async function _handleDeleteCredential(hostName, credType) {    try {
       await peekHostsApi.deleteCredential(hostName, credType);
       toast.success(`${CRED_LABELS[credType] || credType} credential removed`);
     } catch (err) {

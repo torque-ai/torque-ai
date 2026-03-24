@@ -31,7 +31,7 @@ export default function Login({ onLogin, needsSetup }) {
         const data = await res.json().catch(() => ({}));
         setError(data.error || 'Authentication failed');
       }
-    } catch (err) {
+    } catch (_err) {
       setError('Connection failed');
     } finally {
       setLoading(false);

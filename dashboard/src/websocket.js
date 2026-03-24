@@ -35,7 +35,7 @@ export function useWebSocket(onMessage) {
   const [shortId, setShortId] = useState(null);
 
   const onMessageRef = useRef(onMessage);
-  onMessageRef.current = onMessage;
+  useEffect(() => { onMessageRef.current = onMessage; });
 
   const logParseError = useCallback((error) => {
     websocketParseErrorCount += 1;

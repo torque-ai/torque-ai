@@ -975,7 +975,9 @@ function DiffTab({ taskId, toast }) {
   );
 }
 
-function TimelineEntry({ label, time, detail, isLast, color = 'bg-blue-500', durationFrom, durationLabel, now = Date.now() }) {
+function TimelineEntry({ label, time, detail, isLast, color = 'bg-blue-500', durationFrom, durationLabel, now }) {
+  // eslint-disable-next-line react-hooks/purity -- intentional: wall-clock time for duration display
+  if (now === undefined) now = Date.now();
   const dur = durationFrom && time
     ? new Date(time) - new Date(durationFrom)
     : durationFrom && !time

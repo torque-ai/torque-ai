@@ -56,7 +56,7 @@ export default function HealthBar() {
 
   useEffect(() => {
     const active = { current: true };
-    refresh(active);
+    refresh(active); // eslint-disable-line react-hooks/set-state-in-effect -- async: setState runs after await
     const id = window.setInterval(() => refresh(active), 30000);
     return () => { active.current = false; window.clearInterval(id); };
   }, [refresh]);

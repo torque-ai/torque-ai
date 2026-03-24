@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { stats as statsApi, models as modelsApi } from '../api';
 import StatCard from '../components/StatCard';
-import { formatDate, formatDuration } from '../utils/formatters';
+import { formatDuration } from '../utils/formatters';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import {
   BarChart, Bar, Cell, LineChart, Line,
@@ -68,7 +68,7 @@ export default function Models() {
   useEffect(() => {
     if (activeTab !== 'leaderboard') return;
     let cancelled = false;
-    setLeaderboardLoading(true);
+    setLeaderboardLoading(true); // eslint-disable-line react-hooks/set-state-in-effect -- loading flag before fetch
     modelsApi.leaderboard({ days }).then(d => {
       if (!cancelled) {
         const items = Array.isArray(d) ? d : (d?.items || d?.leaderboard || []);
