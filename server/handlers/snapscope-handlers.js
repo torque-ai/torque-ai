@@ -32,7 +32,7 @@ function ensureBuilt() {
   if (!_buildPromise) {
     _buildPromise = new Promise((resolve, reject) => {
       exec(`dotnet build "${SNAPSCOPE_CLI_PROJECT}" -c Debug --nologo -v q`,
-        { timeout: 60000 }, (err) => {
+        { timeout: 60000, windowsHide: true }, (err) => {
           if (err) { _buildPromise = null; reject(err); }
           else resolve(SNAPSCOPE_EXE);
         });

@@ -470,7 +470,7 @@ function init() {
     if (process.platform === 'win32' && DB_PATH !== ':memory:') {
       try {
         const { execFileSync } = require('child_process');
-        execFileSync('icacls', [DB_PATH, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:(F)`], { stdio: 'pipe' });
+        execFileSync('icacls', [DB_PATH, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:(F)`], { stdio: 'pipe', windowsHide: true });
       } catch (err) {
         logger.warn('Could not restrict DB file permissions: ' + err.message);
       }

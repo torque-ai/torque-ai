@@ -57,7 +57,7 @@ function detectWSL2HostIP() {
 
   // Get the default gateway IP using ip command with safe arguments
   try {
-    const routeOutput = execFileSync('ip', ['route'], { encoding: 'utf8' });
+    const routeOutput = execFileSync('ip', ['route'], { encoding: 'utf8', windowsHide: true });
     const lines = routeOutput.split('\n');
     for (const line of lines) {
       if (line.startsWith('default via')) {
