@@ -71,6 +71,28 @@ function setupStdoutHandler(child, taskId, streamId) {
     proc._outputBuffer = outputBuffer;
   }
 
+  // Attach scout signal parser for streaming scout tasks
+  if (proc && !proc._scoutSignalParser) {
+    try {
+      const task = deps.db.getTask(taskId);
+      const meta = task?.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+      if (meta.mode === 'scout') {
+        const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
+        const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+        proc._scoutSignalParser = new StreamSignalParser((type, data) => {
+          logger.info(`[Streams] Scout signal detected for task ${taskId}: ${type}`);
+          try {
+            dispatchTaskEvent(taskId, 'scout_signal', { signal_type: type, ...data });
+          } catch (err) {
+            logger.info(`[Streams] Scout signal dispatch error: ${err.message}`);
+          }
+        });
+      }
+    } catch (err) {
+      logger.info(`[Streams] Scout parser setup error for task ${taskId}: ${err.message}`);
+    }
+  }
+
   child.stdout.on('error', (err) => {
     logger.info(`[TaskManager] stdout error for task ${taskId}: ${err.message}`);
   });
@@ -85,6 +107,14 @@ function setupStdoutHandler(child, taskId, streamId) {
     }
     proc.output += text;
     proc.lastOutputAt = Date.now();
+    // Scout signal detection — parse streaming markers before truncation
+    if (proc._scoutSignalParser) {
+      try {
+        proc._scoutSignalParser.feed(text);
+      } catch (err) {
+        logger.info(`[Streams] Scout signal parser error for task ${taskId}: ${err.message}`);
+      }
+    }
     if (proc.output.length > deps.MAX_OUTPUT_BUFFER) {
       proc.output = '[...truncated...]\n' + proc.output.slice(-deps.MAX_OUTPUT_BUFFER / 2);
     }
