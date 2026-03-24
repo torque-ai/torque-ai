@@ -274,7 +274,7 @@ describe('api.js', () => {
         const pending = request('/signal', { signal: externalController.signal, timeout: 10000 });
         externalController.abort();
 
-        await expect(pending).rejects.toThrow('Request timed out');
+        await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
         expect(fetchSignal).not.toBe(externalController.signal);
         expect(fetchSignal.aborted).toBe(true);
       } finally {

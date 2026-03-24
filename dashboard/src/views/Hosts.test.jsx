@@ -270,7 +270,7 @@ describe('Hosts', () => {
       expect(screen.getByText('Peek Server')).toBeInTheDocument();
     });
 
-    expect(screen.getByDisplayValue('http://10.0.0.12:9876')).toBeInTheDocument();
+    expect(screen.getByText('Not connected')).toBeInTheDocument();
     expect(screen.queryByText('Remote Testing Hosts')).toBeNull();
 
     fireEvent.click(screen.getByText('Connect Peek'));
@@ -292,6 +292,7 @@ describe('Hosts', () => {
     });
 
     fireEvent.click(screen.getByText('Add Workstation'));
+    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
     fireEvent.change(screen.getByLabelText('Name *'), { target: { value: 'builder-02' } });
     fireEvent.change(screen.getByLabelText('Host *'), { target: { value: '10.0.0.22' } });
     fireEvent.change(screen.getByLabelText('Port *'), { target: { value: '3461' } });

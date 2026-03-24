@@ -218,6 +218,9 @@ function AppInner() {
     const canvas = document.createElement('canvas');
     canvas.width = 32; canvas.height = 32;
     const ctx = canvas.getContext('2d');
+    if (!ctx || typeof canvas.toDataURL !== 'function') {
+      return undefined;
+    }
     // Base icon: "T" on dark background
     ctx.fillStyle = '#1e293b';
     ctx.beginPath(); ctx.arc(16, 16, 16, 0, Math.PI * 2); ctx.fill();

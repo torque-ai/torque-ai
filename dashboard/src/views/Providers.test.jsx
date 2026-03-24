@@ -81,10 +81,10 @@ describe('Providers', () => {
       ],
     });
     requestV2.mockResolvedValue(null);
-    const legacyHistoryPath = `/${['free', 'tier'].join('-')}/history?days=7`;
+    const usageHistoryPath = '/quota/history?days=7';
     request.mockImplementation((path) => {
       if (path === '/provider-quotas') return Promise.resolve({});
-      if (path === legacyHistoryPath) {
+      if (path === usageHistoryPath) {
         return Promise.resolve({
           history: [
             { date: '2026-03-09', provider: 'ollama', total_requests: 7, total_tokens: 7000 },

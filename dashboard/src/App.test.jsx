@@ -130,21 +130,6 @@ beforeEach(() => {
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {});
   hostsApi.activity.mockClear();
   hostsApi.activity.mockResolvedValue(null);
-
-  // Mock canvas context for dynamic favicon
-  const mockCtx = {
-    fillStyle: '',
-    font: '',
-    textAlign: '',
-    textBaseline: '',
-    fillRect: vi.fn(),
-    fillText: vi.fn(),
-    beginPath: vi.fn(),
-    arc: vi.fn(),
-    fill: vi.fn(),
-  };
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx);
-  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,mock');
 });
 
 afterEach(() => {
@@ -153,17 +138,21 @@ afterEach(() => {
   document.title = 'TORQUE';
 });
 
-// Lazy import of App to ensure mocks are set up first
-let App;
+// Lazy import of AppInner to avoid exercising the auth wrapper in view tests
+let AppInner;
 beforeAll(async () => {
   const mod = await import('./App');
-  App = mod.default;
+  AppInner = mod.AppInner;
 });
 
-function renderApp(_route = '/') {
-  return render(<App />, {
-    wrapper: ({ children }) => children,
-  });
+function renderApp(route = '/') {
+  return render(
+    <ToastProvider>
+      <MemoryRouter initialEntries={[route]}>
+        <AppInner />
+      </MemoryRouter>
+    </ToastProvider>
+  );
 }
 
 function emitWsMessage(message) {
@@ -221,8 +210,7 @@ describe('App', () => {
   });
 
   it('renders the project settings route', async () => {
-    window.history.replaceState({}, '', '/settings');
-    renderApp();
+    renderApp('/settings');
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Project Settings' })).toBeInTheDocument();
     });
@@ -446,7 +434,13 @@ describe('App', () => {
       });
 
       const initialPollingCalls = setIntervalSpy.mock.calls.filter((call) => call[1] === 60000).length;
-      rerender(<App />);
+      rerender(
+        <ToastProvider>
+          <MemoryRouter initialEntries={['/']}>
+            <AppInner />
+          </MemoryRouter>
+        </ToastProvider>
+      );
 
       expect(setIntervalSpy.mock.calls.filter((call) => call[1] === 60000).length).toBe(initialPollingCalls);
 
