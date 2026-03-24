@@ -5,6 +5,8 @@ const {
   createBatches,
   expandTaskDescription,
   buildWorkflowTasks,
+  expandComputeTaskDescription,
+  expandApplyTaskDescription,
 } = require('../diffusion/planner');
 
 describe('selectConvergenceStrategy', () => {
@@ -130,6 +132,56 @@ describe('buildWorkflowTasks', () => {
   it('stores exemplars in result', () => {
     const result = buildWorkflowTasks(basePlan, { workingDirectory: '/proj' });
     expect(result.exemplars.p1.exemplar_diff).toBe('diff');
+  });
+});
+
+describe('expandComputeTaskDescription', () => {
+  it('embeds file content and exemplar in compute prompt', () => {
+    const pattern = {
+      id: 'p1',
+      description: 'Remove SetProperty duplicate',
+      transformation: 'Inherit from BindableBase',
+      exemplar_before: 'class Foo : INotifyPropertyChanged { ... SetProperty ... }',
+      exemplar_after: 'class Foo : BindableBase { ... }',
+    };
+    const fileContents = { 'a.cs': 'using System;\nclass A : INPC { SetProperty<T>... }' };
+    const desc = expandComputeTaskDescription(pattern, fileContents, '/proj');
+    expect(desc).toContain('class Foo : INotifyPropertyChanged');
+    expect(desc).toContain('class Foo : BindableBase');
+    expect(desc).toContain('class A : INPC');
+    expect(desc).toContain('file_edits');
+    expect(desc).toContain('Output ONLY the JSON');
+  });
+});
+
+describe('expandApplyTaskDescription', () => {
+  it('generates apply prompt from parsed compute output', () => {
+    const computeOutput = {
+      file_edits: [
+        { file: 'a.cs', operations: [
+          { type: 'replace', old_text: 'using System.ComponentModel;', new_text: '' },
+          { type: 'replace', old_text: 'class A : INPC', new_text: 'class A : BindableBase' },
+        ]}
+      ]
+    };
+    const desc = expandApplyTaskDescription(computeOutput, '/proj');
+    expect(desc).toContain('a.cs');
+    expect(desc).toContain('using System.ComponentModel;');
+    expect(desc).toContain('class A : BindableBase');
+    expect(desc).toContain('DELETE');
+    expect(desc).toContain('pre-computed');
+  });
+
+  it('uses DELETE instruction for empty new_text', () => {
+    const computeOutput = {
+      file_edits: [
+        { file: 'b.cs', operations: [
+          { type: 'replace', old_text: 'remove this line', new_text: '' },
+        ]}
+      ]
+    };
+    const desc = expandApplyTaskDescription(computeOutput, '/proj');
+    expect(desc).toContain('DELETE');
   });
 });
 

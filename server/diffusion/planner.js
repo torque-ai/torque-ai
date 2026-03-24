@@ -77,6 +77,78 @@ Reference: see exemplar diff for pattern "${pattern.id}" for the exact before/af
 Working directory: ${workingDirectory}`;
 }
 
+function expandComputeTaskDescription(pattern, fileContents, workingDirectory) {
+  const fileEntries = Object.entries(fileContents)
+    .map(([file, content]) => `### File: ${file}\n\`\`\`\n${content}\n\`\`\``)
+    .join('\n\n');
+
+  return `Analyze the following file(s) and produce a JSON object with exact edit instructions
+to apply the transformation described below.
+
+## Transformation
+Pattern: ${pattern.description}
+Transformation: ${pattern.transformation}
+
+## Exemplar — BEFORE
+\`\`\`
+${pattern.exemplar_before || '(not available)'}
+\`\`\`
+
+## Exemplar — AFTER
+\`\`\`
+${pattern.exemplar_after || '(not available)'}
+\`\`\`
+
+## File(s) to analyze
+${fileEntries}
+
+## Output Format
+Output ONLY the JSON object below, no explanation, no code fences:
+{
+  "file_edits": [
+    {
+      "file": "exact/path/to/file.cs",
+      "operations": [
+        { "type": "replace", "old_text": "exact text to find", "new_text": "exact replacement text" }
+      ]
+    }
+  ]
+}
+
+Each operation's old_text must be an EXACT substring of the file content (character-for-character match).
+For deletions, set new_text to an empty string "".
+Working directory: ${workingDirectory}`;
+}
+
+function expandApplyTaskDescription(computeOutput, workingDirectory) {
+  const sections = [];
+
+  for (const edit of computeOutput.file_edits) {
+    sections.push(`### File: ${edit.file}`);
+    for (const op of edit.operations) {
+      if (op.new_text === undefined && op.new_text !== '') {
+        continue;
+      }
+      if (op.new_text === '') {
+        sections.push(`**DELETE** the following block:\n\`\`\`\n${op.old_text}\n\`\`\``);
+      } else {
+        sections.push(`**Replace:**\n\`\`\`\n${op.old_text}\n\`\`\`\n**With:**\n\`\`\`\n${op.new_text}\n\`\`\``);
+      }
+    }
+  }
+
+  return `Apply the following pre-computed edits to the specified files.
+These edits were pre-computed by an analysis step. Apply them exactly
+as specified — do not modify, reformat, or add anything beyond what
+is listed. If a text block is not found in the file, try with
+normalized whitespace (trim trailing spaces, normalize line endings)
+before reporting failure.
+
+${sections.join('\n\n')}
+
+Working directory: ${workingDirectory}`;
+}
+
 function buildWorkflowTasks(plan, options = {}) {
   const {
     batchSize = plan.recommended_batch_size || DEFAULT_BATCH_SIZE,
@@ -165,6 +237,8 @@ module.exports = {
   groupManifestByPattern,
   createBatches,
   expandTaskDescription,
+  expandComputeTaskDescription,
+  expandApplyTaskDescription,
   buildWorkflowTasks,
   CONFIDENCE_THRESHOLD,
   DEFAULT_BATCH_SIZE,
