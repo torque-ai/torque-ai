@@ -173,6 +173,7 @@ class GitHubActionsProvider extends CIProvider {
     return {
       id: String(rawRun.databaseId || rawRun.id),
       status: this._normalizeRunStatus(rawRun.status, rawRun.conclusion),
+      conclusion: typeof rawRun.conclusion === 'string' ? rawRun.conclusion.toLowerCase() : null,
       repository: rawRun.repository || this.repo,
       branch: rawRun.headBranch,
       sha: rawRun.headSha,

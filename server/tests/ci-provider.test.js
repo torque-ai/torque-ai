@@ -118,6 +118,7 @@ describe('GitHubActionsProvider', () => {
     await expect(provider.getRun('456')).resolves.toEqual({
       id: '456',
       status: 'failure',
+      conclusion: 'failure',
       repository: 'org/torque',
       branch: 'main',
       sha: 'abc123',
@@ -204,6 +205,7 @@ describe('GitHubActionsProvider', () => {
       {
         id: '2',
         status: 'success',
+        conclusion: 'success',
         repository: 'org/torque',
         branch: 'feature',
         sha: 'bbb',
@@ -258,6 +260,7 @@ describe('GitHubActionsProvider', () => {
     expect(event).toEqual({
       id: '987',
       status: 'running',
+      conclusion: null,
       repository: 'octo/repo',
       branch: 'feature/ci',
       sha: 'def456',

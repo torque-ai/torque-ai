@@ -150,4 +150,38 @@ describe('GitHubActionsProvider — --repo flag on all gh commands', () => {
     const [, ghArgs] = execFileSpy.mock.calls[0];
     expect(ghArgs[ghArgs.indexOf('--repo') + 1]).toBe(otherRepo);
   });
+
+  it('_normalizeRun preserves conclusion alongside normalized status', () => {
+    const provider = new GitHubActionsProvider({ name: 'github-actions', repo: 'org/repo' });
+    const raw = {
+      databaseId: '123',
+      status: 'completed',
+      conclusion: 'timed_out',
+      headBranch: 'main',
+      headSha: 'abc',
+      url: 'https://github.com',
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    };
+    const normalized = provider._normalizeRun(raw);
+    expect(normalized.status).toBe('failure');
+    expect(normalized.conclusion).toBe('timed_out');
+  });
+
+  it('_normalizeRun sets conclusion to success for successful runs', () => {
+    const provider = new GitHubActionsProvider({ name: 'github-actions', repo: 'org/repo' });
+    const raw = {
+      databaseId: '456',
+      status: 'completed',
+      conclusion: 'success',
+      headBranch: 'main',
+      headSha: 'def',
+      url: 'https://github.com',
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    };
+    const normalized = provider._normalizeRun(raw);
+    expect(normalized.status).toBe('success');
+    expect(normalized.conclusion).toBe('success');
+  });
 });
