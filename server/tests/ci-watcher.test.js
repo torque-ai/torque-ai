@@ -91,8 +91,13 @@ describe('ci watcher', () => {
       run_id: 'run-2',
       repo: 'org/repo',
       branch: 'main',
+      commit_sha: null,
       conclusion: 'failure',
-      failure_count: 1,
+      category_counts: {
+        test_logic: 1,
+      },
+      total_failures: 1,
+      triage_summary: '1 failures: 1 logic',
       url: 'https://example/run-2',
     });
   });

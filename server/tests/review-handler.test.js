@@ -168,7 +168,7 @@ describe('review-handler', () => {
     expect(mocks.childProcessModule.execFileSync).toHaveBeenCalledWith(
       'git',
       ['diff', 'HEAD~1'],
-      { cwd: 'C:\\repo' },
+      { cwd: 'C:\\repo', windowsHide: true },
     );
     expect(mocks.db.createTask).toHaveBeenCalledTimes(1);
     const createdPayload = mocks.db.createTask.mock.calls[0][0];

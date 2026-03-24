@@ -114,7 +114,7 @@ describe('ci-handlers.js', () => {
         provider: 'github-actions',
         runId: 'run-123',
         pollIntervalMs: undefined,
-        timeoutMs: undefined,
+        timeoutMs: 30 * 60 * 1000,
       });
       expect(mockProviderInstance.getFailureLogs).not.toHaveBeenCalled();
       expect(getText(result)).toContain('## CI Run Completed');
@@ -283,6 +283,7 @@ describe('ci-handlers.js', () => {
           timeout: 10000,
           encoding: 'utf8',
           cwd: 'C:/tmp/repo',
+          windowsHide: true,
         },
       );
       expect(result).toBe('cli/fallback');

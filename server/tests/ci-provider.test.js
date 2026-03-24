@@ -42,7 +42,11 @@ describe('ci/provider base class', () => {
       status: 'success',
       repository: 'org/repo',
     });
-    await expect(provider.watchRun('run-123')).rejects.toThrow('mock-ci: getRun() not implemented');
+    await expect(provider.watchRun('run-123')).resolves.toEqual({
+      id: 'run-123',
+      status: 'success',
+      repository: 'org/repo',
+    });
   });
 
   describe('watchRun', () => {
@@ -82,10 +86,11 @@ describe('ci/provider base class', () => {
       provider.getRun = vi.fn(async () => ({ id: 'run-1', status: 'running', conclusion: null }));
 
       const promise = provider.watchRun('run-1', { pollIntervalMs: 1000, timeoutMs: 2500 });
+      const assertion = expect(promise).rejects.toThrow(/timed out/i);
 
       await vi.advanceTimersByTimeAsync(3000);
 
-      await expect(promise).rejects.toThrow(/timed out/i);
+      await assertion;
       vi.useRealTimers();
     });
   });
@@ -127,7 +132,7 @@ describe('GitHubActionsProvider', () => {
     expect(execFileSpy).toHaveBeenCalledWith(
       'gh',
       ['auth', 'status', '--hostname', 'github.com'],
-      { timeout: 30000 },
+      { timeout: 30000, windowsHide: true },
       expect.any(Function),
     );
   });
@@ -191,7 +196,7 @@ describe('GitHubActionsProvider', () => {
         '--json',
         'status,conclusion,headSha,headBranch,url,createdAt,updatedAt,jobs,databaseId',
       ],
-      { timeout: 30000 },
+      { timeout: 30000, windowsHide: true },
       expect.any(Function),
     );
   });
@@ -212,7 +217,7 @@ describe('GitHubActionsProvider', () => {
     expect(execFileSpy).toHaveBeenCalledWith(
       'gh',
       ['run', 'view', '456', '--repo', 'org/torque', '--log-failed'],
-      { timeout: 30000 },
+      { timeout: 30000, windowsHide: true },
       expect.any(Function),
     );
   });
@@ -279,7 +284,7 @@ describe('GitHubActionsProvider', () => {
         '--limit',
         '3',
       ],
-      { timeout: 30000 },
+      { timeout: 30000, windowsHide: true },
       expect.any(Function),
     );
   });
