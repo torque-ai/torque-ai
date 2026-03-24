@@ -426,6 +426,54 @@ async function executeApiProvider(task, provider) {
       completed_at: new Date().toISOString(),
     });
 
+    // Diffusion compute→apply: if this is a compute task, create the apply task dynamically
+    try {
+      const task = db.getTask(taskId);
+      const meta = task?.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+      if (meta.diffusion_role === 'compute') {
+        const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
+        const { expandApplyTaskDescription } = require('../diffusion/planner');
+        const parsed = parseComputeOutput(result.output || '');
+        if (parsed) {
+          const validation = validateComputeSchema(parsed);
+          if (validation.valid) {
+            const applyId = require('uuid').v4();
+            const applyProvider = meta.apply_provider || 'ollama';
+            const applyDesc = expandApplyTaskDescription(parsed, task.working_directory);
+            db.createTask({
+              id: applyId,
+              status: 'queued',
+              task_description: applyDesc,
+              working_directory: task.working_directory,
+              workflow_id: task.workflow_id,
+              provider: applyProvider,
+              metadata: JSON.stringify({
+                diffusion: true,
+                diffusion_role: 'apply',
+                compute_task_id: taskId,
+                compute_output: parsed,
+                auto_verify_on_completion: true,
+                verify_command: meta.verify_command || null,
+              }),
+            });
+            logger.info(`[Diffusion] Created apply task ${applyId} from API compute ${taskId} (${parsed.file_edits.length} file edits)`);
+            try {
+              const taskManager = require('../task-manager');
+              taskManager.startTask(applyId);
+            } catch (startErr) {
+              logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${startErr.message}`);
+            }
+          } else {
+            logger.info(`[Diffusion] API compute task ${taskId} schema invalid: ${validation.errors.join('; ')}`);
+          }
+        } else {
+          logger.info(`[Diffusion] API compute task ${taskId} produced unparseable output`);
+        }
+      }
+    } catch (diffusionErr) {
+      logger.debug(`[Diffusion] API compute→apply hook error: ${diffusionErr.message}`);
+    }
+
     // Trigger workflow dependency resolution + audit aggregation
     if (typeof _handleWorkflowTermination === 'function') {
       try {
