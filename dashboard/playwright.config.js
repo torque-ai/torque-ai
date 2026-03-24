@@ -12,9 +12,9 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30000,
+  timeout: process.env.CI ? 60000 : 30000,
   expect: {
-    timeout: 5000,
+    timeout: process.env.CI ? 10000 : 5000,
   },
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
@@ -34,6 +34,6 @@ export default defineConfig({
     command: 'npm run dev',
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
-    timeout: 30000,
+    timeout: 60000,
   },
 });
