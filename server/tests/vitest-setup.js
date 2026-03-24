@@ -76,6 +76,21 @@ function ensureTestSchema(dbHandle) {
   } catch {
     // success_metrics may not exist in very small ad-hoc fixtures.
   }
+
+  // model_capabilities: add columns from migrations that newer code expects
+  for (const col of [
+    'can_create_files INTEGER DEFAULT 1',
+    'can_edit_safely INTEGER DEFAULT 1',
+    'max_safe_edit_lines INTEGER DEFAULT 250',
+    'is_agentic INTEGER DEFAULT 0',
+    'cap_hashline INTEGER DEFAULT 0',
+    'cap_agentic INTEGER DEFAULT 0',
+    'cap_file_creation INTEGER DEFAULT 0',
+    'cap_multi_file INTEGER DEFAULT 0',
+    "capability_source TEXT DEFAULT 'benchmark'",
+  ]) {
+    try { dbHandle.exec('ALTER TABLE model_capabilities ADD COLUMN ' + col); } catch { /* exists */ }
+  }
 }
 
 /**

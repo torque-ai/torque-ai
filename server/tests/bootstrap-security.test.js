@@ -1,5 +1,5 @@
 'use strict';
-const { describe, it, expect } = require('vitest');
+// vitest globals (describe, it, expect) are available via globals: true in config
 const { generateBootstrapScript, handleBootstrapWorkstation } = require('../api/bootstrap');
 
 describe('bootstrap security', () => {
