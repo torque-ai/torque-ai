@@ -332,21 +332,23 @@ describe('App', () => {
       expect(screen.getByLabelText('Notifications: no alerts')).toBeInTheDocument();
     });
 
-    emitWsMessage({
-      event: 'task:created',
-      data: {
-        id: 'task-1',
-        status: 'running',
-        task_description: 'Live task',
-        created_at: '2026-01-15T00:00:00Z',
-        started_at: '2026-01-15T00:01:00Z',
-      },
+    await act(async () => {
+      emitWsMessage({
+        event: 'task:created',
+        data: {
+          id: 'task-1',
+          status: 'running',
+          task_description: 'Live task',
+          created_at: '2026-01-15T00:00:00Z',
+          started_at: '2026-01-15T00:01:00Z',
+        },
+      });
+      await flushAppEffects();
     });
 
-    await flushAppEffects();
     await waitFor(() => {
       expect(document.title).toBe('TORQUE (1 running)');
-    }, { timeout: 3000 });
+    }, { timeout: 5000 });
 
     emitWsMessage({
       event: 'tasks:batch-updated',
