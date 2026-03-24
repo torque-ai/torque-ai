@@ -132,3 +132,35 @@ describe('buildWorkflowTasks', () => {
     expect(result.exemplars.p1.exemplar_diff).toBe('diff');
   });
 });
+
+describe('expandTaskDescription v2 (exemplar embedding)', () => {
+  it('embeds full before/after content when available', () => {
+    const pattern = {
+      id: 'p1',
+      description: 'Direct DB import files',
+      transformation: 'Replace require(db) with container.get()',
+      exemplar_before: 'using System;\nclass OldCode { void Save() { db.Save(); } }',
+      exemplar_after: 'using System;\nusing Shared;\nclass NewCode { void Save() { svc.Save(); } }',
+    };
+    const files = ['a.cs', 'b.cs'];
+    const desc = expandTaskDescription(pattern, files, '/project');
+    expect(desc).toContain('Exemplar — BEFORE');
+    expect(desc).toContain('class OldCode');
+    expect(desc).toContain('Exemplar — AFTER');
+    expect(desc).toContain('class NewCode');
+    expect(desc).toContain('Do NOT deviate');
+  });
+
+  it('falls back to v1 format when exemplar_before/after not present', () => {
+    const pattern = {
+      id: 'p1',
+      description: 'Direct DB import files',
+      transformation: 'Replace require(db) with container.get()',
+    };
+    const files = ['a.cs'];
+    const desc = expandTaskDescription(pattern, files, '/project');
+    expect(desc).not.toContain('Exemplar — BEFORE');
+    expect(desc).toContain('Direct DB import files');
+    expect(desc).toContain('Replace require(db)');
+  });
+});

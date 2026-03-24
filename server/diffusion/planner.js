@@ -35,6 +35,35 @@ function createBatches(entries, batchSize) {
 
 function expandTaskDescription(pattern, files, workingDirectory) {
   const fileList = files.map(f => `- ${f}`).join('\n');
+
+  // v2: embed full before/after exemplar content for unambiguous pattern matching
+  if (pattern.exemplar_before && pattern.exemplar_after) {
+    return `Apply the following transformation to the files listed below.
+
+## Pattern
+${pattern.description}
+
+## Exemplar — BEFORE (exact file content)
+\`\`\`
+${pattern.exemplar_before}
+\`\`\`
+
+## Exemplar — AFTER (exact file content)
+\`\`\`
+${pattern.exemplar_after}
+\`\`\`
+
+## Your files to modify
+${fileList}
+
+Match the exemplar's exact calling conventions, parameter order,
+import statements, and code style. Do NOT deviate from the pattern
+shown in the exemplar.
+
+Working directory: ${workingDirectory}`;
+  }
+
+  // v1 fallback: description + transformation only
   return `Apply the following transformation to the file(s) listed below.
 
 Pattern: ${pattern.description}
