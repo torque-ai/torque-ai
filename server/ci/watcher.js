@@ -7,6 +7,7 @@ const { randomUUID } = require('crypto');
 const GitHubActionsProvider = require('./github-actions');
 const { diagnoseFailures } = require('./diagnostics');
 const database = require('../database');
+const ciCache = require('../db/ci-cache');
 
 // Lazy require to break circular dependency: mcp-sse → tools → ci-handlers → watcher → mcp-sse
 let _mcpSse;
@@ -138,7 +139,7 @@ function _deactivateWatchRow(repo, provider) {
 }
 
 function deactivateCiWatch(repo, provider) {
-  return _deactivateWatchRow(repo, provider);
+  return ciCache.deactivateCiWatch(repo, provider);
 }
 
 function _hasRunBeenDiagnosed(runId, repo, provider) {
@@ -299,12 +300,12 @@ async function _pollWatch(watch, providerObj) {
   try {
     runs = await providerObj.listRuns({ branch: currentWatch.branch });
   } catch (_err) {
-    _updateLastCheckedAt(watch.repo, watch.provider);
+    ciCache.updateWatchLastCheckedAt(watch.repo, watch.provider);
     return;
   }
 
   if (!Array.isArray(runs)) {
-    _updateLastCheckedAt(watch.repo, watch.provider);
+    ciCache.updateWatchLastCheckedAt(watch.repo, watch.provider);
     return;
   }
 
@@ -321,7 +322,7 @@ async function _pollWatch(watch, providerObj) {
       continue;
     }
 
-    if (_hasRunBeenDiagnosed(run.id, currentWatch.repo, currentWatch.provider)) {
+    if (ciCache.hasRunBeenDiagnosed(run.id, currentWatch.repo, currentWatch.provider)) {
       continue;
     }
 

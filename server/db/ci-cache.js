@@ -154,6 +154,20 @@ function listActiveCiWatches() {
   return _db.prepare('SELECT * FROM ci_watches WHERE active = 1 ORDER BY created_at DESC').all();
 }
 
+function hasRunBeenDiagnosed(runId, repo, provider) {
+  const row = _db.prepare(
+    'SELECT diagnosed_at FROM ci_run_cache WHERE run_id = ? AND repo = ? AND provider = ?'
+  ).get(String(runId), repo, normalizeProviderValue(provider));
+  return Boolean(row && row.diagnosed_at);
+}
+
+function updateWatchLastCheckedAt(repo, provider) {
+  const now = new Date().toISOString();
+  _db.prepare(
+    'UPDATE ci_watches SET last_checked_at = ?, updated_at = ? WHERE repo = ? AND provider = ?'
+  ).run(now, now, repo, normalizeProviderValue(provider));
+}
+
 /**
  * Factory: create a ci-cache instance with injected db.
  * @param {{ db: object }} deps
@@ -169,6 +183,8 @@ function createCiCache({ db: dbInstance }) {
     getCiWatch,
     deactivateCiWatch,
     listActiveCiWatches,
+    hasRunBeenDiagnosed,
+    updateWatchLastCheckedAt,
   };
 }
 
@@ -182,5 +198,7 @@ module.exports = {
   getCiWatch,
   deactivateCiWatch,
   listActiveCiWatches,
+  hasRunBeenDiagnosed,
+  updateWatchLastCheckedAt,
   createCiCache,
 };
