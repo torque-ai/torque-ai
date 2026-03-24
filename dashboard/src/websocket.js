@@ -35,7 +35,8 @@ export function useWebSocket(onMessage) {
   const [shortId, setShortId] = useState(null);
 
   const onMessageRef = useRef(onMessage);
-  useEffect(() => { onMessageRef.current = onMessage; });
+  // eslint-disable-next-line react-hooks/refs -- sync-ref pattern: keep ref in sync with latest callback
+  onMessageRef.current = onMessage;
 
   const logParseError = useCallback((error) => {
     websocketParseErrorCount += 1;
