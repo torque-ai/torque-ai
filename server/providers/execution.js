@@ -999,6 +999,8 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
                 compute_output: parsed,
                 auto_verify_on_completion: true,
                 verify_command: meta.verify_command || null,
+                user_provider_override: true,
+                requested_provider: applyProvider,
               }),
             });
             logger.info(`[Diffusion] Created apply task ${applyId} from agentic compute ${taskId}`);

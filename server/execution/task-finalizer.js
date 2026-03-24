@@ -318,6 +318,8 @@ function handleComputeApplyCreation(ctx) {
         compute_output: parsed,
         auto_verify_on_completion: true,
         verify_command: meta.verify_command || null,
+        user_provider_override: true,
+        requested_provider: applyProvider,
       }),
     });
 

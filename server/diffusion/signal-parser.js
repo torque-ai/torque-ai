@@ -27,8 +27,18 @@ function parseDiffusionSignal(output) {
   try {
     parsed = JSON.parse(jsonStr);
   } catch (err) {
-    logger.info(`[DiffusionSignal] Malformed JSON in diffusion request: ${err.message}`);
-    return null;
+    // Attempt repair: PowerShell string interpolation can corrupt JSON
+    const repaired = jsonStr
+      .replace(/'"'/g, '"')
+      .replace(/"'/g, '"')
+      .replace(/\r\n/g, '\n');
+    try {
+      parsed = JSON.parse(repaired);
+      logger.info(`[DiffusionSignal] Repaired corrupted JSON in diffusion request`);
+    } catch (_) {
+      logger.info(`[DiffusionSignal] Malformed JSON in diffusion request: ${err.message}`);
+      return null;
+    }
   }
 
   const validation = validateDiffusionPlan(parsed);

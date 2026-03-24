@@ -43,8 +43,33 @@ class StreamSignalParser {
         try {
           parsed = JSON.parse(jsonStr);
         } catch (err) {
-          logger.info(`[StreamSignalParser] Malformed JSON in ${type}: ${err.message}`);
-          continue;
+          // Attempt repair: PowerShell string interpolation can corrupt JSON
+          // by inserting '"' sequences or mangling escapes
+          let repaired = jsonStr
+            .replace(/'"'/g, '"')       // PowerShell double-quote escaping
+            .replace(/"'/g, '"')         // Mismatched quote pairs
+            .replace(/'/g, '"')          // Single quotes to double quotes (if all else fails)
+            .replace(/\r\n/g, '\n');     // Normalize line endings
+          try {
+            parsed = JSON.parse(repaired);
+            logger.info(`[StreamSignalParser] Repaired corrupted JSON in ${type}`);
+          } catch (err2) {
+            // Try extracting JSON from within the text using the compute-output-parser
+            try {
+              const { parseComputeOutput } = require('./compute-output-parser');
+              const extracted = parseComputeOutput(jsonStr);
+              if (extracted) {
+                parsed = extracted;
+                logger.info(`[StreamSignalParser] Extracted JSON from ${type} via compute-output-parser`);
+              } else {
+                logger.info(`[StreamSignalParser] Malformed JSON in ${type}: ${err.message}`);
+                continue;
+              }
+            } catch (_) {
+              logger.info(`[StreamSignalParser] Malformed JSON in ${type}: ${err.message}`);
+              continue;
+            }
+          }
         }
 
         try {
