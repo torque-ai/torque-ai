@@ -51,6 +51,7 @@ function collectDiffOutput(workingDirectory) {
   try {
     const output = childProcess.execFileSync('git', ['diff', 'HEAD~1'], {
       cwd: workingDirectory,
+      windowsHide: true,
     });
     return Buffer.isBuffer(output) ? output.toString('utf8') : String(output ?? '');
   } catch (error) {

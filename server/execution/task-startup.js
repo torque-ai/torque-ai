@@ -754,7 +754,8 @@ function getActualModifiedFiles(workingDir) {
       cwd: workingDir,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_STATUS,
-      maxBuffer: 1024 * 1024
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
     });
 
     const files = [];

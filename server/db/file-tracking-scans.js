@@ -756,7 +756,8 @@ function runAppSmokeTestSync(taskId, workingDirectory, options = {}) {
     const result = spawnSync(command, args, {
       cwd: workingDirectory,
       stdio: ['ignore', 'ignore', 'pipe'],
-      timeout: (timeoutSeconds + 5) * 1000
+      timeout: (timeoutSeconds + 5) * 1000,
+      windowsHide: true,
     });
 
     if (result.error) {

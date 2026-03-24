@@ -35,7 +35,8 @@ function execGit(gitArgs, cwd) {
       cwd,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
-      maxBuffer: 10 * 1024 * 1024
+      maxBuffer: 10 * 1024 * 1024,
+      windowsHide: true,
     });
     if (result.error) {
       return { success: false, error: result.error.message };

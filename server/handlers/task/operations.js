@@ -249,7 +249,8 @@ function handleHealthCheck(args) {
     // Test Codex CLI availability
     const result = spawnSync('codex', ['--version'], {
       encoding: 'utf8',
-      timeout: TASK_TIMEOUTS.PROVIDER_CHECK
+      timeout: TASK_TIMEOUTS.PROVIDER_CHECK,
+      windowsHide: true,
     });
 
     if (result.error) {
@@ -284,7 +285,8 @@ function handleHealthCheck(args) {
       // Simple check - verify Codex can start (with immediate exit)
       const apiResult = spawnSync('codex', ['--help'], {
         encoding: 'utf8',
-        timeout: TASK_TIMEOUTS.HEALTH_CHECK
+        timeout: TASK_TIMEOUTS.HEALTH_CHECK,
+        windowsHide: true,
       });
 
       if (apiResult.error || apiResult.status !== 0) {
