@@ -1004,6 +1004,21 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
               }),
             });
             logger.info(`[Diffusion] Created apply task ${applyId} from agentic compute ${taskId}`);
+            // Update workflow counts so await_workflow tracks the new apply task
+            if (completedTask.workflow_id) {
+              try {
+                const workflowEngine = require('../db/workflow-engine');
+                workflowEngine.updateWorkflowCounts(completedTask.workflow_id);
+                // Reset workflow to running if it completed prematurely (all computes done but applies pending)
+                const wf = workflowEngine.getWorkflow(completedTask.workflow_id);
+                if (wf && wf.status === 'completed') {
+                  workflowEngine.updateWorkflow(completedTask.workflow_id, { status: 'running' });
+                  logger.info(`[Diffusion] Reopened workflow ${completedTask.workflow_id} — apply tasks still pending`);
+                }
+              } catch (wfErr) {
+                logger.info(`[Diffusion] Workflow count update error: ${wfErr.message}`);
+              }
+            }
             try { require('../task-manager').startTask(applyId); } catch (startErr) {
               logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${startErr.message}`);
             }

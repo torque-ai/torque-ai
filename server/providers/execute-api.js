@@ -462,6 +462,19 @@ async function executeApiProvider(task, provider) {
               }),
             });
             logger.info(`[Diffusion] Created apply task ${applyId} from API compute ${taskId} (${parsed.file_edits.length} file edits)`);
+            if (task.workflow_id) {
+              try {
+                const workflowEngine = require('../db/workflow-engine');
+                workflowEngine.updateWorkflowCounts(task.workflow_id);
+                const wf = workflowEngine.getWorkflow(task.workflow_id);
+                if (wf && wf.status === 'completed') {
+                  workflowEngine.updateWorkflow(task.workflow_id, { status: 'running' });
+                  logger.info(`[Diffusion] Reopened workflow ${task.workflow_id} — apply tasks still pending`);
+                }
+              } catch (wfErr) {
+                logger.info(`[Diffusion] Workflow count update error: ${wfErr.message}`);
+              }
+            }
             try {
               const taskManager = require('../task-manager');
               taskManager.startTask(applyId);
