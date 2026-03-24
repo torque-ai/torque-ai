@@ -18,7 +18,7 @@ let _taskManager;
 function taskManager() { return _taskManager || (_taskManager = require('../task-manager')); }
 
 const FILESYSTEM_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
-const DEFAULT_SCOUT_TIMEOUT = 10;
+const DEFAULT_SCOUT_TIMEOUT = 30;
 const DEFAULT_SCOUT_PROVIDER = 'codex';
 
 function handleSubmitScout(args) {
@@ -53,7 +53,7 @@ function handleSubmitScout(args) {
 
   const taskDescription = `${system}\n\n---\n\n${user}`;
   const taskId = uuidv4();
-  const timeout = Math.min(timeout_minutes || DEFAULT_SCOUT_TIMEOUT, 30);
+  const timeout = Math.min(timeout_minutes || DEFAULT_SCOUT_TIMEOUT, 60);
 
   taskCore().createTask({
     id: taskId,
