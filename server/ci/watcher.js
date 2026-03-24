@@ -242,17 +242,27 @@ async function _notifyFailure({
   _provider,
   failures,
   triage,
+  diagnosis,
 }) {
+  const categoryCounts = {};
+  if (diagnosis && diagnosis.categories) {
+    for (const [cat, data] of Object.entries(diagnosis.categories)) {
+      if (data.count > 0) categoryCounts[cat] = data.count;
+    }
+  }
+
   const payload = {
     type: 'ci:run:failed',
     data: {
       run_id: String(run.id),
       repo: run.repository || watch.repo,
       branch: run.branch || watch.branch || null,
-      conclusion: _getConclusion(run),
-      failure_count: Array.isArray(failures) ? failures.length : 0,
-      triage_summary: (triage || '').slice(0, 500),
+      commit_sha: run.sha || null,
+      conclusion: run.conclusion || _getConclusion(run),
       url: run.url || null,
+      category_counts: categoryCounts,
+      total_failures: diagnosis ? diagnosis.total_failures : (Array.isArray(failures) ? failures.length : 0),
+      triage_summary: diagnosis ? diagnosis.triage_summary : (triage || '').slice(0, 500),
     },
   };
 
@@ -342,6 +352,7 @@ async function _pollWatch(watch, providerObj) {
       provider: currentWatch.provider,
       failures,
       triage,
+      diagnosis,
     });
   }
 

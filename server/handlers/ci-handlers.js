@@ -302,9 +302,22 @@ async function handleDiagnoseCiFailure(args) {
     const log = await provider.getFailureLogs(runIdResult.runId);
     const report = diagnostics.diagnoseFailures(log, { runId: runIdResult.runId });
 
-    return {
-      content: [{ type: 'text', text: report.triage || `No actionable CI failures found for run ${runIdResult.runId}.` }],
-    };
+    const content = [
+      { type: 'text', text: report.triage || `No actionable CI failures found for run ${runIdResult.runId}.` },
+    ];
+
+    if (report.categories) {
+      content.push({
+        type: 'text',
+        text: JSON.stringify({
+          categories: report.categories,
+          total_failures: report.total_failures,
+          suggested_actions: report.suggested_actions,
+        }),
+      });
+    }
+
+    return { content };
   } catch (err) {
     return makeError(ErrorCodes.PROVIDER_ERROR, `Failed to diagnose CI failure: ${err.message || err}`);
   }
