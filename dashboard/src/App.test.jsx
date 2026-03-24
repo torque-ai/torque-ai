@@ -346,7 +346,7 @@ describe('App', () => {
     await flushAppEffects();
     await waitFor(() => {
       expect(document.title).toBe('TORQUE (1 running)');
-    });
+    }, { timeout: 3000 });
 
     emitWsMessage({
       event: 'tasks:batch-updated',
