@@ -21,6 +21,59 @@ const FILESYSTEM_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
 const DEFAULT_SCOUT_TIMEOUT = 30;
 const DEFAULT_SCOUT_PROVIDER = 'codex';
 
+// Providers that can do compute (raw text completion, no filesystem needed).
+// Ordered by preference: high concurrency + free/cheap first.
+const COMPUTE_CAPABLE_PROVIDERS = [
+  'cerebras',       // Free, fast, 3+ concurrent
+  'groq',           // Free tier, fast, 128K context
+  'ollama-cloud',   // Cloud Ollama endpoint, large context
+  'deepinfra',      // Cheap, 50 concurrent, 128K
+  'hyperbolic',     // Cheap, 20 concurrent, 128K
+  'google-ai',      // Free tier, 800K+ context
+  'openrouter',     // Gateway, varies
+  'ollama',         // Local, free, but slow
+];
+
+function autoSelectComputeProvider() {
+  try {
+    const providerRoutingCore = require('../db/provider-routing-core');
+    const allProviders = providerRoutingCore.listProviders();
+
+    const enabledSet = new Set(
+      allProviders
+        .filter(p => p.enabled)
+        .map(p => p.provider)
+    );
+
+    // Walk the preference list and pick the first enabled provider
+    // that has API key configured (for cloud providers)
+    for (const candidate of COMPUTE_CAPABLE_PROVIDERS) {
+      if (!enabledSet.has(candidate)) continue;
+
+      // Check API key availability for cloud providers
+      const envVarMap = {
+        cerebras: 'CEREBRAS_API_KEY',
+        groq: 'GROQ_API_KEY',
+        deepinfra: 'DEEPINFRA_API_KEY',
+        hyperbolic: 'HYPERBOLIC_API_KEY',
+        'google-ai': 'GOOGLE_AI_API_KEY',
+        openrouter: 'OPENROUTER_API_KEY',
+        'ollama-cloud': 'OLLAMA_CLOUD_API_KEY',
+      };
+
+      const envVar = envVarMap[candidate];
+      if (envVar && !process.env[envVar]) continue; // No API key, skip
+
+      // ollama is always available (local)
+      return candidate;
+    }
+  } catch (err) {
+    logger.debug(`[Diffusion] Auto-select compute provider failed: ${err.message}`);
+  }
+
+  return null; // No compute provider available — fall back to single-stage
+}
+
 function handleSubmitScout(args) {
   const { scope, working_directory, file_patterns, provider, timeout_minutes } = args || {};
 
@@ -139,6 +192,19 @@ function handleCreateDiffusionPlan(args) {
     );
   }
 
+  // Auto-discover compute provider if not explicitly set
+  let resolvedComputeProvider = compute_provider || null;
+  let resolvedApplyProvider = apply_provider || null;
+  if (!resolvedComputeProvider) {
+    resolvedComputeProvider = autoSelectComputeProvider();
+    if (resolvedComputeProvider) {
+      logger.info(`[Diffusion] Auto-selected compute provider: ${resolvedComputeProvider}`);
+      if (!resolvedApplyProvider) {
+        resolvedApplyProvider = 'ollama';
+      }
+    }
+  }
+
   const workflowPlan = buildWorkflowTasks(plan, {
     batchSize: batch_size,
     workingDirectory: working_directory,
@@ -146,8 +212,8 @@ function handleCreateDiffusionPlan(args) {
     convergence,
     depth: currentDepth,
     verifyCommand: resolvedVerifyCommand,
-    computeProvider: compute_provider || null,
-    applyProvider: apply_provider || null,
+    computeProvider: resolvedComputeProvider,
+    applyProvider: resolvedApplyProvider,
   });
 
   // Create the TORQUE workflow — use `context` column for diffusion metadata
