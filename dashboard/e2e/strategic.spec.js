@@ -90,6 +90,9 @@ const MOCK_PROVIDER_HEALTH = [
 // ---------------------------------------------------------------------------
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/auth/status', (route) => {
+    route.fulfill({ json: { authenticated: true, mode: 'open' } });
+  });
   // V2 endpoint: status
   await page.route('**/api/v2/strategic/status', (route) => {
     route.fulfill({

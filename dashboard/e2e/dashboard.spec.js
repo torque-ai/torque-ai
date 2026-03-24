@@ -124,6 +124,11 @@ const MOCK_TIMESERIES = [
 
 /** Set up page.route() interception for all API endpoints used by dashboard tests. */
 async function interceptApi(page) {
+  // -- Auth: always return authenticated --
+  await page.route('**/api/auth/status', (route) => {
+    route.fulfill({ json: { authenticated: true, mode: 'open' } });
+  });
+
   // -- V2: Tasks list (supports ?status= and ?q= filtering) --
   await page.route('**/api/v2/tasks?**', (route) => {
     const url = new URL(route.request().url());

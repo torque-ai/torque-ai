@@ -53,6 +53,9 @@ const MOCK_FREE_TIER_HISTORY = {
 // ---------------------------------------------------------------------------
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/auth/status', (route) => {
+    route.fulfill({ json: { authenticated: true, mode: 'open' } });
+  });
   await page.route('**/api/quota/status', (route) => {
     route.fulfill({
       status: 200,
