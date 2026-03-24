@@ -87,8 +87,14 @@ module.exports = async function setup() {
   // Snapshot existing git processes (including helpers) before the suite
   preExistingGitPids = snapshotAllGitPids();
 
-  // Create template DB with full schema applied
+  // Create template DB with full schema applied.
+  // Delete stale template DB from prior runs — INSERT OR IGNORE seeds
+  // won't overwrite existing rows, so stale data leaks across runs.
   fs.mkdirSync(TEMPLATE_DIR, { recursive: true });
+  const TEMPLATE_DB = path.join(TEMPLATE_DIR, 'torque.db');
+  try { fs.unlinkSync(TEMPLATE_DB); } catch { /* first run */ }
+  try { fs.unlinkSync(TEMPLATE_DB + '-wal'); } catch { /* no WAL */ }
+  try { fs.unlinkSync(TEMPLATE_DB + '-shm'); } catch { /* no SHM */ }
 
   const origDataDir = process.env.TORQUE_DATA_DIR;
   process.env.TORQUE_DATA_DIR = TEMPLATE_DIR;

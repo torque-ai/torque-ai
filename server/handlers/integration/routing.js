@@ -726,10 +726,12 @@ async function handleSmartSubmitTask(args) {
     }
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (local LLMs unreliable for tests)`);
   }
-  // Skip modification routing for hashline-ollama — it uses hashline annotation
-  // (line-number-based edits) which handles any file size safely. The 250-line limit
-  // only applies to raw ollama which uses whole-file output.
-  if (!taskModel && selectedProvider === 'ollama') {
+  // Modification + greenfield routing for local Ollama providers.
+  // hashline-ollama handles modifications at any file size (line-number edits),
+  // so modification routing only applies to raw ollama. But BOTH providers
+  // cannot create new files, so the greenfield guard applies to both.
+  const _isLocalOllamaProvider = selectedProvider === 'ollama' || selectedProvider === 'hashline-ollama';
+  if (!taskModel && _isLocalOllamaProvider) {
     // Detect modification tasks for capability-driven routing decisions.
     // Models with low max_safe_edit_lines cannot safely modify existing files — route to Codex.
     const taskLower = task.toLowerCase();
@@ -793,8 +795,14 @@ async function handleSmartSubmitTask(args) {
       }
     }
 
+    // hashline-ollama handles modifications safely at any file size via line-number
+    // annotations — skip modification routing entirely and only check greenfield guard.
+    const isHashlineProvider = selectedProvider === 'hashline-ollama';
     const canUseLocalForMod = fileSizeKnown && maxFileLines < modSafeLineLimit;
-    if (isModificationTask && canUseLocalForMod && !override_provider) {
+    if (isHashlineProvider && isModificationTask) {
+      // No-op: hashline handles modifications at any file size
+      logger.info(`[SmartRouting] hashline-ollama: modification task, keeping provider (line-number edits handle any size)`);
+    } else if (isModificationTask && canUseLocalForMod && !override_provider) {
       // Model capability check: local model handles modifications safely within max_safe_edit_lines
       taskModel = modelRoles.getModelForRole('ollama', 'default') || DEFAULT_FALLBACK_MODEL;
       modRoutingReason = `Modification task (${maxFileLines} lines < ${modSafeLineLimit} limit) → local model (safe)`;
