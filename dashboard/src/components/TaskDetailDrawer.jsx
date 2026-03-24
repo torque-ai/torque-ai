@@ -26,10 +26,15 @@ const COMMON_PROVIDER_OPTIONS = [
   'codex',
   'claude-cli',
   'ollama',
+  'ollama-cloud',
   'hashline-ollama',
   'anthropic',
+  'cerebras',
   'groq',
   'deepinfra',
+  'hyperbolic',
+  'google-ai',
+  'openrouter',
 ];
 
 function buildProviderOptions(providerList, currentProvider) {
