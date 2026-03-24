@@ -9,6 +9,7 @@
  * Uses setDb() dependency injection to receive the SQLite connection.
  */
 
+const path = require('path');
 const logger = require('../logger').child({ component: 'task-metadata' });
 const { safeJsonParse } = require('../utils/json');
 const taskIntelligence = require('./task-intelligence');
@@ -44,19 +45,121 @@ function getTaskFileChangeColumns() {
   );
 }
 
+function pickFirstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function normalizeLegacyFileChange(changeOrPath, changeType, options = {}) {
+  if (changeOrPath && typeof changeOrPath === 'object' && !Array.isArray(changeOrPath)) {
+    return { ...changeOrPath };
+  }
+
+  const normalizedOptions = options && typeof options === 'object' && !Array.isArray(options)
+    ? options
+    : {};
+
+  return {
+    file_path: changeOrPath,
+    change_type: changeType,
+    stash_ref: pickFirstDefined(normalizedOptions.stash_ref, normalizedOptions.stashRef),
+    original_content: pickFirstDefined(normalizedOptions.original_content, normalizedOptions.originalContent),
+    file_size_bytes: pickFirstDefined(normalizedOptions.file_size_bytes, normalizedOptions.fileSizeBytes),
+    working_directory: pickFirstDefined(normalizedOptions.working_directory, normalizedOptions.workingDirectory),
+    relative_path: pickFirstDefined(normalizedOptions.relative_path, normalizedOptions.relativePath),
+    is_outside_workdir: pickFirstDefined(normalizedOptions.is_outside_workdir, normalizedOptions.isOutsideWorkdir),
+  };
+}
+
+function normalizeTrackedFileChange(changeOrPath, changeType, options = {}) {
+  const change = normalizeLegacyFileChange(changeOrPath, changeType, options);
+  const filePath = typeof change.file_path === 'string' ? change.file_path.trim() : '';
+  const normalizedChangeType = typeof change.change_type === 'string' ? change.change_type.trim() : '';
+
+  if (!filePath || !normalizedChangeType) {
+    throw new Error('recordFileChange requires file_path and change_type');
+  }
+
+  const normalizedWorkingDirectory = typeof change.working_directory === 'string' && change.working_directory.trim()
+    ? change.working_directory.trim()
+    : null;
+
+  let relativePath = typeof change.relative_path === 'string' && change.relative_path.trim()
+    ? change.relative_path.trim()
+    : filePath;
+  let isOutsideWorkdir = change.is_outside_workdir ? 1 : 0;
+
+  if (normalizedWorkingDirectory && change.relative_path === undefined && change.is_outside_workdir === undefined) {
+    const normalizedFile = path.normalize(filePath);
+    const normalizedWorkdir = path.normalize(normalizedWorkingDirectory);
+    const rel = path.relative(normalizedWorkdir, normalizedFile);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      isOutsideWorkdir = 1;
+    } else {
+      relativePath = rel;
+      isOutsideWorkdir = 0;
+    }
+  }
+
+  const parsedFileSizeBytes = Number(change.file_size_bytes);
+  const fileSizeBytes = Number.isFinite(parsedFileSizeBytes) && parsedFileSizeBytes >= 0
+    ? parsedFileSizeBytes
+    : null;
+
+  return {
+    file_path: filePath,
+    change_type: normalizedChangeType,
+    stash_ref: typeof change.stash_ref === 'string' && change.stash_ref.trim() ? change.stash_ref.trim() : null,
+    original_content: typeof change.original_content === 'string' ? change.original_content : null,
+    file_size_bytes: fileSizeBytes,
+    working_directory: normalizedWorkingDirectory,
+    relative_path: relativePath,
+    is_outside_workdir: isOutsideWorkdir,
+  };
+}
+
 // ============ Task File Changes Functions ============
 
 /**
  * Record a file change for a task
  * @param {any} taskId
- * @param {any} change
+ * Supports both the modern object signature:
+ *   recordFileChange(taskId, { file_path, change_type, ... })
+ * and the legacy file-tracking signature:
+ *   recordFileChange(taskId, filePath, changeType, options)
+ *
+ * @param {any} changeOrPath
+ * @param {any} changeType
+ * @param {any} options
  * @returns {any}
  */
-function recordFileChange(taskId, change) {
+function recordFileChange(taskId, changeOrPath, changeType, options = {}) {
   const availableColumns = getTaskFileChangeColumns();
+  const change = normalizeTrackedFileChange(changeOrPath, changeType, options);
   const timestamp = new Date().toISOString();
   const columns = ['task_id', 'file_path', 'change_type'];
   const values = [taskId, change.file_path, change.change_type];
+
+  if (availableColumns.has('file_size_bytes')) {
+    columns.push('file_size_bytes');
+    values.push(change.file_size_bytes);
+  }
+  if (availableColumns.has('working_directory')) {
+    columns.push('working_directory');
+    values.push(change.working_directory);
+  }
+  if (availableColumns.has('relative_path')) {
+    columns.push('relative_path');
+    values.push(change.relative_path);
+  }
+  if (availableColumns.has('is_outside_workdir')) {
+    columns.push('is_outside_workdir');
+    values.push(change.is_outside_workdir);
+  }
 
   if (availableColumns.has('stash_ref')) {
     columns.push('stash_ref');
@@ -80,6 +183,14 @@ function recordFileChange(taskId, change) {
     INSERT INTO task_file_changes (${columns.join(', ')})
     VALUES (${placeholders})
   `).run(...values);
+
+  return {
+    task_id: taskId,
+    file_path: change.file_path,
+    change_type: change.change_type,
+    relative_path: change.relative_path,
+    is_outside_workdir: change.is_outside_workdir === 1,
+  };
 }
 
 /**

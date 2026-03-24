@@ -28,6 +28,12 @@ let origDataDir;
 function ensureTestSchema(dbHandle) {
   if (!dbHandle || typeof dbHandle.exec !== 'function') return;
 
+  try {
+    dbHandle.exec(`ALTER TABLE tasks ADD COLUMN approval_status TEXT DEFAULT 'not_required'`);
+  } catch {
+    // Column already exists in this test database variant.
+  }
+
   dbHandle.exec(`
     CREATE TABLE IF NOT EXISTS host_credentials (
       id TEXT PRIMARY KEY,
@@ -66,6 +72,18 @@ function ensureTestSchema(dbHandle) {
     `);
   } catch {
     // task_file_changes may not exist in very small ad-hoc fixtures.
+  }
+
+  try {
+    dbHandle.exec(`
+      UPDATE tasks
+      SET approval_status = 'not_required'
+      WHERE approval_status IS NULL
+         OR TRIM(approval_status) = ''
+         OR approval_status = 'none'
+    `);
+  } catch {
+    // tasks may not exist in very small ad-hoc fixtures.
   }
 
   try {

@@ -130,6 +130,24 @@ function normalizeProviderValue(provider) {
   return normalized.length > 0 ? normalized : null;
 }
 
+function normalizeApprovalStatus(value) {
+  if (value === undefined) {
+    return 'not_required';
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === '' || normalized === 'none') {
+    return 'not_required';
+  }
+  return normalized;
+}
+
 function normalizeMetadataObject(value) {
   if (value === null || value === undefined) {
     return {};
@@ -231,6 +249,7 @@ function normalizeFilesModifiedField(value) {
 function createTask(task) {
   if (dbClosed || !db) throw new Error('Database is closed');
   const normalizedProvider = normalizeProviderValue(task.provider);
+  const normalizedApprovalStatus = normalizeApprovalStatus(task.approval_status);
   const resolvedProvider = normalizedProvider || (_getConfig ? _getConfig('default_provider') : null) || 'codex';
   const originalProvider = task.original_provider || resolvedProvider;
   const metadataObject = normalizeMetadataObject(task.metadata);
@@ -280,9 +299,9 @@ function createTask(task) {
     INSERT INTO tasks (
       id, status, task_description, working_directory,
       timeout_minutes, auto_approve, priority, context, created_at,
-      max_retries, depends_on, template_name, isolated_workspace, tags, project, provider, model,
+      max_retries, depends_on, template_name, isolated_workspace, approval_status, tags, project, provider, model,
       complexity, review_status, ollama_host_id, original_provider, provider_switched_at, metadata, workflow_id, workflow_node_id, stall_timeout_seconds
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   try {
@@ -300,6 +319,7 @@ function createTask(task) {
       task.depends_on ? JSON.stringify(task.depends_on) : null,
       task.template_name || null,
       task.isolated_workspace || null,
+      normalizedApprovalStatus,
       task.tags ? JSON.stringify(task.tags) : null,
       project,
       normalizedProvider,

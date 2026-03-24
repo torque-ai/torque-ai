@@ -310,7 +310,7 @@ function createTables(db, logger) {
         group_id TEXT,
         paused_at TEXT,
         pause_reason TEXT,
-        approval_status TEXT DEFAULT 'none',
+        approval_status TEXT DEFAULT 'not_required',
         claimed_by_agent TEXT,
         resume_context TEXT,
         required_capabilities TEXT,
