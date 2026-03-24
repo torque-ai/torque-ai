@@ -957,6 +957,52 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
 
     logger.info(`[Agentic] API task ${taskId} completed: ${result.iterations} iterations, ${(result.toolLog || []).length} tool calls, ${(result.changedFiles || []).length} files changed`);
 
+    // Diffusion compute→apply: if this is a compute task, create the apply task dynamically
+    try {
+      const completedTask = db.getTask(taskId);
+      const meta = completedTask?.metadata ? (typeof completedTask.metadata === 'string' ? JSON.parse(completedTask.metadata) : completedTask.metadata) : {};
+      if (meta.diffusion_role === 'compute') {
+        const computeRawOutput = result.output || '';
+        logger.info(`[Diffusion] Agentic compute task ${taskId} output: ${computeRawOutput.length} chars`);
+        const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
+        const { expandApplyTaskDescription } = require('../diffusion/planner');
+        const parsed = parseComputeOutput(computeRawOutput);
+        logger.info(`[Diffusion] Compute parse result: ${parsed ? `valid (${parsed.file_edits?.length} edits)` : 'null (parse failed)'}`);
+        if (parsed) {
+          const validation = validateComputeSchema(parsed);
+          if (validation.valid) {
+            const applyId = require('uuid').v4();
+            const applyProvider = meta.apply_provider || 'ollama';
+            const applyDesc = expandApplyTaskDescription(parsed, completedTask.working_directory);
+            db.createTask({
+              id: applyId,
+              status: 'queued',
+              task_description: applyDesc,
+              working_directory: completedTask.working_directory,
+              workflow_id: completedTask.workflow_id,
+              provider: applyProvider,
+              metadata: JSON.stringify({
+                diffusion: true,
+                diffusion_role: 'apply',
+                compute_task_id: taskId,
+                compute_output: parsed,
+                auto_verify_on_completion: true,
+                verify_command: meta.verify_command || null,
+              }),
+            });
+            logger.info(`[Diffusion] Created apply task ${applyId} from agentic compute ${taskId}`);
+            try { require('../task-manager').startTask(applyId); } catch (startErr) {
+              logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${startErr.message}`);
+            }
+          } else {
+            logger.info(`[Diffusion] Agentic compute ${taskId} schema invalid: ${validation.errors.join('; ')}`);
+          }
+        }
+      }
+    } catch (diffusionErr) {
+      logger.debug(`[Diffusion] Agentic compute→apply hook error: ${diffusionErr.message}`);
+    }
+
   } catch (error) {
     logger.info(`[Agentic] API task ${taskId} failed: ${error.message}`);
     safeUpdateTaskStatus(taskId, 'failed', {
