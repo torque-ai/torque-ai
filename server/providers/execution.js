@@ -752,6 +752,17 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     return _executeApiModule.executeApiProvider(task, providerInstance);
   }
 
+  // Diffusion compute tasks need raw text output, not agentic tool-calling.
+  // Bypass the agentic loop and use the legacy API path which returns the
+  // LLM response as plain text — exactly what the compute→apply pipeline needs.
+  try {
+    const taskMeta = task.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+    if (taskMeta.diffusion_role === 'compute') {
+      logger.info(`[API-WRAP] Compute task ${task.id} — bypassing agentic loop for raw text output`);
+      return _executeApiModule.executeApiProvider(task, providerInstance);
+    }
+  } catch (_e) { /* non-fatal — continue to agentic */ }
+
   // Select adapter
   const adapter = selectAdapter(provider);
   if (!adapter) {
