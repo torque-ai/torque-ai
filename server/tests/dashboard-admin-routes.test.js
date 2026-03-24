@@ -65,6 +65,12 @@ function installMock(modulePath, exportsValue) {
 }
 
 installMock('../database', mockDb);
+installMock('../db/coordination', mockDb);
+installMock('../db/scheduling-automation', mockDb);
+installMock('../db/validation-rules', mockDb);
+installMock('../db/host-management', mockDb);
+installMock('../db/project-config-core', mockDb);
+installMock('../db/task-core', mockDb);
 installMock('../logger', mockLogger);
 installMock('../dashboard/utils', mockUtils);
 installMock('../tools', mockTools);

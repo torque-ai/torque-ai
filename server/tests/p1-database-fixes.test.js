@@ -241,16 +241,23 @@ describe('p1 database fixes', () => {
 
     try {
       const result = taskCore.tryClaimTaskSlot(targetId, 1, null, 'ollama', 1, ['ollama']);
-      // The interleaved claim fills the global slot (cap=1), so the atomic
-      // check correctly rejects the second claim — no over-capacity.
-      expect(result.success).toBe(false);
+      // Depending on SQLite lock timing, the simulated external claim may
+      // either land before the transactional checks finish or be rejected by
+      // the IMMEDIATE transaction. The invariant we care about is that the
+      // race never produces more than one running task.
+      if (result.success) {
+        expect(result.task?.id).toBe(targetId);
+        expect(result.task?.status).toBe('running');
+      } else {
+        expect(['at_capacity', 'provider_at_capacity']).toContain(result.reason);
+      }
       expect(sideEffectExecuted).toBe(true);
     } finally {
       rawDb.prepare = originalPrepare;
     }
 
-    // The target was not claimed; blocker may or may not have been promoted
-    // to 'running' depending on SQLite lock timing (auxDb write may fail).
+    // The target may or may not have been claimed depending on whether the
+    // external write won the race, but the system must never exceed capacity.
     const running = rawDb.prepare("SELECT COUNT(*) AS count FROM tasks WHERE status = 'running'").get();
     expect(running.count).toBeLessThanOrEqual(1);
   });

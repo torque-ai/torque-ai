@@ -128,7 +128,9 @@ function handleCreateDiffusionPlan(args) {
       const projectConfigCore = require('../db/project-config-core');
       const defaults = projectConfigCore.getProjectDefaults(working_directory);
       resolvedVerifyCommand = defaults?.verify_command;
-    } catch (_e) { /* project config not available */ }
+    } catch (_e) {
+      void _e;
+    }
   }
   if (!resolvedVerifyCommand) {
     return makeError(

@@ -79,7 +79,8 @@ describe('auto_routed overflow — proof of integration', () => {
           metadata TEXT,
           workflow_id TEXT,
           workflow_node_id TEXT,
-          stall_timeout_seconds INTEGER
+          stall_timeout_seconds INTEGER,
+          approval_status TEXT
         );
       `);
       taskCore.setDb(dbHandle);
