@@ -396,11 +396,25 @@ function createProviderRuntimeState(runningAll = []) {
     return runningCount;
   }
 
+  // Providers that share the same GPU — running count must be unified
+  const _gpuSharingProviders = new Set(['ollama', 'hashline-ollama']);
+
   function getProviderCapacity(provider, fallbackLimit = null) {
     const normalizedProvider = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
     const limit = getProviderLimit(normalizedProvider, fallbackLimit);
     const started = providerStartedCounts.get(normalizedProvider) || 0;
-    const running = getProviderRunningCount(normalizedProvider) + started;
+
+    // GPU-sharing providers: count running tasks across ALL providers that share the GPU
+    let running;
+    if (_gpuSharingProviders.has(normalizedProvider)) {
+      running = 0;
+      for (const gp of _gpuSharingProviders) {
+        running += getProviderRunningCount(gp) + (providerStartedCounts.get(gp) || 0);
+      }
+    } else {
+      running = getProviderRunningCount(normalizedProvider) + started;
+    }
+
     // limit === 0 means "disabled" (issue #11) — never available
     // limit === null means "no limit configured" — always available
     // limit > 0 means "explicit cap" — available if running < limit
