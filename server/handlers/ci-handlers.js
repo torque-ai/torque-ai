@@ -24,6 +24,7 @@ function resolveRepo(args) {
         timeout: 10000,
         encoding: 'utf8',
         cwd: args.working_directory,
+        windowsHide: true,
       },
     );
     return result.trim();

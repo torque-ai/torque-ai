@@ -186,7 +186,7 @@ class GitHubActionsProvider extends CIProvider {
 
   _runGhCommand(...args) {
     return new Promise((resolve, reject) => {
-      childProcess.execFile(...args, { timeout: GH_TIMEOUT_MS }, (error, stdout = '', stderr = '') => {
+      childProcess.execFile(...args, { timeout: GH_TIMEOUT_MS, windowsHide: true }, (error, stdout = '', stderr = '') => {
         if (error) {
           const commandError = error;
           commandError.stdout = stdout;

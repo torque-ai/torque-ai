@@ -487,6 +487,7 @@ function autoActivateForRepo(workingDirectory) {
     const remoteUrl = execFileSync('git', ['-C', workingDirectory, 'remote', 'get-url', 'origin'], {
       timeout: 5000,
       encoding: 'utf8',
+      windowsHide: true,
     }).trim();
 
     if (!remoteUrl) return;
