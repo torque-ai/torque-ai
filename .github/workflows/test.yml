@@ -150,7 +150,7 @@ jobs:
         working-directory: dashboard
 
       - name: Run dashboard E2E tests
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
         timeout-minutes: 10
         run: npm run test:e2e
         working-directory: dashboard
