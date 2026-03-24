@@ -266,6 +266,75 @@ function handleDiffusionSignalDetection(ctx) {
   }
 }
 
+function handleComputeApplyCreation(ctx) {
+  try {
+    const task = deps.db.getTask(ctx.taskId);
+    const meta = task?.metadata
+      ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata)
+      : {};
+
+    if (meta.diffusion_role !== 'compute' || ctx.status !== 'completed') return;
+
+    const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
+    const { expandApplyTaskDescription } = require('../diffusion/planner');
+
+    const parsed = parseComputeOutput(ctx.output || '');
+    if (!parsed) {
+      logger.info(`[Diffusion] Compute task ${ctx.taskId} produced unparseable output — marking failed`);
+      if (typeof deps.db.updateTaskStatus === 'function') {
+        deps.db.updateTaskStatus(ctx.taskId, 'failed');
+      }
+      ctx.status = 'failed';
+      return;
+    }
+
+    const validation = validateComputeSchema(parsed);
+    if (!validation.valid) {
+      logger.info(`[Diffusion] Compute task ${ctx.taskId} schema invalid: ${validation.errors.join('; ')}`);
+      if (typeof deps.db.updateTaskStatus === 'function') {
+        deps.db.updateTaskStatus(ctx.taskId, 'failed');
+      }
+      ctx.status = 'failed';
+      return;
+    }
+
+    // Create the apply task dynamically
+    const applyProvider = meta.apply_provider || 'ollama';
+    const workingDir = task.working_directory;
+    const applyDesc = expandApplyTaskDescription(parsed, workingDir);
+    const applyId = require('uuid').v4();
+
+    deps.db.createTask({
+      id: applyId,
+      status: 'queued',
+      task_description: applyDesc,
+      working_directory: workingDir,
+      workflow_id: task.workflow_id,
+      provider: applyProvider,
+      metadata: JSON.stringify({
+        diffusion: true,
+        diffusion_role: 'apply',
+        compute_task_id: ctx.taskId,
+        compute_output: parsed,
+        auto_verify_on_completion: true,
+        verify_command: meta.verify_command || null,
+      }),
+    });
+
+    logger.info(`[Diffusion] Created apply task ${applyId} from compute ${ctx.taskId} (${parsed.file_edits.length} file edits)`);
+
+    // Start the apply task
+    try {
+      const taskManager = require('../task-manager');
+      taskManager.startTask(applyId);
+    } catch (err) {
+      logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${err.message}`);
+    }
+  } catch (err) {
+    logger.debug(`[Diffusion] Compute→apply hook non-critical error: ${err.message}`);
+  }
+}
+
 async function finalizeTask(taskId, options = {}) {
   if (!deps.db || typeof deps.db.getTask !== 'function') {
     throw new Error('task-finalizer not initialized with db dependency');
@@ -349,6 +418,8 @@ async function finalizeTask(taskId, options = {}) {
 
     // Phase 2.5: Diffusion signal detection — check output for __DIFFUSION_REQUEST__ blocks
     await runStage(ctx, 'diffusion_signal_detection', handleDiffusionSignalDetection, ctx.code === 0);
+
+    await runStage(ctx, 'compute_apply_creation', handleComputeApplyCreation, ctx.code === 0);
 
     await runStage(ctx, 'fuzzy_repair', deps.handleFuzzyRepair, typeof deps.handleFuzzyRepair === 'function');
     await runStage(ctx, 'no_file_change_detection', deps.handleNoFileChangeDetection, typeof deps.handleNoFileChangeDetection === 'function');
