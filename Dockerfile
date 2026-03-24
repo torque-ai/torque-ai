@@ -27,11 +27,11 @@ WORKDIR /app
 
 # Install server dependencies (separate layer for caching)
 COPY server/package*.json ./server/
-RUN cd server && npm ci --production
+RUN cd server && npm ci --omit=dev
 
 # Install root dependencies (ws, uuid, bonjour-service)
 COPY package*.json ./
-RUN npm ci --production
+RUN npm ci --omit=dev
 
 # Copy server source
 COPY server/ ./server/
@@ -55,7 +55,7 @@ EXPOSE 3456 3457 3458 9394
 
 # Health check — REST API health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3457/api/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3457/healthz || exit 1
 
 # Run as non-root for security
 RUN addgroup -g 1001 torque && adduser -u 1001 -G torque -s /bin/sh -D torque
