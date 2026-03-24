@@ -4,15 +4,14 @@
 
 | Version | Supported |
 |---------|-----------|
-| 2.1.x   | Yes       |
-| < 2.0   | No        |
+| 1.0.x-beta | Yes |
 
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in TORQUE, please report it responsibly:
 
 1. **Do NOT open a public issue** for security vulnerabilities
-2. Email security findings to **security@torque-ai.dev** with:
+2. Use [GitHub Security Advisories](https://github.com/torque-ai/torque-ai/security/advisories/new) to report privately, or email **security@torque-ai.dev** with:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact assessment
@@ -28,7 +27,9 @@ If you discover a security vulnerability in TORQUE, please report it responsibly
 ## Security Practices
 
 ### Authentication
-- REST API requires `X-Torque-Key` header for authenticated endpoints
+- API keys use HMAC-SHA-256 hashing — plaintext keys are never stored
+- REST API requires `Authorization: Bearer` or `X-Torque-Key` header for authenticated endpoints
+- MCP SSE transport uses session tokens (one-time use, 60s TTL)
 - Shutdown endpoint restricted to localhost + API key
 - Health/readiness/liveness probes are intentionally unauthenticated
 
@@ -36,6 +37,7 @@ If you discover a security vulnerability in TORQUE, please report it responsibly
 - API keys and secrets are redacted from logs via pattern matching
 - Database credentials are never exposed in API responses
 - HMAC-SHA256 verification for inbound webhooks
+- See [PRIVACY.md](PRIVACY.md) for data locality guarantees
 
 ### Network Security
 - SSRF protection via hostname pattern validation on webhook URLs
@@ -69,10 +71,10 @@ Key fixes:
 
 ## MCP Plugin Context
 
-When installed as a Claude Code plugin, TORQUE:
+When installed as an MCP server, TORQUE:
 - Spawns child processes only when the user explicitly submits a task — never automatically
 - Makes network calls only to user-configured providers (Ollama hosts, cloud APIs)
-- Starts with 29 core tools (Tier 1) — advanced tools require explicit unlock via `unlock_tier`
+- Starts with core tools only — advanced tools require explicit unlock via `unlock_tier` or `unlock_all_tools`
 - Stores all data locally in SQLite — see [PRIVACY.md](PRIVACY.md)
 
 ## Known Limitations
