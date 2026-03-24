@@ -157,6 +157,8 @@ function buildWorkflowTasks(plan, options = {}) {
     convergence,
     depth = 0,
     verifyCommand,
+    computeProvider,
+    applyProvider,
   } = options;
 
   const strategy = convergence || selectConvergenceStrategy(
@@ -198,24 +200,36 @@ function buildWorkflowTasks(plan, options = {}) {
       continue;
     }
 
+    const isComputePipeline = !!computeProvider;
     const batches = createBatches(entries, batchSize);
     for (const batch of batches) {
       const files = batch.map(e => e.file);
-      const taskId = `fanout-${tasks.length}`;
+      const role = isComputePipeline ? 'compute' : 'fanout';
+      const taskProvider = isComputePipeline ? computeProvider : (provider || null);
+      const taskId = `${role}-${tasks.length}`;
       tasks.push({
         id: taskId,
-        description: expandTaskDescription(pattern, files, workingDirectory),
+        description: isComputePipeline
+          ? expandComputeTaskDescription(
+              pattern,
+              Object.fromEntries(files.map(f => [f, '(file content loaded at execution time)'])),
+              workingDirectory,
+            )
+          : expandTaskDescription(pattern, files, workingDirectory),
         depends_on: strategy === 'dag' ? [...anchorTaskIds] : [],
         working_directory: workingDirectory,
-        provider: provider || null,
+        provider: taskProvider,
         metadata: {
           diffusion: true,
-          diffusion_role: 'fanout',
+          diffusion_role: role,
           pattern_id: patternId,
           files,
           depth,
-          auto_verify_on_completion: true,
-          verify_command: verifyCommand,
+          ...(isComputePipeline ? {
+            apply_provider: applyProvider || 'ollama',
+            verify_command: verifyCommand || null,
+          } : {}),
+          ...(verifyCommand ? { auto_verify_on_completion: true, verify_command: verifyCommand } : {}),
         },
       });
     }

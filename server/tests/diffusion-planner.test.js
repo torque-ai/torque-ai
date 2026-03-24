@@ -135,6 +135,57 @@ describe('buildWorkflowTasks', () => {
   });
 });
 
+describe('buildWorkflowTasks with compute→apply pipeline', () => {
+  const basePlan = {
+    summary: 'Refactor ViewModels',
+    patterns: [{
+      id: 'p1', description: 'Remove SetProperty', transformation: 'Use BindableBase',
+      exemplar_files: ['ex.cs'], exemplar_diff: 'diff',
+      exemplar_before: 'class Before {}', exemplar_after: 'class After {}',
+      file_count: 3,
+    }],
+    manifest: [
+      { file: 'a.cs', pattern: 'p1' },
+      { file: 'b.cs', pattern: 'p1' },
+      { file: 'c.cs', pattern: 'p1' },
+    ],
+    shared_dependencies: [],
+    estimated_subtasks: 3,
+    isolation_confidence: 0.95,
+  };
+
+  it('creates compute tasks when computeProvider is set', () => {
+    const result = buildWorkflowTasks(basePlan, {
+      workingDirectory: '/proj',
+      computeProvider: 'cerebras',
+      applyProvider: 'ollama',
+    });
+    expect(result.strategy).toBe('optimistic');
+    const computeTasks = result.tasks.filter(t => t.metadata.diffusion_role === 'compute');
+    expect(computeTasks.length).toBeGreaterThan(0);
+    expect(computeTasks[0].provider).toBe('cerebras');
+    expect(computeTasks[0].metadata.apply_provider).toBe('ollama');
+  });
+
+  it('falls back to single-stage fanout when no computeProvider', () => {
+    const result = buildWorkflowTasks(basePlan, { workingDirectory: '/proj' });
+    const computeTasks = result.tasks.filter(t => t.metadata.diffusion_role === 'compute');
+    expect(computeTasks).toHaveLength(0);
+    const fanoutTasks = result.tasks.filter(t => t.metadata.diffusion_role === 'fanout');
+    expect(fanoutTasks.length).toBeGreaterThan(0);
+  });
+
+  it('includes verify_command in compute task metadata', () => {
+    const result = buildWorkflowTasks(basePlan, {
+      workingDirectory: '/proj',
+      computeProvider: 'cerebras',
+      verifyCommand: 'dotnet build',
+    });
+    const computeTasks = result.tasks.filter(t => t.metadata.diffusion_role === 'compute');
+    expect(computeTasks[0].metadata.verify_command).toBe('dotnet build');
+  });
+});
+
 describe('expandComputeTaskDescription', () => {
   it('embeds file content and exemplar in compute prompt', () => {
     const pattern = {
