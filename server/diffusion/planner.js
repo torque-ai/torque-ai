@@ -1,6 +1,22 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const logger = require('../logger').child({ component: 'diffusion-planner' });
+
+function readFileContents(files, workingDirectory) {
+  const contents = {};
+  for (const file of files) {
+    try {
+      const fullPath = path.resolve(workingDirectory, file);
+      contents[file] = fs.readFileSync(fullPath, 'utf-8');
+    } catch (err) {
+      contents[file] = `(error reading file: ${err.message})`;
+      logger.info(`[DiffusionPlanner] Failed to read ${file}: ${err.message}`);
+    }
+  }
+  return contents;
+}
 
 const CONFIDENCE_THRESHOLD = 0.8;
 const DEFAULT_BATCH_SIZE = 1;
@@ -212,7 +228,7 @@ function buildWorkflowTasks(plan, options = {}) {
         description: isComputePipeline
           ? expandComputeTaskDescription(
               pattern,
-              Object.fromEntries(files.map(f => [f, '(file content loaded at execution time)'])),
+              readFileContents(files, workingDirectory),
               workingDirectory,
             )
           : expandTaskDescription(pattern, files, workingDirectory),
