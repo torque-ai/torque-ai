@@ -30,6 +30,8 @@ const TIER_1 = [
   'await_ci_run', 'list_ci_runs', 'ci_run_status',
   'diagnose_ci_failure', 'watch_ci_repo', 'stop_ci_watch',
   'configure_ci_provider',
+  // Diffusion engine
+  'submit_scout', 'create_diffusion_plan', 'diffusion_status',
   // Context (compact session resume)
   'get_context',
 ];
@@ -50,8 +52,6 @@ const TIER_2 = [
   // Batch orchestration
   'generate_feature_tasks', 'generate_test_tasks', 'run_batch',
   'detect_file_conflicts', 'auto_commit_batch', 'get_batch_summary',
-  // Diffusion engine
-  'submit_scout', 'create_diffusion_plan', 'diffusion_status',
   // Universal TypeScript structural tools
   'add_ts_interface_members', 'inject_class_dependency', 'add_ts_union_members',
   'inject_method_calls', 'add_ts_enum_members',
