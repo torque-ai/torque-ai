@@ -15,7 +15,7 @@ describe('CI diagnostics parser', () => {
 
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]).toMatchObject({
-      category: 'test',
+      category: 'test_logic',
       file: 'tests/foo.test.js',
       test_name: 'handles edge case',
     });
@@ -51,7 +51,7 @@ describe('CI diagnostics parser', () => {
 
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]).toMatchObject({
-      category: 'infrastructure',
+      category: 'infra',
     });
     expect(result.failures[0].message).toContain('shutdown signal');
   });
@@ -62,7 +62,7 @@ describe('CI diagnostics parser', () => {
 
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]).toMatchObject({
-      category: 'timeout',
+      category: 'infra',
     });
     expect(result.failures[0].message).toContain('timed_out');
   });
@@ -94,7 +94,7 @@ describe('CI diagnostics parser', () => {
     const result = diagnoseFailures(log, {});
 
     expect(result.failures).not.toHaveLength(0);
-    expect(result.failures[0].category).toBe('test');
+    expect(result.failures[0].category).toBe('test_logic');
     expect(result.triage).toContain('Warning');
     expect(result.triage).toContain('2 MB');
   });
@@ -115,5 +115,67 @@ describe('CI diagnostics parser', () => {
     expect(diagnoseFailures('', {})).toEqual({ failures: [], triage: '' });
     expect(diagnoseFailures(null, {})).toEqual({ failures: [], triage: '' });
   });
-});
 
+  it('categorizes SqliteError as test_schema', () => {
+    const log = 'FAIL tests/host-credentials.test.js > saves credential\nSqliteError: ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint';
+    const result = diagnoseFailures(log, {});
+    expect(result.failures.length).toBeGreaterThanOrEqual(1);
+    const schemaFailure = result.failures.find(f => f.category === 'test_schema');
+    expect(schemaFailure).toBeTruthy();
+    expect(schemaFailure.message).toContain('ON CONFLICT');
+  });
+
+  it('categorizes "no column named" as test_schema', () => {
+    const log = 'FAIL tests/close-handler.test.js > rollback\nSqliteError: table task_file_changes has no column named stash_ref';
+    const result = diagnoseFailures(log, {});
+    const schemaFailure = result.failures.find(f => f.category === 'test_schema');
+    expect(schemaFailure).toBeTruthy();
+  });
+
+  it('categorizes spawn EPERM as test_platform', () => {
+    const log = 'FAIL tests/bootstrap.test.js > startup\nError: spawn EPERM';
+    const result = diagnoseFailures(log, {});
+    const platformFailure = result.failures.find(f => f.category === 'test_platform');
+    expect(platformFailure).toBeTruthy();
+  });
+
+  it('categorizes AssertionError as test_logic', () => {
+    const log = "FAIL tests/handler.test.js > returns expected\nAssertionError: expected 'completed' to be 'failed'";
+    const result = diagnoseFailures(log, {});
+    const logicFailure = result.failures.find(f => f.category === 'test_logic');
+    expect(logicFailure).toBeTruthy();
+  });
+
+  it('maps infrastructure category to infra', () => {
+    const log = '##[error] Runner received shutdown signal';
+    const result = diagnoseFailures(log, {});
+    expect(result.failures[0].category).toBe('infra');
+  });
+
+  it('maps timeout conclusion to infra', () => {
+    const result = diagnoseFailures('some log', { conclusion: 'timed_out' });
+    expect(result.failures[0].category).toBe('infra');
+  });
+
+  it('returns structured categories with counts and suggested_actions', () => {
+    const log = [
+      'FAIL tests/host.test.js > saves credential',
+      'SqliteError: ON CONFLICT clause does not match',
+      'FAIL tests/handler.test.js > returns expected',
+      "AssertionError: expected 'completed' to be 'failed'",
+      '  5:7  error  Unexpected var  no-var',
+    ].join('\n');
+
+    const result = diagnoseFailures(log, {});
+
+    expect(result.categories).toBeDefined();
+    expect(result.categories.test_schema.count).toBe(1);
+    expect(result.categories.test_logic.count).toBe(1);
+    expect(result.categories.lint.count).toBe(1);
+    expect(result.total_failures).toBe(3);
+    expect(result.triage_summary).toContain('schema');
+    expect(result.suggested_actions).toBeInstanceOf(Array);
+    expect(result.suggested_actions.length).toBeGreaterThan(0);
+    expect(result.triage).toContain('CI Failure Triage');
+  });
+});

@@ -69,10 +69,10 @@ function categorizeError(line, context = {}) {
   const text = line.trim();
   const lowerConclusion = typeof context.conclusion === 'string' ? context.conclusion.toLowerCase() : '';
   if (lowerConclusion === 'timed_out') {
-    return 'timeout';
+    return 'infra';
   }
   if (/##\[error\].*shutdown signal/i.test(text)) {
-    return 'infrastructure';
+    return 'infra';
   }
   if (/^\s*\d+:\d+\s+error\b/i.test(text)) {
     return 'lint';
@@ -84,9 +84,34 @@ function categorizeError(line, context = {}) {
     return 'test';
   }
   if (/timed out|timeout/i.test(text)) {
-    return 'timeout';
+    return 'infra';
   }
   return 'unknown';
+}
+
+const SCHEMA_PATTERNS = [
+  /SqliteError/i,
+  /no column named/i,
+  /FOREIGN KEY constraint/i,
+  /NOT NULL constraint failed/i,
+  /ON CONFLICT clause/i,
+  /no such table/i,
+];
+
+function isSchemaError(line) {
+  return SCHEMA_PATTERNS.some(p => p.test(line));
+}
+
+const PLATFORM_PATTERNS = [
+  /spawn EPERM/i,
+  /spawn ENOENT/i,
+  /ESOCKETTIMEDOUT/i,
+  /timeout of \d+ms exceeded/i,
+  /process activity/i,
+];
+
+function isPlatformError(line) {
+  return PLATFORM_PATTERNS.some(p => p.test(line));
 }
 
 function extractTestFailure(lines) {
@@ -109,8 +134,12 @@ function extractTestFailure(lines) {
     const detailLine = (lines[i + 1] || '').trim();
     const message = detailLine || 'Test assertion failed';
 
+    let subCategory = 'test_logic';
+    if (isSchemaError(detailLine)) subCategory = 'test_schema';
+    else if (isPlatformError(detailLine)) subCategory = 'test_platform';
+
     failures.push(buildFailure({
-      category: 'test',
+      category: subCategory,
       file,
       test_name: testName,
       line: null,
@@ -194,7 +223,7 @@ function extractInfrastructureFailure(lines) {
     }
 
     failures.push(buildFailure({
-      category: 'infrastructure',
+      category: 'infra',
       message: line.trim(),
       raw_output: line,
     }));
@@ -209,6 +238,15 @@ function generateFixSuggestion(failure) {
   const line = failure?.line != null ? ` at line ${failure.line}` : '';
   const testName = failure?.test_name ? ` for "${failure.test_name}"` : '';
 
+  if (category === 'test_schema') {
+    return `Fix schema mismatch${file}: add missing column/table to test DB bootstrap.`;
+  }
+  if (category === 'test_logic') {
+    return `Re-run the failing test${file}${testName} and review the assertion${line}.`;
+  }
+  if (category === 'test_platform') {
+    return `Environment-specific failure${file} — check platform compatibility or add CI-resilient assertions.`;
+  }
   if (category === 'test') {
     return `Re-run the failing test${file}${testName} and review the assertion before re-submitting${line}.`;
   }
@@ -218,16 +256,9 @@ function generateFixSuggestion(failure) {
   if (category === 'build') {
     return `Fix the TypeScript/build error${file}${line}, rerun the build step, then rerun CI.`;
   }
-  if (category === 'infrastructure') {
-    return 'Inspect runner/infrastructure health and rerun the workflow on a healthy host or queue.';
+  if (category === 'infra' || category === 'infrastructure' || category === 'timeout') {
+    return 'CI infrastructure issue — inspect runner health or rerun the workflow.';
   }
-  if (category === 'timeout') {
-    return 'Increase execution timeout/retry strategy or split the workload and requeue the task.';
-  }
-  if (category === 'unknown') {
-    return 'Inspect the raw CI log around this failure and apply a targeted fix for the first actionable error.';
-  }
-
   return 'Review the failure context and apply the most direct corrective action.';
 }
 
@@ -288,7 +319,7 @@ function diagnoseFailures(rawLog, runMeta = {}) {
 
   if (isTimedOut) {
     const timeoutFailure = buildFailure({
-      category: 'timeout',
+      category: 'infra',
       message: 'CI run reached timed_out conclusion.',
       raw_output: inputToParse,
     });
@@ -318,9 +349,39 @@ function diagnoseFailures(rawLog, runMeta = {}) {
 
   const triageMeta = { ...normalizedMeta, input_truncated: inputTruncated };
   const triage = generateTriageReport(categorizedFailures, triageMeta);
+
+  // Build category groupings
+  const CATEGORY_NAMES = ['lint', 'test_schema', 'test_logic', 'test_platform', 'build', 'infra', 'unknown'];
+  const categories = {};
+  for (const cat of CATEGORY_NAMES) {
+    const matching = categorizedFailures.filter(f => f.category === cat);
+    categories[cat] = { count: matching.length, failures: matching };
+  }
+
+  const nonZero = CATEGORY_NAMES.filter(c => categories[c].count > 0);
+  const triageSummary = nonZero.length
+    ? `${categorizedFailures.length} failures: ${nonZero.map(c => `${categories[c].count} ${c.replace('test_', '')}`).join(', ')}`
+    : 'No failures detected';
+
+  const ACTION_MAP = {
+    lint: { action: 'auto-fixable', description: 'Run eslint --fix or submit to codex' },
+    test_schema: { action: 'schema-sync', description: 'Update test DB bootstrap with missing columns' },
+    test_logic: { action: 'manual-review', description: "Test expectations don't match current behavior" },
+    test_platform: { action: 'platform-fix', description: 'Add CI-resilient assertions or skip on affected platform' },
+    build: { action: 'build-fix', description: 'Fix compilation errors and rebuild' },
+    infra: { action: 'rerun', description: 'CI infrastructure issue — rerun or check runner health' },
+  };
+  const suggestedActions = nonZero
+    .filter(c => ACTION_MAP[c])
+    .map(c => ({ category: c, ...ACTION_MAP[c] }));
+
   return {
     failures: categorizedFailures,
+    categories,
+    total_failures: categorizedFailures.length,
+    triage_summary: triageSummary,
     triage,
+    suggested_actions: suggestedActions,
   };
 }
 
@@ -335,5 +396,8 @@ module.exports = {
     extractTestFailure,
     extractLintFailure,
     extractBuildFailure,
+    extractInfrastructureFailure,
+    isSchemaError,
+    isPlatformError,
   },
 };
