@@ -219,8 +219,7 @@ describe('App', () => {
   });
 
   it('renders the project settings route', async () => {
-    window.history.replaceState({}, '', '/settings');
-    renderApp();
+    renderApp('/settings');
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Project Settings' })).toBeInTheDocument();
     });
@@ -344,6 +343,7 @@ describe('App', () => {
       },
     });
 
+    await flushAppEffects();
     await waitFor(() => {
       expect(document.title).toBe('TORQUE (1 running)');
     });
