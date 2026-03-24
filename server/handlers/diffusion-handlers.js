@@ -96,7 +96,7 @@ Then pass the scout's output to \`create_diffusion_plan\` to fan out the work.`,
 }
 
 function handleCreateDiffusionPlan(args) {
-  const { plan, working_directory, batch_size, provider, convergence, depth, auto_run, verify_command } = args || {};
+  const { plan, working_directory, batch_size, provider, convergence, depth, auto_run, verify_command, compute_provider, apply_provider } = args || {};
 
   if (!plan || typeof plan !== 'object') {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'plan (diffusion plan JSON) is required');
@@ -146,6 +146,8 @@ function handleCreateDiffusionPlan(args) {
     convergence,
     depth: currentDepth,
     verifyCommand: resolvedVerifyCommand,
+    computeProvider: compute_provider || null,
+    applyProvider: apply_provider || null,
   });
 
   // Create the TORQUE workflow — use `context` column for diffusion metadata
@@ -228,6 +230,8 @@ function handleCreateDiffusionPlan(args) {
 
   const anchorCount = workflowPlan.tasks.filter(t => t.metadata.diffusion_role === 'anchor').length;
   const fanoutCount = workflowPlan.tasks.filter(t => t.metadata.diffusion_role === 'fanout').length;
+  const computeCount = workflowPlan.tasks.filter(t => t.metadata.diffusion_role === 'compute').length;
+  const isComputePipeline = computeCount > 0;
 
   return {
     content: [{
@@ -242,7 +246,7 @@ function handleCreateDiffusionPlan(args) {
 | Fan-out tasks | ${fanoutCount} |
 | Total tasks | ${workflowPlan.tasks.length} |
 | Depth | ${currentDepth} |
-| Auto-started | ${shouldRun} |
+| Auto-started | ${shouldRun} |${isComputePipeline ? `\n| Pipeline mode | compute→apply (compute: ${compute_provider}, apply: ${apply_provider || 'ollama'}) |` : ''}
 
 ${workflowPlan.strategy === 'dag' ? '**DAG mode:** anchor tasks run first, fan-out tasks start after anchors complete.' : '**Optimistic parallel:** all tasks run simultaneously.'}
 

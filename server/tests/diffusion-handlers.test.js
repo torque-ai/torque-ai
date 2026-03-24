@@ -242,6 +242,29 @@ describe('full pipeline: scout output → create_diffusion_plan → workflow', (
   });
 });
 
+describe('compute→apply pipeline', () => {
+  let handlers;
+  beforeEach(() => { handlers = loadHandlers(); });
+
+  it('passes compute_provider to buildWorkflowTasks', () => {
+    const plan = {
+      summary: 'Test',
+      patterns: [{ id: 'p1', description: 'd', transformation: 't', exemplar_files: ['f'], exemplar_diff: 'x', file_count: 1 }],
+      manifest: [{ file: 'a.js', pattern: 'p1' }],
+      shared_dependencies: [], estimated_subtasks: 1, isolation_confidence: 0.9,
+    };
+    const result = handlers.handleCreateDiffusionPlan({
+      plan,
+      working_directory: '/proj',
+      verify_command: 'echo ok',
+      compute_provider: 'cerebras',
+      apply_provider: 'ollama',
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('Workflow ID');
+  });
+});
+
 describe('mandatory verify_command', () => {
   let handlers;
   beforeEach(() => { handlers = loadHandlers(); });
