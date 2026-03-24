@@ -73,3 +73,6 @@ dashboard/test-results/
 
 # Stale temp directories
 server/tmp-*/
+
+# Drafts (unpublished)
+drafts/
