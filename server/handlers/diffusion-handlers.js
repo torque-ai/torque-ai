@@ -18,6 +18,7 @@ let _taskManager;
 function taskManager() { return _taskManager || (_taskManager = require('../task-manager')); }
 
 const FILESYSTEM_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
+const APPLY_CAPABLE_PROVIDERS = ['ollama', 'codex', 'claude-cli', 'ollama-cloud', 'hashline-ollama'];
 const DEFAULT_SCOUT_TIMEOUT = 30;
 const DEFAULT_SCOUT_PROVIDER = 'codex';
 
@@ -72,6 +73,49 @@ function autoSelectComputeProvider() {
   }
 
   return null; // No compute provider available — fall back to single-stage
+}
+
+/**
+ * Auto-select available apply providers (filesystem-capable).
+ * Returns an array of enabled providers sorted by max_concurrent (highest first).
+ * The close-handler hooks round-robin across these when creating apply tasks.
+ */
+function autoSelectApplyProviders() {
+  try {
+    const providerRoutingCore = require('../db/provider-routing-core');
+    const allProviders = providerRoutingCore.listProviders();
+
+    const enabledMap = new Map(
+      allProviders
+        .filter(p => p.enabled)
+        .map(p => [p.provider, p])
+    );
+
+    const available = [];
+    for (const candidate of APPLY_CAPABLE_PROVIDERS) {
+      if (!enabledMap.has(candidate)) continue;
+      const config = enabledMap.get(candidate);
+
+      // Cloud providers need API keys
+      const envVarMap = {
+        'ollama-cloud': 'OLLAMA_CLOUD_API_KEY',
+      };
+      const envVar = envVarMap[candidate];
+      if (envVar && !process.env[envVar]) continue;
+
+      available.push({
+        provider: candidate,
+        maxConcurrent: config.max_concurrent || 1,
+      });
+    }
+
+    // Sort by max_concurrent descending — spread load to highest-capacity first
+    available.sort((a, b) => b.maxConcurrent - a.maxConcurrent);
+    return available.map(a => a.provider);
+  } catch (err) {
+    logger.debug(`[Diffusion] Auto-select apply providers failed: ${err.message}`);
+  }
+  return ['ollama']; // Fallback
 }
 
 function handleSubmitScout(args) {
@@ -192,17 +236,18 @@ function handleCreateDiffusionPlan(args) {
     );
   }
 
-  // Auto-discover compute provider if not explicitly set
+  // Auto-discover compute and apply providers if not explicitly set
   let resolvedComputeProvider = compute_provider || null;
-  let resolvedApplyProvider = apply_provider || null;
+  let resolvedApplyProviders = apply_provider ? [apply_provider] : null;
   if (!resolvedComputeProvider) {
     resolvedComputeProvider = autoSelectComputeProvider();
     if (resolvedComputeProvider) {
       logger.info(`[Diffusion] Auto-selected compute provider: ${resolvedComputeProvider}`);
-      if (!resolvedApplyProvider) {
-        resolvedApplyProvider = 'ollama';
-      }
     }
+  }
+  if (!resolvedApplyProviders) {
+    resolvedApplyProviders = autoSelectApplyProviders();
+    logger.info(`[Diffusion] Auto-selected apply providers: ${resolvedApplyProviders.join(', ')}`);
   }
 
   const workflowPlan = buildWorkflowTasks(plan, {
@@ -213,7 +258,8 @@ function handleCreateDiffusionPlan(args) {
     depth: currentDepth,
     verifyCommand: resolvedVerifyCommand,
     computeProvider: resolvedComputeProvider,
-    applyProvider: resolvedApplyProvider,
+    applyProvider: resolvedApplyProviders[0] || 'ollama',
+    applyProviders: resolvedApplyProviders,
   });
 
   // Create the TORQUE workflow — use `context` column for diffusion metadata

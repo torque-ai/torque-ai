@@ -298,8 +298,12 @@ function handleComputeApplyCreation(ctx) {
       return;
     }
 
-    // Create the apply task dynamically
-    const applyProvider = meta.apply_provider || 'ollama';
+    // Create the apply task dynamically — round-robin across available providers
+    const applyProviderList = Array.isArray(meta.apply_providers) && meta.apply_providers.length > 0
+      ? meta.apply_providers
+      : [meta.apply_provider || 'ollama'];
+    const applyIndex = parseInt(ctx.taskId.replace(/[^0-9a-f]/g, '').slice(-4), 16) % applyProviderList.length;
+    const applyProvider = applyProviderList[applyIndex];
     const workingDir = task.working_directory;
     const applyDesc = expandApplyTaskDescription(parsed, workingDir);
     const applyId = require('uuid').v4();

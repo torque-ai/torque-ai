@@ -441,7 +441,11 @@ async function executeApiProvider(task, provider) {
           const validation = validateComputeSchema(parsed);
           if (validation.valid) {
             const applyId = require('uuid').v4();
-            const applyProvider = meta.apply_provider || 'ollama';
+            const applyProviderList = Array.isArray(meta.apply_providers) && meta.apply_providers.length > 0
+              ? meta.apply_providers
+              : [meta.apply_provider || 'ollama'];
+            const applyIndex = parseInt(taskId.replace(/[^0-9a-f]/g, '').slice(-4), 16) % applyProviderList.length;
+            const applyProvider = applyProviderList[applyIndex];
             const applyDesc = expandApplyTaskDescription(parsed, task.working_directory);
             db.createTask({
               id: applyId,

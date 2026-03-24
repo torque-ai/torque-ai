@@ -175,6 +175,7 @@ function buildWorkflowTasks(plan, options = {}) {
     verifyCommand,
     computeProvider,
     applyProvider,
+    applyProviders,
   } = options;
 
   const strategy = convergence || selectConvergenceStrategy(
@@ -243,6 +244,7 @@ function buildWorkflowTasks(plan, options = {}) {
           depth,
           ...(isComputePipeline ? {
             apply_provider: applyProvider || 'ollama',
+            apply_providers: applyProviders || [applyProvider || 'ollama'],
             verify_command: verifyCommand || null,
           } : {}),
           ...(verifyCommand ? { auto_verify_on_completion: true, verify_command: verifyCommand } : {}),
