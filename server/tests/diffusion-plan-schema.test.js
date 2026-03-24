@@ -72,4 +72,35 @@ describe('diffusion plan schema validation', () => {
     expect(result.valid).toBe(false);
     expect(result.errors).toContainEqual(expect.stringContaining('200'));
   });
+
+  it('accepts patterns with v2 exemplar_before and exemplar_after fields', () => {
+    const plan = {
+      summary: 'test',
+      patterns: [{
+        id: 'a', description: 'd', transformation: 't',
+        exemplar_files: ['f.cs'], exemplar_diff: 'diff text',
+        exemplar_before: 'using System;\nclass Foo {}',
+        exemplar_after: 'using System;\nusing Shared;\nclass Foo {}',
+        file_count: 1,
+      }],
+      manifest: [{ file: 'x.cs', pattern: 'a' }],
+      shared_dependencies: [], estimated_subtasks: 1, isolation_confidence: 0.9,
+    };
+    const result = validateDiffusionPlan(plan);
+    expect(result.valid).toBe(true);
+  });
+
+  it('still accepts v1 patterns without exemplar_before/after', () => {
+    const plan = {
+      summary: 'test',
+      patterns: [{
+        id: 'a', description: 'd', transformation: 't',
+        exemplar_files: ['f'], exemplar_diff: 'x', file_count: 1,
+      }],
+      manifest: [{ file: 'x.js', pattern: 'a' }],
+      shared_dependencies: [], estimated_subtasks: 1, isolation_confidence: 0.9,
+    };
+    const result = validateDiffusionPlan(plan);
+    expect(result.valid).toBe(true);
+  });
 });
