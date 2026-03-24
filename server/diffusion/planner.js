@@ -133,6 +133,24 @@ Output ONLY the JSON object below, no explanation, no code fences:
 
 Each operation's old_text must be an EXACT substring of the file content (character-for-character match).
 For deletions, set new_text to an empty string "".
+
+## SAFETY RULES — Read carefully before producing edits
+
+1. **SKIP files where the class already extends a concrete base class** (e.g., Window, UserControl, Page, Control). C# does not support multiple inheritance. If the class declaration is "class Foo : Window" or "class Foo : SomeBaseClass", output an empty operations array for that file with a comment explaining why.
+
+2. **Remove ALL related artifacts** when removing a method. If you remove SetProperty<T>, you MUST also:
+   - Remove the OnPropertyChanged method (if it exists as a private/protected method)
+   - Remove the "public event PropertyChangedEventHandler? PropertyChanged;" declaration
+   - Remove "using System.ComponentModel;" ONLY if nothing else in the file uses types from that namespace (check for PropertyChangedEventHandler, INotifyPropertyChanged, PropertyChangedEventArgs references that will remain)
+   - Remove "using System.Runtime.CompilerServices;" ONLY if nothing else uses [CallerMemberName] or other attributes from that namespace
+
+3. **Check for custom logic in SetProperty** before removing it. If the SetProperty method contains logic BEYOND the standard pattern (e.g., additional PropertyChanged notifications, side effects, disposed guards, unsaved-change flags), you MUST:
+   - Still remove the SetProperty method
+   - BUT preserve the custom logic by adding it to the property setters that called SetProperty, or by adding an override/helper method
+   - If the custom logic is too complex to preserve safely, output an empty operations array for that file with a comment
+
+4. **Verify using statements** — after all edits, the file must still compile. Don't remove a using statement if any remaining code references types from that namespace.
+
 Working directory: ${workingDirectory}`;
 }
 

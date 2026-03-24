@@ -984,13 +984,25 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       if (meta.diffusion_role === 'compute') {
         const computeRawOutput = result.output || '';
         logger.info(`[Diffusion] Agentic compute task ${taskId} output: ${computeRawOutput.length} chars`);
-        const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
+        const { parseComputeOutput, validateComputeSchema, semanticValidateEdits } = require('../diffusion/compute-output-parser');
         const { expandApplyTaskDescription } = require('../diffusion/planner');
         const parsed = parseComputeOutput(computeRawOutput);
         logger.info(`[Diffusion] Compute parse result: ${parsed ? `valid (${parsed.file_edits?.length} edits)` : 'null (parse failed)'}`);
         if (parsed) {
           const validation = validateComputeSchema(parsed);
           if (validation.valid) {
+            // Semantic validation: filter out unsafe edits, log warnings
+            const semantic = semanticValidateEdits(parsed, (filePath) => {
+              const fullPath = require('path').resolve(completedTask.working_directory, filePath);
+              return require('fs').readFileSync(fullPath, 'utf-8');
+            });
+            if (semantic.warnings.length > 0) {
+              logger.info(`[Diffusion] Semantic warnings for compute ${taskId}: ${semantic.warnings.join('; ')}`);
+            }
+            const filteredOutput = { ...parsed, file_edits: semantic.file_edits };
+            if (filteredOutput.file_edits.length === 0) {
+              logger.info(`[Diffusion] All edits filtered by semantic validation for compute ${taskId} — skipping apply`);
+            } else {
             const applyId = require('uuid').v4();
             // Round-robin across available apply providers
             const applyProviderList = Array.isArray(meta.apply_providers) && meta.apply_providers.length > 0
@@ -998,7 +1010,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
               : [meta.apply_provider || 'ollama'];
             const applyIndex = parseInt(taskId.replace(/[^0-9a-f]/g, '').slice(-4), 16) % applyProviderList.length;
             const applyProvider = applyProviderList[applyIndex];
-            const applyDesc = expandApplyTaskDescription(parsed, completedTask.working_directory);
+            const applyDesc = expandApplyTaskDescription(filteredOutput, completedTask.working_directory);
             db.createTask({
               id: applyId,
               status: 'queued',
@@ -1036,6 +1048,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
             try { require('../task-manager').startTask(applyId); } catch (startErr) {
               logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${startErr.message}`);
             }
+            } // close: if (filteredOutput.file_edits.length > 0)
           } else {
             logger.info(`[Diffusion] Agentic compute ${taskId} schema invalid: ${validation.errors.join('; ')}`);
           }
