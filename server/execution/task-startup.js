@@ -618,11 +618,7 @@ function startTask(taskId) {
     cwd: task.working_directory || process.cwd(),
     env: envVars,
     shell: false,
-    // windowsHide hides the console window on Windows but breaks the 'close' event
-    // when combined with cmd.exe or certain .exe spawns. Instead, we only use it
-    // for non-long-running spawns (spawnSync). For task processes, we accept that
-    // resolved node.exe spawns don't create windows, and cmd.exe wrapping is avoided
-    // via resolveWindowsCmdToNode above.
+    windowsHide: true,
     // Explicitly configure stdio: stdin is piped (we'll close it), stdout/stderr are piped
     stdio: ['pipe', 'pipe', 'pipe']
   };
