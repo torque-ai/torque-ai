@@ -1107,6 +1107,14 @@ async function handleSmartSubmitTask(args) {
   // Start the task
   taskManager.processQueue();
 
+  // Auto-activate CI watch for this repo (fire-and-forget)
+  if (workingDirectory) {
+    try {
+      const ciWatcher = require('../../ci/watcher');
+      ciWatcher.autoActivateForRepo(workingDirectory);
+    } catch (_e) { /* non-fatal */ }
+  }
+
   let output = `## Task Submitted with Smart Routing\n\n`;
   output += `| Field | Value |\n`;
   output += `|-------|-------|\n`;

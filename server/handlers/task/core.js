@@ -431,6 +431,15 @@ function handleSubmitTask(args) {
   }
 
   const result = taskManager.startTask(taskId);
+
+  // Auto-activate CI watch for this repo (fire-and-forget)
+  if (args.working_directory) {
+    try {
+      const ciWatcher = require('../../ci/watcher');
+      ciWatcher.autoActivateForRepo(args.working_directory);
+    } catch (_e) { /* non-fatal */ }
+  }
+
   if (result?.blocked) {
     return makeError(ErrorCodes.OPERATION_FAILED, result.reason || 'Task blocked by policy');
   }

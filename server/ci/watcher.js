@@ -474,6 +474,37 @@ async function awaitRun({ repo, provider, runId, pollIntervalMs, timeoutMs }) {
   });
 }
 
+/**
+ * Auto-activate CI watch for a git repo (fire-and-forget).
+ * Called on task submission to start watching CI for the repo
+ * the task targets. Silently ignores all errors.
+ */
+function autoActivateForRepo(workingDirectory) {
+  if (!workingDirectory || typeof workingDirectory !== 'string') return;
+
+  try {
+    const { execFileSync } = require('child_process');
+    const remoteUrl = execFileSync('git', ['-C', workingDirectory, 'remote', 'get-url', 'origin'], {
+      timeout: 5000,
+      encoding: 'utf8',
+    }).trim();
+
+    if (!remoteUrl) return;
+
+    // Parse owner/repo from HTTPS or SSH URL
+    const match = remoteUrl.match(/(?:github\.com)[/:]([^/]+\/[^/.]+?)(?:\.git)?$/);
+    if (!match) return;
+
+    const repo = match[1];
+    const existing = ciCache.getCiWatch(repo, 'github-actions');
+    if (existing && Number(existing.active) === 1) return;
+
+    watchRepo({ repo, provider: 'github-actions', poll_interval_ms: 30000 });
+  } catch (_err) {
+    // Best-effort — silently ignore (not a git repo, no remote, etc.)
+  }
+}
+
 module.exports = {
   _activeTimers,
   MAX_WATCHES,
@@ -484,5 +515,6 @@ module.exports = {
   deactivateCiWatch,
   _deactivateWatchRow: _deactivateWatchRow,
   awaitRun,
+  autoActivateForRepo,
   createCiWatcher,
 };
