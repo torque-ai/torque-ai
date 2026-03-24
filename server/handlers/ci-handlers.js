@@ -146,13 +146,14 @@ async function handleAwaitCiRun(args) {
       return makeError(ErrorCodes.OPERATION_FAILED, 'CI await is not available in this build');
     }
 
+    const shouldDiagnose = args.diagnose !== false;
     const provider = createProvider(args, repoResult.repo);
     const run = await watcher.awaitRun({
       repo: repoResult.repo,
       provider: parseProvider(args),
       runId: runIdResult.runId,
       pollIntervalMs: parsePollInterval(args),
-      timeoutMs: args.timeout_ms ?? args.timeoutMs,
+      timeoutMs: ((args.timeout_minutes ?? 30) * 60 * 1000),
     });
 
     if (!run || typeof run !== 'object') {
@@ -164,6 +165,9 @@ async function handleAwaitCiRun(args) {
     }
 
     if (run.status === 'failure' || run.conclusion === 'failure') {
+      if (!shouldDiagnose) {
+        return { content: [{ type: 'text', text: `## CI Run Failed\n\n${formatRunMarkdown(run)}` }] };
+      }
       const logs = await provider.getFailureLogs(String(run.id || runIdResult.runId));
       const diagnosis = diagnostics.diagnoseFailures(logs, {
         conclusion: run.conclusion || run.status || 'failure',

@@ -451,6 +451,17 @@ function createCiWatcher() {
   };
 }
 
+async function awaitRun({ repo, provider, runId, pollIntervalMs, timeoutMs }) {
+  if (!runId) throw new Error('awaitRun requires a runId');
+  if (!provider) throw new Error('awaitRun requires a provider');
+
+  const { providerInstance } = _resolveProvider(provider, repo);
+  return providerInstance.watchRun(runId, {
+    pollIntervalMs: pollIntervalMs || 15000,
+    timeoutMs: timeoutMs || 30 * 60 * 1000,
+  });
+}
+
 module.exports = {
   _activeTimers,
   MAX_WATCHES,
@@ -460,5 +471,6 @@ module.exports = {
   getActiveWatches,
   deactivateCiWatch,
   _deactivateWatchRow: _deactivateWatchRow,
+  awaitRun,
   createCiWatcher,
 };
