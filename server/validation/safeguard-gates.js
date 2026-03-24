@@ -34,6 +34,14 @@ function handleSafeguardChecks(ctx) {
   // for local LLM output and produce false failures on Codex tasks.
   if (task.provider === 'codex') return;
 
+  // Skip safeguard checks for diffusion apply tasks — edits are pre-computed
+  // and validated by the compute stage. Safeguards produce false positives on
+  // documentation-only or additive changes (e.g., XML doc comments flagged as "stubs").
+  try {
+    const meta = task.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+    if (meta.diffusion_role === 'apply') return;
+  } catch (_) { /* non-fatal */ }
+
   const workingDir = task.working_directory || process.cwd();
   const projectConfig = deps.db.getProjectConfig(task.project || deps.db.getProjectFromPath(workingDir));
   const safeguardsEnabled = !projectConfig || projectConfig.llm_safeguards_enabled !== false;
