@@ -277,6 +277,7 @@ function handleCreateDiffusionPlan(args) {
       exemplars: workflowPlan.exemplars,
       pattern_count: plan.patterns.length,
       manifest_count: plan.manifest.length,
+      verify_command: resolvedVerifyCommand,
     },
   });
 
@@ -363,6 +364,7 @@ function handleCreateDiffusionPlan(args) {
 ${workflowPlan.strategy === 'dag' ? '**DAG mode:** anchor tasks run first, fan-out tasks start after anchors complete.' : '**Optimistic parallel:** all tasks run simultaneously.'}
 
 Use \`await_workflow\` with workflow ID \`${workflowId}\` to monitor progress.
+After completion, verify with: \`${resolvedVerifyCommand}\`
 Run \`detect_file_conflicts\` after completion to check for conflicts.`,
     }],
   };

@@ -265,7 +265,9 @@ function buildWorkflowTasks(plan, options = {}) {
             apply_providers: applyProviders || [applyProvider || 'ollama'],
             verify_command: verifyCommand || null,
           } : {}),
-          ...(verifyCommand ? { auto_verify_on_completion: true, verify_command: verifyCommand } : {}),
+          // NOTE: auto_verify_on_completion is intentionally NOT set on individual tasks.
+          // Verification runs once at workflow completion, not per-task in sandboxed environments.
+          ...(verifyCommand ? { verify_command: verifyCommand } : {}),
         },
       });
     }

@@ -819,7 +819,7 @@ async function executeOllamaTask(task) {
                   diffusion_role: 'apply',
                   compute_task_id: taskId,
                   compute_output: parsed,
-                  auto_verify_on_completion: true,
+                  // auto_verify_on_completion: false — verify runs at workflow level, not per-task
                   verify_command: taskMeta.verify_command || null,
                   user_provider_override: true,
                   requested_provider: applyProvider,
