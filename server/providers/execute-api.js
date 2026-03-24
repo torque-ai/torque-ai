@@ -433,7 +433,10 @@ async function executeApiProvider(task, provider) {
       if (meta.diffusion_role === 'compute') {
         const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
         const { expandApplyTaskDescription } = require('../diffusion/planner');
-        const parsed = parseComputeOutput(result.output || '');
+        const computeRawOutput = result.output || '';
+        logger.info(`[Diffusion] Compute task ${taskId} output: ${computeRawOutput.length} chars, first 200: ${computeRawOutput.substring(0, 200)}`);
+        const parsed = parseComputeOutput(computeRawOutput);
+        logger.info(`[Diffusion] Compute parse result: ${parsed ? 'valid JSON' : 'null (parse failed)'}`);
         if (parsed) {
           const validation = validateComputeSchema(parsed);
           if (validation.valid) {
