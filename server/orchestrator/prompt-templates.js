@@ -131,59 +131,101 @@ Respond with a JSON object:
 
   scout: {
     system: `You are a codebase analyst performing reconnaissance for an automated task distribution system.
-Your job is to analyze a working directory, identify the scope of a requested change, classify files by transformation pattern, and produce a structured diffusion plan.
+Your job is to analyze a working directory, classify files by transformation pattern, and produce structured signals that allow work to begin BEFORE your analysis is complete.
 Do NOT modify any files. Your output is analysis only.
-Respond ONLY with valid JSON as the LAST block in your response — no markdown fences around the JSON.`,
+You MUST output signals in two phases — pattern discovery first, then file classification in batches.`,
 
-    user: `Analyze the following scope and produce a diffusion plan.
+    user: `Analyze the following scope in two phases.
 
 **Scope:** {{scope}}
 **Working Directory:** {{working_directory}}
 **File List:** {{file_list}}
 
-Instructions:
-1. Read the files in the working directory matching the scope description
+## Phase 1: Pattern Discovery
+1. Read 10-20 candidate files to understand the transformation scope
 2. Group files by the transformation they need (same change = same pattern)
-3. For the 2-3 most representative files per pattern, write the transformed code as a unified diff
-4. Output a diffusion plan JSON as the LAST thing in your response
+3. For EACH pattern, pick one representative file and produce BOTH the complete file content BEFORE transformation and the complete file content AFTER transformation
+4. Identify any shared files that multiple patterns depend on (e.g., a helper class that needs to be created first)
+5. Output a __PATTERNS_READY__ signal with your findings
 
-The JSON must match this schema:
+## Phase 2: File Classification
+6. Continue scanning the remaining candidate files
+7. For every 5-10 files classified, output a __SCOUT_DISCOVERY__ signal with the batch
+8. When all files are scanned, output a __SCOUT_COMPLETE__ signal
+
+## CRITICAL: Output signals as you go, NOT all at the end.
+
+### Example output format:
+
+Analyzing files in src/App/Sections...
+Found 3 patterns across first 15 files.
+
+__PATTERNS_READY__
 {
-  "summary": "One-line description of the total work",
   "patterns": [
     {
-      "id": "pattern-id",
-      "description": "What these files have in common",
-      "transformation": "What change to apply",
-      "exemplar_files": ["path/to/example.js"],
-      "exemplar_diff": "unified diff showing the before/after",
-      "file_count": 10
+      "id": "single-field-validation",
+      "description": "Dialog with one required TextBox check",
+      "transformation": "Replace inline check with ValidationHelper.ValidateRequired()",
+      "exemplar_files": ["src/App/ExampleDialog.xaml.cs"],
+      "exemplar_diff": "- old code\\n+ new code",
+      "exemplar_before": "using System.Windows;\\n\\npublic partial class ExampleDialog : Window\\n{\\n    public ExampleDialog() { InitializeComponent(); }\\n\\n    private void OnSave(object sender, RoutedEventArgs e)\\n    {\\n        if (string.IsNullOrWhiteSpace(NameBox.Text))\\n        {\\n            ErrorMessage.Text = \\"Name is required.\\";\\n            ErrorMessage.Visibility = Visibility.Visible;\\n            return;\\n        }\\n        ErrorMessage.Visibility = Visibility.Collapsed;\\n        DialogResult = true;\\n    }\\n}",
+      "exemplar_after": "using System.Windows;\\nusing App.Shared;\\n\\npublic partial class ExampleDialog : Window\\n{\\n    public ExampleDialog() { InitializeComponent(); }\\n\\n    private void OnSave(object sender, RoutedEventArgs e)\\n    {\\n        if (!ValidationHelper.ValidateRequired(ErrorMessage, NameBox, \\"Name is required.\\")) return;\\n        ValidationHelper.ClearError(ErrorMessage);\\n        DialogResult = true;\\n    }\\n}",
+      "file_count": 15
     }
   ],
-  "manifest": [
-    { "file": "path/to/file.js", "pattern": "pattern-id" }
-  ],
   "shared_dependencies": [
-    { "file": "path/to/shared.js", "change": "What needs to change in this shared file" }
+    { "file": "src/App/Shared/ValidationHelper.cs", "change": "Create static helper class" }
   ],
-  "estimated_subtasks": 10,
-  "isolation_confidence": 0.0-1.0,
-  "recommended_batch_size": 8
+  "total_candidates": 50,
+  "scanned_so_far": 15
 }
+__PATTERNS_READY_END__
 
-Output the JSON block directly (no markdown fences). It must be the final content in your response.`,
+Continuing classification... scanning files 16-30.
+
+__SCOUT_DISCOVERY__
+{
+  "manifest_chunk": [
+    { "file": "src/App/Sections/FooDialog.xaml.cs", "pattern": "single-field-validation" },
+    { "file": "src/App/Sections/BarDialog.xaml.cs", "pattern": "single-field-validation" }
+  ],
+  "scanned_so_far": 30,
+  "total_candidates": 50
+}
+__SCOUT_DISCOVERY_END__
+
+Scanning files 31-50...
+
+__SCOUT_DISCOVERY__
+{
+  "manifest_chunk": [
+    { "file": "src/App/Sections/BazDialog.xaml.cs", "pattern": "single-field-validation" }
+  ],
+  "scanned_so_far": 50,
+  "total_candidates": 50
+}
+__SCOUT_DISCOVERY_END__
+
+__SCOUT_COMPLETE__
+{
+  "total_classified": 18,
+  "total_skipped": 32,
+  "scanned_so_far": 50,
+  "total_candidates": 50
+}
+__SCOUT_COMPLETE_END__
+
+Output the signal blocks directly with no markdown fences around them.`,
 
     schema: {
       type: 'object',
-      required: ['summary', 'patterns', 'manifest'],
+      required: ['patterns'],
       properties: {
-        summary: { type: 'string' },
         patterns: { type: 'array', items: { type: 'object', required: ['id', 'description', 'transformation', 'exemplar_files', 'exemplar_diff', 'file_count'] } },
-        manifest: { type: 'array', items: { type: 'object', required: ['file', 'pattern'] } },
         shared_dependencies: { type: 'array' },
-        estimated_subtasks: { type: 'number' },
-        isolation_confidence: { type: 'number' },
-        recommended_batch_size: { type: 'number' },
+        total_candidates: { type: 'number' },
+        scanned_so_far: { type: 'number' },
       },
     },
   },
