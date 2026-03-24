@@ -11,7 +11,6 @@
 const path = require('path');
 const fs = require('fs');
 const { ErrorCodes, makeError, isPathTraversalSafe } = require('./shared');
-const logger = require('../logger').child({ component: 'automation-ts-tools' });
 
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

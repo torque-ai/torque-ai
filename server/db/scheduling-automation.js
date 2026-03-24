@@ -17,7 +17,6 @@
 
 let db;
 let _getTaskFn;
-let _recordTaskEventFn;
 let getPipelineFn;
 let createPipelineFn;
 const { createHash } = require('crypto');
@@ -40,7 +39,6 @@ function setGetTask(fn) {
 }
 
 function setRecordTaskEvent(fn) {
-  _recordTaskEventFn = fn;
   approvalWorkflows.setRecordTaskEvent(fn);
 }
 

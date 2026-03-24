@@ -34,6 +34,7 @@ const gpuMetricsServer = require('./scripts/gpu-metrics-server');
 const mcpSse = require('./mcp-sse');
 const { RemoteAgentRegistry } = require('./remote/agent-registry');
 const { MCPPlatform, isPlatformEnabled } = require('./mcp/platform');
+const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const logger = require('./logger').child({ component: 'mcp-stdio' });
 const mcpProtocol = require('./mcp-protocol');
 const timerRegistry = require('./timer-registry');
@@ -52,7 +53,7 @@ let agentRegistry = null;
 let mcpPlatform = null;
 
 // Single source of truth — shared with mcp-sse.js
-const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
+
 
 // PID file for reliable external shutdown (written on startup, cleaned on shutdown)
 // PID REUSE NOTE: On Linux, PIDs cycle through the available range (typically 32768).

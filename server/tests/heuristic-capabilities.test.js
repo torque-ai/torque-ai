@@ -18,7 +18,7 @@ function createTestDb() {
   const rows = new Map(); // model_name → row
 
   const db = {
-    prepare(sql) {
+    prepare(_sql) {
       return {
         run(...args) {
           // Parse the INSERT ... ON CONFLICT DO UPDATE SQL

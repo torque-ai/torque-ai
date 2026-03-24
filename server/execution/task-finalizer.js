@@ -467,8 +467,8 @@ async function finalizeTask(taskId, options = {}) {
           qualityScore: ctx.status === 'completed' ? 0.7 : 0.0,
         });
       }
-    } catch (e) {
-      try { require('../logger').info('[scoring] ' + e.message); } catch {}
+    } catch (_e) {
+      try { require('../logger').info('[scoring] ' + _e.message); } catch {}
     }
 
     try {

@@ -62,7 +62,7 @@ function handleCacheTaskResult(args) {
  * @returns {Object} MCP response payload.
  */
 function handleLookupCache(args) {
-  const { task_description, working_directory, min_confidence, use_semantic: _use_semantic } = args;
+  const { task_description, working_directory, min_confidence } = args;
 
   const result = lookupCache(task_description, working_directory || null, null, min_confidence || 0.85);
 
@@ -203,7 +203,7 @@ function handleConfigureCache(args) {
  * @returns {Object} MCP response payload.
  */
 function handleWarmCache(args) {
-  const { limit, min_exit_code: _min_exit_code } = args;
+  const { limit } = args;
 
   const warmed = warmCache(safeLimit(limit, 50), undefined, null);
 
@@ -226,7 +226,7 @@ function handleWarmCache(args) {
  * @returns {Object} MCP response payload.
  */
 function handleComputePriority(args) {
-  const { task_id, recalculate: _recalculate } = args;
+  const { task_id } = args;
 
   const { task: _task, error: taskErr } = requireTask(task_id);
   if (taskErr) return taskErr;
@@ -266,7 +266,7 @@ function handleComputePriority(args) {
  * @returns {Object} MCP response payload.
  */
 function handleGetPriorityQueue(args) {
-  const { status: _status, limit } = args;
+  const { limit } = args;
 
   const queue = getPriorityQueue(safeLimit(limit, 20), 0);
 

@@ -1,8 +1,6 @@
 // server/tests/diffusion-handlers.test.js
 'use strict';
 
-const path = require('path');
-
 const HANDLER_MODULE = '../handlers/diffusion-handlers';
 const MODULE_PATHS = [
   HANDLER_MODULE,

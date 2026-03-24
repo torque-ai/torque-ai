@@ -8,8 +8,6 @@
 
 'use strict';
 
-const path = require('path');
-const fs = require('fs');
 const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
 const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');

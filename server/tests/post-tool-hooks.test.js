@@ -27,12 +27,11 @@ function createTask(overrides = {}) {
   });
 }
 
-let db;
 let testDir;
 
 describe('post-tool hooks', () => {
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('post-tool-hooks'));
+    ({ testDir } = setupTestDb('post-tool-hooks'));
     postToolHooks.resetHooksForTest();
     taskManager._testing.resetForTest();
   });

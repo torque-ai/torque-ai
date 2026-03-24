@@ -4,8 +4,6 @@
 // The performance handler imports db/project-config-core.js directly, so the test
 // patches that sub-module boundary before the handler loads.
 
-const realShared = require('../handlers/shared');
-
 function installMock(modulePath, exports) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = { id: resolved, filename: resolved, loaded: true, exports };

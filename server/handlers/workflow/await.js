@@ -983,8 +983,8 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
           output += `**Auto-Push failed (git push):** ${(pushErr.message || '').substring(0, 500)}\n`;
         }
       }
-    } catch (commitErr) {
-      output += `**Auto-Commit failed:** ${(commitErr.message || '').substring(0, 500)}\n`;
+    } catch (_commitErr) {
+      output += `**Auto-Commit failed:** ${(_commitErr.message || '').substring(0, 500)}\n`;
     }
   }
 

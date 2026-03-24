@@ -245,7 +245,7 @@ describe('Codex worktree isolation integration', () => {
 
     const result = startCodexTask('Create a utility module', projectDir);
     expect(result, 'Expected startCodexTask to return a task').toBeTruthy();
-    const { taskId, child } = result;
+    const { child } = result;
 
     simulateSuccess(child, 'Created util.js\n');
     await new Promise(resolve => setTimeout(resolve, 200));

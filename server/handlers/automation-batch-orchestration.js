@@ -20,10 +20,6 @@ const autoCommitBatch = require('./auto-commit-batch');
 // Lazy-load to avoid circular deps
 let _taskCore;
 function taskCore() { return _taskCore || (_taskCore = require('../db/task-core')); }
-let _configCore;
-function configCore() { return _configCore || (_configCore = require('../db/config-core')); }
-let _eventTracking;
-function eventTracking() { return _eventTracking || (_eventTracking = require('../db/event-tracking')); }
 let _fileTracking;
 function fileTracking() { return _fileTracking || (_fileTracking = require('../db/file-tracking')); }
 let _projectConfigCore;

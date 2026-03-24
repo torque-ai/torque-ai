@@ -7,7 +7,6 @@ const { loadPeekContractFixture } = require('../contracts/peek');
 const {
   generateBundleChecksum,
   signBundleMetadata,
-  storePeekArtifactsForTask,
   validateBundleIntegrity,
 } = require('../handlers/peek-handlers');
 

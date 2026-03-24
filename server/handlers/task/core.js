@@ -389,8 +389,8 @@ function handleSubmitTask(args) {
   if (useTierList && !args.provider && typeof taskCore.patchTaskSlotBinding === 'function') {
     try {
       taskCore.patchTaskSlotBinding(taskId, slotPullMetadata);
-    } catch (err) {
-      logger.debug(`[submit_task] Failed to persist slot-pull late binding for ${taskId}: ${err.message}`);
+    } catch (_err) {
+      logger.debug(`[submit_task] Failed to persist slot-pull late binding for ${taskId}: ${_err.message}`);
     }
   }
 

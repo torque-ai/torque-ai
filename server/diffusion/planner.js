@@ -1,6 +1,5 @@
 'use strict';
 
-const { MAX_DIFFUSION_TASKS } = require('./plan-schema');
 const logger = require('../logger').child({ component: 'diffusion-planner' });
 
 const CONFIDENCE_THRESHOLD = 0.8;
