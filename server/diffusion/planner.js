@@ -84,6 +84,7 @@ function buildWorkflowTasks(plan, options = {}) {
     provider,
     convergence,
     depth = 0,
+    verifyCommand,
   } = options;
 
   const strategy = convergence || selectConvergenceStrategy(
@@ -141,6 +142,8 @@ function buildWorkflowTasks(plan, options = {}) {
           pattern_id: patternId,
           files,
           depth,
+          auto_verify_on_completion: true,
+          verify_command: verifyCommand,
         },
       });
     }

@@ -136,6 +136,7 @@ describe('handleCreateDiffusionPlan', () => {
     const result = handlers.handleCreateDiffusionPlan({
       plan: { summary: '' },
       working_directory: '/proj',
+      verify_command: 'echo ok',
     });
     expect(result.isError).toBe(true);
   });
@@ -149,7 +150,7 @@ describe('handleCreateDiffusionPlan', () => {
       estimated_subtasks: 2,
       isolation_confidence: 0.95,
     };
-    const result = handlers.handleCreateDiffusionPlan({ plan, working_directory: '/proj' });
+    const result = handlers.handleCreateDiffusionPlan({ plan, working_directory: '/proj', verify_command: 'echo ok' });
     expect(result.isError).toBeFalsy();
     expect(result.content[0].text).toContain('Workflow ID');
   });
@@ -196,6 +197,7 @@ describe('full pipeline: scout output → create_diffusion_plan → workflow', (
       plan: scoutOutput,
       working_directory: '/project',
       batch_size: 3,
+      verify_command: 'echo ok',
     });
 
     expect(result.isError).toBeFalsy();
@@ -231,10 +233,46 @@ describe('full pipeline: scout output → create_diffusion_plan → workflow', (
     const result = handlers.handleCreateDiffusionPlan({
       plan,
       working_directory: '/project',
+      verify_command: 'echo ok',
     });
 
     expect(result.isError).toBeFalsy();
     expect(result.content[0].text).toContain('dag');
     expect(result.content[0].text).toContain('Anchor tasks');
+  });
+});
+
+describe('mandatory verify_command', () => {
+  let handlers;
+  beforeEach(() => { handlers = loadHandlers(); });
+
+  it('rejects create_diffusion_plan without verify_command', () => {
+    const plan = {
+      summary: 'Test',
+      patterns: [{ id: 'p1', description: 'd', transformation: 't', exemplar_files: ['f'], exemplar_diff: 'x', file_count: 1 }],
+      manifest: [{ file: 'a.js', pattern: 'p1' }],
+      shared_dependencies: [], estimated_subtasks: 1, isolation_confidence: 0.9,
+    };
+    const result = handlers.handleCreateDiffusionPlan({
+      plan,
+      working_directory: '/proj',
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('verify_command');
+  });
+
+  it('accepts create_diffusion_plan with explicit verify_command', () => {
+    const plan = {
+      summary: 'Test',
+      patterns: [{ id: 'p1', description: 'd', transformation: 't', exemplar_files: ['f'], exemplar_diff: 'x', file_count: 1 }],
+      manifest: [{ file: 'a.js', pattern: 'p1' }],
+      shared_dependencies: [], estimated_subtasks: 1, isolation_confidence: 0.9,
+    };
+    const result = handlers.handleCreateDiffusionPlan({
+      plan,
+      working_directory: '/proj',
+      verify_command: 'dotnet build',
+    });
+    expect(result.isError).toBeFalsy();
   });
 });

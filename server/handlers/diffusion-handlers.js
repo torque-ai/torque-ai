@@ -96,7 +96,7 @@ Then pass the scout's output to \`create_diffusion_plan\` to fan out the work.`,
 }
 
 function handleCreateDiffusionPlan(args) {
-  const { plan, working_directory, batch_size, provider, convergence, depth, auto_run } = args || {};
+  const { plan, working_directory, batch_size, provider, convergence, depth, auto_run, verify_command } = args || {};
 
   if (!plan || typeof plan !== 'object') {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'plan (diffusion plan JSON) is required');
@@ -121,12 +121,29 @@ function handleCreateDiffusionPlan(args) {
     return makeError(ErrorCodes.INVALID_PARAM, `Invalid diffusion plan: ${validation.errors.join('; ')}`);
   }
 
+  // Resolve verify_command: explicit param → project defaults → error
+  let resolvedVerifyCommand = verify_command;
+  if (!resolvedVerifyCommand) {
+    try {
+      const projectConfigCore = require('../db/project-config-core');
+      const defaults = projectConfigCore.getProjectDefaults(working_directory);
+      resolvedVerifyCommand = defaults?.verify_command;
+    } catch (_e) { /* project config not available */ }
+  }
+  if (!resolvedVerifyCommand) {
+    return makeError(
+      ErrorCodes.MISSING_REQUIRED_PARAM,
+      'Diffusion workflows require a verify_command (e.g., "dotnet build", "npx tsc --noEmit"). Set one via the parameter or via set_project_defaults.'
+    );
+  }
+
   const workflowPlan = buildWorkflowTasks(plan, {
     batchSize: batch_size,
     workingDirectory: working_directory,
     provider,
     convergence,
     depth: currentDepth,
+    verifyCommand: resolvedVerifyCommand,
   });
 
   // Create the TORQUE workflow — use `context` column for diffusion metadata

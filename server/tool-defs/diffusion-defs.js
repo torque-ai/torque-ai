@@ -34,6 +34,7 @@ module.exports = [
         convergence: { type: 'string', enum: ['optimistic', 'dag'], description: 'Override convergence strategy (default: auto-selected from plan)' },
         depth: { type: 'number', description: 'Recursive diffusion depth counter (default: 0). Max: 2.' },
         auto_run: { type: 'boolean', description: 'Start the workflow immediately (default: true)' },
+        verify_command: { type: 'string', description: 'Build/compile command to verify fan-out task output (e.g., "dotnet build", "npx tsc --noEmit"). Required — falls back to project defaults if not provided.' },
       },
       required: ['plan', 'working_directory'],
     },
