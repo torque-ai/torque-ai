@@ -788,6 +788,60 @@ async function executeOllamaTask(task) {
       }
 
       logger.info(`[Ollama] Task ${taskId} completed successfully on host ${completedOnHost}`);
+
+      // Diffusion compute→apply: if this is a compute task, create the apply task dynamically
+      try {
+        const taskMeta = task.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+        if (taskMeta.diffusion_role === 'compute') {
+          const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
+          const { expandApplyTaskDescription } = require('../diffusion/planner');
+          const parsed = parseComputeOutput(output);
+          logger.info(`[Diffusion] Ollama compute task ${taskId} output: ${output.length} chars, parse: ${parsed ? 'valid' : 'failed'}`);
+          if (parsed) {
+            const validation = validateComputeSchema(parsed);
+            if (validation.valid) {
+              const applyId = require('uuid').v4();
+              const applyProvider = taskMeta.apply_provider || 'ollama';
+              const applyDesc = expandApplyTaskDescription(parsed, task.working_directory);
+              db.createTask({
+                id: applyId,
+                status: 'queued',
+                task_description: applyDesc,
+                working_directory: task.working_directory,
+                workflow_id: task.workflow_id,
+                provider: applyProvider,
+                metadata: JSON.stringify({
+                  diffusion: true,
+                  diffusion_role: 'apply',
+                  compute_task_id: taskId,
+                  compute_output: parsed,
+                  auto_verify_on_completion: true,
+                  verify_command: taskMeta.verify_command || null,
+                  user_provider_override: true,
+                  requested_provider: applyProvider,
+                }),
+              });
+              logger.info(`[Diffusion] Created apply task ${applyId} from Ollama compute ${taskId}`);
+              if (task.workflow_id) {
+                try {
+                  const workflowEngine = require('../db/workflow-engine');
+                  workflowEngine.updateWorkflowCounts(task.workflow_id);
+                  const wf = workflowEngine.getWorkflow(task.workflow_id);
+                  if (wf && wf.status === 'completed') {
+                    workflowEngine.updateWorkflow(task.workflow_id, { status: 'running' });
+                  }
+                } catch (wfErr) { logger.info(`[Diffusion] Workflow update error: ${wfErr.message}`); }
+              }
+              try { require('../task-manager').startTask(applyId); } catch (startErr) {
+                logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${startErr.message}`);
+              }
+            } else {
+              logger.info(`[Diffusion] Ollama compute ${taskId} schema invalid: ${validation.errors.join('; ')}`);
+            }
+          }
+        }
+      } catch (diffErr) { logger.debug(`[Diffusion] Ollama compute→apply hook error: ${diffErr.message}`); }
+
     } else {
       // Error
       const errorMsg = response.data.error || `HTTP ${response.status}`;

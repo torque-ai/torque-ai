@@ -468,6 +468,15 @@ async function executeOllamaTaskWithAgentic(task) {
     return _executeOllamaModule.executeOllamaTask(task);
   }
 
+  // Diffusion compute tasks need raw text output, not agentic tool-calling.
+  try {
+    const taskMeta = task.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+    if (taskMeta.diffusion_role === 'compute') {
+      logger.info(`[Agentic] Ollama compute task ${task.id} — bypassing agentic loop for raw text output`);
+      return _executeOllamaModule.executeOllamaTask(task);
+    }
+  } catch (_e) { /* non-fatal — continue to agentic */ }
+
   // Legacy kill switch backward compat
   if (serverConfig.get('ollama_agentic_enabled') === '0') {
     return _executeOllamaModule.executeOllamaTask(task);
