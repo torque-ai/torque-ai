@@ -88,7 +88,7 @@ describe('TDA-15: Movement narrative reason contract', () => {
     expect(meta.last_provider_switch).toBeFalsy();
   });
 
-  it('review-task redirect produces descriptive reason', () => {
+  it('review-task routing preserves provider without synthetic movement narrative', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
@@ -99,13 +99,10 @@ describe('TDA-15: Movement narrative reason contract', () => {
     try { tm.startTask(id); } catch { /* execution may fail */ }
     const task = db.getTask(id);
 
-    if (task.provider === 'ollama') {
-      const meta = parseMetadata(task);
-      const reason = meta._provider_switch_reason || meta.last_provider_switch?.reason;
-      expect(reason).toContain('hashline-ollama');
-      expect(reason).toContain('ollama');
-      expect(reason).toContain('review');
-    }
+    expect(task.provider).toBe('hashline-ollama');
+    const meta = parseMetadata(task);
+    expect(meta._provider_switch_reason).toBeFalsy();
+    expect(meta.last_provider_switch).toBeFalsy();
   });
 
   it('no switch reason when provider stays the same', () => {
@@ -224,50 +221,52 @@ describe('TDA-15: Movement narrative persisted through DB round-trip', () => {
 
   it('switch reason survives getTask round-trip via applyProviderSwitchEnrichment', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
+    db.setBudget('codex-test', 50, 'codex', 'monthly', 80);
+    const rawDb = db.getDbInstance();
+    rawDb.prepare(`UPDATE cost_budgets SET current_spend = 100.0 WHERE provider = 'codex'`).run();
 
     const id = createTask({
-      provider: 'hashline-ollama',
-      task_description: 'review the API code for bugs',
+      provider: 'codex',
+      model: 'gpt-5.3-codex-spark',
+      task_description: 'budget fallback persistence check',
     });
 
     try { tm.startTask(id); } catch { /* execution may fail */ }
     const task = db.getTask(id);
+    const meta = parseMetadata(task);
 
-    if (task.provider === 'ollama') {
-      const meta = parseMetadata(task);
+    expect(task.provider).toBe('ollama');
+    expect(meta.last_provider_switch).toBeDefined();
+    expect(meta.last_provider_switch.from).toBe('codex');
+    expect(meta.last_provider_switch.to).toBe('ollama');
+    expect(meta.last_provider_switch.reason).toContain('runtime_provider_fallback');
+    expect(meta.last_provider_switch.at).toBeDefined();
 
-      // The switch should be recorded in the history
-      expect(meta.last_provider_switch).toBeDefined();
-      expect(meta.last_provider_switch.from).toBe('hashline-ollama');
-      expect(meta.last_provider_switch.to).toBe('ollama');
-      expect(meta.last_provider_switch.reason).toContain('runtime_provider_fallback');
-      expect(meta.last_provider_switch.at).toBeDefined();
-
-      // History array should contain the same entry
-      expect(meta.provider_switch_history).toBeDefined();
-      expect(meta.provider_switch_history.length).toBeGreaterThanOrEqual(1);
-      const entry = meta.provider_switch_history[0];
-      expect(entry.from).toBe('hashline-ollama');
-      expect(entry.to).toBe('ollama');
-      expect(entry.reason).toContain('runtime_provider_fallback');
-    }
+    expect(meta.provider_switch_history).toBeDefined();
+    expect(meta.provider_switch_history.length).toBeGreaterThanOrEqual(1);
+    const entry = meta.provider_switch_history[0];
+    expect(entry.from).toBe('codex');
+    expect(entry.to).toBe('ollama');
+    expect(entry.reason).toContain('runtime_provider_fallback');
   });
 
   it('original_provider field set on provider switch', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
+    db.setBudget('codex-test', 50, 'codex', 'monthly', 80);
+    const rawDb = db.getDbInstance();
+    rawDb.prepare(`UPDATE cost_budgets SET current_spend = 100.0 WHERE provider = 'codex'`).run();
 
     const id = createTask({
-      provider: 'hashline-ollama',
-      task_description: 'analyze the test coverage gaps',
+      provider: 'codex',
+      model: 'gpt-5.3-codex-spark',
+      task_description: 'budget fallback original provider check',
     });
 
     try { tm.startTask(id); } catch { /* execution may fail */ }
     const task = db.getTask(id);
-
-    if (task.provider === 'ollama') {
-      expect(task.original_provider).toBe('hashline-ollama');
-      expect(task.provider_switched_at).toBeDefined();
-    }
+    expect(task.provider).toBe('ollama');
+    expect(task.original_provider).toBe('codex');
+    expect(task.provider_switched_at).toBeDefined();
   });
 });
 

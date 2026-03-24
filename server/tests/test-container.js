@@ -17,6 +17,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { createContainer } = require('../container');
+const { ensureTestSchema } = require('./vitest-setup');
 
 const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
 const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
@@ -41,6 +42,7 @@ function createTestContainer() {
   // Use the existing database module's resetForTest to get a clean in-memory DB
   const db = require('../database');
   db.resetForTest(templateBuffer);
+  ensureTestSchema(db.getDbInstance());
 
   // Create a fresh container and register the test DB
   const container = createContainer();

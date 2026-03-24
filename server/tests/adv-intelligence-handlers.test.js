@@ -699,9 +699,15 @@ describe('Advanced Intelligence Handlers', () => {
         exit_code: 137
       });
 
-      const result = await safeTool('retry_with_adaptation', { task_id: taskId });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('Adaptive Retry');
+      const tm = require('../task-manager');
+      const startTaskSpy = vi.spyOn(tm, 'startTask').mockReturnValue({ queued: false });
+      try {
+        const result = await safeTool('retry_with_adaptation', { task_id: taskId });
+        expect(result.isError).toBeFalsy();
+        expect(getText(result)).toContain('Adaptive Retry');
+      } finally {
+        startTaskSpy.mockRestore();
+      }
     });
   });
 

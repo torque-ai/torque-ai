@@ -16,17 +16,23 @@ function extractTaskId(result) {
 describe('submit_task timeout and metadata behavior', () => {
   let db;
   let fallbackTimeout;
+  let startTaskSpy;
 
   beforeAll(() => {
     const setup = setupTestDb('p1-handler-timeout');
     db = setup.db;
-    require('../task-manager').initSubModules();
+    const taskManager = require('../task-manager');
+    taskManager.initSubModules();
+    startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
     const providerName = db.getDefaultProvider();
     const configDefaultTimeout = parseInt(db.getConfig('default_timeout') || '30', 10);
     fallbackTimeout = PROVIDER_DEFAULT_TIMEOUTS[providerName] ?? configDefaultTimeout;
   });
 
   afterAll(() => {
+    if (startTaskSpy) {
+      startTaskSpy.mockRestore();
+    }
     teardownTestDb();
   });
 

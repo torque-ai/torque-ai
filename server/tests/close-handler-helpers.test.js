@@ -513,39 +513,28 @@ describe('handleNoFileChangeDetection', () => {
     expect(c.status).toBe('completed');
   });
 
-  gitIt('marks failed when code-gen verb present but no files changed', () => {
-    // Use a git repo so git status returns instantly (no 10s timeout on non-repo dirs)
-    const workDir = cloneGitFixture();
+  it('leaves completed status unchanged when code-gen verb is present but the phase is disabled', () => {
     const task = createTask({
       provider: 'hashline-ollama',
       task_description: 'implement the login system',
-      working_directory: workDir,
     });
     const proc = makeProc({ output: 'Sure, I can help!' });
     const c = makeCtx(task, proc, { status: 'completed', code: 0 });
 
     tm.handleNoFileChangeDetection(c);
-    expect(c.status).toBe('failed');
-    expect(c.errorOutput).toContain('NO FILES MODIFIED');
-
-    fs.rmSync(workDir, { recursive: true, force: true });
+    expect(c.status).toBe('completed');
   });
 
-  gitIt('detects conversational refusal patterns', () => {
-    const workDir = cloneGitFixture();
+  it('leaves completed status unchanged for conversational refusal output while the phase is disabled', () => {
     const task = createTask({
       provider: 'hashline-ollama',
       task_description: 'fix the bug',
-      working_directory: workDir,
     });
     const proc = makeProc({ output: "I'm ready to make changes, share the files" });
     const c = makeCtx(task, proc, { status: 'completed', code: 0 });
 
     tm.handleNoFileChangeDetection(c);
-    expect(c.status).toBe('failed');
-    expect(c.errorOutput).toContain('conversational refusal');
-
-    fs.rmSync(workDir, { recursive: true, force: true });
+    expect(c.status).toBe('completed');
   });
 
   it('does not flag when files were actually modified', () => {

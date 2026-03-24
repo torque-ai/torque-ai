@@ -1,4 +1,5 @@
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const taskManager = require('../task-manager');
 
 let db;
 
@@ -11,6 +12,9 @@ describe('Workflow Handlers', () => {
     require('../task-manager').initSubModules();
   });
   afterAll(() => { teardownTestDb(); });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   // ── Helper: extract first UUID from text ──
   function extractUUID(text) {
@@ -47,6 +51,13 @@ describe('Workflow Handlers', () => {
       project: opts.project || null
     });
     return db.getTask(id);
+  }
+
+  function mockWorkflowTaskStartsAsQueued() {
+    return vi.spyOn(taskManager, 'startTask').mockImplementation((taskId) => {
+      db.updateTaskStatus(taskId, 'queued');
+      return { queued: true };
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1038,6 +1049,7 @@ describe('Workflow Handlers', () => {
 
   describe('integration: workflow lifecycle', () => {
     it('full lifecycle: create -> add tasks -> run -> status -> cancel', async () => {
+      mockWorkflowTaskStartsAsQueued();
       // Create
       const wfId = createWorkflowDirect('lifecycle-wf').id;
 
@@ -1071,6 +1083,7 @@ describe('Workflow Handlers', () => {
     });
 
     it('pause and resume workflow', async () => {
+      mockWorkflowTaskStartsAsQueued();
       const wfId = createWorkflowDirect('pause-resume-wf').id;
       await safeTool('add_workflow_task', {
         workflow_id: wfId, node_id: 'pr-a', task_description: 'PR A'

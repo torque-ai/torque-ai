@@ -4,7 +4,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const workflowEngine = require('../db/workflow-engine');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
 
 let testDir;
 let taskCore;
@@ -29,6 +29,20 @@ function createWorkflowTask(workflowId, nodeId, status = 'blocked') {
   }
 
   return taskId;
+}
+
+function insertBrokenDependency(workflowId, taskId, dependsOnTaskId, onFail = 'skip') {
+  const conn = rawDb();
+  conn.pragma('foreign_keys = OFF');
+  try {
+    conn.prepare(`
+      INSERT INTO task_dependencies (
+        workflow_id, task_id, depends_on_task_id, condition_expr, on_fail, alternate_task_id, created_at
+      ) VALUES (?, ?, ?, NULL, ?, NULL, ?)
+    `).run(workflowId, taskId, dependsOnTaskId, onFail, new Date().toISOString());
+  } finally {
+    conn.pragma('foreign_keys = ON');
+  }
 }
 
 describe('Integration: Workflow DAG', () => {
@@ -57,12 +71,9 @@ describe('Integration: Workflow DAG', () => {
       const dependentTask = createWorkflowTask(workflowId, 'B', 'blocked');
       const missingDependencyId = uuidv4();
 
-      workflowEngine.addTaskDependency({
-        workflow_id: workflowId,
-        task_id: dependentTask,
-        depends_on_task_id: missingDependencyId,
-        on_fail: 'skip',
-      });
+      // Seed a legacy/orphaned dependency row directly. Current FK constraints
+      // prevent normal inserts that point at a missing prerequisite task.
+      insertBrokenDependency(workflowId, dependentTask, missingDependencyId, 'skip');
 
       const deps = workflowEngine.getTaskDependencies(dependentTask);
       expect(deps).toHaveLength(1);

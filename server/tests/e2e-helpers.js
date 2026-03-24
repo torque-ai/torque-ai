@@ -15,6 +15,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const hostManagement = require('../db/host-management');
+const { ensureTestSchema } = require('./vitest-setup');
 
 const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
 const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
@@ -47,6 +48,7 @@ function setupE2eDb(suiteName) {
   // Swap to fresh in-memory DB from buffer (~5-10ms)
   // No init() needed — resetForTest sets up the DB handle and all sub-modules
   db.resetForTest(templateBuffer);
+  ensureTestSchema(db.getDbInstance());
 
   // Disable discovery, slow timers
   configCore.setConfig('discovery_enabled', '0');
@@ -86,6 +88,7 @@ function resetE2eDb() {
   const db = require('../database');
   const configCore = require('../db/config-core');
   db.resetForTest(templateBuffer);
+  ensureTestSchema(db.getDbInstance());
 
   configCore.setConfig('discovery_enabled', '0');
   configCore.setConfig('health_check_interval_seconds', '99999');

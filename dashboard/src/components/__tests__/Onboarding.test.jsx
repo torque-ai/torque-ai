@@ -21,7 +21,7 @@ describe('Onboarding', () => {
     render(<Onboarding onDismiss={() => {}} />);
 
     expect(screen.getByText('Key Features')).toBeInTheDocument();
-    expect(screen.getByText(/10 providers/i)).toBeInTheDocument();
+    expect(screen.getByText(/12 providers/i)).toBeInTheDocument();
     expect(screen.getByText(/DAG workflows/i)).toBeInTheDocument();
     expect(screen.getByText(/Smart routing/i)).toBeInTheDocument();
     expect(screen.getByText(/Quality gates/i)).toBeInTheDocument();

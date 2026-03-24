@@ -132,6 +132,15 @@ describe('provider execution attempted-start cleanup', () => {
       }),
       requeueTaskAfterAttemptedStart: vi.fn((taskId, patch = {}) => {
         const current = tasks.get(taskId) || { id: taskId };
+        const { provider: patchProvider, metadata: patchMetadata, ...restPatch } = patch;
+        const metadata = patchProvider
+          ? {
+            ...(current.metadata || {}),
+            ...(patchMetadata || {}),
+            intended_provider: patchProvider,
+            eligible_providers: [patchProvider],
+          }
+          : patchMetadata ?? current.metadata ?? null;
         const next = {
           ...current,
           started_at: null,
@@ -141,7 +150,9 @@ describe('provider execution attempted-start cleanup', () => {
           exit_code: null,
           mcp_instance_id: null,
           ollama_host_id: null,
-          ...patch,
+          ...restPatch,
+          metadata,
+          provider: null,
           status: 'queued',
         };
         tasks.set(taskId, next);
@@ -193,7 +204,12 @@ describe('provider execution attempted-start cleanup', () => {
 
     const updatedTask = tasks.get(task.id);
     expect(updatedTask.status).toBe('queued');
-    expect(updatedTask.provider).toBe('codex');
+    expect(updatedTask.provider).toBeNull();
+    expect(updatedTask.metadata).toMatchObject({
+      free_provider_retry: true,
+      intended_provider: 'codex',
+      eligible_providers: ['codex'],
+    });
     expect(updatedTask.started_at).toBeNull();
     expect(updatedTask.completed_at).toBeNull();
     expect(updatedTask.mcp_instance_id).toBeNull();

@@ -15,6 +15,7 @@ const RESET_TABLES = [
   'prediction_models',
   'task_priority_scores',
   'task_dependencies',
+  'workflows',
   'similar_tasks',
   'failure_patterns',
   'intelligence_log',
@@ -75,7 +76,19 @@ function patchTask(taskId, fields) {
     .run(...entries.map(([, value]) => value), taskId);
 }
 
+function ensureWorkflow(workflowId) {
+  if (!workflowId) return;
+  const existing = rawDb().prepare('SELECT id FROM workflows WHERE id = ?').get(workflowId);
+  if (existing) return;
+
+  rawDb().prepare(`
+    INSERT INTO workflows (id, name, status, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(workflowId, `Workflow ${workflowId}`, 'pending', new Date().toISOString());
+}
+
 function insertTaskDependency(taskId, dependsOnTaskId, workflowId = 'wf-analytics') {
+  ensureWorkflow(workflowId);
   rawDb().prepare(`
     INSERT INTO task_dependencies (
       workflow_id, task_id, depends_on_task_id, condition_expr, on_fail, alternate_task_id, created_at

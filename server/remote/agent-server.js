@@ -20,6 +20,27 @@ function createHttpError(message, statusCode) {
   return error;
 }
 
+function normalizeComparablePath(targetPath) {
+  const resolvedPath = path.resolve(String(targetPath));
+  let comparablePath = resolvedPath;
+  try {
+    comparablePath = typeof fs.realpathSync.native === 'function'
+      ? fs.realpathSync.native(resolvedPath)
+      : fs.realpathSync(resolvedPath);
+  } catch {
+    comparablePath = resolvedPath;
+  }
+
+  comparablePath = path.normalize(comparablePath);
+  const root = path.parse(comparablePath).root;
+  if (comparablePath !== root) {
+    comparablePath = comparablePath.replace(/[\\/]+$/, '');
+  }
+  return process.platform === 'win32'
+    ? comparablePath.toLowerCase()
+    : comparablePath;
+}
+
 function getProjectsBaseDir(env = process.env) {
   const configured = env.TORQUE_AGENT_PROJECTS;
   if (configured) {
@@ -445,10 +466,13 @@ function validateRunRequest(body, state) {
     : (state && state.projectsDir ? [state.projectsDir] : []);
 
   if (allowedRoots.length > 0) {
-    const resolvedCwd = path.resolve(cwd);
+    const resolvedCwd = normalizeComparablePath(cwd);
     const isAllowed = allowedRoots.some((root) => {
-      const resolvedRoot = path.resolve(root);
-      return resolvedCwd === resolvedRoot || resolvedCwd.startsWith(resolvedRoot + path.sep);
+      const resolvedRoot = normalizeComparablePath(root);
+      const rootPrefix = resolvedRoot === path.parse(resolvedRoot).root
+        ? resolvedRoot
+        : `${resolvedRoot}${path.sep}`;
+      return resolvedCwd === resolvedRoot || resolvedCwd.startsWith(rootPrefix);
     });
     if (!isAllowed) {
       throw createHttpError(`cwd is outside allowed directories: ${cwd}`, 403);

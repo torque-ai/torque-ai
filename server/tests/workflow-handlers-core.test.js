@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const taskManager = require('../task-manager');
 
 describe('Workflow Handlers', () => {
   let db;
@@ -12,6 +13,9 @@ describe('Workflow Handlers', () => {
     require('../task-manager').initSubModules();
   });
   afterAll(() => { teardownTestDb(); });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   // ── Helper: extract first UUID from text ──
   function extractUUID(text) {
@@ -44,6 +48,13 @@ describe('Workflow Handlers', () => {
       project: opts.project || null
     });
     return id;
+  }
+
+  function mockWorkflowTaskStartsAsQueued() {
+    return vi.spyOn(taskManager, 'startTask').mockImplementation((taskId) => {
+      db.updateTaskStatus(taskId, 'queued');
+      return { queued: true };
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -255,6 +266,7 @@ describe('Workflow Handlers', () => {
 
   describe('run_workflow', () => {
     it('starts a workflow with pending tasks', async () => {
+      mockWorkflowTaskStartsAsQueued();
       const wfId = createWorkflowDirect('runnable-wf');
       await safeTool('add_workflow_task', {
         workflow_id: wfId, node_id: 'run-a', task_description: 'Run step A'
@@ -295,6 +307,7 @@ describe('Workflow Handlers', () => {
     });
 
     it('reports blocked tasks count', async () => {
+      mockWorkflowTaskStartsAsQueued();
       const wfId = createWorkflowDirect('blocked-count-wf');
       await safeTool('add_workflow_task', {
         workflow_id: wfId, node_id: 'bc-a', task_description: 'BC Step A'
@@ -310,6 +323,7 @@ describe('Workflow Handlers', () => {
     });
 
     it('preserves paused workflow resume when runnable tasks are still live', async () => {
+      mockWorkflowTaskStartsAsQueued();
       const wfId = createWorkflowDirect('paused-resume-wf', { status: 'paused' });
       db.updateWorkflow(wfId, { started_at: '2026-01-01T00:00:00.000Z' });
       createTaskDirect('Resume pending task', {

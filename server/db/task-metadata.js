@@ -36,6 +36,14 @@ function escapeLikePattern(str) {
   return str.replace(/[%_\\]/g, '\\$&');
 }
 
+function getTaskFileChangeColumns() {
+  return new Set(
+    db.prepare('PRAGMA table_info(task_file_changes)')
+      .all()
+      .map((column) => column.name)
+  );
+}
+
 // ============ Task File Changes Functions ============
 
 /**
@@ -45,19 +53,33 @@ function escapeLikePattern(str) {
  * @returns {any}
  */
 function recordFileChange(taskId, change) {
-  const stmt = db.prepare(`
-    INSERT INTO task_file_changes (task_id, file_path, change_type, stash_ref, original_content, recorded_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
+  const availableColumns = getTaskFileChangeColumns();
+  const timestamp = new Date().toISOString();
+  const columns = ['task_id', 'file_path', 'change_type'];
+  const values = [taskId, change.file_path, change.change_type];
 
-  stmt.run(
-    taskId,
-    change.file_path,
-    change.change_type,
-    change.stash_ref || null,
-    change.original_content || null,
-    new Date().toISOString()
-  );
+  if (availableColumns.has('stash_ref')) {
+    columns.push('stash_ref');
+    values.push(change.stash_ref || null);
+  }
+  if (availableColumns.has('original_content')) {
+    columns.push('original_content');
+    values.push(change.original_content || null);
+  }
+  if (availableColumns.has('recorded_at')) {
+    columns.push('recorded_at');
+    values.push(timestamp);
+  }
+  if (availableColumns.has('created_at')) {
+    columns.push('created_at');
+    values.push(timestamp);
+  }
+
+  const placeholders = columns.map(() => '?').join(', ');
+  db.prepare(`
+    INSERT INTO task_file_changes (${columns.join(', ')})
+    VALUES (${placeholders})
+  `).run(...values);
 }
 
 /**
@@ -66,7 +88,15 @@ function recordFileChange(taskId, change) {
  * @returns {any}
  */
 function getTaskFileChanges(taskId) {
-  const stmt = db.prepare('SELECT * FROM task_file_changes WHERE task_id = ? ORDER BY recorded_at ASC');
+  const availableColumns = getTaskFileChangeColumns();
+  const orderClause = availableColumns.has('recorded_at')
+    ? (availableColumns.has('created_at')
+      ? 'COALESCE(recorded_at, created_at, \'\') ASC, id ASC'
+      : 'recorded_at ASC, id ASC')
+    : (availableColumns.has('created_at')
+      ? 'created_at ASC, id ASC'
+      : 'id ASC');
+  const stmt = db.prepare(`SELECT * FROM task_file_changes WHERE task_id = ? ORDER BY ${orderClause}`);
   return stmt.all(taskId);
 }
 

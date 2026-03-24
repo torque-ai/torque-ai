@@ -668,14 +668,16 @@ function requeueTaskAfterAttemptedStart(id, additionalFields = {}) {
 
   let metadataUpdate = patchMetadata;
   if (patchProvider) {
-    // Read existing metadata, merge the routing hint
+    // Read existing metadata, merge routing hints with any caller-supplied patch metadata.
     const task = getTask(id);
-    const existingMeta = task?.metadata
-      ? (typeof task.metadata === 'string' ? (() => { try { return JSON.parse(task.metadata); } catch { return {}; } })() : { ...task.metadata })
-      : {};
-    existingMeta.intended_provider = patchProvider;
-    existingMeta.eligible_providers = [patchProvider];
-    metadataUpdate = JSON.stringify(existingMeta);
+    const existingMeta = normalizeMetadataObject(task?.metadata);
+    const patchMetaObject = normalizeMetadataObject(patchMetadata);
+    metadataUpdate = {
+      ...existingMeta,
+      ...patchMetaObject,
+      intended_provider: patchProvider,
+      eligible_providers: [patchProvider],
+    };
   }
 
   return updateTaskStatus(id, 'queued', {

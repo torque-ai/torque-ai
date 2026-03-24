@@ -180,6 +180,7 @@ describe('event-tracking module', () => {
       mod.recordSuccessMetrics({
         period_start: '2026-01-01T00:00:00Z',
         period_type: 'day',
+        project: 'template-metrics',
         template: 'build',
         total_tasks: 5,
         successful_tasks: 4,

@@ -228,6 +228,10 @@ function relaxHostCredentialsConstraint(db) {
       FROM ${backup}
     `).run();
     db.exec(`DROP TABLE ${backup}`);
+    // SQLite keeps the index name attached to the renamed backup table, so
+    // the first CREATE UNIQUE INDEX IF NOT EXISTS can be skipped accidentally.
+    // Re-create it after the backup table is dropped to guarantee the upsert key.
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_host_credentials_unique ON host_credentials (host_name, host_type, credential_type)`);
   } catch (e) {
     const current = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='host_credentials'").get();
     const backupExists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='${backup}'`).get();

@@ -25,6 +25,59 @@ let handleToolCall;
 let testDir;
 let origDataDir;
 
+function ensureTestSchema(dbHandle) {
+  if (!dbHandle || typeof dbHandle.exec !== 'function') return;
+
+  dbHandle.exec(`
+    CREATE TABLE IF NOT EXISTS host_credentials (
+      id TEXT PRIMARY KEY,
+      host_name TEXT NOT NULL,
+      host_type TEXT NOT NULL CHECK(host_type IN ('ollama', 'peek', 'workstation')),
+      credential_type TEXT NOT NULL CHECK(credential_type IN ('ssh', 'http_auth', 'windows')),
+      label TEXT,
+      encrypted_value TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      auth_tag TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_host_credentials_unique
+    ON host_credentials (host_name, host_type, credential_type);
+  `);
+
+  for (const statement of [
+    'ALTER TABLE task_file_changes ADD COLUMN stash_ref TEXT',
+    'ALTER TABLE task_file_changes ADD COLUMN original_content TEXT',
+    'ALTER TABLE task_file_changes ADD COLUMN recorded_at TEXT',
+  ]) {
+    try {
+      dbHandle.exec(statement);
+    } catch {
+      // Column already exists in this test database variant.
+    }
+  }
+
+  try {
+    dbHandle.exec(`
+      UPDATE task_file_changes
+      SET recorded_at = created_at
+      WHERE recorded_at IS NULL
+        AND created_at IS NOT NULL
+    `);
+  } catch {
+    // task_file_changes may not exist in very small ad-hoc fixtures.
+  }
+
+  try {
+    dbHandle.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_success_metrics_upsert
+      ON success_metrics(period_type, period_start, project)
+    `);
+  } catch {
+    // success_metrics may not exist in very small ad-hoc fixtures.
+  }
+}
+
 /**
  * Core DB initialization shared by both setup modes.
  * @param {string} suiteName
@@ -42,6 +95,7 @@ function _initDb(suiteName) {
 
   db = require('../database');
   db.resetForTest(templateBuffer);
+  ensureTestSchema(db.getDbInstance());
 
   return { db, testDir };
 }
@@ -179,4 +233,4 @@ function resetTables(tables) {
   }
 }
 
-module.exports = { setupTestDb, setupTestDbModule, teardownTestDb, safeTool, getText, mkTask, rawDb, resetTables };
+module.exports = { setupTestDb, setupTestDbModule, teardownTestDb, safeTool, getText, mkTask, rawDb, resetTables, ensureTestSchema };

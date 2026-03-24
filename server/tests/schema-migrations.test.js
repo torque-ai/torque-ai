@@ -353,10 +353,13 @@ describe('db/schema.js — smoke test', () => {
       const columns = rawDb().prepare('PRAGMA table_info(provider_config)').all();
       const columnNames = columns.map((column) => column.name);
       expect(columnNames).toContain('transport');
+      expect(columnNames).toContain('capability_tags');
+      expect(columnNames).toContain('quality_band');
+      expect(columnNames).toContain('max_retries');
 
       const rows = rawDb().prepare(
         'SELECT provider, transport FROM provider_config WHERE provider IN (?, ?, ?, ?)',
-      ).all('codex', 'claude-cli', 'ollama', 'anthropic');
+      ).all('codex', 'claude-cli', 'ollama', 'hashline-ollama');
       const transportByProvider = {};
       rows.forEach((row) => {
         transportByProvider[row.provider] = row.transport;
@@ -365,7 +368,8 @@ describe('db/schema.js — smoke test', () => {
       expect(transportByProvider.codex).toBe('hybrid');
       expect(transportByProvider['claude-cli']).toBe('cli');
       expect(transportByProvider.ollama).toBe('api');
-      expect(transportByProvider.anthropic).toBe('api');
+      expect(transportByProvider['hashline-ollama']).toBe('api');
+      expect(rawDb().prepare("SELECT provider FROM provider_config WHERE provider = 'anthropic'").get()).toBeUndefined();
     });
   });
 });

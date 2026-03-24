@@ -345,9 +345,11 @@ describe('models/registry', () => {
     registry.denyModel('ollama', 'test-model-registry-bulk-denied', 'host-c');
 
     const changes = registry.bulkApproveByProvider('ollama');
+    const approvedModels = registry.getApprovedModels('ollama').map((row) => row.model_name);
 
     expect(changes).toBe(2);
-    expect(registry.getApprovedModels('ollama').map((row) => row.model_name)).toEqual([
+    expect(approvedModels).toHaveLength(2);
+    expect(approvedModels.slice().sort()).toEqual([
       'test-model-registry-bulk-a',
       'test-model-registry-bulk-b',
     ]);
