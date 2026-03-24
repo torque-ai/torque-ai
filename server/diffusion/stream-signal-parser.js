@@ -53,7 +53,7 @@ class StreamSignalParser {
           try {
             parsed = JSON.parse(repaired);
             logger.info(`[StreamSignalParser] Repaired corrupted JSON in ${type}`);
-          } catch (err2) {
+          } catch (_err2) {
             // Try extracting JSON from within the text using the compute-output-parser
             try {
               const { parseComputeOutput } = require('./compute-output-parser');
