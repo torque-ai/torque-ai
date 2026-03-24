@@ -42,7 +42,52 @@ describe('ci/provider base class', () => {
       status: 'success',
       repository: 'org/repo',
     });
-    await expect(provider.watchRun('run-123')).rejects.toThrow('mock-ci: watchRun() not implemented');
+    await expect(provider.watchRun('run-123')).rejects.toThrow('mock-ci: getRun() not implemented');
+  });
+
+  describe('watchRun', () => {
+    it('polls getRun until status is terminal and returns the run', async () => {
+      vi.useFakeTimers();
+      const provider = new CIProvider({ name: 'test', repo: 'org/repo' });
+      let callCount = 0;
+      provider.getRun = vi.fn(async () => {
+        callCount++;
+        if (callCount < 3) return { id: 'run-1', status: 'running', conclusion: null };
+        return { id: 'run-1', status: 'success', conclusion: 'success' };
+      });
+
+      const promise = provider.watchRun('run-1', { pollIntervalMs: 1000 });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      const result = await promise;
+      expect(result.status).toBe('success');
+      expect(provider.getRun).toHaveBeenCalledTimes(3);
+      vi.useRealTimers();
+    });
+
+    it('returns immediately when run is already completed', async () => {
+      const provider = new CIProvider({ name: 'test', repo: 'org/repo' });
+      provider.getRun = vi.fn(async () => ({ id: 'run-1', status: 'failure', conclusion: 'failure' }));
+
+      const result = await provider.watchRun('run-1');
+      expect(result.status).toBe('failure');
+      expect(provider.getRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects after timeout', async () => {
+      vi.useFakeTimers();
+      const provider = new CIProvider({ name: 'test', repo: 'org/repo' });
+      provider.getRun = vi.fn(async () => ({ id: 'run-1', status: 'running', conclusion: null }));
+
+      const promise = provider.watchRun('run-1', { pollIntervalMs: 1000, timeoutMs: 2500 });
+
+      await vi.advanceTimersByTimeAsync(3000);
+
+      await expect(promise).rejects.toThrow(/timed out/i);
+      vi.useRealTimers();
+    });
   });
 });
 

@@ -57,8 +57,22 @@ class CIProvider {
    * @param {object} [options]
    * @returns {Promise<CIEvent>}
    */
-  async watchRun(runId, _options = {}) {
-    throw new Error(`${this.name}: watchRun() not implemented`);
+  async watchRun(runId, options = {}) {
+    const pollIntervalMs = options.pollIntervalMs || 15000;
+    const timeoutMs = options.timeoutMs || 30 * 60 * 1000;
+    const startTime = Date.now();
+    const TERMINAL_STATUSES = new Set(['success', 'failure', 'cancelled', 'timed_out']);
+
+    while (true) {
+      const run = await this.getRun(runId);
+      if (run && TERMINAL_STATUSES.has(run.status)) {
+        return run;
+      }
+      if (Date.now() - startTime >= timeoutMs) {
+        throw new Error(`watchRun timed out after ${Math.round(timeoutMs / 1000)}s waiting for run ${runId}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
   }
 
   /**
