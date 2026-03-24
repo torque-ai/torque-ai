@@ -3,6 +3,8 @@ import { renderWithProviders } from '../test-utils';
 import Hosts from './Hosts';
 
 vi.mock('../api', () => ({
+  request: vi.fn().mockResolvedValue({}),
+  requestV2: vi.fn().mockResolvedValue({}),
   concurrency: {
     get: vi.fn(),
     set: vi.fn().mockResolvedValue({}),

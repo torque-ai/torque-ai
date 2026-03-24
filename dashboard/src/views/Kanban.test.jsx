@@ -15,6 +15,8 @@ vi.mock('recharts', () => ({
 }));
 
 vi.mock('../api', () => ({
+  request: vi.fn().mockResolvedValue({}),
+  requestV2: vi.fn().mockResolvedValue({}),
   tasks: {
     list: vi.fn(),
     retry: vi.fn(),

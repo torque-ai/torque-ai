@@ -3,6 +3,8 @@ import { renderWithProviders } from '../test-utils';
 import Schedules from './Schedules';
 
 vi.mock('../api', () => ({
+  request: vi.fn().mockResolvedValue({}),
+  requestV2: vi.fn().mockResolvedValue({}),
   schedules: {
     list: vi.fn(),
     create: vi.fn(),

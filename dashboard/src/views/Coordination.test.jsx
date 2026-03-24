@@ -3,6 +3,8 @@ import { renderWithProviders } from '../test-utils';
 import Coordination from './Coordination';
 
 vi.mock('../api', () => ({
+  request: vi.fn().mockResolvedValue({}),
+  requestV2: vi.fn().mockResolvedValue({}),
   coordination: {
     getDashboard: vi.fn(),
     listAgents: vi.fn(),

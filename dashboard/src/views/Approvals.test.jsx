@@ -3,6 +3,8 @@ import { renderWithProviders } from '../test-utils';
 import Approvals from './Approvals';
 
 vi.mock('../api', () => ({
+  request: vi.fn().mockResolvedValue({}),
+  requestV2: vi.fn().mockResolvedValue({}),
   approvals: {
     listPending: vi.fn(),
     getHistory: vi.fn(),
