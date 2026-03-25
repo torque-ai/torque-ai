@@ -593,7 +593,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
               const pid = stillRunning.process.pid;
               if (process.platform === 'win32' && pid) {
                 const { execFile } = require('child_process');
-                execFile('taskkill', ['/F', '/T', '/PID', String(pid)], (killErr) => {
+                execFile('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true }, (killErr) => {
                   if (killErr) logger.info(`[Completion] taskkill failed for task ${taskId}: ${killErr.message}`);
                   setTimeout(() => { if (capturedProc && capturedProc.process && !capturedProc.process.killed) capturedProc.process.emit('close', 1, null); }, 1000);
                   setTimeout(() => {

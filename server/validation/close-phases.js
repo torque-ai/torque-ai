@@ -138,7 +138,7 @@ function handleBuildTestStyleCommit(ctx) {
   if (autoCommitsDisabled) {
     try {
       const gitStatusResult = spawnSync('git', ['status', '--porcelain'], {
-        cwd: workingDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_ADD_ALL
+        cwd: workingDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_ADD_ALL, windowsHide: true
       });
       const gitStatus = (gitStatusResult.stdout || '').trim();
 
@@ -151,7 +151,7 @@ function handleBuildTestStyleCommit(ctx) {
             const cleanFile = file.trim().replace(/^["']|["']$/g, '');
             if (cleanFile && !cleanFile.includes('..') && _isValidFilePath(cleanFile) && _isShellSafe(cleanFile)) {
               try {
-                spawnSync('git', ['add', '--', cleanFile], { cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_ADD });
+                spawnSync('git', ['add', '--', cleanFile], { cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_ADD, windowsHide: true });
               } catch (addErr) {
                 logger.info(`[Build Verification] Task ${taskId}: Could not stage ${cleanFile}: ${addErr.message}`);
               }
@@ -160,11 +160,11 @@ function handleBuildTestStyleCommit(ctx) {
             }
           }
         } else {
-          spawnSync('git', ['add', '.', '--', ':!*.env', ':!*.env.*', ':!credentials*', ':!*secret*'], { cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_ADD_ALL });
+          spawnSync('git', ['add', '.', '--', ':!*.env', ':!*.env.*', ':!credentials*', ':!*secret*'], { cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_ADD_ALL, windowsHide: true });
         }
 
         const stagedResult = spawnSync('git', ['diff', '--cached', '--name-only'], {
-          cwd: workingDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_ADD
+          cwd: workingDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_ADD, windowsHide: true
         });
         const staged = (stagedResult.stdout || '').trim();
 
@@ -172,7 +172,7 @@ function handleBuildTestStyleCommit(ctx) {
           const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
           const commitMsg = `docs: ${shortDesc}... [Torque ${task.model || 'local'}]`;
           spawnSync('git', ['commit', '-m', commitMsg], {
-            cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_COMMIT
+            cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_COMMIT, windowsHide: true
           });
           logger.info(`[Build Verification] Task ${taskId}: Committed changes after build passed`);
         }

@@ -883,7 +883,7 @@ function openBrowser(url) {
     args = [url];
   }
 
-  execFile(command, args, (err) => {
+  execFile(command, args, { windowsHide: true }, (err) => {
     if (err) {
       process.stderr.write(`Failed to open browser: ${err.message}\n`);
     }

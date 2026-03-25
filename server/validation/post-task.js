@@ -700,6 +700,7 @@ function checkDuplicateFiles(workingDir, modifiedFiles) {
           timeout: TASK_TIMEOUTS.PROCESS_QUERY,
           maxBuffer: 1024 * 1024,
           stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
         });
 
         const matches = result.trim().split('\n')
@@ -710,7 +711,8 @@ function checkDuplicateFiles(workingDir, modifiedFiles) {
             execFileSync('git', ['ls-files', '--error-unmatch', modFile], {
               cwd: workingDir,
               encoding: 'utf8',
-              stdio: 'pipe'
+              stdio: 'pipe',
+              windowsHide: true,
             });
             // File exists in git - not a new duplicate
           } catch (err) {
@@ -778,7 +780,8 @@ function checkSyntax(workingDir, modifiedFiles) {
             cwd: workingDir,
             encoding: 'utf8',
             timeout: TASK_TIMEOUTS.SYNTAX_CHECK,
-            stdio: 'pipe'
+            stdio: 'pipe',
+            windowsHide: true,
           });
         } catch (syntaxErr) {
           issues.push(`${path.basename(fullPath)}: Syntax error - ${syntaxErr.message.substring(0, 100)}`);
@@ -815,7 +818,8 @@ function checkSyntax(workingDir, modifiedFiles) {
               encoding: 'utf8',
               timeout: TASK_TIMEOUTS.TYPESCRIPT_CHECK,
               stdio: 'pipe',
-              shell: process.platform === 'win32'
+              shell: process.platform === 'win32',
+              windowsHide: true,
             });
             // If using --project mode, tsc checked ALL files — skip remaining TS files
             if (hasTsconfig) break;
@@ -880,7 +884,8 @@ function checkSyntax(workingDir, modifiedFiles) {
             cwd: workingDir,
             encoding: 'utf8',
             timeout: TASK_TIMEOUTS.SYNTAX_CHECK,
-            stdio: 'pipe'
+            stdio: 'pipe',
+            windowsHide: true,
           });
         } catch (pyErr) {
           const pyErrMsg = pyErr.message || '';

@@ -393,7 +393,7 @@ function buildGitContext(workingDir, resolvedFiles) {
   try {
     // Check if it's a git repo
     execFileSync('git', ['rev-parse', '--git-dir'], {
-      cwd: workingDir, encoding: 'utf8', timeout: 5000
+      cwd: workingDir, encoding: 'utf8', timeout: 5000, windowsHide: true
     });
   } catch (err) {
     logger.debug("enrichment step skipped", { err: err.message });
@@ -406,7 +406,7 @@ function buildGitContext(workingDir, resolvedFiles) {
   try {
     // Recent commits
     const log = execFileSync('git', ['log', '--oneline', '-5'], {
-      cwd: workingDir, encoding: 'utf8', timeout: 5000
+      cwd: workingDir, encoding: 'utf8', timeout: 5000, windowsHide: true
     }).trim();
     if (log) {
       const section = `Recent commits:\n${log}\n`;
@@ -422,7 +422,7 @@ function buildGitContext(workingDir, resolvedFiles) {
     for (const { actual } of resolvedFiles.slice(0, 3)) {
       try {
         const fileDiff = execFileSync('git', ['log', '--oneline', '-3', '--', actual], {
-          cwd: workingDir, encoding: 'utf8', timeout: 5000
+          cwd: workingDir, encoding: 'utf8', timeout: 5000, windowsHide: true
         }).trim();
         if (fileDiff) {
           const section = `\nRecent changes to ${actual}:\n${fileDiff}\n`;

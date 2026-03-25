@@ -32,6 +32,7 @@ function sleep(ms) {
 function getListeningPidsByPort() {
   const result = spawnSync('netstat', ['-ano'], {
     encoding: 'utf8',
+    windowsHide: true,
   });
 
   if (result.error) {
@@ -98,6 +99,7 @@ function isManagedTorquePid(pid) {
     '/VALUE',
   ], {
     encoding: 'utf8',
+    windowsHide: true,
   });
 
   if (wmicResult.error || wmicResult.status !== 0) {
@@ -175,7 +177,7 @@ function cleanupConflictedPorts(conflicts) {
   const killed = [];
   const failed = [];
   for (const pid of pidSet) {
-    const killResult = spawnSync('taskkill', ['/F', '/PID', String(pid)]);
+    const killResult = spawnSync('taskkill', ['/F', '/PID', String(pid)], { windowsHide: true });
     if (killResult.status === 0) {
       killedAny = true;
       killed.push(pid);
@@ -276,6 +278,7 @@ function runScript(scriptPath) {
     cwd: ROOT_DIR,
     env: process.env,
     stdio: 'inherit',
+    windowsHide: true,
   });
 
   return {

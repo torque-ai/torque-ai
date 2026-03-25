@@ -55,7 +55,8 @@ function execGitCommit(message, cwd) {
     const result = childProcess.spawnSync('git', ['commit', '-m', message], {
       cwd,
       encoding: 'utf8',
-      timeout: TASK_TIMEOUTS.GIT_ADD_ALL
+      timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
+      windowsHide: true,
     });
     if (result.error) {
       return { success: false, error: result.error.message };

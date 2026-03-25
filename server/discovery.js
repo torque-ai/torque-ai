@@ -534,7 +534,7 @@ function getLanIP() {
       // Static command with no user input - safe from injection
       // Use full path since powershell.exe may not be in PATH
       const psCommand = `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'vEthernet|Loopback' -and $_.IPAddress -match '^192\\\\.|^10\\\\.|^172\\\\.(1[6-9]|2[0-9]|3[01])\\\\.' } | Select-Object -First 1 -ExpandProperty IPAddress"`;
-      const result = execSync(psCommand, { encoding: 'utf8', timeout: 5000 }).trim();
+      const result = execSync(psCommand, { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
       if (result && isPrivateIP(result, true)) {
         cachedLanIP = result;
         logger.info(`[Discovery] Detected LAN IP (WSL2): ${cachedLanIP}`);

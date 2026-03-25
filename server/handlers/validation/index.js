@@ -158,7 +158,7 @@ function handleValidateTaskOutput(args) {
       const tryGitDiff = (gitArgs) => {
         try {
           return execFileSync('git', gitArgs, {
-            cwd: workDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS
+            cwd: workDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS, windowsHide: true
           }).trim();
         } catch { return ''; }
       };

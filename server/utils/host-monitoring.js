@@ -292,7 +292,8 @@ async function probeCodexRecovery() {
     const result = spawnSync('npx', ['codex', '--version'], {
       timeout: 10000,
       stdio: 'pipe',
-      shell: process.platform === 'win32'
+      shell: process.platform === 'win32',
+      windowsHide: true,
     });
 
     if (result.status === 0) {

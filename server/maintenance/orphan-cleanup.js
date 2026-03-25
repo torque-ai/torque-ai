@@ -293,7 +293,8 @@ function checkZombieProcesses() {
           const result = execFileSync('tasklist', ['/FI', `PID eq ${proc.process.pid}`, '/NH', '/FO', 'CSV'], {
             encoding: 'utf8',
             stdio: 'pipe',
-            timeout: TASK_TIMEOUTS.PROCESS_QUERY
+            timeout: TASK_TIMEOUTS.PROCESS_QUERY,
+            windowsHide: true,
           });
           // tasklist returns a CSV line with the PID if found, or "INFO: No tasks..." if not
           if (!result.includes(String(proc.process.pid))) {

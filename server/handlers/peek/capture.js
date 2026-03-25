@@ -190,11 +190,11 @@ async function handlePeekUi(args) {
         if (hostPlatform === 'windows') {
           cp.execFileSync('ssh', [resolvedHost.ssh,
             'schtasks /create /tn PeekAutoStart /tr "peek-server --port ' + port + '" /sc once /st 00:00 /ru ' + resolvedHost.ssh.split('@')[0] + ' /f && schtasks /run /tn PeekAutoStart'
-          ], { timeout: 10000, stdio: 'ignore' });
+          ], { timeout: 10000, stdio: 'ignore', windowsHide: true });
         } else {
           cp.execFileSync('ssh', [resolvedHost.ssh,
             'nohup peek-server --port ' + port + ' > /dev/null 2>&1 &'
-          ], { timeout: 10000, stdio: 'ignore' });
+          ], { timeout: 10000, stdio: 'ignore', windowsHide: true });
         }
       } catch (e) { logger.debug(`[peek_ui] Auto-start attempt failed: ${e.message}`); }
       await new Promise((r) => setTimeout(r, 3000));
@@ -1004,7 +1004,8 @@ async function handlePeekBuildAndOpen(args) {
           timeout: (args.build_timeout || 60) * 1000,
           encoding: 'utf8',
           stdio: ['pipe', 'pipe', 'pipe'],
-          shell: true
+          shell: true,
+          windowsHide: true,
         });
         lines.push('**Build Status:** OK');
         if (buildResult && buildResult.length < 500) {

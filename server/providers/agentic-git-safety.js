@@ -35,6 +35,7 @@ function gitExec(args, workingDir) {
     cwd: workingDir,
     encoding: 'utf-8',
     timeout: GIT_TIMEOUT_MS,
+    windowsHide: true,
   });
 }
 
@@ -129,6 +130,7 @@ function isGitIgnored(filePath, workingDir) {
       cwd: workingDir,
       encoding: 'utf-8',
       timeout: GIT_TIMEOUT_MS,
+      windowsHide: true,
     });
     return true; // exit code 0 → ignored
   } catch {
