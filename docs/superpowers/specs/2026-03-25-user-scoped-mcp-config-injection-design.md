@@ -213,7 +213,8 @@ The target path `~/.claude/.mcp.json` is Claude Code's convention for global MCP
 | Skips when `.torque-api-key` file missing | Open mode / failed bootstrap |
 | Uses non-default SSE port from serverConfig | Port override correctness |
 | Preserves user-added fields on entry update | Merge-not-replace behavior |
-| Atomic write prevents corruption | Concurrent start safety |
+
+Note: Atomic write (temp + rename) is an implementation detail verified by code inspection, not a unit test. The temp file pattern prevents corruption from concurrent starts but is not reliably testable in isolation.
 
 ## Future Layers
 
