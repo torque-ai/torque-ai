@@ -627,7 +627,7 @@ function _conflictEnsureDb() {
 }
 
 function _getSnapshotDir() {
-  const root = _conflictDataDir || process.env.TORQUE_DATA_DIR || process.cwd();
+  const root = _conflictDataDir || require('../data-dir').getDataDir();
   const snapshotDir = path.join(root, 'task-file-write-snapshots');
   fs.mkdirSync(snapshotDir, { recursive: true });
   return snapshotDir;
@@ -822,7 +822,7 @@ function getWorkflowFileWrites(workflowId, filePath) {
 function createFileTracking({ db: dbInstance, taskCore, dataDir }) {
   setDb(dbInstance);
   setGetTask(taskCore?.getTask || (() => null));
-  setDataDir(dataDir || process.env.TORQUE_DATA_DIR || '');
+  setDataDir(dataDir || require('../data-dir').getDataDir());
   return {
     ...fileBaselines,
     ...fileQuality,

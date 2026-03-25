@@ -12,6 +12,17 @@ server/tasks.db
 server/tasks.db-wal
 server/tasks.db-shm
 
+# TORQUE runtime data (created when data-dir defaults to server/)
+server/torque.db
+server/torque.db-wal
+server/torque.db-shm
+server/secret.key
+server/torque.pid
+server/backups/
+server/task-file-write-snapshots/
+server/torque.log
+server/torque.log.*
+
 # Context files created during tasks
 .codex-context/
 

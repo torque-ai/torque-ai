@@ -194,7 +194,7 @@ function cleanupHealthHistory(daysToKeep = 7) {
  * @param {object} dbInstance - better-sqlite3 Database instance
  * @param {object} [opts]
  * @param {string} [opts.dataDir] - Override data directory for snapshot cleanup
- *   (defaults to process.env.TORQUE_DATA_DIR or process.cwd())
+ *   (defaults to centralized data-dir resolution)
  * @returns {{ coordination_events: number, health_status: number, task_file_writes: number, quota_daily_usage: number, snapshot_files: number }}
  */
 function purgeGrowthTables(dbInstance, opts = {}) {
@@ -242,7 +242,7 @@ function purgeGrowthTables(dbInstance, opts = {}) {
   // Purge content-addressed snapshot files older than 30 days from disk.
   // These are written by file-tracking.js recordTaskFileWrite() for conflict detection.
   try {
-    const dataDir = opts.dataDir || process.env.TORQUE_DATA_DIR || process.cwd();
+    const dataDir = opts.dataDir || require('../data-dir').getDataDir();
     const snapshotDir = path.join(dataDir, 'task-file-write-snapshots');
     if (fs.existsSync(snapshotDir)) {
       const cutoffMs = now - 30 * 24 * 60 * 60 * 1000;

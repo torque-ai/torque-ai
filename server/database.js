@@ -24,8 +24,8 @@
 
 const Database = require('better-sqlite3');
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
+const { getDataDir: _resolveDataDir } = require('./data-dir');
 const logger = require('./logger').child({ component: 'database' });
 const { safeJsonParse } = require('./utils/json');
 const { runMigrations } = require('./db/migrations');
@@ -200,43 +200,7 @@ function safeAddColumn(tableName, columnDef) {
   return true;
 }
 
-// Database path - prefer Linux filesystem for WSL2 compatibility.
-// Fall back to a writable temp dir when home is read-only.
-const DEFAULT_DATA_DIR = path.join(os.homedir(), '.local', 'share', 'torque');
-
-function ensureWritableDataDir(dirPath) {
-  try {
-    fs.mkdirSync(dirPath, { recursive: true });
-    fs.accessSync(dirPath, fs.constants.W_OK);
-    const dbPath = path.join(dirPath, 'tasks.db');
-    if (fs.existsSync(dbPath)) {
-      fs.accessSync(dbPath, fs.constants.W_OK);
-    }
-    return true;
-  } catch (_err) {
-    void _err;
-    return false;
-  }
-}
-
-function resolveDataDir() {
-  const envDir = process.env.TORQUE_DATA_DIR;
-  const candidates = [
-    envDir,
-    DEFAULT_DATA_DIR,
-    path.join(os.tmpdir(), 'torque')
-  ].filter(Boolean);
-
-  for (const dir of candidates) {
-    if (ensureWritableDataDir(dir)) {
-      return dir;
-    }
-  }
-
-  return DEFAULT_DATA_DIR;
-}
-
-let DATA_DIR = resolveDataDir();
+let DATA_DIR = _resolveDataDir();
 let DB_PATH = path.join(DATA_DIR, 'tasks.db');
 
 let db = null;
@@ -320,7 +284,7 @@ function _wireAllModules() {
   fileTracking.createFileTracking({
     db,
     taskCore: { getTask },
-    dataDir: process.env.TORQUE_DATA_DIR || DATA_DIR,
+    dataDir: DATA_DIR,
   });
   hostManagement.createHostManagement({
     db,

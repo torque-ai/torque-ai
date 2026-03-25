@@ -174,7 +174,7 @@ function handleGetReviewWorkflowConfig(_args) {
 function handleBackupDatabase(args) {
   const os = require('os');
   const destPath = args.dest_path || path.join(
-    process.env.TORQUE_DATA_DIR || path.join(os.homedir(), '.torque'),
+    require('../../data-dir').getDataDir(),
     'backups',
     `torque-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.db`
   );

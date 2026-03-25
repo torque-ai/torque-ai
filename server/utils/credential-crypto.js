@@ -21,7 +21,7 @@ let _cachedKey = null;
  * @returns {string} Secret storage directory path
  */
 function resolveDataDir() {
-  return process.env.TORQUE_DATA_DIR || path.join(os.homedir(), '.torque');
+  return require('../data-dir').getDataDir();
 }
 
 /**

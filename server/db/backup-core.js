@@ -6,9 +6,9 @@
  */
 const Database = require('better-sqlite3');
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'backup-core' });
+const { getDataDir } = require('../data-dir');
 const { runMigrations } = require('./migrations');
 
 let _db = null;
@@ -85,7 +85,7 @@ function startBackupScheduler(intervalMs = 3600000) {
   stopBackupScheduler();
 
   const maxBackups = parseInt((_getConfig && _getConfig('backup_max_count')) || '24', 10);
-  const backupDir = path.join(process.env.TORQUE_DATA_DIR || '.', 'backups');
+  const backupDir = path.join(getDataDir(), 'backups');
 
   _backupTimer = setInterval(() => {
     try {
@@ -210,7 +210,7 @@ async function restoreDatabase(srcPath, confirm, { force = false } = {}) {
 
 function listBackups(dir) {
   if (!dir) {
-    dir = path.join(process.env.TORQUE_DATA_DIR || path.join(os.homedir(), '.torque'), 'backups');
+    dir = path.join(getDataDir(), 'backups');
   }
   if (!fs.existsSync(dir)) return [];
 
@@ -233,7 +233,7 @@ function listBackups(dir) {
  * RB-057: Remove old backups beyond retention limit.
  */
 function cleanupOldBackups(options = {}) {
-  const dir = options.dir || path.join(process.env.TORQUE_DATA_DIR || path.join(os.homedir(), '.torque'), 'backups');
+  const dir = options.dir || path.join(getDataDir(), 'backups');
   const keepCount = options.keepCount || 10;
   const maxAgeDays = options.maxAgeDays || 30;
 
