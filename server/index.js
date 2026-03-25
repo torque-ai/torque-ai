@@ -581,6 +581,24 @@ function init() {
   taskManager.initEarlyDeps();
   taskManager.initSubModules();
   serverConfig.init({ db });
+
+  // Auto-inject TORQUE MCP config into user's global ~/.claude/.mcp.json
+  // so TORQUE tools are available in every Claude Code session.
+  try {
+    const mcpConfigInjector = require('./auth/mcp-config-injector');
+    const { getDataDir } = require('./data-dir');
+    const apiKey = mcpConfigInjector.readKeyFromFile(getDataDir());
+    if (apiKey) {
+      const ssePort = serverConfig.getInt('mcp_sse_port', 3458);
+      const result = mcpConfigInjector.ensureGlobalMcpConfig(apiKey, { ssePort });
+      if (result.injected) {
+        debugLog(`MCP config ${result.reason}: ${result.path}`);
+      }
+    }
+  } catch (err) {
+    debugLog(`MCP config injection skipped: ${err.message}`);
+  }
+
   slotPullScheduler = require('./execution/slot-pull-scheduler');
   slotPullScheduler.init({
     db,
