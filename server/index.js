@@ -522,48 +522,9 @@ function init() {
   // Initialize database
   db.init();
 
-  // Auth system initialization — migrate legacy keys, bootstrap first-run admin key
-  try {
-    const keyManager = require('./auth/key-manager');
-    keyManager.init(db.getDbInstance());
-    keyManager.migrateConfigApiKey(); // migrate existing config.api_key if present
-
-    const userManager = require('./auth/user-manager');
-    userManager.init(db.getDbInstance());
-
-    // Defense-in-depth: remove stale config.api_key if new auth system has keys
-    try {
-      const dbInst = db.getDbInstance();
-      const legacyKey = dbInst.prepare("SELECT value FROM config WHERE key = 'api_key'").get();
-      if (legacyKey && keyManager.hasAnyKeys()) {
-        dbInst.prepare("DELETE FROM config WHERE key = 'api_key'").run();
-      }
-    } catch {}
-
-    if (!keyManager.hasAnyKeys() && !userManager.hasAnyUsers()) {
-      const { key } = keyManager.createKey({ name: 'Bootstrap admin key', role: 'admin' });
-      // Write key to a file so Claude Code (and the user) can find it.
-      // The server often starts via nohup > /dev/null, so console output is lost.
-      const keyFilePath = path.join(db.getDataDir(), '.torque-api-key');
-      try {
-        fs.writeFileSync(keyFilePath, key, { mode: 0o600 });
-        debugLog(`Bootstrap API key written to ${keyFilePath}`);
-      } catch (writeErr) {
-        debugLog(`Could not write key file: ${writeErr.message}`);
-      }
-      console.log('\u2550'.repeat(59));
-      console.log('  TORQUE Admin API Key (save this \u2014 it won\'t be shown again):');
-      console.log('');
-      console.log(`  ${key}`);
-      console.log('');
-      console.log('  Set as environment variable:');
-      console.log(`  export TORQUE_API_KEY="${key}"`);
-      console.log('');
-      console.log(`  Key also saved to: ${keyFilePath}`);
-      console.log('\u2550'.repeat(59));
-    }
-  } catch (err) {
-    debugLog(`Auth initialization error: ${err.message}`);
+  const authMode = process.env.TORQUE_AUTH_MODE || db.getConfig('auth_mode') || 'local';
+  if (authMode === 'local') {
+    debugLog('Auth mode: local (no authentication, 127.0.0.1 only)');
   }
 
   // Register core singletons with DI container
@@ -582,21 +543,17 @@ function init() {
   taskManager.initSubModules();
   serverConfig.init({ db });
 
-  // Auto-inject TORQUE MCP config into user's global ~/.claude/.mcp.json
-  // so TORQUE tools are available in every Claude Code session.
-  try {
-    const mcpConfigInjector = require('./auth/mcp-config-injector');
-    const { getDataDir } = require('./data-dir');
-    const apiKey = mcpConfigInjector.readKeyFromFile(getDataDir());
-    if (apiKey) {
+  if (authMode === 'local') {
+    try {
+      const mcpConfigInjector = require('./auth/mcp-config-injector');
       const ssePort = serverConfig.getInt('mcp_sse_port', 3458);
-      const result = mcpConfigInjector.ensureGlobalMcpConfig(apiKey, { ssePort });
+      const result = mcpConfigInjector.ensureGlobalMcpConfig({ ssePort });
       if (result.injected) {
         debugLog(`MCP config ${result.reason}: ${result.path}`);
       }
+    } catch (err) {
+      debugLog(`MCP config injection skipped: ${err.message}`);
     }
-  } catch (err) {
-    debugLog(`MCP config injection skipped: ${err.message}`);
   }
 
   slotPullScheduler = require('./execution/slot-pull-scheduler');
@@ -619,6 +576,20 @@ function init() {
   } catch (err) {
     logger.error(`Container boot failed: ${err.message}`);
     // Non-fatal during migration — existing require() paths still work
+  }
+
+  let loadedPlugins = [];
+  if (authMode === 'enterprise') {
+    try {
+      const { loadPlugins } = require('./plugins/loader');
+      loadedPlugins = loadPlugins({ authMode, logger });
+      for (const plugin of loadedPlugins) {
+        plugin.install(defaultContainer);
+        debugLog(`Plugin installed: ${plugin.name} v${plugin.version}`);
+      }
+    } catch (err) {
+      debugLog(`Plugin loading failed, falling back to local mode: ${err.message}`);
+    }
   }
 
   // Migrate legacy config keys (ollama_model, hashline_capable_models, etc.) into
@@ -1281,41 +1252,5 @@ module.exports = {
 
 // Run the server
 if (require.main === module) {
-  // Early CLI handling — --create-admin creates the first admin user, then exits
-  if (process.argv.includes('--create-admin')) {
-    (async () => {
-      const rlMod = require('readline');
-      // Need to init DB first
-      db.init();
-      const userMgr = require('./auth/user-manager');
-      userMgr.init(db.getDbInstance());
-
-      // Ensure users table exists
-      require('./db/schema-tables').ensureAllTables(db.getDbInstance());
-
-      if (userMgr.hasAnyUsers()) {
-        console.error('Users already exist. Use the dashboard to manage users.');
-        process.exit(1);
-      }
-
-      const rl = rlMod.createInterface({ input: process.stdin, output: process.stdout });
-      const ask = (q) => new Promise(r => rl.question(q, r));
-
-      try {
-        const username = await ask('Username: ');
-        const password = await ask('Password: ');
-        const user = userMgr.createUser({ username, password, role: 'admin' });
-        console.log(`Admin user "${user.username}" created successfully.`);
-      } catch (err) {
-        console.error(`Error: ${err.message}`);
-        process.exit(1);
-      } finally {
-        rl.close();
-        db.close();
-        process.exit(0);
-      }
-    })();
-  } else {
-    main();
-  }
+  main();
 }
