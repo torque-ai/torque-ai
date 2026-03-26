@@ -459,16 +459,32 @@ function startTask(taskId) {
     }
   }
 
-  // === FILE LOCKING (EXP7: cross-session file overwrite protection) ===
-  // Acquire locks for resolved files before execution starts.
-  // Locks are released on task completion (output-safeguards.js).
-  if (resolvedFilePaths.length > 0 && serverConfig.isOptIn('file_locking_enabled')) {
+  // === FILE LOCKING — sandbox-aware conflict prevention ===
+  // Sandboxed providers (codex, codex-spark, claude-cli) start from a repo snapshot.
+  // Concurrent tasks editing the same file silently overwrite each other's changes.
+  // For these providers: block and requeue when a file conflict is detected.
+  // For non-sandboxed providers (ollama, hashline-ollama, cloud APIs): warn only.
+  const SANDBOXED_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
+  const isSandboxed = SANDBOXED_PROVIDERS.has(provider);
+  if (resolvedFilePaths.length > 0) {
     const wd = task.working_directory || '';
     for (const filePath of resolvedFilePaths) {
       try {
         const lockResult = db.acquireFileLock(filePath, wd, taskId);
         if (!lockResult.acquired) {
-          logger.warn(`[FileLock] Task ${taskId.slice(0,8)}: file '${filePath}' already locked by task ${lockResult.holder} (expires ${lockResult.expiresAt || 'never'}) — proceeding with warning`);
+          if (isSandboxed) {
+            // Sandboxed provider — requeue to prevent silent overwrites
+            logger.info(`[FileLock] Task ${taskId.slice(0,8)} (${provider}): file '${filePath}' locked by task ${lockResult.lockedBy?.slice(0,8) || 'unknown'} — requeuing to prevent sandbox conflict`);
+            db.requeueTaskAfterAttemptedStart(taskId, {
+              error_output: (task.error_output || '') + `\nRequeued: file '${filePath}' is being edited by task ${lockResult.lockedBy || 'unknown'}. Will retry when the lock is released.`,
+            });
+            dashboard.notifyTaskUpdated(taskId);
+            processQueue();
+            return { queued: true, fileLockConflict: true, conflictFile: filePath, conflictTask: lockResult.lockedBy };
+          } else {
+            // Non-sandboxed provider — warn only (they edit the real filesystem)
+            logger.warn(`[FileLock] Task ${taskId.slice(0,8)}: file '${filePath}' already locked by task ${lockResult.lockedBy?.slice(0,8) || 'unknown'} — proceeding (non-sandboxed provider)`);
+          }
         }
       } catch (e) {
         logger.info(`[FileLock] Non-fatal lock error for ${filePath}: ${e.message}`);
