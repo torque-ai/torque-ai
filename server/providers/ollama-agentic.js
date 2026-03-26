@@ -287,8 +287,12 @@ async function runAgenticLoop({
     if (toolCalls.length === 0) {
       const content = assistantMessage.content || '';
 
-      // Parse failure recovery: if content contains "name" it might be a malformed tool call
-      if (!parseFailureCorrectionInjected && content.includes('"name"')) {
+      // Parse failure recovery: check if content looks like a malformed tool call
+      // Require both "name" AND "arguments" (or a tool-call-like JSON structure) to
+      // avoid false positives on summaries that mention field names like "name".
+      const looksLikeToolCall = content.includes('"name"') &&
+        (content.includes('"arguments"') || /\{\s*"name"\s*:\s*"(read_file|write_file|edit_file|search_files|list_directory|run_command)"/.test(content));
+      if (!parseFailureCorrectionInjected && looksLikeToolCall) {
         logger.warn('[Agentic] Possible malformed tool call detected — injecting correction message');
         messages.push({
           role: 'assistant',
@@ -350,8 +354,9 @@ async function runAgenticLoop({
       break;
     }
 
-    // Reset parse failure flag on successful tool call parse
-    parseFailureCorrectionInjected = false;
+    // Note: parseFailureCorrectionInjected is intentionally NOT reset here.
+    // It's a one-shot correction — resetting it on every successful parse
+    // caused repeated false positives when the model's summaries contained "name".
 
     // Stuck loop detection: compute hash of all tool calls this iteration
     const iterHash = JSON.stringify(toolCalls.map(tc => ({ name: tc.name, args: tc.arguments })));
