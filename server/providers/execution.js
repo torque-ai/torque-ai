@@ -32,6 +32,8 @@ const { isAgenticCapable, needsPromptInjection, init: initCapability } = require
 const { createToolExecutor, TOOL_DEFINITIONS, selectToolsForTask } = require('./ollama-tools');
 const { captureSnapshot, checkAndRevert } = require('./agentic-git-safety');
 const { resolveOllamaModel } = require('./ollama-shared');
+
+const { acquireHostLock } = require('./host-mutex');
 const ollamaChatAdapter = require('./adapters/ollama-chat');
 const openaiChatAdapter = require('./adapters/openai-chat');
 const googleChatAdapter = require('./adapters/google-chat');
@@ -620,6 +622,13 @@ async function executeOllamaTaskWithAgentic(task) {
   // Hoisted so the finally block can call removeEventListener for cleanup
   let origAbortHandler = null;
 
+  // Per-host mutex — wait for any prior task on this host to finish.
+  // Prevents GPU contention when multi-instance scheduling races occur.
+  let releaseHostLock = null;
+  if (selectedHostId) {
+    releaseHostLock = await acquireHostLock(selectedHostId);
+  }
+
   try {
     logger.info(`[Agentic] Starting Ollama task ${taskId} with model ${resolvedModel} on ${ollamaHost}`);
 
@@ -732,6 +741,8 @@ async function executeOllamaTaskWithAgentic(task) {
     if (typeof releaseSelectedHostSlot === 'function') {
       try { releaseSelectedHostSlot(); } catch { /* ignore */ }
     }
+    // Release per-host mutex so the next queued task can proceed
+    if (releaseHostLock) releaseHostLock();
     dashboard.notifyTaskUpdated(taskId);
     // Workflow termination in both success and failure paths
     if (typeof handleWorkflowTermination === 'function') {

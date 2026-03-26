@@ -397,6 +397,13 @@ async function executeOllamaTask(task) {
     }
   }
 
+  // Per-host mutex — prevent GPU contention with concurrent tasks on same host
+  const { acquireHostLock } = require('./host-mutex');
+  let releaseHostLock = null;
+  if (selectedHostId) {
+    releaseHostLock = await acquireHostLock(selectedHostId);
+  }
+
   logger.info(`[Ollama] Starting task ${taskId} with model ${ollamaModel} on ${ollamaHost}`);
 
   // Record model usage for warm start affinity
@@ -929,6 +936,7 @@ async function executeOllamaTask(task) {
     });
   }
 
+  if (releaseHostLock) releaseHostLock();
   dashboard.notifyTaskUpdated(taskId);
 
   // Process next task in queue

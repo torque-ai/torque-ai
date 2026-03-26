@@ -602,6 +602,13 @@ async function executeHashlineOllamaTask(task) {
     }
   }
 
+  // Per-host mutex — prevent GPU contention with concurrent tasks on same host
+  const { acquireHostLock } = require('./host-mutex');
+  let releaseHostLock = null;
+  if (selectedHostId) {
+    releaseHostLock = await acquireHostLock(selectedHostId);
+  }
+
   logger.info(`[HashlineOllama] Starting task ${taskId} with model ${ollamaModel} on ${ollamaHost}`);
 
   // Record model usage
@@ -1086,6 +1093,7 @@ async function executeHashlineOllamaTask(task) {
     tryHashlineTieredFallback(taskId, task, error.message || 'unknown error');
   }
 
+  if (releaseHostLock) releaseHostLock();
   if (cancelCheckInterval) clearInterval(cancelCheckInterval);
   if (terminalCompleted) {
     handleWorkflowTermination(taskId);
