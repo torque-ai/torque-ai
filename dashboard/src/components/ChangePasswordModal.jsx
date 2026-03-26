@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getCsrfToken } from '../api';
 
 export default function ChangePasswordModal({ onClose }) {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -31,7 +32,7 @@ export default function ChangePasswordModal({ onClose }) {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': window.__torqueCsrf || '',
+          'X-CSRF-Token': getCsrfToken(),
         },
         credentials: 'same-origin',
         body: JSON.stringify({ currentPassword, newPassword }),

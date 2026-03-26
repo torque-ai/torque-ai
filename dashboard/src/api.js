@@ -11,6 +11,13 @@ const V2_BASE = '/api/v2';
 
 const DEFAULT_TIMEOUT = 15000;
 
+export function getCsrfToken() {
+  if (window.__torqueCsrf) return window.__torqueCsrf;
+  // Fallback: read from the non-HttpOnly torque_csrf cookie
+  const match = document.cookie.split(';').find(c => c.trim().startsWith('torque_csrf='));
+  return match ? match.split('=')[1]?.trim() : '';
+}
+
 /**
  * Generic fetch wrapper with error handling and timeout
  */
@@ -75,7 +82,7 @@ async function _fetch(url, options = {}) {
     const response = await fetch(url, {
       headers: {
         ...(hasFormDataBody ? {} : { 'Content-Type': 'application/json' }),
-        ...(isMutatingMethod ? { 'X-Requested-With': 'XMLHttpRequest', ...(window.__torqueCsrf ? { 'X-CSRF-Token': window.__torqueCsrf } : {}) } : {}),
+        ...(isMutatingMethod ? { 'X-Requested-With': 'XMLHttpRequest', ...(() => { const t = getCsrfToken(); return t ? { 'X-CSRF-Token': t } : {}; })() } : {}),
         ...fetchOptions.headers,
       },
       signal: composedSignal,
