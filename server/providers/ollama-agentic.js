@@ -203,7 +203,9 @@ async function runAgenticLoop({
 
   for (iterations = 0; iterations < maxIterations && !earlyStop; iterations++) {
     if (signal?.aborted) {
-      throw new Error('Task cancelled');
+      const err = new Error(`Task cancelled at iteration ${iterations + 1}`);
+      err._iteration = iterations + 1;
+      throw err;
     }
 
     logger.info(`[Agentic] Iteration ${iterations + 1}/${maxIterations} — ${messages.length} messages`);
@@ -247,6 +249,12 @@ async function runAgenticLoop({
         });
         break; // success
       } catch (apiErr) {
+        // Annotate abort/cancel errors with iteration for diagnostics
+        if (apiErr.name === 'AbortError' || (apiErr.message || '').includes('aborted')) {
+          apiErr._iteration = iterations + 1;
+          logger.warn(`[Agentic] Request aborted at iteration ${iterations + 1}: ${apiErr.message}`);
+          throw apiErr;
+        }
         const msg = apiErr.message || '';
         const isTransient = /parse.*json|unexpected end|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d|502|503|429/i.test(msg);
         if (!isTransient || attempt >= MAX_API_RETRIES) throw apiErr;

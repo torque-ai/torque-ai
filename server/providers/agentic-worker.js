@@ -152,7 +152,11 @@ async function main() {
     // Don't process.exit(0) — let the event loop drain so the message is delivered.
     // The worker thread will exit naturally when nothing is left to do.
   } catch (err) {
-    parentPort.postMessage({ type: 'error', message: err.message || String(err) });
+    const isAbort = err.name === 'AbortError' || (err.message || '').includes('aborted');
+    const detail = isAbort
+      ? `Aborted at iteration ${err._iteration || '?'}: ${err.message} (signal.aborted=${controller.signal.aborted}, reason=${controller.signal.reason || 'none'})`
+      : (err.message || String(err));
+    parentPort.postMessage({ type: 'error', message: detail });
     // Don't process.exit(1) — let the message deliver, then the worker exits naturally.
   }
 }
