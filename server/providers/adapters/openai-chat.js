@@ -135,7 +135,10 @@ function chatCompletion({ host, apiKey, model, providerName: _providerName, mess
               const parsed = JSON.parse(rawData);
 
               if (parsed.error) {
-                reject(new Error(`OpenAI API error: ${parsed.error.message || JSON.stringify(parsed.error)}`));
+                const msg = parsed.error.message || JSON.stringify(parsed.error);
+                const detail = parsed.error.metadata?.raw || parsed.error.metadata?.detail || '';
+                const code = parsed.error.code ? ` (${parsed.error.code})` : '';
+                reject(new Error(`OpenAI API error${code}: ${msg}${detail ? ' — ' + detail : ''}`));
                 return;
               }
 
