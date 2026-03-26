@@ -305,7 +305,10 @@ function App() {
 
   const checkAuth = useCallback(() => {
     fetch('/api/auth/status')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('no auth endpoint');
+        return res.json();
+      })
       .then(data => {
         if (data.authenticated) {
           if (data.csrfToken) window.__torqueCsrf = data.csrfToken;
@@ -316,7 +319,7 @@ function App() {
         }
       })
       .catch(() => {
-        // Network error — assume open mode / no auth configured
+        // No auth endpoint (local mode) or network error — skip login
         setAuthenticated(true);
       });
   }, []);
