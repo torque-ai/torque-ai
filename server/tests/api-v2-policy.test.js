@@ -11,8 +11,6 @@ import {
 
 const { EventEmitter } = require('events');
 const http = require('http');
-const authMiddleware = require('../auth/middleware');
-
 const { setupTestDb, teardownTestDb, resetTables } = require('./vitest-setup');
 
 let api;
@@ -195,10 +193,6 @@ function seedEvaluation(overrides = {}) {
 }
 
 beforeAll(async () => {
-  // Bypass auth so test requests aren't rejected with 401
-  vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
-  vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
-
   ({ db } = setupTestDb('api-v2-policy'));
   api = require('../api-server.core');
 

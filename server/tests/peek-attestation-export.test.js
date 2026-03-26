@@ -259,13 +259,8 @@ describe('peek attestation export api', () => {
   let db;
   let requestHandler;
   let createServerSpy;
-  const authMiddleware = require('../auth/middleware');
 
   beforeAll(async () => {
-    // Bypass auth so test requests aren't rejected with 401
-    vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
-    vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
-
     ({ db } = setupTestDb('peek-attestation-export'));
     api = require('../api-server.core');
 

@@ -152,15 +152,7 @@ test('hash deterministic', () => assert(indexer.hashContent('x') === indexer.has
 console.log('   Files in utils/:', files.length);
 console.log();
 
-console.log('=== 14. SSE TICKETS ===');
-const tickets = require('../auth/sse-tickets');
-const ticket = tickets.generateTicket('test-key');
-test('sse_tk_ prefix', () => assert(ticket.ticket.startsWith('sse_tk_')));
-test('has expires_at', () => assert(ticket.expiresAt));
-const v = tickets.validateTicket(ticket.ticket);
-test('validates fresh', () => assert(v.valid === true));
-test('returns apiKeyId', () => assert(v.apiKeyId === 'test-key'));
-test('rejects reuse', () => assert(tickets.validateTicket(ticket.ticket).valid === false));
+console.log('=== 14. SSE TICKETS (removed — auth/sse-tickets deleted) ===');
 console.log();
 
 db.close();

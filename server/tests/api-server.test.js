@@ -10,8 +10,6 @@ const fileTracking = require('../db/file-tracking');
 const tools = require('../tools');
 const adapterRegistry = require('../providers/adapter-registry');
 const eventBus = require('../event-bus');
-const authMiddleware = require('../auth/middleware');
-
 function createMockResponse() {
   let resolve;
   const done = new Promise((res) => { resolve = res; });
@@ -269,10 +267,6 @@ describe('API Server endpoints', () => {
   }
 
   beforeAll(() => {
-    // Bypass auth so test requests aren't rejected with 401
-    vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
-    vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
-
     // Spy on database and tools before loading api-server
     getConfigSpy = vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     countTasksSpy = vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
@@ -2230,80 +2224,6 @@ describe('API Server endpoints', () => {
     expect(response.statusCode).toBe(204);
   });
 
-  it('returns 401 when authentication fails', async () => {
-    // Override the default auth mock to simulate missing/invalid credentials
-    authMiddleware.authenticate.mockReturnValueOnce(null);
-
-    const response = await dispatchRequest(requestHandler, {
-      method: 'GET',
-      url: '/api/tasks',
-    });
-
-    expect(response.statusCode).toBe(401);
-    const payload = JSON.parse(response.body);
-    expect(payload.error.code).toBe('unauthorized');
-    expect(payload.error.request_id).toBeDefined();
-    expect(payload.error.message).toBe('Invalid or missing API key');
-    expect(response.headers['WWW-Authenticate']).toBe('Bearer realm="Torque API", error="invalid_token"');
-  });
-
-  it('returns contract-shaped 401 for v2 inference when not authenticated', async () => {
-    authMiddleware.authenticate.mockReturnValueOnce(null);
-
-    const response = await dispatchRequest(requestHandler, {
-      method: 'POST',
-      url: '/api/v2/inference',
-      body: { model: 'codex', prompt: 'Hello' },
-    });
-
-    expect(response.statusCode).toBe(401);
-    const payload = JSON.parse(response.body);
-    expect(payload.error.code).toBe('unauthorized');
-    expect(payload.error.request_id).toBeDefined();
-    expect(response.headers['WWW-Authenticate']).toBe('Bearer realm="Torque API", error="invalid_token"');
-  });
-
-  it('POST /api/v2/inference returns 401 when auth fails in strict mode', async () => {
-    authMiddleware.authenticate.mockReturnValueOnce(null);
-    getConfigSpy.mockImplementation((key) => {
-      if (key === 'v2_auth_mode') return 'strict';
-      return null;
-    });
-
-    const response = await dispatchRequest(requestHandler, {
-      method: 'POST',
-      url: '/api/v2/inference',
-      body: { prompt: 'Hello' },
-    });
-
-    expect(response.statusCode).toBe(401);
-    const payload = JSON.parse(response.body);
-    expect(payload.error.code).toBe('unauthorized');
-    expect(payload.error.message).toBe('Invalid or missing API key');
-    expect(response.headers['WWW-Authenticate']).toBe('Bearer realm="Torque API", error="invalid_token"');
-  });
-
-  it('POST /api/v2/inference returns 401 when auth fails even with strict mode and api_key config', async () => {
-    authMiddleware.authenticate.mockReturnValueOnce(null);
-    getConfigSpy.mockImplementation((key) => {
-      if (key === 'v2_auth_mode') return 'strict';
-      if (key === 'api_key') return 'secret-key-123';
-      return null;
-    });
-
-    const response = await dispatchRequest(requestHandler, {
-      method: 'POST',
-      url: '/api/v2/inference',
-      body: { prompt: 'Hello' },
-    });
-
-    expect(response.statusCode).toBe(401);
-    const payload = JSON.parse(response.body);
-    expect(payload.error.code).toBe('unauthorized');
-    expect(payload.error.request_id).toBeDefined();
-    expect(response.headers['WWW-Authenticate']).toBe('Bearer realm="Torque API", error="invalid_token"');
-  });
-
   it('POST /api/v2/inference succeeds with valid key when strict mode is enabled', async () => {
     getConfigSpy.mockImplementation((key) => {
       if (key === 'v2_auth_mode') return 'strict';
@@ -2710,41 +2630,6 @@ describe('API Server endpoints', () => {
       expect(response.statusCode).toBe(200);
       const payload = JSON.parse(response.body);
       expect(payload.status).toBe('shutting_down');
-    });
-
-    it('blocks shutdown from a remote IP when authentication fails', async () => {
-      // Override the default auth mock to simulate missing/invalid credentials
-      authMiddleware.authenticate.mockReturnValueOnce(null);
-
-      const response = await dispatchRequest(requestHandler, {
-        method: 'POST',
-        url: '/api/shutdown',
-        remoteAddress: '192.0.2.50',
-      });
-
-      expect(response.statusCode).toBe(403);
-      const payload = JSON.parse(response.body);
-      expect(payload.error).toBe('Forbidden');
-      // Shutdown event must NOT have been emitted
-      vi.runAllTimers();
-      expect(shutdownEvents).toHaveLength(0);
-    });
-
-    it('blocks shutdown from a remote IP when a wrong API key is provided', async () => {
-      authMiddleware.authenticate.mockReturnValueOnce(null);
-
-      const response = await dispatchRequest(requestHandler, {
-        method: 'POST',
-        url: '/api/shutdown',
-        remoteAddress: '10.0.0.99',
-        headers: { 'x-torque-key': 'wrong-key' },
-      });
-
-      expect(response.statusCode).toBe(403);
-      const payload = JSON.parse(response.body);
-      expect(payload.error).toBe('Forbidden');
-      vi.runAllTimers();
-      expect(shutdownEvents).toHaveLength(0);
     });
 
     it('allows shutdown from a remote IP when the correct API key is provided', async () => {

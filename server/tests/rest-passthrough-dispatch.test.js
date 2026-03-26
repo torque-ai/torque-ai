@@ -91,12 +91,6 @@ describe('REST passthrough route dispatch', () => {
   beforeAll(async () => {
     vi.resetModules();
 
-    // Bypass auth so test requests aren't rejected with 401
-    // (must be after resetModules so the spy lands on the cached instance)
-    const authMw = require('../auth/middleware');
-    vi.spyOn(authMw, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
-    vi.spyOn(authMw, 'isOpenMode').mockReturnValue(true);
-
     const serverConfig = require('../config');
     const tools = require('../tools');
     const originalGet = serverConfig.get.bind(serverConfig);

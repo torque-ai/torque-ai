@@ -3,8 +3,6 @@ const _fs = require('fs');
 const path = require('path');
 const _vm = require('vm');
 const eventBus = require('../event-bus');
-const authMiddleware = require('../auth/middleware');
-
 function createMockResponse() {
   let resolve;
   const done = new Promise((res) => { resolve = res; });
@@ -258,9 +256,6 @@ function loadDashboardServer({
 
 describe('dashboard-server', () => {
   beforeEach(() => {
-    // Bypass auth so /api/* requests aren't rejected with 401
-    vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
-    vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
   });
 
   afterEach(() => {

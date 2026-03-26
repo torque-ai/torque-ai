@@ -2,8 +2,6 @@ const { EventEmitter } = require('events');
 const http = require('http');
 const configCore = require('../db/config-core');
 const tools = require('../tools');
-const authMiddleware = require('../auth/middleware');
-const sseTickets = require('../auth/sse-tickets');
 
 let nextTestIp = 1;
 
@@ -94,8 +92,6 @@ describe('MCP SSE Transport', () => {
   };
 
   beforeAll(() => {
-    vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
-
     // Spy on database and tools before loading mcp-sse
     vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
@@ -116,13 +112,6 @@ describe('MCP SSE Transport', () => {
     vi.restoreAllMocks();
   });
 
-  beforeEach(() => {
-    sseTickets._resetForTests();
-  });
-
-  afterEach(() => {
-    sseTickets._resetForTests();
-  });
 
   // ============================================
   // SSE Session Creation
@@ -177,19 +166,6 @@ describe('MCP SSE Transport', () => {
       expect(match1).toBeTruthy();
       expect(match2).toBeTruthy();
       expect(match1[1]).not.toBe(match2[1]);
-    });
-
-    it('accepts a short-lived SSE ticket request', async () => {
-      const { ticket } = sseTickets.generateTicket('key-123');
-
-      const { response } = await dispatchRequest(handleHttpRequest, {
-        method: 'GET',
-        url: `/sse?ticket=${encodeURIComponent(ticket)}`,
-        headers: { host: 'localhost:3458' },
-      });
-
-      expect(response.statusCode).toBe(200);
-      expect(response.getBody()).toContain('event: endpoint');
     });
 
     it('accepts an invalid short-lived SSE ticket', async () => {

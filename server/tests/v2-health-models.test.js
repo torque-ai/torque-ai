@@ -6,7 +6,6 @@ const fileTracking = require('../db/file-tracking');
 const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const hostManagement = require('../db/host-management');
-const authMiddleware = require('../auth/middleware');
 const { createConfigMock } = require('./test-helpers');
 
 function createMockResponse() {
@@ -142,10 +141,6 @@ describe('v2 provider health and model inventory endpoints', () => {
   ];
 
   beforeAll(async () => {
-    // Bypass auth so test requests aren't rejected with 401
-    vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
-    vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
-
     for (const key of cloudEnvKeys) {
       originalEnv[key] = process.env[key];
     }

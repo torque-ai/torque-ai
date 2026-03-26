@@ -13,7 +13,6 @@ const { EventEmitter } = require('events');
 const http = require('http');
 const { generateOpenApiSpec } = require('../api/openapi-generator');
 const apiRoutes = require('../api/routes');
-const authMiddleware = require('../auth/middleware');
 const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
 const providerRoutingCore = require('../db/provider-routing-core');
@@ -117,10 +116,6 @@ async function dispatchRequest(handler, { method, url, headers = {}, body, remot
 }
 
 beforeAll(() => {
-  // Bypass auth so test requests aren't rejected with 401
-  vi.spyOn(authMiddleware, 'authenticate').mockReturnValue({ id: 'test-admin', name: 'Test', role: 'admin', type: 'api_key' });
-  vi.spyOn(authMiddleware, 'isOpenMode').mockReturnValue(true);
-
   ({ db } = setupTestDb('api-server-core'));
   tools = require('../tools');
   handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
@@ -669,30 +664,6 @@ describe('captured request handler dispatch', () => {
     expect(parseJsonBody(response)).toEqual({ error: 'Invalid JSON' });
   });
 
-  it('returns 401 with an auth challenge when authentication fails', async () => {
-    // Override the default auth mock to simulate missing/invalid credentials
-    authMiddleware.authenticate.mockReturnValueOnce(null);
-
-    const response = await dispatchRequest(requestHandler, {
-      method: 'GET',
-      url: '/api/status',
-    });
-
-    expect(response.statusCode).toBe(401);
-    expect(response.headers['WWW-Authenticate']).toBe('Bearer realm="Torque API", error="invalid_token"');
-    expect(parseJsonBody(response)).toEqual({
-      error: {
-        code: 'unauthorized',
-        message: 'Invalid or missing API key',
-        request_id: expect.any(String),
-        details: {
-          auth: 'x-torque-key',
-          code: 'invalid_api_key',
-        },
-      },
-    });
-  });
-
   it('skips auth for unauthenticated health probe routes', async () => {
     db.setConfig('api_key', 'secret-key');
 
@@ -880,21 +851,6 @@ describe('captured request handler dispatch', () => {
       expect(response.statusCode).toBe(404);
     });
 
-    it('enforces auth when authentication fails', async () => {
-      // Override the default auth mock to simulate missing/invalid credentials
-      authMiddleware.authenticate.mockReturnValueOnce(null);
-
-      const response = await dispatchRequest(requestHandler, {
-        method: 'POST',
-        url: '/api/tools/check_status',
-        headers: { 'content-type': 'application/json' },
-        body: {},
-        remoteAddress: '192.0.2.100',
-      });
-
-      // Should fail auth (no valid identity)
-      expect(response.statusCode).toBe(401);
-    });
   });
 
   describe('TDA-09/TDA-10: deprecation headers on legacy routes', () => {
