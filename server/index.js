@@ -673,39 +673,67 @@ function init() {
       } else {
         // Task owned by another instance — check if that instance is alive
         if (!taskManager.isInstanceAlive(task.mcp_instance_id)) {
-          // Use the task's own timeout as the grace period — Codex tasks run externally
-          // and may take 5-15 minutes; the 30s startup grace is too aggressive.
-          // Only orphan if running time exceeds the task timeout.
-          if (runningTime > timeoutMs) {
-            // Auto-requeue orphaned tasks instead of failing — the work was interrupted
-            // by a dead MCP session, not by a code error. A fresh attempt will likely succeed.
-            const retryCount = task.retry_count || 0;
-            const maxRetries = task.max_retries != null ? task.max_retries : 2;
-            if (retryCount < maxRetries) {
-              debugLog(`Orphaned task ${task.id} from dead instance ${task.mcp_instance_id} — requeuing (attempt ${retryCount + 1}/${maxRetries})`);
-              db.updateTaskStatus(task.id, 'queued', {
-                error_output: `Task requeued — owning instance ${task.mcp_instance_id} is no longer alive (auto-retry ${retryCount + 1}/${maxRetries})`,
-                retry_count: retryCount + 1,
-                mcp_instance_id: null, // Clear owner so any instance can pick it up
-                provider: null, // Clear provider so routing can re-evaluate
-              });
-              if (task.ollama_host_id) {
-                try { db.decrementHostTasks(task.ollama_host_id); } catch { /* host may not exist */ }
-              }
-              orphansCleaned++;
-            } else {
-              markStartupOrphanFailed(task, {
-                error_output: `Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive (max retries exhausted)`,
-                completed_at: new Date().toISOString()
-              });
+          // Dead instance can't complete this task — requeue immediately.
+          // Previous behavior waited for timeout, but a confirmed-dead instance
+          // will never finish the work. Waiting just blocks queue slots.
+          const retryCount = task.retry_count || 0;
+          const maxRetries = task.max_retries != null ? task.max_retries : 2;
+          if (retryCount < maxRetries) {
+            debugLog(`Orphaned task ${task.id} from dead instance ${task.mcp_instance_id} — requeuing (attempt ${retryCount + 1}/${maxRetries})`);
+            db.updateTaskStatus(task.id, 'queued', {
+              error_output: `Task requeued — owning instance ${task.mcp_instance_id} is no longer alive (auto-retry ${retryCount + 1}/${maxRetries})`,
+              retry_count: retryCount + 1,
+              mcp_instance_id: null, // Clear owner so any instance can pick it up
+              provider: null, // Clear provider so routing can re-evaluate
+            });
+            if (task.ollama_host_id) {
+              try { db.decrementHostTasks(task.ollama_host_id); } catch { /* host may not exist */ }
             }
+            orphansCleaned++;
+          } else {
+            markStartupOrphanFailed(task, {
+              error_output: `Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive (max retries exhausted)`,
+              completed_at: new Date().toISOString()
+            });
           }
         }
         // Instance is alive — leave task alone, sibling session is handling it
       }
     }
     if (orphansCleaned > 0) {
-      debugLog(`Startup cleanup: marked ${orphansCleaned} orphaned tasks as failed`);
+      debugLog(`Startup cleanup: recovered ${orphansCleaned} orphaned tasks`);
+    }
+
+    // Reconcile host task counts — in-memory/DB running_tasks may be stale after restart
+    try {
+      db.reconcileHostTaskCounts();
+      debugLog('Startup: host task counts reconciled');
+    } catch (reconcileErr) {
+      debugLog(`Host task count reconcile error: ${reconcileErr.message}`);
+    }
+
+    // Workflow dependency sweep — re-evaluate all running workflows.
+    // If a task completed just before the crash and handleWorkflowTermination() never fired,
+    // downstream 'blocked' tasks stay stuck forever. This sweep catches that case.
+    try {
+      const { handleWorkflowTermination } = require('./execution/workflow-runtime');
+      const runningWorkflows = db.listWorkflows({ status: 'running', limit: 100 });
+      let workflowsSwept = 0;
+      const dbHandle = db.getDbInstance();
+      for (const wf of runningWorkflows) {
+        const terminalTasks = dbHandle.prepare(
+          "SELECT id FROM tasks WHERE workflow_id = ? AND status IN ('completed', 'failed', 'cancelled')"
+        ).all(wf.id);
+        for (const t of terminalTasks) {
+          try { handleWorkflowTermination(t.id); } catch { /* already evaluated or workflow done */ }
+        }
+        if (terminalTasks.length > 0) workflowsSwept++;
+      }
+      if (workflowsSwept > 0) {
+        debugLog(`Startup: re-evaluated dependencies for ${workflowsSwept} running workflows`);
+      }
+    } catch (wfErr) {
+      debugLog(`Startup workflow sweep error: ${wfErr.message}`);
     }
   } catch (err) {
     debugLog(`Startup orphan cleanup error: ${err.message}`);
