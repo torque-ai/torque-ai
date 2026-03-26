@@ -44,7 +44,6 @@ const TOOLS = [
   ...require('./tool-defs/discovery-defs'),
   ...require('./tool-defs/routing-template-defs'),
   ...require('./tool-defs/strategic-config-defs'),
-  ...require('./tool-defs/auth-defs'),
   ...require('./tool-defs/context-defs'),
   ...require('./tool-defs/competitive-feature-defs'),
   ...require('./tool-defs/diffusion-defs'),
@@ -116,7 +115,6 @@ const HANDLER_MODULES = [
   require('./handlers/model-registry-handlers'),
   require('./handlers/routing-template-handlers'),
   require('./handlers/strategic-config-handlers'),
-  require('./handlers/auth-handlers'),
   require('./handlers/context-handler'),
   require('./handlers/diffusion-handlers'),
 ];

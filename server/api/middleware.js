@@ -335,31 +335,6 @@ function applyMiddleware(_server, deps = {}) {
   };
 }
 
-// Auth paths that bypass key-based auth (handled by their own logic)
-const AUTH_OPEN_PATHS = ['/api/auth/login', '/api/auth/ticket', '/api/auth/sse-ticket', '/api/auth/logout', '/api/auth/setup', '/api/auth/status'];
-
-/**
- * Check auth for a REST API request using the new key-manager-based system.
- * Returns an identity object (or open-mode identity) on success, or null on failure.
- *
- * - Open paths (login, ticket, logout) always return { type: 'open-path' }
- * - If no keys exist, returns open-mode admin identity
- * - Otherwise validates Bearer token or X-Torque-Key via auth/middleware
- */
-function authenticateRequest(req, url) {
-  const authMiddleware = require('../auth/middleware');
-
-  // Strip query string for path matching
-  const path = typeof url === 'string' ? url.split('?')[0] : (req.url || '').split('?')[0];
-
-  // Open paths skip auth entirely — the handlers do their own validation
-  if (AUTH_OPEN_PATHS.some(p => path === p || path.startsWith(p + '/'))) {
-    return { type: 'open-path' };
-  }
-
-  return authMiddleware.authenticate(req);
-}
-
 function createApiMiddleware(_deps) {
   return {
     createRateLimiter,
@@ -372,8 +347,6 @@ function createApiMiddleware(_deps) {
     sendJson,
     parseQuery,
     applyMiddleware,
-    authenticateRequest,
-    AUTH_OPEN_PATHS,
     UNAUTHENTICATED_HEALTH_ROUTES,
     DEFAULT_RATE_WINDOW_MS,
     SECURITY_HEADERS,
@@ -391,8 +364,6 @@ module.exports = {
   sendJson,
   parseQuery,
   applyMiddleware,
-  authenticateRequest,
-  AUTH_OPEN_PATHS,
   UNAUTHENTICATED_HEALTH_ROUTES,
   DEFAULT_RATE_WINDOW_MS,
   SECURITY_HEADERS,
