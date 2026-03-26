@@ -9,24 +9,36 @@ TORQUE requires two things to work in Claude Code:
 
 Slash commands are auto-discovered from `.claude/commands/`. The MCP server connection is auto-injected into your global `~/.claude/.mcp.json` when the TORQUE server starts — no manual configuration needed.
 
-**Manual setup (optional):** If auto-injection doesn't work, copy `.mcp.json.example` to `.mcp.json` and configure it with your API key and paths.
+**Manual setup (optional):** If auto-injection doesn't work, copy `.mcp.json.example` to `.mcp.json` and set the URL to `http://127.0.0.1:3458/sse`.
 
-### Authentication
+### Local Mode (default)
 
-TORQUE uses API keys with HMAC-SHA-256 hashing. On first startup, a bootstrap admin key is auto-generated and:
-- Printed to console
-- Saved to `<data_dir>/.torque-api-key` (readable by the server user only)
-- Auto-injected into `~/.claude/.mcp.json` (so every Claude Code session has TORQUE access)
+TORQUE runs in **local mode** by default — no authentication, no API keys, no login. The server binds to `127.0.0.1` only, making it inaccessible from the network. All REST and SSE connections are accepted unconditionally.
 
 **First-time setup:**
-1. Start TORQUE — the bootstrap key and MCP config are set up automatically
+1. Start TORQUE — MCP config is auto-injected into `~/.claude/.mcp.json`
 2. Open any Claude Code session — TORQUE tools are available immediately
 
-**For REST API calls** (curl, scripts, dashboard): use `Authorization: Bearer $TORQUE_API_KEY` header or `x-torque-key: $TORQUE_API_KEY` header.
+No API keys, no environment variables, no manual configuration needed.
 
-**Open mode:** If no API keys exist (fresh install before first startup), all endpoints are accessible without authentication. Auth enforcement activates once the first key is created.
+### Enterprise Mode (optional plugin)
 
-**Key management:** Use `create_api_key`, `list_api_keys`, `revoke_api_key` MCP tools, or the dashboard Settings page.
+For multi-user or network-accessible deployments, TORQUE supports an enterprise auth plugin at `server/plugins/auth/`.
+
+**To enable:**
+1. Set `TORQUE_AUTH_MODE=enterprise` (env var or config)
+2. Restart TORQUE
+3. A bootstrap admin API key is generated and printed to console
+4. Auth is enforced on all endpoints; server binds to `0.0.0.0`
+
+The auth plugin provides: API key management (HMAC-SHA-256), user/password auth (bcrypt), role-based access control, session management, SSE ticket exchange, and rate limiting.
+
+### Plugins
+
+TORQUE supports optional plugins in `server/plugins/`. Each plugin implements a standard contract (`install`, `middleware`, `mcpTools`, `eventHandlers`, `configSchema`) and is loaded at startup based on configuration.
+
+Currently available:
+- **auth** (`server/plugins/auth/`) — enterprise authentication (enabled via `TORQUE_AUTH_MODE=enterprise`)
 
 ## Quick Start
 
