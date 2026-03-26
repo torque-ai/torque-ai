@@ -8,8 +8,9 @@
  *
  * Resolution order:
  *   1. TORQUE_DATA_DIR environment variable (explicit override)
- *   2. Server directory (__dirname)  (co-located with source)
- *   3. os.tmpdir()/torque  (last resort when home is read-only)
+ *   2. ~/.torque  (user home, safe from Codex sandbox overwrites)
+ *   3. Server directory (__dirname)  (legacy fallback)
+ *   4. os.tmpdir()/torque  (last resort when home is read-only)
  */
 
 'use strict';
@@ -18,7 +19,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-const DEFAULT_DATA_DIR = path.join(__dirname);
+const HOME_DATA_DIR = path.join(os.homedir(), '.torque');
+const LEGACY_DATA_DIR = path.join(__dirname);
 
 function ensureWritableDir(dirPath) {
   try {
@@ -34,20 +36,24 @@ function resolveDataDir() {
   const envDir = process.env.TORQUE_DATA_DIR;
   const candidates = [
     envDir,
-    DEFAULT_DATA_DIR,
+    HOME_DATA_DIR,
+    LEGACY_DATA_DIR,
     path.join(os.tmpdir(), 'torque'),
   ].filter(Boolean);
 
   for (const dir of candidates) {
     if (ensureWritableDir(dir)) {
-      const source = dir === envDir ? 'TORQUE_DATA_DIR' : dir === DEFAULT_DATA_DIR ? 'default (server dir)' : 'tmpdir fallback';
+      const source = dir === envDir ? 'TORQUE_DATA_DIR'
+        : dir === HOME_DATA_DIR ? 'default (~/.torque)'
+        : dir === LEGACY_DATA_DIR ? 'legacy (server dir)'
+        : 'tmpdir fallback';
       console.log(`[data-dir] Resolved: ${dir} (via ${source})`);
       return dir;
     }
   }
 
-  console.log(`[data-dir] WARNING: No writable candidate found, using DEFAULT_DATA_DIR: ${DEFAULT_DATA_DIR}`);
-  return DEFAULT_DATA_DIR;
+  console.log(`[data-dir] WARNING: No writable candidate found, using HOME_DATA_DIR: ${HOME_DATA_DIR}`);
+  return HOME_DATA_DIR;
 }
 
 let _dataDir = null;
@@ -63,4 +69,4 @@ function setDataDir(dir) {
   _dataDir = dir || null;
 }
 
-module.exports = { getDataDir, setDataDir, DEFAULT_DATA_DIR };
+module.exports = { getDataDir, setDataDir, HOME_DATA_DIR, LEGACY_DATA_DIR, DEFAULT_DATA_DIR: HOME_DATA_DIR };
