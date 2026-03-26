@@ -220,7 +220,7 @@ function resolveApiKey(provider) {
  */
 function buildAgenticSystemPrompt(basePrompt, workingDir) {
   const platformRule = process.platform === 'win32'
-    ? '8. This is a Windows environment. Use PowerShell or cmd syntax for commands (dir, Get-ChildItem), not Unix (ls, find, wc).'
+    ? '8. This is a WINDOWS environment. NEVER use Unix commands (ls, find, wc, grep, cat, tail, head, sed, awk, chmod). Use PowerShell instead: dir/Get-ChildItem, Select-String, Get-Content, Select-Object. For simple tasks, prefer using the provided tools (list_directory, search_files, read_file) over run_command — they work on all platforms.'
     : '8. This is a Linux/macOS environment. Use bash commands.';
 
   return basePrompt + `
@@ -590,11 +590,12 @@ async function executeOllamaTaskWithAgentic(task) {
     logger.info(`[Agentic] Model ${resolvedModel} uses prompt-injected tools`);
   }
 
-  // Update status
+  // Update status — persist the resolved model so performance tracking works
   db.updateTaskStatus(taskId, 'running', {
     started_at: new Date().toISOString(),
     progress_percent: 10,
     ollama_host_id: selectedHostId,
+    model: resolvedModel,
   });
   dashboard.notifyTaskUpdated(taskId);
 

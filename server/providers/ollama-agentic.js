@@ -183,6 +183,13 @@ async function runAgenticLoop({
   let lastErrorIteration = -1;
   let consecutiveErrorCount = 0;
 
+  // Read-only spin detection: if model does N iterations with only read-only tools
+  // (read_file, list_directory, search_files) and no writes, it's going in circles.
+  const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
+  const MAX_READ_ONLY_ITERATIONS = 5;
+  let readOnlyIterations = 0;
+  let readOnlyNudgeInjected = false;
+
   // Parse failure recovery: track if we already injected a correction
   let parseFailureCorrectionInjected = false;
 
@@ -489,6 +496,29 @@ async function runAgenticLoop({
           iterations: iterations + 1,
           tokenUsage,
         };
+      }
+    }
+
+    // Read-only spin detection: if this iteration only used read-only tools, increment counter.
+    // After MAX_READ_ONLY_ITERATIONS with no writes, either nudge the model or stop.
+    if (!earlyStop && toolCalls.length > 0) {
+      const allReadOnly = toolCalls.every(tc => READ_ONLY_TOOLS.has(tc.name));
+      if (allReadOnly) {
+        readOnlyIterations++;
+        if (readOnlyIterations >= MAX_READ_ONLY_ITERATIONS && !readOnlyNudgeInjected) {
+          logger.warn(`[Agentic] ${readOnlyIterations} consecutive read-only iterations — nudging model to act`);
+          messages.push({
+            role: 'user',
+            content: 'You have spent multiple iterations only reading files and searching. You MUST now use write_file or edit_file to make the changes described in the task. If you cannot determine what to change, summarize what you found and stop.',
+          });
+          readOnlyNudgeInjected = true;
+        } else if (readOnlyIterations >= MAX_READ_ONLY_ITERATIONS + 2) {
+          finalOutput = `Task stopped: ${readOnlyIterations} consecutive read-only iterations with no file modifications.`;
+          logger.warn(`[Agentic] Read-only spin limit reached — stopping`);
+          earlyStop = true;
+        }
+      } else {
+        readOnlyIterations = 0; // reset on any write/command tool
       }
     }
 

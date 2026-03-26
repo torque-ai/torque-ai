@@ -646,18 +646,16 @@ async function executeHashlineOllamaTask(task) {
       fileContextParts.push(`### FILE: ${actual}\n\`\`\`${ext}\n${annotatedLines.join('\n')}\n\`\`\``);
     }
 
-    // Select edit format — file size can override to hashline-lite for small files,
-    // but only when the model wasn't explicitly configured for a specific format.
-    // Some models abbreviate SEARCH content in hashline-lite (fails fuzzy match)
-    // but handle standard hashline (line:hash references) reliably.
-    const FILE_SIZE_THRESHOLD = serverConfig.getInt('hashline_file_size_threshold', 50);
+    // Select edit format — always use standard hashline.
+    // hashline-lite has 0% success with qwen3-coder:30b (model produces "no_edits").
+    // File-size auto-override to hashline-lite disabled.
     const formatSelection = selectHashlineFormat(ollamaModel, task);
     editFormat = formatSelection.format;
     let formatReason = formatSelection.reason;
-    const isModelConfigured = formatReason.startsWith('config_override') || formatReason === 'fallback_override';
-    if (maxFileLines > 0 && maxFileLines < FILE_SIZE_THRESHOLD && editFormat === 'hashline' && !isModelConfigured) {
-      editFormat = 'hashline-lite';
-      formatReason = `file_size_override (${maxFileLines} lines < ${FILE_SIZE_THRESHOLD})`;
+    // Force hashline — never auto-select hashline-lite
+    if (editFormat === 'hashline-lite') {
+      editFormat = 'hashline';
+      formatReason += ' (hashline-lite disabled — 0% success with current models)';
     }
     const systemPrompt = editFormat === 'hashline-lite'
       ? getHashlineLiteSystemPrompt()
@@ -1028,28 +1026,9 @@ async function executeHashlineOllamaTask(task) {
         db.recordFormatSuccess(ollamaModel, editFormat, false, failureReason, duration);
         if (selectedHostId) { db.decrementHostTasks(selectedHostId); selectedHostId = null; }
 
-        // Syntax gate rejection: try hashline-lite before escalating to tiered fallback
+        // Syntax gate rejection — escalate directly to tiered fallback.
+        // hashline-lite retry disabled (0% success with current models).
         if (hasSyntaxGateReject) {
-          if (editFormat === 'hashline') {
-            // Standard hashline failed syntax gate — try hashline-lite first
-            logger.info(`[HashlineOllama] Syntax gate rejected ${editFormat} for task ${taskId.slice(0,8)} — retrying with hashline-lite`);
-            let currentMeta;
-            try { currentMeta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {}); }
-            catch { currentMeta = {}; }
-            currentMeta.hashline_format_override = 'hashline-lite';
-            db.updateTaskStatus(taskId, 'queued', {
-              _provider_switch_reason: 'hashline_ollama_syntax_gate_to_hashline_lite',
-              provider: 'hashline-ollama',
-              pid: null, started_at: null,
-              metadata: JSON.stringify(currentMeta),
-              error_output: (task.error_output || '') + `\nSyntax gate rejected hashline edits: ${failedFiles}. Retrying with hashline-lite.`
-            });
-            dashboard.notifyTaskUpdated(taskId);
-            setTimeout(() => processQueue(), 50);
-            return;
-          }
-
-          // Hashline-lite also failed syntax gate — escalate to tiered fallback
           logger.info(`[HashlineOllama] Syntax gate rejected ${editFormat} for task ${taskId.slice(0,8)} — escalating to tiered fallback`);
           tryHashlineTieredFallback(taskId, task, `syntax gate rejected ${editFormat} edits: ${failedFiles}`);
           return;

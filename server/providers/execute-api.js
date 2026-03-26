@@ -294,7 +294,13 @@ async function executeApiProvider(task, provider) {
     // can always find it (prevents TOCTOU race if cancel arrives mid-setup)
     apiAbortControllers.set(taskId, controller);
 
-    db.updateTaskStatus(taskId, 'running', { started_at: new Date().toISOString() });
+    // Persist resolved model so performance tracking works (model may be null on the task
+    // if smart routing didn't set it — the provider resolves a default internally)
+    const resolvedModel = model || (provider.defaultModel ? provider.defaultModel : null);
+    db.updateTaskStatus(taskId, 'running', {
+      started_at: new Date().toISOString(),
+      ...(resolvedModel ? { model: resolvedModel } : {}),
+    });
     if (_recordTaskStartedAuditEvent) {
       _recordTaskStartedAuditEvent(task, taskId, provider.name);
     }
