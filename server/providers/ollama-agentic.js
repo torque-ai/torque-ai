@@ -192,6 +192,10 @@ async function runAgenticLoop({
   let readOnlyIterations = 0;
   let readOnlyNudgeInjected = false;
 
+  // Edit failure recovery: guide model to re-read file after failed edits
+  let editFailureRecoveryCount = 0;
+  const MAX_EDIT_FAILURE_RECOVERIES = 2;
+
   // Parse failure recovery: track if we already injected a correction
   let parseFailureCorrectionInjected = false;
 
@@ -393,6 +397,7 @@ async function runAgenticLoop({
     }
 
     // Execute each tool call and add results
+    let hasSuccessfulWrite = false; // Track if any non-read-only tool succeeded this iteration
     for (let tcIdx = 0; tcIdx < toolCalls.length; tcIdx++) {
       const tc = toolCalls[tcIdx];
       if (signal?.aborted) {
@@ -458,6 +463,10 @@ async function runAgenticLoop({
         // Reset error tracking on success
         lastErrorToolName = null;
         consecutiveErrorCount = 0;
+        // Track successful writes for read-only spin detection
+        if (!READ_ONLY_TOOLS.has(tc.name)) {
+          hasSuccessfulWrite = true;
+        }
       }
 
       // Log tool call
@@ -511,24 +520,41 @@ async function runAgenticLoop({
 
     // Read-only spin detection: only for tasks that expect file modification.
     // Pure analysis/search tasks are allowed unlimited read-only iterations.
+    // Only reset on SUCCESSFUL write/edit — failed edits don't count as progress.
     if (!earlyStop && taskExpectsModification && toolCalls.length > 0) {
       const allReadOnly = toolCalls.every(tc => READ_ONLY_TOOLS.has(tc.name));
-      if (allReadOnly) {
+      if (allReadOnly || !hasSuccessfulWrite) {
         readOnlyIterations++;
         if (readOnlyIterations >= MAX_READ_ONLY_ITERATIONS && !readOnlyNudgeInjected) {
-          logger.warn(`[Agentic] ${readOnlyIterations} consecutive read-only iterations on modification task — nudging model to act`);
+          logger.warn(`[Agentic] ${readOnlyIterations} consecutive no-progress iterations on modification task — nudging model to act`);
           messages.push({
             role: 'user',
-            content: 'You have spent multiple iterations only reading files and searching. You MUST now use write_file or edit_file to make the changes described in the task. If you cannot determine what to change, summarize what you found and stop.',
+            content: 'You have spent multiple iterations without making successful changes. You MUST now use write_file or edit_file to make the changes described in the task. If edit_file fails, re-read the file first to see its current content. If you cannot determine what to change, summarize what you found and stop.',
           });
           readOnlyNudgeInjected = true;
         } else if (readOnlyIterations >= MAX_READ_ONLY_ITERATIONS + 2) {
-          finalOutput = `Task stopped: ${readOnlyIterations} consecutive read-only iterations with no file modifications.`;
-          logger.warn(`[Agentic] Read-only spin limit reached — stopping`);
+          finalOutput = `Task stopped: ${readOnlyIterations} consecutive iterations with no successful file modifications.`;
+          logger.warn(`[Agentic] No-progress spin limit reached — stopping`);
           earlyStop = true;
         }
       } else {
-        readOnlyIterations = 0; // reset on any write/command tool
+        readOnlyIterations = 0; // reset only on successful write/edit
+      }
+    }
+
+    // Edit failure recovery: when edit_file fails, guide the model to re-read
+    // the file before retrying. Without this, models spiral into search_files
+    // loops instead of seeing the current file state.
+    if (!earlyStop && editFailureRecoveryCount < MAX_EDIT_FAILURE_RECOVERIES) {
+      const iterEntries = toolLog.filter(e => e.iteration === iterations + 1);
+      const failedEdits = iterEntries.filter(e => e.name === 'edit_file' && e.error);
+      if (failedEdits.length > 0) {
+        editFailureRecoveryCount++;
+        logger.info(`[Agentic] edit_file failed ${failedEdits.length} time(s) — injecting recovery guidance (${editFailureRecoveryCount}/${MAX_EDIT_FAILURE_RECOVERIES})`);
+        messages.push({
+          role: 'user',
+          content: 'Your edit_file call failed because old_text did not match the file content. This usually means a previous edit changed the file. Use read_file to see the CURRENT file content, then retry edit_file with the exact text from the file. Do NOT search — read the file directly.',
+        });
       }
     }
 

@@ -567,9 +567,13 @@ async function executeOllamaTaskWithAgentic(task) {
     includeAutoTuning: true,
     includeHardware: true,
   });
+  // Agentic tasks need larger context than single-shot — multi-turn tool conversations
+  // accumulate messages fast. Enforce a minimum so the model doesn't lose critical context.
+  const AGENTIC_MIN_CTX = 16384;
+  const effectiveNumCtx = Math.max(tuning.numCtx || AGENTIC_MIN_CTX, AGENTIC_MIN_CTX);
   const tuningOptions = {
     temperature: tuning.temperature,
-    num_ctx: tuning.numCtx,
+    num_ctx: effectiveNumCtx,
     num_predict: tuning.numPredict,
     num_keep: 1024, // Preserve system prompt + tool definitions during context sliding
     top_p: tuning.topP,
@@ -636,7 +640,7 @@ async function executeOllamaTaskWithAgentic(task) {
     const baseMaxIter = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
     const taskComplexity = task.complexity || 'normal';
     const maxIterations = taskComplexity === 'complex' ? Math.max(baseMaxIter, 20) : baseMaxIter;
-    const contextBudget = tuning.numCtx ? Math.floor(tuning.numCtx * 0.8) : 16000;
+    const contextBudget = Math.floor(effectiveNumCtx * 0.8);
 
     // Capture git snapshot in main thread (git ops need main process context)
     let snapshot = null;
