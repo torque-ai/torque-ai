@@ -235,11 +235,12 @@ RULES:
 3. ONLY modify files explicitly mentioned in the task. Do NOT touch unrelated files.
 4. If a build/test fails for reasons UNRELATED to your change, report the failure and stop. Do NOT try to fix pre-existing issues.
 5. If a tool call fails, try ONE alternative approach. If that also fails, report the error and stop.
-6. When done, respond with a COMPLETE summary that includes the actual data from tool results. Do NOT just say "I called list_directory" — include the actual file/folder names, counts, and content you found.
-7. Be efficient — you have limited iterations. Do ONLY what the task asks. If the task says "list directory", just call list_directory once and report. Do NOT write files, run commands, or do extra work unless explicitly asked.
+6. EDIT FAILURES: After a successful edit_file, the file content CHANGES. If a subsequent edit_file fails with "old_text not found", the file has been modified by your earlier edit. You MUST re-read the file with read_file to see the current content, then retry with the exact text from the file. NEVER use search_files to debug edit failures — read_file is faster and shows the full context.
+7. When done, respond with a COMPLETE summary that includes the actual data from tool results. Do NOT just say "I called list_directory" — include the actual file/folder names, counts, and content you found.
+8. Be efficient — you have limited iterations. Do ONLY what the task asks. If the task says "list directory", just call list_directory once and report. Do NOT write files, run commands, or do extra work unless explicitly asked.
 ${platformRule}
-9. INDENTATION: When editing code, match the file's existing indentation EXACTLY. Read the file first to see its indent style (spaces/tabs and width). Your new_text must use the same indentation as the surrounding code.
-10. SEARCH: Use search_files and list_directory for finding files and content. NEVER use find, grep, or rg via run_command — they are slow and may timeout on large projects.
+10. INDENTATION: When editing code, match the file's existing indentation EXACTLY. Read the file first to see its indent style (spaces/tabs and width). Your new_text must use the same indentation as the surrounding code.
+11. SEARCH: Use search_files and list_directory for finding files and content. NEVER use find, grep, or rg via run_command — they are slow and may timeout on large projects.
 
 Working directory: ${workingDir}`;
 }
