@@ -185,8 +185,10 @@ async function runAgenticLoop({
 
   // Read-only spin detection: if model does N iterations with only read-only tools
   // (read_file, list_directory, search_files) and no writes, it's going in circles.
+  // Only applies to tasks that expect modification — pure analysis/search tasks are allowed to be read-only.
   const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
   const MAX_READ_ONLY_ITERATIONS = 5;
+  const taskExpectsModification = /\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskPrompt);
   let readOnlyIterations = 0;
   let readOnlyNudgeInjected = false;
 
@@ -499,14 +501,14 @@ async function runAgenticLoop({
       }
     }
 
-    // Read-only spin detection: if this iteration only used read-only tools, increment counter.
-    // After MAX_READ_ONLY_ITERATIONS with no writes, either nudge the model or stop.
-    if (!earlyStop && toolCalls.length > 0) {
+    // Read-only spin detection: only for tasks that expect file modification.
+    // Pure analysis/search tasks are allowed unlimited read-only iterations.
+    if (!earlyStop && taskExpectsModification && toolCalls.length > 0) {
       const allReadOnly = toolCalls.every(tc => READ_ONLY_TOOLS.has(tc.name));
       if (allReadOnly) {
         readOnlyIterations++;
         if (readOnlyIterations >= MAX_READ_ONLY_ITERATIONS && !readOnlyNudgeInjected) {
-          logger.warn(`[Agentic] ${readOnlyIterations} consecutive read-only iterations — nudging model to act`);
+          logger.warn(`[Agentic] ${readOnlyIterations} consecutive read-only iterations on modification task — nudging model to act`);
           messages.push({
             role: 'user',
             content: 'You have spent multiple iterations only reading files and searching. You MUST now use write_file or edit_file to make the changes described in the task. If you cannot determine what to change, summarize what you found and stop.',

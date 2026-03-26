@@ -812,6 +812,23 @@ function parseToolCalls(message) {
   }
   if (tagMatches.length > 0) return tagMatches;
 
+  // Priority 2b: <function=name> XML tags (alternate format some models emit)
+  // Format: <function=tool_name>\n<parameter=key>\nvalue\n</parameter>\n</function>
+  const funcTagRegex = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+  const funcMatches = [];
+  while ((match = funcTagRegex.exec(content)) !== null) {
+    const name = match[1];
+    const body = match[2].trim();
+    const args = {};
+    const paramRegex = /<parameter=(\w+)>\s*([\s\S]*?)\s*<\/parameter>/g;
+    let paramMatch;
+    while ((paramMatch = paramRegex.exec(body)) !== null) {
+      args[paramMatch[1]] = paramMatch[2].trim();
+    }
+    if (name) funcMatches.push({ name, arguments: args });
+  }
+  if (funcMatches.length > 0) return funcMatches;
+
   // Priority 3: Raw JSON object or array with "name" and "arguments" keys
   try {
     const parsed = JSON.parse(content);
