@@ -569,11 +569,11 @@ async function executeOllamaTaskWithAgentic(task) {
     includeHardware: true,
   });
   // Agentic tasks need larger context than single-shot — multi-turn tool conversations
-  // accumulate messages fast. Enforce a minimum so the model doesn't lose critical context.
-  // 32K matches the non-agentic ollama_max_ctx default and is safe for MoE models like
-  // qwen3-coder:30b (A3B active, ~1GB KV cache at 32K on 24GB VRAM).
+  // accumulate messages fast. Scale the minimum to 50% of the configured max context,
+  // floored at 16K. This way upgrading VRAM and raising ollama_max_ctx automatically
+  // gives agentic tasks more room without code changes.
   const maxCtxConfig = parseInt(serverConfig.get('ollama_max_ctx') || '32768', 10);
-  const AGENTIC_MIN_CTX = Math.min(32768, maxCtxConfig); // Don't exceed configured max
+  const AGENTIC_MIN_CTX = Math.max(16384, Math.floor(maxCtxConfig / 2));
   const effectiveNumCtx = Math.max(tuning.numCtx || AGENTIC_MIN_CTX, AGENTIC_MIN_CTX);
   const tuningOptions = {
     temperature: tuning.temperature,
