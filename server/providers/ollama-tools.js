@@ -239,6 +239,23 @@ const TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'replace_lines',
+      description: 'Replace a range of lines in a file by line number. Use this instead of edit_file for large files — no need to reproduce exact text. Line numbers come from read_file output (1-based). Path must be inside the working directory.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File path (must be inside working directory)' },
+          start_line: { type: 'integer', description: 'First line to replace (1-based, inclusive)' },
+          end_line: { type: 'integer', description: 'Last line to replace (1-based, inclusive)' },
+          new_text: { type: 'string', description: 'Replacement text (replaces the entire line range)' },
+        },
+        required: ['path', 'start_line', 'end_line', 'new_text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'run_command',
       description: 'Execute a shell command and return its output. Use for build, test, or diagnostic commands. Do NOT use find/grep/rg for file search — use search_files and list_directory instead (much faster).',
       parameters: {
@@ -259,7 +276,7 @@ const MODIFICATION_KEYWORDS = /\b(create|add|write|implement|generate|edit|modif
 
 /**
  * Select tools appropriate for a task. Read-only tasks get 3 tools (under the
- * ~5 tool threshold for reliable JSON tool calls). Modification tasks get all 6.
+ * ~5 tool threshold for reliable JSON tool calls). Modification tasks get all 7.
  * @param {string} taskDescription - The task prompt
  * @returns {Array} Filtered TOOL_DEFINITIONS
  */
@@ -652,6 +669,31 @@ function createToolExecutor(workingDir, options = {}) {
             changedFiles.add(resolvedPath);
             return { result: `Edit applied to ${args.path}` };
           }
+        }
+
+        case 'replace_lines': {
+          const { resolvedPath, allowed } = resolveSafePath(args.path, workingDir);
+          if (!allowed) {
+            return { result: `Error: path resolves outside working directory: ${resolvedPath}`, error: true };
+          }
+          if (!fs.existsSync(resolvedPath)) {
+            return { result: `Error: File not found: ${args.path}`, error: true };
+          }
+          const startLine = parseInt(args.start_line, 10);
+          const endLine = parseInt(args.end_line, 10);
+          if (!Number.isInteger(startLine) || !Number.isInteger(endLine) || startLine < 1 || endLine < startLine) {
+            return { result: `Error: invalid line range ${startLine}-${endLine} (must be 1-based, start <= end)`, error: true };
+          }
+          const fileLines = fs.readFileSync(resolvedPath, 'utf-8').split('\n');
+          if (endLine > fileLines.length) {
+            return { result: `Error: end_line ${endLine} exceeds file length (${fileLines.length} lines)`, error: true };
+          }
+          const newLines = args.new_text.split('\n');
+          const before = fileLines.slice(0, startLine - 1);
+          const after = fileLines.slice(endLine);
+          fs.writeFileSync(resolvedPath, [...before, ...newLines, ...after].join('\n'), 'utf-8');
+          changedFiles.add(resolvedPath);
+          return { result: `Replaced lines ${startLine}-${endLine} (${endLine - startLine + 1} lines) with ${newLines.length} lines in ${args.path}` };
         }
 
         case 'list_directory': {
