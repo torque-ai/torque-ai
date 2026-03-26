@@ -12,8 +12,6 @@ const { createSessionManager } = require('../session-manager');
 const { setupTestDb, teardownTestDb, rawDb } = testHelpers;
 
 let userManager;
-let sessionManager;
-
 beforeAll(() => {
   setupTestDb('auth-plugin-user-session');
 
@@ -43,7 +41,6 @@ beforeEach(() => {
   const handle = rawDb();
   handle.prepare('DELETE FROM users').run();
   userManager = createUserManager({ db: handle });
-  sessionManager = createSessionManager();
 });
 
 describe('user-manager', () => {
