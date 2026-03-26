@@ -148,6 +148,8 @@ const MIGRATIONS = [
       "UPDATE model_family_templates SET tuning_json = json_set(tuning_json, '$.repeat_penalty', 1.0) WHERE family NOT IN ('qwen3', 'qwen2.5', 'llama', 'deepseek')",
       // Global config: repeat_penalty 1.1 -> 1.0
       "UPDATE config SET value = '1.0' WHERE key = 'ollama_repeat_penalty' AND value = '1.1'",
+      // Remove deprecated models from registry so they stop being selected
+      "UPDATE model_registry SET status = 'removed' WHERE model_name IN ('qwen2.5-coder:32b', 'codestral:22b') AND status = 'approved'",
     ].join(';\n'),
     down: '',
   },
