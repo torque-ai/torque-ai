@@ -252,6 +252,24 @@ const TOOL_DEFINITIONS = [
   },
 ];
 
+// Read-only tool names — tasks that don't mention modification get only these.
+// Keeping tool count ≤5 prevents qwen3-coder from switching to XML format.
+const READ_ONLY_TOOL_NAMES = new Set(['read_file', 'list_directory', 'search_files']);
+const MODIFICATION_KEYWORDS = /\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace|move|insert|append)\b/i;
+
+/**
+ * Select tools appropriate for a task. Read-only tasks get 3 tools (under the
+ * ~5 tool threshold for reliable JSON tool calls). Modification tasks get all 6.
+ * @param {string} taskDescription - The task prompt
+ * @returns {Array} Filtered TOOL_DEFINITIONS
+ */
+function selectToolsForTask(taskDescription) {
+  if (MODIFICATION_KEYWORDS.test(taskDescription || '')) {
+    return TOOL_DEFINITIONS;
+  }
+  return TOOL_DEFINITIONS.filter(t => READ_ONLY_TOOL_NAMES.has(t.function.name));
+}
+
 /**
  * Resolve a path relative to the working directory and check whether it
  * falls within that directory.
@@ -878,6 +896,7 @@ function parseToolCalls(message) {
 
 module.exports = {
   TOOL_DEFINITIONS,
+  selectToolsForTask,
   createToolExecutor,
   executeTool,       // legacy compat
   parseToolCalls,

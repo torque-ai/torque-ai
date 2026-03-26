@@ -29,7 +29,7 @@ const _executeCliModule = require('./execute-cli');
 // Agentic pipeline components
 const { runAgenticLoop } = require('./ollama-agentic');
 const { isAgenticCapable, needsPromptInjection, init: initCapability } = require('./agentic-capability');
-const { createToolExecutor, TOOL_DEFINITIONS } = require('./ollama-tools');
+const { createToolExecutor, TOOL_DEFINITIONS, selectToolsForTask } = require('./ollama-tools');
 const { captureSnapshot, checkAndRevert } = require('./agentic-git-safety');
 const { resolveOllamaModel } = require('./ollama-shared');
 const ollamaChatAdapter = require('./adapters/ollama-chat');
@@ -401,7 +401,7 @@ async function runAgenticPipeline({
     adapter,
     systemPrompt,
     taskPrompt: enrichedPromptInline,
-    tools: promptInjectedTools ? [] : TOOL_DEFINITIONS,
+    tools: promptInjectedTools ? [] : selectToolsForTask(task.task_description),
     promptInjectedTools,
     toolExecutor: executor,
     options: adapterOptions,
@@ -569,6 +569,7 @@ async function executeOllamaTaskWithAgentic(task) {
     temperature: tuning.temperature,
     num_ctx: tuning.numCtx,
     num_predict: tuning.numPredict,
+    num_keep: 1024, // Preserve system prompt + tool definitions during context sliding
     top_p: tuning.topP,
     top_k: tuning.topK,
     repeat_penalty: tuning.repeatPenalty,
@@ -583,7 +584,8 @@ async function executeOllamaTaskWithAgentic(task) {
 
   // For prompt-injected tools: append tool definitions to system prompt
   if (usePromptInjection) {
-    const toolDefs = TOOL_DEFINITIONS.map(t => JSON.stringify({
+    const selectedTools = selectToolsForTask(task.task_description);
+    const toolDefs = selectedTools.map(t => JSON.stringify({
       type: t.type, function: { name: t.function.name, description: t.function.description, parameters: t.function.parameters }
     })).join(',');
     systemPrompt = `[AVAILABLE_TOOLS][${toolDefs}][/AVAILABLE_TOOLS]\n${systemPrompt}\nTo call a tool, respond with ONLY a JSON array: [{"name":"tool_name","arguments":{}}]\nAfter receiving [TOOL_RESULTS], give a clear summary with the ACTUAL data returned.`;
