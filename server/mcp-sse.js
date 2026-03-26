@@ -307,49 +307,12 @@ async function handleSseConnection(req, res, url, requestId) {
   const existingSession = requestedSessionId ? sessions.get(requestedSessionId) : null;
   const sessionId = existingSession ? requestedSessionId : generateSessionId();
 
-  // Auth: SSE ticket > legacy ticket > apiKey/header > open mode
-  const keyManager = require('./auth/key-manager');
-  const legacyTicketManager = require('./auth/ticket-manager');
-  const sseTicketManager = require('./auth/sse-tickets');
-  const { isOpenMode } = require('./auth/middleware');
-
-  let identity = null;
-  const ticket = url.searchParams.get('ticket');
-  const authHeader = Array.isArray(req.headers.authorization)
-    ? req.headers.authorization[0]
-    : (req.headers.authorization || req.headers.Authorization || '');
-  const bearerMatch = typeof authHeader === 'string'
-    ? authHeader.match(/^Bearer\s+(.+)$/i)
-    : null;
-  const apiKey = url.searchParams.get('apiKey') || req.headers['x-torque-key'] || (bearerMatch ? bearerMatch[1] : null);
-  let ticketValidation = null;
-
-  if (ticket) {
-    if (ticket.startsWith(sseTicketManager.TICKET_PREFIX)) {
-      ticketValidation = sseTicketManager.validateTicket(ticket);
-      if (ticketValidation.valid) {
-        identity = { id: ticketValidation.apiKeyId, type: 'api_key' };
-      }
-    } else {
-      identity = legacyTicketManager.consumeTicket(ticket);
-      if (!identity) {
-        ticketValidation = { valid: false, reason: 'unknown' };
-      }
-    }
-  } else if (apiKey) {
-    identity = keyManager.validateKey(apiKey);
-  }
-
-  if (ticket && !identity) {
-    const reason = ticketValidation?.reason === 'expired' ? 'expired' : 'invalid';
-    res.writeHead(401, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: `SSE ticket ${reason}` }));
-    return;
-  }
-
-  if (!identity && isOpenMode()) {
-    identity = { id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' };
-  }
+  const identity = {
+    id: 'local',
+    name: 'Local User',
+    role: 'admin',
+    type: 'local',
+  };
 
   if (!existingSession && sessions.size >= MAX_SSE_SESSIONS) {
     logger.warn('[SSE] Session cap reached');
@@ -358,7 +321,7 @@ async function handleSseConnection(req, res, url, requestId) {
     return;
   }
 
-  const isAuthenticated = !!identity;
+  const isAuthenticated = true;
   const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
   if (!existingSession && ip !== 'unknown') {
     const currentIpCount = _perIpSessionCount.get(ip) || 0;
@@ -646,20 +609,6 @@ async function handleMessagePost(req, res, url, requestId) {
     res.writeHead(202);
     res.end();
     return;
-  }
-
-  // Reject tool calls from unauthenticated sessions when auth is configured
-  if (request.method === 'tools/call' && !session.authenticated) {
-    const { isOpenMode: isOpen } = require('./auth/middleware');
-    if (!isOpen()) {
-      sendJsonRpcResponse(session, request.id, null, {
-        code: -32001,
-        message: 'Authentication required — mint a ticket via POST /api/auth/sse-ticket and connect with /sse?ticket=..., or use the legacy apiKey/header auth',
-      });
-      res.writeHead(202);
-      res.end();
-      return;
-    }
   }
 
   // Acknowledge the POST immediately — actual response comes via SSE
