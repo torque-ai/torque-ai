@@ -532,7 +532,28 @@ async function executeOllamaTaskWithAgentic(task) {
     }
   }
   if (!ollamaHost) {
-    ollamaHost = serverConfig.get('ollama_host') || 'http://localhost:11434';
+    // Check if there's a configured host before falling back to localhost
+    const configuredHost = serverConfig.get('ollama_host');
+    if (configuredHost) {
+      ollamaHost = configuredHost;
+    } else {
+      // No host found for model — fail with clear error instead of trying localhost
+      const availableModels = ollamaShared.findBestAvailableModel();
+      const errorMsg = `No Ollama host has model '${resolvedModel}'${availableModels ? `. Available: ${availableModels}` : ' and no models are available on any host'}. Check that the model is pulled on a registered host.`;
+      logger.info(`[Agentic] ${errorMsg}`);
+      safeUpdateTaskStatus(taskId, 'failed', {
+        error_output: errorMsg,
+        exit_code: 1,
+        completed_at: new Date().toISOString(),
+      });
+      try {
+        const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+        dispatchTaskEvent('failed', db.getTask(taskId));
+      } catch { /* non-fatal */ }
+      dashboard.notifyTaskUpdated(taskId);
+      processQueue();
+      return;
+    }
   }
 
   let releaseSelectedHostSlot = null;
