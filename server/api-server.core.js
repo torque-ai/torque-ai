@@ -44,8 +44,6 @@ const {
 } = middleware;
 const { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setQuotaTrackerGetter: setWebhookQuotaTrackerGetter } = webhooks;
 const { handleHealthz, handleReadyz, handleLivez } = require('./api/health-probes');
-const authMiddleware = require('./auth/middleware');
-const { requireRole } = require('./auth/role-guard');
 
 let apiServer = null;
 let apiPort = 3457;
@@ -107,7 +105,6 @@ const v2DiscoveryHelpers = require('./api/v2-discovery-helpers');
 const {
   sendV2Success,
   sendV2Error,
-  sendAuthError,
   getV2ProviderDefaultTimeoutMs,
   getV2ProviderQueueDepth,
   getV2ProviderDefaultProvider,
@@ -139,457 +136,42 @@ const {
 
 
 // ============================================
-// Auth: ticket exchange
-// ============================================
-
-async function handleCreateTicket(req, res, _context = {}) {
-  const keyManager = require('./auth/key-manager');
-  const ticketManager = require('./auth/ticket-manager');
-
-  // Extract Bearer token from Authorization header
-  const authHeader = req.headers['authorization'] || req.headers['Authorization'] || '';
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKey = bearerMatch ? bearerMatch[1] : null;
-
-  if (!apiKey) {
-    sendJson(res, { error: 'Authorization header with Bearer token required' }, 401, req);
-    return;
-  }
-
-  const identity = keyManager.validateKey(apiKey);
-  if (!identity) {
-    sendJson(res, { error: 'Invalid API key' }, 401, req);
-    return;
-  }
-
-  try {
-    const ticket = ticketManager.createTicket(identity);
-    sendJson(res, { ticket }, 200, req);
-  } catch (err) {
-    // Ticket cap reached
-    sendJson(res, { error: err.message }, 503, req);
-  }
-}
-
-async function handleCreateSseTicket(req, res, _context = {}) {
-  const keyManager = require('./auth/key-manager');
-  const sseTicketManager = require('./auth/sse-tickets');
-
-  const authHeader = req.headers['authorization'] || req.headers['Authorization'] || '';
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const apiKey = bearerMatch ? bearerMatch[1] : null;
-
-  if (!apiKey) {
-    sendJson(res, { error: 'Authorization header with Bearer token required' }, 401, req);
-    return;
-  }
-
-  const identity = keyManager.validateKey(apiKey);
-  if (!identity) {
-    sendJson(res, { error: 'Invalid API key' }, 401, req);
-    return;
-  }
-
-  const { ticket, expiresAt } = sseTicketManager.generateTicket(identity.id);
-  sendJson(res, { ticket, expires_at: expiresAt }, 200, req);
-}
-
-// ============================================
-// Auth: key management REST handlers
-// ============================================
-
-async function handleCreateApiKey(req, res, _context = {}) {
-  const keyManager = require('./auth/key-manager');
-
-  // Only admin may create keys
-  const identity = req._identity || authMiddleware.authenticate(req);
-  if (!identity || !requireRole(identity, 'admin')) {
-    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
-    return;
-  }
-
-  try {
-    const body = Object.prototype.hasOwnProperty.call(req, 'body')
-      ? req.body
-      : await parseBody(req);
-    const { name, role } = body || {};
-    if (!name) {
-      sendJson(res, { error: '`name` is required' }, 400, req);
-      return;
-    }
-    const userId = identity.type === 'user' ? identity.id : null;
-    const result = keyManager.createKey({ name, role: role || identity.role, userId });
-    sendJson(res, { id: result.id, key: result.key, name: result.name, role: result.role, userId: result.userId }, 201, req);
-  } catch (err) {
-    sendJson(res, { error: err.message }, 400, req);
-  }
-}
-
-async function handleListApiKeys(req, res, _context = {}) {
-  const keyManager = require('./auth/key-manager');
-
-  const identity = req._identity || authMiddleware.authenticate(req);
-  if (!identity) {
-    sendJson(res, { error: 'Forbidden' }, 403, req);
-    return;
-  }
-
-  // Non-admin: show only their own keys
-  if (!requireRole(identity, 'admin')) {
-    if (identity.type === 'user') {
-      sendJson(res, { keys: keyManager.listKeysByUser(identity.id) }, 200, req);
-      return;
-    }
-    sendJson(res, { error: 'Forbidden' }, 403, req);
-    return;
-  }
-
-  // Admin: show all keys
-  try {
-    const keys = keyManager.listKeys();
-    sendJson(res, { keys }, 200, req);
-  } catch (err) {
-    sendJson(res, { error: err.message }, 500, req);
-  }
-}
-
-async function handleRevokeApiKey(req, res, _context = {}) {
-  const keyManager = require('./auth/key-manager');
-
-  const identity = req._identity || authMiddleware.authenticate(req);
-  if (!identity) {
-    sendJson(res, { error: 'Forbidden' }, 403, req);
-    return;
-  }
-
-  const keyId = req.params?.key_id;
-  if (!keyId) {
-    sendJson(res, { error: '`key_id` is required' }, 400, req);
-    return;
-  }
-
-  // Non-admin: verify key ownership before revoking
-  if (!requireRole(identity, 'admin')) {
-    const keys = keyManager.listKeysByUser(identity.id);
-    if (!keys.some(k => k.id === keyId)) {
-      sendJson(res, { error: 'Forbidden — can only revoke your own keys' }, 403, req);
-      return;
-    }
-  }
-
-  try {
-    keyManager.revokeKey(keyId);
-    sendJson(res, { success: true }, 200, req);
-  } catch (err) {
-    const status = err.message === 'Key not found' ? 404 : 400;
-    sendJson(res, { error: err.message }, status, req);
-  }
-}
-
-async function handleDashboardLogin(req, res, _context = {}) {
-  const keyManager = require('./auth/key-manager');
-  const sessionManager = require('./auth/session-manager');
-  const { loginLimiter } = require('./auth/rate-limiter');
-
-  const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
-
-  // Rate limit check
-  if (loginLimiter.isLimited(ip)) {
-    sendJson(res, { error: 'Too many login attempts. Please try again later.' }, 429, req);
-    return;
-  }
-
-  try {
-    const body = Object.prototype.hasOwnProperty.call(req, 'body')
-      ? req.body
-      : await parseBody(req);
-    const { key, username, password } = body || {};
-
-    // Open mode: no keys AND no users configured — auto-login as admin
-    const { isOpenMode } = require('./auth/middleware');
-    if (isOpenMode()) {
-      const identity = { id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' };
-      const { sessionId, csrfToken } = sessionManager.createSession(identity);
-      res.setHeader('Set-Cookie', [
-        `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
-        `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
-      ]);
-      sendJson(res, { success: true, role: identity.role, csrfToken }, 200, req);
-      return;
-    }
-
-    // Username/password login
-    if (username && password) {
-      const userManager = require('./auth/user-manager');
-      const identity = await userManager.validatePassword(username, password);
-      if (!identity) {
-        loginLimiter.recordFailure(ip);
-        sendJson(res, { error: 'Invalid username or password' }, 401, req);
-        return;
-      }
-      const { sessionId, csrfToken } = sessionManager.createSession(identity);
-      res.setHeader('Set-Cookie', [
-        `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
-        `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
-      ]);
-      sendJson(res, {
-        success: true,
-        role: identity.role,
-        csrfToken,
-        user: { id: identity.id, username: identity.username, displayName: identity.name },
-      }, 200, req);
-      return;
-    }
-
-    // API key login (existing flow — backward compat)
-    if (!key) {
-      loginLimiter.recordFailure(ip);
-      sendJson(res, { error: 'API key is required' }, 401, req);
-      return;
-    }
-
-    const identity = keyManager.validateKey(key);
-    if (!identity) {
-      loginLimiter.recordFailure(ip);
-      sendJson(res, { error: 'Invalid API key' }, 401, req);
-      return;
-    }
-
-    const { sessionId, csrfToken } = sessionManager.createSession(identity);
-    res.setHeader('Set-Cookie', [
-      `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
-      `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
-    ]);
-    sendJson(res, { success: true, role: identity.role, csrfToken }, 200, req);
-  } catch (err) {
-    sendJson(res, { error: err.message }, 500, req);
-  }
-}
-
-async function handleDashboardLogout(req, res, _context = {}) {
-  const sessionManager = require('./auth/session-manager');
-  const { parseCookie } = require('./auth/middleware');
-
-  const sessionId = parseCookie(req.headers?.cookie, 'torque_session');
-  if (sessionId) {
-    sessionManager.destroySession(sessionId);
-  }
-
-  // Clear cookies
-  res.setHeader('Set-Cookie', [
-    'torque_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0',
-    'torque_csrf=; SameSite=Strict; Path=/; Max-Age=0',
-  ]);
-  sendJson(res, { success: true }, 200, req);
-}
-
-/**
- * POST /api/auth/setup — create the first admin user (setup wizard).
- * Only works when no users exist yet. Rate-limited.
- */
-async function handleSetup(req, res) {
-  const userManager = require('./auth/user-manager');
-  const sessionManager = require('./auth/session-manager');
-  const { loginLimiter } = require('./auth/rate-limiter');
-
-  const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
-  if (loginLimiter.isLimited(ip)) {
-    sendJson(res, { error: 'Too many attempts. Try again later.' }, 429, req);
-    return;
-  }
-
-  if (userManager.hasAnyUsers()) {
-    sendJson(res, { error: 'Setup already completed — users exist' }, 403, req);
-    return;
-  }
-
-  try {
-    const body = Object.prototype.hasOwnProperty.call(req, 'body')
-      ? req.body
-      : await parseBody(req);
-    const { username, password, displayName } = body || {};
-    const user = await userManager.createUser({ username, password, role: 'admin', displayName });
-
-    const identity = { id: user.id, name: user.displayName || user.username, username: user.username, role: 'admin', type: 'user' };
-    const { sessionId, csrfToken } = sessionManager.createSession(identity);
-    res.setHeader('Set-Cookie', [
-      `torque_session=${sessionId}; HttpOnly; SameSite=Strict; Path=/`,
-      `torque_csrf=${csrfToken}; SameSite=Strict; Path=/`,
-    ]);
-    sendJson(res, {
-      success: true,
-      role: 'admin',
-      csrfToken,
-      user: { id: user.id, username: user.username, displayName: user.displayName },
-    }, 201, req);
-  } catch (err) {
-    loginLimiter.recordFailure(ip);
-    sendJson(res, { error: err.message }, 400, req);
-  }
-}
-
-/**
- * GET /api/auth/status — returns auth state for the current request.
- * Works for unauthenticated clients (skipAuth: true).
- */
-function handleAuthStatus(req, res) {
-  const { isOpenMode } = require('./auth/middleware');
-  const userManager = require('./auth/user-manager');
-
-  if (isOpenMode()) {
-    sendJson(res, { authenticated: true, mode: 'open', needsSetup: false }, 200, req);
-    return;
-  }
-
-  const needsSetup = !userManager.hasAnyUsers();
-  const identity = authMiddleware.authenticate(req);
-
-  if (!identity) {
-    sendJson(res, { authenticated: false, needsSetup }, 200, req);
-    return;
-  }
-
-  const response = {
-    authenticated: true,
-    mode: 'authenticated',
-    needsSetup: false,
-    role: identity.role,
-  };
-
-  if (identity.type === 'user') {
-    response.user = { id: identity.id, username: identity.username, displayName: identity.name, role: identity.role };
-  }
-
-  sendJson(res, response, 200, req);
-}
-
-// ============================================
-// User management handlers
-// ============================================
-
-async function handleListUsers(req, res) {
-  const userManager = require('./auth/user-manager');
-  const identity = req._identity;
-  if (!identity || !requireRole(identity, 'admin')) {
-    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
-    return;
-  }
-  sendJson(res, { users: userManager.listUsers() }, 200, req);
-}
-
-async function handleCreateUser(req, res) {
-  const userManager = require('./auth/user-manager');
-  const identity = req._identity;
-  if (!identity || !requireRole(identity, 'admin')) {
-    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
-    return;
-  }
-  try {
-    const body = await parseBody(req);
-    const { username, password, role, displayName } = body || {};
-    const user = await userManager.createUser({ username, password, role, displayName });
-    sendJson(res, { user }, 201, req);
-  } catch (err) {
-    sendJson(res, { error: err.message }, 400, req);
-  }
-}
-
-async function handleUpdateUser(req, res, context) {
-  const userManager = require('./auth/user-manager');
-  const identity = req._identity;
-  if (!identity || !requireRole(identity, 'admin')) {
-    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
-    return;
-  }
-  try {
-    const body = await parseBody(req);
-    const userId = context.params?.user_id;
-    if (!userId) { sendJson(res, { error: 'Missing user ID' }, 400, req); return; }
-    await userManager.updateUser(userId, body);
-    const updated = userManager.getUserById(userId);
-    sendJson(res, { user: updated }, 200, req);
-  } catch (err) {
-    sendJson(res, { error: err.message }, 400, req);
-  }
-}
-
-async function handleDeleteUser(req, res, context) {
-  const userManager = require('./auth/user-manager');
-  const sessionManager = require('./auth/session-manager');
-  const identity = req._identity;
-  if (!identity || !requireRole(identity, 'admin')) {
-    sendJson(res, { error: 'Forbidden — admin role required' }, 403, req);
-    return;
-  }
-  try {
-    const userId = context.params?.user_id;
-    if (!userId) { sendJson(res, { error: 'Missing user ID' }, 400, req); return; }
-    userManager.deleteUser(userId);
-    sessionManager.destroySessionsByIdentityId(userId);
-    sendJson(res, { success: true }, 200, req);
-  } catch (err) {
-    sendJson(res, { error: err.message }, 400, req);
-  }
-}
-
-function handleGetMe(req, res) {
-  const identity = req._identity;
-  if (!identity) {
-    sendJson(res, { error: 'Not authenticated' }, 401, req);
-    return;
-  }
-  if (identity.type === 'user') {
-    const userManager = require('./auth/user-manager');
-    const user = userManager.getUserById(identity.id);
-    if (user) {
-      sendJson(res, { user }, 200, req);
-    } else {
-      sendJson(res, { error: 'User not found' }, 404, req);
-    }
-  } else {
-    sendJson(res, { user: { id: identity.id, name: identity.name, role: identity.role, type: identity.type || 'api_key' } }, 200, req);
-  }
-}
-
-async function handleUpdateMe(req, res) {
-  const identity = req._identity;
-  if (!identity || identity.type !== 'user') {
-    sendJson(res, { error: 'Only user accounts can update profile' }, 400, req);
-    return;
-  }
-  try {
-    const userManager = require('./auth/user-manager');
-    const body = await parseBody(req);
-    const { currentPassword, newPassword, displayName } = body || {};
-
-    const updates = {};
-    if (displayName !== undefined) updates.displayName = displayName;
-    if (newPassword) {
-      if (!currentPassword) {
-        sendJson(res, { error: 'Current password required to change password' }, 400, req);
-        return;
-      }
-      const valid = await userManager.validatePassword(identity.username, currentPassword);
-      if (!valid) {
-        sendJson(res, { error: 'Current password is incorrect' }, 401, req);
-        return;
-      }
-      updates.password = newPassword;
-    }
-
-    if (Object.keys(updates).length > 0) {
-      await userManager.updateUser(identity.id, updates);
-    }
-    const updated = userManager.getUserById(identity.id);
-    sendJson(res, { user: updated }, 200, req);
-  } catch (err) {
-    sendJson(res, { error: err.message }, 400, req);
-  }
-}
-
-// ============================================
 // Route definitions
 // ============================================
+
+const AUTH_ROUTE_HANDLER_NAMES = new Set([
+  'handleCreateTicket',
+  'handleCreateSseTicket',
+  'handleCreateApiKey',
+  'handleListApiKeys',
+  'handleRevokeApiKey',
+  'handleDashboardLogin',
+  'handleDashboardLogout',
+  'handleSetup',
+  'handleAuthStatus',
+  'handleListUsers',
+  'handleCreateUser',
+  'handleUpdateUser',
+  'handleDeleteUser',
+  'handleGetMe',
+  'handleUpdateMe',
+]);
+
+const AUTH_ROUTE_PATH_PREFIXES = [
+  /^\/api\/auth(?:\/|$)/,
+  /^\/api\/keys(?:\/|$)/,
+];
+
+function isAuthRoute(route) {
+  const path = route && route.path;
+  if (typeof path === 'string') {
+    return AUTH_ROUTE_PATH_PREFIXES.some((prefix) => prefix.test(path));
+  }
+  if (path instanceof RegExp) {
+    return AUTH_ROUTE_PATH_PREFIXES.some((prefix) => prefix.test(path.source));
+  }
+  return false;
+}
 
 const ROUTE_HANDLER_LOOKUP = {
   handleV2Inference,
@@ -607,21 +189,6 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
   handleShutdown,
-  handleCreateTicket,
-  handleCreateSseTicket,
-  handleCreateApiKey,
-  handleListApiKeys,
-  handleRevokeApiKey,
-  handleDashboardLogin,
-  handleDashboardLogout,
-  handleSetup,
-  handleAuthStatus,
-  handleListUsers,
-  handleCreateUser,
-  handleUpdateUser,
-  handleDeleteUser,
-  handleGetMe,
-  handleUpdateMe,
   handleClaudeEvent,
   handleClaudeFiles,
   handleGetQuotaStatus,
@@ -740,7 +307,11 @@ const ROUTE_HANDLER_LOOKUP = {
 };
 
 function resolveApiRoutes(deps = {}) {
-  const baseRoutes = routes.filter((route) => !V2_PROVIDER_ROUTE_HANDLER_NAMES.has(route.handlerName));
+  const baseRoutes = routes.filter((route) => !V2_PROVIDER_ROUTE_HANDLER_NAMES.has(route.handlerName))
+    .filter((route) => {
+      if (AUTH_ROUTE_HANDLER_NAMES.has(route.handlerName)) return false;
+      return !isAuthRoute(route);
+    });
   const resolvedRoutes = baseRoutes.map((route) => {
     if (!route.handler && route.handlerName) {
       return {
@@ -977,14 +548,14 @@ async function handleClaudeFiles(_req, res, _context = {}) {
 /**
  * POST /api/shutdown — trigger graceful shutdown from external callers.
  * Responds with 200 before initiating shutdown so the caller gets confirmation.
- * Requires either a localhost source IP or a valid API key.
+ * Requires a localhost source IP.
  */
 async function handleShutdown(req, res, _context = {}) {
   void _context;
   const remoteIp = req.socket?.remoteAddress || req.connection?.remoteAddress || '';
   const isLocalhost = LOCALHOST_IPS.has(remoteIp);
 
-  if (!isLocalhost && !authMiddleware.authenticate(req)) {
+  if (!isLocalhost) {
     sendJson(res, { error: 'Forbidden' }, 403, req);
     return;
   }
@@ -1162,19 +733,6 @@ async function handleRequest(req, res, context = {}) {
       res.setHeader('Link', `<${route.deprecated}>; rel="successor-version"`);
     }
 
-    // Auth check — skip for routes that handle auth themselves (e.g. skipAuth: true)
-    // or explicit allow-listed unauthenticated health routes.
-    const shouldSkipAuth = route.skipAuth === true
-      || (Array.isArray(route.skipAuth) && route.skipAuth.includes(url));
-    if (!shouldSkipAuth) {
-      const identity = authMiddleware.authenticate(req);
-      if (!identity) {
-        sendAuthError(res, requestId, req);
-        return;
-      }
-      req._identity = identity;
-    }
-
     const routeParams = [];
     const mappedParams = {};
     if (route.mapParams && match) {
@@ -1255,9 +813,9 @@ async function handleRequest(req, res, context = {}) {
 
   // Generic tool passthrough — POST /api/tools/:tool_name
   // Exposes MCP tools via REST API without per-tool route definitions.
-  // SECURITY: Requires API key + tier enforcement (rest_api_tool_mode config).
+  // SECURITY: Enforced by external auth plugin (or none in open mode) and tool-tier config.
   const TOOL_PREFIX = '/api/tools/';
-  // Tools that must not be callable via the generic REST passthrough regardless of auth/tier
+  // Tools that must not be callable via the generic REST passthrough
   const BLOCKED_REST_TOOLS = new Set(['restart_server', 'shutdown', 'database_backup', 'database_restore']);
   if (req.method === 'POST' && url.startsWith(TOOL_PREFIX)) {
     const toolName = url.slice(TOOL_PREFIX.length);
@@ -1265,13 +823,6 @@ async function handleRequest(req, res, context = {}) {
       if (BLOCKED_REST_TOOLS.has(toolName)) {
         sendJson(res, { error: `Tool '${toolName}' is not available via the REST API` }, 403, req);
         return;
-      }
-      {
-        const identity = authMiddleware.authenticate(req);
-        if (!identity || identity.id === 'open-mode') {
-          sendAuthError(res, requestId, req);
-          return;
-        }
       }
 
       // F3: Enforce tool tier on REST passthrough (mirrors MCP stdio/SSE tier enforcement)
@@ -1405,7 +956,6 @@ module.exports = {
     setV2TaskManager: (tm) => { _initV2TaskManager(tm); },
     handleClaudeEvent,
     handleClaudeFiles,
-    handleCreateSseTicket,
     _claudeEventLog,
   },
 };
