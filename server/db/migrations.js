@@ -128,6 +128,29 @@ const MIGRATIONS = [
     up: 'ALTER TABLE ollama_hosts ADD COLUMN default_model TEXT',
     down: '',
   },
+  {
+    // Vendor-aligned tuning: disable repeat_penalty (1.0) globally, set per-family
+    // values per vendor recommendations (Qwen: temp 0.7/top_k 20/rp 1.05,
+    // Llama: top_k 10, DeepSeek: temp 0.6). Research (ACL 2025) shows repeat_penalty
+    // >=1.1 degrades code generation correctness.
+    version: 10,
+    name: 'vendor_aligned_tuning',
+    up: [
+      // qwen3: temp 0.7, top_k 20, repeat_penalty 1.05 (vendor-recommended)
+      "UPDATE model_family_templates SET tuning_json = json_set(tuning_json, '$.temperature', 0.7, '$.top_k', 20, '$.repeat_penalty', 1.05) WHERE family = 'qwen3'",
+      // qwen2.5: temp 0.7, repeat_penalty 1.0
+      "UPDATE model_family_templates SET tuning_json = json_set(tuning_json, '$.temperature', 0.7, '$.repeat_penalty', 1.0) WHERE family = 'qwen2.5'",
+      // llama: top_k 10, repeat_penalty 1.0
+      "UPDATE model_family_templates SET tuning_json = json_set(tuning_json, '$.top_k', 10, '$.repeat_penalty', 1.0) WHERE family = 'llama'",
+      // deepseek: temp 0.6, repeat_penalty 1.0
+      "UPDATE model_family_templates SET tuning_json = json_set(tuning_json, '$.temperature', 0.6, '$.repeat_penalty', 1.0) WHERE family = 'deepseek'",
+      // All others: repeat_penalty 1.0
+      "UPDATE model_family_templates SET tuning_json = json_set(tuning_json, '$.repeat_penalty', 1.0) WHERE family NOT IN ('qwen3', 'qwen2.5', 'llama', 'deepseek')",
+      // Global config: repeat_penalty 1.1 -> 1.0
+      "UPDATE config SET value = '1.0' WHERE key = 'ollama_repeat_penalty' AND value = '1.1'",
+    ].join(';\n'),
+    down: '',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

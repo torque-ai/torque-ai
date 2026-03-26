@@ -94,7 +94,7 @@ function resolveOllamaTuning(opts = {}) {
   );
   let numCtx = adaptiveCtx ? adaptiveCtx.contextSize : parseInt(db.getConfig('ollama_num_ctx') || String(PROVIDER_DEFAULTS.OLLAMA_DEFAULT_CONTEXT), 10);
   let topP = parseFloat(db.getConfig('ollama_top_p') || '0.9');
-  let repeatPenalty = parseFloat(db.getConfig('ollama_repeat_penalty') || '1.1');
+  let repeatPenalty = parseFloat(db.getConfig('ollama_repeat_penalty') || '1.0');
   let numPredict = parseInt(
     shouldUseHashlineNumPredictDefault
       ? String(baseDefaults.numPredict)
@@ -255,7 +255,7 @@ function resolveOllamaTuning(opts = {}) {
   numPredict = Number.isFinite(parsedNP) ? parsedNP : -1;
   topP = parseFloat(topP) || 0.9;
   topK = parseInt(topK, 10) || 40;
-  repeatPenalty = parseFloat(repeatPenalty) || 1.1;
+  repeatPenalty = parseFloat(repeatPenalty) || 1.0;
 
   return {
     temperature, numCtx, topP, topK, repeatPenalty, numPredict,

@@ -218,7 +218,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertConfig.run('ollama_num_ctx', '8192');
   insertConfig.run('ollama_top_p', '0.9');
   insertConfig.run('ollama_top_k', '40');
-  insertConfig.run('ollama_repeat_penalty', '1.1');
+  insertConfig.run('ollama_repeat_penalty', '1.0');
   insertConfig.run('ollama_num_predict', '-1');
   insertConfig.run('ollama_mirostat', '0');
   insertConfig.run('ollama_mirostat_tau', '5.0');
@@ -677,57 +677,64 @@ function seedFamilyTemplates(db) {
 
   const families = [
     {
+      // Qwen3-Coder: vendor-recommended temp 0.7, top_k 20, repeat_penalty 1.05
+      // Source: HuggingFace Qwen/Qwen3-Coder-30B-A3B-Instruct generation_config
       family: 'qwen3',
       systemPrompt: 'You are Qwen3, a highly capable code generation model. Write clean, idiomatic code. Make only the changes requested. Preserve existing style and conventions.',
-      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.15 },
-      sizeOverrides: { small: { num_ctx: 4096, top_k: 40 }, large: { num_ctx: 16384, top_k: 25 } },
+      tuning: { temperature: 0.7, num_ctx: 8192, top_k: 20, repeat_penalty: 1.05 },
+      sizeOverrides: { small: { num_ctx: 4096, top_k: 20 }, large: { num_ctx: 16384, top_k: 20 } },
     },
     {
+      // Qwen2.5-Coder: vendor default temp 0.7, top_p 0.9
       family: 'qwen2.5',
       systemPrompt: 'You are Qwen2.5 Coder, an expert code generation model. Write idiomatic, language-specific code. Follow established project conventions exactly. Minimal changes — only modify what is requested.',
-      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.15 },
+      tuning: { temperature: 0.7, num_ctx: 8192, top_k: 30, repeat_penalty: 1.0 },
       sizeOverrides: { small: { num_ctx: 4096 }, large: { num_ctx: 16384, top_k: 25 } },
     },
     {
+      // Llama 3.1: vendor-recommended temp 0.2-0.3, top_k 10 for code
+      // Source: llama.com/docs/how-to-guides/prompting
       family: 'llama',
       systemPrompt: 'You are Llama, a versatile code assistant. Write clean, efficient code. Follow project conventions and existing patterns. Keep implementations direct and minimal.',
-      tuning: { temperature: 0.3, num_ctx: 8192, top_k: 40, repeat_penalty: 1.1 },
+      tuning: { temperature: 0.3, num_ctx: 8192, top_k: 10, repeat_penalty: 1.0 },
       sizeOverrides: { small: { num_ctx: 4096 }, large: { num_ctx: 16384 } },
     },
     {
       family: 'gemma',
       systemPrompt: 'You are Gemma, a fast and efficient code assistant. Make only the specific changes requested. Keep edits small and targeted. Follow existing code patterns and style exactly.',
-      tuning: { temperature: 0.3, num_ctx: 4096, top_k: 40, repeat_penalty: 1.1 },
+      tuning: { temperature: 0.3, num_ctx: 4096, top_k: 40, repeat_penalty: 1.0 },
       sizeOverrides: { large: { num_ctx: 8192 } },
     },
     {
+      // DeepSeek-R1: vendor-recommended temp 0.6, top_p 0.95
+      // Source: api-docs.deepseek.com/guides/reasoning_model
       family: 'deepseek',
       systemPrompt: 'You are DeepSeek Coder, specialized in code generation. Write production-quality code. Follow established patterns and conventions. Handle edge cases appropriately.',
-      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.1 },
+      tuning: { temperature: 0.6, num_ctx: 8192, top_k: 30, repeat_penalty: 1.0 },
       sizeOverrides: { small: { num_ctx: 4096 }, large: { num_ctx: 16384 } },
     },
     {
       family: 'codestral',
       systemPrompt: 'You are Codestral, a specialized code generation model. Write clean, efficient implementations. Follow project conventions and existing patterns. Minimal changes — only modify what is requested.',
-      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.1 },
+      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.0 },
       sizeOverrides: { large: { num_ctx: 16384 } },
     },
     {
       family: 'mistral',
       systemPrompt: 'You are Mistral, a capable code assistant. Write clear, well-structured code. Follow project conventions. Provide complete, working implementations.',
-      tuning: { temperature: 0.3, num_ctx: 8192, top_k: 40, repeat_penalty: 1.1 },
+      tuning: { temperature: 0.3, num_ctx: 8192, top_k: 40, repeat_penalty: 1.0 },
       sizeOverrides: { small: { num_ctx: 4096 } },
     },
     {
       family: 'phi',
       systemPrompt: 'You are Phi, a compact and efficient code model. Write focused, minimal code. Make only the requested changes. Prefer simple, direct implementations.',
-      tuning: { temperature: 0.3, num_ctx: 4096, top_k: 40, repeat_penalty: 1.1 },
+      tuning: { temperature: 0.3, num_ctx: 4096, top_k: 40, repeat_penalty: 1.0 },
       sizeOverrides: null,
     },
     {
       family: 'unknown',
       systemPrompt: 'You are a highly capable, code-focused AI assistant. Write clean, correct, idiomatic code. Make only the changes requested. Follow the existing code conventions, style, and architecture. Keep implementations minimal and direct.',
-      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.1 },
+      tuning: { temperature: 0.2, num_ctx: 8192, top_k: 30, repeat_penalty: 1.0 },
       sizeOverrides: null,
     },
   ];

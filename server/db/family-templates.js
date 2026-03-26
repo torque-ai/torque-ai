@@ -29,12 +29,15 @@ const UNIVERSAL_FALLBACK_PROMPT =
  * Per-role tuning defaults. Lower temperature = more deterministic output.
  * num_ctx controls context window size per role tier.
  */
+// repeat_penalty disabled (1.0) by default — research shows even moderate values
+// (1.1+) degrade code correctness (ACL 2025, arXiv:2504.12608). Per-family
+// templates can override to 1.05 where the vendor explicitly recommends it (Qwen).
 const ROLE_TUNING_DEFAULTS = {
-  fast:     { temperature: 0.3,  num_ctx: 4096,  top_k: 40, repeat_penalty: 1.1  },
-  balanced: { temperature: 0.2,  num_ctx: 8192,  top_k: 30, repeat_penalty: 1.15 },
-  quality:  { temperature: 0.15, num_ctx: 16384, top_k: 25, repeat_penalty: 1.15 },
-  default:  { temperature: 0.2,  num_ctx: 8192,  top_k: 30, repeat_penalty: 1.1  },
-  fallback: { temperature: 0.3,  num_ctx: 8192,  top_k: 40, repeat_penalty: 1.1  },
+  fast:     { temperature: 0.3,  num_ctx: 4096,  top_k: 40, repeat_penalty: 1.0 },
+  balanced: { temperature: 0.2,  num_ctx: 8192,  top_k: 30, repeat_penalty: 1.0 },
+  quality:  { temperature: 0.15, num_ctx: 16384, top_k: 25, repeat_penalty: 1.0 },
+  default:  { temperature: 0.2,  num_ctx: 8192,  top_k: 30, repeat_penalty: 1.0 },
+  fallback: { temperature: 0.3,  num_ctx: 8192,  top_k: 40, repeat_penalty: 1.0 },
 };
 
 // ── Factory (DI container) ───────────────────────────────────────────────────
