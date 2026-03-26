@@ -733,6 +733,12 @@ async function executeOllamaTaskWithAgentic(task) {
       }),
     });
 
+    // Dispatch completion event so await_task/await_workflow wake up immediately
+    try {
+      const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+      dispatchTaskEvent('completed', db.getTask(taskId));
+    } catch { /* non-fatal */ }
+
     logger.info(`[Agentic] Ollama task ${taskId} completed: ${result.iterations} iterations, ${(result.toolLog || []).length} tool calls, ${(result.changedFiles || []).length} files changed`);
 
   } catch (error) {
@@ -742,6 +748,12 @@ async function executeOllamaTaskWithAgentic(task) {
       exit_code: 1,
       completed_at: new Date().toISOString(),
     });
+
+    // Dispatch failure event so await_task/await_workflow wake up immediately
+    try {
+      const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+      dispatchTaskEvent('failed', db.getTask(taskId));
+    } catch { /* non-fatal */ }
   } finally {
     if (origAbortHandler) abortController.signal.removeEventListener('abort', origAbortHandler);
     clearInterval(cancelCheckInterval);
@@ -998,6 +1010,12 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       }),
     });
 
+    // Dispatch completion event so await_task/await_workflow wake up immediately
+    try {
+      const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+      dispatchTaskEvent('completed', db.getTask(taskId));
+    } catch { /* non-fatal */ }
+
     logger.info(`[Agentic] API task ${taskId} completed: ${result.iterations} iterations, ${(result.toolLog || []).length} tool calls, ${(result.changedFiles || []).length} files changed`);
 
     // Diffusion compute→apply: if this is a compute task, create the apply task dynamically
@@ -1088,6 +1106,12 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       exit_code: 1,
       completed_at: new Date().toISOString(),
     });
+
+    // Dispatch failure event so await_task/await_workflow wake up immediately
+    try {
+      const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+      dispatchTaskEvent('failed', db.getTask(taskId));
+    } catch { /* non-fatal */ }
   } finally {
     if (origAbortHandler2) abortController.signal.removeEventListener('abort', origAbortHandler2);
     clearInterval(cancelCheckInterval);
