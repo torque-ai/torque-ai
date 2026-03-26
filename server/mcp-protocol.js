@@ -40,21 +40,6 @@ async function handleRequest(request, session) {
   }
   const { method, params } = request;
 
-  // Allow initialize without auth (client needs to connect before authenticating)
-  // Allow notifications without auth (they're fire-and-forget)
-  // When no API key is configured, all sessions are considered authenticated (open mode)
-  if (method !== 'initialize' && !method.startsWith('notifications/') && !session.authenticated) {
-    try {
-      const { isOpenMode } = require('./auth/middleware');
-      if (!isOpenMode()) {
-        throw { code: -32600, message: 'Authentication required. Set TORQUE_API_KEY environment variable and add ?apiKey=${TORQUE_API_KEY} to your .mcp.json SSE URL.' };
-      }
-    } catch (e) {
-      if (e.code === -32600) throw e;
-      // If auth middleware fails to load, allow (don't break on import errors)
-    }
-  }
-
   switch (method) {
     case 'initialize': {
       // Capture client capabilities for elicitation/sampling support
@@ -67,15 +52,6 @@ async function handleRequest(request, session) {
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
       };
-      try {
-        const { isOpenMode } = require('./auth/middleware');
-        if (isOpenMode()) {
-          response._meta = { security_warning: 'TORQUE running without authentication' };
-        }
-      } catch {
-        // If auth middleware fails to load, include warning as a safe default
-        response._meta = { security_warning: 'TORQUE running without authentication' };
-      }
       if (_onInitialize) _onInitialize(session, params);
       return response;
     }
