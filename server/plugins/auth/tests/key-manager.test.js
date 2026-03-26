@@ -89,18 +89,18 @@ describe('server/plugins/auth/key-manager', () => {
   });
 
   it('revokeKey revokes keys and blocks revoking last admin key', () => {
-    const keep = keyManager.createKey({ name: 'keep', role: 'admin' });
-    const revoked = keyManager.createKey({ name: 'revoke-me', role: 'admin' });
-    keyManager.revokeKey(revoked.id);
+    const admin = keyManager.createKey({ name: 'keep', role: 'admin' });
+    const admin2 = keyManager.createKey({ name: 'extra-admin', role: 'admin' });
+    const viewer = keyManager.createKey({ name: 'revoke-me', role: 'viewer' });
+    keyManager.revokeKey(viewer.id);
 
-    const revokedRow = rawDb().prepare('SELECT revoked_at FROM api_keys WHERE id = ?').get(revoked.id);
+    const revokedRow = rawDb().prepare('SELECT revoked_at FROM api_keys WHERE id = ?').get(viewer.id);
     expect(revokedRow.revoked_at).toBeTruthy();
 
-    keyManager.revokeKey(keep.id);
-    expect(keyManager.hasAnyKeys()).toBe(false);
+    keyManager.revokeKey(admin.id);
+    expect(keyManager.hasAnyKeys()).toBe(true);
 
-    const sole = keyManager.createKey({ name: 'only-admin', role: 'admin' });
-    expect(() => keyManager.revokeKey(sole.id)).toThrow('Cannot revoke the last admin key');
+    expect(() => keyManager.revokeKey(admin2.id)).toThrow('Cannot revoke the last admin key');
   });
 
   it('hasAnyKeys reflects active keys', () => {
@@ -114,6 +114,14 @@ describe('server/plugins/auth/key-manager', () => {
   });
 
   it('listKeysByUser returns only matching keys', () => {
+    const handle = rawDb();
+    handle.exec(
+      "INSERT OR IGNORE INTO users (id, username, password_hash, role, created_at) VALUES ('user-1', 'user-1', 'hash1', 'viewer', datetime('now'))"
+    );
+    handle.exec(
+      "INSERT OR IGNORE INTO users (id, username, password_hash, role, created_at) VALUES ('user-2', 'user-2', 'hash2', 'viewer', datetime('now'))"
+    );
+
     keyManager.createKey({ name: 'u1-a', userId: 'user-1' });
     keyManager.createKey({ name: 'u1-b', userId: 'user-1' });
     keyManager.createKey({ name: 'u2-a', userId: 'user-2' });
