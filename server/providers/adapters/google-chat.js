@@ -201,7 +201,8 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
 
           // Surface API-level errors returned in the response body
           if (parsed.error) {
-            reject(new Error(`Google AI API error ${parsed.error.code}: ${parsed.error.message}`));
+            const status = parsed.error.status ? ` [${parsed.error.status}]` : '';
+            reject(new Error(`Google AI API error (${parsed.error.code})${status}: ${parsed.error.message}`));
             return;
           }
 
