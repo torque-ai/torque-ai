@@ -56,6 +56,9 @@ const PROVIDER_COMPLETION_PATTERNS = {
     /node --check\s+\S+.*passed/i,                     // "node --check file.js passed"
     /only modified\s+\S+/i,                            // "Only modified server/foo.js"
     /did not (change|modify|touch)/i,                  // "Did not change any other files"
+    /suggested commit message:/i,                      // "Suggested commit message: feat(...)"
+    /next step.*(?:build|test|verify|compile)/i,       // "Next step: dotnet build..."
+    /- (?:created|updated|added|replaced)\s/i,         // "- Created ModulesMarketplaceViewModel.cs"
   ],
   'claude-cli': [
     /summary of changes/i,                             // Claude summary block
