@@ -394,7 +394,8 @@ When submitting tasks to Ollama, the task description IS the instruction set. Ol
 - Include exact file paths in the task description
 - Be specific about what to change — "add X after Y" not "improve the code"
 - One file per task for files over 500 lines
-- If a task needs multiple edits in a large file, list them explicitly with function/class names so the model can search for each one
+- **Include approximate line numbers when you know them** — `search_files` can miss functions in large files. "Around line 450" is more reliable than "search for def handle_foo"
+- If a task needs multiple edits in a large file, list them explicitly with function/class names AND line numbers
 - End task descriptions with "After making the edits, stop." to prevent unnecessary verification loops
 
 ### Codex Sandbox Safety
