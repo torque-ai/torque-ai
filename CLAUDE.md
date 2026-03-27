@@ -396,6 +396,7 @@ When submitting tasks to Ollama, the task description IS the instruction set. Ol
 - One file per task for files over 500 lines
 - **Include approximate line numbers when you know them** — `search_files` can miss functions in large files. "Around line 450" is more reliable than "search for def handle_foo"
 - If a task needs multiple edits in a large file, list them explicitly with function/class names AND line numbers
+- **Split multi-function refactors into separate tasks** — Ollama has 15 iterations max (20 for complex). A task that modifies 3+ functions AND needs to verify/recover will run out of iterations. One function per task is more reliable.
 - End task descriptions with "After making the edits, stop." to prevent unnecessary verification loops
 
 ### Codex Sandbox Safety
