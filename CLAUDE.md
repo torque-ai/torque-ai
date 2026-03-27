@@ -366,27 +366,49 @@ TORQUE checks all enabled hosts every 60 seconds (configurable via `health_check
 
 ## Distributed Development — Provider Capability Matrix
 
-Empirically validated provider assignments (Experiments 1-2, 2026-03-08):
+Empirically validated (2026-03-26):
 
-| Capability | Best Provider | Avoid | Notes |
-|-----------|--------------|-------|-------|
-| **New file creation** | Codex | Ollama | Ollama cannot create files — always falls back |
-| **Small file edits** (<250 lines) | Hashline-Ollama | — | Free, fast, reliable for targeted edits |
-| **Large file edits** (250-1500 lines) | Codex | Ollama | Quality degrades above 250 lines |
-| **Huge file edits** (>1500 lines) | Codex | Ollama | Exceeds 32K token context window |
-| **Complex multi-file tasks** | Codex | Ollama | 97%+ success rate on Codex |
-| **Test generation** | Codex | Ollama | Ollama falls back to Codex for new test files |
-| **Architecture/review** | Claude Code | — | Strategic thinking, conflict resolution |
-| **Task decomposition** | Claude Code / StrategicBrain | — | Provider-optimal splitting |
+| Capability | Best Provider | Notes |
+|-----------|--------------|-------|
+| **New file creation** | Codex | Ollama agentic can create files via write_file |
+| **Small file edits** (<300 lines) | Ollama | Free, fast, reliable with edit_file or replace_lines |
+| **Medium file edits** (300-500 lines) | Ollama | Use replace_lines + line-range reads (not edit_file) |
+| **Large file edits** (500-1500 lines) | Ollama or Codex | Ollama works with search→read range→replace_lines workflow |
+| **Huge file edits** (>1500 lines) | Codex | Ollama context may stall on full-file reads |
+| **Complex multi-file tasks** | Codex | 97%+ success rate on Codex |
+| **Test generation** | Codex | Ollama can write tests but Codex is more reliable |
+| **Architecture/review** | Claude Code | Strategic thinking, conflict resolution |
+| **Task decomposition** | Claude Code | Provider-optimal splitting |
+
+### Ollama Task Authoring — CRITICAL
+
+When submitting tasks to Ollama, the task description IS the instruction set. Ollama has 7 tools available: `read_file` (with start_line/end_line), `write_file`, `edit_file`, `replace_lines`, `search_files`, `list_directory`, `run_command`. How you write the task determines which tools the model uses.
+
+**For files under ~300 lines:**
+- Simple instructions work fine: "In file X, change Y to Z"
+- The model will read the file and use edit_file or replace_lines
+
+**For files over ~300 lines — you MUST instruct the workflow:**
+- Tell the model to use `search_files` first to find the target line numbers
+- Tell it to use `read_file` with `start_line`/`end_line` to read only the relevant section
+- Tell it to use `replace_lines` (not `edit_file`) to make changes by line number
+- Example: "Search for 'def handle_foo' in path/to/large_file.py, read 30 lines around it, then use replace_lines to make the change"
+- **NEVER** say "read the file and edit it" for large files — the full read fills the context window and stalls inference
+
+**General rules:**
+- Include exact file paths in the task description
+- Be specific about what to change — "add X after Y" not "improve the code"
+- One file per task for files over 500 lines
+- If a task needs multiple edits in a large file, list them explicitly with function/class names so the model can search for each one
+- End task descriptions with "After making the edits, stop." to prevent unnecessary verification loops
 
 ### Codex Sandbox Safety
 
-**Codex sandbox contamination is a systemic issue.** Codex tasks start from a potentially stale repo state. When they write files back, they can silently revert changes committed after the sandbox was created.
+**Codex sandbox contamination is a systemic issue.** Codex tasks start from a potentially stale repo state. When they write files back, they can silently revert changes committed after the sandbox was created. **TORQUE now has file-level locking** — concurrent Codex tasks targeting the same file are automatically requeued to prevent overwrites.
 
 - **ALWAYS run `git diff --stat` after Codex task completion** — check for unexpected deletions or reverts
 - **If reverts detected:** `git checkout HEAD -- <reverted files>` to restore from HEAD before committing
 - **Never trust Codex file writes blindly** — compare against HEAD, especially for files modified by earlier tasks in the same session
-- This was observed in 2/2 distributed development experiments (100% reproduction rate)
 
 ### Review Gate
 
