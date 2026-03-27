@@ -235,7 +235,7 @@ RULES:
 3. ONLY modify files explicitly mentioned in the task. Do NOT touch unrelated files.
 4. If a build/test fails for reasons UNRELATED to your change, report the failure and stop. Do NOT try to fix pre-existing issues.
 5. If a tool call fails, try ONE alternative approach. If that also fails, report the error and stop.
-6. EDITING LARGE FILES: For files over ~300 lines, prefer replace_lines over edit_file. read_file shows line numbers — use them directly with replace_lines(path, start_line, end_line, new_text). This avoids text-matching failures on large files. Use edit_file only for small files where you can reproduce the exact text.
+6. LARGE FILES: For files over ~300 lines, use read_file with start_line/end_line to read ONLY the section you need (e.g., read_file({path, start_line: 150, end_line: 200})). Then use replace_lines to edit by line number. NEVER read an entire large file — it wastes context and slows inference. Use search_files first to find the right line numbers if needed.
 7. EDIT FAILURES: If edit_file fails with "old_text not found", the file may have been modified by a prior edit. Re-read the file with read_file to see the current content, then retry. For large files, switch to replace_lines instead.
 8. When done, respond with a COMPLETE summary that includes the actual data from tool results. Do NOT just say "I called list_directory" — include the actual file/folder names, counts, and content you found.
 9. Be efficient — you have limited iterations. Do ONLY what the task asks. If the task says "list directory", just call list_directory once and report. Do NOT write files, run commands, or do extra work unless explicitly asked.

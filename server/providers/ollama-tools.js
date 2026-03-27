@@ -164,11 +164,13 @@ const TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'read_file',
-      description: 'Read the contents of a file. Returns the file text with line numbers.',
+      description: 'Read the contents of a file. Returns the file text with line numbers. For large files (500+ lines), use start_line/end_line to read only the relevant section — reading the entire file wastes context and slows down inference.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'File path (relative to working directory or absolute)' },
+          start_line: { type: 'integer', description: 'First line to read (1-based, inclusive). Omit to start from beginning.' },
+          end_line: { type: 'integer', description: 'Last line to read (1-based, inclusive). Omit to read to end.' },
         },
         required: ['path'],
       },
@@ -462,8 +464,17 @@ function createToolExecutor(workingDir, options = {}) {
             return { result: `Error: File too large (${stat.size} bytes, max ${MAX_FILE_READ_BYTES}).`, error: true };
           }
           const content = fs.readFileSync(resolvedPath, 'utf-8');
-          const numbered = content.split('\n').map((line, i) => `${i + 1}\t${line}`).join('\n');
-          return { result: truncateOutput(numbered) };
+          const allLines = content.split('\n');
+          const startLine = parseInt(args.start_line, 10) || 1;
+          const endLine = parseInt(args.end_line, 10) || allLines.length;
+          const clampedStart = Math.max(1, Math.min(startLine, allLines.length));
+          const clampedEnd = Math.max(clampedStart, Math.min(endLine, allLines.length));
+          const sliced = allLines.slice(clampedStart - 1, clampedEnd);
+          const numbered = sliced.map((line, i) => `${clampedStart + i}\t${line}`).join('\n');
+          const rangeNote = (clampedStart > 1 || clampedEnd < allLines.length)
+            ? `[Showing lines ${clampedStart}-${clampedEnd} of ${allLines.length}]\n`
+            : '';
+          return { result: truncateOutput(rangeNote + numbered) };
         }
 
         case 'write_file': {
