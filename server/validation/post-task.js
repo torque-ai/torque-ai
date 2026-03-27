@@ -52,11 +52,15 @@ function parseCommand(cmdString) {
   };
 }
 
+const { createRemoteTestRouter } = require('../remote/remote-test-routing');
+
 // Dependency injection
 let db = null;
 let _getModifiedFiles = null;  // from utils/git
 let _parseGitStatusLine = null;  // from utils/git
 let _sanitizeLLMOutput = null;
+let _agentRegistry = null;
+let _router = null;
 
 /**
  * Initialize dependencies for this module.
@@ -66,14 +70,29 @@ let _sanitizeLLMOutput = null;
  * @param {Function} deps.getModifiedFiles - From utils/git
  * @param {Function} deps.parseGitStatusLine - From utils/git
  * @param {Function} deps.sanitizeLLMOutput - From utils/sanitize
+ * @param {Object} [deps.agentRegistry] - RemoteAgentRegistry instance (optional)
  */
 function init(deps) {
-  db = deps.db;
+  if (deps.db) db = deps.db;
   serverConfig.init({ db: deps.db });
-  _getModifiedFiles = deps.getModifiedFiles;
-  _parseGitStatusLine = deps.parseGitStatusLine;
-  _sanitizeLLMOutput = deps.sanitizeLLMOutput;
-  buildVerification.init({ db, parseCommand, extractBuildErrorFiles });
+  if (deps.getModifiedFiles) _getModifiedFiles = deps.getModifiedFiles;
+  if (deps.parseGitStatusLine) _parseGitStatusLine = deps.parseGitStatusLine;
+  if (deps.sanitizeLLMOutput) _sanitizeLLMOutput = deps.sanitizeLLMOutput;
+  if (deps.agentRegistry !== undefined) _agentRegistry = deps.agentRegistry;
+  // Reset router so it picks up the new deps on next call
+  _router = null;
+  buildVerification.init({ db, parseCommand, extractBuildErrorFiles, agentRegistry: _agentRegistry });
+}
+
+function getRouter() {
+  if (!_router) {
+    _router = createRemoteTestRouter({
+      agentRegistry: _agentRegistry,
+      db,
+      logger,
+    });
+  }
+  return _router;
 }
 
 const EXACT_PLACEHOLDER_MARKERS = [
@@ -1109,21 +1128,22 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
  * @param {string} workingDir - Working directory
  * @returns {Object} Test result with success, output, error, skipped fields
  */
-function runTestVerification(taskId, task, workingDir) {
+/**
+ * Detect the test command for a project, either from config or auto-detection.
+ */
+function detectTestCommand(task, workingDir) {
   const project = task.project || db.getProjectFromPath(workingDir);
   if (!project) {
-    return { success: true, output: '', error: '', skipped: true, reason: 'no_project' };
+    return { testCommand: null, projectConfig: null, skipReason: 'no_project' };
   }
 
   const projectConfig = db.getProjectConfig(project);
   if (!projectConfig || !projectConfig.test_verification_enabled) {
-    return { success: true, output: '', error: '', skipped: true, reason: 'disabled' };
+    return { testCommand: null, projectConfig, skipReason: 'disabled' };
   }
 
-  // Determine test command - use project-specific or auto-detect
   let testCommand = projectConfig.test_command;
   if (!testCommand) {
-    // Auto-detect based on project files
     if (fs.existsSync(path.join(workingDir, 'package.json'))) {
       testCommand = 'npm test';
     } else if (fs.existsSync(path.join(workingDir, 'Cargo.toml'))) {
@@ -1137,7 +1157,6 @@ function runTestVerification(taskId, task, workingDir) {
     } else if (fs.existsSync(path.join(workingDir, 'pytest.ini')) || fs.existsSync(path.join(workingDir, 'pyproject.toml'))) {
       testCommand = 'pytest';
     } else {
-      // Check for .NET projects
       let dirEntries = [];
       try { dirEntries = fs.readdirSync(workingDir); } catch { /* skip */ }
       const csprojFiles = dirEntries.filter(f => f.endsWith('.csproj') || f.endsWith('.sln'));
@@ -1147,21 +1166,59 @@ function runTestVerification(taskId, task, workingDir) {
     }
   }
 
-  if (!testCommand) {
-    return { success: true, output: '', error: '', skipped: true, reason: 'no_test_command' };
+  return { testCommand: testCommand || null, projectConfig, skipReason: testCommand ? null : 'no_test_command' };
+}
+
+/**
+ * Run test verification — routes to remote workstation when available,
+ * falls back to local execution.
+ */
+async function runTestVerification(taskId, task, workingDir) {
+  const { testCommand, projectConfig, skipReason } = detectTestCommand(task, workingDir);
+  if (skipReason) {
+    return { success: true, output: '', error: '', skipped: true, reason: skipReason };
   }
 
-  const timeout = (projectConfig.test_timeout || 300) * 1000; // Default 5 min for tests
+  const timeout = (projectConfig.test_timeout || 300) * 1000;
+  const provider = (task.provider || '').toLowerCase();
 
   logger.info(`[Test Verification] Task ${taskId}: Running "${testCommand}" in ${workingDir}`);
 
+  // Try remote execution first
+  const router = getRouter();
+  const remoteConfig = router.getRemoteConfig(workingDir, { provider });
+
+  if (remoteConfig) {
+    try {
+      logger.info(`[Test Verification] Task ${taskId}: Routing to remote workstation`);
+      const result = await router.runVerifyCommand(testCommand, workingDir, {
+        timeout,
+        provider,
+      });
+
+      const stdout = result.output || '';
+      const stderr = result.error || '';
+
+      if (result.exitCode === 0) {
+        logger.info(`[Test Verification] Task ${taskId}: Tests PASSED (remote=${result.remote})`);
+        return { success: true, output: stdout, error: '' };
+      }
+
+      logger.info(`[Test Verification] Task ${taskId}: Tests FAILED (remote=${result.remote})`);
+      logger.info(`[Test Verification] Error: ${stderr.substring(0, 500)}`);
+      return { success: false, output: stdout, error: stderr || 'Tests failed' };
+    } catch (remoteErr) {
+      logger.warn(`[Test Verification] Task ${taskId}: Remote execution failed, falling back to local: ${remoteErr.message}`);
+      // Fall through to local execution
+    }
+  }
+
+  // Local execution (original path)
   try {
-    // Parse command into executable and args (supports quoted segments)
     const parsed = parseCommand(testCommand);
     let executable = parsed.executable;
     const args = parsed.args;
 
-    // Handle WSL environment - use Windows executable paths for common tools
     const isWSL = process.platform === 'linux' && workingDir.startsWith('/mnt/');
     if (isWSL) {
       if (executable === 'dotnet') {

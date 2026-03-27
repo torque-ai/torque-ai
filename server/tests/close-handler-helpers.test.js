@@ -619,29 +619,29 @@ describe('handleAutoValidation', () => {
 describe('handleBuildTestStyleCommit', () => {
   beforeEach(resetBetweenTests);
 
-  it('skips when status is not completed', () => {
+  it('skips when status is not completed', async () => {
     const task = createTask();
     const proc = makeProc();
     const c = makeCtx(task, proc, { status: 'failed' });
 
-    tm.handleBuildTestStyleCommit(c);
+    await tm.handleBuildTestStyleCommit(c);
     expect(c.status).toBe('failed');
   });
 
-  it('skips when task is null', () => {
+  it('skips when task is null', async () => {
     const proc = makeProc();
     const c = { taskId: 'x', status: 'completed', proc, task: null, earlyExit: false, output: '', errorOutput: '' };
 
-    expect(() => tm.handleBuildTestStyleCommit(c)).not.toThrow();
+    await expect(tm.handleBuildTestStyleCommit(c)).resolves.not.toThrow();
   });
 
-  it('runs build verification when status is completed', () => {
+  it('runs build verification when status is completed', async () => {
     // Without a verify command configured, build verification should be skipped
     const task = createTask();
     const proc = makeProc();
     const c = makeCtx(task, proc, { status: 'completed', filesModified: ['src/changed.js'] });
 
-    tm.handleBuildTestStyleCommit(c);
+    await tm.handleBuildTestStyleCommit(c);
     // Should remain completed since no build command is configured
     expect(c.status).toBe('completed');
   });
@@ -957,7 +957,7 @@ describe('ctx.earlyExit pipeline flow', () => {
     if (safeguardSpy) safeguardSpy.mockRestore();
   });
 
-  it('successful task flows through all phases without earlyExit', () => {
+  it('successful task flows through all phases without earlyExit', async () => {
     // Use codex provider to avoid local-fallback path in handleProviderFailover
     const task = createTask({ provider: 'codex' });
     const proc = makeProc();
@@ -976,7 +976,7 @@ describe('ctx.earlyExit pipeline flow', () => {
     expect(c.status).toBe('completed');
   }, 15000);
 
-  it('propagates recovered codex completion through workflow dependencies instead of failing the workflow', () => {
+  it('propagates recovered codex completion through workflow dependencies instead of failing the workflow', async () => {
     const workflowId = randomUUID();
     db.createWorkflow({ id: workflowId, name: 'codex-status-recovery' });
 
@@ -1016,7 +1016,7 @@ describe('ctx.earlyExit pipeline flow', () => {
     tm.handleFuzzyRepair(upstreamCtx);
     tm.handleNoFileChangeDetection(upstreamCtx);
     tm.handleAutoValidation(upstreamCtx);
-    tm.handleBuildTestStyleCommit(upstreamCtx);
+    await tm.handleBuildTestStyleCommit(upstreamCtx);
     tm.handleProviderFailover(upstreamCtx);
 
     // Simulate what task-finalizer does: persist ctx status to DB

@@ -1,0 +1,672 @@
+[
+  {
+    "file": "src/SpudgetBooks.App/Accounting/Accounts/AccountPeekViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Accounting/Accounts/ChartOfAccountsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Accounting/JournalEntries/JournalEntriesWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Accounting/JournalEntries/JournalEntryEditorViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Accounting/MonthEnd/MonthEndDashboardViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Accounting/MonthEnd/MonthEndTemplateManagerViewModel.cs",
+    "pattern": "multi-class-direct-base",
+    "helper_count": 2,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none",
+      "return:void|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Accounting/Reconciliation/LedgerReconciliationDashboardViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankAdjustmentDefaultsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankAdjustmentTemplatesViewModel.cs",
+    "pattern": "multi-class-direct-base",
+    "helper_count": 2,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:PropertyChangedInvoke|special:none",
+      "return:void|ref:field|caller:propertyName|compare:Equals|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedImportHistoryViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedImportWizardViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedLineAuditTrailViewerViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedLineBulkActionDialogViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedLineLockOverrideDialogViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedLineMassOperationConfirmViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedLinePdfExportViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedLinePrintViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedMatchReversalDialogViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedMultiLineMatchViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleConflictDialogViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleEditorViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleHistoryViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleVersionHistoryViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankFeedVendorNormalizationViewModel.cs",
+    "pattern": "single-class-void-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:void|ref:storage|caller:propertyName|compare:Equals|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankingWorkspaceViewModel.cs",
+    "pattern": "single-class-void-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:void|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankingWorkspaceViewModel.FeedLines.cs",
+    "pattern": "single-class-void-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:void|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankReconciliationReopenDialogViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankReconciliationViewModel.ChecklistAndExports.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankReconciliationViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankRegisterMatchViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/BankRegisterViewModel.cs",
+    "pattern": "multi-class-direct-base",
+    "helper_count": 2,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none",
+      "return:void|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/ReconciliationAdjustmentEditorViewModel.cs",
+    "pattern": "multi-class-direct-base",
+    "helper_count": 2,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none",
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/ReconciliationAdjustmentExportViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/ReconciliationDifferenceHelperViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Banking/ReconciliationEvidenceExportViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/CommandPalette/UI/CommandPaletteViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/GlobalSearch/QuickFilterButtonViewModel.cs",
+    "pattern": "single-class-void-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:void|ref:field|caller:propertyName|compare:Equals|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Help/ContextualHelpPanelViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Import/UI/ImportWizardViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Import/UI/Steps/Step5_ProgressViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Import/UI/Steps/Step6_ResultsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/InventoryAdjustmentsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/InventoryItemCreateViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/InventoryItemPeekViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/InventoryReorderSuggestionsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/InventoryTransactionHistoryViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/InventoryTransferWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/InventoryWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/ItemBundleWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/SerialLotTrackingWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Inventory/ShrinkageDashboardWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Invoices/CustomerPeekViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Invoices/InvoicePaymentsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Invoices/InvoiceWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Invoices/RecurringProfileViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Invoices/Templates/InvoiceTemplateManagerViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Mappings/LedgerMappingConflictViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Mappings/LedgerMappingImportViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Mappings/LedgerMappingPatternViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Mappings/LedgerMappingsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Navigation/CommandPalette/CommandPaletteViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Navigation/CompanySwitcherViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Notifications/UI/NotificationPanelViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:RaisePropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Payments/PaymentMethodsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Purchasing/Bills/BillEditorViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Purchasing/Bills/BillsWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Purchasing/Bills/PaymentRunViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Purchasing/Bills/VendorStatementsDialogViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Purchasing/PurchaseOrders/PurchaseOrdersWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Purchasing/Receiving/PurchaseReceivingViewModel.cs",
+    "pattern": "multi-class-direct-base",
+    "helper_count": 2,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none",
+      "return:void|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Purchasing/VendorOnboardingWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Sales/SalesOrderWorkspaceViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Sections/Help/TroubleshootingTabViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:name|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Sections/Help/TutorialsTabViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Setup/GettingStartedDashboardViewModel.cs",
+    "pattern": "multi-class-direct-base",
+    "helper_count": 2,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none",
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:PropertyChangedInvoke|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Setup/OnboardingWizardViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/SmartAutomation/UI/AutoCategorizationPanelViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:Equals|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Tax/JurisdictionListViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Tax/SalesTaxSettingsViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Tax/TaxCategoryListViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Tax/TaxDashboardViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Tax/TaxLiabilityReportViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  },
+  {
+    "file": "src/SpudgetBooks.App/Tutorials/UI/TutorialCatalogViewModel.cs",
+    "pattern": "single-class-direct-base",
+    "helper_count": 1,
+    "exact_variants": [
+      "return:bool|ref:field|caller:propertyName|compare:EqualityComparer|notify:OnPropertyChanged|special:none"
+    ]
+  }
+]

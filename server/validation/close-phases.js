@@ -96,8 +96,9 @@ function handleAutoValidation(ctx) {
 
 /**
  * Phase 6: Build verify → commit → test verify → style check → auto-PR.
+ * Async — build and test verification may route to a remote workstation.
  */
-function handleBuildTestStyleCommit(ctx) {
+async function handleBuildTestStyleCommit(ctx) {
   const { taskId, task } = ctx;
   if (ctx.status !== 'completed' || !task) return;
 
@@ -108,7 +109,7 @@ function handleBuildTestStyleCommit(ctx) {
     : (recoveredFiles.length > 0
       ? recoveredFiles
       : (db.getTaskFileChanges ? db.getTaskFileChanges(taskId).map(c => c.file_path) : []));
-  const buildResult = _runBuildVerification(taskId, task, workingDir, modifiedFiles);
+  const buildResult = await Promise.resolve(_runBuildVerification(taskId, task, workingDir, modifiedFiles));
 
   if (!buildResult.skipped && !buildResult.success) {
     logger.info(`[Build Verification] Task ${taskId} completed but build failed - marking as failed`);
@@ -184,7 +185,7 @@ function handleBuildTestStyleCommit(ctx) {
   }
 
   // Run test verification after successful build
-  const testResult = _runTestVerification(taskId, task, workingDir);
+  const testResult = await Promise.resolve(_runTestVerification(taskId, task, workingDir));
 
   if (!testResult.skipped && !testResult.success) {
     logger.info(`[Test Verification] Task ${taskId} completed but tests failed`);

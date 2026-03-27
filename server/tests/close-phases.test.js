@@ -232,13 +232,13 @@ describe('Close Phases', () => {
   // ── handleBuildTestStyleCommit ────────────────────────────
 
   describe('handleBuildTestStyleCommit', () => {
-    it('skips if status !== completed', () => {
+    it('skips if status !== completed', async () => {
       const ctx = makeCtx({ status: 'failed' });
-      closePhases.handleBuildTestStyleCommit(ctx);
+      await closePhases.handleBuildTestStyleCommit(ctx);
       expect(mocks.runBuildVerification).not.toHaveBeenCalled();
     });
 
-    it('marks failed on build failure', () => {
+    it('marks failed on build failure', async () => {
       mocks.runBuildVerification.mockReturnValue({
         skipped: false,
         success: false,
@@ -247,13 +247,13 @@ describe('Close Phases', () => {
       mockDb.getProjectConfig.mockReturnValue(null);
 
       const ctx = makeCtx();
-      closePhases.handleBuildTestStyleCommit(ctx);
+      await closePhases.handleBuildTestStyleCommit(ctx);
 
       expect(ctx.status).toBe('failed');
       expect(ctx.errorOutput).toContain('[BUILD VERIFICATION FAILED]');
     });
 
-    it('rolls back on build failure when configured', () => {
+    it('rolls back on build failure when configured', async () => {
       mocks.runBuildVerification.mockReturnValue({
         skipped: false,
         success: false,
@@ -264,14 +264,14 @@ describe('Close Phases', () => {
       });
 
       const ctx = makeCtx();
-      closePhases.handleBuildTestStyleCommit(ctx);
+      await closePhases.handleBuildTestStyleCommit(ctx);
 
       expect(ctx.status).toBe('failed');
       expect(mocks.scopedRollback).toHaveBeenCalledWith('task-001', '/tmp/test-project', 'BuildFailure');
       expect(ctx.errorOutput).toContain('[ROLLBACK] Reverted');
     });
 
-    it('commits changes when build passes and auto_commits disabled', () => {
+    it('commits changes when build passes and auto_commits disabled', async () => {
       mocks.runBuildVerification.mockReturnValue({ skipped: false, success: true });
       mockDb.getConfig.mockImplementation((key) => {
         if (key === 'auto_commits_disabled') return '1';
@@ -289,7 +289,7 @@ describe('Close Phases', () => {
       mocks.runStyleCheck.mockReturnValue({ skipped: true });
 
       const ctx = makeCtx();
-      closePhases.handleBuildTestStyleCommit(ctx);
+      await closePhases.handleBuildTestStyleCommit(ctx);
 
       expect(ctx.status).toBe('completed');
       const commitCall = mockSpawnSync.mock.calls.find(
@@ -298,7 +298,7 @@ describe('Close Phases', () => {
       expect(commitCall).toBeDefined();
     });
 
-    it('recovers modified files from stderr-only codex transcripts before staging', () => {
+    it('recovers modified files from stderr-only codex transcripts before staging', async () => {
       mocks.runBuildVerification.mockReturnValue({ skipped: false, success: true });
       mockDb.getConfig.mockImplementation((key) => {
         if (key === 'auto_commits_disabled') return '1';
@@ -324,7 +324,7 @@ describe('Close Phases', () => {
         filesModified: []
       });
 
-      closePhases.handleBuildTestStyleCommit(ctx);
+      await closePhases.handleBuildTestStyleCommit(ctx);
 
       expect(ctx.filesModified).toEqual(['src/from-stderr.js']);
       expect(mocks.extractModifiedFiles).toHaveBeenCalledWith(expect.stringContaining('Success. Updated the following files:'));
@@ -335,7 +335,7 @@ describe('Close Phases', () => {
       );
     });
 
-    it('marks failed on test failure with rollback', () => {
+    it('marks failed on test failure with rollback', async () => {
       mocks.runBuildVerification.mockReturnValue({ skipped: false, success: true });
       mockDb.getConfig.mockReturnValue('1');
       mocks.runTestVerification.mockReturnValue({
@@ -348,7 +348,7 @@ describe('Close Phases', () => {
       });
 
       const ctx = makeCtx();
-      closePhases.handleBuildTestStyleCommit(ctx);
+      await closePhases.handleBuildTestStyleCommit(ctx);
 
       expect(ctx.status).toBe('failed');
       expect(ctx.errorOutput).toContain('[TEST VERIFICATION FAILED]');
@@ -356,7 +356,7 @@ describe('Close Phases', () => {
       expect(ctx.errorOutput).toContain('[ROLLBACK] Reverted');
     });
 
-    it('adds style check warning', () => {
+    it('adds style check warning', async () => {
       mocks.runBuildVerification.mockReturnValue({ skipped: false, success: true });
       mockDb.getConfig.mockReturnValue('1');
       mocks.runTestVerification.mockReturnValue({ skipped: true });
@@ -368,14 +368,14 @@ describe('Close Phases', () => {
       mockDb.getProjectConfig.mockReturnValue(null);
 
       const ctx = makeCtx();
-      closePhases.handleBuildTestStyleCommit(ctx);
+      await closePhases.handleBuildTestStyleCommit(ctx);
 
       expect(ctx.status).toBe('completed');
       expect(ctx.output).toContain('[STYLE CHECK WARNING]');
       expect(ctx.output).toContain('Linting: 5 warnings');
     });
 
-    it('triggers auto-PR when configured', () => {
+    it('triggers auto-PR when configured', async () => {
       mocks.runBuildVerification.mockReturnValue({ skipped: false, success: true });
       mockDb.getConfig.mockReturnValue('1');
       mocks.runTestVerification.mockReturnValue({ skipped: true });
@@ -385,7 +385,7 @@ describe('Close Phases', () => {
       });
 
       const ctx = makeCtx();
-      closePhases.handleBuildTestStyleCommit(ctx);
+      await closePhases.handleBuildTestStyleCommit(ctx);
 
       expect(ctx.status).toBe('completed');
       expect(mocks.tryCreateAutoPR).toHaveBeenCalledWith(

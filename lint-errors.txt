@@ -1,0 +1,593 @@
+C:\Users\Werem\Projects\torque-public\server\api-server.core.js
+  108:3  error  'normalizeV2Transport' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+  109:3  error  'getV2ProviderTransport' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  112:3  error  'buildV2MetaEnvelope' is assigned a value but never used. Allowed unused vars must match /^_/u     no-unused-vars
+  113:3  error  'sendV2DiscoverySuccess' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  114:3  error  'sendV2DiscoveryError' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api-server.js
+  1:7  error  'routes' is assigned a value but never used. Allowed unused vars must match /^_/u              no-unused-vars
+  2:7  error  'middleware' is assigned a value but never used. Allowed unused vars must match /^_/u          no-unused-vars
+  3:9  error  'createHealthRoutes' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\bootstrap.js
+  278:23  error  Unnecessary escape character: \[  no-useless-escape
+C:\Users\Werem\Projects\torque-public\server\api\health-probes.js
+  140:29  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\middleware.js
+    5:7   error  'serverConfig' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  364:30  error  'deps' is defined but never used. Allowed unused args must match /^_/u                   no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\routes.js
+  1274:26  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\v2-analytics-handlers.js
+  623:36  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\v2-control-plane.js
+  167:31  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\v2-core-handlers.js
+  16:7  error  'serverConfig' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\v2-governance-handlers.js
+  1200:37  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\v2-infrastructure-handlers.js
+  729:41  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\v2-router.js
+  610:31  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\v2-task-handlers.js
+  875:31  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\v2-workflow-handlers.js
+  421:35  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\api\webhooks.js
+  266:25  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\auth\key-manager.js
+  138:13  error    'userManager' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\auth\role-guard.js
+  5:41  error  'projectId' is assigned a value but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\config.js
+  267:23  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\database.js
+  560:10  error  'getProviderRateLimits' is defined but never used. Allowed unused vars must match /^_/u           no-unused-vars
+  568:10  error  'updateTask' is defined but never used. Allowed unused vars must match /^_/u                      no-unused-vars
+  569:10  error  'resolveTaskId' is defined but never used. Allowed unused vars must match /^_/u                   no-unused-vars
+  570:10  error  'updateTaskStatus' is defined but never used. Allowed unused vars must match /^_/u                no-unused-vars
+  571:10  error  'requeueTaskAfterAttemptedStart' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  572:10  error  'updateTaskProgress' is defined but never used. Allowed unused vars must match /^_/u              no-unused-vars
+  573:10  error  'listTasks' is defined but never used. Allowed unused vars must match /^_/u                       no-unused-vars
+  574:10  error  'listQueuedTasksLightweight' is defined but never used. Allowed unused vars must match /^_/u      no-unused-vars
+  575:10  error  'deleteTask' is defined but never used. Allowed unused vars must match /^_/u                      no-unused-vars
+  576:10  error  'deleteTasks' is defined but never used. Allowed unused vars must match /^_/u                     no-unused-vars
+  577:10  error  'countTasks' is defined but never used. Allowed unused vars must match /^_/u                      no-unused-vars
+  578:10  error  'countTasksByStatus' is defined but never used. Allowed unused vars must match /^_/u              no-unused-vars
+  579:10  error  'archiveOldTasks' is defined but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  580:10  error  'purgeOldTaskOutput' is defined but never used. Allowed unused vars must match /^_/u              no-unused-vars
+  582:10  error  'getRunningCountByProvider' is defined but never used. Allowed unused vars must match /^_/u       no-unused-vars
+  583:10  error  'getRunningTasksLightweight' is defined but never used. Allowed unused vars must match /^_/u      no-unused-vars
+  584:10  error  'getNextQueuedTask' is defined but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  585:10  error  'tryClaimTaskSlot' is defined but never used. Allowed unused vars must match /^_/u                no-unused-vars
+  586:10  error  'patchTaskMetadata' is defined but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  587:10  error  'patchTaskSlotBinding' is defined but never used. Allowed unused vars must match /^_/u            no-unused-vars
+  588:10  error  'getRecentSuccessfulTasks' is defined but never used. Allowed unused vars must match /^_/u        no-unused-vars
+  589:10  error  'claimSlotAtomic' is defined but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  590:10  error  'clearProviderIfNotRunning' is defined but never used. Allowed unused vars must match /^_/u       no-unused-vars
+  591:10  error  'getTaskStatus' is defined but never used. Allowed unused vars must match /^_/u                   no-unused-vars
+  592:10  error  'requeueAfterSlotFailure' is defined but never used. Allowed unused vars must match /^_/u         no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\db\file-quality.js
+  28:10  error  'getRunningCount' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\db\host-complexity.js
+  88:23  error  Unexpected control character(s) in regular expression: \x00  no-control-regex
+C:\Users\Werem\Projects\torque-public\server\db\host-selection.js
+  10:10  error  'getWsAdapters' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\db\provider-routing-core.js
+    13:10  error  'error' is defined but never used. Allowed unused caught errors must match /^_/u              no-unused-vars
+    78:10  error  'getTask' is defined but never used. Allowed unused vars must match /^_/u                     no-unused-vars
+  1329:9   error  'ensureHealthTable' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\db\resource-health.js
+C:\Users\Werem\Projects\torque-public\server\db\scheduling-automation.js
+  20:5  error  'recordTaskEventFn' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  25:7  error  'eventBus' is assigned a value but never used. Allowed unused vars must match /^_/u           no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\db\schema-tables.js
+  323:12  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\db\smart-routing.js
+   17:10  error  'error' is defined but never used. Allowed unused caught errors must match /^_/u        no-unused-vars
+   91:9   error  'workflowId' is assigned a value but never used. Allowed unused vars must match /^_/u   no-unused-vars
+  142:12  error  'getScoringModule' is defined but never used. Allowed unused vars must match /^_/u      no-unused-vars
+  682:9   error  'getProvider' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\db\task-core.js
+  648:14  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\db\webhooks-streaming.js
+  533:12  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+  557:12  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+  664:12  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\discovery.js
+  1097:26  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\completion-pipeline.js
+  195:14  error  'poErr' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+  206:14  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u      no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\conflict-resolver.js
+  297:33  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\debug-lifecycle.js
+  270:31  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\fallback-retry.js
+  168:12  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u          no-unused-vars
+  340:14  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u          no-unused-vars
+  740:12  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u          no-unused-vars
+  828:9   error  'truncated' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  956:30  error  'deps' is defined but never used. Allowed unused args must match /^_/u                no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\file-context-builder.js
+  237:12  error  'err' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\process-lifecycle.js
+  671:33  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\provider-router.js
+  305:31  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\queue-scheduler.js
+  1046:31  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\slot-pull-scheduler.js
+  181:18  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+  247:34  error  'deps' is defined but never used. Allowed unused args must match /^_/u        no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\strategic-hooks.js
+  173:31  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\task-finalizer.js
+  468:14  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+  481:14  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+  586:30  error  'deps' is defined but never used. Allowed unused args must match /^_/u        no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\task-startup.js
+   13:24  error    'PROVIDER_DEFAULT_TIMEOUTS' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+   21:5   error    'providerCfg' is assigned a value but never used. Allowed unused vars must match /^_/u                no-unused-vars
+   24:5   error    'apiAbortControllers' is assigned a value but never used. Allowed unused vars must match /^_/u        no-unused-vars
+   26:5   error    'stallRecoveryAttempts' is assigned a value but never used. Allowed unused vars must match /^_/u      no-unused-vars
+   27:5   error    'taskCleanupGuard' is assigned a value but never used. Allowed unused vars must match /^_/u           no-unused-vars
+   34:5   error    'normalizeProviderOverride' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+   52:5   error    'shellEscape' is assigned a value but never used. Allowed unused vars must match /^_/u                no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\execution\workflow-runtime.js
+   505:23  error  Unexpected control character(s) in regular expression: \x1b                                no-control-regex
+   508:25  error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x0c, \x0e, \x1f  no-control-regex
+  1218:32  error  'deps' is defined but never used. Allowed unused args must match /^_/u                     no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\free-quota-tracker.js
+  450:33  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\advanced\coordination.js
+  235:55  error  'db' is not defined  no-undef
+C:\Users\Werem\Projects\torque-public\server\handlers\advanced\intelligence.js
+   65:64  error  'use_semantic' is assigned a value but never used. Allowed unused vars must match /^_/u   no-unused-vars
+  206:18  error  'min_exit_code' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  229:20  error  'recalculate' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+  269:11  error  'status' is assigned a value but never used. Allowed unused vars must match /^_/u         no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\auth-handlers.js
+  41:28  error  'args' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\auto-commit-batch.js
+  62:73  error  'db' is not defined  no-undef
+C:\Users\Werem\Projects\torque-public\server\handlers\automation-batch-orchestration.js
+    19:9   error  'safeExecChain' is assigned a value but never used. Allowed unused vars must match /^_/u            no-unused-vars
+    20:9   error  'executeValidatedCommand' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+    29:10  error  'configCore' is defined but never used. Allowed unused vars must match /^_/u                        no-unused-vars
+  1394:31  error  'db' is not defined                                                                                 no-undef
+C:\Users\Werem\Projects\torque-public\server\handlers\automation-handlers.js
+  69:11  error  'db' is not defined  no-undef
+C:\Users\Werem\Projects\torque-public\server\handlers\competitive-feature-handlers.js
+   8:7   error  'logger' is assigned a value but never used. Allowed unused vars must match /^_/u         no-unused-vars
+  26:37  error  'args' is defined but never used. Allowed unused args must match /^_/u                    no-unused-vars
+  36:30  error  'getTemplate' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+  36:43  error  'listTemplates' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  53:43  error  'args' is defined but never used. Allowed unused args must match /^_/u                    no-unused-vars
+  88:46  error  'args' is defined but never used. Allowed unused args must match /^_/u                    no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\context-handler.js
+  9:7  error  'logger' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\integration\index.js
+  960:36  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\integration\infra.js
+  990:41  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\integration\plans.js
+  346:41  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\integration\routing.js
+  1344:43  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\model-handlers.js
+  3:7  error  'logger' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\orchestrator-handlers.js
+  17:10  error  'getOrCreateUsage' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\shared.js
+  592:35  error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x0c, \x0e, \x1f  no-control-regex
+  599:31  error  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x0c, \x0e, \x1f  no-control-regex
+C:\Users\Werem\Projects\torque-public\server\handlers\strategic-config-handlers.js
+  29:44  error  'defaults' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\task\core.js
+   374:12  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+   390:18  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+   393:12  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+  1314:33  error  'deps' is defined but never used. Allowed unused args must match /^_/u        no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\task\intelligence.js
+  1095:41  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\task\operations.js
+  1367:39  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\task\pipeline.js
+  289:62  error  'db' is not defined                                                     no-undef
+  566:48  error  'db' is not defined                                                     no-undef
+  618:49  error  'db' is not defined                                                     no-undef
+  681:56  error  'db' is not defined                                                     no-undef
+  877:37  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\task\project.js
+  941:36  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\webhook-handlers.js
+   11:7   error  'costTracking' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  722:44  error  'db' is not defined                                                                      no-undef
+C:\Users\Werem\Projects\torque-public\server\handlers\workflow\advanced.js
+  487:41  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\workflow\await.js
+   362:54  error  'db' is not defined                                                           no-undef
+   702:69  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+   963:63  error  'db' is not defined                                                           no-undef
+   986:79  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+  1288:38  error  'deps' is defined but never used. Allowed unused args must match /^_/u        no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\workflow\dag.js
+  376:36  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\workflow\index.js
+  1449:33  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\handlers\workflow\templates.js
+  320:42  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\hooks\event-dispatch.js
+  279:14  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\index.js
+  149:7    error  'SERVER_INFO' is assigned a value but never used. Allowed unused vars must match /^_/u        no-unused-vars
+  552:37   error  'dataDir' is not defined                                                                      no-undef
+  910:122  error  'checkBudgetAlerts' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\maintenance\orphan-cleanup.js
+  434:18  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\mcp-protocol.js
+  75:16  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\mcp-sse.js
+   39:3   error  'ALL_TASKS_SUBSCRIPTION_KEY' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  481:14  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u                           no-unused-vars
+  564:16  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u                           no-unused-vars
+  570:21  error  'id' is assigned a value but never used. Allowed unused vars must match /^_/u                          no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\mcp\index.js
+  22:3  error  'STREAM_EVENT_TYPES' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\policy-engine\task-hooks.js
+  54:14  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\providers\adapter-registry.js
+  173:10  error  'registerUnavailableProviderAdapter' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\providers\adapters\ollama-chat.js
+   55:17  error    'tool_call_id' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\providers\execute-cli.js
+  12:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                     no-unused-vars
+  14:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                     no-unused-vars
+  16:9   error  'TASK_TIMEOUTS' is assigned a value but never used. Allowed unused vars must match /^_/u          no-unused-vars
+  17:9   error  'isSmallModel' is assigned a value but never used. Allowed unused vars must match /^_/u           no-unused-vars
+  71:10  error  'tryReserveHostSlotWithFallback' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\providers\execute-hashline.js
+  340:41  error    'resolvedFiles' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\providers\ollama-agentic.js
+  149:3  error    'workingDir' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\providers\ollama-tools.js
+   21:9   error    'execSync' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\providers\prompts.js
+  15:45  error  'isThinkingModel' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\task-manager.js
+    60:7   error  'taskHooks' is assigned a value but never used. Allowed unused vars must match /^_/u   no-unused-vars
+   169:10  error  'buildPolicyTaskData' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+   468:28  error  'ctx' is defined but never used. Allowed unused args must match /^_/u                  no-unused-vars
+   481:38  error  'ctx' is defined but never used. Allowed unused args must match /^_/u                  no-unused-vars
+  1302:28  error  'deps' is defined but never used. Allowed unused args must match /^_/u                 no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\adaptive-retry.test.js
+  5:14  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\adaptive-scoring.test.js
+  5:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\agent-server-security.test.js
+  6:47  error  'createHttpError' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\agentic-git-safety.test.js
+  168:11  error  'buildFiles' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\agentic-incomplete-task-nudge.test.js
+  8:32  error  'vi' is defined but never used. Allowed unused vars must match /^_/u          no-unused-vars
+  8:36  error  'beforeEach' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\agentic-integration.test.js
+  180:15  error  'body' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\agentic-loop.test.js
+   41:21  error  'args' is defined but never used. Allowed unused args must match /^_/u              no-unused-vars
+  301:11  error  'adapter' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  372:11  error  'adapter' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\agentic-worker.test.js
+  23:32  error  'reject' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\analytics-metrics.test.js
+    8:5   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+   47:55  error  'testDir' is not defined                                                       no-undef
+  429:28  error  'testDir' is not defined                                                       no-undef
+  442:28  error  'testDir' is not defined                                                       no-undef
+  464:34  error  'testDir' is not defined                                                       no-undef
+  470:34  error  'testDir' is not defined                                                       no-undef
+  497:34  error  'testDir' is not defined                                                       no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\auth-system.test.js
+   218:13  error  'key1' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+   246:13  error  'key1' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  1024:17  error  'id2' is assigned a value but never used. Allowed unused vars must match /^_/u   no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\bulk-operations.test.js
+  5:14  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\cli-api-client.test.js
+  223:28  error  'DOMException' is not defined  no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\codex-worktree-isolation.test.js
+   37:7   error  'TEMPLATE_BUF_PATH' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+   38:5   error  'templateBuffer' is defined but never used. Allowed unused vars must match /^_/u              no-unused-vars
+   43:5   error  'origDataDir' is assigned a value but never used. Allowed unused vars must match /^_/u        no-unused-vars
+  318:13  error  'taskId' is assigned a value but never used. Allowed unused vars must match /^_/u             no-unused-vars
+  346:13  error  'taskId' is assigned a value but never used. Allowed unused vars must match /^_/u             no-unused-vars
+  381:13  error  'taskId' is assigned a value but never used. Allowed unused vars must match /^_/u             no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\container.test.js
+  54:41  error  'b' is defined but never used. Allowed unused args must match /^_/u        no-unused-vars
+  55:41  error  'a' is defined but never used. Allowed unused args must match /^_/u        no-unused-vars
+  60:47  error  'missing' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\context-handler.test.js
+  6:7  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\coordination-claim.test.js
+  30:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\coordination-wiring.test.js
+  376:11  error  'now' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\coordination.test.js
+    5:5   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+   62:55  error  'testDir' is not defined                                                       no-undef
+  460:28  error  'testDir' is not defined                                                       no-undef
+  499:28  error  'path' is not defined                                                          no-undef
+  499:38  error  'testDir' is not defined                                                       no-undef
+  521:28  error  'testDir' is not defined                                                       no-undef
+  538:28  error  'testDir' is not defined                                                       no-undef
+  554:28  error  'testDir' is not defined                                                       no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\cost-tracking.test.js
+  23:20  error  'path' is not defined  no-undef
+  23:30  error  'os' is not defined    no-undef
+  24:3   error  'fs' is not defined    no-undef
+  43:5   error  'fs' is not defined    no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\database.test.js
+   96:28   error  'testDir' is not defined  no-undef
+  117:30   error  'testDir' is not defined  no-undef
+  136:30   error  'testDir' is not defined  no-undef
+  155:30   error  'testDir' is not defined  no-undef
+  181:103  error  'testDir' is not defined  no-undef
+  190:105  error  'testDir' is not defined  no-undef
+  200:103  error  'testDir' is not defined  no-undef
+  210:114  error  'testDir' is not defined  no-undef
+  220:115  error  'testDir' is not defined  no-undef
+  229:115  error  'testDir' is not defined  no-undef
+  237:114  error  'testDir' is not defined  no-undef
+  242:112  error  'testDir' is not defined  no-undef
+  256:30   error  'testDir' is not defined  no-undef
+  309:28   error  'testDir' is not defined  no-undef
+  323:115  error  'testDir' is not defined  no-undef
+  339:28   error  'testDir' is not defined  no-undef
+  374:114  error  'testDir' is not defined  no-undef
+  406:116  error  'testDir' is not defined  no-undef
+  435:116  error  'testDir' is not defined  no-undef
+  455:121  error  'testDir' is not defined  no-undef
+  490:119  error  'testDir' is not defined  no-undef
+  520:120  error  'testDir' is not defined  no-undef
+  522:17   error  'path' is not defined     no-undef
+  522:27   error  'testDir' is not defined  no-undef
+  523:7    error  'fs' is not defined       no-undef
+  524:7    error  'fs' is not defined       no-undef
+  524:24   error  'path' is not defined     no-undef
+  564:105  error  'testDir' is not defined  no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\debug-archive-test.js
+  3:48  error  'getText' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\debug-run-workflow.test.js
+  2:48  error  'getText' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\duration-prediction.test.js
+  6:14  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\e2e-helpers.js
+  45:9  error  'taskCore' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\elicitation.test.js
+  123:19  error  'id' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\event-tracking.test.js
+  50:55  error  'testDir' is not defined  no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\execute-cli.test.js
+  126:10  error  'addHost' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\execution-builders.test.js
+  75:10  error  'clearHosts' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  81:10  error  'addHost' is defined but never used. Allowed unused vars must match /^_/u     no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\experimentation.test.js
+  3:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\failure-prediction.test.js
+  5:14  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\fallback-retry.test.js
+  14:5  error  'eventTracking' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\free-tier-history.test.js
+  5:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\hashline-fuzzy-repair.test.js
+  26:31  error  'line' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\host-management.test.js
+     8:14  error  'origDataDir' is defined but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+     9:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  1158:13  error  'host' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  1165:13  error  'host' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\host-monitoring-utils.test.js
+   1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  14:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  14:41  error  'teardownTestDb' is assigned a value but never used. Allowed unused vars must match /^_/u     no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\inbound-webhooks.test.js
+  13:64  error  'resetTables' is assigned a value but never used. Allowed unused vars must match /^_/u     no-unused-vars
+  15:9   error  'handleToolCall' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\integration-workflow-dag.test.js
+  10:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\model-capabilities.test.js
+  5:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\model-roles.test.js
+  5:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p0-budget-atomicity.test.js
+   1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   6:5   error  'testDir' is assigned a value but never used. Allowed unused vars must match /^_/u            no-unused-vars
+  10:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  20:10  error  'teardown' is defined but never used. Allowed unused vars must match /^_/u                    no-unused-vars
+  42:20  error  'teardownDb' is not defined                                                                   no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\p0-sql-injection.test.js
+   5:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   6:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   7:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  16:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p0-timing-attack.test.js
+  2:7  error  'crypto' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p1-db-atomicity.test.js
+   1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   5:5   error  'testDir' is assigned a value but never used. Allowed unused vars must match /^_/u            no-unused-vars
+  12:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p1-handler-safety-2.test.js
+  12:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  16:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  16:41  error  'teardownTestDb' is assigned a value but never used. Allowed unused vars must match /^_/u     no-unused-vars
+  27:7   error  'origDataDir' is not defined                                                                  no-undef
+  27:64  error  'origDataDir' is not defined                                                                  no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\p1-infra-fixes.test.js
+   1:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   2:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   3:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  14:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p1-provider-fixes.test.js
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  19:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p1-scheduling-approval.test.js
+   1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  13:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p1-slot-race.test.js
+   8:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   9:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  10:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  13:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  16:5   error  'testDir' is assigned a value but never used. Allowed unused vars must match /^_/u            no-unused-vars
+  23:10  error  'teardown' is defined but never used. Allowed unused vars must match /^_/u                    no-unused-vars
+  48:13  error  'teardownDbForTest' is not defined                                                            no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\p1-streaming-fixes.test.js
+   8:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  23:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  23:41  error  'teardownTestDb' is assigned a value but never used. Allowed unused vars must match /^_/u     no-unused-vars
+  38:7   error  'origDataDir' is not defined                                                                  no-undef
+  38:64  error  'origDataDir' is not defined                                                                  no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\p1-toctou-races.test.js
+   1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  11:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p2-approval-gate.test.js
+  1:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  3:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  9:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\p2-budget-completeness.test.js
+   1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   5:5   error  'testDir' is assigned a value but never used. Allowed unused vars must match /^_/u            no-unused-vars
+   8:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  14:10  error  'teardown' is defined but never used. Allowed unused vars must match /^_/u                    no-unused-vars
+  24:19  error  'teardownDb' is not defined                                                                   no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\p2-linear-regression.test.js
+   1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+   6:5   error  'testDir' is assigned a value but never used. Allowed unused vars must match /^_/u            no-unused-vars
+  10:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  18:10  error  'teardown' is defined but never used. Allowed unused vars must match /^_/u                    no-unused-vars
+  49:19  error  'teardownDb' is not defined                                                                   no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\p2-tier-host-preference.test.js
+  1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  6:5   error  'testDir' is assigned a value but never used. Allowed unused vars must match /^_/u            no-unused-vars
+  9:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\partial-output-streaming.test.js
+   9:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  10:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  11:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  13:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  15:14  error  'origDataDir' is defined but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\pipeline-management.test.js
+   8:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+   9:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  10:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  12:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\post-task.test.js
+   2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                    no-unused-vars
+   8:5   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u                    no-unused-vars
+  17:7   error  'originalExecFileSync' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  18:7   error  'originalSpawnSync' is assigned a value but never used. Allowed unused vars must match /^_/u     no-unused-vars
+  19:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u     no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\prioritization.test.js
+  1:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  2:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  3:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  7:14  error  'origDataDir' is defined but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  8:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\project-cache.test.js
+   9:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u               no-unused-vars
+  10:7   error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  11:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                 no-unused-vars
+  15:22  error  'setupTestDbModule' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\project-config.test.js
+  7:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\provider-commands.test.js
+   7:7   error  'path' is assigned a value but never used. Allowed unused vars must match /^_/u              no-unused-vars
+   9:7   error  'fs' is assigned a value but never used. Allowed unused vars must match /^_/u                no-unused-vars
+  10:36  error  'registerMockHost' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\provider-ollama-hosts.test.js
+  7:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\provider-routing.test.js
+  1064:25  error  'path' is not defined  no-undef
+  1065:24  error  'path' is not defined  no-undef
+  1066:7   error  'fs' is not defined    no-undef
+  1067:7   error  'fs' is not defined    no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\review-handler.test.js
+C:\Users\Werem\Projects\torque-public\server\tests\routing-templates.test.js
+   8:44  error  'rawDb' is assigned a value but never used. Allowed unused vars must match /^_/u        no-unused-vars
+   8:51  error  'resetTables' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  10:10  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u           no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\scheduling-automation.test.js
+  4:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\smart-routing-codex-gate.test.js
+  15:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\task-artifacts.test.js
+  1:7  error  'os' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  5:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\task-classification.test.js
+  5:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\task-debugger.test.js
+  4:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\task-manager.test.js
+   50:28  error  'testDir' is not defined  no-undef
+   69:22  error  'fs' is not defined       no-undef
+   70:9   error  'fs' is not defined       no-undef
+   75:17  error  'path' is not defined     no-undef
+   75:27  error  'testDir' is not defined  no-undef
+   76:7   error  'fs' is not defined       no-undef
+   95:17  error  'path' is not defined     no-undef
+   95:27  error  'testDir' is not defined  no-undef
+   96:7   error  'fs' is not defined       no-undef
+  103:17  error  'path' is not defined     no-undef
+  103:27  error  'testDir' is not defined  no-undef
+  104:7   error  'fs' is not defined       no-undef
+  115:17  error  'path' is not defined     no-undef
+  115:27  error  'testDir' is not defined  no-undef
+  116:7   error  'fs' is not defined       no-undef
+C:\Users\Werem\Projects\torque-public\server\tests\tool-output-schemas.test.js
+   30:19  error  'name' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+   38:19  error  'name' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  179:9   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+  235:9   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+  317:9   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+  370:9   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+  391:9   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+  568:9   error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u    no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\webhook-idempotency.test.js
+  71:7  error  'testDir' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  72:7  error  'origDataDir' is defined but never used. Allowed unused vars must match /^_/u       no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\webhooks-streaming.test.js
+  5:14  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\workflow-advanced-handlers.test.js
+  6:10  error  'sanitizeForCondition' is defined but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tests\workstation-model.test.js
+  10:5  error  'db' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\tools.js
+  513:22  error  'deps' is defined but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\transports\sse\protocol.js
+   13:7   error  'logger' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars
+  205:18  error  'e' is defined but never used. Allowed unused caught errors must match /^_/u       no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\utils\safe-regex.js
+  15:40  error  'timeoutMs' is assigned a value but never used. Allowed unused args must match /^_/u  no-unused-vars
+C:\Users\Werem\Projects\torque-public\server\utils\symbol-indexer.js
+C:\Users\Werem\Projects\torque-public\server\validation\close-phases.js
+C:\Users\Werem\Projects\torque-public\server\workstation\model.js
+  6:7  error  'logger' is assigned a value but never used. Allowed unused vars must match /^_/u  no-unused-vars

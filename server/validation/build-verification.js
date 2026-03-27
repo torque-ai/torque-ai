@@ -6,38 +6,61 @@
  * Contains runBuildVerification: auto-detects build commands and runs
  * build verification after task completion, with scoped error analysis
  * and WSL/Windows cross-environment support.
+ *
+ * Supports remote test routing via _router — when a remote workstation is
+ * configured for the project, build commands run on the remote host and
+ * fall back to local execution on failure.
  */
 
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const logger = require('../logger').child({ component: 'build-verification' });
+const { createRemoteTestRouter } = require('../remote/remote-test-routing');
 
 let db;
 let parseCommand;
 let extractBuildErrorFiles;
+let _agentRegistry = null;
+let _router = null;
 
 function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.parseCommand) parseCommand = deps.parseCommand;
   if (deps.extractBuildErrorFiles) extractBuildErrorFiles = deps.extractBuildErrorFiles;
+  if (deps.agentRegistry !== undefined) _agentRegistry = deps.agentRegistry;
+  // Reset router so it picks up the new deps on next call
+  _router = null;
 }
 
-function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
+function getRouter() {
+  if (!_router) {
+    _router = createRemoteTestRouter({
+      agentRegistry: _agentRegistry,
+      db,
+      logger,
+    });
+  }
+  return _router;
+}
+
+/**
+ * Detect the build command for a project, either from config or auto-detection.
+ * @returns {{ buildCommand: string|null, projectConfig: object|null, project: string|null }}
+ */
+function detectBuildCommand(task, workingDir) {
   const project = task.project || db.getProjectFromPath(workingDir);
   if (!project) {
-    return { success: true, output: '', error: '', skipped: true, reason: 'no_project' };
+    return { buildCommand: null, projectConfig: null, project: null, skipReason: 'no_project' };
   }
 
   const projectConfig = db.getProjectConfig(project);
   if (!projectConfig || !projectConfig.build_verification_enabled) {
-    return { success: true, output: '', error: '', skipped: true, reason: 'disabled' };
+    return { buildCommand: null, projectConfig, project, skipReason: 'disabled' };
   }
 
-  // Determine build command - use project-specific or auto-detect
   let buildCommand = projectConfig.build_command;
   if (!buildCommand) {
-    // Auto-detect based on project files
     if (fs.existsSync(path.join(workingDir, 'package.json'))) {
       buildCommand = 'npm run build';
     } else if (fs.existsSync(path.join(workingDir, 'Cargo.toml'))) {
@@ -49,8 +72,6 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
     } else if (fs.existsSync(path.join(workingDir, 'build.gradle'))) {
       buildCommand = 'gradle build -q';
     } else {
-      // Check for .NET projects — scan recursively (up to 2 levels) to catch
-      // solutions where .csproj files are nested under a src/ subdirectory.
       const findCsFiles = (dir, depth = 0) => {
         if (depth > 2) return [];
         try {
@@ -75,28 +96,155 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
     }
   }
 
-  if (!buildCommand) {
-    return { success: true, output: '', error: '', skipped: true, reason: 'no_build_command' };
+  return { buildCommand: buildCommand || null, projectConfig, project, skipReason: buildCommand ? null : 'no_build_command' };
+}
+
+/**
+ * Analyze build output for scoped error detection.
+ * Returns a pass-through result if errors are not caused by this task's modified files.
+ * Returns null if the task DID cause the errors (caller should fail the build).
+ */
+function checkScopedBuildErrors(taskId, buildCommand, workingDir, taskModifiedFiles, stdout, stderr, exitCode, startTime) {
+  if (!taskModifiedFiles || taskModifiedFiles.length === 0) return null;
+
+  const combinedOutput = (stderr || '') + '\n' + (stdout || '');
+  const errorFilePaths = extractBuildErrorFiles(combinedOutput, workingDir);
+
+  if (errorFilePaths.length > 0) {
+    const normalizedTaskFiles = taskModifiedFiles.map(f =>
+      f.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase()
+    );
+    const taskCausedError = errorFilePaths.some(errorFile => {
+      const normError = errorFile.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
+      return normalizedTaskFiles.some(tf =>
+        normError.endsWith(tf) || tf.endsWith(normError) || normError.includes(tf) || tf.includes(normError)
+      );
+    });
+
+    if (!taskCausedError) {
+      const durationSeconds = (Date.now() - startTime) / 1000;
+      logger.info(`[Build Verification] Task ${taskId}: Build failed but errors are in files NOT modified by this task — treating as passed`);
+      logger.info(`[Build Verification]   Error files: ${errorFilePaths.slice(0, 5).join(', ')}`);
+      logger.info(`[Build Verification]   Task files: ${normalizedTaskFiles.slice(0, 5).join(', ')}`);
+
+      try {
+        db.saveBuildResult(taskId, {
+          command: buildCommand,
+          workingDirectory: workingDir,
+          exitCode,
+          output: (stdout || '').slice(-10000),
+          errorOutput: `[SCOPED-PASS] Build has pre-existing errors not caused by this task`,
+          durationSeconds,
+          status: 'passed_scoped'
+        });
+      } catch (saveErr) {
+        logger.info(`[Build Verification] Failed to save result: ${saveErr.message}`);
+      }
+
+      return {
+        success: true,
+        output: stdout || '',
+        error: '',
+        warning: `Build has pre-existing errors (not caused by this task): ${errorFilePaths.slice(0, 3).join(', ')}`
+      };
+    }
   }
 
-  const timeout = (projectConfig.build_timeout || 120) * 1000; // Convert to ms
+  return null; // task caused the errors
+}
+
+/**
+ * Run build verification — routes to remote workstation when available,
+ * falls back to local execution.
+ */
+async function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
+  const { buildCommand, projectConfig, skipReason } = detectBuildCommand(task, workingDir);
+  if (skipReason) {
+    return { success: true, output: '', error: '', skipped: true, reason: skipReason };
+  }
+
+  const timeout = (projectConfig.build_timeout || 120) * 1000;
   const startTime = Date.now();
+  const provider = (task.provider || '').toLowerCase();
 
   logger.info(`[Build Verification] Task ${taskId}: Running "${buildCommand}" in ${workingDir}`);
 
+  // Try remote execution first
+  const router = getRouter();
+  const remoteConfig = router.getRemoteConfig(workingDir, { provider });
+
+  if (remoteConfig) {
+    try {
+      logger.info(`[Build Verification] Task ${taskId}: Routing to remote workstation`);
+      const result = await router.runVerifyCommand(buildCommand, workingDir, {
+        timeout,
+        provider,
+      });
+
+      const stdout = result.output || '';
+      const stderr = result.error || '';
+      const durationSeconds = (Date.now() - startTime) / 1000;
+
+      if (result.exitCode === 0) {
+        try {
+          db.saveBuildResult(taskId, {
+            command: buildCommand,
+            workingDirectory: workingDir,
+            exitCode: 0,
+            output: stdout.slice(-10000),
+            errorOutput: '',
+            durationSeconds,
+            status: 'passed',
+            remote: result.remote || false,
+          });
+        } catch (saveErr) {
+          logger.info(`[Build Verification] Failed to save result: ${saveErr.message}`);
+        }
+
+        logger.info(`[Build Verification] Task ${taskId}: Build PASSED (remote=${result.remote})`);
+        return { success: true, output: stdout, error: '' };
+      }
+
+      // Non-zero exit — check scoped errors
+      const scopedResult = checkScopedBuildErrors(taskId, buildCommand, workingDir, taskModifiedFiles, stdout, stderr, result.exitCode, startTime);
+      if (scopedResult) return scopedResult;
+
+      // Build failed and task caused it
+      try {
+        db.saveBuildResult(taskId, {
+          command: buildCommand,
+          workingDirectory: workingDir,
+          exitCode: result.exitCode,
+          output: stdout.slice(-10000),
+          errorOutput: stderr.slice(-10000),
+          durationSeconds,
+          status: 'failed',
+          remote: result.remote || false,
+        });
+      } catch (saveErr) {
+        logger.info(`[Build Verification] Failed to save result: ${saveErr.message}`);
+      }
+
+      logger.info(`[Build Verification] Task ${taskId}: Build FAILED (remote=${result.remote})`);
+      logger.info(`[Build Verification] Error: ${stderr.substring(0, 500)}`);
+      return { success: false, output: stdout, error: stderr || 'Build failed' };
+    } catch (remoteErr) {
+      logger.warn(`[Build Verification] Task ${taskId}: Remote execution failed, falling back to local: ${remoteErr.message}`);
+      // Fall through to local execution
+    }
+  }
+
+  // Local execution (original path)
   try {
-    // Parse command into executable and args (supports quoted segments)
     const parsed = parseCommand(buildCommand);
     let executable = parsed.executable;
     const args = parsed.args;
 
-    // Handle WSL environment - use Windows executable paths for common tools
     const isWSL = process.platform === 'linux' && workingDir.startsWith('/mnt/');
     if (isWSL) {
       if (executable === 'dotnet') {
         executable = '/mnt/c/Program Files/dotnet/dotnet.exe';
       } else if (executable === 'npm') {
-        // Try Windows npm if available
         const winNpm = '/mnt/c/Program Files/nodejs/npm.cmd';
         if (fs.existsSync(winNpm)) {
           executable = winNpm;
@@ -104,12 +252,9 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
       }
     }
 
-    // Use spawnSync - handle WSL + Windows executables properly
     let spawnResult;
 
     if (isWSL && executable.endsWith('.exe')) {
-      // For Windows executables in WSL, spawn directly without shell
-      // Node's spawnSync handles paths with spaces correctly when shell=false
       spawnResult = spawnSync(executable, args, {
         cwd: workingDir,
         encoding: 'utf8',
@@ -119,7 +264,6 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
         windowsHide: true
       });
     } else if (isWSL && (executable.endsWith('.cmd') || executable.endsWith('.bat'))) {
-      // For Windows batch files, use cmd.exe
       const winPath = workingDir.replace(/^\/mnt\/([a-z])/, '$1:').replace(/\//g, '\\');
       spawnResult = spawnSync('cmd.exe', ['/c', executable, ...args], {
         cwd: workingDir,
@@ -131,7 +275,6 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
         env: { ...process.env, CD: winPath }
       });
     } else {
-      // Normal Unix execution without shell
       spawnResult = spawnSync(executable, args, {
         cwd: workingDir,
         encoding: 'utf8',
@@ -146,54 +289,11 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
       throw spawnResult.error;
     }
     if (spawnResult.status !== 0) {
-      // Scoped build verification: if we know which files this task modified,
-      // only fail if the build errors are in those files. This prevents
-      // cross-task contamination when parallel tasks share a working directory.
-      if (taskModifiedFiles && taskModifiedFiles.length > 0) {
-        const combinedOutput = (spawnResult.stderr || '') + '\n' + (spawnResult.stdout || '');
-        const errorFilePaths = extractBuildErrorFiles(combinedOutput, workingDir);
-
-        if (errorFilePaths.length > 0) {
-          const normalizedTaskFiles = taskModifiedFiles.map(f =>
-            f.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase()
-          );
-          const taskCausedError = errorFilePaths.some(errorFile => {
-            const normError = errorFile.replace(/\\/g, '/').replace(/^\/+/, '').toLowerCase();
-            return normalizedTaskFiles.some(tf =>
-              normError.endsWith(tf) || tf.endsWith(normError) || normError.includes(tf) || tf.includes(normError)
-            );
-          });
-
-          if (!taskCausedError) {
-            const endTime = Date.now();
-            const durationSeconds = (endTime - startTime) / 1000;
-            logger.info(`[Build Verification] Task ${taskId}: Build failed but errors are in files NOT modified by this task — treating as passed`);
-            logger.info(`[Build Verification]   Error files: ${errorFilePaths.slice(0, 5).join(', ')}`);
-            logger.info(`[Build Verification]   Task files: ${normalizedTaskFiles.slice(0, 5).join(', ')}`);
-
-            try {
-              db.saveBuildResult(taskId, {
-                command: buildCommand,
-                workingDirectory: workingDir,
-                exitCode: spawnResult.status,
-                output: (spawnResult.stdout || '').slice(-10000),
-                errorOutput: `[SCOPED-PASS] Build has pre-existing errors not caused by this task`,
-                durationSeconds,
-                status: 'passed_scoped'
-              });
-            } catch (saveErr) {
-              logger.info(`[Build Verification] Failed to save result: ${saveErr.message}`);
-            }
-
-            return {
-              success: true,
-              output: spawnResult.stdout || '',
-              error: '',
-              warning: `Build has pre-existing errors (not caused by this task): ${errorFilePaths.slice(0, 3).join(', ')}`
-            };
-          }
-        }
-      }
+      const scopedResult = checkScopedBuildErrors(
+        taskId, buildCommand, workingDir, taskModifiedFiles,
+        spawnResult.stdout, spawnResult.stderr, spawnResult.status, startTime
+      );
+      if (scopedResult) return scopedResult;
 
       const err = new Error('Build failed');
       err.stdout = spawnResult.stdout;
@@ -202,10 +302,8 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
     }
 
     const result = spawnResult.stdout;
-    const endTime = Date.now();
-    const durationSeconds = (endTime - startTime) / 1000;
+    const durationSeconds = (Date.now() - startTime) / 1000;
 
-    // Save build result to database
     try {
       db.saveBuildResult(taskId, {
         command: buildCommand,
@@ -225,10 +323,8 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
   } catch (err) {
     const output = err.stdout || '';
     const error = err.stderr || err.message || 'Build failed';
-    const endTime = Date.now();
-    const durationSeconds = (endTime - startTime) / 1000;
+    const durationSeconds = (Date.now() - startTime) / 1000;
 
-    // Save build result to database
     try {
       db.saveBuildResult(taskId, {
         command: buildCommand,

@@ -621,8 +621,10 @@ function init() {
   // Initialize remote agent registry (needs raw better-sqlite3 instance)
   agentRegistry = new RemoteAgentRegistry(db.getDbInstance());
 
-  // Pass agentRegistry to auto-verify-retry for remote test routing
+  // Pass agentRegistry to verification modules for remote test routing
   require('./validation/auto-verify-retry').init({ agentRegistry });
+  require('./validation/post-task').init({ agentRegistry });
+  require('./validation/build-verification').init({ agentRegistry });
 
   // Register this MCP instance for multi-session coordination
   taskManager.registerInstance();
