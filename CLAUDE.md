@@ -4,7 +4,7 @@
 
 TORQUE requires two things to work in Claude Code:
 
-1. **MCP server** — auto-configured on first startup (provides ~489 tools, 22 core + progressive unlock)
+1. **MCP server** — auto-configured on first startup (provides ~560 tools, 22 core + progressive unlock)
 2. **Slash commands** — located in `.claude/commands/` (provides the `/torque-*` commands)
 
 Slash commands are auto-discovered from `.claude/commands/`. The MCP server connection is auto-injected into your global `~/.claude/.mcp.json` when the TORQUE server starts — no manual configuration needed.
@@ -60,7 +60,7 @@ For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit
 
 ## Providers
 
-TORQUE routes between **12 execution providers**. Smart routing picks the best one automatically — you rarely need to choose manually.
+TORQUE routes between **13 execution providers**. Smart routing picks the best one automatically — you rarely need to choose manually.
 
 ### Local (Ollama)
 
@@ -184,21 +184,15 @@ All tiers are configured via `set_project_defaults` and the tier config in the d
 
 | Tier | Model | Temp | Context | Use Case |
 |------|-------|------|---------|----------|
-| **Fast** | qwen2.5-coder:32b | 0.2 | 16384 | Quick edits, docs, config |
-| **Balanced** | qwen2.5-coder:32b | 0.2 | 16384 | Standard code tasks, tests |
-| **Quality** | qwen2.5-coder:32b | 0.2 | 16384 | Complex code generation |
-
-### Fallback Model
-
-| Fallback |
-|----------|
-| codestral:22b |
+| **Fast** | qwen3-coder:30b | 0.2 | 16384 | Quick edits, docs, config |
+| **Balanced** | qwen3-coder:30b | 0.2 | 16384 | Standard code tasks, tests |
+| **Quality** | qwen3-coder:30b | 0.2 | 16384 | Complex code generation |
 
 ### Available Models
 
 Models are auto-discovered from registered Ollama hosts via health checks. Use `list_ollama_hosts` to see what's available.
 
-Override per task: `/torque-submit Write docs for... model=codestral:22b`
+Override per task: `/torque-submit Write docs for... model=qwen3-coder:30b`
 
 ## Fallback Behavior
 
@@ -218,10 +212,9 @@ Chains are user-configurable via `configure_fallback_chain`. Anthropic is not in
 
 ## Stall Recovery
 
-Stall detection is enabled with provider-specific thresholds:
-- **Ollama**: 180 seconds
-- **Codex**: 600 seconds
-- **DeepInfra / Hyperbolic**: 180 seconds (default, configurable via `configure_stall_detection`)
+Stall detection is user-configurable per provider via `configure_stall_detection`. No hardcoded defaults — thresholds are set in the database. Recommended values:
+- **Ollama / DeepInfra / Hyperbolic**: 120-180 seconds
+- **Codex**: 120-180 seconds (previously 600s, but Codex tasks are fast enough for shorter thresholds)
 
 Stalled tasks are automatically cancelled and resubmitted with provider fallback.
 
@@ -239,6 +232,8 @@ Built into `/torque-submit` and `/torque-review`:
 ## Remote Workstation
 
 Heavy commands (builds, tests, compilation) route to the configured remote workstation automatically. **NEVER run test or build commands directly** (`npx vitest`, `dotnet build`, `npm test`, etc.) — the guard hook will block them when a remote workstation is configured.
+
+**TORQUE's own post-task verification also routes to remote.** The close-handler pipeline (Phases 6 and 6.5) automatically runs build verification, test verification, and verify_command on the remote workstation when one is configured with `test_runners` capability. No manual intervention needed — tasks completed by any provider get their verification routed to remote.
 
 **Always use `torque-remote` for heavy commands:**
 ```
@@ -511,9 +506,9 @@ module.exports = { ..., createMyModule };
 
 ### Migration status
 
-- **130+ services** registered in the container
-- **170 modules** export factory functions
-- **database.js** is a legacy facade that merges 47 sub-modules — new code should use the container
+- **~48 modules** export `create*` factory functions for the DI container
+- **~36 modules** use the `init(deps)` dependency injection pattern
+- **database.js** is a legacy facade that merges ~44 sub-modules — new code should use the container or init() DI
 - **DI lint rule:** `npm run lint:di` (in server/) reports files still importing database.js directly
 - **Test helper:** `server/tests/test-container.js` provides DI-based test isolation
 
