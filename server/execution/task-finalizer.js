@@ -42,13 +42,15 @@ function init(nextDeps = {}) {
         && defaultContainer.has('fileRiskAdapter')
         && defaultContainer.has('taskCore')
         && defaultContainer.has('taskManager')
-        && defaultContainer.has('projectConfigCore')) {
+        && defaultContainer.has('projectConfigCore')
+        && defaultContainer.has('workflowEngine')) {
         deps.handleAdversarialReview = createAdversarialReviewStage({
           adversarialReviews: defaultContainer.get('adversarialReviews'),
           fileRiskAdapter: defaultContainer.get('fileRiskAdapter'),
           taskCore: defaultContainer.get('taskCore'),
           taskManager: defaultContainer.get('taskManager'),
           projectConfigCore: defaultContainer.get('projectConfigCore'),
+          workflowEngine: defaultContainer.get('workflowEngine'),
         });
       }
     }

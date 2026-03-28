@@ -10,6 +10,9 @@ allowed-tools:
   - mcp__torque__get_quality_score
   - mcp__torque__run_build_check
   - mcp__torque__run_syntax_check
+  - mcp__torque__get_adversarial_reviews
+  - mcp__torque__await_task
+  - mcp__torque__submit_task
   - mcp__torque__approve_task
   - mcp__torque__reject_task
   - mcp__torque__list_pending_approvals
@@ -64,13 +67,42 @@ Review completed task output with validation, quality scoring, and approval.
 [Pass/Fail/Skipped]
 ```
 
-7. **Decision**: Ask user via AskUserQuestion:
+7. **Adversarial Review Check**:
+   1. Call `get_adversarial_reviews` with the task ID.
+   2. If no reviews are returned:
+      - If metadata has `adversarial_review_pending: true` and `adversarial_review_task_id`:
+        - Call `await_task` on `adversarial_review_task_id` and wait for completion.
+        - Re-run `get_adversarial_reviews`.
+      - If `adversarial_review_pending: true` but no `adversarial_review_task_id` exists:
+        - Report this as blocked and continue to next task only after the metadata is cleaned.
+      - If there is no pending metadata:
+        - Continue to final decision without adversarial feedback.
+   3. If reviews exist, display verdict and confidence for each review and include an issues table with headers:
+
+   `file | line | severity | category | description | suggestion`
+
+   Example format:
+
+   ```md
+   - Verdict: approve | concerns | reject
+   - Confidence: high | medium | low
+   - Issues:
+   | file | line | severity | category | description | suggestion |
+   | --- | --- | --- | --- | --- | --- |
+   | [file] | [line] | [severity] | [category] | [description] | [suggestion] |
+   ```
+
+   4. If `verdict` is `approve`, proceed as safe to commit.
+   5. If `verdict` is `concerns`, request fixes if needed and commit only if acceptable.
+   6. If `verdict` is `reject`, do NOT commit. Submit a fix task targeting critical issues, then re-review.
+
+8. **Decision**: Ask user via AskUserQuestion:
    - **Approve** — accept the output, mark task approved
    - **Reject** — reject with reason, optionally rollback
    - **Retry** — reject and resubmit to a different provider
    - **Skip** — move to next task without deciding
 
-8. Execute the decision:
+9. Execute the decision:
    - Approve: call `approve_task`
    - Reject: call `reject_task` with the reason. If user wants rollback, call `rollback_task`.
    - Retry: call `reject_task`, then resubmit via `smart_submit_task` with `override_provider` set to an alternative

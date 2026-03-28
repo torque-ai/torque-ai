@@ -8,6 +8,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { createTask } = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
+const projectConfigCore = require('../../db/project-config-core');
 const {
   ErrorCodes,
   makeError,
@@ -39,6 +40,8 @@ function handleCreateFeatureWorkflow(args) {
   const _camel = name.charAt(0).toLowerCase() + name.slice(1);
   const pascal = name.charAt(0).toUpperCase() + name.slice(1);
   const wdir = args.working_directory;
+  const projectConfig = projectConfigCore ? projectConfigCore.getProjectConfig(wdir) : {};
+  const adversarialReviewEnabled = projectConfig.adversarial_review === 'auto' || projectConfig.adversarial_review === 'always';
   const stepProviders = args.step_providers || {};
   const routingTemplate = args.routing_template || null;
   const fixedStepNodeIds = [
@@ -87,12 +90,19 @@ function handleCreateFeatureWorkflow(args) {
 
   // Create workflow — store routing_template in context for inheritance by tasks
   const workflowId = uuidv4();
-  const workflowContext = routingTemplate ? { _routing_template: routingTemplate } : undefined;
+  const workflowContext = {};
+  if (routingTemplate) {
+    workflowContext._routing_template = routingTemplate;
+  }
+  if (adversarialReviewEnabled) {
+    workflowContext.adversarial_review_enabled = true;
+  }
+  const resolvedWorkflowContext = Object.keys(workflowContext).length > 0 ? workflowContext : undefined;
   workflowEngine.createWorkflow({
     id: workflowId,
     name: workflowName,
     description: args.description || `Auto-generated feature workflow for ${pascal}`,
-    context: workflowContext,
+    context: resolvedWorkflowContext,
   });
 
   const tasks = [];
@@ -119,7 +129,7 @@ function handleCreateFeatureWorkflow(args) {
       workflow_node_id: `${kebab}-types`,
       status: 'pending',
       provider: stepProviders.types,
-      metadata: buildStepMeta(stepProviders.types),
+      metadata: buildStepMeta(stepProviders.types, adversarialReviewEnabled ? { adversarial_review: true } : undefined),
     });
     tasks.push({ id: typesId, nodeId: `${kebab}-types`, step: 'types', provider: stepProviders.types });
   }
@@ -135,7 +145,7 @@ function handleCreateFeatureWorkflow(args) {
       workflow_node_id: `${kebab}-events`,
       status: 'pending',
       provider: stepProviders.events,
-      metadata: buildStepMeta(stepProviders.events),
+      metadata: buildStepMeta(stepProviders.events, adversarialReviewEnabled ? { adversarial_review: true } : undefined),
     });
     tasks.push({ id: eventsId, nodeId: `${kebab}-events`, step: 'events', provider: stepProviders.events });
   }
@@ -152,7 +162,7 @@ function handleCreateFeatureWorkflow(args) {
       workflow_node_id: `${kebab}-data`,
       status: typesTask ? 'blocked' : 'pending',
       provider: stepProviders.data,
-      metadata: buildStepMeta(stepProviders.data),
+      metadata: buildStepMeta(stepProviders.data, adversarialReviewEnabled ? { adversarial_review: true } : undefined),
     });
     if (typesTask) {
       workflowEngine.addTaskDependency({
@@ -178,7 +188,13 @@ function handleCreateFeatureWorkflow(args) {
       workflow_node_id: `${kebab}-system`,
       status: hasDeps ? 'blocked' : 'pending',
       provider: stepProviders.system,
-      metadata: buildStepMeta(stepProviders.system, { needs_review: true }),
+      metadata: buildStepMeta(
+        stepProviders.system,
+        {
+          needs_review: true,
+          ...(adversarialReviewEnabled ? { adversarial_review: true } : {}),
+        }
+      ),
     });
     if (dataTask) {
       workflowEngine.addTaskDependency({
@@ -233,7 +249,7 @@ function handleCreateFeatureWorkflow(args) {
       workflow_node_id: `${kebab}-wire`,
       status: systemTask ? 'blocked' : 'pending',
       provider: stepProviders.wire,
-      metadata: buildStepMeta(stepProviders.wire),
+      metadata: buildStepMeta(stepProviders.wire, adversarialReviewEnabled ? { adversarial_review: true } : undefined),
     });
     if (systemTask) {
       workflowEngine.addTaskDependency({

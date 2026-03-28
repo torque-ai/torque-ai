@@ -8,7 +8,7 @@ const DEFAULT_TIMEOUT_MINUTES = 30;
 
 function createAdversarialReviewStage({
   adversarialReviews, fileRiskAdapter, taskCore, taskManager,
-  projectConfigCore,
+  projectConfigCore, workflowEngine,
 }) {
 
   function selectReviewerProvider(originalProvider, chain) {
@@ -159,6 +159,48 @@ Rules:
     taskCore.createTask(reviewTask);
     taskManager.startTask(reviewTaskId);
 
+    // If task is part of a workflow, inject review as a DAG node
+    // so downstream nodes block until review completes
+    if (ctx.task?.workflow_id && ctx.task?.workflow_node_id) {
+      try {
+        const wfId = ctx.task.workflow_id;
+        const reviewNodeId = `review-${ctx.task.workflow_node_id}`;
+
+        // Update the review task to belong to this workflow
+        if (taskCore.updateTask) {
+          taskCore.updateTask(reviewTaskId, {
+            workflow_id: wfId,
+            workflow_node_id: reviewNodeId,
+          });
+        }
+
+        // Find all tasks that depend on the completed task
+        const allTasks = workflowEngine?.getWorkflowTasks?.(wfId);
+        const dependents = workflowEngine?.getTaskDependents?.(ctx.taskId);
+
+        // For each downstream task, add a dependency on the review task
+        if (Array.isArray(dependents)) {
+          for (const dep of dependents) {
+            workflowEngine?.addTaskDependency?.({
+              workflow_id: wfId,
+              task_id: dep.task_id,
+              depends_on_task_id: reviewTaskId,
+              on_fail: 'continue',
+            });
+          }
+        }
+
+        // Update workflow task count
+        if (workflowEngine?.updateWorkflowCounts) {
+          workflowEngine.updateWorkflowCounts(wfId);
+        }
+
+        void allTasks;
+      } catch (wfErr) {
+        // Best effort — don't fail the task if DAG injection fails
+      }
+    }
+
     // Mark original task (best effort)
     try {
       const updatedMeta = { ...metadata, adversarial_review_pending: true, adversarial_review_task_id: reviewTaskId };
@@ -170,4 +212,3 @@ Rules:
 }
 
 module.exports = { createAdversarialReviewStage };
-

@@ -353,6 +353,7 @@ async function handleRequestAdversarialReview(args = {}) {
   const fileRiskAdapter = defaultContainer.get('fileRiskAdapter');
   const taskManager = defaultContainer.get('taskManager');
   const projectConfigCore = defaultContainer.get('projectConfigCore');
+  const workflowEngine = defaultContainer.get('workflowEngine');
 
   let metadata = {};
   try {
@@ -376,6 +377,7 @@ async function handleRequestAdversarialReview(args = {}) {
     adversarialReviews,
     fileRiskAdapter,
     taskCore,
+    workflowEngine,
     taskManager,
     projectConfigCore,
   });
