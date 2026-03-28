@@ -1,29 +1,52 @@
+// project-config-core and task-core are pre-cached by vitest global setup.
+// vi.mock/vi.doMock can't intercept them. Monkey-patch the loaded modules instead.
+const projectConfigCore = require('../db/project-config-core');
+const taskCore = require('../db/task-core');
+const workflowEngine = require('../db/workflow-engine');
+const featureWorkflow = require('../handlers/workflow/feature-workflow');
+
 describe('handleCreateFeatureWorkflow adversarial review metadata', () => {
-  let featureWorkflow;
+  let originalGetProjectConfig;
+  let originalCreateTask;
+  let originalCreateWorkflow;
+  let originalAddTaskDependency;
+  let originalUpdateWorkflowCounts;
+  let originalFindEmpty;
+
   let mockCreateTask;
-  let mockGetProjectConfig;
 
   beforeEach(() => {
-    vi.resetModules();
+    // Save originals
+    originalGetProjectConfig = projectConfigCore.getProjectConfig;
+    originalCreateTask = taskCore.createTask;
+    originalCreateWorkflow = workflowEngine.createWorkflow;
+    originalAddTaskDependency = workflowEngine.addTaskDependency;
+    originalUpdateWorkflowCounts = workflowEngine.updateWorkflowCounts;
+    originalFindEmpty = workflowEngine.findEmptyWorkflowPlaceholder;
 
+    // Patch
     mockCreateTask = vi.fn();
-    mockGetProjectConfig = vi.fn().mockReturnValue({ adversarial_review: 'off' });
+    projectConfigCore.getProjectConfig = vi.fn().mockReturnValue({ adversarial_review: 'off' });
+    taskCore.createTask = mockCreateTask;
+    workflowEngine.createWorkflow = vi.fn();
+    workflowEngine.addTaskDependency = vi.fn();
+    workflowEngine.updateWorkflowCounts = vi.fn();
+    workflowEngine.findEmptyWorkflowPlaceholder = vi.fn().mockReturnValue(null);
 
-    vi.doMock('../db/task-core', () => ({ createTask: mockCreateTask }));
-    vi.doMock('../db/project-config-core', () => ({ getProjectConfig: mockGetProjectConfig }));
-    vi.doMock('../db/workflow-engine', () => ({
-      createWorkflow: vi.fn(),
-      addTaskDependency: vi.fn(),
-      updateWorkflowCounts: vi.fn(),
-      findEmptyWorkflowPlaceholder: vi.fn().mockReturnValue(null),
-      getWorkflowTasks: vi.fn().mockReturnValue([]),
-    }));
-
-    featureWorkflow = require('../handlers/workflow/feature-workflow');
     featureWorkflow.init({
       startWorkflowExecution: vi.fn(),
       buildEmptyWorkflowCreationError: vi.fn(),
     });
+  });
+
+  afterEach(() => {
+    // Restore originals
+    projectConfigCore.getProjectConfig = originalGetProjectConfig;
+    taskCore.createTask = originalCreateTask;
+    workflowEngine.createWorkflow = originalCreateWorkflow;
+    workflowEngine.addTaskDependency = originalAddTaskDependency;
+    workflowEngine.updateWorkflowCounts = originalUpdateWorkflowCounts;
+    workflowEngine.findEmptyWorkflowPlaceholder = originalFindEmpty;
   });
 
   function buildFeatureWorkflow(args) {
@@ -52,7 +75,7 @@ describe('handleCreateFeatureWorkflow adversarial review metadata', () => {
   }
 
   it('adds adversarial_review metadata on code-producing steps when enabled', () => {
-    mockGetProjectConfig.mockReturnValue({ adversarial_review: 'always' });
+    projectConfigCore.getProjectConfig = vi.fn().mockReturnValue({ adversarial_review: 'always' });
 
     buildFeatureWorkflow();
 
@@ -73,7 +96,7 @@ describe('handleCreateFeatureWorkflow adversarial review metadata', () => {
   });
 
   it('does not add adversarial_review metadata when review is off', () => {
-    mockGetProjectConfig.mockReturnValue({ adversarial_review: 'off' });
+    projectConfigCore.getProjectConfig = vi.fn().mockReturnValue({ adversarial_review: 'off' });
 
     buildFeatureWorkflow();
 
