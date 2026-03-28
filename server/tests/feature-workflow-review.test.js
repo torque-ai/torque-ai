@@ -1,27 +1,26 @@
-// Mock the dependencies BEFORE they're imported by feature-workflow
-const mockCreateTask = vi.fn();
-const mockCreateWorkflow = vi.fn();
-const mockAddTaskDependency = vi.fn();
-const mockUpdateWorkflowCounts = vi.fn();
-const mockFindEmptyWorkflowPlaceholder = vi.fn().mockReturnValue(null);
-const mockGetProjectConfig = vi.fn().mockReturnValue({ adversarial_review: 'off' });
+// Feature-workflow.js uses direct requires (not init/DI), so we mock at the module level.
+// The handler calls: projectConfigCore.getProjectConfig(), createTask(), workflowEngine.*
 
-vi.mock('../db/task-core', () => ({
-  createTask: mockCreateTask,
+vi.mock('../../db/project-config-core', () => ({
+  getProjectConfig: vi.fn().mockReturnValue({ adversarial_review: 'off' }),
 }));
 
-vi.mock('../db/workflow-engine', () => ({
-  createWorkflow: mockCreateWorkflow,
-  addTaskDependency: mockAddTaskDependency,
-  updateWorkflowCounts: mockUpdateWorkflowCounts,
-  findEmptyWorkflowPlaceholder: mockFindEmptyWorkflowPlaceholder,
+vi.mock('../../db/task-core', () => ({
+  createTask: vi.fn(),
 }));
 
-vi.mock('../db/project-config-core', () => ({
-  getProjectConfig: mockGetProjectConfig,
+vi.mock('../../db/workflow-engine', () => ({
+  createWorkflow: vi.fn(),
+  addTaskDependency: vi.fn(),
+  updateWorkflowCounts: vi.fn(),
+  findEmptyWorkflowPlaceholder: vi.fn().mockReturnValue(null),
+  getWorkflowTasks: vi.fn().mockReturnValue([]),
 }));
 
+// Import AFTER mocks are set up
 const featureWorkflow = require('../handlers/workflow/feature-workflow');
+const projectConfigCore = require('../db/project-config-core');
+const taskCore = require('../db/task-core');
 
 describe('handleCreateFeatureWorkflow adversarial review metadata', () => {
   function buildFeatureWorkflow(args) {
@@ -58,11 +57,11 @@ describe('handleCreateFeatureWorkflow adversarial review metadata', () => {
   });
 
   it('adds adversarial_review metadata on code-producing steps when enabled', () => {
-    mockGetProjectConfig.mockReturnValue({ adversarial_review: 'always' });
+    projectConfigCore.getProjectConfig.mockReturnValue({ adversarial_review: 'always' });
 
     buildFeatureWorkflow();
 
-    const createCalls = mockCreateTask.mock.calls.map(([task]) => task);
+    const createCalls = taskCore.createTask.mock.calls.map(([task]) => task);
     const typesMeta = getMetadataByNode(createCalls, 'player-stats-types');
     const eventsMeta = getMetadataByNode(createCalls, 'player-stats-events');
     const dataMeta = getMetadataByNode(createCalls, 'player-stats-data');
@@ -79,11 +78,11 @@ describe('handleCreateFeatureWorkflow adversarial review metadata', () => {
   });
 
   it('does not add adversarial_review metadata when review is off', () => {
-    mockGetProjectConfig.mockReturnValue({ adversarial_review: 'off' });
+    projectConfigCore.getProjectConfig.mockReturnValue({ adversarial_review: 'off' });
 
     buildFeatureWorkflow();
 
-    const createCalls = mockCreateTask.mock.calls.map(([task]) => task);
+    const createCalls = taskCore.createTask.mock.calls.map(([task]) => task);
     for (const task of createCalls) {
       expect(hasAdversarialReview(task.metadata)).toBe(false);
     }
