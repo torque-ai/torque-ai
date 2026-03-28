@@ -452,6 +452,25 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('releaseGateAdapter', require('./policy-engine/adapters/release-gate'));
   }
 
+  if (!_defaultContainer.has('fileRisk')) {
+    const { createFileRisk } = require('./db/file-risk');
+    _defaultContainer.registerValue('fileRisk', createFileRisk({ db }));
+  }
+  if (!_defaultContainer.has('fileRiskAdapter')) {
+    const { createFileRiskAdapter } = require('./policy-engine/adapters/file-risk');
+    const fileRisk = _defaultContainer.get('fileRisk');
+    _defaultContainer.registerValue('fileRiskAdapter', createFileRiskAdapter({ db, fileRisk }));
+  }
+  if (!_defaultContainer.has('verificationLedger')) {
+    const { createVerificationLedger } = require('./db/verification-ledger');
+    _defaultContainer.registerValue('verificationLedger', createVerificationLedger({ db }));
+  }
+  // Adversarial Reviews — Evidence & Risk Engine
+  if (!_defaultContainer.has('adversarialReviews')) {
+    const { createAdversarialReviews } = require('./db/adversarial-reviews');
+    _defaultContainer.registerValue('adversarialReviews', createAdversarialReviews({ db }));
+  }
+
   // Run config-to-registry migration now that DB is available and schema migrations
   // have already run (they complete during database.js initialization, before initModules).
   // All operations in migrateConfigToRegistry are idempotent — safe to call on every startup.

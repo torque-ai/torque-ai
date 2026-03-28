@@ -833,7 +833,7 @@ function _cleanOrphanedTaskChildren(taskId) {
     'task_streams', 'task_checkpoints', 'task_event_subscriptions', 'task_events',
     'task_suggestions', 'approval_requests', 'peek_recovery_approvals', 'task_comments', 'resource_usage',
     'task_claims', 'work_stealing_log', 'validation_results',
-    'pending_approvals', 'failure_matches', 'retry_attempts', 'diff_previews',
+    'pending_approvals', 'failure_matches', 'retry_attempts', 'diff_previews', 'adversarial_reviews', 'verification_checks',
     'quality_scores', 'task_rollbacks', 'build_checks', 'cost_tracking',
     'task_fingerprints', 'file_backups', 'security_scans', 'test_coverage',
     'style_checks', 'change_impacts', 'timeout_alerts', 'output_violations',

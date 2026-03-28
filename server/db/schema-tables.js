@@ -1,6 +1,7 @@
 const VALID_TABLE_NAMES = new Set([
   'a11y_results',
   'adaptive_retry_rules',
+  'adversarial_reviews',
   'agent_group_members',
   'agent_groups',
   'agent_metrics',
@@ -56,6 +57,7 @@ const VALID_TABLE_NAMES = new Set([
   'feature_flag_evidence',
   'file_backups',
   'file_baselines',
+  'file_risk_scores',
   'file_location_anomalies',
   'file_locks',
   'format_success_rates',
@@ -172,6 +174,7 @@ const VALID_TABLE_NAMES = new Set([
   'type_verification_results',
   'validation_results',
   'validation_rules',
+  'verification_checks',
   'vulnerability_scans',
   'webhook_deliveries',
   'webhook_logs',
@@ -3176,6 +3179,74 @@ function createTables(db, logger) {
       last_login_at TEXT
     )
   `);
+
+  // File risk scoring table for file-level evidence scoring
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS file_risk_scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path TEXT NOT NULL,
+        working_directory TEXT NOT NULL,
+        risk_level TEXT NOT NULL,
+        risk_reasons TEXT NOT NULL,
+        auto_scored INTEGER NOT NULL DEFAULT 1,
+        scored_at TEXT NOT NULL,
+        scored_by TEXT,
+        UNIQUE(file_path, working_directory)
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_risk_scores_level ON file_risk_scores(risk_level)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_risk_scores_path ON file_risk_scores(file_path)');
+  } catch (e) {
+    logger.debug(`Schema migration (file_risk_scores): ${e.message}`);
+  }
+
+  // Adversarial review table for secondary provider review outcomes
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS adversarial_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        review_task_id TEXT,
+        reviewer_provider TEXT NOT NULL,
+        reviewer_model TEXT,
+        verdict TEXT,
+        confidence TEXT,
+        issues TEXT,
+        diff_snippet TEXT,
+        duration_ms INTEGER,
+        created_at TEXT NOT NULL
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_adv_reviews_task ON adversarial_reviews(task_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_adv_reviews_verdict ON adversarial_reviews(verdict)');
+  } catch (e) {
+    logger.debug(`Schema migration (adversarial_reviews): ${e.message}`);
+  }
+
+  // Verification checks table for storing verification stage outcomes
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS verification_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        workflow_id TEXT,
+        phase TEXT NOT NULL,
+        check_name TEXT NOT NULL,
+        tool TEXT,
+        command TEXT,
+        exit_code INTEGER,
+        output_snippet TEXT,
+        passed INTEGER NOT NULL,
+        duration_ms INTEGER,
+        created_at TEXT NOT NULL
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verif_checks_task ON verification_checks(task_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verif_checks_phase ON verification_checks(phase)');
+  } catch (e) {
+    logger.debug(`Schema migration (verification_checks): ${e.message}`);
+  }
 
   // Add user ownership to API keys (nullable FK)
   try {
