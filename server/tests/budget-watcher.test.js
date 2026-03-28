@@ -1,8 +1,6 @@
 'use strict';
+/* global describe, it, expect, beforeEach, afterEach, vi */
 
-/* global describe, it, expect, beforeEach, afterEach */
-
-const { describe, it, expect, beforeEach, afterEach, vi } = require('vitest');
 const Database = require('better-sqlite3');
 const { createBudgetWatcher } = require('../db/budget-watcher');
 

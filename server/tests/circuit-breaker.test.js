@@ -233,7 +233,9 @@ describe('circuit-breaker', () => {
 
     expect(Object.keys(allStates).sort()).toEqual(['anthropic', 'deepinfra'].sort());
     expect(allStates).not.toHaveProperty('ollama');
-    expect(allStates.deepinfra.state).toBe(STATES.OPEN);
+    // Both were tripped at the same time with the same timeout,
+    // so advancing by baseRecoveryTimeoutMs transitions both to HALF_OPEN
+    expect(allStates.deepinfra.state).toBe(STATES.HALF_OPEN);
     expect(allStates.anthropic.state).toBe(STATES.HALF_OPEN);
   });
 });
