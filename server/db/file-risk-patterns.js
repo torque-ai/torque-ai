@@ -1,6 +1,6 @@
 'use strict';
 
-const { minimatch } = require('minimatch');
+const minimatch = require('minimatch');
 
 const BUILTIN_RULES = {
   high: [
