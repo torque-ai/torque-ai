@@ -1,15 +1,13 @@
-// Feature-workflow.js uses direct requires (not init/DI), so we mock at the module level.
-// The handler calls: projectConfigCore.getProjectConfig(), createTask(), workflowEngine.*
-
-vi.mock('../../db/project-config-core', () => ({
+// Mock paths are relative to THIS test file (server/tests/)
+vi.mock('../db/project-config-core', () => ({
   getProjectConfig: vi.fn().mockReturnValue({ adversarial_review: 'off' }),
 }));
 
-vi.mock('../../db/task-core', () => ({
+vi.mock('../db/task-core', () => ({
   createTask: vi.fn(),
 }));
 
-vi.mock('../../db/workflow-engine', () => ({
+vi.mock('../db/workflow-engine', () => ({
   createWorkflow: vi.fn(),
   addTaskDependency: vi.fn(),
   updateWorkflowCounts: vi.fn(),
@@ -17,7 +15,7 @@ vi.mock('../../db/workflow-engine', () => ({
   getWorkflowTasks: vi.fn().mockReturnValue([]),
 }));
 
-// Import AFTER mocks are set up
+// Import AFTER mocks
 const featureWorkflow = require('../handlers/workflow/feature-workflow');
 const projectConfigCore = require('../db/project-config-core');
 const taskCore = require('../db/task-core');
