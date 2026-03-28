@@ -294,7 +294,8 @@ function releaseFileLock(filePath, workingDirectory, taskId) {
   const stmt = db.prepare(`
     UPDATE file_locks SET released_at = ? WHERE file_path = ? AND working_directory = ? AND task_id = ?
   `);
-  stmt.run(new Date().toISOString(), filePath, workingDirectory, taskId);
+  const result = stmt.run(new Date().toISOString(), filePath, workingDirectory, taskId);
+  return result.changes;
 }
 
 /**
@@ -305,7 +306,8 @@ function releaseFileLock(filePath, workingDirectory, taskId) {
 
 function releaseAllFileLocks(taskId) {
   const stmt = db.prepare('UPDATE file_locks SET released_at = ? WHERE task_id = ? AND released_at IS NULL');
-  stmt.run(new Date().toISOString(), taskId);
+  const result = stmt.run(new Date().toISOString(), taskId);
+  return result.changes;
 }
 
 /**
