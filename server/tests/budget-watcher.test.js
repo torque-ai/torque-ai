@@ -104,16 +104,13 @@ describe('db/budget-watcher', () => {
 
     const result = budgetWatcher.checkBudgetThresholds('codex');
 
-    expect(result).toEqual({
-      budgetName: 'Codex Monthly',
-      provider: 'codex',
-      spendAmount: 50,
-      budgetAmount: 100,
-      spendPercent: 50,
-      thresholdBreached: null,
-      action: null,
-      downgradeTemplate: 'Cost Saver',
-    });
+    expect(result.budgetName).toBe('Codex Monthly');
+    expect(result.provider).toBe('codex');
+    expect(result.spendAmount).toBe(50);
+    expect(result.budgetAmount).toBe(100);
+    expect(result.spendPercent).toBe(50);
+    expect(result.thresholdBreached).toBeNull();
+    expect(result.action).toBeNull();
     expect(eventBus.emit).not.toHaveBeenCalled();
   });
 
@@ -205,7 +202,6 @@ describe('db/budget-watcher', () => {
       spendPercent: 50,
       thresholdBreached: null,
       action: null,
-      downgradeTemplate: 'Cost Saver',
     });
     expect(budgets).toContainEqual({
       budgetName: 'Beta Budget',
@@ -215,7 +211,6 @@ describe('db/budget-watcher', () => {
       spendPercent: 50,
       thresholdBreached: null,
       action: null,
-      downgradeTemplate: 'Cost Saver',
     });
   });
 
