@@ -441,6 +441,6 @@ module.exports = {
   getAllProviderScores,
   getCompositeWeights,
   setCompositeWeights,
-  recalculateComposite,
+  recalculateComposite: recomputeComposite,
   MIN_SAMPLES,
 };
