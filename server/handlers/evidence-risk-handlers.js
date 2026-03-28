@@ -6,6 +6,12 @@ const { isPathTraversalSafe } = require('./shared');
 
 const RISK_LEVELS = ['high', 'medium', 'low'];
 
+function toJsonResponse(payload) {
+  return {
+    content: [{ type: 'text', text: JSON.stringify(payload) }],
+  };
+}
+
 function getFileRiskService() {
   try {
     return defaultContainer.get('fileRisk');
@@ -92,14 +98,12 @@ function handleGetFileRisk(args = {}) {
 
   const record = fileRisk.getFileRisk(filePath.trim(), workingDirectory.trim());
   if (!record) {
-    return {
-      structuredData: {
-        found: false,
-        file_path: filePath.trim(),
-        working_directory: workingDirectory.trim(),
-      },
-      content: [{ type: 'text', text: `No risk data found for ${filePath.trim()}` }],
-    };
+    return toJsonResponse({
+      found: false,
+      file_path: filePath.trim(),
+      working_directory: workingDirectory.trim(),
+      message: `No risk data found for ${filePath.trim()}`,
+    });
   }
 
   const response = {
@@ -113,10 +117,7 @@ function handleGetFileRisk(args = {}) {
     scored_at: record.scored_at,
   };
 
-  return {
-    structuredData: response,
-    content: [{ type: 'text', text: `Risk for ${record.file_path}: ${record.risk_level}` }],
-  };
+  return toJsonResponse(response);
 }
 
 function handleGetTaskRiskSummary(args = {}) {
@@ -145,10 +146,11 @@ function handleGetTaskRiskSummary(args = {}) {
     unscored: summary.unscored.length,
   };
 
-  return {
-    structuredData: summary,
-    content: [{ type: 'text', text: `Task risk summary for ${taskId}: ${counts.high} high, ${counts.medium} medium, ${counts.low} low, ${counts.unscored} unscored (overall ${summary.overall_risk}).` }],
-  };
+  return toJsonResponse({
+    ...summary,
+    counts,
+    message: `Task risk summary for ${taskId}: ${counts.high} high, ${counts.medium} medium, ${counts.low} low, ${counts.unscored} unscored (overall ${summary.overall_risk}).`,
+  });
 }
 
 function handleSetFileRiskOverride(args = {}) {
@@ -191,10 +193,7 @@ function handleSetFileRiskOverride(args = {}) {
     reason,
   };
 
-  return {
-    structuredData: result,
-    content: [{ type: 'text', text: `Risk override set for ${filePath}: ${result.risk_level}` }],
-  };
+  return toJsonResponse(result);
 }
 
 function handleGetHighRiskFiles(args = {}) {
@@ -223,21 +222,16 @@ function handleGetHighRiskFiles(args = {}) {
     scored_at: row.scored_at,
   }));
 
-  return {
-    structuredData: {
-      working_directory: workingDirectory,
-      min_level: minLevel,
-      count: mapped.length,
-      files: mapped,
-    },
-    content: [{
-      type: 'text',
-      text: `Found ${mapped.length} file(s) at minimum risk level "${minLevel}" in ${workingDirectory}`,
-    }],
-  };
+  return toJsonResponse({
+    working_directory: workingDirectory,
+    min_level: minLevel,
+    count: mapped.length,
+    files: mapped,
+    message: `Found ${mapped.length} file(s) at minimum risk level "${minLevel}" in ${workingDirectory}`,
+  });
 }
 
-function handleGetVerificationLedger(args = {}) {
+function handleGetVerificationChecks(args = {}) {
   const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
   if (!taskId) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
@@ -272,10 +266,14 @@ function handleGetVerificationLedger(args = {}) {
     summary.check_name = checkName;
   }
 
-  return {
-    structuredData: summary,
-    content: [{ type: 'text', text: `Found ${checks.length} verification check(s) for task ${taskId}` }],
-  };
+  return toJsonResponse({
+    ...summary,
+    message: `Found ${checks.length} verification check(s) for task ${taskId}`,
+  });
+}
+
+function handleGetVerificationLedger(args = {}) {
+  return handleGetVerificationChecks(args);
 }
 
 function handleGetVerificationSummary(args = {}) {
@@ -292,14 +290,12 @@ function handleGetVerificationSummary(args = {}) {
   const summary = verificationLedger.getCheckSummary(workflowId) || {};
   const total = Object.values(summary).reduce((acc, info) => acc + (Number(info.total) || 0), 0);
 
-  return {
-    structuredData: {
-      workflow_id: workflowId,
-      total,
-      summary,
-    },
-    content: [{ type: 'text', text: `Verification check summary for workflow ${workflowId}: ${total} checks` }],
-  };
+  return toJsonResponse({
+    workflow_id: workflowId,
+    total,
+    summary,
+    message: `Verification check summary for workflow ${workflowId}: ${total} checks`,
+  });
 }
 
 async function handleGetAdversarialReviews(args = {}) {
@@ -408,6 +404,7 @@ module.exports = {
   handleGetTaskRiskSummary,
   handleSetFileRiskOverride,
   handleGetHighRiskFiles,
+  handleGetVerificationChecks,
   handleGetVerificationLedger,
   handleGetVerificationSummary,
   handleGetAdversarialReviews,

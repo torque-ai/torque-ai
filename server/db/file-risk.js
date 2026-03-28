@@ -3,18 +3,36 @@
 const RISK_LEVELS = ['high', 'medium', 'low'];
 const RISK_LEVEL_ORDER = { high: 0, medium: 1, low: 2 };
 
+function parseRiskReasons(value) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return [];
+  }
+}
+
 function createFileRisk({ db }) {
   function upsertScore({ file_path, working_directory, risk_level, risk_reasons, scored_by }) {
     const now = new Date().toISOString();
+    const serializedReasons = typeof risk_reasons === 'string'
+      ? risk_reasons
+      : JSON.stringify(risk_reasons || []);
+
     db.prepare(`
       INSERT INTO file_risk_scores (file_path, working_directory, risk_level, risk_reasons, auto_scored, scored_at, scored_by)
       VALUES (?, ?, ?, ?, 1, ?, ?)
       ON CONFLICT(file_path, working_directory) DO UPDATE SET
-        risk_level = CASE WHEN auto_scored = 0 THEN risk_level ELSE excluded.risk_level END,
-        risk_reasons = CASE WHEN auto_scored = 0 THEN risk_reasons ELSE excluded.risk_reasons END,
+        risk_level = excluded.risk_level,
+        risk_reasons = excluded.risk_reasons,
+        auto_scored = 1,
         scored_at = excluded.scored_at,
         scored_by = excluded.scored_by
-    `).run(file_path, working_directory, risk_level, risk_reasons, now, scored_by || 'pattern');
+      WHERE file_risk_scores.auto_scored = 1;
+    `).run(file_path, working_directory, risk_level, serializedReasons, now, scored_by || 'pattern');
   }
 
   function getFileRisk(filePath, workingDirectory) {
@@ -24,14 +42,22 @@ function createFileRisk({ db }) {
 
   function getFilesAtRisk(workingDirectory, minLevel = 'low') {
     const minOrder = RISK_LEVEL_ORDER[minLevel] ?? 2;
-    const levels = RISK_LEVELS.filter((l) => RISK_LEVEL_ORDER[l] <= minOrder);
-    if (levels.length === 0) {
-      return [];
-    }
-    const placeholders = levels.map(() => '?').join(',');
     return db.prepare(
-      `SELECT * FROM file_risk_scores WHERE working_directory = ? AND risk_level IN (${placeholders}) ORDER BY risk_level`
-    ).all(workingDirectory, ...levels);
+      `SELECT * FROM file_risk_scores
+       WHERE working_directory = ?
+         AND CASE risk_level
+          WHEN 'high' THEN 0
+          WHEN 'medium' THEN 1
+          WHEN 'low' THEN 2
+          ELSE 3
+        END <= ?
+       ORDER BY CASE risk_level
+        WHEN 'high' THEN 0
+        WHEN 'medium' THEN 1
+        WHEN 'low' THEN 2
+        ELSE 3
+      END, file_path`
+    ).all(workingDirectory, minOrder);
   }
 
   function setManualOverride(filePath, workingDirectory, riskLevel, reason) {
@@ -60,7 +86,10 @@ function createFileRisk({ db }) {
     for (const f of files) {
       const level = f.risk_level || 'unscored';
       const bucket = summary[level] || summary.unscored;
-      bucket.push({ file_path: f.file_path, risk_reasons: f.risk_reasons ? JSON.parse(f.risk_reasons) : [] });
+      bucket.push({
+        file_path: f.file_path,
+        risk_reasons: parseRiskReasons(f.risk_reasons),
+      });
     }
     if (summary.high.length > 0) {
       summary.overall_risk = 'high';

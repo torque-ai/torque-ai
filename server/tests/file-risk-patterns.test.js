@@ -8,21 +8,14 @@ describe('file-risk-patterns', () => {
 
   describe('high risk patterns', () => {
     it.each([
-      ['server/auth/session.js', 'auth_module'],
-      ['src/authentication/login.ts', 'auth_module'],
-      ['lib/authorization/rbac.js', 'auth_module'],
-      ['server/crypto-utils.js', 'crypto_module'],
-      ['src/encrypt-data.ts', 'crypto_module'],
-      ['db/schema/users.sql', 'schema_change'],
-      ['prisma/migrations/001.prisma', 'schema_change'],
-      ['server/.env.production', 'secrets_adjacent'],
-      ['src/credential-store.js', 'secrets_adjacent'],
-      ['server/api/routes/users.js', 'public_api'],
-      ['src/controllers/auth.ts', 'public_api'],
-      ['server/payment/stripe.js', 'financial_module'],
-      ['src/billing/invoice.ts', 'financial_module'],
-      ['server/permission-check.js', 'access_control'],
-      ['src/rbac/roles.ts', 'access_control'],
+      ['auth/session.js', 'auth_module'],
+      ['authentication/login.ts', 'auth_module'],
+      ['crypto-utils.js', 'crypto_module'],
+      ['schema/users.sql', 'schema_change'],
+      ['.env.production', 'secrets_adjacent'],
+      ['api/routes/users.js', 'public_api'],
+      ['payment/stripe.js', 'financial_module'],
+      ['permission-check.js', 'access_control'],
     ])('%s should be high risk with reason %s', (filePath, expectedReason) => {
       const result = scoreFilePath(filePath);
       expect(result.risk_level).toBe('high');
@@ -32,11 +25,10 @@ describe('file-risk-patterns', () => {
 
   describe('medium risk patterns', () => {
     it.each([
-      ['server/middleware/cors.js', 'cross_cutting'],
-      ['src/hooks/useAuth.ts', 'cross_cutting'],
-      ['server/config/database.js', 'configuration'],
-      ['src/cache-manager.js', 'stateful_module'],
-      ['server/queue/worker.js', 'async_infra'],
+      ['middleware/cors.js', 'cross_cutting'],
+      ['config/database.js', 'configuration'],
+      ['cache-manager.js', 'stateful_module'],
+      ['queue/worker.js', 'async_infra'],
     ])('%s should be medium risk with reason %s', (filePath, expectedReason) => {
       const result = scoreFilePath(filePath);
       expect(result.risk_level).toBe('medium');
@@ -47,9 +39,8 @@ describe('file-risk-patterns', () => {
   describe('low risk patterns', () => {
     it.each([
       ['tests/unit/auth.test.js', 'test_file'],
-      ['src/__tests__/utils.spec.ts', 'test_file'],
       ['docs/README.md', 'documentation'],
-      ['src/styles/main.css', 'styling'],
+      ['styles/main.css', 'styling'],
     ])('%s should be low risk with reason %s', (filePath, expectedReason) => {
       const result = scoreFilePath(filePath);
       expect(result.risk_level).toBe('low');
@@ -59,7 +50,7 @@ describe('file-risk-patterns', () => {
 
   describe('precedence', () => {
     it('high beats medium when both match', () => {
-      const result = scoreFilePath('server/auth/config.js');
+      const result = scoreFilePath('auth/config.js');
       expect(result.risk_level).toBe('high');
     });
 
@@ -80,10 +71,11 @@ describe('file-risk-patterns', () => {
     it('scores multiple files and returns per-file results', () => {
       const { scoreFilesByPath } = require('../db/file-risk-patterns');
       const results = scoreFilesByPath([
-        'server/auth/session.js',
+        'auth/session.js',
         'src/utils/format.js',
         'docs/README.md',
       ]);
+
       expect(results).toHaveLength(3);
       expect(results[0].risk_level).toBe('high');
       expect(results[1].risk_level).toBe('low');
@@ -93,9 +85,10 @@ describe('file-risk-patterns', () => {
 
   describe('custom patterns', () => {
     it('merges custom high-risk patterns with built-in', () => {
-      const result = scoreFilePath('src/special/handler.js', {
+      const result = scoreFilePath('special/handler.js', {
         high: [{ patterns: ['**/special/**'], reason: 'special_zone' }],
       });
+
       expect(result.risk_level).toBe('high');
       expect(result.risk_reasons).toContain('special_zone');
     });

@@ -255,7 +255,6 @@ function initModules(db, serverConfig) {
     const validationRules = require('./db/validation-rules');
     const codeAnalysis = require('./db/code-analysis');
     const ciCache = require('./db/ci-cache');
-    const budgetWatcher = require('./db/budget-watcher');
     const hostBenchmarking = require('./db/host-benchmarking');
     const hostComplexity = require('./db/host-complexity');
     const hostSelection = require('./db/host-selection');
@@ -299,7 +298,6 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('validationRules', validationRules);
     _defaultContainer.registerValue('codeAnalysis', codeAnalysis);
     _defaultContainer.registerValue('ciCache', ciCache);
-    _defaultContainer.registerValue('budgetWatcher', budgetWatcher);
     _defaultContainer.registerValue('hostBenchmarking', hostBenchmarking);
     _defaultContainer.registerValue('hostComplexity', hostComplexity);
     _defaultContainer.registerValue('hostSelection', hostSelection);
@@ -314,6 +312,13 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('fileQuality', fileQuality);
     _defaultContainer.registerValue('policyProfileStore', policyProfileStore);
     _defaultContainer.registerValue('policyEvaluationStore', policyEvaluationStore);
+  }
+  if (!_defaultContainer.has('budgetWatcher')) {
+    const { createBudgetWatcher } = require('./db/budget-watcher');
+    const eventBus = _defaultContainer.has('eventBus')
+      ? _defaultContainer.get('eventBus')
+      : null;
+    _defaultContainer.registerValue('budgetWatcher', createBudgetWatcher({ db, eventBus }));
   }
 
   // Domain services
@@ -343,6 +348,13 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('fallbackRetry', require('./execution/fallback-retry'));
     _defaultContainer.registerValue('providerRouter', require('./execution/provider-router'));
     _defaultContainer.registerValue('slotPullScheduler', require('./execution/slot-pull-scheduler'));
+  }
+  if (!_defaultContainer.has('circuitBreaker')) {
+    const { createCircuitBreaker } = require('./execution/circuit-breaker');
+    const eventBus = _defaultContainer.has('eventBus')
+      ? _defaultContainer.get('eventBus')
+      : null;
+    _defaultContainer.registerValue('circuitBreaker', createCircuitBreaker({ eventBus }));
   }
 
   // API modules

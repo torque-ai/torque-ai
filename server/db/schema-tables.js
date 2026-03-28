@@ -3180,25 +3180,28 @@ function createTables(db, logger) {
     )
   `);
 
-  // File risk scoring table for file-level evidence scoring
+  // Verification checks table for storing verification stage outcomes
   try {
     db.exec(`
-      CREATE TABLE IF NOT EXISTS file_risk_scores (
+      CREATE TABLE IF NOT EXISTS verification_checks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        file_path TEXT NOT NULL,
-        working_directory TEXT NOT NULL,
-        risk_level TEXT NOT NULL,
-        risk_reasons TEXT NOT NULL,
-        auto_scored INTEGER NOT NULL DEFAULT 1,
-        scored_at TEXT NOT NULL,
-        scored_by TEXT,
-        UNIQUE(file_path, working_directory)
+        task_id TEXT NOT NULL,
+        workflow_id TEXT,
+        phase TEXT NOT NULL,
+        check_name TEXT NOT NULL,
+        tool TEXT,
+        command TEXT,
+        exit_code INTEGER,
+        output_snippet TEXT,
+        passed INTEGER NOT NULL,
+        duration_ms INTEGER,
+        created_at TEXT NOT NULL
       )
     `);
-    db.exec('CREATE INDEX IF NOT EXISTS idx_risk_scores_level ON file_risk_scores(risk_level)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_risk_scores_path ON file_risk_scores(file_path)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verif_checks_task ON verification_checks(task_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_verif_checks_phase ON verification_checks(phase)');
   } catch (e) {
-    logger.debug(`Schema migration (file_risk_scores): ${e.message}`);
+    logger.debug(`Schema migration (verification_checks): ${e.message}`);
   }
 
   // Adversarial review table for secondary provider review outcomes
@@ -3224,28 +3227,25 @@ function createTables(db, logger) {
     logger.debug(`Schema migration (adversarial_reviews): ${e.message}`);
   }
 
-  // Verification checks table for storing verification stage outcomes
+  // File risk scoring table for file-level evidence scoring
   try {
     db.exec(`
-      CREATE TABLE IF NOT EXISTS verification_checks (
+      CREATE TABLE IF NOT EXISTS file_risk_scores (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id TEXT NOT NULL,
-        workflow_id TEXT,
-        phase TEXT NOT NULL,
-        check_name TEXT NOT NULL,
-        tool TEXT,
-        command TEXT,
-        exit_code INTEGER,
-        output_snippet TEXT,
-        passed INTEGER NOT NULL,
-        duration_ms INTEGER,
-        created_at TEXT NOT NULL
+        file_path TEXT NOT NULL,
+        working_directory TEXT NOT NULL,
+        risk_level TEXT NOT NULL,
+        risk_reasons TEXT NOT NULL,
+        auto_scored INTEGER NOT NULL DEFAULT 1,
+        scored_at TEXT NOT NULL,
+        scored_by TEXT,
+        UNIQUE(file_path, working_directory)
       )
     `);
-    db.exec('CREATE INDEX IF NOT EXISTS idx_verif_checks_task ON verification_checks(task_id)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_verif_checks_phase ON verification_checks(phase)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_risk_scores_level ON file_risk_scores(risk_level)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_risk_scores_path ON file_risk_scores(file_path)');
   } catch (e) {
-    logger.debug(`Schema migration (verification_checks): ${e.message}`);
+    logger.debug(`Schema migration (file_risk_scores): ${e.message}`);
   }
 
   // Add user ownership to API keys (nullable FK)

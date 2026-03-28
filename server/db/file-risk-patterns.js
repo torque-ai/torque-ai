@@ -36,16 +36,19 @@ function matchesAny(filePath, patterns) {
 }
 
 function scoreFileByPath(filePath, customPatterns = {}) {
+  const normalizedPath = (filePath || '').replace(/\\/g, '/');
   const reasons = { high: [], medium: [], low: [] };
-  const testFile = isTestFile(filePath);
+
+  if (isTestFile(normalizedPath)) {
+    return { risk_level: 'low', risk_reasons: ['test_file'] };
+  }
 
   for (const level of ['high', 'medium', 'low']) {
     const rules = [...BUILTIN_RULES[level], ...(customPatterns[level] || [])];
     for (const rule of rules) {
-      if (rule.excludeTests && testFile) continue;
-      if (rule.excludePatterns && matchesAny(filePath, rule.excludePatterns)) continue;
+      if (rule.excludePatterns && matchesAny(normalizedPath, rule.excludePatterns)) continue;
       const patterns = rule.patterns || (rule.pattern ? [rule.pattern] : []);
-      if (matchesAny(filePath, patterns)) {
+      if (matchesAny(normalizedPath, patterns)) {
         reasons[level].push(rule.reason);
       }
     }

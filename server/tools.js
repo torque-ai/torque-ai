@@ -43,6 +43,8 @@ const TOOLS = [
   ...require('./tool-defs/concurrency-defs'),
   ...require('./tool-defs/model-defs'),
   ...require('./tool-defs/discovery-defs'),
+  ...require('./tool-defs/circuit-breaker-defs'),
+  ...require('./tool-defs/budget-watcher-defs'),
   ...require('./tool-defs/routing-template-defs'),
   ...require('./tool-defs/strategic-config-defs'),
   ...require('./tool-defs/context-defs'),
@@ -114,10 +116,12 @@ const HANDLER_MODULES = [
   require('./handlers/concurrency-handlers'),
   require('./handlers/model-handlers'),
   require('./handlers/discovery-handlers'),
+  require('./handlers/circuit-breaker-handlers'),
   require('./handlers/model-registry-handlers'),
   require('./handlers/routing-template-handlers'),
   require('./handlers/strategic-config-handlers'),
   require('./handlers/context-handler'),
+  require('./handlers/budget-handlers'),
   require('./handlers/diffusion-handlers'),
 ];
 

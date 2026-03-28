@@ -93,6 +93,12 @@ const OVERRIDES = Object.freeze({
   strategic_benchmark:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   audit_codebase:                  Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   request_adversarial_review:      Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  get_file_risk:                   READONLY,
+  get_task_risk_summary:           READONLY,
+  get_high_risk_files:             READONLY,
+  get_verification_checks:         READONLY,
+  get_verification_summary:        READONLY,
+  set_file_risk_override:          Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   batch_retry:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   batch_tag:                       Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
 
@@ -106,6 +112,8 @@ const OVERRIDES = Object.freeze({
   evaluate_policies:               Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   probe_workstation:               Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   get_context:                     Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  get_circuit_breaker_status:      Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  get_budget_status:               Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
 
   // destructive: deletes, removes, invalidates
   perform_auto_rollback:           Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: false }),

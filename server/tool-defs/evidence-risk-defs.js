@@ -74,13 +74,14 @@ module.exports = [
           type: 'string',
           enum: ['high', 'medium', 'low'],
           description: 'Minimum level to include (default: high).',
+          default: 'high',
         },
       },
       required: ['working_directory'],
     },
   },
   {
-    name: 'get_verification_ledger',
+    name: 'get_verification_checks',
     description: 'Query verification checks for a task. Returns all recorded build, test, lint, review, and safeguard check results.',
     inputSchema: {
       type: 'object',

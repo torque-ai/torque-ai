@@ -16,6 +16,7 @@ const { TASK_TIMEOUTS } = require('../../constants');
 const { safeExecChain } = require('../../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../../execution/command-policy');
 const { checkResourceGate } = require('../../utils/resource-gate');
+const { mutex: commitMutex } = require('../../utils/commit-mutex');
 const hostMonitoring = require('../../utils/host-monitoring');
 const activityMonitoring = require('../../utils/activity-monitoring');
 let _commitMutex = null, _cmLoaded = false;
@@ -824,172 +825,165 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
   }
 
   // Post-workflow verify + commit (serialized via commit mutex)
-  const _wfMutex = getCommitMutex();
-  let _wfMutexRelease = null;
-  if (_wfMutex && (args.verify_command || args.auto_commit) && wfStatus === 'completed') {
-    try { _wfMutexRelease = await _wfMutex.acquire(60000); } catch (_e) {
-      output += '\n**Commit mutex timeout** — another workflow is committing. Skipping verify/commit.\n';
-      return output;
-    }
-  }
-  try {
-
-  // Post-workflow verify command (only if all succeeded)
-  if (args.verify_command && wfStatus === 'completed') {
-    const targetHostId = args.host_id || null;
-    const gateResult = checkResourceGate(hostMonitoring.hostActivityCache, targetHostId);
-    const { validateShellCommand } = require('../../utils/shell-policy');
-    output += `\n### Verification\n\n`;
-    if (!gateResult.allowed) {
-      output += `Verify skipped: ${gateResult.reason}\n`;
-      return output;
-    }
-
-    const shellCheck = validateShellCommand(args.verify_command);
-    if (!shellCheck.ok) {
-      output += `**Rejected:** ${shellCheck.reason}\n`;
-      return output;
-    }
+  if ((args.verify_command || args.auto_commit) && wfStatus === 'completed') {
+    const release = await commitMutex.acquire(30000);
     try {
-      const cwd = args.working_directory || workflow.working_directory || process.cwd();
-      let hasTorqueRemote = false;
-      try {
-        require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore', windowsHide: true });
-        hasTorqueRemote = true;
-      } catch {}
-      const effectiveCommand = hasTorqueRemote
-        ? `torque-remote ${args.verify_command}`
-        : args.verify_command;
-      const verifyResult = safeExecChain(effectiveCommand, {
-        cwd,
-        timeout: TASK_TIMEOUTS.VERIFY_COMMAND,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      if (verifyResult.exitCode === 0) {
-        const trimmed = (verifyResult.output || '').trim().substring(0, 2000);
-        output += `**Verify command:** \`${args.verify_command}\`\n`;
-        output += `**Result:** PASSED\n`;
-        if (trimmed) output += `\`\`\`\n${trimmed}\n\`\`\`\n`;
-      } else {
-        const stderr = `${verifyResult.output || ''}\n${verifyResult.error || ''}`.trim().substring(0, 1000);
-        output += `**Verify command:** \`${args.verify_command}\`\n`;
-        output += `**Result:** FAILED\n`;
-        output += `\`\`\`\n${stderr}\n\`\`\`\n`;
-        return output;  // Don't auto-commit if verify failed
-      }
-    } catch (verifyErr) {
-      output += `**Verify command:** \`${args.verify_command}\`\n`;
-      output += `**Result:** FAILED\n`;
-      output += `\`\`\`\n${(verifyErr.message || '').toString().substring(0, 1000)}\n\`\`\`\n`;
-      return output;  // Don't auto-commit if verify failed
-    }
-  }
+      // Post-workflow verify command (only if all succeeded)
+      if (args.verify_command && wfStatus === 'completed') {
+        const targetHostId = args.host_id || null;
+        const gateResult = checkResourceGate(hostMonitoring.hostActivityCache, targetHostId);
+        const { validateShellCommand } = require('../../utils/shell-policy');
+        output += `\n### Verification\n\n`;
+        if (!gateResult.allowed) {
+          output += `Verify skipped: ${gateResult.reason}\n`;
+          return output;
+        }
 
-  // Auto-commit on success
-  if (args.auto_commit && wfStatus === 'completed') {
-    output += `\n### Auto-Commit\n\n`;
-    try {
-      const cwd = args.working_directory || workflow.working_directory || process.cwd();
-      const filesToCommit = collectWorkflowCommitPaths(tasks, cwd);
-      const commitPaths = filesToCommit.length > 0 ? filesToCommit : getFallbackCommitPaths(cwd);
-      if (commitPaths.length === 0) {
-        output += `No changes to commit.\n`;
-        return output;
-      }
-
-      const commitMsg = args.commit_message || `feat: ${workflow.name}`;
-
-      // Wrap git add separately so failures are clearly attributed.
-      try {
-        executeValidatedCommandSync('git', ['add', '--', ...commitPaths], {
-          profile: 'advanced_shell',
-          dangerous: true,
-          source: 'await_workflow',
-          caller: 'formatFinalSummary',
-          cwd,
-          timeout: TASK_TIMEOUTS.GIT_ADD,
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-      } catch (addErr) {
-        output += `**Auto-Commit failed (git add):** ${(addErr.message || '').substring(0, 500)}\n`;
-        return output;
-      }
-
-      let stagedPaths;
-      try {
-        stagedPaths = executeValidatedCommandSync('git', ['diff', '--cached', '--name-only', '--relative', '--', ...commitPaths], {
-          profile: 'safe_verify',
-          source: 'await_workflow',
-          caller: 'formatFinalSummary',
-          cwd,
-          timeout: TASK_TIMEOUTS.GIT_STATUS,
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe']
-        }).trim();
-      } catch (diffErr) {
-        output += `**Auto-Commit failed (git diff --cached):** ${(diffErr.message || '').substring(0, 500)}\n`;
-        return output;
-      }
-
-      if (!stagedPaths) {
-        output += `No changes to commit.\n`;
-        return output;
-      }
-
-      // Wrap git commit separately.
-      try {
-        executeValidatedCommandSync('git', ['commit', '-m', commitMsg, '--', ...commitPaths], {
-          profile: 'advanced_shell',
-          dangerous: true,
-          source: 'await_workflow',
-          caller: 'formatFinalSummary',
-          cwd,
-          timeout: TASK_TIMEOUTS.GIT_COMMIT,
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-      } catch (commitErr) {
-        output += `**Auto-Commit failed (git commit):** ${(commitErr.message || '').substring(0, 500)}\n`;
-        return output;
-      }
-
-      const sha = executeValidatedCommandSync('git', ['rev-parse', '--short', 'HEAD'], {
-        profile: 'advanced_shell',
-        dangerous: true,
-        source: 'await_workflow',
-        caller: 'formatFinalSummary',
-        cwd,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      }).trim();
-      output += `**Committed:** ${sha} — ${commitMsg}\n`;
-
-      if (args.auto_push === true) {
+        const shellCheck = validateShellCommand(args.verify_command);
+        if (!shellCheck.ok) {
+          output += `**Rejected:** ${shellCheck.reason}\n`;
+          return output;
+        }
         try {
-          executeValidatedCommandSync('git', ['push'], {
+          const cwd = args.working_directory || workflow.working_directory || process.cwd();
+          let hasTorqueRemote = false;
+          try {
+            require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore', windowsHide: true });
+            hasTorqueRemote = true;
+          } catch {}
+          const effectiveCommand = hasTorqueRemote
+            ? `torque-remote ${args.verify_command}`
+            : args.verify_command;
+          const verifyResult = safeExecChain(effectiveCommand, {
+            cwd,
+            timeout: TASK_TIMEOUTS.VERIFY_COMMAND,
+            encoding: 'utf8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+          if (verifyResult.exitCode === 0) {
+            const trimmed = (verifyResult.output || '').trim().substring(0, 2000);
+            output += `**Verify command:** \`${args.verify_command}\`\n`;
+            output += `**Result:** PASSED\n`;
+            if (trimmed) output += `\`\`\`\n${trimmed}\n\`\`\`\n`;
+          } else {
+            const stderr = `${verifyResult.output || ''}\n${verifyResult.error || ''}`.trim().substring(0, 1000);
+            output += `**Verify command:** \`${args.verify_command}\`\n`;
+            output += `**Result:** FAILED\n`;
+            output += `\`\`\`\n${stderr}\n\`\`\`\n`;
+            return output;  // Don't auto-commit if verify failed
+          }
+        } catch (verifyErr) {
+          output += `**Verify command:** \`${args.verify_command}\`\n`;
+          output += `**Result:** FAILED\n`;
+          output += `\`\`\`\n${(verifyErr.message || '').toString().substring(0, 1000)}\n\`\`\`\n`;
+          return output;  // Don't auto-commit if verify failed
+        }
+      }
+
+      // Auto-commit on success
+      if (args.auto_commit && wfStatus === 'completed') {
+        output += `\n### Auto-Commit\n\n`;
+        try {
+          const cwd = args.working_directory || workflow.working_directory || process.cwd();
+          const filesToCommit = collectWorkflowCommitPaths(tasks, cwd);
+          const commitPaths = filesToCommit.length > 0 ? filesToCommit : getFallbackCommitPaths(cwd);
+          if (commitPaths.length === 0) {
+            output += `No changes to commit.\n`;
+            return output;
+          }
+
+          const commitMsg = args.commit_message || `feat: ${workflow.name}`;
+
+          // Wrap git add separately so failures are clearly attributed.
+          try {
+            executeValidatedCommandSync('git', ['add', '--', ...commitPaths], {
+              profile: 'advanced_shell',
+              dangerous: true,
+              source: 'await_workflow',
+              caller: 'formatFinalSummary',
+              cwd,
+              timeout: TASK_TIMEOUTS.GIT_ADD,
+              encoding: 'utf8',
+              stdio: ['pipe', 'pipe', 'pipe']
+            });
+          } catch (addErr) {
+            output += `**Auto-Commit failed (git add):** ${(addErr.message || '').substring(0, 500)}\n`;
+            return output;
+          }
+
+          let stagedPaths;
+          try {
+            stagedPaths = executeValidatedCommandSync('git', ['diff', '--cached', '--name-only', '--relative', '--', ...commitPaths], {
+              profile: 'safe_verify',
+              source: 'await_workflow',
+              caller: 'formatFinalSummary',
+              cwd,
+              timeout: TASK_TIMEOUTS.GIT_STATUS,
+              encoding: 'utf8',
+              stdio: ['pipe', 'pipe', 'pipe']
+            }).trim();
+          } catch (diffErr) {
+            output += `**Auto-Commit failed (git diff --cached):** ${(diffErr.message || '').substring(0, 500)}\n`;
+            return output;
+          }
+
+          if (!stagedPaths) {
+            output += `No changes to commit.\n`;
+            return output;
+          }
+
+          // Wrap git commit separately.
+          try {
+            executeValidatedCommandSync('git', ['commit', '-m', commitMsg, '--', ...commitPaths], {
+              profile: 'advanced_shell',
+              dangerous: true,
+              source: 'await_workflow',
+              caller: 'formatFinalSummary',
+              cwd,
+              timeout: TASK_TIMEOUTS.GIT_COMMIT,
+              encoding: 'utf8',
+              stdio: ['pipe', 'pipe', 'pipe']
+            });
+          } catch (commitErr) {
+            output += `**Auto-Commit failed (git commit):** ${(commitErr.message || '').substring(0, 500)}\n`;
+            return output;
+          }
+
+          const sha = executeValidatedCommandSync('git', ['rev-parse', '--short', 'HEAD'], {
             profile: 'advanced_shell',
             dangerous: true,
             source: 'await_workflow',
             caller: 'formatFinalSummary',
             cwd,
-            timeout: TASK_TIMEOUTS.GIT_PUSH,
             encoding: 'utf8',
             stdio: ['pipe', 'pipe', 'pipe']
-          });
-          output += `**Pushed to remote.**\n`;
-        } catch (pushErr) {
-          output += `**Auto-Push failed (git push):** ${(pushErr.message || '').substring(0, 500)}\n`;
+          }).trim();
+          output += `**Committed:** ${sha} — ${commitMsg}\n`;
+
+          if (args.auto_push === true) {
+            try {
+              executeValidatedCommandSync('git', ['push'], {
+                profile: 'advanced_shell',
+                dangerous: true,
+                source: 'await_workflow',
+                caller: 'formatFinalSummary',
+                cwd,
+                timeout: TASK_TIMEOUTS.GIT_PUSH,
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'pipe']
+              });
+              output += `**Pushed to remote.**\n`;
+            } catch (pushErr) {
+              output += `**Auto-Push failed (git push):** ${(pushErr.message || '').substring(0, 500)}\n`;
+            }
+          }
+        } catch (_commitErr) {
+          output += `**Auto-Commit failed:** ${(_commitErr.message || '').substring(0, 500)}\n`;
         }
       }
-    } catch (_commitErr) {
-      output += `**Auto-Commit failed:** ${(_commitErr.message || '').substring(0, 500)}\n`;
+    } finally {
+      release();
     }
-  }
-
-  } finally { // end commit mutex guard
-    if (_wfMutexRelease) _wfMutexRelease();
   }
 
   return output;
@@ -1111,15 +1105,9 @@ async function handleAwaitTask(args) {
         let output = formatStandaloneTaskResult(task, awaitStartTime);
 
         // Verify + commit (serialized via commit mutex)
-        const _taskMutex = getCommitMutex();
-        let _taskMutexRelease = null;
-        if (_taskMutex && (args.verify_command || args.auto_commit) && task.status === 'completed') {
-          try { _taskMutexRelease = await _taskMutex.acquire(60000); } catch (_e) {
-            output += '\n**Commit mutex timeout** — another task is committing. Skipping verify/commit.\n';
-            return { content: [{ type: 'text', text: output }] };
-          }
-        }
-        try {
+        if ((args.verify_command || args.auto_commit) && task.status === 'completed') {
+          const release = await commitMutex.acquire(30000);
+          try {
 
         // Verify command (on success only)
         if (task.status === 'completed' && args.verify_command) {
@@ -1232,8 +1220,9 @@ async function handleAwaitTask(args) {
           }
         }
 
-        } finally { // end commit mutex guard for await_task
-          if (_taskMutexRelease) _taskMutexRelease();
+        } finally {
+          release();
+        }
         }
 
         return { content: [{ type: 'text', text: output }] };

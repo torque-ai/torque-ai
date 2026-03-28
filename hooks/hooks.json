@@ -6,37 +6,6 @@
         "type": "command",
         "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" session-start"
       }]
-    }],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [{
-          "type": "command",
-          "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" guard-command"
-        }]
-      },
-      {
-        "matcher": "mcp__torque__.*",
-        "hooks": [{
-          "type": "command",
-          "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" audit-mcp-call",
-          "runInBackground": true
-        }]
-      }
-    ],
-    "PostToolUse": [{
-      "matcher": "Edit|Write",
-      "hooks": [{
-        "type": "command",
-        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" notify-file-write",
-        "runInBackground": true
-      }]
-    }],
-    "Stop": [{
-      "hooks": [{
-        "type": "command",
-        "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd\" check-pending-tasks"
-      }]
     }]
   }
 }

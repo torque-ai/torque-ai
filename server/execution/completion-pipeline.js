@@ -144,6 +144,26 @@ function handlePostCompletion(ctx) {
     logger.info('Failed to record provider usage:', usageErr.message);
   }
 
+  // Record circuit-breaker outcome for the provider after terminal status is finalized.
+  try {
+    const { defaultContainer } = require('../container');
+    const hasCircuitBreaker = defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && defaultContainer.has('circuitBreaker');
+    const circuitBreaker = hasCircuitBreaker && typeof defaultContainer.get === 'function'
+      ? defaultContainer.get('circuitBreaker')
+      : null;
+    if (circuitBreaker && task?.provider) {
+      if (ctx.status === 'completed' && code === 0) {
+        circuitBreaker.recordSuccess(task.provider);
+      } else if (ctx.status === 'failed') {
+        circuitBreaker.recordFailure(task.provider, ctx.errorOutput || '');
+      }
+    }
+  } catch (cbErr) {
+    logger.info('[CircuitBreaker] Failed to record completion outcome:', cbErr.message);
+  }
+
   // Record model outcome for adaptive scoring (uses updatedTask for completed_at)
   try {
     const outcomeTask = deps.db.getTask(taskId);

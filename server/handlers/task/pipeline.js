@@ -24,6 +24,44 @@ const { escapeRegExp, safeLimit,
         MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_TASK_LENGTH, MAX_BATCH_SIZE, ErrorCodes, makeError, requireTask } = require('../shared');
 const { formatTime } = require('./utils');
 
+function checkBudgetThresholdsForCompletedTask(task) {
+  if (!task || !task.provider) {
+    return;
+  }
+
+  let defaultContainer = null;
+  try {
+    const containerModule = require('../../container');
+    defaultContainer = containerModule && containerModule.defaultContainer ? containerModule.defaultContainer : null;
+  } catch (_e) {
+    defaultContainer = null;
+  }
+
+  let budgetWatcher = null;
+  try {
+    if (!defaultContainer) {
+      return;
+    }
+    budgetWatcher = defaultContainer.get('budgetWatcher');
+  } catch (_e) {
+    budgetWatcher = null;
+  }
+
+  if (budgetWatcher) {
+    try {
+      const budgetCheck = budgetWatcher.checkBudgetThresholds(task.provider);
+      if (budgetCheck && budgetCheck.thresholdBreached === 'downgrade') {
+        const routingCore = defaultContainer.get('providerRoutingCore');
+        if (routingCore && routingCore.activateRoutingTemplate) {
+          routingCore.activateRoutingTemplate(budgetCheck.downgradeTemplate || 'Cost Saver');
+        }
+      }
+    } catch (e) {
+      logger.debug('Budget threshold check failed: ' + e.message);
+    }
+  }
+}
+
 // ── Git utilities ──────────────────────────────────────────
 
 function execGit(gitArgs, cwd) {
@@ -660,6 +698,9 @@ function handleCommitTask(args) {
   });
 
   eventTracking.recordEvent('task_committed', args.task_id, { sha: afterSha });
+  if (task.status === 'completed') {
+    checkBudgetThresholdsForCompletedTask(task);
+  }
 
   return {
     content: [{

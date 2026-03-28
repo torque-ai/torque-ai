@@ -71,6 +71,29 @@ describe('file-risk', () => {
     expect(results[0].risk_level).toBe('high');
   });
 
+  it('does not overwrite a manual override', () => {
+    fileRisk.upsertScore({
+      file_path: 'server/auth/session.js',
+      working_directory: '/project',
+      risk_level: 'high',
+      risk_reasons: JSON.stringify(['auth_module']),
+      scored_by: 'pattern',
+    });
+    fileRisk.setManualOverride('server/auth/session.js', '/project', 'medium', 'manual-override');
+    fileRisk.upsertScore({
+      file_path: 'server/auth/session.js',
+      working_directory: '/project',
+      risk_level: 'low',
+      risk_reasons: JSON.stringify(['low-risk']),
+      scored_by: 'pattern',
+    });
+
+    const result = fileRisk.getFileRisk('server/auth/session.js', '/project');
+    expect(result.risk_level).toBe('medium');
+    expect(result.auto_scored).toBe(0);
+    expect(JSON.parse(result.risk_reasons)).toContain('manual-override');
+  });
+
   it('returns null for unknown file', () => {
     const result = fileRisk.getFileRisk('unknown.js', '/project');
     expect(result).toBeNull();

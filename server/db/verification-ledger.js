@@ -1,12 +1,26 @@
 'use strict';
 
 function createVerificationLedger({ db }) {
+  const insertSql = `
+    INSERT INTO verification_checks (
+      task_id,
+      workflow_id,
+      phase,
+      check_name,
+      tool,
+      command,
+      exit_code,
+      output_snippet,
+      passed,
+      duration_ms,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+
   function insertCheck(check) {
-    const now = check.created_at || new Date().toISOString();
-    db.prepare(`
-      INSERT INTO verification_checks (task_id, workflow_id, phase, check_name, tool, command, exit_code, output_snippet, passed, duration_ms, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    const now = new Date().toISOString();
+    db.prepare(insertSql).run(
       check.task_id,
       check.workflow_id || null,
       check.phase,
@@ -22,12 +36,26 @@ function createVerificationLedger({ db }) {
   }
 
   function insertChecks(checks) {
-    const tx = db.transaction(() => {
+    const tx = db.transaction((items) => {
+      const statement = db.prepare(insertSql);
       for (const check of checks) {
-        insertCheck(check);
+        const now = new Date().toISOString();
+        statement.run(
+          check.task_id,
+          check.workflow_id || null,
+          check.phase,
+          check.check_name,
+          check.tool || null,
+          check.command || null,
+          check.exit_code ?? null,
+          check.output_snippet || null,
+          check.passed,
+          check.duration_ms || null,
+          now,
+        );
       }
     });
-    tx();
+    tx(checks);
   }
 
   function getChecksForTask(taskId, filters = {}) {

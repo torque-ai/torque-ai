@@ -1,6 +1,6 @@
 {
   "name": "torque",
-  "description": "AI task orchestration with multi-provider routing, DAG workflows, and distributed execution",
+  "description": "AI task orchestration with multi-provider routing",
   "version": "2.2.0",
   "contextFileName": "GEMINI.md"
 }

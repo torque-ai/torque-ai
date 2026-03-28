@@ -51,6 +51,7 @@ describe('file-risk policy adapter', () => {
     expect(evidence).toHaveLength(1);
     expect(evidence[0].type).toBe('file_risk_assessed');
     expect(evidence[0].satisfied).toBe(true);
+    expect(evidence[0].total_files).toBe(2);
     expect(evidence[0].high_risk_files).toHaveLength(1);
     expect(evidence[0].high_risk_files[0]).toBe('server/auth/session.js');
   });
@@ -60,9 +61,11 @@ describe('file-risk policy adapter', () => {
 
     const high = fileRisk.getFileRisk('server/auth/session.js', '/project');
     expect(high.risk_level).toBe('high');
+    expect(high.auto_scored).toBe(1);
 
     const low = fileRisk.getFileRisk('docs/README.md', '/project');
     expect(low.risk_level).toBe('low');
+    expect(low.auto_scored).toBe(1);
   });
 
   it('respects manual overrides - does not overwrite auto_scored=0', () => {
@@ -77,5 +80,8 @@ describe('file-risk policy adapter', () => {
   it('returns empty evidence when no files provided', () => {
     const evidence = adapter.collectEvidence({ stage: 'task_complete', changed_files: [], project_path: '/p' });
     expect(evidence[0].high_risk_files).toHaveLength(0);
+    expect(evidence[0].medium_risk_files).toHaveLength(0);
+    expect(evidence[0].low_risk_files).toHaveLength(0);
+    expect(evidence[0].total_files).toBe(0);
   });
 });

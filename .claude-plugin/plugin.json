@@ -1,7 +1,7 @@
 {
   "name": "torque",
   "version": "2.2.0",
-  "description": "AI task orchestration — multi-provider routing, DAG workflows, quality gates, and distributed execution across local and cloud LLMs. Delegates work to Codex, Claude, Ollama, DeepInfra, and more while you keep working.",
+  "description": "AI task orchestration — multi-provider routing, DAG workflows, quality gates, and distributed execution",
   "author": {
     "name": "TORQUE AI",
     "url": "https://github.com/torque-ai/torque-ai"

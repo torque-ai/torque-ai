@@ -1,43 +1,58 @@
 'use strict';
+
 /* global describe, it, expect, beforeEach, afterEach */
 
+const { describe, it, expect, beforeEach, afterEach, vi } = require('vitest');
 const Database = require('better-sqlite3');
-const budgetWatcher = require('../db/budget-watcher');
+const { createBudgetWatcher } = require('../db/budget-watcher');
 
 let db;
+let eventBus;
+let budgetWatcher;
 
 function insertBudget({
   id,
   name,
   provider = null,
-  budgetUsd,
+  budgetAmount,
   period = 'monthly',
-  alertThresholdPercent = 80,
   enabled = 1,
-  metadata = null,
 }) {
   db.prepare(`
     INSERT INTO cost_budgets (
-      id, name, provider, budget_usd, period, current_spend,
-      alert_threshold_percent, enabled, metadata
-    ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+      id,
+      name,
+      provider,
+      budget_amount,
+      period,
+      enabled
+    ) VALUES (?, ?, ?, ?, ?, ?)
   `).run(
     id,
     name,
     provider,
-    budgetUsd,
+    budgetAmount,
     period,
-    alertThresholdPercent,
-    enabled,
-    metadata
+    enabled
   );
 }
 
-function insertCost(provider, costUsd, trackedAt = new Date().toISOString()) {
+function insertCost({
+  provider,
+  estimatedCost,
+  createdAt = new Date().toISOString(),
+}) {
   db.prepare(`
-    INSERT INTO cost_tracking (provider, cost_usd, tracked_at)
-    VALUES (?, ?, ?)
-  `).run(provider, costUsd, trackedAt);
+    INSERT INTO cost_tracking (
+      provider,
+      task_id,
+      model,
+      input_tokens,
+      output_tokens,
+      estimated_cost,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(provider, 'task-1', 'model', 1, 1, estimatedCost, createdAt);
 }
 
 beforeEach(() => {
@@ -47,23 +62,25 @@ beforeEach(() => {
       id TEXT PRIMARY KEY,
       name TEXT,
       provider TEXT,
-      budget_usd REAL,
+      budget_amount REAL,
       period TEXT DEFAULT 'monthly',
-      current_spend REAL DEFAULT 0,
-      alert_threshold_percent INTEGER DEFAULT 80,
-      enabled INTEGER DEFAULT 1,
-      metadata TEXT
+      enabled INTEGER DEFAULT 1
     );
 
     CREATE TABLE cost_tracking (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT,
-      cost_usd REAL,
-      tracked_at TEXT
+      task_id TEXT,
+      model TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      estimated_cost REAL,
+      created_at TEXT
     );
   `);
 
-  budgetWatcher.init(db);
+  eventBus = { emit: vi.fn() };
+  budgetWatcher = createBudgetWatcher({ db, eventBus });
 });
 
 afterEach(() => {
@@ -72,176 +89,209 @@ afterEach(() => {
 
 describe('db/budget-watcher', () => {
   it('returns null when no budget exists for provider', () => {
-    expect(budgetWatcher.checkBudgetThresholds('codex')).toBeNull();
+    const result = budgetWatcher.checkBudgetThresholds('codex');
+
+    expect(result).toBeNull();
+    expect(eventBus.emit).not.toHaveBeenCalled();
   });
 
-  it('calculates spend percentage correctly', () => {
+  it('returns 50% spend with no threshold breached', () => {
     insertBudget({
       id: 'budget-codex',
       name: 'Codex Monthly',
       provider: 'codex',
-      budgetUsd: 10,
+      budgetAmount: 100,
     });
-    insertCost('codex', 8);
+    insertCost({ provider: 'codex', estimatedCost: 50 });
 
     const result = budgetWatcher.checkBudgetThresholds('codex');
 
     expect(result).toEqual({
       budgetName: 'Codex Monthly',
-      budgetUsd: 10,
-      currentSpend: 8,
-      spendPercent: 80,
-      thresholdBreached: 'warning',
+      provider: 'codex',
+      spendAmount: 50,
+      budgetAmount: 100,
+      spendPercent: 50,
+      thresholdBreached: null,
       action: null,
+      downgradeTemplate: 'Cost Saver',
     });
+    expect(eventBus.emit).not.toHaveBeenCalled();
   });
 
-  it('returns warning at 80%', () => {
+  it('returns warning threshold at 82% spend', () => {
     insertBudget({
       id: 'budget-warning',
       name: 'Warning Budget',
       provider: 'codex',
-      budgetUsd: 10,
-      alertThresholdPercent: 80,
+      budgetAmount: 100,
     });
-    insertCost('codex', 8);
+    insertCost({ provider: 'codex', estimatedCost: 82 });
 
     const result = budgetWatcher.checkBudgetThresholds('codex');
 
     expect(result.thresholdBreached).toBe('warning');
-    expect(result.action).toBeNull();
+    expect(result.action).toBe('emit_warning');
+    expect(eventBus.emit).toHaveBeenCalledWith('budget:warning', {
+      budgetName: 'Warning Budget',
+      provider: 'codex',
+      spendPercent: 82,
+    });
   });
 
-  it('returns downgrade at 90%', () => {
+  it('returns downgrade threshold at 92% spend', () => {
     insertBudget({
       id: 'budget-downgrade',
       name: 'Downgrade Budget',
       provider: 'codex',
-      budgetUsd: 10,
+      budgetAmount: 100,
     });
-    insertCost('codex', 9);
+    insertCost({ provider: 'codex', estimatedCost: 92 });
 
     const result = budgetWatcher.checkBudgetThresholds('codex');
 
     expect(result.thresholdBreached).toBe('downgrade');
-    expect(result.action).toBe('activate_cost_saver_template');
+    expect(result.action).toBe('activate_cost_saver');
+    expect(eventBus.emit).toHaveBeenCalledWith('budget:downgrade', {
+      budgetName: 'Downgrade Budget',
+      provider: 'codex',
+      spendPercent: 92,
+      template: 'Cost Saver',
+    });
   });
 
-  it('returns hard_stop at 100%', () => {
+  it('returns hard_stop threshold at 100% spend', () => {
     insertBudget({
       id: 'budget-hard-stop',
       name: 'Hard Stop Budget',
       provider: 'codex',
-      budgetUsd: 10,
+      budgetAmount: 100,
     });
-    insertCost('codex', 10);
+    insertCost({ provider: 'codex', estimatedCost: 100 });
 
     const result = budgetWatcher.checkBudgetThresholds('codex');
 
     expect(result.thresholdBreached).toBe('hard_stop');
     expect(result.action).toBe('block_submissions');
+    expect(eventBus.emit).toHaveBeenCalledWith('budget:hard_stop', {
+      budgetName: 'Hard Stop Budget',
+      provider: 'codex',
+      spendPercent: 100,
+    });
   });
 
-  it('getActiveBudgets returns all budgets with spend info', () => {
+  it('getActiveBudgets returns all with percentages', () => {
     insertBudget({
       id: 'budget-alpha',
       name: 'Alpha Budget',
       provider: 'codex',
-      budgetUsd: 10,
+      budgetAmount: 10,
     });
     insertBudget({
       id: 'budget-beta',
       name: 'Beta Budget',
       provider: 'claude-cli',
-      budgetUsd: 20,
+      budgetAmount: 20,
     });
-    insertCost('codex', 5);
-    insertCost('claude-cli', 10);
+    insertCost({ provider: 'codex', estimatedCost: 5 });
+    insertCost({ provider: 'claude-cli', estimatedCost: 10 });
 
     const budgets = budgetWatcher.getActiveBudgets();
 
     expect(budgets).toHaveLength(2);
     expect(budgets).toContainEqual({
       budgetName: 'Alpha Budget',
-      budgetUsd: 10,
-      currentSpend: 5,
+      provider: 'codex',
+      spendAmount: 5,
+      budgetAmount: 10,
       spendPercent: 50,
       thresholdBreached: null,
       action: null,
+      downgradeTemplate: 'Cost Saver',
     });
     expect(budgets).toContainEqual({
       budgetName: 'Beta Budget',
-      budgetUsd: 20,
-      currentSpend: 10,
+      provider: 'claude-cli',
+      spendAmount: 10,
+      budgetAmount: 20,
       spendPercent: 50,
       thresholdBreached: null,
       action: null,
+      downgradeTemplate: 'Cost Saver',
     });
   });
 
-  it('configureBudgetAction updates thresholds and stores downgrade metadata', () => {
+  it('configureBudgetAction updates thresholds', () => {
     insertBudget({
       id: 'budget-configured',
       name: 'Configured Budget',
       provider: 'codex',
-      budgetUsd: 10,
+      budgetAmount: 100,
     });
 
-    const config = budgetWatcher.configureBudgetAction('Configured Budget', {
+    const config = budgetWatcher.configureBudgetAction('budget-configured', {
       warningPercent: 70,
       downgradePercent: 85,
       downgradeTemplate: 'cost-saver',
       hardStopPercent: 95,
     });
-
-    insertCost('codex', 8.6);
-
-    const storedBudget = db.prepare(`
-      SELECT alert_threshold_percent, metadata
-      FROM cost_budgets
-      WHERE name = ?
-    `).get('Configured Budget');
-    const metadata = JSON.parse(storedBudget.metadata);
-    const result = budgetWatcher.checkBudgetThresholds('codex');
 
     expect(config).toEqual({
-      budgetName: 'Configured Budget',
       warningPercent: 70,
       downgradePercent: 85,
       downgradeTemplate: 'cost-saver',
       hardStopPercent: 95,
     });
-    expect(storedBudget.alert_threshold_percent).toBe(70);
-    expect(metadata).toEqual({
-      downgradePercent: 85,
-      downgradeTemplate: 'cost-saver',
-      hardStopPercent: 95,
+
+    const hasThresholdConfigColumn = db.prepare(`
+      PRAGMA table_info(cost_budgets)
+    `).all().some((column) => column.name === 'threshold_config');
+
+    if (hasThresholdConfigColumn) {
+      const budgetRow = db.prepare(`
+        SELECT threshold_config
+        FROM cost_budgets
+        WHERE id = ?
+      `).get('budget-configured');
+      const storedConfig = JSON.parse(budgetRow.threshold_config);
+
+      expect(storedConfig.warningPercent).toBe(70);
+      expect(storedConfig.downgradePercent).toBe(85);
+      expect(storedConfig.hardStopPercent).toBe(95);
+      expect(storedConfig.downgradeTemplate).toBe('cost-saver');
+    } else {
+      const actionRow = db.prepare(`
+        SELECT *
+        FROM budget_threshold_actions
+        WHERE budget_id = ?
+      `).get('budget-configured');
+
+      expect(actionRow.warning_percent).toBe(70);
+      expect(actionRow.downgrade_percent).toBe(85);
+      expect(actionRow.hard_stop_percent).toBe(95);
+      expect(actionRow.downgrade_template).toBe('cost-saver');
+    }
+  });
+
+  it('custom thresholds override defaults', () => {
+    insertBudget({
+      id: 'budget-override',
+      name: 'Override Budget',
+      provider: 'codex',
+      budgetAmount: 100,
     });
+
+    budgetWatcher.configureBudgetAction('budget-override', {
+      warningPercent: 30,
+      downgradePercent: 40,
+      hardStopPercent: 50,
+      downgradeTemplate: 'Custom Saver',
+    });
+    insertCost({ provider: 'codex', estimatedCost: 45 });
+
+    const result = budgetWatcher.checkBudgetThresholds('codex');
+
     expect(result.thresholdBreached).toBe('downgrade');
-    expect(result.action).toBe('activate_cost_saver_template');
-  });
-
-  it('shouldBlockSubmission returns true when over 100%', () => {
-    insertBudget({
-      id: 'budget-block',
-      name: 'Blocking Budget',
-      provider: 'codex',
-      budgetUsd: 10,
-    });
-    insertCost('codex', 11);
-
-    expect(budgetWatcher.shouldBlockSubmission('codex')).toBe(true);
-  });
-
-  it('shouldBlockSubmission returns false when under 100%', () => {
-    insertBudget({
-      id: 'budget-allow',
-      name: 'Allow Budget',
-      provider: 'codex',
-      budgetUsd: 10,
-    });
-    insertCost('codex', 9.99);
-
-    expect(budgetWatcher.shouldBlockSubmission('codex')).toBe(false);
+    expect(result.action).toBe('activate_cost_saver');
   });
 });

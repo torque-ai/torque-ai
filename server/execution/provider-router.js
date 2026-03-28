@@ -17,6 +17,7 @@ let _serverConfig = null;
 let _providerRegistry = null;
 let _parseTaskMetadata = null;
 let _safeUpdateTaskStatus = null;
+let _defaultContainer = null;
 
 function init(deps = {}) {
   if (deps.db) _db = deps.db;
@@ -24,6 +25,34 @@ function init(deps = {}) {
   if (deps.providerRegistry) _providerRegistry = deps.providerRegistry;
   if (deps.parseTaskMetadata) _parseTaskMetadata = deps.parseTaskMetadata;
   if (deps.safeUpdateTaskStatus) _safeUpdateTaskStatus = deps.safeUpdateTaskStatus;
+  if (deps.defaultContainer) {
+    _defaultContainer = deps.defaultContainer;
+  }
+}
+
+function getDefaultContainer() {
+  if (_defaultContainer) return _defaultContainer;
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.get === 'function' && typeof defaultContainer.has === 'function') {
+      _defaultContainer = defaultContainer;
+    }
+  } catch { /* default container is optional */ }
+
+  return _defaultContainer;
+}
+
+function getCircuitBreaker() {
+  const defaultContainer = getDefaultContainer();
+  if (!defaultContainer || !defaultContainer.has('circuitBreaker')) {
+    return null;
+  }
+  try {
+    return defaultContainer.get('circuitBreaker');
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -157,8 +186,6 @@ function resolveProviderRouting(task, taskId) {
   const taskMeta = _parseTaskMetadata(task.metadata);
   const requestedProvider = task.provider || taskMeta.intended_provider || _db.getDefaultProvider() || 'codex';
   const normalizedRequestedProvider = normalizeProviderOverride(task, requestedProvider, taskId);
-  let provider = normalizedRequestedProvider;
-
   const paidProviders = new Set(['anthropic', 'groq', 'codex', 'claude-cli']);
   const isUserOverride = taskMeta.user_provider_override;
 
@@ -166,23 +193,25 @@ function resolveProviderRouting(task, taskId) {
   // skip all routing template evaluation and budget-based rerouting. The explicit provider
   // choice takes absolute precedence. Only budget-exceeded + user-override logs a warning.
   if (isUserOverride && task.provider) {
-    logger.info(`[Routing] User-override provider '${provider}' for task ${taskId} — skipping template routing (TDA-01)`);
-    return { provider, switchReason: null };
+    logger.info(`[Routing] User-override provider '${normalizedRequestedProvider}' for task ${taskId} — skipping template routing (TDA-01)`);
   }
-  let switchReason = null;
-  if (paidProviders.has(provider)) {
-    const budgetStatus = _db.isBudgetExceeded(provider);
+
+  const fallbackCandidates = [{ provider: normalizedRequestedProvider, switchReason: null }];
+  if (!isUserOverride && paidProviders.has(normalizedRequestedProvider)) {
+    const budgetStatus = _db.isBudgetExceeded(normalizedRequestedProvider);
     if (budgetStatus.exceeded && !isUserOverride) {
       const ollamaHosts = _db.listOllamaHosts().filter(h => h.enabled && h.status === 'healthy');
       if (ollamaHosts.length > 0) {
-        logger.info(`[Routing] Budget exceeded for ${provider}, auto-routing to ollama for task ${taskId}`);
-        switchReason = `${provider} -> ollama (budget exceeded)`;
-        provider = 'ollama';
+        logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider}, auto-routing to ollama for task ${taskId}`);
+        fallbackCandidates.push({
+          provider: 'ollama',
+          switchReason: `${normalizedRequestedProvider} -> ollama (budget exceeded)`,
+        });
       } else {
-        logger.info(`[Routing] Budget exceeded for ${provider} but no healthy Ollama hosts — proceeding with ${provider}`);
+        logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider} but no healthy Ollama hosts — proceeding with ${normalizedRequestedProvider}`);
       }
     } else if (budgetStatus.exceeded && isUserOverride) {
-      logger.info(`[Routing] Budget exceeded for ${provider} but user explicitly requested it — proceeding for task ${taskId}`);
+      logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider} but user explicitly requested it — proceeding for task ${taskId}`);
     } else if (budgetStatus.warning) {
       // P-overflow: Only reroute on budget-warning if task was smart-routed (not user-overridden).
       if (taskMeta.smart_routing && !isUserOverride) {
@@ -191,13 +220,40 @@ function resolveProviderRouting(task, taskId) {
         if (isNonCritical) {
           const ollamaHosts = _db.listOllamaHosts().filter(h => h.enabled && h.status === 'healthy');
           if (ollamaHosts.length > 0) {
-            logger.info(`[Routing] Budget warning for ${provider}, routing non-critical task to ollama for task ${taskId}`);
-            switchReason = `${provider} -> ollama (budget warning, non-critical task)`;
-            provider = 'ollama';
+            logger.info(`[Routing] Budget warning for ${normalizedRequestedProvider}, routing non-critical task to ollama for task ${taskId}`);
+            fallbackCandidates.push({
+              provider: 'ollama',
+              switchReason: `${normalizedRequestedProvider} -> ollama (budget warning, non-critical task)`,
+            });
           }
         }
       }
     }
+  }
+
+  const circuitBreaker = getCircuitBreaker();
+  let provider = normalizedRequestedProvider;
+  let switchReason = null;
+  if (circuitBreaker) {
+    let selectedCandidate = null;
+    for (const candidate of fallbackCandidates) {
+      if (circuitBreaker.allowRequest(candidate.provider)) {
+        selectedCandidate = candidate;
+        break;
+      }
+      logger.info(`Circuit open for ${candidate.provider}, skipping`);
+    }
+
+    if (!selectedCandidate) {
+      selectedCandidate = fallbackCandidates[fallbackCandidates.length - 1];
+    }
+
+    provider = selectedCandidate.provider;
+    switchReason = selectedCandidate.switchReason;
+  } else if (fallbackCandidates.length > 1) {
+    const selectedCandidate = fallbackCandidates[fallbackCandidates.length - 1];
+    provider = selectedCandidate.provider;
+    switchReason = selectedCandidate.switchReason;
   }
 
   if (provider !== task.provider) {

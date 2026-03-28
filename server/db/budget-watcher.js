@@ -1,31 +1,39 @@
 'use strict';
 
-const { safeJsonParse, safeJsonStringify } = require('../utils/json');
-
 const DEFAULT_WARNING_PERCENT = 80;
 const DEFAULT_DOWNGRADE_PERCENT = 90;
 const DEFAULT_HARD_STOP_PERCENT = 100;
+const DEFAULT_DOWNGRADE_TEMPLATE = 'Cost Saver';
 
-const THRESHOLD_PRIORITY = Object.freeze({
-  hard_stop: 3,
-  downgrade: 2,
-  warning: 1,
-  null: 0,
+const NOOP_EVENT_BUS = Object.freeze({
+  emit: () => {},
 });
 
-let db;
-let budgetMetadataColumnExists = null;
+let globalState = {
+  db: null,
+  eventBus: NOOP_EVENT_BUS,
+};
 
-function init(dbInstance) {
-  db = dbInstance;
-  budgetMetadataColumnExists = null;
+function init(dbInstance, eventBus) {
+  globalState = {
+    db: dbInstance || null,
+    eventBus: eventBus || NOOP_EVENT_BUS,
+  };
 }
 
-function requireDb() {
-  if (!db || typeof db.prepare !== 'function') {
-    throw new Error('budget-watcher has not been initialized');
+function requireDb(dbInstance) {
+  const database = dbInstance || globalState.db;
+  if (!database || typeof database.prepare !== 'function') {
+    throw new Error('budget-watcher requires a valid BetterSQLite3 database');
   }
-  return db;
+  return database;
+}
+
+function resolveEventBus(eventBus) {
+  if (eventBus && typeof eventBus.emit === 'function') {
+    return eventBus;
+  }
+  return globalState.eventBus || NOOP_EVENT_BUS;
 }
 
 function normalizePercent(value, fallback) {
@@ -36,39 +44,39 @@ function normalizePercent(value, fallback) {
   return numericValue;
 }
 
-function normalizeBudgetLimit(value) {
+function normalizeBudgetAmount(value) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue) || numericValue < 0) {
     return 0;
   }
-  return numericValue;
-}
-
-function roundCurrency(value) {
-  return Number(Number(value || 0).toFixed(6));
+  return Number(numericValue.toFixed(6));
 }
 
 function roundPercent(value) {
   return Number(Number(value || 0).toFixed(2));
 }
 
-function getBudgetMetadata(rawMetadata) {
-  const parsed = safeJsonParse(rawMetadata, {});
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {};
+function safeJsonParse(value, fallback = {}) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return fallback;
   }
-  return { ...parsed };
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch (error) {
+    // intentionally ignore malformed JSON and use defaults
+  }
+  return fallback;
 }
 
-function hasBudgetMetadataColumn() {
-  if (budgetMetadataColumnExists !== null) {
-    return budgetMetadataColumnExists;
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    return null;
   }
-
-  const database = requireDb();
-  const columns = database.prepare('PRAGMA table_info(cost_budgets)').all();
-  budgetMetadataColumnExists = columns.some((column) => column.name === 'metadata');
-  return budgetMetadataColumnExists;
 }
 
 function getPeriodWindow(period, referenceTime = new Date()) {
@@ -124,89 +132,164 @@ function getPeriodWindow(period, referenceTime = new Date()) {
     case 'total':
       return { start: null, end: null };
     case 'monthly':
-    default: {
-      const start = new Date(Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        1,
-        0,
-        0,
-        0,
-        0
-      ));
-      const end = new Date(Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth() + 1,
-        1,
-        0,
-        0,
-        0,
-        0
-      ));
-      return { start: start.toISOString(), end: end.toISOString() };
-    }
+    default:
+      {
+        const start = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          1,
+          0,
+          0,
+          0,
+          0
+        ));
+        const end = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth() + 1,
+          1,
+          0,
+          0,
+          0,
+          0
+        ));
+        return { start: start.toISOString(), end: end.toISOString() };
+      }
   }
 }
 
-function calculateCurrentSpend(budget) {
-  const database = requireDb();
-  const provider = budget.provider || null;
-  const { start, end } = getPeriodWindow(budget.period || 'monthly');
+function hasThresholdConfigColumn(database) {
+  const columns = database.prepare('PRAGMA table_info(cost_budgets)').all();
+  return columns.some((column) => column.name === 'threshold_config');
+}
 
-  if (start === null || end === null) {
-    if (provider) {
-      const row = database.prepare(`
-        SELECT COALESCE(SUM(cost_usd), 0) AS spend
-        FROM cost_tracking
-        WHERE provider = ?
-      `).get(provider);
-      return roundCurrency(row?.spend || 0);
-    }
+function hasBudgetThresholdActionsTable(database) {
+  const row = database.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table' AND name = 'budget_threshold_actions'
+  `).get();
+  return !!row;
+}
 
-    const row = database.prepare(`
-      SELECT COALESCE(SUM(cost_usd), 0) AS spend
-      FROM cost_tracking
-    `).get();
-    return roundCurrency(row?.spend || 0);
+function ensureBudgetThresholdActionsTable(database) {
+  database.prepare(`
+    CREATE TABLE IF NOT EXISTS budget_threshold_actions (
+      budget_id TEXT PRIMARY KEY,
+      warning_percent REAL,
+      downgrade_percent REAL,
+      downgrade_template TEXT,
+      hard_stop_percent REAL
+    )
+  `).run();
+}
+
+function ensureThresholdConfigStorage(database) {
+  if (hasThresholdConfigColumn(database)) {
+    return 'column';
   }
 
-  if (provider) {
-    const row = database.prepare(`
-      SELECT COALESCE(SUM(cost_usd), 0) AS spend
-      FROM cost_tracking
-      WHERE provider = ? AND tracked_at >= ? AND tracked_at < ?
-    `).get(provider, start, end);
-    return roundCurrency(row?.spend || 0);
+  try {
+    database.prepare('ALTER TABLE cost_budgets ADD COLUMN threshold_config TEXT').run();
+    return 'column';
+  } catch (error) {
+    ensureBudgetThresholdActionsTable(database);
+    return 'table';
+  }
+}
+
+function readThresholdConfig(database, budget) {
+  if (!budget || !budget.id) {
+    return null;
+  }
+
+  if (hasThresholdConfigColumn(database)) {
+    return safeJsonParse(budget.threshold_config);
+  }
+
+  if (!hasBudgetThresholdActionsTable(database)) {
+    return null;
   }
 
   const row = database.prepare(`
-    SELECT COALESCE(SUM(cost_usd), 0) AS spend
-    FROM cost_tracking
-    WHERE tracked_at >= ? AND tracked_at < ?
-  `).get(start, end);
-  return roundCurrency(row?.spend || 0);
-}
+    SELECT warning_percent, downgrade_percent, downgrade_template, hard_stop_percent
+    FROM budget_threshold_actions
+    WHERE budget_id = ?
+  `).get(budget.id);
 
-function resolveThresholds(budget) {
-  const metadata = getBudgetMetadata(budget.metadata);
+  if (!row) {
+    return null;
+  }
 
   return {
-    warningPercent: normalizePercent(
-      budget.alert_threshold_percent,
-      DEFAULT_WARNING_PERCENT
-    ),
-    downgradePercent: normalizePercent(
-      metadata.downgradePercent,
-      DEFAULT_DOWNGRADE_PERCENT
-    ),
-    downgradeTemplate: typeof metadata.downgradeTemplate === 'string' && metadata.downgradeTemplate.trim()
-      ? metadata.downgradeTemplate.trim()
-      : null,
-    hardStopPercent: normalizePercent(
-      metadata.hardStopPercent,
-      DEFAULT_HARD_STOP_PERCENT
-    ),
+    warningPercent: row.warning_percent,
+    downgradePercent: row.downgrade_percent,
+    downgradeTemplate: row.downgrade_template,
+    hardStopPercent: row.hard_stop_percent,
   };
+}
+
+function resolveThresholds(database, budget) {
+  const raw = readThresholdConfig(database, budget);
+  const warningPercent = normalizePercent(
+    raw?.warningPercent,
+    DEFAULT_WARNING_PERCENT
+  );
+  const downgradePercent = normalizePercent(
+    raw?.downgradePercent,
+    DEFAULT_DOWNGRADE_PERCENT
+  );
+  const hardStopPercent = normalizePercent(
+    raw?.hardStopPercent,
+    DEFAULT_HARD_STOP_PERCENT
+  );
+  const downgradeTemplate = typeof raw?.downgradeTemplate === 'string'
+    ? raw.downgradeTemplate.trim()
+    : '';
+
+  return {
+    warningPercent,
+    downgradePercent,
+    hardStopPercent,
+    downgradeTemplate: downgradeTemplate || DEFAULT_DOWNGRADE_TEMPLATE,
+  };
+}
+
+function getCurrentSpend(database, budget) {
+  const { start, end } = getPeriodWindow(budget.period || 'monthly');
+  const provider = budget.provider || null;
+
+  if (provider) {
+    if (start === null || end === null) {
+      const row = database.prepare(`
+        SELECT COALESCE(SUM(estimated_cost), 0) AS spend
+        FROM cost_tracking
+        WHERE provider = ?
+      `).get(provider);
+      return Number(Number(row?.spend || 0).toFixed(6));
+    }
+
+    const row = database.prepare(`
+      SELECT COALESCE(SUM(estimated_cost), 0) AS spend
+      FROM cost_tracking
+      WHERE provider = ? AND created_at >= ? AND created_at < ?
+    `).get(provider, start, end);
+    return Number(Number(row?.spend || 0).toFixed(6));
+  }
+
+  if (start === null || end === null) {
+    const row = database.prepare(`
+      SELECT COALESCE(SUM(estimated_cost), 0) AS spend
+      FROM cost_tracking
+    `).get();
+    return Number(Number(row?.spend || 0).toFixed(6));
+  }
+
+  const row = database.prepare(`
+    SELECT COALESCE(SUM(estimated_cost), 0) AS spend
+    FROM cost_tracking
+    WHERE created_at >= ? AND created_at < ?
+  `).get(start, end);
+  return Number(Number(row?.spend || 0).toFixed(6));
 }
 
 function evaluateThreshold(spendPercent, thresholds) {
@@ -220,14 +303,14 @@ function evaluateThreshold(spendPercent, thresholds) {
   if (spendPercent >= thresholds.downgradePercent) {
     return {
       thresholdBreached: 'downgrade',
-      action: 'activate_cost_saver_template',
+      action: 'activate_cost_saver',
     };
   }
 
   if (spendPercent >= thresholds.warningPercent) {
     return {
       thresholdBreached: 'warning',
-      action: null,
+      action: 'emit_warning',
     };
   }
 
@@ -237,48 +320,35 @@ function evaluateThreshold(spendPercent, thresholds) {
   };
 }
 
-function buildBudgetStatus(budget) {
-  const budgetUsd = normalizeBudgetLimit(budget.budget_usd);
-  const currentSpend = calculateCurrentSpend(budget);
-  const spendPercent = budgetUsd > 0
-    ? roundPercent((currentSpend / budgetUsd) * 100)
-    : (currentSpend > 0 ? DEFAULT_HARD_STOP_PERCENT : 0);
-  const thresholds = resolveThresholds(budget);
+function buildBudgetStatus(database, budget) {
+  const budgetAmount = normalizeBudgetAmount(budget.budget_amount);
+  const spendAmount = getCurrentSpend(database, budget);
+  const spendPercent = budgetAmount > 0
+    ? roundPercent((spendAmount / budgetAmount) * 100)
+    : (spendAmount > 0 ? 100 : 0);
+  const thresholds = resolveThresholds(database, budget);
   const status = evaluateThreshold(spendPercent, thresholds);
 
   return {
     budgetName: budget.name,
-    budgetUsd,
-    currentSpend,
+    provider: budget.provider,
+    spendAmount,
+    budgetAmount,
     spendPercent,
     thresholdBreached: status.thresholdBreached,
     action: status.action,
   };
 }
 
-function listEnabledBudgets(provider = undefined) {
-  const database = requireDb();
-
-  if (provider === undefined || provider === null) {
-    return database.prepare(`
-      SELECT *
-      FROM cost_budgets
-      WHERE enabled = 1
-      ORDER BY name ASC
-    `).all();
-  }
-
-  return database.prepare(`
-    SELECT *
-    FROM cost_budgets
-    WHERE enabled = 1 AND (provider = ? OR provider IS NULL)
-    ORDER BY name ASC
-  `).all(provider);
-}
-
 function compareBudgetStatuses(left, right) {
-  const leftPriority = THRESHOLD_PRIORITY[left.thresholdBreached || 'null'] || 0;
-  const rightPriority = THRESHOLD_PRIORITY[right.thresholdBreached || 'null'] || 0;
+  const priority = {
+    hard_stop: 3,
+    downgrade: 2,
+    warning: 1,
+    null: 0,
+  };
+  const leftPriority = priority[left.thresholdBreached || 'null'] || 0;
+  const rightPriority = priority[right.thresholdBreached || 'null'] || 0;
 
   if (leftPriority !== rightPriority) {
     return rightPriority - leftPriority;
@@ -291,107 +361,177 @@ function compareBudgetStatuses(left, right) {
   return String(left.budgetName).localeCompare(String(right.budgetName));
 }
 
-function checkBudgetThresholds(provider) {
-  const budgets = listEnabledBudgets(provider);
+function listEnabledBudgets(database, provider) {
+  if (provider === undefined || provider === null) {
+    return database.prepare(`
+      SELECT *
+      FROM cost_budgets
+      WHERE enabled = 1
+      ORDER BY name ASC
+    `).all();
+  }
+
+  return database.prepare(`
+    SELECT *
+    FROM cost_budgets
+    WHERE enabled = 1
+      AND (provider = ? OR provider IS NULL)
+    ORDER BY name ASC
+  `).all(provider);
+}
+
+function emitBudgetEvent(eventBus, status) {
+  if (!status || !status.thresholdBreached) {
+    return;
+  }
+
+  switch (status.thresholdBreached) {
+    case 'warning':
+      eventBus.emit('budget:warning', {
+        budgetName: status.budgetName,
+        provider: status.provider,
+        spendPercent: status.spendPercent,
+      });
+      break;
+    case 'downgrade':
+      eventBus.emit('budget:downgrade', {
+        budgetName: status.budgetName,
+        provider: status.provider,
+        spendPercent: status.spendPercent,
+        template: 'Cost Saver',
+      });
+      break;
+    case 'hard_stop':
+      eventBus.emit('budget:hard_stop', {
+        budgetName: status.budgetName,
+        provider: status.provider,
+        spendPercent: status.spendPercent,
+      });
+      break;
+    default:
+      break;
+  }
+}
+
+function checkBudgetThresholdsInternal(database, eventBus, provider) {
+  const budgets = listEnabledBudgets(database, provider);
   if (!budgets.length) {
     return null;
   }
 
-  const budgetStatuses = budgets.map(buildBudgetStatus).sort(compareBudgetStatuses);
-  return budgetStatuses[0] || null;
+  const statuses = budgets.map((budget) => buildBudgetStatus(database, budget))
+    .sort(compareBudgetStatuses);
+
+  const highest = statuses[0] || null;
+  if (!highest) {
+    return null;
+  }
+
+  emitBudgetEvent(eventBus, highest);
+  return highest;
 }
 
-function getActiveBudgets() {
-  return listEnabledBudgets().map(buildBudgetStatus);
+function getActiveBudgetsInternal(database) {
+  return listEnabledBudgets(database).map((budget) => buildBudgetStatus(database, budget));
 }
 
-function configureBudgetAction(budgetName, config = {}) {
-  const database = requireDb();
+function configureBudgetActionInternal(database, budgetId, config = {}) {
   const budget = database.prepare(`
     SELECT *
     FROM cost_budgets
-    WHERE name = ?
-  `).get(budgetName);
+    WHERE id = ?
+  `).get(budgetId);
 
   if (!budget) {
     return null;
   }
 
-  const warningPercent = Object.prototype.hasOwnProperty.call(config, 'warningPercent')
-    ? normalizePercent(config.warningPercent, DEFAULT_WARNING_PERCENT)
-    : normalizePercent(budget.alert_threshold_percent, DEFAULT_WARNING_PERCENT);
-  const currentMetadata = getBudgetMetadata(budget.metadata);
-  const nextMetadata = { ...currentMetadata };
+  const current = resolveThresholds(database, budget);
+  const storage = ensureThresholdConfigStorage(database);
+  const next = {
+    warningPercent: Object.prototype.hasOwnProperty.call(config, 'warningPercent')
+      ? normalizePercent(config.warningPercent, current.warningPercent)
+      : current.warningPercent,
+    downgradePercent: Object.prototype.hasOwnProperty.call(config, 'downgradePercent')
+      ? normalizePercent(config.downgradePercent, current.downgradePercent)
+      : current.downgradePercent,
+    hardStopPercent: Object.prototype.hasOwnProperty.call(config, 'hardStopPercent')
+      ? normalizePercent(config.hardStopPercent, current.hardStopPercent)
+      : current.hardStopPercent,
+    downgradeTemplate: Object.prototype.hasOwnProperty.call(config, 'downgradeTemplate')
+      ? (typeof config.downgradeTemplate === 'string' ? config.downgradeTemplate.trim() : '')
+      : current.downgradeTemplate,
+  };
 
-  if (Object.prototype.hasOwnProperty.call(config, 'downgradePercent')) {
-    nextMetadata.downgradePercent = normalizePercent(config.downgradePercent, DEFAULT_DOWNGRADE_PERCENT);
+  if (next.downgradeTemplate === '') {
+    next.downgradeTemplate = DEFAULT_DOWNGRADE_TEMPLATE;
   }
 
-  if (Object.prototype.hasOwnProperty.call(config, 'hardStopPercent')) {
-    nextMetadata.hardStopPercent = normalizePercent(config.hardStopPercent, DEFAULT_HARD_STOP_PERCENT);
-  }
-
-  if (Object.prototype.hasOwnProperty.call(config, 'downgradeTemplate')) {
-    if (config.downgradeTemplate) {
-      nextMetadata.downgradeTemplate = String(config.downgradeTemplate);
-    } else {
-      delete nextMetadata.downgradeTemplate;
+  if (storage === 'column') {
+    const normalized = {
+      warningPercent: next.warningPercent,
+      downgradePercent: next.downgradePercent,
+      downgradeTemplate: next.downgradeTemplate,
+      hardStopPercent: next.hardStopPercent,
+    };
+    const serialized = safeJsonStringify(normalized);
+    if (serialized !== null) {
+      database.prepare(`
+        UPDATE cost_budgets
+        SET threshold_config = ?
+        WHERE id = ?
+      `).run(serialized, budgetId);
     }
-  }
-
-  if (hasBudgetMetadataColumn()) {
-    database.prepare(`
-      UPDATE cost_budgets
-      SET alert_threshold_percent = ?, metadata = ?
-      WHERE name = ?
-    `).run(
-      warningPercent,
-      safeJsonStringify(nextMetadata),
-      budgetName
-    );
   } else {
+    ensureBudgetThresholdActionsTable(database);
     database.prepare(`
-      UPDATE cost_budgets
-      SET alert_threshold_percent = ?
-      WHERE name = ?
+      INSERT INTO budget_threshold_actions (
+        budget_id, warning_percent, downgrade_percent, downgrade_template, hard_stop_percent
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(budget_id) DO UPDATE SET
+        warning_percent = excluded.warning_percent,
+        downgrade_percent = excluded.downgrade_percent,
+        downgrade_template = excluded.downgrade_template,
+        hard_stop_percent = excluded.hard_stop_percent
     `).run(
-      warningPercent,
-      budgetName
+      budgetId,
+      next.warningPercent,
+      next.downgradePercent,
+      next.downgradeTemplate,
+      next.hardStopPercent
     );
   }
 
   return {
-    budgetName,
-    warningPercent,
-    downgradePercent: normalizePercent(nextMetadata.downgradePercent, DEFAULT_DOWNGRADE_PERCENT),
-    downgradeTemplate: nextMetadata.downgradeTemplate || null,
-    hardStopPercent: normalizePercent(nextMetadata.hardStopPercent, DEFAULT_HARD_STOP_PERCENT),
+    warningPercent: next.warningPercent,
+    downgradePercent: next.downgradePercent,
+    downgradeTemplate: next.downgradeTemplate,
+    hardStopPercent: next.hardStopPercent,
   };
 }
 
-function shouldBlockSubmission(provider) {
-  const budgets = listEnabledBudgets(provider);
-  if (!budgets.length) {
-    return false;
-  }
-
-  return budgets.some((budget) => buildBudgetStatus(budget).thresholdBreached === 'hard_stop');
+function shouldBlockSubmissionInternal(database, provider) {
+  const result = checkBudgetThresholdsInternal(database, NOOP_EVENT_BUS, provider);
+  return result?.thresholdBreached === 'hard_stop';
 }
 
-// ============================================================
-// Factory function (dependency injection without singletons)
-// ============================================================
+function createBudgetWatcher({ db: dbInstance, eventBus } = {}) {
+  const database = requireDb(dbInstance);
+  const watcherEventBus = resolveEventBus(eventBus);
 
-function createBudgetWatcher({ db: dbInstance } = {}) {
-  if (dbInstance) init(dbInstance);
-  return module.exports;
+  return {
+    checkBudgetThresholds: (provider) => checkBudgetThresholdsInternal(database, watcherEventBus, provider),
+    getActiveBudgets: () => getActiveBudgetsInternal(database),
+    configureBudgetAction: (budgetId, config) => configureBudgetActionInternal(database, budgetId, config),
+    shouldBlockSubmission: (provider) => shouldBlockSubmissionInternal(database, provider),
+  };
 }
 
 module.exports = {
-  init,
   createBudgetWatcher,
-  checkBudgetThresholds,
-  getActiveBudgets,
-  configureBudgetAction,
-  shouldBlockSubmission,
+  init,
+  checkBudgetThresholds: (provider) => createBudgetWatcher({}).checkBudgetThresholds(provider),
+  getActiveBudgets: () => createBudgetWatcher({}).getActiveBudgets(),
+  configureBudgetAction: (budgetId, config) => createBudgetWatcher({}).configureBudgetAction(budgetId, config),
+  shouldBlockSubmission: (provider) => createBudgetWatcher({}).shouldBlockSubmission(provider),
 };

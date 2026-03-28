@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SessionStart hook — injects TORQUE status into conversation context
-# Enhanced: includes active workflows, recent failures, and project defaults
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
 TORQUE_API="http://127.0.0.1:3457"
 
-# Escape string for JSON embedding
 escape_for_json() {
     local s="$1"
     s="${s//\\/\\\\}"
@@ -20,103 +13,32 @@ escape_for_json() {
     printf '%s' "$s"
 }
 
-# Try to get TORQUE status
 status_text=""
 if command -v curl &>/dev/null; then
   health=$(curl -s --max-time 2 "$TORQUE_API/api/health" 2>/dev/null || echo "")
   if [ -n "$health" ]; then
-    # TORQUE is running — get task counts
     tasks=$(curl -s --max-time 2 "$TORQUE_API/api/tasks?status=running,queued,failed" 2>/dev/null || echo "")
-
-    running=0
-    queued=0
-    failed=0
+    running=0; queued=0; failed=0
     if command -v jq &>/dev/null && [ -n "$tasks" ]; then
       running=$(echo "$tasks" | jq -r '.running // 0' 2>/dev/null || echo "0")
       queued=$(echo "$tasks" | jq -r '.queued // 0' 2>/dev/null || echo "0")
       failed=$(echo "$tasks" | jq -r '.failed // 0' 2>/dev/null || echo "0")
     fi
-
-    # Detect project
     project="unknown"
-    if [ -d "$PWD/.git" ]; then
-      project=$(basename "$PWD")
-    fi
-
-    status_text="TORQUE is available. Status: ${running} running, ${queued} queued, ${failed} failed.\nProject: ${project}"
-
-    # --- Active workflows ---
-    workflows=$(curl -s --max-time 2 "$TORQUE_API/api/workflows?status=running" 2>/dev/null || echo "")
-    if command -v jq &>/dev/null && [ -n "$workflows" ]; then
-      wf_count=$(echo "$workflows" | jq -r '.workflows // [] | length' 2>/dev/null || echo "0")
-      if [ "$wf_count" -gt 0 ]; then
-        wf_names=$(echo "$workflows" | jq -r '.workflows[:3] | .[] | .name // .id' 2>/dev/null || echo "")
-        status_text="${status_text}\nActive workflows (${wf_count}): ${wf_names}"
-      fi
-    fi
-
-    # --- Recent failures (last 5 minutes) ---
-    recent_failures=$(curl -s --max-time 2 "$TORQUE_API/api/tasks?status=failed&limit=3&sort=newest" 2>/dev/null || echo "")
-    if command -v jq &>/dev/null && [ -n "$recent_failures" ] && [ "$failed" -gt 0 ]; then
-      fail_summaries=$(echo "$recent_failures" | jq -r '
-        .tasks // [] | .[:3] | .[] |
-        "  - " + (.id // "?")[0:8] + ": " + ((.description // "no description") | .[0:60])
-      ' 2>/dev/null || echo "")
-      if [ -n "$fail_summaries" ]; then
-        status_text="${status_text}\nRecent failures:\n${fail_summaries}"
-      fi
-    fi
-
-    # --- Project defaults ---
-    if [ "$project" != "unknown" ]; then
-      defaults=$(curl -s --max-time 2 "$TORQUE_API/api/project-defaults?working_directory=${PWD}" 2>/dev/null || echo "")
-      if command -v jq &>/dev/null && [ -n "$defaults" ]; then
-        provider=$(echo "$defaults" | jq -r '.provider // empty' 2>/dev/null || true)
-        verify_cmd=$(echo "$defaults" | jq -r '.verify_command // empty' 2>/dev/null || true)
-        if [ -n "$provider" ] || [ -n "$verify_cmd" ]; then
-          status_text="${status_text}\nProject defaults:"
-          if [ -n "$provider" ]; then
-            status_text="${status_text} provider=${provider}"
-          fi
-          if [ -n "$verify_cmd" ]; then
-            status_text="${status_text} verify=\"${verify_cmd}\""
-          fi
-        fi
-      fi
-    fi
-
-    # --- Active routing template ---
-    routing=$(curl -s --max-time 2 "$TORQUE_API/api/v2/routing/active" 2>/dev/null || echo "")
-    if command -v jq &>/dev/null && [ -n "$routing" ]; then
-      template_name=$(echo "$routing" | jq -r '.template.name // empty' 2>/dev/null || true)
-      template_desc=$(echo "$routing" | jq -r '.template.description // empty' 2>/dev/null || true)
-      if [ -n "$template_name" ]; then
-        status_text="${status_text}\nRouting template: ${template_name}"
-        if [ -n "$template_desc" ]; then
-          status_text="${status_text} — ${template_desc}"
-        fi
-      else
-        status_text="${status_text}\nRouting template: none active (using smart routing defaults)"
-      fi
-    fi
-
-    status_text="${status_text}\n\nUse /torque-submit to submit tasks, /torque-status to check progress.\nUse await_task with heartbeat_minutes for progress check-ins.\nUse /torque-templates to view or change the active routing template."
+    [ -d "$PWD/.git" ] && project=$(basename "$PWD")
+    status_text="TORQUE is available. Status: ${running} running, ${queued} queued, ${failed} failed.\\nProject: ${project}\\n\\nUse /torque-submit to submit tasks, /torque-status to check progress."
   else
-    status_text="TORQUE is installed but not running.\nStart the server to enable task orchestration.\n\nSkills and commands are available but MCP tools will not work until the server starts."
+    status_text="TORQUE is installed but not running. Start the server to enable task orchestration."
   fi
 else
-  status_text="TORQUE plugin loaded. curl not available — cannot check server status."
+  status_text="TORQUE plugin loaded. curl not available."
 fi
 
 escaped=$(escape_for_json "$status_text")
 
-# Output for the appropriate platform
-if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
-  printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
-elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
   printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped"
 else
   printf '{\n  "additional_context": "%s"\n}\n' "$escaped"
 fi
-
 exit 0

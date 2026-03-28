@@ -1,41 +1,47 @@
-'use strict';
+"use strict";
 
-const FAILURE_THRESHOLD = 3;
-const BASE_RECOVERY_MS = 60_000;
-const MAX_RECOVERY_MS = 600_000;
-const BACKOFF_MULTIPLIER = 2;
+const STATES = {
+  CLOSED: "CLOSED",
+  OPEN: "OPEN",
+  HALF_OPEN: "HALF_OPEN",
+};
 
-const STATES = Object.freeze({
-  CLOSED: 'CLOSED',
-  OPEN: 'OPEN',
-  HALF_OPEN: 'HALF_OPEN',
-});
+const DEFAULT_CONFIG = {
+  threshold: 3,
+  baseRecoveryTimeoutMs: 60000,
+  maxRecoveryTimeoutMs: 600000,
+  backoffMultiplier: 2,
+};
 
-const FAILURE_PATTERNS = Object.freeze({
-  connectivity: /(ECONNREFUSED|ETIMEDOUT|ENOTFOUND|connection refused|DNS resolution)/i,
+const FAILURE_PATTERNS = {
+  connectivity: /\b(ECONNREFUSED|ETIMEDOUT|ENOTFOUND|DNS|connection refused|connect ECONNREFUSED)\b/i,
   rate_limit: /\b(429|too many requests|rate limit|overloaded|capacity)\b/i,
-  auth: /\b(401|403|unauthorized|forbidden)\b/i,
-  resource: /(out of memory|\bOOM\b|disk full|no space left)/i,
-});
+  auth: /\b(401|403|unauthorized|forbidden|invalid.*key|authentication)\b/i,
+  resource: /(out of memory|OOM|disk full|GPU|CUDA|no space)/i,
+};
+
+function createNoopEventBus() {
+  return { emit() {} };
+}
 
 function normalizeProvider(provider) {
-  if (typeof provider !== 'string') {
-    throw new TypeError('provider must be a non-empty string');
+  if (typeof provider !== "string") {
+    throw new TypeError("provider must be a non-empty string");
   }
 
   const normalized = provider.trim();
   if (!normalized) {
-    throw new TypeError('provider must be a non-empty string');
+    throw new TypeError("provider must be a non-empty string");
   }
 
   return normalized;
 }
 
 function classifyFailure(errorOutput) {
-  const message = typeof errorOutput === 'string'
+  const message = typeof errorOutput === "string"
     ? errorOutput
     : errorOutput == null
-      ? ''
+      ? ""
       : String(errorOutput);
 
   for (const [category, pattern] of Object.entries(FAILURE_PATTERNS)) {
@@ -44,131 +50,193 @@ function classifyFailure(errorOutput) {
     }
   }
 
-  return 'unknown';
+  return "unknown";
 }
 
-function createProviderState() {
+function createProviderState(baseRecoveryTimeoutMs) {
   return {
     state: STATES.CLOSED,
     consecutiveFailures: 0,
-    lastCategory: null,
+    lastFailureCategory: null,
     trippedAt: null,
-    recoveryTimeoutMs: BASE_RECOVERY_MS,
-    totalTrips: 0,
+    recoveryTimeoutMs: baseRecoveryTimeoutMs,
+    currentProbeAllowed: false,
   };
 }
 
 class CircuitBreaker {
-  constructor() {
+  constructor({ eventBus, config }) {
+    this._eventBus = eventBus || createNoopEventBus();
+    this._config = { ...DEFAULT_CONFIG, ...config };
     this._providers = new Map();
   }
 
-  _getOrCreateProviderState(provider) {
+  _getStateEntry(provider) {
     const normalizedProvider = normalizeProvider(provider);
-
     if (!this._providers.has(normalizedProvider)) {
-      this._providers.set(normalizedProvider, createProviderState());
+      this._providers.set(normalizedProvider, createProviderState(this._config.baseRecoveryTimeoutMs));
     }
 
-    return {
-      provider: normalizedProvider,
-      entry: this._providers.get(normalizedProvider),
-    };
+    return this._providers.get(normalizedProvider);
   }
 
-  _tripOpen(entry) {
-    entry.recoveryTimeoutMs = entry.totalTrips === 0
-      ? BASE_RECOVERY_MS
-      : Math.min(entry.recoveryTimeoutMs * BACKOFF_MULTIPLIER, MAX_RECOVERY_MS);
-    entry.totalTrips += 1;
+  _emit(event, payload) {
+    if (typeof this._eventBus?.emit === "function") {
+      this._eventBus.emit(event, payload);
+    }
+  }
+
+  _maybeTransitionToHalfOpen(provider, entry) {
+    if (entry.state !== STATES.OPEN) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsedMs = now - entry.trippedAt;
+    if (elapsedMs >= entry.recoveryTimeoutMs) {
+      entry.state = STATES.HALF_OPEN;
+      entry.currentProbeAllowed = false;
+      this._emit("circuit:recovered", { provider });
+    }
+  }
+
+  _tripCircuit(provider, entry, category) {
+    const { baseRecoveryTimeoutMs, maxRecoveryTimeoutMs, backoffMultiplier } = this._config;
+    const shouldBackoff = entry.state === STATES.HALF_OPEN;
+    const nextTimeout = shouldBackoff
+      ? Math.min(entry.recoveryTimeoutMs * backoffMultiplier, maxRecoveryTimeoutMs)
+      : baseRecoveryTimeoutMs;
+
     entry.state = STATES.OPEN;
+    entry.recoveryTimeoutMs = nextTimeout;
     entry.trippedAt = Date.now();
+    entry.currentProbeAllowed = false;
+
+    this._emit("circuit:tripped", {
+      provider,
+      category,
+      consecutiveFailures: entry.consecutiveFailures,
+      recoveryTimeoutMs: entry.recoveryTimeoutMs,
+    });
   }
 
   recordSuccess(provider) {
-    const { entry } = this._getOrCreateProviderState(provider);
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    const wasHalfOpen = entry.state === STATES.HALF_OPEN;
 
     entry.state = STATES.CLOSED;
     entry.consecutiveFailures = 0;
-    entry.lastCategory = null;
+    entry.lastFailureCategory = null;
     entry.trippedAt = null;
+    entry.currentProbeAllowed = false;
+    if (wasHalfOpen) {
+      entry.recoveryTimeoutMs = this._config.baseRecoveryTimeoutMs;
+    }
 
-    return this.getState(provider);
+    return this.getState(normalizedProvider);
   }
 
   recordFailure(provider, errorOutput) {
-    const { entry } = this._getOrCreateProviderState(provider);
-    const category = classifyFailure(errorOutput);
-    const isHalfOpenProbeFailure = entry.state === STATES.HALF_OPEN;
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    this._maybeTransitionToHalfOpen(normalizedProvider, entry);
 
-    entry.consecutiveFailures = entry.lastCategory === category
+    const category = classifyFailure(errorOutput);
+    entry.consecutiveFailures = entry.lastFailureCategory === category
       ? entry.consecutiveFailures + 1
       : 1;
-    entry.lastCategory = category;
+    entry.lastFailureCategory = category;
 
-    if (isHalfOpenProbeFailure || entry.consecutiveFailures >= FAILURE_THRESHOLD) {
-      this._tripOpen(entry);
+    const shouldTrip = entry.state === STATES.HALF_OPEN || entry.consecutiveFailures >= this._config.threshold;
+    if (shouldTrip) {
+      this._tripCircuit(normalizedProvider, entry, category);
     }
 
-    return this.getState(provider);
+    return this.getState(normalizedProvider);
+  }
+
+  isOpen(provider) {
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    this._maybeTransitionToHalfOpen(normalizedProvider, entry);
+
+    return entry.state === STATES.OPEN;
+  }
+
+  isHalfOpen(provider) {
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    this._maybeTransitionToHalfOpen(normalizedProvider, entry);
+
+    return entry.state === STATES.HALF_OPEN;
   }
 
   allowRequest(provider) {
-    const { entry } = this._getOrCreateProviderState(provider);
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
 
     if (entry.state === STATES.CLOSED) {
       return true;
     }
 
-    if (entry.state === STATES.HALF_OPEN) {
+    this._maybeTransitionToHalfOpen(normalizedProvider, entry);
+
+    if (entry.state !== STATES.HALF_OPEN) {
       return false;
     }
 
-    const trippedAt = typeof entry.trippedAt === 'number' ? entry.trippedAt : Date.now();
-    const elapsedMs = Date.now() - trippedAt;
-
-    if (elapsedMs >= entry.recoveryTimeoutMs) {
-      entry.state = STATES.HALF_OPEN;
-      return true;
+    if (entry.currentProbeAllowed) {
+      return false;
     }
 
-    return false;
+    entry.currentProbeAllowed = true;
+    return true;
   }
 
   getState(provider) {
-    const { entry } = this._getOrCreateProviderState(provider);
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    this._maybeTransitionToHalfOpen(normalizedProvider, entry);
 
     return {
       state: entry.state,
       consecutiveFailures: entry.consecutiveFailures,
-      lastFailureCategory: entry.lastCategory,
+      lastFailureCategory: entry.lastFailureCategory,
       trippedAt: entry.trippedAt,
       recoveryTimeoutMs: entry.recoveryTimeoutMs,
+      currentProbeAllowed: entry.currentProbeAllowed,
     };
   }
 
-  getAllOpenCircuits() {
-    return Array.from(this._providers.entries())
-      .filter(([, entry]) => entry.state !== STATES.CLOSED)
-      .map(([provider]) => provider);
-  }
+  getAllStates() {
+    const result = {};
+    for (const [provider, entry] of this._providers.entries()) {
+      if (entry.state === STATES.CLOSED) {
+        continue;
+      }
 
-  _reset() {
-    this._providers.clear();
+      this._maybeTransitionToHalfOpen(provider, entry);
+      if (entry.state === STATES.CLOSED) {
+        continue;
+      }
+
+      result[provider] = {
+        state: entry.state,
+        consecutiveFailures: entry.consecutiveFailures,
+        lastFailureCategory: entry.lastFailureCategory,
+        trippedAt: entry.trippedAt,
+        recoveryTimeoutMs: entry.recoveryTimeoutMs,
+        currentProbeAllowed: entry.currentProbeAllowed,
+      };
+    }
+
+    return result;
   }
 }
 
-const circuitBreaker = new CircuitBreaker();
+function createCircuitBreaker({ eventBus, config } = {}) {
+  return new CircuitBreaker({ eventBus, config });
+}
 
-module.exports = circuitBreaker;
-module.exports.CircuitBreaker = CircuitBreaker;
-module.exports.classifyFailure = classifyFailure;
-module.exports.STATES = STATES;
-module.exports.FAILURE_THRESHOLD = FAILURE_THRESHOLD;
-module.exports.BASE_RECOVERY_MS = BASE_RECOVERY_MS;
-module.exports.MAX_RECOVERY_MS = MAX_RECOVERY_MS;
-module.exports.BACKOFF_MULTIPLIER = BACKOFF_MULTIPLIER;
-module.exports._testing = {
-  createProviderState,
-  normalizeProvider,
-};
+module.exports = { createCircuitBreaker, classifyFailure, STATES };

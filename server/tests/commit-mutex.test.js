@@ -1,106 +1,112 @@
 'use strict';
 
-const commitMutex = require('../utils/commit-mutex');
+const { CommitMutex } = require('../utils/commit-mutex');
 
-const { acquire, isLocked, waitingCount, _reset } = commitMutex;
+let mutex;
 
 beforeEach(() => {
-  _reset();
+  mutex = new CommitMutex();
 });
 
 describe('commit-mutex', () => {
-  it('acquires and releases', async () => {
-    const release = await acquire();
+  it('acquire returns a release function, isLocked() is true while held', async () => {
+    const release = await mutex.acquire();
 
-    expect(isLocked()).toBe(true);
-    expect(waitingCount()).toBe(0);
+    expect(typeof release).toBe('function');
+    expect(mutex.isLocked()).toBe(true);
+    expect(mutex.waitingCount()).toBe(0);
 
     release();
+  });
 
-    expect(isLocked()).toBe(false);
-    expect(waitingCount()).toBe(0);
+  it('release makes isLocked() false', async () => {
+    const release = await mutex.acquire();
+    release();
+
+    expect(mutex.isLocked()).toBe(false);
+    expect(mutex.waitingCount()).toBe(0);
   });
 
   it('serializes concurrent acquires', async () => {
-    const releaseFirst = await acquire();
+    const releaseFirst = await mutex.acquire();
     let secondAcquired = false;
 
-    const secondAcquire = acquire().then((releaseSecond) => {
+    const secondAcquire = mutex.acquire().then((releaseSecond) => {
       secondAcquired = true;
       return releaseSecond;
     });
 
     expect(secondAcquired).toBe(false);
-    expect(waitingCount()).toBe(1);
+    expect(mutex.waitingCount()).toBe(1);
 
     releaseFirst();
 
     const releaseSecond = await secondAcquire;
 
     expect(secondAcquired).toBe(true);
-    expect(isLocked()).toBe(true);
-    expect(waitingCount()).toBe(0);
+    expect(mutex.isLocked()).toBe(true);
+    expect(mutex.waitingCount()).toBe(0);
 
     releaseSecond();
 
-    expect(isLocked()).toBe(false);
+    expect(mutex.isLocked()).toBe(false);
   });
 
   it('times out when mutex held too long', async () => {
-    const releaseFirst = await acquire();
-    const blockedAcquire = acquire(50);
+    const releaseFirst = await mutex.acquire();
+    const blockedAcquire = mutex.acquire(40);
 
     await expect(blockedAcquire).rejects.toThrow('CommitMutex: acquire timeout');
-    expect(waitingCount()).toBe(0);
-    expect(isLocked()).toBe(true);
+    expect(mutex.waitingCount()).toBe(0);
+    expect(mutex.isLocked()).toBe(true);
 
     releaseFirst();
 
-    expect(isLocked()).toBe(false);
+    expect(mutex.isLocked()).toBe(false);
   });
 
   it('FIFO ordering', async () => {
     const order = [];
-    const releaseFirst = await acquire();
+    const releaseFirst = await mutex.acquire();
     order.push('first');
 
-    const secondAcquire = acquire().then((releaseSecond) => {
+    const secondAcquire = mutex.acquire().then((releaseSecond) => {
       order.push('second');
       return releaseSecond;
     });
 
-    const thirdAcquire = acquire().then((releaseThird) => {
+    const thirdAcquire = mutex.acquire().then((releaseThird) => {
       order.push('third');
       return releaseThird;
     });
 
-    expect(waitingCount()).toBe(2);
+    expect(mutex.waitingCount()).toBe(2);
 
     releaseFirst();
     const releaseSecond = await secondAcquire;
 
     expect(order).toEqual(['first', 'second']);
-    expect(waitingCount()).toBe(1);
+    expect(mutex.waitingCount()).toBe(1);
 
     releaseSecond();
     const releaseThird = await thirdAcquire;
 
     expect(order).toEqual(['first', 'second', 'third']);
-    expect(waitingCount()).toBe(0);
+    expect(mutex.waitingCount()).toBe(0);
 
     releaseThird();
 
-    expect(isLocked()).toBe(false);
+    expect(mutex.isLocked()).toBe(false);
   });
 
   it('waitingCount reflects queue depth', async () => {
-    const releaseFirst = await acquire();
+    const releaseFirst = await mutex.acquire();
 
-    const secondAcquire = acquire();
-    const thirdAcquire = acquire();
-    const fourthAcquire = acquire();
+    const secondAcquire = mutex.acquire();
+    const thirdAcquire = mutex.acquire();
+    const fourthAcquire = mutex.acquire();
 
-    expect(waitingCount()).toBe(3);
+    expect(mutex.waitingCount()).toBe(3);
 
     releaseFirst();
     const releaseSecond = await secondAcquire;
@@ -112,27 +118,20 @@ describe('commit-mutex', () => {
     const releaseFourth = await fourthAcquire;
     releaseFourth();
 
-    expect(isLocked()).toBe(false);
-    expect(waitingCount()).toBe(0);
+    expect(mutex.isLocked()).toBe(false);
+    expect(mutex.waitingCount()).toBe(0);
   });
 
-  it('_reset clears all state', async () => {
-    const releaseFirst = await acquire();
-    const blockedAcquire = acquire(25).catch((error) => error);
+  it('double-release is a no-op', async () => {
+    const release = await mutex.acquire();
 
-    expect(isLocked()).toBe(true);
-    expect(waitingCount()).toBe(1);
+    expect(mutex.isLocked()).toBe(true);
+    expect(mutex.waitingCount()).toBe(0);
 
-    _reset();
+    release();
+    expect(mutex.isLocked()).toBe(false);
 
-    expect(isLocked()).toBe(false);
-    expect(waitingCount()).toBe(0);
-
-    const timeoutError = await blockedAcquire;
-    expect(timeoutError).toBeInstanceOf(Error);
-    expect(timeoutError.message).toBe('CommitMutex: acquire timeout');
-
-    releaseFirst();
-    expect(isLocked()).toBe(false);
+    release();
+    expect(mutex.isLocked()).toBe(false);
   });
 });
