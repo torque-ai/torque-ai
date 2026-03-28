@@ -2340,7 +2340,7 @@ recording -> adversarial review -> ledger integration."
 
 ---
 
-## Summary
+## Summary — Phases 1-4 (Completed)
 
 | Phase | Tasks | New Files | Modified Files |
 |-------|-------|-----------|----------------|
@@ -2349,4 +2349,152 @@ recording -> adversarial review -> ledger integration."
 | **3: Adversarial Review** | 8-10 | 3 (db, stage, tests) | schema-tables, schema-migrations, evidence-risk-defs/handlers, container, task-core |
 | **4: Integration** | 11-13 | 1 (integration test) | task-finalizer, automation-handlers, automation-defs |
 
-**Total:** 13 tasks, 11 new files, ~7 modified files, ~15 commits
+**Phases 1-4 total:** 13 tasks, 11 new files, ~7 modified files, ~15 commits
+
+---
+
+## Phase 5: Workflow DAG Integration (Planned — Not Yet Implemented)
+
+The adversarial review stage spawns review tasks async, but nothing prevents Claude from committing before the review finishes. Phase 5 wires adversarial review into the workflow DAG so the review task is a dependency that blocks the commit step. Claude stays in the driver seat — reads the verdict, decides commit/fix/rollback.
+
+### Task 14: Auto-inject Review Node into Workflows
+
+**Files:**
+- Modify: `server/db/workflow-engine.js` (or wherever `advanceWorkflow` / `unblockNextNodes` lives)
+- Modify: `server/handlers/workflow-handlers.js` (create_feature_workflow)
+- Create: `server/tests/adversarial-review-workflow.test.js`
+
+When a code task completes and `adversarial_review` is enabled (`'auto'` or `'always'`), the adversarial review task spawned by the finalizer stage should be **registered as a workflow node** that blocks downstream nodes (commit, next phase). This means:
+
+- [ ] **Step 1: Read the workflow engine to understand how nodes are added dynamically**
+
+Find where workflow nodes are unblocked after a task completes. Understand the `depends_on` and `advanceWorkflow` flow.
+
+- [ ] **Step 2: Write failing test**
+
+Test that when a task in a workflow completes with `adversarial_review_pending: true` in metadata, a new workflow node is injected with `depends_on` pointing to the review task, and downstream nodes are re-blocked until the review completes.
+
+```js
+// server/tests/adversarial-review-workflow.test.js
+describe('adversarial-review-workflow', () => {
+  it('injects review node into workflow DAG when review is spawned', () => {
+    // Create a workflow: [code-task] → [commit-task]
+    // Complete code-task with adversarial_review_pending: true
+    // Verify: commit-task is now blocked by the review task
+    // Complete review task
+    // Verify: commit-task is unblocked
+  });
+
+  it('skips injection when no adversarial review was spawned', () => {
+    // Complete code-task without adversarial_review_pending
+    // Verify: commit-task unblocks normally
+  });
+
+  it('passes review verdict to Claude via workflow context', () => {
+    // Complete review task with verdict + issues
+    // Verify: downstream node receives review context via context_from
+  });
+});
+```
+
+- [ ] **Step 3: Implement DAG injection**
+
+In the post-completion workflow advancement code (where `advanceWorkflow` runs after a task finishes), add a hook:
+
+```js
+// After task completes, before advancing workflow:
+const metadata = JSON.parse(task.metadata || '{}');
+if (metadata.adversarial_review_pending && metadata.adversarial_review_task_id) {
+  // Find downstream nodes that depend on this task
+  // Insert the review task as an intermediate dependency
+  // Downstream nodes now depend on review task instead of (or in addition to) this task
+  workflowEngine.injectReviewDependency(
+    task.workflow_id,
+    task.workflow_node_id,
+    metadata.adversarial_review_task_id
+  );
+}
+```
+
+- [ ] **Step 4: Implement `injectReviewDependency`**
+
+```js
+function injectReviewDependency(workflowId, completedNodeId, reviewTaskId) {
+  // 1. Register review task as a workflow node
+  //    node_id: `review-${completedNodeId}`, task_id: reviewTaskId
+  //    depends_on: [completedNodeId], context_from: [completedNodeId]
+  // 2. Find all nodes that depended on completedNodeId
+  // 3. Re-point their dependency to the review node instead
+  // 4. The review node's output (verdict + issues) flows to downstream nodes via context_from
+}
+```
+
+- [ ] **Step 5: Run test, verify it passes**
+
+- [ ] **Step 6: Commit**
+
+```bash
+git commit -m "feat(evidence-risk): auto-inject adversarial review into workflow DAG
+
+When a code task in a workflow spawns an adversarial review, the review
+task is injected as an intermediate DAG node. Downstream nodes (commit,
+next phase) block until the review completes. Claude reads the verdict
+and decides: commit, fix, or rollback."
+```
+
+### Task 15: Feature Workflow Template Support
+
+**Files:**
+- Modify: `server/handlers/workflow-handlers.js` (or `create_feature_workflow` handler)
+
+When `create_feature_workflow` is called and the project has `adversarial_review: 'auto' | 'always'`, automatically add review nodes after each code-producing step in the template:
+
+- [ ] **Step 1: Read `create_feature_workflow` to understand the template DAG structure**
+
+- [ ] **Step 2: Add optional review nodes to the feature workflow template**
+
+For each code-producing step (types, data, events, system, wire), if adversarial review is enabled, insert a review checkpoint node:
+
+```
+[types] → [review-types?] → [data] → [review-data?] → ... → [tests] → [commit]
+```
+
+Review nodes are conditional — only inserted when `adversarial_review !== 'off'` in project defaults. Each review node uses `context_from` to pass the code task's output (diff) to Claude for the verdict.
+
+- [ ] **Step 3: Test that feature workflows include review nodes when enabled**
+
+- [ ] **Step 4: Test that feature workflows skip review nodes when disabled**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -m "feat(evidence-risk): add review nodes to feature workflow template
+
+When adversarial_review is enabled in project defaults, create_feature_workflow
+inserts review checkpoint nodes after each code-producing step."
+```
+
+### Task 16: Slash Command Integration
+
+**Files:**
+- Modify: `.claude/commands/torque-review.md` (or equivalent)
+
+Update `/torque-review` to check for pending adversarial reviews and present structured results:
+
+- [ ] **Step 1: Read the current `/torque-review` command**
+
+- [ ] **Step 2: Add adversarial review awareness**
+
+When reviewing a task that has `adversarial_review_pending: true` or completed adversarial reviews:
+1. Call `get_adversarial_reviews({ task_id })`
+2. Present the verdict, confidence, and issues table
+3. Ask Claude to decide: approve, request fixes, or rollback
+
+- [ ] **Step 3: Commit**
+
+```bash
+git commit -m "feat(evidence-risk): make /torque-review adversarial-review-aware
+
+Shows adversarial review verdict and issues when reviewing a task that
+has pending or completed adversarial reviews."
+```
