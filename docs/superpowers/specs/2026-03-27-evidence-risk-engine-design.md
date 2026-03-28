@@ -202,12 +202,24 @@ Rules:
 - Only use "reject" for genuine bugs or security holes, not style preferences
 ```
 
-### Execution Modes
+### Execution Model: Claude-in-the-Loop via Workflow DAG
 
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| `async` (default) | Spawns review task, original task completes normally. Review result written to `adversarial_reviews` when review task finishes. Original task metadata: `adversarial_review_pending: true` | Non-blocking; review results arrive later |
-| `blocking` | Waits for review (timeout: 5 min configurable). `reject` + `confidence: high` → sets `ctx.status = 'failed'`. Supports MCP elicitation for human override. | Gate commits behind review |
+**There is no blocking mode in the pipeline.** The adversarial review stage always runs async — it spawns the review task and returns immediately. The original task completes and its changes land on disk.
+
+**Commit gating happens at the workflow level**, not the pipeline level. When adversarial review is enabled, the review task becomes a DAG node that blocks the commit step:
+
+```
+[code task] → [adversarial review task] → [Claude reviews verdict] → [commit or fix]
+```
+
+This keeps the decision with Claude (the orchestrating agent), not buried in pipeline code. Claude:
+1. Sees the review task complete via push notification / `await_workflow`
+2. Reads the structured verdict and issues via `get_adversarial_reviews`
+3. Decides: approve (commit), request fixes (submit fix task), or rollback
+
+This aligns with TORQUE's philosophy: "Claude's role: architect + orchestrator."
+
+**Design note:** Blocking mode (`adversarial_review_mode: 'blocking'`) was considered and rejected. Automated pipeline blocking removes Claude from the decision loop and creates timeout/deadlock risks. The workflow DAG pattern achieves the same gating effect while keeping Claude in control.
 
 ### Ledger Integration
 
@@ -234,15 +246,16 @@ This happens automatically if the verification ledger is enabled. If not, the ad
 |------|---------|
 | `get_adversarial_reviews` | All reviews for a task |
 | `request_adversarial_review` | Manually trigger a review for any completed task |
-| `configure_adversarial_review` | Set mode, chain, auto-trigger rules (wrapper around project defaults) |
+
+**Design note:** `configure_adversarial_review` was omitted. Configuration is handled entirely through `set_project_defaults`, which already supports all the relevant keys. A separate tool would be redundant.
 
 ### Configuration
 
 - **Toggle:** `set_project_defaults({ adversarial_review: 'off' | 'auto' | 'always' })`
 - **Off by default**
-- **Mode:** `set_project_defaults({ adversarial_review_mode: 'async' | 'blocking' })`
 - **Chain:** `set_project_defaults({ adversarial_review_chain: ['codex', 'deepinfra', 'claude-cli', 'ollama'] })`
-- **Timeout (blocking mode):** `set_project_defaults({ adversarial_review_timeout_seconds: 300 })`
+
+**Deprecated config keys** (still accepted but unused): `adversarial_review_mode`, `adversarial_review_timeout_seconds`. These were designed for pipeline-level blocking which was replaced by the workflow DAG pattern.
 
 ---
 
@@ -379,6 +392,8 @@ Going with **Option A** — the adversarial review stage calls `fileRisk.scoreFi
 ## Cross-Module Data Flow
 
 ```
+=== Pipeline (inside task finalizer) ===
+
 Task Completes
     │
     ▼
@@ -392,16 +407,23 @@ Task Completes
     ├──→ check risk_level for trigger decision
     │
     ├──→ (if triggered) spawn review task with risk context in prompt
-    │     │
-    │     └──→ [async — when review task completes, its own finalizer writes:]
-    │            INSERT adversarial_reviews
-    │            INSERT verification_checks (phase: 'review')  [if ledger enabled]
-    │
-    │     [blocking mode — waits inline, writes immediately, can fail the task]
+    │     metadata: adversarial_review_pending: true, adversarial_review_task_id: <id>
     │
     ▼
 [policy adapter: file-risk]  ──→  UPSERT file_risk_scores (runs at task_complete policy eval)
                                    return evidence for policy engine
+
+=== Workflow DAG (Claude-in-the-loop) ===
+
+[code task] ──→ [adversarial review task] ──→ [Claude decision point]
+                      │                              │
+                      │ on complete:                  ├──→ approve → commit
+                      │ INSERT adversarial_reviews    ├──→ concerns → commit with notes
+                      │ INSERT verification_checks    └──→ reject → submit fix task
+                      │   (phase: 'review')
+                      │
+                      └── Claude reads via get_adversarial_reviews
+```
                                    (this is the GUARANTEED scoring path — runs regardless of
                                     whether adversarial review is enabled)
 ```
