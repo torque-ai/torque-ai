@@ -1,5 +1,4 @@
 const Database = require('better-sqlite3');
-const { describe, it, expect, beforeEach } = require('vitest');
 
 describe('file-risk', () => {
   let db;

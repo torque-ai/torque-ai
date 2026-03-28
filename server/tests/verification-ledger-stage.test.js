@@ -1,5 +1,3 @@
-const { describe, it, expect, beforeEach, vi } = require('vitest');
-
 describe('verification-ledger-stage', () => {
   let stage;
   let mockLedger;

@@ -1,5 +1,3 @@
-const { describe, it, expect, beforeEach } = require('vitest');
-
 describe('file-risk-patterns', () => {
   let scoreFilePath;
 
