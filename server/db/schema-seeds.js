@@ -593,6 +593,8 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   
       const seeds = [
         // [model, code_gen, refactor, testing, reasoning, docs, TS, JS, Python, C#, Go, Rust, General, context, params, thinking]
+        // qwen3-coder:30b — scores from benchmark 2026-03-28: 5/5 pass on code_gen, refactoring, testing, reasoning, docs
+        ['qwen3-coder:30b',         0.92, 0.88, 0.85, 0.78, 0.75, 0.92, 0.92, 0.80, 0.72, 0.68, 0.63, 0.80, 16384, 30, 0],
         ['qwen2.5-coder:32b',      0.90, 0.85, 0.80, 0.70, 0.65, 0.90, 0.90, 0.75, 0.70, 0.65, 0.60, 0.75, 16384, 32, 0],
         ['codestral:22b',           0.75, 0.70, 0.65, 0.60, 0.70, 0.75, 0.75, 0.70, 0.65, 0.60, 0.55, 0.70,  8192, 22, 0],
         ['codellama:34b',           0.70, 0.65, 0.60, 0.55, 0.50, 0.60, 0.65, 0.80, 0.55, 0.50, 0.50, 0.60, 16384, 34, 0],
@@ -645,14 +647,15 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     logger.debug(`Schema seed (model roles): ${e.message}`);
   }
 
-  // Seed model capabilities for qwen3-coder (agentic, large context) — example entry only
+  // Seed structural capabilities for qwen3-coder (agentic, large context)
+  // Scoring columns are handled by the INSERT OR IGNORE seed above; this upsert
+  // adds the structural flags that the seed statement does not cover.
   try {
     const modelCaps = require('./model-capabilities');
     modelCaps.setDb(db);
     modelCaps.upsertModelCapabilities('qwen3-coder:30b', {
       can_create_files: 1, can_edit_safely: 1,
       max_safe_edit_lines: 500, is_agentic: 1,
-      context_window: 16384, param_size_b: 30,
     });
   } catch (e) { logger.debug('model capabilities seed: ' + e.message); }
 

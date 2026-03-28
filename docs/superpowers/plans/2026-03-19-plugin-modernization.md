@@ -331,7 +331,7 @@ Create `~/bin/torque-cli`:
 # Try known locations
 for dir in \
   "$HOME/Projects/torque-public" \
-  "$HOME/Projects/torque" \
+  "$HOME/Projects/torque-archived" \
   "${CLAUDE_PLUGIN_ROOT:-}" \
   "$(cd "$(dirname "$0")/../Projects/torque-public" 2>/dev/null && pwd)"; do
   if [ -f "$dir/cli/torque-cli.js" ]; then
