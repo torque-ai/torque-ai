@@ -117,12 +117,12 @@ module.exports = [
   },
   {
     name: 'request_adversarial_review',
-    description: 'Manually trigger an adversarial review for any completed task. Spawns a review task on a different provider.',
+    description: 'Manually trigger an adversarial review for a completed task. Spawns a review on a different provider.',
     inputSchema: {
       type: 'object',
       properties: {
         task_id: { type: 'string', description: 'Task ID to review' },
-        provider: { type: 'string', description: 'Specific provider to use for review (must differ from original)' },
+        provider: { type: 'string', description: 'Specific provider for review (must differ from original)' },
         working_directory: { type: 'string', description: 'Project working directory' },
       },
       required: ['task_id', 'working_directory'],

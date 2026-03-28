@@ -18,6 +18,7 @@ const path = require('path');
 const logger = require('../logger').child({ component: 'auto-verify-retry' });
 const serverConfig = require('../config');
 const { buildErrorFeedbackPrompt } = require('../utils/context-enrichment');
+const { buildResumeContext, formatResumeContextForPrompt } = require('../utils/resume-context');
 const { createRemoteTestRouter } = require('../remote/remote-test-routing');
 const { extractBuildErrorFiles } = require('./post-task');
 const { extractModifiedFiles } = require('../utils/file-resolution');
@@ -313,6 +314,7 @@ async function handleAutoVerifyRetry(ctx) {
   const originalDesc = task.task_description || '';
   const originalOutput = (ctx.output || task.output || '').slice(0, 2000);
   const errors = (verifyOutput || '').slice(0, 4000);
+  const errorOutput = verifyOutput || '';
   let fixDescription = '';
   try {
     if (typeof buildErrorFeedbackPrompt === 'function') {
@@ -326,15 +328,26 @@ async function handleAutoVerifyRetry(ctx) {
   }
 
   // Inject resume context from failed task (if available)
+  let resumePreamble = '';
   try {
-    const resumeJson = task.resume_context;
-    if (resumeJson) {
-      const { formatResumeContextForPrompt } = require('../utils/resume-context');
-      const parsed = typeof resumeJson === 'string' ? JSON.parse(resumeJson) : resumeJson;
-      const preamble = formatResumeContextForPrompt(parsed);
-      if (preamble) fixDescription = preamble + '\n\n' + fixDescription;
+    const failedTask = typeof _db?.getTask === 'function' ? _db.getTask(taskId) : task;
+    if (failedTask && failedTask.resume_context) {
+      const parsed = typeof failedTask.resume_context === 'string'
+        ? JSON.parse(failedTask.resume_context)
+        : failedTask.resume_context;
+      resumePreamble = formatResumeContextForPrompt(parsed);
+    } else if (failedTask) {
+      const resumeContext = buildResumeContext(
+        failedTask.output || '',
+        errorOutput || '',
+        { task_description: failedTask.task_description, provider: failedTask.provider },
+      );
+      resumePreamble = formatResumeContextForPrompt(resumeContext);
     }
-  } catch { /* resume context injection is best-effort */ }
+  } catch (_) { /* resume context injection is best-effort */ }
+  if (resumePreamble) {
+    fixDescription = `${resumePreamble}\n\n---\n\n${fixDescription}`;
+  }
 
   // Create fix task
   const fixTaskId = randomUUID();

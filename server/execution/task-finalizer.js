@@ -13,10 +13,10 @@ const modelCapabilities = require('../db/model-capabilities');
 const perfTracker = require('../db/provider-performance');
 const { smartDiagnosisStage } = require('./smart-diagnosis-stage');
 const { strategicReviewStage } = require('./strategic-review-stage');
-const { createVerificationLedgerStage } = require('./verification-ledger-stage');
-const { createAdversarialReviewStage } = require('./adversarial-review-stage');
 
 let deps = {};
+let handleVerificationLedger = null;
+let handleAdversarialReview = null;
 const finalizationLocks = new Map();
 
 function init(nextDeps = {}) {
@@ -25,37 +25,48 @@ function init(nextDeps = {}) {
     perfTracker.setDb(deps.db);
   }
 
+  handleVerificationLedger = typeof deps.handleVerificationLedger === 'function' ? deps.handleVerificationLedger : handleVerificationLedger;
+  handleAdversarialReview = typeof deps.handleAdversarialReview === 'function' ? deps.handleAdversarialReview : handleAdversarialReview;
+
   try {
+    const { createVerificationLedgerStage } = require('./verification-ledger-stage');
     const { defaultContainer } = require('../container');
-    if (defaultContainer && typeof defaultContainer.has === 'function' && typeof defaultContainer.get === 'function') {
-      if (typeof deps.handleVerificationLedger !== 'function'
-        && defaultContainer.has('verificationLedger')
-        && defaultContainer.has('projectConfigCore')) {
-        deps.handleVerificationLedger = createVerificationLedgerStage({
-          verificationLedger: defaultContainer.get('verificationLedger'),
-          projectConfigCore: defaultContainer.get('projectConfigCore'),
+    if (typeof handleVerificationLedger !== 'function' && defaultContainer && typeof defaultContainer.has === 'function' && typeof defaultContainer.get === 'function') {
+      const vl = defaultContainer.has('verificationLedger') ? defaultContainer.get('verificationLedger') : null;
+      const pc = defaultContainer.has('projectConfigCore') ? defaultContainer.get('projectConfigCore') : null;
+      if (vl && pc) {
+        handleVerificationLedger = createVerificationLedgerStage({
+          verificationLedger: vl,
+          projectConfigCore: pc,
         });
       }
+    }
+  } catch (_) {
+    // not available
+  }
 
-      if (typeof deps.handleAdversarialReview !== 'function'
-        && defaultContainer.has('adversarialReviews')
-        && defaultContainer.has('fileRiskAdapter')
-        && defaultContainer.has('taskCore')
-        && defaultContainer.has('taskManager')
-        && defaultContainer.has('projectConfigCore')
-        && defaultContainer.has('workflowEngine')) {
-        deps.handleAdversarialReview = createAdversarialReviewStage({
-          adversarialReviews: defaultContainer.get('adversarialReviews'),
-          fileRiskAdapter: defaultContainer.get('fileRiskAdapter'),
-          taskCore: defaultContainer.get('taskCore'),
-          taskManager: defaultContainer.get('taskManager'),
-          projectConfigCore: defaultContainer.get('projectConfigCore'),
-          workflowEngine: defaultContainer.get('workflowEngine'),
+  try {
+    const { createAdversarialReviewStage } = require('./adversarial-review-stage');
+    const { defaultContainer } = require('../container');
+    if (typeof handleAdversarialReview !== 'function' && defaultContainer && typeof defaultContainer.has === 'function' && typeof defaultContainer.get === 'function') {
+      const ar = defaultContainer.has('adversarialReviews') ? defaultContainer.get('adversarialReviews') : null;
+      const fra = defaultContainer.has('fileRiskAdapter') ? defaultContainer.get('fileRiskAdapter') : null;
+      const tc = defaultContainer.has('taskCore') ? defaultContainer.get('taskCore') : null;
+      const tm = defaultContainer.has('taskManager') ? defaultContainer.get('taskManager') : null;
+      const pc = defaultContainer.has('projectConfigCore') ? defaultContainer.get('projectConfigCore') : null;
+      if (ar && fra && tc && tm && pc) {
+        handleAdversarialReview = createAdversarialReviewStage({
+          adversarialReviews: ar,
+          fileRiskAdapter: fra,
+          taskCore: tc,
+          taskManager: tm,
+          verificationLedger: defaultContainer.has('verificationLedger') ? defaultContainer.get('verificationLedger') : null,
+          projectConfigCore: pc,
         });
       }
     }
   } catch (_err) {
-    // optional DI defaults are best-effort; missing container services keep stage skipped
+    // not available
   }
 }
 
@@ -494,7 +505,7 @@ async function finalizeTask(taskId, options = {}) {
     await runStage(ctx, 'auto_validation', deps.handleAutoValidation, typeof deps.handleAutoValidation === 'function');
     await runStage(ctx, 'build_test_style_commit', deps.handleBuildTestStyleCommit, typeof deps.handleBuildTestStyleCommit === 'function');
     await runStage(ctx, 'auto_verify_retry', deps.handleAutoVerifyRetry, typeof deps.handleAutoVerifyRetry === 'function');
-    await runStage(ctx, 'verification_ledger', deps.handleVerificationLedger, typeof deps.handleVerificationLedger === 'function');
+    await runStage(ctx, 'verification_ledger', handleVerificationLedger, typeof handleVerificationLedger === 'function');
     if (ctx.earlyExit) {
       return {
         finalized: false,
@@ -506,7 +517,7 @@ async function finalizeTask(taskId, options = {}) {
       };
     }
 
-    await runStage(ctx, 'adversarial_review', deps.handleAdversarialReview, typeof deps.handleAdversarialReview === 'function' && ctx.status === 'completed');
+    await runStage(ctx, 'adversarial_review', handleAdversarialReview, typeof handleAdversarialReview === 'function' && ctx.status === 'completed');
 
     // Experiment 5: Smart failure diagnosis — analyzes error patterns and
     // sets recovery hints (suggested_provider, needs_escalation) for downstream stages

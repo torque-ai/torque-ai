@@ -714,6 +714,33 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   safeAddColumn('project_config', 'adversarial_review_timeout_seconds INTEGER');
 
   // Model-agnostic architecture columns and tables
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS provider_scores (
+        provider TEXT PRIMARY KEY,
+        cost_efficiency REAL DEFAULT 0,
+        speed_score REAL DEFAULT 0,
+        reliability_score REAL DEFAULT 0,
+        quality_score REAL DEFAULT 0,
+        composite_score REAL DEFAULT 0,
+        sample_count INTEGER DEFAULT 0,
+        total_tasks INTEGER DEFAULT 0,
+        total_successes INTEGER DEFAULT 0,
+        total_failures INTEGER DEFAULT 0,
+        avg_duration_ms REAL DEFAULT 0,
+        avg_cost_usd REAL DEFAULT 0,
+        last_updated TEXT,
+        trusted INTEGER DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_provider_scores_composite ON provider_scores(composite_score DESC);
+      CREATE INDEX IF NOT EXISTS idx_provider_scores_trusted ON provider_scores(trusted, composite_score DESC);
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (provider_scores): ${e.message}`);
+  }
+
+  // Resume context for failed task retries
+  safeAddColumn('tasks', 'resume_context TEXT');
   migrateModelAgnostic(db);
   db.exec("RELEASE SAVEPOINT migration_batch");
   } catch (err) {

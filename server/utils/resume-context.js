@@ -1,30 +1,13 @@
 'use strict';
 
-const MAX_GOAL_LENGTH = 200;
 const MAX_PROGRESS_LENGTH = 500;
 const MAX_ERROR_LENGTH = 1000;
 const MAX_APPROACH_LENGTH = 500;
-const MAX_PROMPT_LENGTH = 3000;
+const MAX_COMMANDS = 20;
 
-const FILE_PATTERNS = [
-  /^(?:Wrote|Created|Modified)\s+(.+)$/,
-  /^Edit:\s+(.+)$/,
-  /^---\s+a\/(.+)$/,
-  /^\+\+\+\s+b\/(.+)$/,
-  /^[MA]\s{2}(.+)$/,
-];
-
-const ERROR_BOUNDARY_PATTERNS = [
-  /^\s*Error\b.*$/m,
-  /^\s*ERROR\b.*$/m,
-  /^\s*Failed\b.*$/m,
-  /^\s*FAILED\b.*$/m,
-  /^\s*Exception\b.*$/m,
-  /^\s*Traceback\b.*$/m,
-  /^\s*Command failed\b.*$/m,
-];
-
-const COMMAND_PATTERNS = ['npx ', 'npm ', 'git ', 'node '];
+const FILE_ACTION_PATTERN = /(?:Wrote|Created|Modified|Updated|Edited)\s+(?:\[|)([\w/.\-]+\.\w+)/;
+const MARKDOWN_LINK_PATTERN = /-\s*\[([\w/.\-]+\.\w+)\]/;
+const ERROR_BOUNDARY_PATTERN = /(?:^|\r?\n)\s*(?:Error|ERROR|Failed|FAILED|Exception|Traceback|Command failed)\b/m;
 
 function toText(value) {
   if (value === null || value === undefined) return '';
@@ -32,8 +15,7 @@ function toText(value) {
 }
 
 function firstChars(text, maxLength) {
-  const normalized = toText(text);
-  return normalized.slice(0, maxLength);
+  return toText(text).slice(0, maxLength);
 }
 
 function lastChars(text, maxLength) {
@@ -42,72 +24,59 @@ function lastChars(text, maxLength) {
   return normalized.slice(normalized.length - maxLength);
 }
 
-function addUnique(values, value) {
-  if (!value || values.includes(value)) return;
-  values.push(value);
+function addUnique(list, value) {
+  if (!value || list.includes(value)) return;
+  list.push(value);
 }
 
 function normalizePath(rawPath) {
-  let filePath = toText(rawPath).trim();
-  if (!filePath) return '';
-
-  filePath = filePath.split('\t')[0].trim();
-  filePath = filePath.replace(/^["'`]+|["'`]+$/g, '');
-  filePath = filePath.replace(/^[ab][\\/]/, '');
-  filePath = filePath.replace(/[,:;]+$/, '');
-  filePath = filePath.replace(/\s+\([^)]*\)$/, '');
-
-  if (!filePath || filePath === '/dev/null') return '';
-  return filePath;
+  return toText(rawPath).trim().replace(/\]$/, '');
 }
 
-function looksLikePath(value) {
-  return /[\\/]/.test(value) || /\.[A-Za-z0-9]+$/.test(value);
+function extractTaskOutputBeforeError(taskOutput) {
+  const normalized = toText(taskOutput);
+  if (!normalized) return '';
+
+  const match = ERROR_BOUNDARY_PATTERN.exec(normalized);
+  return match ? normalized.slice(0, match.index) : normalized;
 }
 
-function extractFilesModified(text) {
+function extractFilesModified(taskOutput) {
   const filesModified = [];
-  const lines = toText(text).split(/\r?\n/);
+  const lines = toText(taskOutput).split(/\r?\n/);
 
   for (const line of lines) {
-    for (const pattern of FILE_PATTERNS) {
-      const match = line.match(pattern);
-      if (!match) continue;
+    const actionMatch = line.match(FILE_ACTION_PATTERN);
+    if (actionMatch && actionMatch[1]) {
+      addUnique(filesModified, normalizePath(actionMatch[1]));
+    }
 
-      const filePath = normalizePath(match[1]);
-      if (looksLikePath(filePath)) {
-        addUnique(filesModified, filePath);
-      }
-      break;
+    const linkMatch = line.match(MARKDOWN_LINK_PATTERN);
+    if (linkMatch && linkMatch[1]) {
+      addUnique(filesModified, normalizePath(linkMatch[1]));
     }
   }
 
   return filesModified;
 }
 
-function extractCommands(text) {
+function extractCommands(taskOutput) {
   const commandsRun = [];
-  const lines = toText(text).split(/\r?\n/);
+  const lines = toText(taskOutput).split(/\r?\n/);
 
   for (const line of lines) {
+    if (commandsRun.length >= MAX_COMMANDS) {
+      break;
+    }
+
     const trimmed = line.trim();
     if (!trimmed) continue;
 
     let command = '';
-    if (trimmed.startsWith('$ ') || trimmed.startsWith('> ')) {
+    if (trimmed.startsWith('$ ')) {
       command = trimmed.slice(2).trim();
-    } else {
-      let matchIndex = -1;
-      for (const marker of COMMAND_PATTERNS) {
-        const index = trimmed.indexOf(marker);
-        if (index !== -1 && (matchIndex === -1 || index < matchIndex)) {
-          matchIndex = index;
-        }
-      }
-
-      if (matchIndex !== -1) {
-        command = trimmed.slice(matchIndex).trim();
-      }
+    } else if (/^(?:npx|git|npm run|node)\s/.test(trimmed)) {
+      command = trimmed;
     }
 
     addUnique(commandsRun, command);
@@ -116,84 +85,46 @@ function extractCommands(text) {
   return commandsRun;
 }
 
-function extractTaskOutputBeforeError(taskOutput) {
-  const normalized = toText(taskOutput);
-  if (!normalized) return '';
-
-  let boundaryIndex = -1;
-  for (const pattern of ERROR_BOUNDARY_PATTERNS) {
-    const match = pattern.exec(normalized);
-    if (!match || typeof match.index !== 'number') continue;
-    if (boundaryIndex === -1 || match.index < boundaryIndex) {
-      boundaryIndex = match.index;
-    }
-  }
-
-  return boundaryIndex === -1 ? normalized : normalized.slice(0, boundaryIndex);
-}
-
 function buildResumeContext(taskOutput, errorOutput, metadata) {
   const safeMetadata = metadata && typeof metadata === 'object' ? metadata : {};
   const normalizedTaskOutput = toText(taskOutput);
   const normalizedErrorOutput = toText(errorOutput);
   const outputBeforeError = extractTaskOutputBeforeError(normalizedTaskOutput);
-  const combinedOutput = [normalizedTaskOutput, normalizedErrorOutput].filter(Boolean).join('\n');
-  const description = toText(safeMetadata.description).trim();
+  const duration = Number(safeMetadata.duration_ms ?? safeMetadata.durationMs);
 
   return {
-    goal: description || firstChars(normalizedTaskOutput, MAX_GOAL_LENGTH),
-    filesModified: extractFilesModified(combinedOutput),
-    commandsRun: extractCommands(combinedOutput),
-    progressSummary: lastChars(outputBeforeError, MAX_PROGRESS_LENGTH).trim(),
-    errorDetails: lastChars(normalizedErrorOutput, MAX_ERROR_LENGTH).trim(),
-    approachTaken: firstChars(normalizedTaskOutput, MAX_APPROACH_LENGTH).trim(),
-    durationMs: Number.isFinite(safeMetadata.durationMs) ? safeMetadata.durationMs : 0,
+    goal: toText(safeMetadata.task_description || safeMetadata.original_description),
+    filesModified: extractFilesModified(normalizedTaskOutput),
+    commandsRun: extractCommands(normalizedTaskOutput),
+    progressSummary: lastChars(outputBeforeError, MAX_PROGRESS_LENGTH),
+    errorDetails: lastChars(normalizedErrorOutput, MAX_ERROR_LENGTH),
+    approachTaken: firstChars(normalizedTaskOutput, MAX_APPROACH_LENGTH),
+    durationMs: Number.isFinite(duration) ? duration : 0,
     provider: toText(safeMetadata.provider).trim() || 'unknown',
   };
 }
 
 function formatResumeContextForPrompt(resumeContext) {
-  const safeContext = resumeContext && typeof resumeContext === 'object' ? resumeContext : {};
-  const provider = toText(safeContext.provider).trim() || 'unknown';
-  const durationMs = Number.isFinite(safeContext.durationMs) ? safeContext.durationMs : 0;
-  const filesModified = Array.isArray(safeContext.filesModified) ? safeContext.filesModified.filter(Boolean) : [];
-  const commandsRun = Array.isArray(safeContext.commandsRun) ? safeContext.commandsRun.filter(Boolean) : [];
-  const progressSummary = toText(safeContext.progressSummary).trim();
-  const errorDetails = toText(safeContext.errorDetails).trim();
-  const approachTaken = toText(safeContext.approachTaken).trim();
+  if (!resumeContext || typeof resumeContext !== 'object' || Object.keys(resumeContext).length === 0) {
+    return '';
+  }
 
-  const lines = [
+  const provider = toText(resumeContext.provider).trim() || 'unknown';
+  const durationMs = Number.isFinite(Number(resumeContext.durationMs)) ? Number(resumeContext.durationMs) : 0;
+  const filesModified = Array.isArray(resumeContext.filesModified)
+    ? resumeContext.filesModified.filter(Boolean)
+    : [];
+
+  return [
     '## Previous Attempt (failed)',
-    `**Provider:** ${provider} | **Duration:** ${durationMs}ms`,
-  ];
-
-  if (filesModified.length > 0) {
-    lines.push(`**Files touched:** ${filesModified.join(', ')}`);
-  }
-
-  if (commandsRun.length > 0) {
-    lines.push(`**Commands run:** ${commandsRun.join(', ')}`);
-  }
-
-  if (progressSummary) {
-    lines.push(`**Progress before failure:**\n${progressSummary}`);
-  }
-
-  if (errorDetails) {
-    lines.push(`**Error:**\n${errorDetails}`);
-  }
-
-  if (approachTaken) {
-    lines.push(`**Approach taken:**\n${approachTaken}`);
-  }
-
-  lines.push('');
-  lines.push('Do NOT repeat the same approach. Analyze what went wrong, fix the root cause, and complete the task.');
-
-  const markdown = lines.join('\n');
-  return markdown.length <= MAX_PROMPT_LENGTH
-    ? markdown
-    : markdown.slice(0, MAX_PROMPT_LENGTH);
+    `**Provider:** ${provider} | **Duration:** ${durationMs / 1000}s`,
+    `**Files modified:** ${filesModified.length > 0 ? filesModified.join(', ') : 'none'}`,
+    `**Progress:** ${toText(resumeContext.progressSummary)}`,
+    `**Error:** ${toText(resumeContext.errorDetails)}`,
+    `**Approach taken:** ${toText(resumeContext.approachTaken)}`,
+    '',
+    'Do not repeat the same approach. Fix the error and complete the task.',
+  ].join('\n');
 }
 
 module.exports = {

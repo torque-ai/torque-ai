@@ -310,20 +310,14 @@ async function handleGetAdversarialReviews(args = {}) {
   }
 
   const reviews = adversarialReviews.getReviewsForTask(taskId) || [];
-  const parsed = reviews.map((review) => ({
-    ...review,
-    issues: parseAdversarialIssues(review.issues),
-  }));
+  const parsed = reviews.map(r => ({ ...r, issues: JSON.parse(r.issues || '[]') }));
   const payload = {
     task_id: taskId,
     reviews: parsed,
     count: parsed.length,
   };
 
-  return {
-    structuredData: payload,
-    content: [{ type: 'text', text: JSON.stringify(payload) }],
-  };
+  return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
 }
 
 async function handleRequestAdversarialReview(args = {}) {

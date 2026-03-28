@@ -598,23 +598,26 @@ function handleSetProjectDefaults(args) {
     changes.push(`Auto-verify on completion: ${args.auto_verify_on_completion ? 'enabled' : 'disabled'}`);
   }
 
+  // Evidence & Risk Engine
   if (typeof args.verification_ledger === 'boolean') {
     configUpdate.verification_ledger = args.verification_ledger ? 1 : 0;
-    changes.push(`Verification ledger: ${args.verification_ledger ? 'enabled' : 'disabled'}`);
+    changes.push('Verification ledger: ' + (args.verification_ledger ? 'enabled' : 'disabled'));
   }
-
-  if (typeof args.verification_ledger_retention_days === 'number') {
-    configUpdate.verification_ledger_retention_days = Math.max(1, Math.floor(args.verification_ledger_retention_days));
-    changes.push(`Verification ledger retention: ${configUpdate.verification_ledger_retention_days} days`);
+  if (args.verification_ledger_retention_days !== undefined) {
+    configUpdate.verification_ledger_retention_days = args.verification_ledger_retention_days;
+    changes.push('Verification ledger retention: ' + args.verification_ledger_retention_days + ' days');
   }
-
   if (args.adversarial_review !== undefined) {
-    const validAdversarialReviewValues = ['off', 'auto', 'always'];
-    if (!validAdversarialReviewValues.includes(args.adversarial_review)) {
-      return makeError(ErrorCodes.INVALID_PARAM, `adversarial_review must be one of: ${validAdversarialReviewValues.join(', ')}`);
+    const validModes = ['off', 'auto', 'always'];
+    if (!validModes.includes(args.adversarial_review)) {
+      return { content: [{ type: 'text', text: JSON.stringify({ error: 'adversarial_review must be: ' + validModes.join(', ') }) }] };
     }
     configUpdate.adversarial_review = args.adversarial_review;
-    changes.push(`Adversarial review: ${args.adversarial_review}`);
+    changes.push('Adversarial review: ' + args.adversarial_review);
+  }
+  if (args.adversarial_review_chain !== undefined) {
+    configUpdate.adversarial_review_chain = JSON.stringify(args.adversarial_review_chain);
+    changes.push('Adversarial review chain: ' + args.adversarial_review_chain.join(' -> '));
   }
 
   if (args.adversarial_review_mode !== undefined) {
@@ -624,17 +627,6 @@ function handleSetProjectDefaults(args) {
     }
     configUpdate.adversarial_review_mode = args.adversarial_review_mode;
     changes.push(`Adversarial review mode: ${args.adversarial_review_mode}`);
-  }
-
-  if (args.adversarial_review_chain !== undefined) {
-    if (!Array.isArray(args.adversarial_review_chain)) {
-      return makeError(ErrorCodes.INVALID_PARAM, 'adversarial_review_chain must be an array of provider names');
-    }
-    if (!args.adversarial_review_chain.every((provider) => typeof provider === 'string')) {
-      return makeError(ErrorCodes.INVALID_PARAM, 'adversarial_review_chain entries must be strings');
-    }
-    configUpdate.adversarial_review_chain = JSON.stringify(args.adversarial_review_chain);
-    changes.push(`Adversarial review chain: ${args.adversarial_review_chain.join(' -> ')}`);
   }
 
   if (typeof args.adversarial_review_timeout_seconds === 'number') {

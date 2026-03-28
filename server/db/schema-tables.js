@@ -315,11 +315,11 @@ function createTables(db, logger) {
         pause_reason TEXT,
         approval_status TEXT DEFAULT 'not_required',
         claimed_by_agent TEXT,
-        resume_context TEXT,
         required_capabilities TEXT,
         git_before_sha TEXT,
         git_after_sha TEXT,
-        git_stash_ref TEXT
+        git_stash_ref TEXT,
+        resume_context TEXT
       )
     `);
   try {
@@ -2146,7 +2146,7 @@ function createTables(db, logger) {
         total_failures INTEGER DEFAULT 0,
         avg_duration_ms REAL DEFAULT 0,
         avg_cost_usd REAL DEFAULT 0,
-        last_updated TEXT NOT NULL DEFAULT (datetime('now')),
+        last_updated TEXT,
         trusted INTEGER DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_provider_scores_composite ON provider_scores(composite_score DESC);

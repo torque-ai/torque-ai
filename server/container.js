@@ -262,7 +262,6 @@ function initModules(db, serverConfig) {
     const providerCapabilities = require('./db/provider-capabilities');
     const providerPerformance = require('./db/provider-performance');
     const providerQuotas = require('./db/provider-quotas');
-    const providerScoring = require('./db/provider-scoring');
     const modelCapabilities = require('./db/model-capabilities');
     const modelRoles = require('./db/model-roles');
     const fileBaselines = require('./db/file-baselines');
@@ -305,13 +304,16 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('providerCapabilities', providerCapabilities);
     _defaultContainer.registerValue('providerPerformance', providerPerformance);
     _defaultContainer.registerValue('providerQuotas', providerQuotas);
-    _defaultContainer.registerValue('providerScoring', providerScoring);
     _defaultContainer.registerValue('modelCapabilities', modelCapabilities);
     _defaultContainer.registerValue('modelRoles', modelRoles);
     _defaultContainer.registerValue('fileBaselines', fileBaselines);
     _defaultContainer.registerValue('fileQuality', fileQuality);
     _defaultContainer.registerValue('policyProfileStore', policyProfileStore);
     _defaultContainer.registerValue('policyEvaluationStore', policyEvaluationStore);
+  }
+  if (!_defaultContainer.has('providerScoring')) {
+    const { createProviderScoring } = require('./db/provider-scoring');
+    _defaultContainer.registerValue('providerScoring', createProviderScoring({ db }));
   }
   if (!_defaultContainer.has('budgetWatcher')) {
     const { createBudgetWatcher } = require('./db/budget-watcher');

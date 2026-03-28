@@ -10,6 +10,7 @@ const path = require('path');
 const logger = require('./logger').child({ component: 'tools' });
 const { fireHook } = require('./hooks/post-tool-hooks');
 const eventBus = require('./event-bus');
+const evidenceRiskHandlers = require('./handlers/evidence-risk-handlers');
 
 // ── Tool definitions (JSON schemas) ──
 const TOOLS = [
@@ -45,6 +46,7 @@ const TOOLS = [
   ...require('./tool-defs/discovery-defs'),
   ...require('./tool-defs/circuit-breaker-defs'),
   ...require('./tool-defs/budget-watcher-defs'),
+  ...require('./tool-defs/provider-scoring-defs'),
   ...require('./tool-defs/routing-template-defs'),
   ...require('./tool-defs/strategic-config-defs'),
   ...require('./tool-defs/context-defs'),
@@ -122,7 +124,9 @@ const HANDLER_MODULES = [
   require('./handlers/strategic-config-handlers'),
   require('./handlers/context-handler'),
   require('./handlers/budget-handlers'),
+  require('./handlers/provider-scoring-handlers'),
   require('./handlers/diffusion-handlers'),
+  evidenceRiskHandlers,
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──
@@ -245,6 +249,9 @@ for (const mod of HANDLER_MODULES) {
     routeMap.set(toolName, fn);
   }
 }
+
+routeMap.set('get_adversarial_reviews', evidenceRiskHandlers.handleGetAdversarialReviews);
+routeMap.set('request_adversarial_review', evidenceRiskHandlers.handleRequestAdversarialReview);
 
 const FILE_WRITE_TOOL_NAMES = new Set([
   'add_import_statement',

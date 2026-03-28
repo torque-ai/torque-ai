@@ -60,6 +60,114 @@ function checkBudgetThresholdsForCompletedTask(task) {
       logger.debug('Budget threshold check failed: ' + e.message);
     }
   }
+
+  // Provider scoring
+  try {
+    const providerScoring = defaultContainer.get('providerScoring');
+    if (providerScoring && task.provider) {
+      const success = task.status === 'completed' && (task.exit_code === 0 || task.exit_code === null);
+      const durationMs = task.completed_at && task.started_at
+        ? new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()
+        : 0;
+      const costUsd = task.estimated_cost || 0;
+      providerScoring.recordTaskCompletion({
+        provider: task.provider,
+        success,
+        durationMs,
+        costUsd,
+        qualityScore: success ? 0.7 : 0.0,
+      });
+    }
+  } catch (e) {
+    // Non-critical
+    if (typeof logger !== 'undefined') logger.debug('Provider scoring failed: ' + e.message);
+  }
+}
+
+function storeResumeContextForFailedTask(task, ctx = null) {
+  if (!task || task.status !== 'failed') {
+    return;
+  }
+
+  try {
+    const { buildResumeContext } = require('../../utils/resume-context');
+    const resumeContext = buildResumeContext(
+      task.output || '',
+      task.error_output || ctx?.errorOutput || '',
+      {
+        task_description: task.task_description,
+        duration_ms: task.completed_at && task.started_at
+          ? new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()
+          : 0,
+        provider: task.provider,
+      }
+    );
+    if (!resumeContext) {
+      return;
+    }
+
+    let resolvedTaskCore = taskCore;
+    try {
+      const { defaultContainer } = require('../../container');
+      const containerTaskCore = defaultContainer && defaultContainer.get
+        ? defaultContainer.get('taskCore')
+        : null;
+      if (containerTaskCore) {
+        resolvedTaskCore = containerTaskCore;
+      }
+    } catch (_e) {
+      resolvedTaskCore = taskCore;
+    }
+
+    if (resolvedTaskCore && typeof resolvedTaskCore.updateTask === 'function') {
+      resolvedTaskCore.updateTask(task.id, { resume_context: JSON.stringify(resumeContext) });
+    }
+  } catch (_e) {
+    // Non-critical
+  }
+}
+
+function storeResumeContextForFailedTask(task, ctx = null) {
+  if (!task || task.status !== 'failed') {
+    return;
+  }
+
+  try {
+    const { buildResumeContext } = require('../../utils/resume-context');
+    const resumeContext = buildResumeContext(
+      task.output || '',
+      task.error_output || ctx?.errorOutput || '',
+      {
+        task_description: task.task_description,
+        duration_ms: task.completed_at && task.started_at
+          ? new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()
+          : 0,
+        provider: task.provider,
+      }
+    );
+    if (!resumeContext) {
+      return;
+    }
+
+    let resolvedTaskCore = taskCore;
+    try {
+      const { defaultContainer } = require('../../container');
+      const containerTaskCore = defaultContainer && defaultContainer.get
+        ? defaultContainer.get('taskCore')
+        : null;
+      if (containerTaskCore) {
+        resolvedTaskCore = containerTaskCore;
+      }
+    } catch (_e) {
+      resolvedTaskCore = taskCore;
+    }
+
+    if (resolvedTaskCore && typeof resolvedTaskCore.updateTask === 'function') {
+      resolvedTaskCore.updateTask(task.id, { resume_context: JSON.stringify(resumeContext) });
+    }
+  } catch (_e) {
+    // Non-critical
+  }
 }
 
 // ── Git utilities ──────────────────────────────────────────
@@ -332,6 +440,8 @@ function handleRetryTask(args) {
   if (originalTask.status !== 'failed' && originalTask.status !== 'cancelled') {
     return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Can only retry failed or cancelled tasks. Current status: ${originalTask.status}`);
   }
+
+  storeResumeContextForFailedTask(originalTask);
 
   const taskId = uuidv4();
   let taskDescription = args.modified_task || originalTask.task_description;

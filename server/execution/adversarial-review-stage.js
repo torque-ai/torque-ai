@@ -4,211 +4,175 @@ const { randomUUID } = require('crypto');
 const { execFileSync } = require('child_process');
 
 const DEFAULT_REVIEW_CHAIN = ['codex', 'deepinfra', 'claude-cli', 'ollama'];
-const DEFAULT_TIMEOUT_MINUTES = 30;
+const DIFF_MAX_BYTES = 50 * 1024;
+const DIFF_TIMEOUT_MS = 30_000;
 
-function createAdversarialReviewStage({
-  adversarialReviews, fileRiskAdapter, taskCore, taskManager,
-  projectConfigCore, workflowEngine,
-}) {
-
-  function selectReviewerProvider(originalProvider, chain) {
-    for (const candidate of chain) {
-      if (candidate !== originalProvider) return candidate;
-    }
-    return null;
+function parseTaskMetadata(taskMetadata) {
+  if (!taskMetadata) return {};
+  try {
+    return JSON.parse(taskMetadata);
+  } catch {
+    return {};
   }
-
-  function buildReviewPrompt(taskDescription, diff, highRiskFiles) {
-    let prompt = `You are a hostile code reviewer. Your job is to FIND PROBLEMS, not approve.
-
-Task description: ${taskDescription}
-`;
-
-    if (highRiskFiles && highRiskFiles.length > 0) {
-      prompt += '\nHIGH-RISK FILES (pay special attention):\n';
-      for (const f of highRiskFiles) {
-        const reasons = Array.isArray(f.risk_reasons) ? f.risk_reasons.join(', ') : f.risk_reasons;
-        prompt += `- ${f.file_path}: ${reasons}\n`;
-      }
-    }
-
-    prompt += `
-Diff:
-${diff}
-
-Respond with ONLY a JSON object:
-{
-  "verdict": "approve" | "reject" | "concerns",
-  "confidence": "high" | "medium" | "low",
-  "issues": [
-    { "file": "...", "line": 42, "severity": "critical|warning|info",
-      "category": "bug|security|logic|performance|style",
-      "description": "...", "suggestion": "..." }
-  ]
 }
 
-Rules:
-- "approve" = no issues found worth flagging
-- "concerns" = issues found but not blocking
-- "reject" = critical issues that should block commit
-- Only use "reject" for genuine bugs or security holes, not style preferences`;
-
-    return prompt;
-  }
-
-  function collectDiff(workingDirectory, beforeSha) {
-    try {
-      const args = beforeSha ? ['diff', `${beforeSha}..HEAD`] : ['diff', 'HEAD~1'];
-      const output = execFileSync('git', args, {
-        cwd: workingDirectory,
-        maxBuffer: 1024 * 1024,
-        timeout: 30000,
-        windowsHide: true,
-      });
-      const diffStr = output.toString('utf8');
-      return diffStr.length > 50000 ? diffStr.slice(0, 50000) + '\n... (truncated)' : diffStr;
-    } catch (e) {
-      return null;
+function selectReviewerProvider(originalProvider, chain = DEFAULT_REVIEW_CHAIN) {
+  for (const candidate of chain) {
+    if (candidate !== originalProvider) {
+      return candidate;
     }
   }
+  return null;
+}
+
+function buildReviewPrompt(taskDescription, diff, highRiskFiles) {
+  const lines = [
+    'You are a hostile code reviewer.',
+    'Your goal is to find concrete problems, regressions, and security issues.',
+    '',
+    `Task description: ${taskDescription}`,
+    '',
+    'High-risk file annotations:',
+  ];
+
+  if (Array.isArray(highRiskFiles) && highRiskFiles.length > 0) {
+    for (const entry of highRiskFiles) {
+      const reasons = Array.isArray(entry.risk_reasons)
+        ? entry.risk_reasons.join(', ')
+        : entry.risk_reasons || 'unknown';
+      lines.push(`- ${entry.file_path}: ${reasons}`);
+    }
+  } else {
+    lines.push('- (none)');
+  }
+
+  lines.push(
+    '',
+    'Diff:',
+    diff,
+    '',
+    'Respond with ONLY a JSON object in this shape:',
+    '{',
+    '  "verdict": "approve" | "reject" | "concerns",',
+    '  "confidence": "high" | "medium" | "low",',
+    '  "issues": [',
+    '    { "file": "...", "line": 42, "severity": "critical|warning|info", "category": "bug|security|logic|performance|style", "description": "...", "suggestion": "..." }',
+    '  ]',
+    '}',
+    '',
+    'Rules:',
+    '- "approve" for no material issues.',
+    '- "concerns" for non-blocking problems.',
+    '- "reject" only for security or correctness blockers.',
+  );
+
+  return lines.join('\n');
+}
+
+function collectDiff(workingDirectory) {
+  try {
+    const output = execFileSync('git', ['diff', 'HEAD~1'], {
+      cwd: workingDirectory,
+      windowsHide: true,
+      timeout: DIFF_TIMEOUT_MS,
+      maxBuffer: DIFF_MAX_BYTES + 1024,
+    });
+
+    const diff = output.toString('utf8');
+    return diff.length > DIFF_MAX_BYTES
+      ? diff.slice(0, DIFF_MAX_BYTES)
+      : diff;
+  } catch {
+    return null;
+  }
+}
+ 
+function createAdversarialReviewStage({
+  adversarialReviews,
+  fileRiskAdapter,
+  taskCore,
+  taskManager,
+  verificationLedger,
+  projectConfigCore,
+}) {
+  void adversarialReviews;
+  void verificationLedger;
 
   return async function adversarialReviewStage(ctx) {
     if (ctx.status !== 'completed') return;
 
-    let metadata = {};
-    try { metadata = JSON.parse(ctx.task?.metadata || '{}'); } catch (_) { /* ignore */ }
+    const task = ctx.task || {};
+    const metadata = parseTaskMetadata(task.metadata);
 
     // Prevent infinite recursion
     if (metadata.review_task || metadata.adversarial_review_task) return;
 
-    // Determine trigger
-    const projectConfig = projectConfigCore.getProjectConfig(ctx.task?.working_directory) || {};
-    const taskLevel = metadata.adversarial_review;
-    const projectLevel = projectConfig.adversarial_review || 'off';
+    // Determine trigger mode from project config
+    const projectConfig = projectConfigCore.getProjectConfig(task.working_directory) || {};
+    const mode = projectConfig.adversarial_review || 'off';
 
-    let shouldRun = false;
     let highRiskFiles = [];
+    let shouldRun = false;
 
-    if (taskLevel === true || taskLevel === 'true') {
-      shouldRun = true;
-    } else if (projectLevel === 'always') {
-      shouldRun = true;
-    } else if (projectLevel === 'auto') {
+    if (mode === 'auto') {
       const scored = fileRiskAdapter.scoreAndPersist(
         ctx.filesModified || [],
-        ctx.task?.working_directory || '',
-        ctx.taskId
+        task.working_directory || '',
+        ctx.taskId,
       );
       highRiskFiles = scored.filter(s => s.risk_level === 'high');
       shouldRun = highRiskFiles.length > 0;
+    } else if (mode === 'always') {
+      shouldRun = true;
     }
 
     if (!shouldRun) return;
 
-    // Score files for prompt context if not done yet
-    if (highRiskFiles.length === 0 && (ctx.filesModified || []).length > 0) {
-      const scored = fileRiskAdapter.scoreAndPersist(
-        ctx.filesModified,
-        ctx.task?.working_directory || '',
-        ctx.taskId
-      );
-      highRiskFiles = scored.filter(s => s.risk_level === 'high');
-    }
-
-    // Select reviewer
-    const chain = projectConfig.adversarial_review_chain
-      ? (typeof projectConfig.adversarial_review_chain === 'string'
-          ? JSON.parse(projectConfig.adversarial_review_chain)
-          : projectConfig.adversarial_review_chain)
-      : DEFAULT_REVIEW_CHAIN;
-    const reviewerProvider = metadata.adversarial_reviewer
-      || selectReviewerProvider(ctx.task?.provider, chain);
-
+    const reviewerProvider = selectReviewerProvider(task.provider, DEFAULT_REVIEW_CHAIN);
     if (!reviewerProvider) return;
 
     // Collect diff
-    const diff = collectDiff(ctx.task?.working_directory, ctx.proc?.baselineCommit);
+    const diff = collectDiff(task.working_directory);
     if (!diff) return;
 
     // Build and spawn review task
     const reviewPrompt = buildReviewPrompt(
-      ctx.task?.task_description || '',
+      task.task_description || '',
       diff,
-      highRiskFiles
+      highRiskFiles,
     );
     const reviewTaskId = randomUUID();
     const reviewTask = {
       id: reviewTaskId,
       status: 'pending',
       task_description: reviewPrompt,
-      working_directory: ctx.task?.working_directory,
-      timeout_minutes: DEFAULT_TIMEOUT_MINUTES,
-      auto_approve: false,
-      priority: 0,
+      working_directory: task.working_directory,
       provider: null,
       metadata: JSON.stringify({
         intended_provider: reviewerProvider,
         user_provider_override: true,
-        requested_provider: reviewerProvider,
         adversarial_review_task: true,
         adversarial_review_of_task_id: ctx.taskId,
-        review_task: true,
       }),
     };
 
     taskCore.createTask(reviewTask);
     taskManager.startTask(reviewTaskId);
 
-    // If task is part of a workflow, inject review as a DAG node
-    // so downstream nodes block until review completes
-    if (ctx.task?.workflow_id && ctx.task?.workflow_node_id) {
-      try {
-        const wfId = ctx.task.workflow_id;
-        const reviewNodeId = `review-${ctx.task.workflow_node_id}`;
-
-        // Update the review task to belong to this workflow
-        if (taskCore.updateTask) {
-          taskCore.updateTask(reviewTaskId, {
-            workflow_id: wfId,
-            workflow_node_id: reviewNodeId,
-          });
-        }
-
-        // Find all tasks that depend on the completed task
-        const allTasks = workflowEngine?.getWorkflowTasks?.(wfId);
-        const dependents = workflowEngine?.getTaskDependents?.(ctx.taskId);
-
-        // For each downstream task, add a dependency on the review task
-        if (Array.isArray(dependents)) {
-          for (const dep of dependents) {
-            workflowEngine?.addTaskDependency?.({
-              workflow_id: wfId,
-              task_id: dep.task_id,
-              depends_on_task_id: reviewTaskId,
-              on_fail: 'continue',
-            });
-          }
-        }
-
-        // Update workflow task count
-        if (workflowEngine?.updateWorkflowCounts) {
-          workflowEngine.updateWorkflowCounts(wfId);
-        }
-
-        void allTasks;
-      } catch (wfErr) {
-        // Best effort — don't fail the task if DAG injection fails
-      }
-    }
-
     // Mark original task (best effort)
     try {
-      const updatedMeta = { ...metadata, adversarial_review_pending: true, adversarial_review_task_id: reviewTaskId };
-      if (taskCore.updateTask) {
-        taskCore.updateTask(ctx.taskId, { metadata: JSON.stringify(updatedMeta) });
-      }
+      const updatedMeta = {
+        ...metadata,
+        adversarial_review_pending: true,
+      };
+      taskCore.updateTask(ctx.taskId, { metadata: JSON.stringify(updatedMeta) });
     } catch (_) { /* best effort */ }
   };
 }
 
-module.exports = { createAdversarialReviewStage };
+module.exports = {
+  createAdversarialReviewStage,
+  selectReviewerProvider,
+  buildReviewPrompt,
+  collectDiff,
+};

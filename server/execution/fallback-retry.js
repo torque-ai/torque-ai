@@ -17,6 +17,7 @@ const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-ro
 const serverConfig = require('../config');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { safeJsonParse } = require('../utils/json');
+const { formatResumeContextForPrompt } = require('../utils/resume-context');
 
 const BASE_RETRY_DELAY_MS = 5000;   // 5 seconds for first retry
 const MAX_RETRY_DELAY_MS = 120000;  // 2 minutes max
@@ -474,11 +475,10 @@ function tryStallRecovery(taskId, activity) {
   try {
     const resumeJson = task.resume_context;
     if (resumeJson) {
-      const { formatResumeContextForPrompt } = require('../utils/resume-context');
       const parsed = typeof resumeJson === 'string' ? JSON.parse(resumeJson) : resumeJson;
       const preamble = formatResumeContextForPrompt(parsed);
       if (preamble && task.task_description) {
-        updateFields.task_description = preamble + '\n\n' + task.task_description;
+        updateFields.task_description = preamble + '\n\n---\n\n' + task.task_description;
       }
     }
   } catch { /* resume context injection is best-effort */ }

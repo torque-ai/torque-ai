@@ -14,6 +14,12 @@ try {
   templateStore = null;
 }
 
+let providerScoring;
+try {
+  const { defaultContainer } = require('../container');
+  providerScoring = defaultContainer.get('providerScoring');
+} catch (_) { /* not available */ }
+
 let db;
 let getTaskFn;
 let hostManagementFns;
@@ -62,6 +68,81 @@ function setDb(dbInstance) {
 }
 function setGetTask(fn) { getTaskFn = fn; _initExtractedModules(); }
 function setHostManagement(fns) { hostManagementFns = fns; _initExtractedModules(); }
+
+function _extractChainProvider(entry) {
+  if (!entry) return null;
+  if (typeof entry === 'string') return entry;
+  return entry.provider || null;
+}
+
+function _applyScoredFallbackChain(result, taskMetadata = {}) {
+  if (!providerScoring || !result || !Array.isArray(result.chain) || result.chain.length <= 1) {
+    return result;
+  }
+  if (taskMetadata?.user_provider_override) {
+    return result;
+  }
+
+  try {
+    const scores = providerScoring.getAllProviderScores({ trustedOnly: true });
+    if (!Array.isArray(scores) || scores.length === 0) {
+      return result;
+    }
+
+    const scoreMap = new Map(scores.map((s) => [s.provider, s.composite_score]));
+    if (scoreMap.size <= 1) {
+      return result;
+    }
+
+    const chain = [...result.chain];
+    const recommended = chain[0];
+    const recommendedProvider = _extractChainProvider(recommended);
+    if (!recommendedProvider || !scoreMap.has(recommendedProvider)) {
+      return result;
+    }
+
+    const recommendedScore = scoreMap.get(recommendedProvider) || 0;
+    const fallbackCandidates = chain.slice(1);
+
+    const hasBetterScoredFallback = fallbackCandidates.some((candidate) => {
+      const candidateProvider = _extractChainProvider(candidate);
+      const candidateScore = candidateProvider ? (scoreMap.get(candidateProvider) || 0) : 0;
+      return candidateScore > recommendedScore;
+    });
+    if (!hasBetterScoredFallback) {
+      return result;
+    }
+
+    fallbackCandidates.sort((a, b) => {
+      const scoreA = _extractChainProvider(a) ? (scoreMap.get(_extractChainProvider(a)) || 0) : 0;
+      const scoreB = _extractChainProvider(b) ? (scoreMap.get(_extractChainProvider(b)) || 0) : 0;
+      return scoreB - scoreA;
+    });
+
+    const fallbackChain = [recommended, ...fallbackCandidates];
+    if (!result.fallbackChain) {
+      result.fallbackChain = fallbackChain;
+    } else if (Array.isArray(result.fallbackChain) && result.fallbackChain.length > 0) {
+      result.fallbackChain = [result.fallbackChain[0], ...fallbackCandidates];
+    } else {
+      result.fallbackChain = fallbackChain;
+    }
+    result.chain = fallbackChain;
+    logger.debug(
+      `[SmartRouting] Applied trusted provider score ordering to fallback chain for ${recommendedProvider}`
+    );
+  } catch (_e) {
+    // Scoring is advisory; do not alter routing on failure.
+  }
+
+  return result;
+}
+
+const _smartRoutingAnalyzeTaskForRouting = smartRouting.analyzeTaskForRouting;
+function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], options = {}) {
+  const result = _smartRoutingAnalyzeTaskForRouting(taskDescription, workingDirectory, files, options);
+  return _applyScoredFallbackChain(result, options?.taskMetadata || {});
+}
 
 // Escape a string for use as a Prometheus label value (inside double quotes)
 function escapePrometheusLabel(str) {
@@ -1344,6 +1425,7 @@ module.exports = {
   // Re-export from extracted modules (smart-routing.js and ollama-health.js)
   ...smartRouting,
   ...ollamaHealth,
+  analyzeTaskForRouting,
 
   // Dependency injection
   setDb,

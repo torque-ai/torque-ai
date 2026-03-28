@@ -3,6 +3,7 @@ const childProcess = require('child_process');
 describe('adversarial-review-stage', () => {
   let createStage;
   let mockAdversarialReviews;
+  let mockVerificationLedger;
   let mockFileRiskAdapter;
   let mockTaskCore;
   let mockTaskManager;
@@ -15,6 +16,7 @@ describe('adversarial-review-stage', () => {
     vi.spyOn(childProcess, 'execFileSync').mockReturnValue(Buffer.from('diff output'));
 
     mockAdversarialReviews = { insertReview: vi.fn() };
+    mockVerificationLedger = { updateVerificationStatus: vi.fn() };
     mockFileRiskAdapter = { scoreAndPersist: vi.fn().mockReturnValue([]) };
     mockTaskCore = { createTask: vi.fn(), getTask: vi.fn(), updateTask: vi.fn() };
     mockTaskManager = { startTask: vi.fn().mockReturnValue({ started: true }) };
@@ -47,6 +49,7 @@ describe('adversarial-review-stage', () => {
   function makeStage() {
     return createStage({
       adversarialReviews: mockAdversarialReviews,
+      verificationLedger: mockVerificationLedger,
       fileRiskAdapter: mockFileRiskAdapter,
       taskCore: mockTaskCore,
       taskManager: mockTaskManager,
@@ -91,6 +94,15 @@ describe('adversarial-review-stage', () => {
     expect(mockTaskCore.createTask).not.toHaveBeenCalled();
   });
 
+  it('skips when review_task is set', async () => {
+    const stage = makeStage();
+    const ctx = makeCtx({
+      task: { ...makeCtx().task, metadata: JSON.stringify({ review_task: true }) },
+    });
+    await stage(ctx);
+    expect(mockTaskCore.createTask).not.toHaveBeenCalled();
+  });
+
   it('in auto mode, triggers only when high-risk files exist', async () => {
     mockProjectConfig.getProjectConfig.mockReturnValue({ adversarial_review: 'auto' });
     mockFileRiskAdapter.scoreAndPersist.mockReturnValue([
@@ -132,4 +144,3 @@ describe('adversarial-review-stage', () => {
     expect(ctx.status).toBe('completed');
   });
 });
-

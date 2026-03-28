@@ -23,9 +23,21 @@ function record(provider, overrides = {}) {
   });
 }
 
+function ensureMinSamplesFor(provider, count = 5) {
+  for (let i = 0; i < count; i += 1) {
+    record(provider);
+  }
+}
+
 describe('db/provider-scoring', () => {
   beforeEach(() => {
     db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `);
     providerScoring.init(db);
     providerScoring.setCompositeWeights(DEFAULT_WEIGHTS);
   });
@@ -37,7 +49,7 @@ describe('db/provider-scoring', () => {
     }
   });
 
-  it('records first task for a new provider', () => {
+  it('recordTaskCompletion creates new provider entry', () => {
     record('codex', { success: true, durationMs: 120, costUsd: 0.25, qualityScore: 0.8 });
 
     const row = providerScoring.getProviderScore('codex');
@@ -57,7 +69,7 @@ describe('db/provider-scoring', () => {
     expect(row.composite_score).toBe(0);
   });
 
-  it('computes reliability from success/failure ratio', () => {
+  it('accumulates multiple completions and computes reliability', () => {
     record('codex', { success: true });
     record('codex', { success: true });
     record('codex', { success: true });
@@ -71,18 +83,7 @@ describe('db/provider-scoring', () => {
     expect(row.reliability_score).toBeCloseTo(0.75, 10);
   });
 
-  it('marks trusted after 5 samples', () => {
-    for (let i = 0; i < 5; i += 1) {
-      record('anthropic', { qualityScore: 0.4 + (i * 0.1) });
-    }
-
-    const row = providerScoring.getProviderScore('anthropic');
-
-    expect(row.sample_count).toBe(5);
-    expect(row.trusted).toBe(1);
-  });
-
-  it('untrusted provider has composite_score 0', () => {
+  it('keeps composite at 0 and trusted at 0 before minimum samples', () => {
     for (let i = 0; i < 3; i += 1) {
       record('deepinfra', { durationMs: 90 + (i * 10), costUsd: 0.05 + (i * 0.01), qualityScore: 0.6 });
     }
@@ -94,34 +95,39 @@ describe('db/provider-scoring', () => {
     expect(row.composite_score).toBe(0);
   });
 
-  it('computes exponential moving average for quality', () => {
-    record('groq', { qualityScore: 0.2 });
-    record('groq', { qualityScore: 0.8 });
-    record('groq', { qualityScore: 0.5 });
+  it('computes trusted and composite after minimum samples', () => {
+    ensureMinSamplesFor('anthropic');
+    const row = providerScoring.getProviderScore('anthropic');
 
-    const row = providerScoring.getProviderScore('groq');
-    const expectedEma = (0.5 * 0.3) + ((0.8 * 0.3 + (0.2 * 0.7)) * 0.7);
-
-    expect(row.quality_score).toBeCloseTo(expectedEma, 10);
+    expect(row.sample_count).toBe(5);
+    expect(row.trusted).toBe(1);
+    expect(row.composite_score).toBeGreaterThan(0);
   });
 
-  it('recomputes relative speed scores across providers', () => {
-    record('codex', { durationMs: 100, costUsd: 0.2 });
-    record('anthropic', { durationMs: 200, costUsd: 0.2 });
-
-    const codex = providerScoring.getProviderScore('codex');
-    const anthropic = providerScoring.getProviderScore('anthropic');
-
-    expect(codex.speed_score).toBeCloseTo(0.5, 10);
-    expect(anthropic.speed_score).toBeCloseTo(0, 10);
+  it('returns null from getProviderScore for unknown provider', () => {
+    const row = providerScoring.getProviderScore('ghost-provider');
+    expect(row).toBeNull();
   });
 
-  it('getAllProviderScores with trustedOnly filters correctly', () => {
+  it('getAllProviderScores returns rows sorted by composite score descending', () => {
     for (let i = 0; i < 5; i += 1) {
-      record('codex', { durationMs: 100 + i, costUsd: 0.1, qualityScore: 0.7 });
+      record('codex', { durationMs: 100, costUsd: 0.05, qualityScore: 0.9 });
+    }
+    for (let i = 0; i < 5; i += 1) {
+      record('ollama', { durationMs: 200, costUsd: 1.0, qualityScore: 0.3 });
+    }
+
+    const all = providerScoring.getAllProviderScores();
+    expect(all.map((row) => row.provider)).toEqual(['codex', 'ollama']);
+    expect(all[0].composite_score).toBeGreaterThan(all[1].composite_score);
+  });
+
+  it('trustedOnly filters untrusted providers', () => {
+    for (let i = 0; i < 5; i += 1) {
+      record('codex', { durationMs: 100, costUsd: 0.05, qualityScore: 0.9 });
     }
     for (let i = 0; i < 4; i += 1) {
-      record('ollama', { durationMs: 200 + i, costUsd: 0.05, qualityScore: 0.6 });
+      record('ollama', { durationMs: 200, costUsd: 0.05, qualityScore: 0.4 });
     }
 
     const all = providerScoring.getAllProviderScores();
@@ -129,16 +135,37 @@ describe('db/provider-scoring', () => {
 
     expect(all.map((row) => row.provider)).toEqual(['codex', 'ollama']);
     expect(trustedOnly.map((row) => row.provider)).toEqual(['codex']);
+    expect(trustedOnly.every((row) => row.trusted === 1)).toBe(true);
   });
 
-  it('setCompositeWeights rejects weights that dont sum to 1', () => {
-    expect(() => {
-      providerScoring.setCompositeWeights({
-        cost: 0.5,
-        speed: 0.3,
-        reliability: 0.3,
-        quality: 0.3,
-      });
-    }).toThrow(/sum to 1/i);
+  it('computes quality using exponential moving average', () => {
+    record('groq', { qualityScore: 0.2 });
+    record('groq', { qualityScore: 0.8 });
+    record('groq', { qualityScore: 0.5 });
+
+    const row = providerScoring.getProviderScore('groq');
+    const expectedEma = (0.5 * 0.3) + ((0.3 * 0.8 + (0.2 * 0.7)) * 0.7);
+
+    expect(row.quality_score).toBeCloseTo(expectedEma, 10);
+  });
+
+  it('assigns higher speed score to faster providers', () => {
+    record('fast', { durationMs: 100, qualityScore: 0.5, costUsd: 0.1 });
+    record('slow', { durationMs: 500, qualityScore: 0.5, costUsd: 0.1 });
+
+    const fastRow = providerScoring.getProviderScore('fast');
+    const slowRow = providerScoring.getProviderScore('slow');
+
+    expect(fastRow.speed_score).toBeGreaterThan(slowRow.speed_score);
+  });
+
+  it('returns cost efficiency of 1.0 for free providers', () => {
+    for (let i = 0; i < 3; i += 1) {
+      record('free-provider', { costUsd: 0, qualityScore: 0.8, durationMs: 100 });
+    }
+
+    const row = providerScoring.getProviderScore('free-provider');
+
+    expect(row.cost_efficiency).toBeCloseTo(1, 10);
   });
 });

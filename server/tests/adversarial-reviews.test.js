@@ -28,7 +28,7 @@ describe('adversarial-reviews', () => {
   });
 
   it('inserts and retrieves a review', () => {
-    reviews.insertReview({
+    const review = {
       task_id: 'task-1',
       review_task_id: 'review-task-1',
       reviewer_provider: 'deepinfra',
@@ -38,12 +38,21 @@ describe('adversarial-reviews', () => {
       issues: JSON.stringify([{ file: 'auth.js', line: 42, severity: 'warning', category: 'security', description: 'test', suggestion: 'fix' }]),
       diff_snippet: '--- a/auth.js\n+++ b/auth.js',
       duration_ms: 15000,
-    });
+    };
+
+    reviews.insertReview(review);
 
     const results = reviews.getReviewsForTask('task-1');
     expect(results).toHaveLength(1);
-    expect(results[0].verdict).toBe('concerns');
-    expect(results[0].reviewer_provider).toBe('deepinfra');
+    expect(results[0].task_id).toBe(review.task_id);
+    expect(results[0].review_task_id).toBe(review.review_task_id);
+    expect(results[0].reviewer_provider).toBe(review.reviewer_provider);
+    expect(results[0].reviewer_model).toBe(review.reviewer_model);
+    expect(results[0].verdict).toBe(review.verdict);
+    expect(results[0].confidence).toBe(review.confidence);
+    expect(results[0].issues).toBe(review.issues);
+    expect(results[0].diff_snippet).toBe(review.diff_snippet);
+    expect(results[0].duration_ms).toBe(review.duration_ms);
   });
 
   it('getReviewByReviewTaskId finds by spawned task ID', () => {
@@ -71,6 +80,8 @@ describe('adversarial-reviews', () => {
     expect(stats.by_verdict.approve).toBe(1);
     expect(stats.by_verdict.reject).toBe(1);
     expect(stats.by_verdict.concerns).toBe(1);
+    expect(stats.by_confidence.high).toBe(2);
+    expect(stats.by_confidence.medium).toBe(1);
   });
 
   it('returns empty array for unknown task', () => {

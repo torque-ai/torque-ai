@@ -35,9 +35,11 @@ describe('verification-ledger-stage', () => {
 
     expect(mockLedger.insertChecks).toHaveBeenCalledTimes(1);
     const checks = mockLedger.insertChecks.mock.calls[0][0];
-    expect(checks.length).toBeGreaterThanOrEqual(2);
+    expect(checks).toHaveLength(2);
     expect(checks.every(c => c.task_id === 'task-1')).toBe(true);
     expect(checks.every(c => c.phase === 'after')).toBe(true);
+    expect(checks[0]).toMatchObject({ check_name: 'safeguard_checks', passed: 1 });
+    expect(checks[1]).toMatchObject({ check_name: 'auto_verify_retry', passed: 1 });
   });
 
   it('maps error outcomes to passed=0', async () => {
@@ -101,9 +103,9 @@ describe('verification-ledger-stage', () => {
           finalization: {
             verify_command_result: {
               command: 'npx tsc --noEmit',
-              exitCode: 0,
+              exit_code: 0,
               output: 'Build succeeded',
-              durationMs: 2500,
+              duration: 2500,
             },
           },
         }),
@@ -121,6 +123,8 @@ describe('verification-ledger-stage', () => {
     expect(verify).toBeTruthy();
     expect(verify.command).toBe('npx tsc --noEmit');
     expect(verify.exit_code).toBe(0);
+    expect(verify.output).toBe('Build succeeded');
+    expect(verify.duration).toBe(2500);
     expect(verify.passed).toBe(1);
   });
 
