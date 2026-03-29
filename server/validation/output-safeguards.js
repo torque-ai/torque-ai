@@ -12,6 +12,7 @@ const fs = require('fs');
 const { CODE_EXTENSIONS, SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../constants');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'output-safeguards' });
+const piiGuard = require('../utils/pii-guard');
 
 // ─── Injected dependencies ──────────────────────────────────────────────────
 let db = null;
@@ -172,6 +173,62 @@ async function runOutputSafeguards(taskId, status, task) {
             }
           }
         }
+      }
+    }
+
+    // 1-PII. Sanitize PII in task output and file changes
+    if (status === 'completed' && task?.working_directory) {
+      try {
+        let piiConfig = null;
+        try {
+          const projectConfigCore = require('../db/project-config-core');
+          const pcc = typeof projectConfigCore === 'function' ? projectConfigCore() : projectConfigCore;
+          const project = pcc.getProjectFromPath(task.working_directory);
+          if (project) {
+            const piiJson = pcc.getProjectMetadata(project, 'pii_guard');
+            if (piiJson) piiConfig = JSON.parse(piiJson);
+          }
+        } catch { /* no project config */ }
+
+        if (!piiConfig || piiConfig.enabled !== false) {
+          const options = {};
+          if (piiConfig) {
+            options.customPatterns = piiConfig.custom_patterns || [];
+            if (piiConfig.builtin_categories) {
+              options.builtinOverrides = {};
+              for (const [cat, enabled] of Object.entries(piiConfig.builtin_categories)) {
+                if (enabled === false) options.builtinOverrides[cat] = false;
+              }
+            }
+          }
+
+          if (task.output) {
+            const result = piiGuard.scanAndReplace(task.output, options);
+            if (!result.clean) {
+              logger.info(`[Safeguard] PII guard sanitized ${result.findings.length} finding(s) in output for ${taskId}`);
+              task.output = result.sanitized;
+            }
+          }
+
+          const fileChanges = _getFileChangesForValidation ? _getFileChangesForValidation(task.working_directory, 1) : [];
+          for (const fc of fileChanges) {
+            try {
+              const fullPath = path.join(task.working_directory, fc.path);
+              if (fs.existsSync(fullPath)) {
+                const content = fs.readFileSync(fullPath, 'utf8');
+                const result = piiGuard.scanAndReplace(content, options);
+                if (!result.clean) {
+                  fs.writeFileSync(fullPath, result.sanitized, 'utf8');
+                  logger.info(`[Safeguard] PII guard sanitized ${result.findings.length} finding(s) in ${fc.path}`);
+                }
+              }
+            } catch (err) {
+              logger.debug(`[Safeguard] PII scan error for ${fc.path}: ${err.message}`);
+            }
+          }
+        }
+      } catch (err) {
+        logger.info(`[Safeguard] PII guard error for ${taskId}: ${err.message}`);
       }
     }
 

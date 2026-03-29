@@ -188,6 +188,7 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2RemoteTest,
   handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
+  handlePiiScan,
   handleShutdown,
   handleClaudeEvent,
   handleClaudeFiles,
@@ -305,6 +306,22 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpAgentHealth: v2InfrastructureHandlers.handleAgentHealth,
   handleV2CpDeleteAgent: v2InfrastructureHandlers.handleDeleteAgent,
 };
+
+const PII_SCAN_ROUTE = {
+  method: 'POST',
+  path: '/api/pii-scan',
+  handlerName: 'handlePiiScan',
+};
+
+const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);
+if (!hasPiiScanRoute) {
+  const shutdownRouteIndex = routes.findIndex((route) => route.method === 'POST' && route.path === '/api/shutdown');
+  if (shutdownRouteIndex >= 0) {
+    routes.splice(shutdownRouteIndex, 0, PII_SCAN_ROUTE);
+  } else {
+    routes.push(PII_SCAN_ROUTE);
+  }
+}
 
 function resolveApiRoutes(deps = {}) {
   const baseRoutes = routes.filter((route) => !V2_PROVIDER_ROUTE_HANDLER_NAMES.has(route.handlerName))
@@ -543,6 +560,59 @@ async function handleClaudeFiles(_req, res, _context = {}) {
     }
     sendJson(res, { sessions }, 200, _req);
   }
+}
+
+/**
+ * POST /api/pii-scan — scan text for PII and return sanitized version.
+ */
+async function handlePiiScan(req, res, _context = {}) {
+  void _context;
+
+  const piiGuard = require('./utils/pii-guard');
+  let body = typeof req.body === 'object' && req.body !== null ? req.body : null;
+  if (!body) {
+    try {
+      body = await parseBody(req);
+    } catch {
+      body = {};
+    }
+  }
+
+  body = typeof body === 'object' && body !== null ? body : {};
+
+  const text = body.text || '';
+  const workingDir = body.working_directory || '';
+
+  let customPatterns = [];
+  let builtinOverrides = {};
+  if (workingDir) {
+    try {
+      const projectConfigCore = require('./db/project-config-core');
+      const pcc = typeof projectConfigCore === 'function' ? projectConfigCore() : projectConfigCore;
+      const project = pcc.getProjectFromPath(workingDir);
+      if (project) {
+        const piiJson = pcc.getProjectMetadata(project, 'pii_guard');
+        if (piiJson) {
+          const piiConfig = JSON.parse(piiJson);
+          if (piiConfig.enabled === false) {
+            sendJson(res, { clean: true, sanitized: text, findings: [] }, 200, req);
+            return;
+          }
+          customPatterns = piiConfig.custom_patterns || [];
+          if (piiConfig.builtin_categories) {
+            for (const [cat, enabled] of Object.entries(piiConfig.builtin_categories)) {
+              if (enabled === false) builtinOverrides[cat] = false;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug('[pii-scan] Failed to load project PII config:', err.message);
+    }
+  }
+
+  const result = piiGuard.scanAndReplace(text, { builtinOverrides, customPatterns });
+  sendJson(res, result, 200, req);
 }
 
 /**
@@ -953,6 +1023,7 @@ module.exports = {
   handleGetQuotaAutoScale,
   _testing: {
     handleV2TaskCancel,
+    handlePiiScan,
     setV2TaskManager: (tm) => { _initV2TaskManager(tm); },
     handleClaudeEvent,
     handleClaudeFiles,

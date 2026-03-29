@@ -68,6 +68,36 @@ const tools = [
         adversarial_review_mode: { type: 'string', enum: ['async', 'blocking'], description: 'Whether review runs async or blocks task completion (default: async)' },
         adversarial_review_timeout_seconds: { type: 'number', description: 'Timeout for blocking mode reviews in seconds (default: 300)' },
         step_providers: { type: 'object', description: 'Default per-step provider routing for feature workflows. Keys: types, events, data, system, tests, wire. Values: provider names. Persists across sessions and auto-merges with per-call overrides.' },
+        pii_guard: {
+          type: 'object',
+          description: 'PII guard configuration. Auto-replaces personal data (user paths, private IPs, emails, hostnames) in all outputs.',
+          properties: {
+            enabled: { type: 'boolean', description: 'Master switch for PII guard (default: true)' },
+            builtin_categories: {
+              type: 'object',
+              description: 'Toggle built-in PII categories (all on by default)',
+              properties: {
+                user_paths: { type: 'boolean' },
+                private_ips: { type: 'boolean' },
+                emails: { type: 'boolean' },
+                hostnames: { type: 'boolean' }
+              }
+            },
+            custom_patterns: {
+              type: 'array',
+              description: 'Custom PII patterns to detect and replace',
+              items: {
+                type: 'object',
+                properties: {
+                  pattern: { type: 'string', description: 'String or regex pattern to match' },
+                  replacement: { type: 'string', description: 'Replacement text' },
+                  regex: { type: 'boolean', description: 'Treat pattern as regex (default: false)' }
+                },
+                required: ['pattern', 'replacement']
+              }
+            }
+          }
+        },
         remote_agent_id: { type: 'string', description: 'Remote agent ID for test execution (from register_remote_agent). Set to empty string to clear.' },
         remote_project_path: { type: 'string', description: 'Project path on the remote agent (e.g., "C:/Users/username/Projects/Torque/server")' },
         prefer_remote_tests: { type: 'boolean', description: 'Route verify/test commands to the remote agent when available' }

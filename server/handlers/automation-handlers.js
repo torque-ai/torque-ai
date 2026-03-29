@@ -684,6 +684,23 @@ function handleSetProjectDefaults(args) {
     changes.push(`Step providers: ${JSON.stringify(args.step_providers)}`);
   }
 
+  // PII Guard configuration
+  if (args.pii_guard && typeof args.pii_guard === 'object') {
+    const piiConfig = {
+      enabled: args.pii_guard.enabled !== false,
+      builtin_categories: {
+        user_paths: true,
+        private_ips: true,
+        emails: true,
+        hostnames: true,
+        ...(args.pii_guard.builtin_categories || {})
+      },
+      custom_patterns: args.pii_guard.custom_patterns || []
+    };
+    projectConfigCore().setProjectMetadata(project, 'pii_guard', JSON.stringify(piiConfig));
+    changes.push(`PII guard: ${piiConfig.enabled ? 'enabled' : 'disabled'} (${piiConfig.custom_patterns.length} custom patterns)`);
+  }
+
   // Read back
   const config = projectConfigCore().getProjectConfig(project) || {};
 
@@ -728,13 +745,23 @@ function handleGetProjectDefaults(args) {
     }
   }
 
+  const piiGuardJson = projectConfigCore().getProjectMetadata(project, 'pii_guard');
+  let piiGuard = null;
+  if (piiGuardJson) {
+    try {
+      piiGuard = JSON.parse(piiGuardJson);
+    } catch (err) {
+      logger.debug('[automation-handlers] invalid pii_guard JSON:', err.message || err);
+    }
+  }
+
   let output = `## Project Defaults: ${project}\n\n`;
-  output += formatProjectConfig(config, stepProviders);
+  output += formatProjectConfig(config, stepProviders, piiGuard);
 
   return { content: [{ type: 'text', text: output }] };
 }
 
-function formatProjectConfig(config, stepProviders) {
+function formatProjectConfig(config, stepProviders, piiGuard) {
   let output = '### Current Settings\n\n';
   output += `| Setting | Value |\n|---------|-------|\n`;
   output += `| Provider | ${config.default_provider || '(smart routing)'} |\n`;
@@ -752,6 +779,22 @@ function formatProjectConfig(config, stepProviders) {
   }
   if (stepProviders && Object.keys(stepProviders).length > 0) {
     output += `| Step providers | ${Object.entries(stepProviders).map(([k, v]) => `${k}=${v}`).join(', ')} |\n`;
+  }
+  if (piiGuard) {
+    output += `\n### PII Guard\n\n`;
+    output += `| Setting | Value |\n|---------|-------|\n`;
+    output += `| Enabled | ${piiGuard.enabled ? 'Yes' : 'No'} |\n`;
+    const cats = piiGuard.builtin_categories || {};
+    output += `| User paths | ${cats.user_paths !== false ? 'On' : 'Off'} |\n`;
+    output += `| Private IPs | ${cats.private_ips !== false ? 'On' : 'Off'} |\n`;
+    output += `| Emails | ${cats.emails !== false ? 'On' : 'Off'} |\n`;
+    output += `| Hostnames | ${cats.hostnames !== false ? 'On' : 'Off'} |\n`;
+    if (piiGuard.custom_patterns && piiGuard.custom_patterns.length > 0) {
+      output += `\n**Custom patterns:** ${piiGuard.custom_patterns.length}\n`;
+      for (const p of piiGuard.custom_patterns) {
+        output += `- \`${p.pattern}\` → \`${p.replacement}\`${p.regex ? ' (regex)' : ''}\n`;
+      }
+    }
   }
   return output;
 }
