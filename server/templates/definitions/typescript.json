@@ -1,0 +1,18 @@
+{
+  "id": "typescript",
+  "name": "TypeScript",
+  "category": "language",
+  "priority": 50,
+  "extends": "nodejs",
+  "detection": {
+    "files": ["tsconfig.json"]
+  },
+  "agent_context": "TypeScript project. Enforce strict typing, prefer interfaces and explicit return types for public APIs.",
+  "verify_command_suggestion": "npx tsc --noEmit",
+  "critical_error_patterns": [
+    "TS2345",
+    "TS2300",
+    "TS2571"
+  ],
+  "worktree_symlinks": ["node_modules"]
+}

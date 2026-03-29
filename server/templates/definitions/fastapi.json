@@ -1,0 +1,20 @@
+{
+  "id": "fastapi",
+  "name": "FastAPI",
+  "category": "framework",
+  "priority": 110,
+  "extends": "python",
+  "detection": {
+    "dependencies": {
+      "file": "requirements.txt",
+      "key": "fastapi"
+    }
+  },
+  "agent_context": "FastAPI project. Use async endpoints, Pydantic models, and Uvicorn-compatible ASGI patterns.",
+  "verify_command_suggestion": "python -m pytest",
+  "critical_error_patterns": [
+    "pydantic.errors",
+    "ValidationError"
+  ],
+  "worktree_symlinks": ["__pycache__"]
+}

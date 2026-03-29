@@ -1,129 +1,168 @@
 'use strict';
 
-const { applyRewriteDescription, applyCompressOutput, applyActiveEffects } = require('../policy-engine/active-effects');
+const engine = require('../policy-engine/engine');
+const profileStore = require('../policy-engine/profile-store');
+const shadowEnforcer = require('../policy-engine/shadow-enforcer');
 
-describe('applyRewriteDescription', () => {
-  it('prepends text to description', () => {
-    const result = applyRewriteDescription('original task', { prepend: 'IMPORTANT: Use strict TypeScript.' });
-    expect(result).toBe('IMPORTANT: Use strict TypeScript.\noriginal task');
+function runEvaluateWithEffects(task, effects) {
+  const rules = [{
+    id: 'policy-active-effects-test',
+    mode: 'warn',
+    matcher: {},
+    active_effects: effects,
+  }];
+
+  vi.spyOn(profileStore, 'resolvePolicyProfile').mockReturnValue({
+    id: 'active-effects-profile',
+  });
+  vi.spyOn(profileStore, 'resolvePoliciesForStage').mockReturnValue(rules);
+
+  const result = engine.evaluate({
+    ...task,
+    stage: 'task_submit',
+    target_type: 'task',
+    target_id: task.id || 'task-1',
+    persist: false,
   });
 
-  it('appends text to description', () => {
-    const result = applyRewriteDescription('original task', { append: 'Run tsc --noEmit before marking complete.' });
-    expect(result).toBe('original task\nRun tsc --noEmit before marking complete.');
+  return { result, task };
+}
+
+describe('policy-engine active effects', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(shadowEnforcer, 'isEngineEnabled').mockReturnValue(true);
+    vi.spyOn(shadowEnforcer, 'isShadowOnly').mockReturnValue(false);
+    vi.spyOn(shadowEnforcer, 'isBlockModeEnabled').mockReturnValue(true);
   });
 
-  it('prepends and appends simultaneously', () => {
-    const result = applyRewriteDescription('do the thing', { prepend: 'PREFIX', append: 'SUFFIX' });
-    expect(result).toBe('PREFIX\ndo the thing\nSUFFIX');
+  it('rewrites description by prepending text', () => {
+    const task = { id: 'task-1', task_description: 'original task' };
+    const { result, task: modifiedTask } = runEvaluateWithEffects(
+      task,
+      [{ type: 'rewrite_description', prepend: 'IMPORTANT: Use strict TypeScript.' }],
+    );
+
+    expect(modifiedTask.task_description).toBe('IMPORTANT: Use strict TypeScript.\n\noriginal task');
+    expect(result.effects).toEqual([{ type: 'rewrite_description', applied: true }]);
   });
 
-  it('returns original when effect is null', () => {
-    expect(applyRewriteDescription('hello', null)).toBe('hello');
-  });
-});
+  it('rewrites description by appending text', () => {
+    const task = { id: 'task-2', task_description: 'original task' };
+    const { result, task: modifiedTask } = runEvaluateWithEffects(
+      task,
+      [{ type: 'rewrite_description', append: 'Run tsc --noEmit before marking complete.' }],
+    );
 
-describe('applyCompressOutput', () => {
-  function makeLines(n) {
-    return Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n');
-  }
-
-  it('truncates to max_lines keeping last lines by default', () => {
-    const output = makeLines(1000);
-    const result = applyCompressOutput(output, { max_lines: 100 });
-    const lines = result.split('\n');
-    expect(lines.length).toBe(101); // 100 kept + 1 header
-    expect(lines[0]).toBe('[Output truncated]');
-    expect(lines[lines.length - 1]).toBe('line 1000');
+    expect(modifiedTask.task_description).toBe('original task\n\nRun tsc --noEmit before marking complete.');
+    expect(result.effects).toEqual([{ type: 'rewrite_description', applied: true }]);
   });
 
-  it('truncates keeping first lines', () => {
-    const output = makeLines(1000);
-    const result = applyCompressOutput(output, { max_lines: 100, keep: 'first' });
-    const lines = result.split('\n');
-    expect(lines.length).toBe(101); // 100 kept + 1 header
-    expect(lines[0]).toBe('[Output truncated]');
-    expect(lines[1]).toBe('line 1');
+  it('rewrites description by prepending and appending text', () => {
+    const task = { id: 'task-3', task_description: 'do the thing' };
+    const { task: modifiedTask, result } = runEvaluateWithEffects(
+      task,
+      [{ type: 'rewrite_description', prepend: 'PREFIX', append: 'SUFFIX' }],
+    );
+
+    expect(modifiedTask.task_description).toBe('PREFIX\n\ndo the thing\n\nSUFFIX');
+    expect(result.effects).toEqual([{ type: 'rewrite_description', applied: true }]);
   });
 
-  it('adds custom summary header', () => {
-    const output = makeLines(200);
-    const result = applyCompressOutput(output, { max_lines: 50, summary_header: '--- TRUNCATED ---' });
-    expect(result.startsWith('--- TRUNCATED ---')).toBe(true);
+  it('stores _compress_output metadata when compress_output is requested', () => {
+    const task = { id: 'task-4', output: 'a\nb\nc' };
+    const { task: modifiedTask, result } = runEvaluateWithEffects(
+      task,
+      [{ type: 'compress_output', max_lines: 100, keep: 'last', summary_header: '[Output truncated]' }],
+    );
+
+    expect(modifiedTask).toHaveProperty('metadata._compress_output.max_lines', 100);
+    expect(modifiedTask).toHaveProperty('metadata._compress_output.keep', 'last');
+    expect(modifiedTask).toHaveProperty('metadata._compress_output.summary_header', '[Output truncated]');
+    expect(result.effects).toEqual([{
+      type: 'compress_output',
+      applied: true,
+      max_lines: 100,
+    }]);
   });
 
-  it('no-ops when under max_lines', () => {
-    const output = makeLines(50);
-    const result = applyCompressOutput(output, { max_lines: 500 });
-    expect(result).toBe(output);
+  it('uses default compress_output settings when unset', () => {
+    const task = { id: 'task-5', output: 'a\nb\nc' };
+    const { task: modifiedTask, result } = runEvaluateWithEffects(
+      task,
+      [{ type: 'compress_output' }],
+    );
+
+    expect(modifiedTask).toHaveProperty('metadata._compress_output.max_lines', 500);
+    expect(modifiedTask).toHaveProperty('metadata._compress_output.keep', 'last');
+    expect(modifiedTask).toHaveProperty('metadata._compress_output.summary_header', '[Output truncated]');
+    expect(result.effects).toEqual([{ type: 'compress_output', applied: true, max_lines: undefined }]);
   });
 
-  it('handles empty output', () => {
-    expect(applyCompressOutput('', { max_lines: 100 })).toBe('');
-    expect(applyCompressOutput(null, { max_lines: 100 })).toBe('');
-  });
-});
+  it('stores trigger_tool configuration in result.toolTriggers', () => {
+    const task = { id: 'task-6', working_directory: '/tmp' };
+    const { result } = runEvaluateWithEffects(
+      task,
+      [{ type: 'trigger_tool', tool_name: 'scan_project', tool_args: { limit: 10 } }],
+    );
 
-describe('applyActiveEffects', () => {
-  it('applies rewrite_description from matching evaluation', () => {
-    const policyResult = {
-      evaluations: [{
-        outcome: 'pass',
-        active_effects: [{ type: 'rewrite_description', prepend: 'STRICT MODE' }],
-      }],
-    };
-    const taskData = { id: 'test-1', task_description: 'fix bug' };
-    const { applied, taskData: modified } = applyActiveEffects(policyResult, taskData);
-    expect(applied).toContain('rewrite_description');
-    expect(modified.task_description).toBe('STRICT MODE\nfix bug');
+    expect(result.toolTriggers).toHaveLength(1);
+    expect(result.toolTriggers[0]).toEqual({
+      tool_name: 'scan_project',
+      tool_args: { limit: 10 },
+      background: true,
+      block_on_failure: false,
+    });
+    expect(result.effects).toEqual([{ type: 'trigger_tool', tool_name: 'scan_project', applied: true }]);
   });
 
-  it('skips effects from skipped evaluations', () => {
-    const policyResult = {
-      evaluations: [{
-        outcome: 'skipped',
-        active_effects: [{ type: 'rewrite_description', prepend: 'SHOULD NOT APPEAR' }],
-      }],
-    };
-    const taskData = { id: 'test-2', task_description: 'original' };
-    const { applied } = applyActiveEffects(policyResult, taskData);
-    expect(applied).toHaveLength(0);
-    expect(taskData.task_description).toBe('original');
+  it('interpolates task template variables in trigger_tool args', () => {
+    const task = { id: 'task-7', working_directory: '/tmp/project' };
+    const { result } = runEvaluateWithEffects(
+      task,
+      [{ type: 'trigger_tool', tool_name: 'scan_project', tool_args: { path: '{{task.working_directory}}' } }],
+    );
+
+    expect(result.toolTriggers?.[0].tool_args).toEqual({ path: '/tmp/project' });
   });
 
-  it('applies compress_output from matching evaluation', () => {
-    const lines = Array.from({ length: 200 }, (_, i) => `out ${i}`).join('\n');
-    const policyResult = {
-      evaluations: [{
-        outcome: 'fail',
-        active_effects: [{ type: 'compress_output', max_lines: 50 }],
-      }],
-    };
-    const taskData = { id: 'test-3', output: lines };
-    const { applied } = applyActiveEffects(policyResult, taskData);
-    expect(applied).toContain('compress_output');
-    expect(taskData.output.split('\n').length).toBe(51); // 50 + header
+  it('defaults trigger_tool background behavior to true', () => {
+    const task = { id: 'task-8' };
+    const { result } = runEvaluateWithEffects(
+      task,
+      [{ type: 'trigger_tool', tool_name: 'scan_project' }],
+    );
+
+    expect(result.toolTriggers?.[0].background).toBe(true);
   });
 
-  it('handles null policyResult gracefully', () => {
-    const { applied } = applyActiveEffects(null, { id: 'x' });
-    expect(applied).toHaveLength(0);
+  it('applies multiple effects in sequence', () => {
+    const task = { id: 'task-9', task_description: 'do the thing', output: 'a\nb\nc\nd' };
+    const { task: modifiedTask, result } = runEvaluateWithEffects(
+      task,
+      [
+        { type: 'rewrite_description', prepend: 'STRICT MODE' },
+        { type: 'compress_output', max_lines: 1 },
+        { type: 'rewrite_description', append: 'END' },
+      ],
+    );
+
+    expect(modifiedTask.task_description).toBe('STRICT MODE\n\ndo the thing\n\nEND');
+    expect(modifiedTask).toHaveProperty('metadata._compress_output.max_lines', 1);
+    expect(result.effects).toEqual([
+      { type: 'rewrite_description', applied: true },
+      { type: 'compress_output', applied: true, max_lines: 1 },
+      { type: 'rewrite_description', applied: true },
+    ]);
   });
 
-  it('trigger_tool is applied from matching evaluation', () => {
-    const policyResult = {
-      evaluations: [{
-        outcome: 'pass',
-        active_effects: [{
-          type: 'trigger_tool',
-          tool_name: 'scan_project',
-          tool_args: { working_directory: '{{working_directory}}' },
-        }],
-      }],
-    };
-    const taskData = { id: 'test-trigger', working_directory: '/proj' };
-    const { applied } = applyActiveEffects(policyResult, taskData);
-    // trigger_tool is applied regardless of whether tools.js is available in test env
-    expect(applied).toContain('trigger_tool');
+  it('ignores unknown effect types without throwing', () => {
+    const task = { id: 'task-10', task_description: 'safe' };
+    const evaluate = () => runEvaluateWithEffects(task, [{ type: 'not_a_real_effect' }]);
+
+    expect(evaluate).not.toThrow();
+    const { result } = evaluate();
+    expect(result.effects).toHaveLength(0);
+    expect(task.task_description).toBe('safe');
   });
 });

@@ -4,7 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const Database = require('better-sqlite3');
-const { hashContent, walkProjectFiles, LANGUAGE_MAP } = require('../utils/symbol-indexer');
+const indexer = require('../utils/symbol-indexer');
+const { hashContent, walkProjectFiles, LANGUAGE_MAP } = indexer;
 
 describe('symbol-indexer', () => {
   describe('hashContent', () => {
@@ -74,7 +75,6 @@ describe('symbol-indexer', () => {
 
     beforeEach(() => {
       db = new Database(':memory:');
-      const indexer = require('../utils/symbol-indexer');
       indexer.init(db);
     });
 
@@ -90,6 +90,100 @@ describe('symbol-indexer', () => {
     it('creates indexes', () => {
       const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_symbol%'").all();
       expect(indexes.length).toBeGreaterThanOrEqual(4);
+    });
+  });
+
+  describe('search and retrieval', () => {
+    let db;
+    let tmpDir;
+    let workingDir;
+
+    beforeEach(() => {
+      db = new Database(':memory:');
+      indexer.init(db);
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sym-idx-search-'));
+      workingDir = tmpDir;
+    });
+
+    afterEach(() => {
+      db.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('searchSymbols finds by partial name match', async () => {
+      const filePath = path.join(tmpDir, 'search.js');
+      fs.writeFileSync(filePath, 'function findUser() {}\\nfunction findOrder() {}\\nconst parseData = () => {};\\n');
+      const content = fs.readFileSync(filePath, 'utf8');
+      await indexer.indexFile(filePath, content, workingDir);
+
+      const symbols = indexer.searchSymbols('find', workingDir, {});
+      const names = symbols.map(function(s) { return s.name; });
+      expect(names).toContain('findUser');
+      expect(names).toContain('findOrder');
+    });
+
+    it('searchSymbols filters by kind', async () => {
+      const filePath = path.join(tmpDir, 'kind.ts');
+      fs.writeFileSync(filePath, 'class UserService {}\\nfunction userServiceHelper() {}\\n');
+      const content = fs.readFileSync(filePath, 'utf8');
+      await indexer.indexFile(filePath, content, workingDir);
+
+      const classes = indexer.searchSymbols('User', workingDir, { kind: 'class' });
+      expect(classes.length).toBe(1);
+      expect(classes[0].name).toBe('UserService');
+    });
+
+    it('searchSymbols exact match', async () => {
+      const filePath = path.join(tmpDir, 'exact.js');
+      fs.writeFileSync(filePath, 'function parseData() {}\\nfunction parseDataAdvanced() {}\\n');
+      const content = fs.readFileSync(filePath, 'utf8');
+      await indexer.indexFile(filePath, content, workingDir);
+
+      const exact = indexer.searchSymbols('parseData', workingDir, { exact: true });
+      expect(exact.length).toBe(1);
+      expect(exact[0].name).toBe('parseData');
+    });
+
+    it('getSymbolSource reads correct lines from file', () => {
+      const filePath = path.join(tmpDir, 'source.txt');
+      fs.writeFileSync(filePath, 'line1\\nline2\\nline3\\nline4\\nline5\\n');
+      const source = indexer.getSymbolSource(filePath, 2, 4);
+      expect(source).toBe('line2\\nline3\\nline4');
+    });
+
+    it('getFileOutline returns symbols sorted by line number', async () => {
+      const filePath = path.join(tmpDir, 'outline.js');
+      fs.writeFileSync(filePath, 'function alpha() {}\\n\\nclass Zeta {}\\n\\nfunction beta() {}\\n');
+      const content = fs.readFileSync(filePath, 'utf8');
+      await indexer.indexFile(filePath, content, workingDir);
+
+      const outline = indexer.getFileOutline(filePath, workingDir);
+      expect(outline).toHaveLength(3);
+      expect(outline.map(function(s) { return s.startLine; })).toEqual([1, 3, 5]);
+      expect(outline).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          name: 'alpha',
+          kind: 'function',
+          startLine: 1,
+          endLine: 1,
+          exported: false,
+        }),
+      ]));
+    });
+
+    it('getSymbolsForFiles batch query returns symbols for multiple files', async () => {
+      const fileOne = path.join(tmpDir, 'one.js');
+      const fileTwo = path.join(tmpDir, 'two.js');
+      fs.writeFileSync(fileOne, 'function one() {}\\n');
+      fs.writeFileSync(fileTwo, 'function two() {}\\n');
+      await indexer.indexFile(fileOne, fs.readFileSync(fileOne, 'utf8'), workingDir);
+      await indexer.indexFile(fileTwo, fs.readFileSync(fileTwo, 'utf8'), workingDir);
+
+      const symbols = indexer.getSymbolsForFiles([fileOne, fileTwo], workingDir);
+      const names = symbols.map(function(s) { return s.name; });
+      expect(names).toContain('one');
+      expect(names).toContain('two');
+      expect(names.length).toBe(2);
     });
   });
 });

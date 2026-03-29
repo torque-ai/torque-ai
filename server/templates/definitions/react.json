@@ -1,0 +1,20 @@
+{
+  "id": "react",
+  "name": "React",
+  "category": "framework",
+  "priority": 110,
+  "extends": "nodejs",
+  "detection": {
+    "dependencies": {
+      "file": "package.json",
+      "key": "react"
+    }
+  },
+  "agent_context": "React project. Prefer functional components, hooks-first patterns, and reusable component composition.",
+  "verify_command_suggestion": "npx react-scripts build",
+  "critical_error_patterns": [
+    "JSX syntax error",
+    "Invariant Violation"
+  ],
+  "worktree_symlinks": ["node_modules", "build"]
+}

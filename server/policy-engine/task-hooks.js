@@ -38,11 +38,42 @@ function evaluateAtStage(stage, taskData, options = {}) {
 
   try {
     const result = engine.evaluatePolicies(context);
+
     if (shadowEnforcer.isShadowOnly()) {
       if (result.summary.failed > 0 || result.summary.warned > 0) {
         logger.info(`[Shadow] ${stage}: ${result.summary.failed} fail, ${result.summary.warned} warn (non-blocking)`);
       }
       return { ...result, shadow: true, blocked: false };
+    }
+
+    // Execute trigger_tool effects (blocking background=false)
+    if (result.toolTriggers && result.toolTriggers.length > 0) {
+      for (const trigger of result.toolTriggers) {
+        if (!trigger || trigger.background) {
+          continue;
+        }
+        try {
+          const { defaultContainer } = require('../container');
+          const toolRouter = defaultContainer.get('toolRouter');
+          if (toolRouter) {
+            const triggerResult = toolRouter.callTool(trigger.tool_name, trigger.tool_args);
+            if (trigger.block_on_failure && triggerResult && triggerResult.isError) {
+              return {
+                blocked: true,
+                reason: `Policy tool ${trigger.tool_name} failed`,
+                toolResult: triggerResult,
+              };
+            }
+          }
+        } catch (e) {
+          if (trigger.block_on_failure) {
+            return {
+              blocked: true,
+              reason: `Policy tool ${trigger.tool_name} error: ${e.message}`,
+            };
+          }
+        }
+      }
     }
 
     try {

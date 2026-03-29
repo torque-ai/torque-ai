@@ -1,0 +1,20 @@
+{
+  "id": "nextjs",
+  "name": "Next.js",
+  "category": "framework",
+  "priority": 110,
+  "extends": "nodejs",
+  "detection": {
+    "dependencies": {
+      "file": "package.json",
+      "key": "next"
+    }
+  },
+  "agent_context": "Next.js project using App Router. Use 'use client' for client components. Keep server components by default and prefer modern route handlers in app/api.",
+  "verify_command_suggestion": "npx next build",
+  "critical_error_patterns": [
+    "NEXT_NOT_FOUND",
+    "Module not found"
+  ],
+  "worktree_symlinks": ["node_modules", ".next"]
+}

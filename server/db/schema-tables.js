@@ -136,6 +136,7 @@ const VALID_TABLE_NAMES = new Set([
   'security_rules',
   'security_scans',
   'similar_file_search',
+  'symbol_index',
   'similar_tasks',
   'smoke_test_results',
   'strategy_experiments',
@@ -2208,6 +2209,24 @@ function createTables(db, logger) {
       );
       CREATE INDEX IF NOT EXISTS idx_backups_task ON file_backups(task_id);
       CREATE INDEX IF NOT EXISTS idx_backups_file ON file_backups(file_path);
+
+      -- Symbol index table for AST-derived symbol metadata
+      CREATE TABLE IF NOT EXISTS symbol_index (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path TEXT NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        start_line INTEGER NOT NULL,
+        end_line INTEGER NOT NULL,
+        signature TEXT,
+        content_hash TEXT,
+        working_dir TEXT NOT NULL,
+        indexed_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_symbol_name ON symbol_index(name, working_dir);
+      CREATE INDEX IF NOT EXISTS idx_symbol_file ON symbol_index(file_path, working_dir);
+      CREATE INDEX IF NOT EXISTS idx_symbol_kind ON symbol_index(kind, working_dir);
+      CREATE INDEX IF NOT EXISTS idx_symbol_hash ON symbol_index(content_hash);
     
       -- Security scan results
       CREATE TABLE IF NOT EXISTS security_scans (

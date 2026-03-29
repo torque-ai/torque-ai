@@ -1,0 +1,20 @@
+{
+  "id": "vue",
+  "name": "Vue",
+  "category": "framework",
+  "priority": 110,
+  "extends": "nodejs",
+  "detection": {
+    "dependencies": {
+      "file": "package.json",
+      "key": "vue"
+    }
+  },
+  "agent_context": "Vue project. Use Composition API and single-file components with script/setup patterns.",
+  "verify_command_suggestion": "npx vite build",
+  "critical_error_patterns": [
+    "Cannot find module",
+    "Failed to resolve component"
+  ],
+  "worktree_symlinks": ["node_modules", "dist"]
+}

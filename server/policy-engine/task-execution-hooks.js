@@ -127,7 +127,47 @@ function fireTaskCompletionPolicyHook(taskData) {
   const policyTaskData = buildPolicyTaskData(taskData);
 
   try {
-    return taskHooks.onTaskComplete(policyTaskData);
+    const result = taskHooks.onTaskComplete(policyTaskData);
+
+    // Apply compress_output effect
+    if (policyTaskData.metadata && policyTaskData.metadata._compress_output) {
+      const config = policyTaskData.metadata._compress_output;
+      const output = policyTaskData.output || '';
+      const lines = output.split('\n');
+      if (lines.length > config.max_lines) {
+        let compressed;
+        if (config.keep === 'last') {
+          compressed = config.summary_header + '\n' + lines.slice(-config.max_lines).join('\n');
+        } else {
+          compressed = lines.slice(0, config.max_lines).join('\n') + '\n' + config.summary_header;
+        }
+        try {
+          const { defaultContainer } = require('../container');
+          const taskCore = defaultContainer.get('taskCore');
+          if (taskCore) taskCore.updateTask(policyTaskData.id, { output: compressed });
+        } catch (_) {}
+      }
+    }
+
+    // Execute background trigger_tool effects (fire-and-forget)
+    if (result && result.toolTriggers && Array.isArray(result.toolTriggers)) {
+      for (const trigger of result.toolTriggers) {
+        if (!trigger || !trigger.background) {
+          continue;
+        }
+        try {
+          const { defaultContainer } = require('../container');
+          const toolRouter = defaultContainer.get('toolRouter');
+          if (toolRouter) {
+            Promise.resolve(toolRouter.callTool(trigger.tool_name, trigger.tool_args)).catch(() => {});
+          }
+        } catch (_) {
+          // Background trigger failures are logged where possible, but never block completion.
+        }
+      }
+    }
+
+    return result;
   } catch (err) {
     logger.info(`[Policy] Completion hook failed for task ${policyTaskData.id}: ${err.message}`);
     return { blocked: false, skipped: true, reason: 'policy_hook_error', error: err.message };

@@ -3,6 +3,7 @@
 const http = require('http');
 const { handleToolCall } = require('../tools');
 const { listTools } = require('./catalog-v1');
+const { filterToolsBrief, filterToolsFull } = require('./tool-list-modes');
 const schemaRegistry = require('./schema-registry');
 const db = require('../database');
 const serverConfig = require('../config');
@@ -37,6 +38,22 @@ const EVENT_DATA_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const EVENT_DATA_RETENTION_DAYS = 7;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const SESSION_STORE = new Map();
+const MCP_META_TOOLS = Object.freeze([
+  {
+    name: 'get_tool_schema',
+    description: 'Get the full input schema for a specific tool. Use this after tools/list in brief mode to fetch the schema before calling a tool.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tool_name: {
+          type: 'string',
+          description: 'Name of the tool',
+        },
+      },
+      required: ['tool_name'],
+    },
+  },
+]);
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const idempotencyStore = new Map();
@@ -115,6 +132,7 @@ const SUPPORTED_TOOL_NAMES = new Set([
   ...DIAGNOSTIC_TOOL_NAMES,
   ...SESSION_TOOL_NAMES,
   ...STREAM_TOOL_NAMES,
+  'get_tool_schema',
 ]);
 const MUTATION_TOOL_NAMES = new Set(
   listTools().filter((tool) => tool.mutation).map((tool) => tool.name),
@@ -372,6 +390,28 @@ function persistPolicyStore(store) {
 
 function valuesEqual(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function getRegisteredTools() {
+  return [
+    ...listTools().filter((tool) => SUPPORTED_TOOL_NAMES.has(tool.name)),
+    ...MCP_META_TOOLS,
+  ];
+}
+
+function getToolSchemaByName(toolName) {
+  const normalizedToolName = typeof toolName === 'string' ? toolName : String(toolName);
+  const tool = getRegisteredTools().find((registeredTool) => registeredTool.name === normalizedToolName);
+
+  if (!tool) {
+    return { error: `Tool not found: ${toolName}` };
+  }
+
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+  };
 }
 
 function normalizeBooleanishValue(value) {
@@ -967,6 +1007,15 @@ async function handleToolCallRoute(req, res, routeToolName = null) {
       return;
     }
 
+    if (toolName === 'get_tool_schema') {
+      telemetry.incrementToolCall(toolName);
+      const responsePayload = getToolSchemaByName(args.tool_name);
+      const response = okEnvelope(responsePayload, { correlation_id: correlationId });
+      telemetry.observeLatency(toolName, Date.now() - startedAt);
+      writeJson(res, 200, response, correlationId);
+      return;
+    }
+
     if (ADMIN_ONLY_TOOL_NAMES.has(toolName) && role !== 'admin') {
       telemetry.incrementError('POLICY_FORBIDDEN');
       writeJson(res, 403, errorEnvelope({
@@ -1169,10 +1218,14 @@ function handleHealth(req, res) {
   writeJson(res, 200, payload, correlationId);
 }
 
-function handleTools(req, res) {
+function handleTools(req, res, url) {
   const correlationId = readCorrelationId(req);
+  const mode = url?.searchParams?.get('mode');
+  const filteredTools = (mode === 'brief' ? filterToolsBrief : filterToolsFull)(
+    getRegisteredTools().filter((tool) => SUPPORTED_TOOL_NAMES.has(tool.name)),
+  );
   const payload = okEnvelope({
-    tools: listTools().filter((tool) => SUPPORTED_TOOL_NAMES.has(tool.name)),
+    tools: filteredTools,
   }, { correlation_id: correlationId });
   writeJson(res, 200, payload, correlationId);
 }
@@ -1229,7 +1282,7 @@ async function handleRequest(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/tools') {
-    handleTools(req, res);
+    handleTools(req, res, url);
     return;
   }
 

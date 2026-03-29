@@ -1,0 +1,16 @@
+{
+  "id": "rust",
+  "name": "Rust",
+  "category": "language",
+  "priority": 50,
+  "detection": {
+    "files": ["Cargo.toml"]
+  },
+  "agent_context": "Rust project. Emphasize ownership, borrowing, lifetimes, and zero-cost abstractions using Cargo.",
+  "verify_command_suggestion": "cargo build",
+  "critical_error_patterns": [
+    "borrowed value does not live long enough",
+    "mismatched types"
+  ],
+  "worktree_symlinks": ["target"]
+}

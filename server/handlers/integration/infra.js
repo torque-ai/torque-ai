@@ -15,6 +15,7 @@ const { PROVIDER_CONTEXT_BUDGETS } = require('../../utils/context-stuffing');
 const { COST_FREE_PROVIDERS } = require('../../execution/queue-scheduler');
 const { ErrorCodes, makeError } = require('../error-codes');
 const logger = require('../../logger').child({ component: 'integration-infra' });
+const { defaultContainer } = require('../../container');
 
 /**
  * Configure an external integration
@@ -705,8 +706,36 @@ function handleScanProject(args) {
     }
   }
 
+  let scanResult = { ...report };
+
+  // Project template detection
+  try {
+    const projectDetector = defaultContainer.get('projectDetector');
+    if (projectDetector && projectPath) {
+      const detection = projectDetector.detectProjectType(projectPath);
+      if (detection && detection.template) {
+        const projectConfigCore = defaultContainer.get('projectConfigCore');
+        if (projectConfigCore) {
+          projectConfigCore.setProjectConfig(projectPath, {
+            detected_template: detection.template.id,
+            detected_template_at: new Date().toISOString(),
+          });
+        }
+        scanResult.detected_template = detection.template.id;
+        scanResult.template_name = detection.template.name;
+        scanResult.template_score = detection.score;
+      }
+    }
+  } catch (e) {
+    logger.debug('[integration-infra] non-critical template detection:', e.message || e);
+  }
+
   // Format the report as readable text
   let output = `## Project Scan: ${path.basename(projectPath)}\n\n`;
+
+  if (scanResult.detected_template) {
+    output += `**Detected template:** ${scanResult.template_name || scanResult.detected_template} (${scanResult.detected_template})\n\n`;
+  }
 
   if (report.summary) {
     output += `### Summary\n`;
@@ -777,7 +806,7 @@ function handleScanProject(args) {
     output += '\n';
   }
 
-  return { content: [{ type: 'text', text: output }] };
+  return { content: [{ type: 'text', text: output }], scanResult };
 }
 
 /**

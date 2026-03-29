@@ -218,6 +218,20 @@ function extractSignature(node) {
   return firstLine.length > 200 ? firstLine.slice(0, 200) + '...' : firstLine;
 }
 
+function isExportedNode(node, langName) {
+  const nodeText = (node.text || '').trim();
+  const type = node.type;
+
+  if (langName === 'javascript' || langName === 'typescript') {
+    if (type === 'export_statement' || type === 'export_default_declaration') return true;
+    if (/^export\s/.test(nodeText)) return true;
+  }
+
+  if (node.parent && (node.parent.type === 'export_statement' || node.parent.type === 'export_default_declaration')) return true;
+
+  return false;
+}
+
 /**
  * Extract symbols from a parsed AST tree.
  */
@@ -243,6 +257,7 @@ function extractSymbols(tree, langName, filePath) {
           startLine: node.startPosition.row + 1,
           endLine: node.endPosition.row + 1,
           signature: extractSignature(node),
+          exported: isExportedNode(node, langName),
         });
       }
     }
@@ -262,6 +277,18 @@ function extractSymbols(tree, langName, filePath) {
  */
 function hashContent(content) {
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+}
+
+function projectSymbolRowsToObjects(rows) {
+  return rows.map(function(r) {
+    const signature = r.signature || '';
+    return Object.assign({}, r, {
+      startLine: r.start_line,
+      endLine: r.end_line,
+      exported: /^export\s/.test(String(signature)),
+      signature: signature,
+    });
+  });
 }
 
 /**
@@ -405,7 +432,7 @@ async function indexProject(workingDir, options) {
 }
 
 /**
- * Search symbols by name (prefix, contains, or exact).
+ * Search symbols by name (contains or exact).
  */
 function searchSymbols(query, workingDir, options) {
   options = options || {};
@@ -413,11 +440,12 @@ function searchSymbols(query, workingDir, options) {
   const mode = options.mode || 'contains';
   const kind = options.kind || null;
   const limit = options.limit || 50;
+  const exact = Object.prototype.hasOwnProperty.call(options, 'exact') ? !!options.exact : false;
 
   let sql = 'SELECT * FROM symbol_index WHERE working_dir = ?';
   const params = [workingDir];
 
-  if (mode === 'exact') {
+  if (exact || mode === 'exact') {
     sql += ' AND name = ?';
     params.push(query);
   } else if (mode === 'prefix') {
@@ -436,24 +464,47 @@ function searchSymbols(query, workingDir, options) {
   sql += ' ORDER BY name LIMIT ?';
   params.push(limit);
 
-  return _db.prepare(sql).all.apply(_db.prepare(sql), params);
+  const rows = _db.prepare(sql).all(params);
+  return projectSymbolRowsToObjects(rows);
 }
 
 /**
- * Get the source code for a specific symbol by reading its file lines.
+ * Get symbol source by symbol id OR read file lines directly from disk.
  */
-function getSymbolSource(symbolId) {
-  if (!_db) return null;
-  const sym = _db.prepare('SELECT * FROM symbol_index WHERE id = ?').get(symbolId);
-  if (!sym) return null;
+function getSymbolSource(filePathOrSymbolId, startLine, endLine) {
+  const isNumericLookup = typeof filePathOrSymbolId === 'number' || typeof filePathOrSymbolId === 'bigint';
+  if (isNumericLookup && !_db) return null;
+
+  let symbolRecord = null;
+  let filePath = filePathOrSymbolId;
+  let readStartLine = startLine;
+  let readEndLine = endLine;
+
+  if (isNumericLookup) {
+    symbolRecord = _db.prepare('SELECT * FROM symbol_index WHERE id = ?').get(Number(filePathOrSymbolId));
+    if (!symbolRecord) return null;
+    filePath = symbolRecord.file_path;
+    readStartLine = symbolRecord.start_line;
+    readEndLine = symbolRecord.end_line;
+  }
 
   try {
-    const content = fs.readFileSync(sym.file_path, 'utf8');
+    if (!filePath || typeof readStartLine !== 'number' || typeof readEndLine !== 'number') return null;
+
+    const content = fs.readFileSync(filePath, 'utf8');
     const lines = content.split('\n');
-    const source = lines.slice(sym.start_line - 1, sym.end_line).join('\n');
-    return Object.assign({}, sym, { source: source });
+    const source = lines.slice(readStartLine - 1, readEndLine).join('\n');
+
+    if (symbolRecord) {
+      return Object.assign({}, symbolRecord, { source: source });
+    }
+
+    return source;
   } catch {
-    return Object.assign({}, sym, { source: null });
+    if (symbolRecord) {
+      return Object.assign({}, symbolRecord, { source: null });
+    }
+    return null;
   }
 }
 
@@ -462,18 +513,71 @@ function getSymbolSource(symbolId) {
  */
 function getFileOutline(filePath, workingDir) {
   if (!_db) return [];
-  return _db.prepare(
+  const rows = _db.prepare(
     'SELECT * FROM symbol_index WHERE file_path = ? AND working_dir = ? ORDER BY start_line'
   ).all(filePath, workingDir);
+
+  return rows.map(function(r) {
+    return {
+      name: r.name,
+      kind: r.kind,
+      startLine: r.start_line,
+      endLine: r.end_line,
+      signature: r.signature,
+      exported: /^export\s/.test(String(r.signature || '')),
+      file_path: r.file_path,
+      filePath: r.file_path,
+      start_line: r.start_line,
+      end_line: r.end_line,
+      working_dir: r.working_dir,
+    };
+  });
+}
+
+function getSymbolsForFiles(filePaths, workingDir) {
+  if (!_db) return [];
+  const paths = (filePaths || []).filter(function(fp) { return !!fp; });
+  if (paths.length === 0) return [];
+
+  const placeholders = paths.map(function() { return '?'; }).join(',');
+  const rows = _db.prepare(
+    'SELECT * FROM symbol_index WHERE working_dir = ? AND file_path IN (' + placeholders + ') ORDER BY file_path, start_line'
+  ).all([workingDir].concat(paths));
+  return projectSymbolRowsToObjects(rows);
+}
+
+function createSymbolIndexer() {
+  return {
+    init: init,
+    initParser: initParser,
+    getLanguageParser: getLanguageParser,
+    classifyNode: classifyNode,
+    extractNodeName: extractNodeName,
+    extractSignature: extractSignature,
+    extractSymbols: extractSymbols,
+    walkProjectFiles: walkProjectFiles,
+    getStaleFiles: getStaleFiles,
+    cleanupOrphans: cleanupOrphans,
+    indexFile: indexFile,
+    indexProject: indexProject,
+    searchSymbols: searchSymbols,
+    getSymbolSource: getSymbolSource,
+    getFileOutline: getFileOutline,
+    getSymbolsForFiles: getSymbolsForFiles,
+    hashContent: hashContent,
+    LANGUAGE_MAP: LANGUAGE_MAP,
+  };
 }
 
 module.exports = {
   init: init,
   initParser: initParser,
+  createSymbolIndexer: createSymbolIndexer,
   indexProject: indexProject,
   indexFile: indexFile,
   searchSymbols: searchSymbols,
   getSymbolSource: getSymbolSource,
+  getSymbolsForFiles: getSymbolsForFiles,
   getFileOutline: getFileOutline,
   walkProjectFiles: walkProjectFiles,
   getStaleFiles: getStaleFiles,

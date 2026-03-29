@@ -1,0 +1,16 @@
+{
+  "id": "go",
+  "name": "Go",
+  "category": "language",
+  "priority": 50,
+  "detection": {
+    "files": ["go.mod"]
+  },
+  "agent_context": "Go project. Prefer interfaces, goroutines, and clear package/module boundaries with go modules.",
+  "verify_command_suggestion": "go build ./...",
+  "critical_error_patterns": [
+    "undefined: ",
+    "cannot use"
+  ],
+  "worktree_symlinks": ["go.sum", "vendor"]
+}

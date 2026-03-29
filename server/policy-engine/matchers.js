@@ -1,5 +1,36 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
+function hasDescriptionPatterns(value) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function collectTaskDescription(context = {}) {
+  const task = context.task || {};
+  const rawDescription = context.task_description
+    || task.task_description
+    || context.description
+    || task.description
+    || '';
+  return typeof rawDescription === 'string'
+    ? rawDescription
+    : String(rawDescription);
+}
+
+function hasProjectFile(projectPath, filePattern) {
+  if (!projectPath) return false;
+
+  const normalizedFile = String(filePattern || '').trim();
+  if (!normalizedFile) return false;
+
+  const candidate = path.isAbsolute(normalizedFile)
+    ? normalizedFile
+    : path.join(projectPath, normalizedFile);
+  return fs.existsSync(candidate);
+}
+
 function normalizeArray(value) {
   if (value === undefined || value === null) return [];
   return Array.isArray(value) ? value.filter((entry) => entry !== undefined && entry !== null) : [value];
@@ -205,7 +236,9 @@ function evaluateMatcher(matcher = {}, context = {}) {
     normalizedMatcher.providers_any
       || normalizedMatcher.provider_any
       || normalizedMatcher.allowed_providers_any
-      || normalizedMatcher.allowedProvidersAny,
+      || normalizedMatcher.allowedProvidersAny
+      || normalizedMatcher.providers_in
+      || normalizedMatcher.provider_in,
   ).map((entry) => entry.toLowerCase());
   const providersNotAny = normalizeStringArray(
     normalizedMatcher.providers_not_any
@@ -215,6 +248,12 @@ function evaluateMatcher(matcher = {}, context = {}) {
   const targetTypesAny = normalizeStringArray(
     normalizedMatcher.target_types_any || normalizedMatcher.targetTypesAny,
   ).map((entry) => entry.toLowerCase());
+  const projectHasFileAny = normalizeStringArray(
+    normalizedMatcher.project_has_file || normalizedMatcher.projectHasFile,
+  );
+  const descriptionMatches = normalizeStringArray(
+    normalizedMatcher.description_matches || normalizedMatcher.descriptionMatches,
+  );
 
   if (rootGlobsAny.length > 0) {
     if (!projectPath) {
@@ -236,6 +275,18 @@ function evaluateMatcher(matcher = {}, context = {}) {
     }
   }
 
+  if (projectHasFileAny.length > 0) {
+    const hasMatchingFile = projectHasFileAny.some((pattern) => hasProjectFile(projectPath, pattern));
+    if (!hasMatchingFile) {
+      return {
+        state: 'no_match',
+        reason: 'required project files were not found',
+        matched_files: [],
+        excluded_files: [],
+      };
+    }
+  }
+
   if (providersAny.length > 0) {
     if (!provider) {
       return {
@@ -250,6 +301,35 @@ function evaluateMatcher(matcher = {}, context = {}) {
       return {
         state: 'no_match',
         reason: `provider "${provider}" is outside the allowed matcher scope`,
+        matched_files: [],
+        excluded_files: [],
+      };
+    }
+  }
+
+  if (hasDescriptionPatterns(descriptionMatches)) {
+    const taskDescription = collectTaskDescription(context).trim();
+    if (!taskDescription) {
+      return {
+        state: 'degraded',
+        reason: 'task description is unavailable for matcher evaluation',
+        matched_files: [],
+        excluded_files: [],
+      };
+    }
+
+    const matchedPattern = descriptionMatches.some((pattern) => {
+      try {
+        return new RegExp(pattern, 'i').test(taskDescription);
+      } catch (err) {
+        return false;
+      }
+    });
+
+    if (!matchedPattern) {
+      return {
+        state: 'no_match',
+        reason: 'task description did not match the configured pattern',
         matched_files: [],
         excluded_files: [],
       };

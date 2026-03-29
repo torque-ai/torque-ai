@@ -1,0 +1,17 @@
+{
+  "id": "python",
+  "name": "Python",
+  "category": "language",
+  "priority": 50,
+  "detection": {
+    "files": ["requirements.txt", "setup.py", "pyproject.toml"]
+  },
+  "agent_context": "Python project. Use virtual environments, pip workflows, and dependency-safe imports.",
+  "verify_command_suggestion": "python -m pytest",
+  "critical_error_patterns": [
+    "ImportError",
+    "ModuleNotFoundError",
+    "SyntaxError"
+  ],
+  "worktree_symlinks": ["venv"]
+}

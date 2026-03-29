@@ -1,0 +1,16 @@
+{
+  "id": "csharp-dotnet",
+  "name": "C#/.NET",
+  "category": "language",
+  "priority": 50,
+  "detection": {
+    "files": ["*.csproj", "*.sln"]
+  },
+  "agent_context": "C#/.NET project. Use idiomatic C#, NuGet packages, and dotnet CLI workflows.",
+  "verify_command_suggestion": "dotnet build",
+  "critical_error_patterns": [
+    "CS0234",
+    "CS1061"
+  ],
+  "worktree_symlinks": ["bin", "obj"]
+}

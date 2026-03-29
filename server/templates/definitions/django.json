@@ -1,0 +1,20 @@
+{
+  "id": "django",
+  "name": "Django",
+  "category": "framework",
+  "priority": 110,
+  "extends": "python",
+  "detection": {
+    "dependencies": {
+      "file": "requirements.txt",
+      "key": "django"
+    }
+  },
+  "agent_context": "Django project. Use models, views, templates, migrations, and follow Django admin/auth conventions.",
+  "verify_command_suggestion": "python manage.py test",
+  "critical_error_patterns": [
+    "ImproperlyConfigured",
+    "NoReverseMatch"
+  ],
+  "worktree_symlinks": ["__pycache__", "db.sqlite3"]
+}

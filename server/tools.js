@@ -11,6 +11,8 @@ const logger = require('./logger').child({ component: 'tools' });
 const { fireHook } = require('./hooks/post-tool-hooks');
 const eventBus = require('./event-bus');
 const evidenceRiskHandlers = require('./handlers/evidence-risk-handlers');
+const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
+const templateHandlers = require('./handlers/template-handlers');
 
 // ── Tool definitions (JSON schemas) ──
 const TOOLS = [
@@ -51,6 +53,8 @@ const TOOLS = [
   ...require('./tool-defs/strategic-config-defs'),
   ...require('./tool-defs/context-defs'),
   ...require('./tool-defs/competitive-feature-defs'),
+  ...require('./tool-defs/symbol-indexer-defs'),
+  ...require('./tool-defs/template-defs'),
   ...require('./tool-defs/diffusion-defs'),
 ];
 
@@ -252,6 +256,12 @@ for (const mod of HANDLER_MODULES) {
 
 routeMap.set('get_adversarial_reviews', evidenceRiskHandlers.handleGetAdversarialReviews);
 routeMap.set('request_adversarial_review', evidenceRiskHandlers.handleRequestAdversarialReview);
+routeMap.set('search_symbols', symbolIndexerHandlers.handleSearchSymbols);
+routeMap.set('get_file_outline', symbolIndexerHandlers.handleGetFileOutline);
+routeMap.set('index_project', symbolIndexerHandlers.handleIndexProject);
+routeMap.set('get_project_template', templateHandlers.handleGetProjectTemplate);
+routeMap.set('list_templates', templateHandlers.handleListTemplates);
+routeMap.set('detect_project_type', templateHandlers.handleDetectProjectType);
 
 const FILE_WRITE_TOOL_NAMES = new Set([
   'add_import_statement',

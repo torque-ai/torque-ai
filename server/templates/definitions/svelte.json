@@ -1,0 +1,20 @@
+{
+  "id": "svelte",
+  "name": "Svelte",
+  "category": "framework",
+  "priority": 110,
+  "extends": "nodejs",
+  "detection": {
+    "dependencies": {
+      "file": "package.json",
+      "key": "svelte"
+    }
+  },
+  "agent_context": "Svelte project. Use reactive declarations (`$: expr`) and component composition with clear store usage.",
+  "verify_command_suggestion": "npx vite build",
+  "critical_error_patterns": [
+    "Cannot find module",
+    "Expected token"
+  ],
+  "worktree_symlinks": ["node_modules", ".svelte-kit"]
+}

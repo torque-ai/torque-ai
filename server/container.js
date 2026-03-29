@@ -484,6 +484,25 @@ function initModules(db, serverConfig) {
     const { createAdversarialReviews } = require('./db/adversarial-reviews');
     _defaultContainer.registerValue('adversarialReviews', createAdversarialReviews({ db }));
   }
+  if (!_defaultContainer.has('symbolIndexer')) {
+    const { createSymbolIndexer } = require('./utils/symbol-indexer');
+    const symbolIndexer = createSymbolIndexer({ db });
+    if (typeof symbolIndexer.init === 'function') {
+      symbolIndexer.init(db);
+    }
+    _defaultContainer.registerValue('symbolIndexer', symbolIndexer);
+  }
+  if (!_defaultContainer.has('templateRegistry')) {
+    const { createTemplateRegistry } = require('./templates/registry');
+    const registry = createTemplateRegistry();
+    registry.loadTemplates();
+    _defaultContainer.registerValue('templateRegistry', registry);
+  }
+  if (!_defaultContainer.has('projectDetector')) {
+    const { createProjectDetector } = require('./templates/detector');
+    const templateRegistry = _defaultContainer.get('templateRegistry');
+    _defaultContainer.registerValue('projectDetector', createProjectDetector({ templateRegistry }));
+  }
 
   // Run config-to-registry migration now that DB is available and schema migrations
   // have already run (they complete during database.js initialization, before initModules).

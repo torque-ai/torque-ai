@@ -3,99 +3,292 @@
 const fs = require('fs');
 const path = require('path');
 
-const BUILTIN_TEMPLATES = new Map([
-  ['nodejs', {
-    markers: ['package.json'],
-    priority: 50,
-    agent_context: 'Node.js project. Use CommonJS require unless package.json has type:module.',
-  }],
-  ['typescript', {
-    markers: ['tsconfig.json'],
-    priority: 60,
-    agent_context: 'TypeScript project. Use strict types. Run tsc --noEmit to type-check.',
-  }],
-  ['nextjs', {
-    markers: ['package.json'],
-    deps: { file: 'package.json', key: 'next' },
-    priority: 110,
-    agent_context: 'Next.js project using App Router. Pages in app/ directory. Server components by default.',
-  }],
-  ['react', {
-    markers: ['package.json'],
-    deps: { file: 'package.json', key: 'react' },
-    priority: 100,
-    agent_context: 'React project. Use functional components with hooks. JSX/TSX files.',
-  }],
-  ['python', {
-    markers: ['requirements.txt', 'pyproject.toml', 'setup.py'],
-    priority: 50,
-    agent_context: 'Python project. Follow PEP 8. Use type hints.',
-  }],
-  ['django', {
-    markers: ['manage.py'],
-    deps: { file: 'requirements.txt', key: 'django' },
-    priority: 110,
-    agent_context: 'Django project. Follow Django conventions. Use class-based views where appropriate.',
-  }],
-  ['rust', {
-    markers: ['Cargo.toml'],
-    priority: 50,
-    agent_context: 'Rust project. Follow Rust idioms. Use Result for error handling.',
-  }],
-  ['go', {
-    markers: ['go.mod'],
-    priority: 50,
-    agent_context: 'Go project. Follow Go conventions. Use error returns, not panics.',
-  }],
-  ['csharp', {
-    markers: ['*.csproj', '*.sln'],
-    priority: 50,
-    agent_context: 'C#/.NET project. Follow .NET conventions.',
-  }],
-  ['vue', {
-    markers: ['package.json'],
-    deps: { file: 'package.json', key: 'vue' },
-    priority: 100,
-    agent_context: 'Vue.js project. Use Composition API with script setup.',
-  }],
-]);
+const TEMPLATE_DEFINITIONS_DIR = path.join(__dirname, 'definitions');
 
-function cloneTemplate(id, definition) {
-  const template = {
+function cloneTemplate(template) {
+  if (template instanceof Map) {
+    return new Map(Array.from(template.entries()).map(([id, value]) => [id, cloneTemplate(value)]));
+  }
+
+  if (Array.isArray(template)) {
+    return template.map((value) => cloneTemplate(value));
+  }
+
+  if (!template || typeof template !== 'object') {
+    return template;
+  }
+
+  return JSON.parse(JSON.stringify(template));
+}
+
+function isStringValue(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function assertArray(value, fallback = []) {
+  return Array.isArray(value) ? value : fallback;
+}
+
+function normalizeDetection(value) {
+  if (!value || typeof value !== 'object') {
+    return { files: [], dependencies: [] };
+  }
+
+  const files = assertArray(value.files).map((entry) => isStringValue(entry) ? entry.trim() : '').filter(Boolean);
+  let dependencies = [];
+
+  if (value.dependencies !== undefined) {
+    if (Array.isArray(value.dependencies)) {
+      dependencies = value.dependencies
+        .map((rule) => {
+          if (!rule || typeof rule !== 'object') return null;
+          const file = isStringValue(rule.file) ? rule.file.trim() : '';
+          const key = isStringValue(rule.key) ? rule.key.trim() : '';
+          if (!file || !key) return null;
+          return { file, key };
+        })
+        .filter(Boolean);
+    } else if (value.dependencies && typeof value.dependencies === 'object') {
+      const file = isStringValue(value.dependencies.file) ? value.dependencies.file.trim() : '';
+      const key = isStringValue(value.dependencies.key) ? value.dependencies.key.trim() : '';
+      if (file && key) {
+        dependencies = [{ file, key }];
+      }
+    }
+  }
+
+  return {
+    files: [...new Set(files)],
+    dependencies: [...new Set(dependencies.map((rule) => `${rule.file}::${rule.key}`))].map((entry) => {
+      const [file, key] = entry.split('::');
+      return { file, key };
+    }),
+  };
+}
+
+function normalizeTemplateDefinition(rawDefinition, sourceFile) {
+  if (!rawDefinition || typeof rawDefinition !== 'object') {
+    throw new Error(`Invalid template definition in ${sourceFile}: expected object`);
+  }
+
+  const id = isStringValue(rawDefinition.id) ? rawDefinition.id.trim() : '';
+  const expectedId = path.basename(sourceFile, '.json');
+  if (!id) {
+    throw new Error(`Invalid template definition in ${sourceFile}: missing id`);
+  }
+  if (id !== expectedId) {
+    throw new Error(`Invalid template definition in ${sourceFile}: id ${id} does not match filename ${expectedId}`);
+  }
+
+  if (!isStringValue(rawDefinition.name)) {
+    throw new Error(`Invalid template definition for ${id}: missing name`);
+  }
+
+  if (!isStringValue(rawDefinition.category)) {
+    throw new Error(`Invalid template definition for ${id}: missing category`);
+  }
+
+  if (!Number.isFinite(Number(rawDefinition.priority))) {
+    throw new Error(`Invalid template definition for ${id}: priority must be numeric`);
+  }
+
+  if (!rawDefinition.detection || typeof rawDefinition.detection !== 'object') {
+    throw new Error(`Invalid template definition for ${id}: missing detection`);
+  }
+
+  const detection = normalizeDetection(rawDefinition.detection, sourceFile);
+  if (detection.files.length === 0 && detection.dependencies.length === 0) {
+    throw new Error(`Invalid template definition for ${id}: detection must include files and/or dependencies`);
+  }
+
+  const extendsTemplate = isStringValue(rawDefinition.extends) ? rawDefinition.extends.trim() : null;
+  const agentContext = isStringValue(rawDefinition.agent_context) ? rawDefinition.agent_context.trim() : '';
+  const verifyCommandSuggestion = isStringValue(rawDefinition.verify_command_suggestion)
+    ? rawDefinition.verify_command_suggestion.trim()
+    : null;
+  const criticalErrorPatterns = assertArray(rawDefinition.critical_error_patterns)
+    .map((value) => isStringValue(value) ? value.trim() : '')
+    .filter(Boolean);
+  const worktreeSymlinks = assertArray(rawDefinition.worktree_symlinks)
+    .map((value) => isStringValue(value) ? value.trim() : '')
+    .filter(Boolean);
+
+  return {
     id,
-    markers: Array.isArray(definition.markers) ? [...definition.markers] : [],
-    priority: Number.isFinite(definition.priority) ? definition.priority : 0,
-    agent_context: definition.agent_context || '',
+    name: rawDefinition.name.trim(),
+    category: rawDefinition.category.trim(),
+    priority: Number(rawDefinition.priority),
+    extends: extendsTemplate,
+    detection,
+    agent_context: agentContext,
+    verify_command_suggestion: verifyCommandSuggestion,
+    critical_error_patterns: [...new Set(criticalErrorPatterns)],
+    worktree_symlinks: [...new Set(worktreeSymlinks)],
+  };
+}
+
+function mergeStringArrays(parent, child) {
+  return [...new Set([...(parent || []), ...(child || [])])];
+}
+
+function mergeDependencyRules(parentDependencies, childDependencies) {
+  return [...new Set([...(parentDependencies || []), ...(childDependencies || [])])];
+}
+
+function mergeTemplates(parent, child) {
+  const merged = {
+    id: child.id,
+    name: child.name || parent.name,
+    category: child.category || parent.category,
+    priority: Number.isFinite(child.priority) ? child.priority : parent.priority,
+    extends: child.extends || parent.extends,
+    detection: {
+      files: mergeStringArrays(parent.detection.files, child.detection.files),
+      dependencies: mergeDependencyRules(parent.detection.dependencies, child.detection.dependencies),
+    },
+    agent_context: [parent.agent_context, child.agent_context].filter(Boolean).join('\n\n'),
+    verify_command_suggestion: child.verify_command_suggestion || parent.verify_command_suggestion,
+    critical_error_patterns: mergeStringArrays(parent.critical_error_patterns, child.critical_error_patterns),
+    worktree_symlinks: mergeStringArrays(parent.worktree_symlinks, child.worktree_symlinks),
   };
 
-  if (definition.deps) {
-    template.deps = Array.isArray(definition.deps)
-      ? definition.deps.map((rule) => ({ ...rule }))
-      : { ...definition.deps };
-  }
-
-  return template;
+  merged.extends = child.extends || parent.extends || null;
+  return merged;
 }
 
-function loadTemplates() {
-  const loaded = new Map();
-  for (const [id, definition] of BUILTIN_TEMPLATES.entries()) {
-    loaded.set(id, cloneTemplate(id, definition));
-  }
-  return loaded;
-}
-
-function getTemplate(id) {
-  if (typeof id !== 'string') {
-    return null;
+function resolveTemplate(templatesById, resolvedCache, id, inheritanceStack = new Set()) {
+  if (resolvedCache.has(id)) {
+    return resolvedCache.get(id);
   }
 
-  const definition = BUILTIN_TEMPLATES.get(id);
-  return definition ? cloneTemplate(id, definition) : null;
+  const raw = templatesById.get(id);
+  if (!raw) {
+    throw new Error(`Unknown template id: ${id}`);
+  }
+
+  if (inheritanceStack.has(id)) {
+    throw new Error(`Circular template inheritance detected: ${Array.from(inheritanceStack).concat([id]).join(' -> ')}`);
+  }
+
+  if (!raw.extends) {
+    const base = {
+      ...raw,
+      detection: {
+        files: [...raw.detection.files],
+        dependencies: [...raw.detection.dependencies],
+      },
+      extends: null,
+    };
+    const normalizedBase = normalizeForDetectionCompatibility(base);
+    resolvedCache.set(id, normalizedBase);
+    return normalizedBase;
+  }
+
+  inheritanceStack.add(id);
+  const parent = resolveTemplate(templatesById, resolvedCache, raw.extends, inheritanceStack);
+  const merged = mergeTemplates(parent, raw);
+  inheritanceStack.delete(id);
+  const mergedWithCompatibility = normalizeForDetectionCompatibility(merged);
+  resolvedCache.set(id, mergedWithCompatibility);
+  return mergedWithCompatibility;
 }
 
-function listTemplates() {
-  return Array.from(loadTemplates().values());
+function normalizeForDetectionCompatibility(template) {
+  return {
+    ...template,
+    markers: [...(template.detection?.files || [])],
+    deps: [...(template.detection?.dependencies || [])],
+  };
+}
+
+function createTemplateRegistry() {
+  const cache = {
+    compiled: null,
+  };
+
+  function readDefinitions() {
+    if (!fs.existsSync(TEMPLATE_DEFINITIONS_DIR)) {
+      throw new Error(`Template definitions directory not found: ${TEMPLATE_DEFINITIONS_DIR}`);
+    }
+
+    const files = fs.readdirSync(TEMPLATE_DEFINITIONS_DIR)
+      .filter((fileName) => fileName.toLowerCase().endsWith('.json'))
+      .sort((a, b) => a.localeCompare(b));
+
+    const templatesById = new Map();
+    for (const fileName of files) {
+      const filePath = path.join(TEMPLATE_DEFINITIONS_DIR, fileName);
+      let raw;
+      try {
+        raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      } catch (error) {
+        throw new Error(`Invalid JSON in ${fileName}: ${error.message}`);
+      }
+
+      const parsed = normalizeTemplateDefinition(raw, fileName);
+      if (templatesById.has(parsed.id)) {
+        throw new Error(`Duplicate template id: ${parsed.id}`);
+      }
+      templatesById.set(parsed.id, parsed);
+    }
+
+    return templatesById;
+  }
+
+  function loadTemplates() {
+    if (cache.compiled) {
+      return cloneTemplate(cache.compiled);
+    }
+
+    const definitions = readDefinitions();
+    const resolved = new Map();
+
+    for (const id of definitions.keys()) {
+      const template = resolveTemplate(definitions, resolved, id);
+      resolved.set(id, template);
+    }
+
+    cache.compiled = new Map();
+    for (const [id, template] of resolved.entries()) {
+      cache.compiled.set(id, cloneTemplate(template));
+    }
+
+    return cloneTemplate(cache.compiled);
+  }
+
+  function getTemplate(id) {
+    if (!isStringValue(id)) {
+      return null;
+    }
+
+    const loaded = loadTemplates();
+    return loaded.get(id) ? cloneTemplate(loaded.get(id)) : null;
+  }
+
+  function getAllTemplates() {
+    return Array.from(loadTemplates().values()).sort((a, b) => {
+      if (b.priority !== a.priority) {
+        return b.priority - a.priority;
+      }
+      return a.id.localeCompare(b.id);
+    }).map((template) => cloneTemplate(template));
+  }
+
+  function getTemplatesForCategory(category) {
+    const normalizedCategory = isStringValue(category) ? category.trim() : '';
+    if (!normalizedCategory) {
+      return [];
+    }
+
+    return getAllTemplates().filter((template) => template.category === normalizedCategory);
+  }
+
+  return {
+    loadTemplates,
+    getTemplate,
+    getAllTemplates,
+    getTemplatesForCategory,
+  };
 }
 
 function escapeRegex(value) {
@@ -227,11 +420,12 @@ function detectProjectType(workingDir) {
     return null;
   }
 
+  const templates = listTemplates();
   const textCache = new Map();
   const jsonCache = new Map();
   let bestMatch = null;
 
-  for (const template of listTemplates()) {
+  for (const template of templates) {
     const matchedMarkers = [];
     for (const marker of template.markers) {
       if (markerExists(workingDir, marker)) {
@@ -277,9 +471,36 @@ function detectProjectType(workingDir) {
   return bestMatch;
 }
 
+const templateRegistry = createTemplateRegistry();
+
+function loadTemplates() {
+  const templates = templateRegistry.loadTemplates();
+  return new Map(Array.from(templates.entries()).map(([id, template]) => [id, cloneTemplate(template)]));
+}
+
+function getTemplate(id) {
+  return templateRegistry.getTemplate(id);
+}
+
+function listTemplates() {
+  return templateRegistry.getAllTemplates();
+}
+
 module.exports = {
+  createTemplateRegistry,
   loadTemplates,
   getTemplate,
   listTemplates,
+  getAllTemplates: (...args) => templateRegistry.getAllTemplates(...args),
+  getTemplatesForCategory: (...args) => templateRegistry.getTemplatesForCategory(...args),
   detectProjectType,
+  escapeRegex,
+  markerExists,
+  textDependencyExists,
+  dependencyRuleExists,
+  getFileText,
+  getParsedJson,
+  globToRegExp,
+  directoryContainsGlob,
+  cloneTemplate,
 };

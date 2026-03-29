@@ -228,6 +228,78 @@ function getNestedValue(source, path) {
   return current;
 }
 
+function interpolateTemplateVars(obj, task) {
+  const result = {};
+  const templateContext = task || {};
+  for (const [key, value] of Object.entries(obj || {})) {
+    if (typeof value === 'string') {
+      result[key] = value
+        .replace(/\{\{task\.working_directory\}\}/g, templateContext.working_directory || '')
+        .replace(/\{\{task\.provider\}\}/g, templateContext.provider || '')
+        .replace(/\{\{task\.id\}\}/g, templateContext.id || '')
+        .replace(/\{\{task\.description\}\}/g, templateContext.task_description || '');
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+function applyActiveEffects({ task, activeRule, outcome, engineResult }) {
+  if (!Array.isArray(activeRule?.active_effects)) {
+    return;
+  }
+
+  if (outcome === 'skipped' || outcome === 'degraded') {
+    return;
+  }
+
+  for (const effect of activeRule.active_effects) {
+    if (!effect || typeof effect !== 'object') continue;
+    const type = effect.type || effect.effect;
+
+    if (type === 'rewrite_description') {
+      if (effect.prepend && task.task_description) {
+        task.task_description = effect.prepend + '\n\n' + task.task_description;
+      }
+      if (effect.append && task.task_description) {
+        task.task_description = task.task_description + '\n\n' + effect.append;
+      }
+      engineResult.effects.push({ type: 'rewrite_description', applied: true });
+      continue;
+    }
+
+    if (type === 'compress_output') {
+      if (!task.metadata) task.metadata = {};
+      task.metadata._compress_output = {
+        max_lines: effect.max_lines || 500,
+        keep: effect.keep || 'last',
+        summary_header: effect.summary_header || '[Output truncated]',
+      };
+      engineResult.effects.push({
+        type: 'compress_output',
+        applied: true,
+        max_lines: effect.max_lines,
+      });
+      continue;
+    }
+
+    if (type === 'trigger_tool') {
+      if (!engineResult.toolTriggers) {
+        engineResult.toolTriggers = [];
+      }
+      engineResult.toolTriggers.push({
+        tool_name: effect.tool_name,
+        tool_args: interpolateTemplateVars(effect.tool_args || {}, task),
+        background: effect.background !== false,
+        block_on_failure: effect.block_on_failure === true,
+      });
+      engineResult.effects.push({ type: 'trigger_tool', tool_name: effect.tool_name, applied: true });
+      continue;
+    }
+  }
+}
+
 function resolveEvidenceCandidate(context, paths) {
   for (const path of paths) {
     const value = getNestedValue(context, path);
@@ -904,6 +976,7 @@ function evaluateSinglePolicy(rule, context, options = {}) {
 
 function evaluatePolicies(input = {}) {
   initPolicyEngineDb();
+  const task = (input && typeof input === 'object') ? input : {};
   const stage = normalizeStage(input.stage);
   const target = normalizeTarget(input.target_type || input.targetType, input.target_id || input.targetId);
   const evaluatedAt = input.evaluated_at || new Date().toISOString();
@@ -944,6 +1017,7 @@ function evaluatePolicies(input = {}) {
   const allResults = [];
   const results = [];
   const suppressedResults = [];
+  const activeEffectResult = { effects: [] };
 
   for (const rule of effectiveRules) {
     const effectiveMode = isEngineEnabled() ? enforceMode(rule.mode) : rule.mode;
@@ -974,6 +1048,12 @@ function evaluatePolicies(input = {}) {
       result.message = updatedEvaluation.message;
       result.evidence = updatedEvaluation.evidence || result.evidence;
     }
+    applyActiveEffects({
+      task,
+      activeRule: effectiveRule,
+      outcome: result.outcome,
+      engineResult: activeEffectResult,
+    });
 
     allResults.push(result);
     if (result.suppressed) {
@@ -997,6 +1077,8 @@ function evaluatePolicies(input = {}) {
     suppressed_results: suppressedResults,
     total_results: allResults.length,
     created_at: evaluatedAt,
+    effects: activeEffectResult.effects,
+    toolTriggers: activeEffectResult.toolTriggers,
   };
 }
 
@@ -1006,6 +1088,8 @@ function createPolicyEngine() {
 
 module.exports = {
   evaluatePolicies,
+  evaluate: evaluatePolicies,
+  interpolateTemplateVars,
   summarizePolicyResults,
   createPolicyEngine,
 };

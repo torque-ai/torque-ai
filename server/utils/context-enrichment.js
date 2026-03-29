@@ -22,6 +22,12 @@ function _isSensitiveFile(filePath) {
   return SENSITIVE_FILE_PATTERNS.some(pattern => pattern.test(basename));
 }
 
+let symbolIndexer = null;
+try {
+  const { defaultContainer } = require('../container');
+  symbolIndexer = defaultContainer.get('symbolIndexer');
+} catch (_) {}
+
 // ─── Configuration ─────────────────────────────────────────────────────
 
 const MAX_IMPORT_DEPTH = 2;
@@ -30,6 +36,88 @@ const MAX_SIGNATURE_BYTES = 4000;
 const MAX_TEST_FILE_BYTES = 3000;
 const MAX_GIT_CONTEXT_BYTES = 2000;
 const MAX_FEWSHOT_BYTES = 3000;
+const MAX_SYMBOL_CONTEXT_TOKENS = 3000;
+
+// Normalize context file entry to absolute path for symbol index lookups.
+function resolveContextFilePath(contextFile, workingDirectory) {
+  const rawPath = typeof contextFile === 'string'
+    ? contextFile
+    : (contextFile && (contextFile.path || contextFile.actual || contextFile.file));
+
+  if (!rawPath) return null;
+  if (path.isAbsolute(rawPath)) return rawPath;
+  if (!workingDirectory) return path.resolve(rawPath);
+  return path.resolve(workingDirectory, rawPath);
+}
+
+/**
+ * Build symbol-level context when the symbol index is available.
+ * @param {Array<{actual: string}|string>} contextFiles
+ * @param {string} workingDirectory
+ * @param {string} taskDescription
+ * @param {number} tokenBudget
+ * @returns {{ context: string, skipWholeFileStuffing: boolean }}
+ */
+function buildSymbolContext(contextFiles, workingDirectory, taskDescription, tokenBudget = MAX_SYMBOL_CONTEXT_TOKENS) {
+  if (!symbolIndexer || !contextFiles || contextFiles.length === 0) {
+    return { context: '', skipWholeFileStuffing: false };
+  }
+
+  const contextFilePaths = contextFiles
+    .map((entry) => resolveContextFilePath(entry, workingDirectory))
+    .filter(Boolean);
+
+  let allSymbols = [];
+  try {
+    allSymbols = symbolIndexer.getSymbolsForFiles(contextFilePaths, workingDirectory);
+  } catch (_) {
+    return { context: '', skipWholeFileStuffing: false };
+  }
+
+  if (!allSymbols || allSymbols.length === 0) {
+    return { context: '', skipWholeFileStuffing: false };
+  }
+
+  const taskWords = (taskDescription || '').toLowerCase().split(/\W+/);
+  const scored = allSymbols.map((sym) => {
+    let score = 0;
+    if (taskWords.includes((sym.name || '').toLowerCase())) score += 100;
+    if (sym.exported) score += 20;
+    if (['function', 'class', 'interface'].includes(sym.kind)) score += 10;
+    if (['method'].includes(sym.kind)) score += 5;
+    return { ...sym, relevanceScore: score };
+  });
+
+  scored.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+  const symbolParts = [];
+  let estimatedTokens = 0;
+
+  for (const sym of scored) {
+    if (estimatedTokens > tokenBudget * 0.8) break;
+    try {
+      const source = symbolIndexer.getSymbolSource(sym.file_path, sym.start_line, sym.end_line);
+      const symbolSource = typeof source === 'string' ? source : (source && source.source);
+      if (!symbolSource) continue;
+
+      const part = `// ${sym.file_path}:${sym.start_line} (${sym.kind})\n${symbolSource}`;
+      const partTokens = Math.ceil(part.length / 4);
+      if (estimatedTokens + partTokens > tokenBudget * 0.8) break;
+
+      symbolParts.push(part);
+      estimatedTokens += partTokens;
+    } catch (_) { /* file may have changed */}
+  }
+
+  if (symbolParts.length === 0) {
+    return { context: '', skipWholeFileStuffing: false };
+  }
+
+  return {
+    context: `## Relevant Code Symbols\n\n${symbolParts.join('\n\n')}`,
+    skipWholeFileStuffing: true,
+  };
+}
 
 // ─── 1. Import/Type Dependency Traversal ────────────────────────────────
 
@@ -638,9 +726,43 @@ function enrichResolvedContext(resolvedFiles, workingDir, taskDescription, db, o
     enableTests = true,
     enableGit = true,
     enableFewShot = true,
+    symbolContextBudget = MAX_SYMBOL_CONTEXT_TOKENS,
   } = options;
 
   let enrichment = '';
+
+  try {
+    const symbolContext = buildSymbolContext(resolvedFiles, workingDir, taskDescription, symbolContextBudget);
+    if (symbolContext.context) {
+      enrichment += `${symbolContext.context}\n\n`;
+    }
+  } catch (e) {
+    logger.info(`[Enrichment] Symbol context error: ${e.message}`);
+  }
+
+  // Template agent context injection
+  try {
+    const { defaultContainer } = require('../container');
+    const projectConfigCore = defaultContainer.get('projectConfigCore');
+    const templateRegistry = defaultContainer.get('templateRegistry');
+    if (projectConfigCore && templateRegistry && workingDir) {
+      const config = projectConfigCore.getProjectConfig(workingDir);
+      const templateId = config && config.detected_template;
+      if (templateId) {
+        const template = templateRegistry.getTemplate(templateId);
+        if (template) {
+          if (template.agent_context) {
+            enrichment += `## Project Context\n${template.agent_context}\n\n`;
+          }
+          if (template.verify_command_suggestion && !config.verify_command) {
+            logger.info(`[Enrichment] ${workingDir}: template "${template.id}" suggests verify_command="${template.verify_command_suggestion}"`);
+          }
+        }
+      }
+    }
+  } catch (_) {
+    // template injection is non-critical
+  }
 
   try {
     if (enableImports) {
@@ -672,17 +794,6 @@ function enrichResolvedContext(resolvedFiles, workingDir, taskDescription, db, o
     }
   } catch (e) {
     logger.info(`[Enrichment] Few-shot error: ${e.message}`);
-  }
-
-  // Project template agent context injection
-  try {
-    const { detectProjectType } = require('../templates/registry');
-    const detected = detectProjectType(workingDir);
-    if (detected && detected.agent_context) {
-      enrichment = `## Project Context\n${detected.agent_context}\n\n` + enrichment;
-    }
-  } catch (e) {
-    logger.info(`[Enrichment] Template detection error: ${e.message}`);
   }
 
   if (enrichment) {

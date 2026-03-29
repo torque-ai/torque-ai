@@ -4,140 +4,170 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const {
-  detectProjectType,
-  getTemplate,
-  listTemplates,
-} = require('../templates/registry');
-
-const tempDirs = [];
-
-function createTempDir() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-project-template-'));
-  tempDirs.push(dir);
-  return dir;
-}
-
-function writeFile(rootDir, relativePath, content) {
-  const fullPath = path.join(rootDir, relativePath);
-  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-  fs.writeFileSync(fullPath, content, 'utf8');
-}
-
-afterEach(() => {
-  while (tempDirs.length > 0) {
-    const dir = tempDirs.pop();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
+const { createTemplateRegistry } = require('../templates/registry');
+const { createProjectDetector } = require('../templates/detector');
 
 describe('project template registry', () => {
-  it('detects Node.js project from package.json', () => {
-    const dir = createTempDir();
-    writeFile(dir, 'package.json', JSON.stringify({ name: 'node-app' }));
+  it('loadTemplates loads all 13 templates', () => {
+    const registry = createTemplateRegistry();
+    const templates = registry.loadTemplates();
 
-    const detected = detectProjectType(dir);
-
-    expect(detected).not.toBeNull();
-    expect(detected.id).toBe('nodejs');
-    expect(detected.score).toBe(1);
-    expect(detected.confidence).toBe(1);
+    expect(templates.size).toBe(13);
   });
 
-  it('detects Next.js project (framework beats language)', () => {
-    const dir = createTempDir();
-    writeFile(dir, 'package.json', JSON.stringify({
-      name: 'next-app',
-      dependencies: {
-        next: '^15.0.0',
-        react: '^19.0.0',
-      },
-    }));
-    writeFile(dir, 'tsconfig.json', JSON.stringify({ compilerOptions: { strict: true } }));
+  it('getTemplate("nextjs") returns template with inherited nodejs fields', () => {
+    const registry = createTemplateRegistry();
+    const nextjs = registry.getTemplate('nextjs');
+    const nodejs = registry.getTemplate('nodejs');
 
-    const detected = detectProjectType(dir);
-
-    expect(detected).not.toBeNull();
-    expect(detected.id).toBe('nextjs');
-    expect(detected.priority).toBe(110);
-    expect(detected.matched_markers).toContain('package.json');
-    expect(detected.matched_dependencies).toContain('next');
+    expect(nextjs).not.toBeNull();
+    expect(nodejs).not.toBeNull();
+    expect(nextjs.id).toBe('nextjs');
+    expect(nextjs.category).toBe('framework');
+    expect(nextjs.priority).toBe(110);
+    expect(nextjs.extends).toBe('nodejs');
+    expect(nextjs.verify_command_suggestion).toBe('npx next build');
+    expect(nextjs.detection.files).toEqual(expect.arrayContaining(nodejs.detection.files));
+    expect(nextjs.detection.dependencies).toEqual(
+      expect.arrayContaining([{ file: 'package.json', key: 'next' }]),
+    );
   });
 
-  it('detects Python project from requirements.txt', () => {
-    const dir = createTempDir();
-    writeFile(dir, 'requirements.txt', 'flask==3.0.0\nrequests==2.31.0\n');
+  it('getAllTemplates returns templates sorted by priority desc', () => {
+    const registry = createTemplateRegistry();
+    const all = registry.getAllTemplates();
 
-    const detected = detectProjectType(dir);
-
-    expect(detected).not.toBeNull();
-    expect(detected.id).toBe('python');
-    expect(detected.matched_markers).toContain('requirements.txt');
+    expect(all).toHaveLength(13);
+    for (let i = 0; i < all.length - 1; i += 1) {
+      expect(all[i].priority).toBeGreaterThanOrEqual(all[i + 1].priority);
+    }
   });
 
-  it('detects Go project from go.mod', () => {
-    const dir = createTempDir();
-    writeFile(dir, 'go.mod', 'module example.com/demo\n\ngo 1.22\n');
+  it('extends merges parent and child agent_context', () => {
+    const registry = createTemplateRegistry();
+    const nextjs = registry.getTemplate('nextjs');
+    const nodejs = registry.getTemplate('nodejs');
 
-    const detected = detectProjectType(dir);
-
-    expect(detected).not.toBeNull();
-    expect(detected.id).toBe('go');
-    expect(detected.score).toBe(1);
+    expect(nextjs.agent_context.startsWith(nodejs.agent_context)).toBe(true);
+    expect(nextjs.agent_context).toContain('\n\n');
   });
 
-  it('returns null for unknown project type', () => {
-    const dir = createTempDir();
-    writeFile(dir, 'README.md', '# Empty project\n');
+  it('unknown template returns null', () => {
+    const registry = createTemplateRegistry();
+    const template = registry.getTemplate('non-existent-template');
 
-    expect(detectProjectType(dir)).toBeNull();
+    expect(template).toBeNull();
+  });
+});
+
+describe('project template detector', () => {
+  let tempDirs = [];
+
+  function createTempDir() {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-template-detector-'));
+    tempDirs.push(tempDir);
+    return tempDir;
+  }
+
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      fs.rmSync(tempDirs.pop(), { recursive: true, force: true });
+    }
   });
 
-  it('listTemplates returns all built-in templates', () => {
-    const templates = listTemplates();
-    const ids = templates.map((template) => template.id).sort();
+  it('detectProjectType finds nodejs project (package.json exists)', () => {
+    const registry = createTemplateRegistry();
+    const detector = createProjectDetector({ templateRegistry: registry });
+    const workingDir = createTempDir();
+    fs.writeFileSync(path.join(workingDir, 'package.json'), '{}', 'utf8');
 
-    expect(templates).toHaveLength(10);
-    expect(ids).toEqual([
-      'csharp',
-      'django',
-      'go',
-      'nextjs',
-      'nodejs',
-      'python',
-      'react',
-      'rust',
-      'typescript',
-      'vue',
-    ]);
+    const result = detector.detectProjectType(workingDir);
+
+    expect(result).not.toBeNull();
+    expect(result.template.id).toBe('nodejs');
   });
 
-  it('getTemplate returns specific template by id', () => {
-    const template = getTemplate('typescript');
+  it('detectProjectType finds nextjs project (package.json with next dependency)', () => {
+    const registry = createTemplateRegistry();
+    const detector = createProjectDetector({ templateRegistry: registry });
+    const workingDir = createTempDir();
+    fs.writeFileSync(
+      path.join(workingDir, 'package.json'),
+      JSON.stringify({ dependencies: { next: '^14.0.0' } }),
+      'utf8',
+    );
 
-    expect(template).toEqual({
-      id: 'typescript',
-      markers: ['tsconfig.json'],
-      priority: 60,
-      agent_context: 'TypeScript project. Use strict types. Run tsc --noEmit to type-check.',
-    });
+    const result = detector.detectProjectType(workingDir);
+
+    expect(result).not.toBeNull();
+    expect(result.template.id).toBe('nextjs');
   });
 
-  it('framework priority beats language priority', () => {
-    const dir = createTempDir();
-    writeFile(dir, 'package.json', JSON.stringify({
-      name: 'react-app',
-      dependencies: {
-        react: '^19.0.0',
-      },
-    }));
-    writeFile(dir, 'tsconfig.json', JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } }));
+  it('detectProjectType finds python project (requirements.txt exists)', () => {
+    const registry = createTemplateRegistry();
+    const detector = createProjectDetector({ templateRegistry: registry });
+    const workingDir = createTempDir();
+    fs.writeFileSync(path.join(workingDir, 'requirements.txt'), 'Django==5.0.3', 'utf8');
 
-    const detected = detectProjectType(dir);
+    const result = detector.detectProjectType(workingDir);
 
-    expect(detected).not.toBeNull();
-    expect(detected.id).toBe('react');
-    expect(detected.priority).toBeGreaterThan(getTemplate('nodejs').priority);
-    expect(detected.priority).toBeGreaterThan(getTemplate('typescript').priority);
+    expect(result).not.toBeNull();
+    expect(result.template.id).toBe('python');
+  });
+
+  it('priority resolution: framework template (nextjs) beats language template (nodejs)', () => {
+    const registry = createTemplateRegistry();
+    const detector = createProjectDetector({ templateRegistry: registry });
+    const workingDir = createTempDir();
+    fs.writeFileSync(
+      path.join(workingDir, 'package.json'),
+      JSON.stringify({ dependencies: { next: '^14.0.0', react: '^18.0.0' } }),
+      'utf8',
+    );
+
+    const result = detector.detectProjectType(workingDir);
+
+    expect(result).not.toBeNull();
+    expect(result.template.id).toBe('nextjs');
+    expect(result.template.priority).toBe(110);
+    expect(result.score).toBeGreaterThan(50);
+  });
+
+  it('detectDependency finds key in package.json dependencies', () => {
+    const registry = createTemplateRegistry();
+    const detector = createProjectDetector({ templateRegistry: registry });
+    const workingDir = createTempDir();
+    const packageJson = path.join(workingDir, 'package.json');
+    fs.writeFileSync(
+      packageJson,
+      JSON.stringify({ dependencies: { react: '^19.0.0' } }),
+      'utf8',
+    );
+
+    const found = detector.detectDependency(packageJson, 'react');
+
+    expect(found).toBe(true);
+  });
+
+  it('detectDependency finds key in requirements.txt', () => {
+    const registry = createTemplateRegistry();
+    const detector = createProjectDetector({ templateRegistry: registry });
+    const workingDir = createTempDir();
+    const requirements = path.join(workingDir, 'requirements.txt');
+    fs.writeFileSync(requirements, 'Flask==3.0.0', 'utf8');
+
+    const found = detector.detectDependency(requirements, 'flask');
+
+    expect(found).toBe(true);
+  });
+
+  it('detectProjectType returns null for empty directory', () => {
+    const registry = createTemplateRegistry();
+    const detector = createProjectDetector({ templateRegistry: registry });
+    const workingDir = createTempDir();
+
+    const result = detector.detectProjectType(workingDir);
+
+    expect(result).toBeNull();
   });
 });

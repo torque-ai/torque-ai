@@ -1,0 +1,17 @@
+{
+  "id": "nodejs",
+  "name": "Node.js",
+  "category": "language",
+  "priority": 50,
+  "detection": {
+    "files": ["package.json"]
+  },
+  "agent_context": "Node.js project. Use npm scripts and keep module style consistent (CommonJS: require/module.exports vs ESM: import/export).",
+  "verify_command_suggestion": "npm test",
+  "critical_error_patterns": [
+    "MODULE_NOT_FOUND",
+    "ERR_REQUIRE_ESM",
+    "UnhandledPromiseRejectionWarning"
+  ],
+  "worktree_symlinks": ["node_modules"]
+}

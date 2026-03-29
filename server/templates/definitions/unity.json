@@ -1,0 +1,17 @@
+{
+  "id": "unity",
+  "name": "Unity",
+  "category": "framework",
+  "priority": 110,
+  "extends": "csharp-dotnet",
+  "detection": {
+    "files": ["Assets/", "ProjectSettings/"]
+  },
+  "agent_context": "Unity project. Prefer MonoBehaviour/ScriptableObject patterns and Unity API idioms.",
+  "verify_command_suggestion": "unity-editor --batchmode",
+  "critical_error_patterns": [
+    "NullReferenceException",
+    "MissingReferenceException"
+  ],
+  "worktree_symlinks": ["Library", "Temp"]
+}
