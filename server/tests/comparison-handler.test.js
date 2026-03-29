@@ -1,7 +1,13 @@
 'use strict';
 
-let mockTaskCore;
-let mockTaskManager;
+const mockTaskCore = {
+  createTask: vi.fn(),
+  getTask: vi.fn(),
+};
+
+const mockTaskManager = {
+  startTask: vi.fn(),
+};
 
 vi.mock('../container', () => ({
   defaultContainer: {
@@ -11,40 +17,20 @@ vi.mock('../container', () => ({
       return null;
     },
     has() { return true; },
-    boot() {},
   },
 }));
 
-function createTaskCoreMock() {
-  return {
-    createTask: vi.fn(),
-    getTask: vi.fn(),
-  };
-}
-
-function createTaskManagerMock() {
-  return {
-    startTask: vi.fn(),
-  };
-}
+const { handleCompareProviders } = require('../handlers/comparison-handler');
 
 describe('comparison-handler', () => {
-  let handleCompareProviders;
-
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-21T00:00:00.000Z'));
-    mockTaskCore = createTaskCoreMock();
-    mockTaskManager = createTaskManagerMock();
-    // Re-require to pick up the mocked container
-    vi.resetModules();
-    const mod = require('../handlers/comparison-handler');
-    handleCompareProviders = mod.handleCompareProviders;
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
   it('creates tasks for each provider', async () => {
@@ -104,17 +90,12 @@ describe('comparison-handler', () => {
     let callCount = 0;
     mockTaskCore.getTask.mockImplementation(() => {
       callCount++;
-      if (callCount <= 2) {
-        // First provider: 1s
-        return {
-          status: 'completed', output: 'fast', exit_code: 0,
-          started_at: '2026-03-21T00:00:00.000Z', completed_at: '2026-03-21T00:00:01.000Z',
-        };
-      }
-      // Second provider: 5s
       return {
-        status: 'completed', output: 'slow', exit_code: 0,
-        started_at: '2026-03-21T00:00:00.000Z', completed_at: '2026-03-21T00:00:05.000Z',
+        status: 'completed', output: 'output', exit_code: 0,
+        started_at: '2026-03-21T00:00:00.000Z',
+        completed_at: callCount <= 2
+          ? '2026-03-21T00:00:01.000Z'
+          : '2026-03-21T00:00:05.000Z',
       };
     });
 

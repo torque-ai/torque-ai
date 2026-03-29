@@ -2,7 +2,6 @@
 
 const childProcess = require('child_process');
 const { randomUUID } = require('crypto');
-const { defaultContainer } = require('../container');
 const { ErrorCodes, makeError } = require('./error-codes');
 
 const DEFAULT_PROVIDER = 'codex';
@@ -187,6 +186,7 @@ function buildReviewTaskPayload({
 
 function getServices() {
   try {
+    const { defaultContainer } = require('../container');
     return {
       taskCore: defaultContainer.get('taskCore'),
       taskManager: defaultContainer.get('taskManager'),
