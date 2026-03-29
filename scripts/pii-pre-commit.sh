@@ -9,14 +9,27 @@ TORQUE_API="${TORQUE_API_URL:-http://127.0.0.1:3457}"
 PII_ENDPOINT="${TORQUE_API}/api/pii-scan"
 WORKING_DIR="$(git rev-parse --show-toplevel)"
 
+# Files to skip — the PII guard's own source contains the patterns it detects
+SKIP_FILES="server/utils/pii-guard.js scripts/pii-pre-commit.sh scripts/pii-claude-hook.sh scripts/pii-claude-hook.js"
+
 BINARY_EXTS="png|jpg|jpeg|gif|bmp|ico|svg|woff|woff2|ttf|eot|mp3|mp4|wav|zip|tar|gz|pdf|db|sqlite|exe|dll|so|dylib"
+
+should_skip() {
+  local file="$1"
+  for skip in $SKIP_FILES; do
+    if [ "$file" = "$skip" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 fallback_scan() {
   local file="$1"
   local content
   content=$(cat "$file" 2>/dev/null) || return 0
   local dirty=0
-  if echo "$content" | grep -qP 'C:\\Users\\[^\\]+|/home/[^/\s]+|/Users/[^/\s]+'; then
+  if echo "$content" | grep -qP 'C:\Users\[^\]+|/home/[^/\s]+|/Users/[^/\s]+'; then
     dirty=1
   fi
   if echo "$content" | grep -qP '192\.168\.\d+\.\d+|\b10\.\d+\.\d+\.\d+\b|\b172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+\b'; then
@@ -72,6 +85,7 @@ if torque_available; then
     ext="${file##*.}"
     if echo "$ext" | grep -qiP "^($BINARY_EXTS)$"; then continue; fi
     [ -f "$file" ] || continue
+    if should_skip "$file"; then continue; fi
     torque_scan "$file" || { echo "PII-GUARD: Failed to scan $file"; has_errors=1; }
   done <<< "$staged_files"
 else
@@ -80,6 +94,7 @@ else
     ext="${file##*.}"
     if echo "$ext" | grep -qiP "^($BINARY_EXTS)$"; then continue; fi
     [ -f "$file" ] || continue
+    if should_skip "$file"; then continue; fi
     fallback_scan "$file" || has_errors=1
   done <<< "$staged_files"
 fi
