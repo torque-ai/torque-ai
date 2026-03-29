@@ -1,6 +1,8 @@
 # TORQUE Enterprise Security Roadmap
 
-**Status:** Planning — not yet implemented
+> **ARCHIVED (2026-03-29):** TORQUE is no longer pursuing monetization or commercial enterprise deployments. The project has switched to the MIT license with a focus on open-source adoption. Enterprise multi-tenancy, RBAC, and paid deployment features are not being implemented. Retained for historical reference.
+
+**Status:** Archived — not pursuing
 **Target audience:** Future development team evaluating enterprise deployment
 
 ---
