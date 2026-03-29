@@ -34,15 +34,22 @@ require.cache[containerPath] = {
   exports: mockContainer,
 };
 
-// Clear handler cache to force re-require with mocked container
+// Initial load
 delete require.cache[handlerPath];
-const { handleCompareProviders } = require('../handlers/comparison-handler');
+let handleCompareProviders = require('../handlers/comparison-handler').handleCompareProviders;
 
 describe('comparison-handler', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-21T00:00:00.000Z'));
     vi.clearAllMocks();
+    // Re-inject mock container (may have been overwritten by other test files)
+    require.cache[containerPath] = {
+      id: containerPath, filename: containerPath, loaded: true,
+      exports: mockContainer,
+    };
+    delete require.cache[handlerPath];
+    handleCompareProviders = require('../handlers/comparison-handler').handleCompareProviders;
   });
 
   afterEach(() => {
