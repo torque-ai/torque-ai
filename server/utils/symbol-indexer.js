@@ -372,15 +372,68 @@ function cleanupOrphans(workingDir) {
 }
 
 /**
+ * Regex-based symbol extraction fallback when tree-sitter is unavailable.
+ */
+function extractSymbolsRegex(content, filePath) {
+  const lines = content.split('\n');
+  const symbols = [];
+  const JS_PATTERNS = [
+    { regex: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/, kind: 'function' },
+    { regex: /^(?:export\s+)?class\s+(\w+)/, kind: 'class' },
+    { regex: /^(?:export\s+)?interface\s+(\w+)/, kind: 'interface' },
+    { regex: /^(?:export\s+)?type\s+(\w+)\s*=/, kind: 'type' },
+    { regex: /^(?:export\s+)?enum\s+(\w+)/, kind: 'enum' },
+    { regex: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=/, kind: 'const' },
+  ];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('//') || line.startsWith('*')) continue;
+    for (const pat of JS_PATTERNS) {
+      const m = line.match(pat.regex);
+      if (m) {
+        const exported = line.startsWith('export');
+        symbols.push({
+          name: m[1],
+          kind: pat.kind,
+          startLine: i + 1,
+          endLine: i + 1,
+          signature: line.substring(0, 120),
+          filePath,
+          exported,
+        });
+        break;
+      }
+    }
+  }
+  return symbols;
+}
+
+/**
  * Index a single file -- parse and store symbols.
  */
 async function indexFile(filePath, content, workingDir) {
   const ext = path.extname(filePath).toLowerCase();
-  const langParser = await getLanguageParser(ext);
-  if (!langParser) return [];
+  let symbols;
 
-  const tree = langParser.parser.parse(content);
-  const symbols = extractSymbols(tree, langParser.langName, filePath);
+  // Try tree-sitter first, fall back to regex
+  try {
+    const langParser = await getLanguageParser(ext);
+    if (langParser) {
+      const tree = langParser.parser.parse(content);
+      symbols = extractSymbols(tree, langParser.langName, filePath);
+    }
+  } catch (_) { /* tree-sitter unavailable */ }
+
+  // Regex fallback for JS/TS when tree-sitter fails
+  if (!symbols || symbols.length === 0) {
+    const jsExts = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
+    if (jsExts.has(ext)) {
+      symbols = extractSymbolsRegex(content, filePath);
+    }
+  }
+
+  if (!symbols || symbols.length === 0) return [];
   const contentHash = hashContent(content);
 
   if (_db && symbols.length > 0) {
