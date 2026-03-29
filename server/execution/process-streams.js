@@ -8,7 +8,7 @@
 
 const logger = require('../logger').child({ component: 'process-streams' });
 const { COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = require('../constants');
-const OutputBuffer = require('./output-buffer');
+const { OutputBuffer } = require('./output-buffer');
 
 // Dependencies injected via init()
 let deps = null;
@@ -36,6 +36,38 @@ function init(d) {
   deps = d;
 }
 
+function getOrCreateOutputBuffer(taskId, fallbackProc = null) {
+  const proc = deps.runningProcesses.get(taskId) || fallbackProc;
+  if (!proc) {
+    return null;
+  }
+  if (proc._outputBuffer) {
+    return proc._outputBuffer;
+  }
+
+  proc._outputBuffer = new OutputBuffer({
+    flushCallback: (batch) => {
+      try {
+        const currentProc = deps.runningProcesses.get(taskId) || proc;
+        if (!currentProc) {
+          return;
+        }
+
+        const estimatedProgress = deps.estimateProgress(currentProc.output || '', currentProc.provider);
+        const progress = Math.max(currentProc.lastProgress || 0, estimatedProgress);
+        currentProc.lastProgress = progress;
+        deps.db.updateTaskProgress(taskId, progress, batch);
+      } catch (err) {
+        logger.info(`[Streams] Batched progress update error for task ${taskId}: ${err.message}`);
+      }
+    },
+    maxLines: 20,
+    flushIntervalMs: 500,
+  });
+
+  return proc._outputBuffer;
+}
+
 /**
  * Attach stdout handler to child process — output buffering, progress estimation,
  * completion detection, streaming, breakpoints, and step mode.
@@ -47,29 +79,7 @@ function init(d) {
  */
 function setupStdoutHandler(child, taskId, streamId) {
   const proc = deps.runningProcesses.get(taskId);
-  const outputBuffer = new OutputBuffer({
-    flushCallback: (lines) => {
-      try {
-        const currentProc = deps.runningProcesses.get(taskId) || proc;
-        if (!currentProc) {
-          return;
-        }
-        const batchText = lines.join('\n');
-        deps.db.updateTaskProgress(
-          taskId,
-          deps.estimateProgress(currentProc.output, currentProc.provider),
-          batchText
-        );
-      } catch (err) {
-        logger.info('[Streams] Batched progress update error for task ' + taskId + ': ' + err.message);
-      }
-    },
-    maxLines: 20,
-    flushIntervalMs: 500,
-  });
-  if (proc) {
-    proc._outputBuffer = outputBuffer;
-  }
+  getOrCreateOutputBuffer(taskId, proc);
 
   // Attach scout signal parser for streaming scout tasks
   if (proc && !proc._scoutSignalParser) {
@@ -119,8 +129,7 @@ function setupStdoutHandler(child, taskId, streamId) {
       proc.output = '[...truncated...]\n' + proc.output.slice(-deps.MAX_OUTPUT_BUFFER / 2);
     }
     try {
-      proc._outputBuffer = proc._outputBuffer || outputBuffer;
-      proc._outputBuffer.append(text);
+      getOrCreateOutputBuffer(taskId, proc)?.append(text);
     } catch (err) {
       logger.info(`[Streams] Progress update error for task ${taskId}: ${err.message}`);
     }

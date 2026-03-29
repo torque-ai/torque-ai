@@ -1,10 +1,11 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const taskCore = require('../db/task-core');
+const { defaultContainer } = require('../container');
 
 const DEFAULT_TIMEOUT_MINUTES = 5;
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 5000;
+const MAX_OUTPUT_CHARS = 500;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 
 function sleep(ms) {
@@ -58,12 +59,14 @@ function validateArgs(args) {
     throw new TypeError('timeout_minutes must be a positive number');
   }
 
+  const effectiveTimeoutMinutes = Math.min(timeoutMinutes, DEFAULT_TIMEOUT_MINUTES);
+
   return {
     prompt: args.prompt.trim(),
     providers,
     workingDirectory: args.working_directory ? args.working_directory.trim() : null,
-    timeoutMinutes,
-    timeoutMs: timeoutMinutes * 60 * 1000,
+    timeoutMinutes: effectiveTimeoutMinutes,
+    timeoutMs: effectiveTimeoutMinutes * 60 * 1000,
   };
 }
 
@@ -81,6 +84,9 @@ function getTaskOutput(task) {
   if (typeof task.error_output === 'string' && task.error_output.length > 0) {
     return task.error_output;
   }
+  if (typeof task.partial_output === 'string' && task.partial_output.length > 0) {
+    return task.partial_output;
+  }
   return '';
 }
 
@@ -95,17 +101,26 @@ function getDurationMs(task, submittedAtMs, fallbackEndMs) {
   return Math.max(0, completedAtMs - startedAtMs);
 }
 
+function truncateOutput(output) {
+  if (typeof output !== 'string' || output.length === 0) {
+    return '';
+  }
+
+  return output.slice(0, MAX_OUTPUT_CHARS);
+}
+
 function toComparisonResult(provider, task, submittedAtMs, fallbackEndMs) {
-  const output = getTaskOutput(task);
+  const fullOutput = getTaskOutput(task);
+  const output = truncateOutput(fullOutput);
   const exitCode = task?.exit_code ?? null;
   const success = Boolean(task && task.status === 'completed' && (exitCode === null || exitCode === 0));
 
   return {
     provider,
     output,
+    outputLength: fullOutput.length,
     durationMs: getDurationMs(task, submittedAtMs, fallbackEndMs),
     exitCode,
-    costUsd: parseFloat(task?.cost_usd) || 0,
     success,
   };
 }
@@ -118,7 +133,9 @@ function buildSummary(results, timedOut) {
   const mostOutput = results
     .map((result) => ({
       provider: result.provider,
-      outputLength: typeof result.output === 'string' ? result.output.length : 0,
+      outputLength: Number.isFinite(result.outputLength)
+        ? result.outputLength
+        : (typeof result.output === 'string' ? result.output.length : 0),
     }))
     .sort((left, right) => right.outputLength - left.outputLength)[0] || null;
 
@@ -149,39 +166,49 @@ function formatDuration(durationMs) {
   return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
+function escapeTableCell(value) {
+  if (value === null || value === undefined) {
+    return '-';
+  }
+
+  return String(value)
+    .replace(/\r?\n/g, ' ')
+    .replace(/\|/g, '\\|')
+    .trim() || '-';
+}
+
 function formatComparisonTable(results) {
   if (!Array.isArray(results)) {
     throw new TypeError('results must be an array');
   }
 
   const lines = [
-    '| Provider | Duration | Exit Code | Output Length | Status |',
-    '|----------|----------|-----------|---------------|--------|',
+    '| Provider | Duration | Exit Code | Success | Output |',
+    '|----------|----------|-----------|---------|--------|',
   ];
 
   for (const result of results) {
-    const outputLength = typeof result?.output === 'string' ? result.output.length : 0;
     const exitCode = result?.exitCode ?? '-';
-    const status = result?.success ? 'Success' : 'Failed';
+    const status = result?.success ? 'Yes' : 'No';
+    const output = escapeTableCell(result?.output || '-');
 
     lines.push(
-      `| ${result?.provider ?? '-'} | ${formatDuration(result?.durationMs)} | ${exitCode} | ${outputLength} chars | ${status} |`,
+      `| ${escapeTableCell(result?.provider)} | ${formatDuration(result?.durationMs)} | ${exitCode} | ${status} | ${output} |`,
     );
   }
 
   return lines.join('\n');
 }
 
-async function handleCompareProviders(args) {
-  const {
-    prompt,
-    providers,
-    workingDirectory,
-    timeoutMinutes,
-    timeoutMs,
-  } = validateArgs(args);
+function getServices() {
+  return {
+    taskCore: defaultContainer.get('taskCore'),
+    taskManager: defaultContainer.get('taskManager'),
+  };
+}
 
-  const tasks = providers.map((provider) => {
+function submitComparisonTasks(taskCore, taskManager, prompt, providers, workingDirectory, timeoutMinutes) {
+  return providers.map((provider) => {
     const task = {
       id: randomUUID(),
       status: 'queued',
@@ -201,13 +228,29 @@ async function handleCompareProviders(args) {
       throw new Error(`Failed to create comparison task for provider "${provider}": ${error.message}`);
     }
 
+    const taskId = createdTask?.id || task.id;
+
+    try {
+      const startResult = taskManager.startTask(taskId);
+      if (startResult?.blocked) {
+        throw new Error(startResult.reason || 'Task blocked before execution');
+      }
+      if (startResult && typeof startResult.catch === 'function') {
+        startResult.catch(() => {});
+      }
+    } catch (error) {
+      throw new Error(`Failed to start comparison task for provider "${provider}": ${error.message}`);
+    }
+
     return {
       provider,
-      taskId: createdTask?.id || task.id,
+      taskId,
       submittedAtMs: Date.now(),
     };
   });
+}
 
+async function waitForCompletion(taskCore, tasks, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   let finalTasks = new Map();
 
@@ -226,20 +269,66 @@ async function handleCompareProviders(args) {
   }
 
   finalTasks = new Map(tasks.map((taskRef) => [taskRef.taskId, taskCore.getTask(taskRef.taskId)]));
-  const now = Date.now();
-  const timedOut = tasks.some((taskRef) => !isTerminalTask(finalTasks.get(taskRef.taskId)));
+  return {
+    finalTasks,
+    timedOut: tasks.some((taskRef) => !isTerminalTask(finalTasks.get(taskRef.taskId))),
+    completedAtMs: Date.now(),
+  };
+}
+
+function buildResponseText(results, summary) {
+  const lines = [
+    '## Provider Comparison',
+    '',
+    formatComparisonTable(results),
+    '',
+    `Timed out: ${summary.timedOut ? 'Yes' : 'No'}`,
+    `Succeeded: ${summary.successCount}/${results.length}`,
+  ];
+
+  if (summary.fastestProvider) {
+    lines.push(`Fastest: ${summary.fastestProvider} (${formatDuration(summary.fastestDurationMs)})`);
+  }
+
+  if (summary.mostOutputProvider) {
+    lines.push(`Most output: ${summary.mostOutputProvider} (${summary.mostOutputLength} chars)`);
+  }
+
+  return lines.join('\n');
+}
+
+async function handleCompareProviders(args) {
+  const {
+    prompt,
+    providers,
+    workingDirectory,
+    timeoutMinutes,
+    timeoutMs,
+  } = validateArgs(args || {});
+  const { taskCore, taskManager } = getServices();
+  const tasks = submitComparisonTasks(taskCore, taskManager, prompt, providers, workingDirectory, timeoutMinutes);
+  const { finalTasks, timedOut, completedAtMs } = await waitForCompletion(taskCore, tasks, timeoutMs);
   const results = tasks.map((taskRef) => (
     toComparisonResult(
       taskRef.provider,
       finalTasks.get(taskRef.taskId),
       taskRef.submittedAtMs,
-      now,
+      completedAtMs,
     )
   ));
+  const summary = buildSummary(results, timedOut);
 
   return {
+    content: [{
+      type: 'text',
+      text: buildResponseText(results, summary),
+    }],
     results,
-    summary: buildSummary(results, timedOut),
+    summary,
+    structuredData: {
+      results,
+      summary,
+    },
   };
 }
 
@@ -251,6 +340,15 @@ function createComparisonHandler() {
 }
 
 module.exports = {
+  sleep,
+  parseTimestamp,
+  validateArgs,
+  isTerminalTask,
+  getTaskOutput,
+  getDurationMs,
+  toComparisonResult,
+  buildSummary,
+  formatDuration,
   handleCompareProviders,
   formatComparisonTable,
   createComparisonHandler,

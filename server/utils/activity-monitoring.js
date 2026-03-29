@@ -193,8 +193,9 @@ function getTaskActivity(taskId, opts = {}) {
 
   const metadata = parseTaskMetadata(proc.metadata);
   const now = Date.now();
-  const lastActivityMs = now - proc.lastOutputAt;
-  const lastActivitySeconds = Math.floor(lastActivityMs / 1000);
+  let lastOutputAt = proc.lastOutputAt;
+  let lastActivitySeconds = Math.floor((now - lastOutputAt) / 1000);
+  let cpuRescued = false;
 
   // Use dynamic threshold based on model size and provider
   const taskTimeout = proc.stall_timeout_seconds;
@@ -244,20 +245,29 @@ function getTaskActivity(taskId, opts = {}) {
     if (checkFilesystemActivity(proc, taskId)) {
       // Filesystem changed — agent is working, not stalled
       isStalled = false;
+      lastOutputAt = proc.lastOutputAt;
+      lastActivitySeconds = Math.max(0, Math.floor((Date.now() - lastOutputAt) / 1000));
     }
   }
 
   // CPU activity rescue: if still stalled and process has a PID, check CPU usage.
   // A process using CPU is not stalled even without output or filesystem changes.
-  if (isStalled && proc.process && proc.process.pid) {
+  const taskPid = proc.pid || proc.process?.pid;
+  if (isStalled && taskPid) {
     try {
       const { getProcessTreeCpu } = require('./process-activity');
-      const activity = getProcessTreeCpu(proc.process.pid);
+      const activity = getProcessTreeCpu(taskPid);
       if (activity && activity.isActive) {
         proc.lastOutputAt = Date.now(); // Reset stall timer
         proc.stallWarned = false;
         isStalled = false;
-        logger.info(`[Heartbeat] Task ${taskId} rescued by CPU activity (${activity.totalCpuPercent.toFixed(1)}% CPU, ${activity.processCount} processes)`);
+        cpuRescued = true;
+        lastOutputAt = proc.lastOutputAt;
+        lastActivitySeconds = 0;
+        const cpuPercent = Number.isFinite(activity.totalCpu)
+          ? activity.totalCpu
+          : (activity.totalCpuPercent || 0);
+        logger.info(`[Heartbeat] Task ${taskId} rescued by CPU activity (${cpuPercent.toFixed(1)}% CPU, ${activity.processCount} processes)`);
       }
     } catch { /* process-activity module not available or errored — ignore */ }
   }
@@ -270,9 +280,11 @@ function getTaskActivity(taskId, opts = {}) {
 
   return {
     taskId,
-    lastOutputAt: proc.lastOutputAt,
+    lastOutputAt,
     lastActivitySeconds,
     isStalled,
+    stalled: isStalled,
+    cpuRescued,
     stallThreshold: threshold,
     model: proc.model,
     provider: proc.provider,

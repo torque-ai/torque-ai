@@ -55,9 +55,9 @@ console.log();
 console.log('=== 4. BRANCH NAMES ===');
 const { generateBranchName } = require('../utils/git-worktree');
 const branch1 = generateBranchName('Fix the type error in EventSystem');
-test('generates kebab-case', () => assert(branch1.startsWith('task-') && !branch1.includes(' ')));
-test('handles empty', () => assert(generateBranchName('') === 'task-unnamed'));
-test('max 50 chars', () => assert(branch1.length <= 50));
+test('generates kebab-case', () => assert(branch1.startsWith('task/') && !branch1.includes(' ')));
+test('handles empty', () => assert(generateBranchName('') === 'task/unnamed'));
+test('max 50 chars before prefix', () => assert(branch1.slice('task/'.length).length <= 50));
 console.log('   Branch:', branch1);
 console.log();
 
@@ -126,10 +126,10 @@ console.log();
 
 console.log('=== 11. OUTPUT BUFFER ===');
 const OutputBuffer = require('../execution/output-buffer');
-let flushed = [];
+let flushed = '';
 const buf = new OutputBuffer({ flushCallback: (lines) => { flushed = lines; }, maxLines: 3 });
 buf.append('a'); buf.append('b'); buf.append('c');
-test('flushes at maxLines', () => assert(flushed.length === 3));
+test('flushes at maxLines', () => assert(flushed === 'a\nb\nc'));
 buf.destroy();
 console.log();
 

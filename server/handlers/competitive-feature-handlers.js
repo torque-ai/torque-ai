@@ -21,15 +21,6 @@ async function handleReviewTaskOutput(args) {
   return impl(args);
 }
 
-// ─── Agent Discovery ─────────────────────────────────────────────────────
-
-async function handleDiscoverAgents(_args) {
-  const { discoverAgents, formatDiscoveryReport } = require('../utils/agent-discovery');
-  const result = discoverAgents();
-  const report = formatDiscoveryReport(result);
-  return { content: [{ type: 'text', text: report }], structuredData: result };
-}
-
 // ─── Project Template Detection ──────────────────────────────────────────
 
 async function handleDetectProjectType(args) {
@@ -197,7 +188,6 @@ function createCompetitiveFeatureHandlers() {
   return {
     handleCompareProviders,
     handleReviewTaskOutput,
-    handleDiscoverAgents,
     handleDetectProjectType,
     handleListProjectTemplates,
     handleGetProviderScores,
@@ -213,7 +203,6 @@ function createCompetitiveFeatureHandlers() {
 module.exports = {
   handleCompareProviders,
   handleReviewTaskOutput,
-  handleDiscoverAgents,
   handleDetectProjectType,
   handleListProjectTemplates,
   handleGetProviderScores,

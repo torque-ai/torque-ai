@@ -11,20 +11,6 @@ module.exports = [
     },
   },
   {
-    name: 'compare_providers',
-    description: 'Run the same prompt on multiple providers and compare results side-by-side. Returns timing, output length, and success status for each.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        prompt: { type: 'string', description: 'The prompt to send to all providers' },
-        providers: { type: 'array', items: { type: 'string' }, description: 'Array of provider IDs to compare (e.g., ["codex", "deepinfra", "ollama"])' },
-        working_directory: { type: 'string', description: 'Working directory for task execution' },
-        timeout_minutes: { type: 'number', description: 'Max wait time per provider (default: 5)' },
-      },
-      required: ['prompt', 'providers'],
-    },
-  },
-  {
     name: 'review_task_output',
     description: 'Run AI-powered structured code review on a completed task. Creates an async review task that checks for logic errors, readability, performance, test coverage, and security.',
     inputSchema: {
@@ -35,15 +21,6 @@ module.exports = [
         working_directory: { type: 'string', description: 'Working directory for git diff' },
       },
       required: ['task_id'],
-    },
-  },
-  {
-    name: 'discover_agents',
-    description: 'Auto-detect installed AI CLI tools (Claude, Codex, Gemini, Ollama, Aider) and suggest configuration. Returns installed/missing agents with version info.',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
     },
   },
   {

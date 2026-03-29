@@ -15,8 +15,9 @@ class OutputBuffer {
     this.flushCallback = flushCallback;
     this.maxLines = maxLines;
     this.flushIntervalMs = flushIntervalMs;
-    this._lines = [];
-    this._interval = null;
+    this.buffer = [];
+    this.timer = null;
+    this.flushing = false;
     this._destroyed = false;
   }
 
@@ -28,22 +29,33 @@ class OutputBuffer {
       throw new TypeError('line must be a string');
     }
 
-    this._ensureInterval();
-    this._lines.push(line);
-
-    if (this._lines.length >= this.maxLines) {
+    this.buffer.push(line);
+    if (this.buffer.length >= this.maxLines) {
       this.flush();
+    } else if (!this.timer) {
+      this.timer = setTimeout(() => this.flush(), this.flushIntervalMs);
+      if (typeof this.timer.unref === 'function') {
+        this.timer.unref();
+      }
     }
   }
 
   flush() {
-    if (this._lines.length === 0) {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (this.buffer.length === 0 || this.flushing) {
       return;
     }
 
-    const lines = this._lines;
-    this._lines = [];
-    this.flushCallback(lines);
+    this.flushing = true;
+    const lines = this.buffer.splice(0);
+    try {
+      this.flushCallback(lines.join('\n'));
+    } finally {
+      this.flushing = false;
+    }
   }
 
   destroy() {
@@ -52,25 +64,10 @@ class OutputBuffer {
     }
 
     this._destroyed = true;
-    if (this._interval) {
-      clearInterval(this._interval);
-      this._interval = null;
-    }
-
     this.flush();
-  }
-
-  _ensureInterval() {
-    if (this._interval) {
-      return;
-    }
-
-    this._interval = setInterval(() => {
-      this.flush();
-    }, this.flushIntervalMs);
-
-    if (typeof this._interval.unref === 'function') {
-      this._interval.unref();
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
     }
   }
 }

@@ -2,12 +2,53 @@
 
 const childProcess = require('child_process');
 const { randomUUID } = require('crypto');
-const taskCore = require('../db/task-core');
-const taskManager = require('../task-manager');
+const { defaultContainer } = require('../container');
+const { ErrorCodes, makeError } = require('./error-codes');
 
 const DEFAULT_PROVIDER = 'codex';
 const DEFAULT_TIMEOUT_MINUTES = 30;
 const MAX_DIFF_LENGTH = 5000;
+const REVIEW_PROVIDER_FALLBACKS = [
+  DEFAULT_PROVIDER,
+  'deepinfra',
+  'claude-cli',
+  'openrouter',
+  'anthropic',
+  'groq',
+  'google-ai',
+  'cerebras',
+  'hyperbolic',
+  'ollama',
+];
+
+function normalizeString(value) {
+  return typeof value === 'string' && value.trim()
+    ? value.trim()
+    : '';
+}
+
+function parseMetadata(rawMetadata) {
+  if (!rawMetadata) {
+    return {};
+  }
+
+  if (typeof rawMetadata === 'object' && !Array.isArray(rawMetadata)) {
+    return { ...rawMetadata };
+  }
+
+  if (typeof rawMetadata !== 'string') {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(rawMetadata);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (_err) {
+    return {};
+  }
+}
 
 function truncateDiffOutput(diffOutput) {
   const normalizedDiff = typeof diffOutput === 'string'
@@ -22,48 +63,108 @@ function truncateDiffOutput(diffOutput) {
     return normalizedDiff;
   }
 
-  return `${normalizedDiff.slice(0, MAX_DIFF_LENGTH)}\n\n[diff truncated to 5000 chars]`;
+  return `${normalizedDiff.slice(0, MAX_DIFF_LENGTH)}\n\n[diff truncated to ${MAX_DIFF_LENGTH} chars]`;
 }
 
-function formatReviewPrompt(taskDescription, diffOutput) {
-  const safeTaskDescription = typeof taskDescription === 'string' && taskDescription.trim()
-    ? taskDescription.trim()
-    : '(no task description available)';
+function formatReviewPrompt(taskDescriptionOrDiffOutput, maybeDiffOutput) {
+  const taskDescription = maybeDiffOutput === undefined
+    ? ''
+    : normalizeString(taskDescriptionOrDiffOutput);
+  const diffOutput = maybeDiffOutput === undefined
+    ? taskDescriptionOrDiffOutput
+    : maybeDiffOutput;
 
-  return [
-    'Review the following code changes for:',
-    '1. Logic/correctness errors',
-    '2. Readability issues',
-    '3. Performance concerns',
-    '4. Missing test coverage',
-    '5. Security vulnerabilities',
+  const lines = [
+    'Review this code change for:',
+    '- Logic/correctness bugs',
+    '- Security vulnerabilities',
+    '- Performance issues',
+    '- Missing error handling',
+    '- Test coverage gaps',
+  ];
+
+  if (taskDescription) {
+    lines.push('', `Task description: ${taskDescription}`);
+  }
+
+  lines.push(
     '',
-    `Task description: ${safeTaskDescription}`,
-    '',
-    'Changes:',
+    'Diff:',
     truncateDiffOutput(diffOutput),
     '',
-    'Output a markdown table with columns: File, Line, Issue, Severity (critical/warning/info), Suggestion',
-  ].join('\n');
+    'Respond with a JSON array of issues:',
+    '[{ "file": "...", "line": N, "severity": "critical|warning|info", "category": "bug|security|performance|error_handling|test_coverage", "description": "...", "suggestion": "..." }]',
+    '',
+    'If no issues found, respond with an empty array [].',
+  );
+
+  return lines.join('\n');
 }
 
-function collectDiffOutput(workingDirectory) {
+function getDiffArgs(task) {
+  const beforeSha = normalizeString(task?.git_before_sha);
+  const afterSha = normalizeString(task?.git_after_sha);
+
+  if (beforeSha && afterSha) {
+    return ['diff', beforeSha, afterSha];
+  }
+
+  if (beforeSha) {
+    return ['diff', beforeSha];
+  }
+
+  return ['diff', 'HEAD~1'];
+}
+
+function collectDiffOutput(workingDirectory, task = null) {
+  const diffArgs = getDiffArgs(task);
+
   try {
-    const output = childProcess.execFileSync('git', ['diff', 'HEAD~1'], {
+    return childProcess.execFileSync('git', diffArgs, {
       cwd: workingDirectory,
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024,
       windowsHide: true,
     });
-    return Buffer.isBuffer(output) ? output.toString('utf8') : String(output ?? '');
   } catch (error) {
     const stderr = error && error.stderr
       ? (Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : String(error.stderr))
       : '';
     const detail = stderr.trim() || error.message || 'Unknown git diff error';
-    return `Unable to collect git diff: ${detail}`;
+    throw new Error(`Unable to collect git diff: ${detail}`);
   }
 }
 
-function buildReviewTaskPayload(prompt, provider, workingDirectory, sourceTaskId) {
+function extractOriginalProvider(task) {
+  const metadata = parseMetadata(task?.metadata);
+
+  return normalizeString(task?.provider)
+    || normalizeString(task?.original_provider)
+    || normalizeString(metadata.intended_provider)
+    || normalizeString(metadata.requested_provider)
+    || normalizeString(metadata.original_provider)
+    || '';
+}
+
+function selectReviewProvider(requestedProvider, originalProvider) {
+  const explicitProvider = normalizeString(requestedProvider);
+  if (explicitProvider) {
+    return explicitProvider;
+  }
+
+  const normalizedOriginal = normalizeString(originalProvider);
+  const fallbackProvider = REVIEW_PROVIDER_FALLBACKS.find((provider) => provider !== normalizedOriginal);
+  return fallbackProvider || DEFAULT_PROVIDER;
+}
+
+function buildReviewTaskPayload({
+  prompt,
+  provider,
+  workingDirectory,
+  sourceTaskId,
+  sourceTaskProvider,
+  requestedProvider,
+}) {
   return {
     id: randomUUID(),
     status: 'pending',
@@ -72,71 +173,118 @@ function buildReviewTaskPayload(prompt, provider, workingDirectory, sourceTaskId
     timeout_minutes: DEFAULT_TIMEOUT_MINUTES,
     auto_approve: false,
     priority: 0,
-    provider: null,
+    provider,
     metadata: JSON.stringify({
-      intended_provider: provider,
-      user_provider_override: true,
-      requested_provider: provider,
       review_task: true,
       review_of_task_id: sourceTaskId,
+      source_task_provider: sourceTaskProvider || null,
+      intended_provider: provider,
+      requested_provider: requestedProvider || null,
+      user_provider_override: Boolean(normalizeString(requestedProvider)),
     }),
   };
 }
 
+function getServices() {
+  try {
+    return {
+      taskCore: defaultContainer.get('taskCore'),
+      taskManager: defaultContainer.get('taskManager'),
+    };
+  } catch (error) {
+    throw new Error(`Review services unavailable: ${error.message}`);
+  }
+}
+
 function handleReviewTaskOutput(args = {}) {
-  const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
-  const workingDirectory = typeof args.working_directory === 'string'
-    ? args.working_directory.trim()
-    : '';
-  const provider = typeof args.provider === 'string' && args.provider.trim()
-    ? args.provider.trim()
-    : DEFAULT_PROVIDER;
+  const taskId = normalizeString(args.task_id);
+  const requestedProvider = normalizeString(args.provider);
 
   if (!taskId) {
-    return { review: null, issues_found: null, summary: 'task_id is required' };
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   }
 
-  if (!workingDirectory) {
-    return { review: null, issues_found: null, summary: 'working_directory is required' };
+  let services;
+  try {
+    services = getServices();
+  } catch (error) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, error.message);
   }
 
+  const { taskCore, taskManager } = services;
   const task = taskCore.getTask(taskId);
+
   if (!task) {
-    return { review: null, issues_found: null, summary: `Task not found: ${taskId}` };
+    return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${taskId}`);
+  }
+
+  if (task.status !== 'completed') {
+    return makeError(ErrorCodes.INVALID_PARAM, 'Task must be completed to review');
+  }
+
+  const workingDirectory = normalizeString(task.working_directory);
+  if (!workingDirectory) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'Completed task is missing working_directory');
   }
 
   try {
-    const prompt = formatReviewPrompt(
-      task.task_description || task.description,
-      collectDiffOutput(workingDirectory),
-    );
-    const reviewTask = buildReviewTaskPayload(prompt, provider, workingDirectory, taskId);
+    const sourceTaskProvider = extractOriginalProvider(task);
+    const reviewProvider = selectReviewProvider(requestedProvider, sourceTaskProvider);
+    const diffOutput = collectDiffOutput(workingDirectory, task);
+    const prompt = formatReviewPrompt(task.task_description || task.description || '', diffOutput);
+    const reviewTask = buildReviewTaskPayload({
+      prompt,
+      provider: reviewProvider,
+      workingDirectory,
+      sourceTaskId: taskId,
+      sourceTaskProvider,
+      requestedProvider,
+    });
 
     taskCore.createTask(reviewTask);
 
     const startResult = taskManager.startTask(reviewTask.id);
-    const taskState = startResult && startResult.queued ? 'queued' : 'started';
+    if (startResult?.blocked) {
+      return makeError(ErrorCodes.OPERATION_FAILED, startResult.reason || 'Review task blocked before execution');
+    }
 
     return {
-      review: reviewTask.id,
-      issues_found: null,
-      summary: `Review task ${reviewTask.id} ${taskState} for source task ${taskId}.`,
+      review_task_id: reviewTask.id,
+      message: 'Review task submitted',
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          review_task_id: reviewTask.id,
+          provider: reviewProvider,
+          message: 'Review task submitted',
+        }),
+      }],
+      structuredData: {
+        review_task_id: reviewTask.id,
+        provider: reviewProvider,
+        message: 'Review task submitted',
+      },
     };
   } catch (error) {
-    return {
-      review: null,
-      issues_found: null,
-      summary: `Failed to submit review task for ${taskId}: ${error.message || String(error)}`,
-    };
+    return makeError(ErrorCodes.OPERATION_FAILED, error.message || String(error));
   }
 }
 
 function createReviewHandler() {
-  return { handleReviewTaskOutput, formatReviewPrompt };
+  return {
+    truncateDiffOutput,
+    formatReviewPrompt,
+    collectDiffOutput,
+    buildReviewTaskPayload,
+    handleReviewTaskOutput,
+  };
 }
 
 module.exports = {
-  handleReviewTaskOutput,
+  truncateDiffOutput,
   formatReviewPrompt,
+  collectDiffOutput,
+  buildReviewTaskPayload,
+  handleReviewTaskOutput,
   createReviewHandler,
 };

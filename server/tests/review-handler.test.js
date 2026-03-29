@@ -1,18 +1,16 @@
 'use strict';
 
-// This test uses deep CJS module cache manipulation that is incompatible
-// with vitest parallel forks. Mark as sequential to prevent mock bleed.
 // @vitest-environment node
-const _sequential = true; // vitest pool-forks uses fileParallelism; this file needs isolation
+const _sequential = true;
 
 const reviewHandlerPath = require.resolve('../handlers/review-handler');
+const containerPath = require.resolve('../container');
 
 let currentModules = {};
 
 const originalCacheEntries = new Map();
 
-vi.mock('../db/task-core', () => currentModules.db);
-vi.mock('../task-manager', () => currentModules.taskManager);
+vi.mock('../container', () => currentModules.containerModule);
 vi.mock('child_process', () => currentModules.childProcessModule);
 vi.mock('crypto', () => currentModules.cryptoModule);
 
@@ -42,7 +40,7 @@ function restoreMockedModules() {
 
 function createDefaultModules(overrides = {}) {
   const defaults = {
-    db: {
+    taskCore: {
       getTask: vi.fn(),
       createTask: vi.fn((payload) => payload),
     },
@@ -50,38 +48,53 @@ function createDefaultModules(overrides = {}) {
       startTask: vi.fn(() => ({ queued: false })),
     },
     childProcessModule: {
-      execFileSync: vi.fn(() => Buffer.from(' server/app.js | 4 ++--\n')),
+      execFileSync: vi.fn(() => 'diff --git a/server/app.js b/server/app.js\n'),
     },
     cryptoModule: {
       randomUUID: vi.fn(() => 'review-task-123'),
     },
   };
 
-  return {
+  const modules = {
     ...defaults,
     ...overrides,
-    db: { ...defaults.db, ...(overrides.db || {}) },
+    taskCore: { ...defaults.taskCore, ...(overrides.taskCore || {}) },
     taskManager: { ...defaults.taskManager, ...(overrides.taskManager || {}) },
     childProcessModule: { ...defaults.childProcessModule, ...(overrides.childProcessModule || {}) },
     cryptoModule: { ...defaults.cryptoModule, ...(overrides.cryptoModule || {}) },
   };
+
+  modules.containerModule = {
+    defaultContainer: {
+      get(name) {
+        if (name === 'taskCore') {
+          return modules.taskCore;
+        }
+        if (name === 'taskManager') {
+          return modules.taskManager;
+        }
+        throw new Error(`Unexpected service lookup: ${name}`);
+      },
+    },
+  };
+
+  return modules;
 }
 
 function loadHandler(overrides = {}) {
   currentModules = createDefaultModules(overrides);
 
   vi.resetModules();
-  vi.doMock('../db/task-core', () => currentModules.db);
-  vi.doMock('../task-manager', () => currentModules.taskManager);
+  vi.doMock('../container', () => currentModules.containerModule);
   vi.doMock('child_process', () => currentModules.childProcessModule);
   vi.doMock('crypto', () => currentModules.cryptoModule);
 
-  installCjsModuleMock('../db/task-core', currentModules.db);
-  installCjsModuleMock('../task-manager', currentModules.taskManager);
+  installCjsModuleMock('../container', currentModules.containerModule);
   installCjsModuleMock('child_process', currentModules.childProcessModule);
   installCjsModuleMock('crypto', currentModules.cryptoModule);
 
   delete require.cache[reviewHandlerPath];
+  delete require.cache[containerPath];
 
   return {
     handlers: require('../handlers/review-handler'),
@@ -95,103 +108,152 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
   restoreMockedModules();
+  delete require.cache[reviewHandlerPath];
+  delete require.cache[containerPath];
 });
 
 describe('review-handler', () => {
-  it('builds review prompt with diff and description', () => {
-    const { handlers } = loadHandler();
-
-    const prompt = handlers.formatReviewPrompt(
-      'Implement structured review submission',
-      ' server/handlers/review-handler.js | 24 ++++++++++++++++++++++++',
-    );
-
-    expect(prompt).toContain('Review the following code changes for:');
-    expect(prompt).toContain('1. Logic/correctness errors');
-    expect(prompt).toContain('Task description: Implement structured review submission');
-    expect(prompt).toContain('Changes:\n server/handlers/review-handler.js | 24 ++++++++++++++++++++++++');
-    expect(prompt).toContain('Output a markdown table with columns: File, Line, Issue, Severity (critical/warning/info), Suggestion');
-  });
-
-  it('truncates large diffs to 5000 chars', () => {
-    const { handlers } = loadHandler();
-    const largeDiff = 'x'.repeat(6000);
-
-    const prompt = handlers.formatReviewPrompt('Large diff review', largeDiff);
-
-    expect(prompt).toContain('x'.repeat(5000));
-    expect(prompt).not.toContain('x'.repeat(5001));
-    expect(prompt).toContain('[diff truncated to 5000 chars]');
-  });
-
-  it('handles missing task gracefully', () => {
+  it('returns error for missing task', () => {
     const { handlers, mocks } = loadHandler({
-      db: {
+      taskCore: {
         getTask: vi.fn(() => null),
       },
     });
 
-    const result = handlers.handleReviewTaskOutput({
-      task_id: 'missing-task',
-      working_directory: 'C:\\repo',
-    });
+    const result = handlers.handleReviewTaskOutput({ task_id: 'missing-task' });
 
-    expect(result).toEqual({
-      review: null,
-      issues_found: null,
-      summary: 'Task not found: missing-task',
-    });
-    expect(mocks.db.createTask).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('TASK_NOT_FOUND');
+    expect(result.content[0].text).toContain('Task not found: missing-task');
+    expect(mocks.taskCore.createTask).not.toHaveBeenCalled();
     expect(mocks.taskManager.startTask).not.toHaveBeenCalled();
     expect(mocks.childProcessModule.execFileSync).not.toHaveBeenCalled();
   });
 
-  it('submits review as a new task', () => {
+  it('returns error for non-completed task', () => {
     const { handlers, mocks } = loadHandler({
-      db: {
+      taskCore: {
         getTask: vi.fn(() => ({
           id: 'source-task',
+          status: 'running',
+          working_directory: 'C:\\repo',
+        })),
+      },
+    });
+
+    const result = handlers.handleReviewTaskOutput({ task_id: 'source-task' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('INVALID_PARAM');
+    expect(result.content[0].text).toContain('Task must be completed to review');
+    expect(mocks.taskCore.createTask).not.toHaveBeenCalled();
+    expect(mocks.taskManager.startTask).not.toHaveBeenCalled();
+    expect(mocks.childProcessModule.execFileSync).not.toHaveBeenCalled();
+  });
+
+  it('creates review task with structured prompt', () => {
+    const diffOutput = 'diff --git a/server/task-manager.js b/server/task-manager.js\n+new guard\n';
+    const { handlers, mocks } = loadHandler({
+      taskCore: {
+        getTask: vi.fn(() => ({
+          id: 'source-task',
+          status: 'completed',
+          provider: 'ollama',
           task_description: 'Review the queue scheduler changes',
+          working_directory: 'C:\\repo',
+          git_before_sha: 'abc123',
         })),
       },
       childProcessModule: {
-        execFileSync: vi.fn(() => Buffer.from(' server/task-manager.js | 6 ++++--\n')),
+        execFileSync: vi.fn(() => diffOutput),
       },
     });
 
     const result = handlers.handleReviewTaskOutput({
       task_id: 'source-task',
       provider: 'deepinfra',
-      working_directory: 'C:\\repo',
     });
 
     expect(mocks.childProcessModule.execFileSync).toHaveBeenCalledWith(
       'git',
-      ['diff', 'HEAD~1'],
-      { cwd: 'C:\\repo', windowsHide: true },
+      ['diff', 'abc123'],
+      {
+        cwd: 'C:\\repo',
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+      },
     );
-    expect(mocks.db.createTask).toHaveBeenCalledTimes(1);
-    const createdPayload = mocks.db.createTask.mock.calls[0][0];
-    expect(createdPayload.status).toBe('pending');
-    expect(createdPayload.working_directory).toBe('C:\\repo');
+    expect(mocks.taskCore.createTask).toHaveBeenCalledTimes(1);
+    expect(mocks.taskManager.startTask).toHaveBeenCalledWith('review-task-123');
 
-    const createdTask = mocks.db.createTask.mock.calls[0][0];
-    const metadata = JSON.parse(createdTask.metadata);
+    const createdTask = mocks.taskCore.createTask.mock.calls[0][0];
+    expect(createdTask.status).toBe('pending');
+    expect(createdTask.provider).toBe('deepinfra');
+    expect(createdTask.working_directory).toBe('C:\\repo');
+    expect(createdTask.task_description).toContain('Review this code change for:');
+    expect(createdTask.task_description).toContain('- Logic/correctness bugs');
+    expect(createdTask.task_description).toContain('- Missing error handling');
     expect(createdTask.task_description).toContain('Task description: Review the queue scheduler changes');
-    expect(createdTask.task_description).toContain('server/task-manager.js | 6 ++++--');
-    expect(metadata).toEqual({
-      intended_provider: 'deepinfra',
-      user_provider_override: true,
-      requested_provider: 'deepinfra',
+    expect(createdTask.task_description).toContain(`Diff:\n${diffOutput}`);
+    expect(createdTask.task_description).toContain('Respond with a JSON array of issues:');
+    expect(createdTask.task_description).toContain('"category": "bug|security|performance|error_handling|test_coverage"');
+    expect(createdTask.task_description).toContain('If no issues found, respond with an empty array [].');
+
+    expect(JSON.parse(createdTask.metadata)).toEqual({
       review_task: true,
       review_of_task_id: 'source-task',
+      source_task_provider: 'ollama',
+      intended_provider: 'deepinfra',
+      requested_provider: 'deepinfra',
+      user_provider_override: true,
     });
-    // startTask called with the generated UUID
-    expect(mocks.taskManager.startTask).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      review: expect.any(String),
-      issues_found: null,
-      summary: expect.stringContaining('started for source task source-task'),
+
+    expect(result.review_task_id).toBe('review-task-123');
+    expect(result.message).toBe('Review task submitted');
+    expect(result.structuredData).toEqual({
+      review_task_id: 'review-task-123',
+      provider: 'deepinfra',
+      message: 'Review task submitted',
     });
+  });
+
+  it('selects a different provider from the original when none is specified', () => {
+    const { handlers, mocks } = loadHandler({
+      taskCore: {
+        getTask: vi.fn(() => ({
+          id: 'source-task',
+          status: 'completed',
+          provider: 'codex',
+          task_description: 'Review the routing changes',
+          working_directory: 'C:\\repo',
+        })),
+      },
+    });
+
+    const result = handlers.handleReviewTaskOutput({ task_id: 'source-task' });
+
+    expect(mocks.childProcessModule.execFileSync).toHaveBeenCalledWith(
+      'git',
+      ['diff', 'HEAD~1'],
+      {
+        cwd: 'C:\\repo',
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+
+    const createdTask = mocks.taskCore.createTask.mock.calls[0][0];
+    expect(createdTask.provider).toBe('deepinfra');
+    expect(JSON.parse(createdTask.metadata)).toEqual({
+      review_task: true,
+      review_of_task_id: 'source-task',
+      source_task_provider: 'codex',
+      intended_provider: 'deepinfra',
+      requested_provider: null,
+      user_provider_override: false,
+    });
+    expect(result.structuredData.provider).toBe('deepinfra');
   });
 });

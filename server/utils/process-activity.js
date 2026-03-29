@@ -1,6 +1,6 @@
 'use strict';
 
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
 
 const ACTIVITY_THRESHOLD_PERCENT = 5.0;
 const CACHE_TTL_MS = 2000;
@@ -12,21 +12,46 @@ const EXEC_OPTIONS = Object.freeze({
 });
 
 const activityCache = new Map();
+const optionalCpuModules = {
+  loaded: false,
+  pidtree: null,
+  pidusage: null,
+};
 
 let windowsProcessCpuQuerySupported = null;
 let windowsPerfCpuQuerySupported = null;
 
-function createEmptyResult() {
+function createActivityResult(totalCpu, processCount, isActive) {
+  const normalizedCpu = Number.isFinite(totalCpu) ? Number(totalCpu.toFixed(2)) : 0;
   return {
-    totalCpuPercent: 0,
-    processCount: 0,
-    isActive: false,
+    totalCpu: normalizedCpu,
+    totalCpuPercent: normalizedCpu,
+    processCount: Number.isInteger(processCount) && processCount > 0 ? processCount : 0,
+    isActive: Boolean(isActive),
   };
+}
+
+function createEmptyResult() {
+  return createActivityResult(0, 0, false);
 }
 
 function normalizePid(pid) {
   const parsed = Number.parseInt(String(pid), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function isProcessAlive(pid) {
+  const normalizedPid = normalizePid(pid);
+  if (!normalizedPid) {
+    return false;
+  }
+
+  try {
+    process.kill(normalizedPid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseCpuPercent(value) {
@@ -88,7 +113,56 @@ function parsePsRows(output) {
 }
 
 function runCommand(command, args) {
-  return execFileSync(command, args, EXEC_OPTIONS);
+  return childProcess.execFileSync(command, args, EXEC_OPTIONS);
+}
+
+function loadOptionalCpuModules() {
+  if (optionalCpuModules.loaded) {
+    return optionalCpuModules;
+  }
+
+  optionalCpuModules.loaded = true;
+
+  try {
+    optionalCpuModules.pidtree = require('pidtree');
+  } catch {
+    optionalCpuModules.pidtree = null;
+  }
+
+  try {
+    optionalCpuModules.pidusage = require('pidusage');
+  } catch {
+    optionalCpuModules.pidusage = null;
+  }
+
+  return optionalCpuModules;
+}
+
+function tryOptionalDependencyProcessTree(rootPid) {
+  const { pidtree, pidusage } = loadOptionalCpuModules();
+  if (!pidtree || !pidusage || typeof pidtree.sync !== 'function' || typeof pidusage.sync !== 'function') {
+    return null;
+  }
+
+  try {
+    const processIds = [rootPid, ...pidtree.sync(rootPid, { root: false })]
+      .map((pid) => normalizePid(pid))
+      .filter(Boolean);
+
+    if (!processIds.length) {
+      return createEmptyResult();
+    }
+
+    let totalCpu = 0;
+    for (const pid of processIds) {
+      const usage = pidusage.sync(pid);
+      totalCpu += parseCpuPercent(usage && usage.cpu);
+    }
+
+    return createActivityResult(totalCpu, processIds.length, totalCpu > ACTIVITY_THRESHOLD_PERCENT);
+  } catch {
+    return null;
+  }
 }
 
 function tryWindowsCpuQuery(whereClause) {
@@ -328,11 +402,19 @@ function buildActivityResult(processIds, cpuByPid) {
 
   totalCpuPercent = Number(totalCpuPercent.toFixed(2));
 
-  return {
+  return createActivityResult(
     totalCpuPercent,
-    processCount: processIds.size,
-    isActive: totalCpuPercent > ACTIVITY_THRESHOLD_PERCENT,
-  };
+    processIds.size,
+    totalCpuPercent > ACTIVITY_THRESHOLD_PERCENT
+  );
+}
+
+function buildAliveFallbackResult(pid) {
+  if (!isProcessAlive(pid)) {
+    return createEmptyResult();
+  }
+
+  return createActivityResult(0, 1, true);
 }
 
 function getProcessTreeCpu(pid) {
@@ -347,30 +429,57 @@ function getProcessTreeCpu(pid) {
     return cached.result;
   }
 
-  try {
-    const { processIds, cpuByPid } = process.platform === 'win32'
-      ? collectWindowsProcessTree(normalizedPid)
-      : collectPosixProcessTree(normalizedPid);
-    const result = buildActivityResult(processIds, cpuByPid);
+  let result = tryOptionalDependencyProcessTree(normalizedPid);
 
-    activityCache.set(normalizedPid, {
-      result,
-      timestamp: Date.now(),
-    });
-
-    return result;
-  } catch {
-    return createEmptyResult();
+  if (!result) {
+    try {
+      const { processIds, cpuByPid } = process.platform === 'win32'
+        ? collectWindowsProcessTree(normalizedPid)
+        : collectPosixProcessTree(normalizedPid);
+      result = buildActivityResult(processIds, cpuByPid);
+    } catch {
+      result = null;
+    }
   }
+
+  if (!result || (!result.isActive && result.processCount === 0)) {
+    result = buildAliveFallbackResult(normalizedPid);
+  }
+
+  activityCache.set(normalizedPid, {
+    result,
+    timestamp: Date.now(),
+  });
+
+  return result;
 }
 
 function clearActivityCache() {
   activityCache.clear();
   windowsProcessCpuQuerySupported = null;
   windowsPerfCpuQuerySupported = null;
+  optionalCpuModules.loaded = false;
+  optionalCpuModules.pidtree = null;
+  optionalCpuModules.pidusage = null;
 }
 
 module.exports = {
+  createEmptyResult,
+  normalizePid,
+  isProcessAlive,
+  parseCpuPercent,
+  parseCsvRows,
+  parsePsRows,
+  runCommand,
+  tryWindowsCpuQuery,
+  queryWindowsProcessExists,
+  listWindowsChildIds,
+  getWindowsProcessSnapshot,
+  getWindowsPerfCpuMap,
+  collectWindowsProcessTree,
+  getPosixProcessRecord,
+  getPosixChildRecords,
+  collectPosixProcessTree,
   getProcessTreeCpu,
   clearActivityCache,
 };

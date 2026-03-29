@@ -18,14 +18,19 @@ const { TASK_TIMEOUTS } = require('../constants');
 
 /** Base directory for worktrees (inside server/.tmp/worktrees/) */
 const WORKTREE_BASE_DIR = path.join(__dirname, '..', '.tmp', 'worktrees');
-const BRANCH_NAME_PREFIX = 'task-';
+const BRANCH_NAME_PREFIX = 'task/';
 const MAX_BRANCH_NAME_LENGTH = 50;
 const BRANCH_NAME_STOP_WORDS = new Set([
   'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
   'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall',
-  'should', 'may', 'might', 'must', 'can', 'could', 'for', 'and', 'nor',
-  'but', 'or', 'yet', 'so', 'at', 'by', 'in', 'of', 'on', 'to', 'with',
-  'from', 'into', 'this', 'that', 'these', 'those', 'it',
+  'should', 'may', 'might', 'must', 'can', 'could', 'to', 'of', 'in',
+  'for', 'on', 'by', 'at', 'with', 'from', 'as', 'into', 'through',
+  'during', 'before', 'after', 'above', 'below', 'between', 'out', 'off',
+  'over', 'under', 'again', 'further', 'then', 'once', 'and', 'but', 'or',
+  'nor', 'not', 'so', 'yet', 'both', 'each', 'few', 'more', 'most',
+  'other', 'some', 'such', 'no', 'only', 'own', 'same', 'than', 'too',
+  'very', 'just', 'because', 'when', 'that', 'this', 'these', 'those',
+  'it', 'its', 'which', 'what', 'who', 'how', 'all', 'any',
 ]);
 
 /**
@@ -39,26 +44,23 @@ function generateBranchName(description) {
     ? description.toLowerCase()
     : '';
 
-  const tokens = normalizedDescription
+  let slug = normalizedDescription
     .split(/[^a-z0-9]+/)
     .filter(Boolean)
-    .filter((token) => !BRANCH_NAME_STOP_WORDS.has(token));
-
-  let slug = tokens
+    .filter((token) => !BRANCH_NAME_STOP_WORDS.has(token))
     .join('-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-  const maxSlugLength = MAX_BRANCH_NAME_LENGTH - BRANCH_NAME_PREFIX.length;
-  if (slug.length > maxSlugLength) {
-    const truncated = slug.slice(0, maxSlugLength);
+  if (slug.length > MAX_BRANCH_NAME_LENGTH) {
+    const truncated = slug.slice(0, MAX_BRANCH_NAME_LENGTH);
     const lastHyphenIndex = truncated.lastIndexOf('-');
     slug = lastHyphenIndex > 0
       ? truncated.slice(0, lastHyphenIndex)
       : truncated;
-    slug = slug.replace(/^-+|-+$/g, '');
   }
 
+  slug = slug.replace(/^-+|-+$/g, '');
   if (!slug) {
     return `${BRANCH_NAME_PREFIX}unnamed`;
   }

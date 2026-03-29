@@ -23,7 +23,7 @@ describe('tool-annotations', () => {
       ['analyze_task', RO],
       ['validate_event_consistency', RO],
       ['detect_file_conflicts', RO],
-      ['compare_providers', RO],
+      ['compare_task_outputs', RO],
       ['predict_duration', RO],
       ['diagnose_ci_failure', RO],
       ['capture_screenshots', RO],
@@ -144,6 +144,10 @@ describe('tool-annotations', () => {
 
     it('strategic_decompose dispatches to external LLM', () => {
       expect(getAnnotations('strategic_decompose')).toEqual(DISPATCH);
+    });
+
+    it('compare_providers dispatches because it launches provider tasks', () => {
+      expect(getAnnotations('compare_providers')).toEqual(DISPATCH);
     });
   });
 

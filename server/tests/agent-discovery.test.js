@@ -37,15 +37,14 @@ function loadAgentDiscovery() {
   return require('../utils/agent-discovery');
 }
 
-function getLookupCommand() {
-  return process.platform === 'win32' ? 'where' : 'which';
-}
-
 describe('utils/agent-discovery', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockProviderRoutingCore.getProvider.mockReset();
-    mockProviderRoutingCore.getProvider.mockImplementation((provider) => ({ provider, enabled: true }));
+    mockProviderRoutingCore.getProvider.mockImplementation((provider) => ({
+      provider,
+      enabled: provider !== 'codex',
+    }));
     restoreProviderRoutingCoreModule();
     unloadAgentDiscovery();
   });
@@ -56,163 +55,90 @@ describe('utils/agent-discovery', () => {
     unloadAgentDiscovery();
   });
 
-  it('discovers agents that exist on PATH', () => {
-    const lookupCommand = getLookupCommand();
+  it('returns installed, missing, and suggestions structure', () => {
     const execFileSyncSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((command, args) => {
-      if (command === lookupCommand && args[0] === 'claude') {
-        return 'C:\\Tools\\claude.cmd\n';
-      }
-      if (command === 'claude' && args[0] === '--version') {
-        return 'claude 1.9.0';
-      }
-      throw new Error('not found');
-    });
-
-    const { discoverAgents } = loadAgentDiscovery();
-    const result = discoverAgents();
-
-    expect(result.installed).toContainEqual({
-      name: 'Claude Code',
-      binary: 'claude',
-      version: '1.9.0',
-      path: 'C:\\Tools\\claude.cmd',
-      provider: 'claude-cli',
-    });
-    expect(result.missing).toEqual(expect.arrayContaining([
-      expect.objectContaining({ binary: 'codex' }),
-    ]));
-    expect(execFileSyncSpy).toHaveBeenCalledWith(lookupCommand, ['claude'], expect.objectContaining({
-      encoding: 'utf8',
-      timeout: 5000,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }));
-  });
-
-  it('reports missing agents', () => {
-    const lookupCommand = getLookupCommand();
-    vi.spyOn(childProcess, 'execFileSync').mockImplementation((command, args) => {
-      if (command === lookupCommand && args[0] === 'codex') {
-        throw new Error('missing');
-      }
-      throw new Error('not found');
-    });
-
-    const { discoverAgents } = loadAgentDiscovery();
-    const result = discoverAgents();
-
-    expect(result.installed).toEqual([]);
-    expect(result.missing).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        name: 'Codex CLI',
-        binary: 'codex',
-        provider: 'codex',
-        installHint: 'npm install -g @openai/codex',
-      }),
-    ]));
-  });
-
-  it('extracts version from --version output', () => {
-    const lookupCommand = getLookupCommand();
-    vi.spyOn(childProcess, 'execFileSync').mockImplementation((command, args) => {
-      if (command === lookupCommand && args[0] === 'codex') {
-        return '/usr/local/bin/codex\n';
-      }
-      if (command === 'codex' && args[0] === '--version') {
-        return '1.2.3';
-      }
-      throw new Error('not found');
-    });
-
-    const { discoverAgents } = loadAgentDiscovery();
-    const result = discoverAgents();
-    const codex = result.installed.find((agent) => agent.binary === 'codex');
-
-    expect(codex).toMatchObject({
-      binary: 'codex',
-      version: '1.2.3',
-      path: '/usr/local/bin/codex',
-    });
-  });
-
-  it('handles --version failure gracefully', () => {
-    const lookupCommand = getLookupCommand();
-    vi.spyOn(childProcess, 'execFileSync').mockImplementation((command, args) => {
-      if (command === lookupCommand && args[0] === 'codex') {
-        return '/usr/local/bin/codex\n';
-      }
-      if (command === 'codex' && args[0] === '--version') {
-        throw new Error('version failed');
-      }
-      throw new Error('not found');
-    });
-
-    const { discoverAgents } = loadAgentDiscovery();
-    const result = discoverAgents();
-    const codex = result.installed.find((agent) => agent.binary === 'codex');
-
-    expect(codex).toMatchObject({
-      binary: 'codex',
-      version: null,
-      path: '/usr/local/bin/codex',
-    });
-  });
-
-  it('generates suggestions for installed but unconfigured providers', () => {
-    const lookupCommand = getLookupCommand();
-    mockProviderRoutingCore.getProvider.mockImplementation((provider) => (
-      provider === 'codex' ? { provider, enabled: false } : { provider, enabled: true }
-    ));
-    vi.spyOn(childProcess, 'execFileSync').mockImplementation((command, args) => {
-      if (command === lookupCommand && args[0] === 'codex') {
+      if ((command === 'which' || command === 'where') && args[0] === 'codex') {
         return '/usr/local/bin/codex\n';
       }
       if (command === 'codex' && args[0] === '--version') {
         return 'codex 1.2.3';
       }
+      if ((command === 'which' || command === 'where') && args[0] === 'ollama') {
+        return '/usr/local/bin/ollama\n';
+      }
+      if (command === 'ollama' && args[0] === '--version') {
+        return 'ollama version 0.5.1';
+      }
+      if (command === process.execPath && args[0] === '-e') {
+        return JSON.stringify({ running: true, models: 3 });
+      }
       throw new Error('not found');
     });
 
     const { discoverAgents } = loadAgentDiscovery();
     const result = discoverAgents();
 
+    expect(result).toEqual(expect.objectContaining({
+      installed: expect.any(Array),
+      missing: expect.any(Array),
+      suggestions: expect.any(Array),
+    }));
+    expect(result.installed).toEqual(expect.arrayContaining([
+      {
+        name: 'codex',
+        version: '1.2.3',
+        path: '/usr/local/bin/codex',
+        status: 'ready',
+      },
+      {
+        name: 'ollama',
+        version: '0.5.1',
+        path: '/usr/local/bin/ollama',
+        status: 'running',
+        models: 3,
+      },
+    ]));
+    expect(result.missing).toEqual(expect.arrayContaining([
+      'claude',
+      'gemini',
+      'aider',
+    ]));
     expect(result.suggestions).toContain(
-      'codex is installed (v1.2.3) but not configured — run configure_provider({ provider: "codex", enabled: true })'
+      'codex is installed — enable with: configure_provider({ provider: "codex", enabled: true })'
+    );
+    expect(execFileSyncSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^(which|where)$/),
+      ['codex'],
+      expect.objectContaining({
+        encoding: 'utf8',
+        timeout: 5000,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
     );
   });
 
-  it('formatDiscoveryReport produces valid markdown', () => {
-    const { formatDiscoveryReport } = loadAgentDiscovery();
-    const report = formatDiscoveryReport({
-      installed: [
-        {
-          name: 'Codex CLI',
-          binary: 'codex',
-          version: '1.2.3',
-          path: '/usr/local/bin/codex',
-          provider: 'codex',
-        },
-      ],
-      missing: [
-        {
-          name: 'Claude Code',
-          binary: 'claude',
-          installHint: 'npm install -g @anthropic-ai/claude-code',
-          provider: 'claude-cli',
-        },
-      ],
-      suggestions: [
-        'codex is installed (v1.2.3) but not configured — run configure_provider({ provider: "codex", enabled: true })',
-      ],
+  it('handles missing commands gracefully', () => {
+    vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+      throw new Error('missing');
     });
 
-    expect(report).toContain('## Agent Discovery Report');
-    expect(report).toContain('### Installed');
-    expect(report).toContain('| Agent | Version | Path | Provider | Status |');
-    expect(report).toContain('| Codex CLI | 1.2.3 | /usr/local/bin/codex | codex | Not configured |');
-    expect(report).toContain('### Not Installed');
-    expect(report).toContain('| Claude Code | npm install -g @anthropic-ai/claude-code |');
-    expect(report).toContain('### Suggestions');
-    expect(report).toContain('- codex is installed (v1.2.3) but not configured — run configure_provider({ provider: "codex", enabled: true })');
+    const { discoverAgents } = loadAgentDiscovery();
+    let result;
+
+    expect(() => {
+      result = discoverAgents();
+    }).not.toThrow();
+    expect(result.installed).toEqual([]);
+    expect(result.missing).toEqual(['claude', 'codex', 'gemini', 'ollama', 'aider']);
+    expect(result.suggestions).toEqual([]);
+  });
+
+  it('selects which vs where based on platform', () => {
+    const { getLookupCommand } = loadAgentDiscovery();
+
+    expect(getLookupCommand('linux')).toBe('which');
+    expect(getLookupCommand('darwin')).toBe('which');
+    expect(getLookupCommand('win32')).toBe('where');
   });
 });

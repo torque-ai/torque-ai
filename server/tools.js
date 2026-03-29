@@ -10,9 +10,12 @@ const path = require('path');
 const logger = require('./logger').child({ component: 'tools' });
 const { fireHook } = require('./hooks/post-tool-hooks');
 const eventBus = require('./event-bus');
+const comparisonHandlers = require('./handlers/comparison-handler');
 const evidenceRiskHandlers = require('./handlers/evidence-risk-handlers');
+const reviewHandlers = require('./handlers/review-handler');
 const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
+const competitiveFeatureDefs = require('./tool-defs/competitive-feature-defs');
 
 // ── Tool definitions (JSON schemas) ──
 const TOOLS = [
@@ -32,6 +35,7 @@ const TOOLS = [
   ...require('./tool-defs/advanced-defs'),
   ...require('./tool-defs/integration-defs'),
   ...require('./tool-defs/automation-defs'),
+  ...require('./tool-defs/comparison-defs'),
   ...require('./tool-defs/hashline-defs'),
   ...require('./tool-defs/tsserver-defs'),
   ...require('./tool-defs/snapscope-defs'),
@@ -46,13 +50,15 @@ const TOOLS = [
   ...require('./tool-defs/concurrency-defs'),
   ...require('./tool-defs/model-defs'),
   ...require('./tool-defs/discovery-defs'),
+  ...require('./tool-defs/agent-discovery-defs'),
   ...require('./tool-defs/circuit-breaker-defs'),
   ...require('./tool-defs/budget-watcher-defs'),
   ...require('./tool-defs/provider-scoring-defs'),
   ...require('./tool-defs/routing-template-defs'),
   ...require('./tool-defs/strategic-config-defs'),
   ...require('./tool-defs/context-defs'),
-  ...require('./tool-defs/competitive-feature-defs'),
+  ...competitiveFeatureDefs.filter((tool) => tool && tool.name !== 'review_task_output'),
+  ...require('./tool-defs/review-defs'),
   ...require('./tool-defs/symbol-indexer-defs'),
   ...require('./tool-defs/template-defs'),
   ...require('./tool-defs/diffusion-defs'),
@@ -122,6 +128,7 @@ const HANDLER_MODULES = [
   require('./handlers/concurrency-handlers'),
   require('./handlers/model-handlers'),
   require('./handlers/discovery-handlers'),
+  require('./handlers/agent-discovery-handlers'),
   require('./handlers/circuit-breaker-handlers'),
   require('./handlers/model-registry-handlers'),
   require('./handlers/routing-template-handlers'),
@@ -131,6 +138,7 @@ const HANDLER_MODULES = [
   require('./handlers/provider-scoring-handlers'),
   require('./handlers/diffusion-handlers'),
   evidenceRiskHandlers,
+  reviewHandlers,
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──
@@ -256,6 +264,7 @@ for (const mod of HANDLER_MODULES) {
 
 routeMap.set('get_adversarial_reviews', evidenceRiskHandlers.handleGetAdversarialReviews);
 routeMap.set('request_adversarial_review', evidenceRiskHandlers.handleRequestAdversarialReview);
+routeMap.set('compare_providers', comparisonHandlers.handleCompareProviders);
 routeMap.set('search_symbols', symbolIndexerHandlers.handleSearchSymbols);
 routeMap.set('get_file_outline', symbolIndexerHandlers.handleGetFileOutline);
 routeMap.set('index_project', symbolIndexerHandlers.handleIndexProject);

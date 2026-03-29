@@ -3,6 +3,9 @@
 const { OutputBuffer } = require('../execution/output-buffer');
 
 describe('OutputBuffer', () => {
+  const joinLines = (count, start = 0) =>
+    Array.from({ length: count }, (_, index) => `line-${index + start}`).join('\n');
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -20,9 +23,7 @@ describe('OutputBuffer', () => {
     }
 
     expect(flushCallback).toHaveBeenCalledTimes(1);
-    expect(flushCallback).toHaveBeenCalledWith(
-      Array.from({ length: 20 }, (_, index) => `line-${index}`)
-    );
+    expect(flushCallback).toHaveBeenCalledWith(joinLines(20));
 
     buffer.destroy();
   });
@@ -38,9 +39,7 @@ describe('OutputBuffer', () => {
     vi.advanceTimersByTime(600);
 
     expect(flushCallback).toHaveBeenCalledTimes(1);
-    expect(flushCallback).toHaveBeenCalledWith(
-      Array.from({ length: 5 }, (_, index) => `line-${index}`)
-    );
+    expect(flushCallback).toHaveBeenCalledWith(joinLines(5));
 
     buffer.destroy();
   });
@@ -55,7 +54,7 @@ describe('OutputBuffer', () => {
     buffer.flush();
 
     expect(flushCallback).toHaveBeenCalledTimes(1);
-    expect(flushCallback).toHaveBeenCalledWith(['line-1', 'line-2', 'line-3']);
+    expect(flushCallback).toHaveBeenCalledWith('line-1\nline-2\nline-3');
 
     buffer.destroy();
   });
@@ -72,7 +71,7 @@ describe('OutputBuffer', () => {
     buffer.destroy();
 
     expect(flushCallback).toHaveBeenCalledTimes(1);
-    expect(flushCallback).toHaveBeenCalledWith(['line-1', 'line-2']);
+    expect(flushCallback).toHaveBeenCalledWith('line-1\nline-2');
     expect(vi.getTimerCount()).toBe(0);
 
     vi.advanceTimersByTime(1000);
@@ -102,11 +101,11 @@ describe('OutputBuffer', () => {
     expect(flushCallback).toHaveBeenCalledTimes(2);
     expect(flushCallback).toHaveBeenNthCalledWith(
       1,
-      Array.from({ length: 20 }, (_, index) => `line-${index}`)
+      joinLines(20)
     );
     expect(flushCallback).toHaveBeenNthCalledWith(
       2,
-      Array.from({ length: 5 }, (_, index) => `line-${index + 20}`)
+      joinLines(5, 20)
     );
 
     buffer.destroy();
