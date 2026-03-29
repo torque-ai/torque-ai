@@ -1,5 +1,6 @@
 'use strict';
 
+// Mock the container module in Node's require cache before loading the handler
 const mockTaskCore = {
   createTask: vi.fn(),
   getTask: vi.fn(),
@@ -9,7 +10,11 @@ const mockTaskManager = {
   startTask: vi.fn(),
 };
 
-vi.mock('../container', () => ({
+const containerPath = require.resolve('../container');
+const handlerPath = require.resolve('../handlers/comparison-handler');
+
+// Install mock container into require cache
+const mockContainer = {
   defaultContainer: {
     get(name) {
       if (name === 'taskCore') return mockTaskCore;
@@ -18,8 +23,19 @@ vi.mock('../container', () => ({
     },
     has() { return true; },
   },
-}));
+};
 
+// Save original and replace
+const originalContainerModule = require.cache[containerPath];
+require.cache[containerPath] = {
+  id: containerPath,
+  filename: containerPath,
+  loaded: true,
+  exports: mockContainer,
+};
+
+// Clear handler cache to force re-require with mocked container
+delete require.cache[handlerPath];
 const { handleCompareProviders } = require('../handlers/comparison-handler');
 
 describe('comparison-handler', () => {
@@ -76,7 +92,6 @@ describe('comparison-handler', () => {
       providers: ['codex'],
     });
 
-    // Advance past the 5-minute timeout
     for (let i = 0; i < 70; i++) {
       await vi.advanceTimersByTimeAsync(5000);
     }
@@ -93,9 +108,7 @@ describe('comparison-handler', () => {
       return {
         status: 'completed', output: 'output', exit_code: 0,
         started_at: '2026-03-21T00:00:00.000Z',
-        completed_at: callCount <= 2
-          ? '2026-03-21T00:00:01.000Z'
-          : '2026-03-21T00:00:05.000Z',
+        completed_at: callCount <= 2 ? '2026-03-21T00:00:01.000Z' : '2026-03-21T00:00:05.000Z',
       };
     });
 
