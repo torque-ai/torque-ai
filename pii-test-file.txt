@@ -1,6 +1,0 @@
-This is a test file for PII guard.
-Project: example-project
-Author: user@example.com
-Machine: example-host
-Path: /home/<user>/Projects/example-project
-Server: 192.0.2.183
