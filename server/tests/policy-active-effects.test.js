@@ -17,13 +17,14 @@ function runEvaluateWithEffects(task, effects) {
   });
   vi.spyOn(profileStore, 'resolvePoliciesForStage').mockReturnValue(rules);
 
-  const result = engine.evaluate({
-    ...task,
-    stage: 'task_submit',
-    target_type: 'task',
-    target_id: task.id || 'task-1',
-    persist: false,
-  });
+  // Assign extra props directly onto task so engine.evaluate receives
+  // the same object reference (effects mutate task in place)
+  task.stage = 'task_submit';
+  task.target_type = 'task';
+  task.target_id = task.id || 'task-1';
+  task.persist = false;
+
+  const result = engine.evaluate(task);
 
   return { result, task };
 }
