@@ -112,7 +112,7 @@ describe('symbol-indexer', () => {
 
     it('searchSymbols finds by partial name match', async () => {
       const filePath = path.join(tmpDir, 'search.js');
-      fs.writeFileSync(filePath, 'function findUser() {}\\nfunction findOrder() {}\\nconst parseData = () => {};\\n');
+      fs.writeFileSync(filePath, 'function findUser() {}\nfunction findOrder() {}\nconst parseData = () => {};\n');
       const content = fs.readFileSync(filePath, 'utf8');
       await indexer.indexFile(filePath, content, workingDir);
 
@@ -124,7 +124,7 @@ describe('symbol-indexer', () => {
 
     it('searchSymbols filters by kind', async () => {
       const filePath = path.join(tmpDir, 'kind.ts');
-      fs.writeFileSync(filePath, 'class UserService {}\\nfunction userServiceHelper() {}\\n');
+      fs.writeFileSync(filePath, 'class UserService {}\nfunction userServiceHelper() {}\n');
       const content = fs.readFileSync(filePath, 'utf8');
       await indexer.indexFile(filePath, content, workingDir);
 
@@ -135,7 +135,7 @@ describe('symbol-indexer', () => {
 
     it('searchSymbols exact match', async () => {
       const filePath = path.join(tmpDir, 'exact.js');
-      fs.writeFileSync(filePath, 'function parseData() {}\\nfunction parseDataAdvanced() {}\\n');
+      fs.writeFileSync(filePath, 'function parseData() {}\nfunction parseDataAdvanced() {}\n');
       const content = fs.readFileSync(filePath, 'utf8');
       await indexer.indexFile(filePath, content, workingDir);
 
@@ -146,14 +146,14 @@ describe('symbol-indexer', () => {
 
     it('getSymbolSource reads correct lines from file', () => {
       const filePath = path.join(tmpDir, 'source.txt');
-      fs.writeFileSync(filePath, 'line1\\nline2\\nline3\\nline4\\nline5\\n');
+      fs.writeFileSync(filePath, 'line1\nline2\nline3\nline4\nline5\n');
       const source = indexer.getSymbolSource(filePath, 2, 4);
-      expect(source).toBe('line2\\nline3\\nline4');
+      expect(source).toBe('line2\nline3\nline4');
     });
 
     it('getFileOutline returns symbols sorted by line number', async () => {
       const filePath = path.join(tmpDir, 'outline.js');
-      fs.writeFileSync(filePath, 'function alpha() {}\\n\\nclass Zeta {}\\n\\nfunction beta() {}\\n');
+      fs.writeFileSync(filePath, 'function alpha() {}\n\nclass Zeta {}\n\nfunction beta() {}\n');
       const content = fs.readFileSync(filePath, 'utf8');
       await indexer.indexFile(filePath, content, workingDir);
 
@@ -174,8 +174,8 @@ describe('symbol-indexer', () => {
     it('getSymbolsForFiles batch query returns symbols for multiple files', async () => {
       const fileOne = path.join(tmpDir, 'one.js');
       const fileTwo = path.join(tmpDir, 'two.js');
-      fs.writeFileSync(fileOne, 'function one() {}\\n');
-      fs.writeFileSync(fileTwo, 'function two() {}\\n');
+      fs.writeFileSync(fileOne, 'function one() {}\n');
+      fs.writeFileSync(fileTwo, 'function two() {}\n');
       await indexer.indexFile(fileOne, fs.readFileSync(fileOne, 'utf8'), workingDir);
       await indexer.indexFile(fileTwo, fs.readFileSync(fileTwo, 'utf8'), workingDir);
 
