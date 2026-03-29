@@ -1,5 +1,7 @@
 # Retire Free Tier Page Implementation Plan
 
+> **ARCHIVED (2026-03-29):** TORQUE is no longer pursuing monetization. There are no paid tiers — the product is fully open-source under the MIT license. The "Free Tier" page concept is obsolete. Retained for historical reference.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove the misleading Free Tier dashboard page by migrating its two unique features (usage history chart, cooldown tracking) to the Providers page, then deleting the page.

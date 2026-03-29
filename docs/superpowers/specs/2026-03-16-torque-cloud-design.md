@@ -1,7 +1,9 @@
 # TORQUE Cloud — Design Spec
 
+> **ARCHIVED (2026-03-29):** TORQUE is no longer pursuing monetization. The project has switched to the MIT license with a focus on open-source adoption and community growth. This cloud SaaS design with paid tiers is not being implemented. Retained for historical reference.
+
 **Date:** 2026-03-16
-**Status:** Draft (revision 2 — container architecture pivot)
+**Status:** Archived — not pursuing
 **Scope:** Cloud-hosted SaaS product — Cloudflare edge + Fly.io containers, multi-tenant, hub-and-spoke with local agent relay
 
 ## Problem

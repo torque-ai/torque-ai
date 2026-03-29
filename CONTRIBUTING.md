@@ -83,7 +83,7 @@ Use Conventional Commits with DCO sign-off:
 
     git commit -s -m "feat: add new provider routing rule"
 
-The `-s` flag adds `Signed-off-by: Your Name <email>` (required for BSL license).
+The `-s` flag adds `Signed-off-by: Your Name <email>`.
 
 Prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`
 
@@ -117,4 +117,4 @@ Feature PRs should be discussed in an issue first.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the BSL 1.1 license. See [LICENSE](LICENSE) for details.
+By contributing, you agree that your contributions will be licensed under the MIT license. See [LICENSE](LICENSE) for details.
