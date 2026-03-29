@@ -1,7 +1,6 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { defaultContainer } = require('../container');
 
 const DEFAULT_TIMEOUT_MINUTES = 5;
 const POLL_INTERVAL_MS = 5000;
@@ -201,6 +200,7 @@ function formatComparisonTable(results) {
 }
 
 function getServices() {
+  const { defaultContainer } = require('../container');
   return {
     taskCore: defaultContainer.get('taskCore'),
     taskManager: defaultContainer.get('taskManager'),
