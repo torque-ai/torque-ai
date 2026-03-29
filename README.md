@@ -2,7 +2,7 @@
 
 Your AI providers are specialists. TORQUE is the control tower.
 
-[![License: BSL-1.1](https://img.shields.io/badge/License-BSL--1.1-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
 
 Route coding tasks to the right model, validate the output, retry on failure, track costs — all from one command. Run 10 tasks in parallel across every provider you have instead of juggling terminal tabs.
@@ -174,7 +174,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR
 
 ## License
 
-[Business Source License 1.1](LICENSE) — use it for anything except offering it as a commercial hosted service. Converts to Apache 2.0 on 2029-03-14.
+[MIT](LICENSE)
 
 ## Community
 

@@ -22,7 +22,7 @@
     "claude", "codex", "workflow", "task-queue", "multi-provider",
     "smart-routing", "quality-gates", "cost-tracking"
   ],
-  "license": "BSL-1.1",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/torque-ai/torque-ai.git"

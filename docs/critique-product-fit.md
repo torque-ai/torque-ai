@@ -68,7 +68,7 @@ The result: a user who wanted a task dispatcher gets a kitchen sink. Each additi
 
 ### 4. ~~The pricing model conflicts with the open-source positioning.~~ (RESOLVED)
 
-*Pricing tiers have been removed. TORQUE is fully unlocked for all users under BSL-1.1 (no commercial hosting). No artificial limits on concurrent tasks, hosts, or workflow nodes.*
+*Pricing tiers have been removed. TORQUE is fully unlocked for all users under the MIT license. No artificial limits on concurrent tasks, hosts, or workflow nodes.*
 
 ### 5. The "never write code directly" philosophy is anti-adoption.
 
