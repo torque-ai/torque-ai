@@ -7,6 +7,21 @@ Your AI providers are specialists. TORQUE is the control tower.
 
 Route coding tasks to the right model, validate the output, retry on failure, track costs — all from one command. Run 10 tasks in parallel across every provider you have instead of juggling terminal tabs.
 
+## Why TORQUE?
+
+If you use AI coding tools, you already know the problem: you have Claude Code for hard architecture decisions, Codex for fast multi-file edits, a local Ollama instance for free private tasks, and maybe a DeepInfra or Groq key for cheap batch work. But you're the router — manually deciding which tool to use, copy-pasting context between them, and losing track of what's running where.
+
+TORQUE sits between you and all of your AI providers. You describe the task, TORQUE figures out which provider handles it best, dispatches it, monitors the output for quality issues, and retries on a different provider if something fails. Instead of running one task at a time in your terminal, you can queue up 10 tasks and let them execute in parallel across every provider you have.
+
+**What that looks like in practice:**
+
+- "Write tests for auth.ts" → routes to Codex (multi-file generation), validates output, verifies build
+- "Add a docstring to utils.py" → routes to your local Ollama (free, fast, private)
+- "Refactor the payment module" → routes to Claude Code (complex reasoning), captures file baselines, checks for regressions
+- All three run simultaneously. You review when they're done.
+
+**You don't need all 12 providers to start.** TORQUE works with just Ollama, or just one cloud API key, or just Codex. Add more providers later and smart routing adapts automatically.
+
 ## Quick Start
 
 ### npm (recommended)
