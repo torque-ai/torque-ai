@@ -11,9 +11,9 @@ function escapeRegexLiteral(value) {
 const BUILTIN_CATEGORIES = {
   user_paths: {
     patterns: [
-      { regex: /C:\\Users\\([^\\\s]+)/g, replacement: 'C:\\Users\\<user>' },
-      { regex: /\/home\/([^/\s]+)/g, replacement: '/home/<user>' },
-      { regex: /\/Users\/([^/\s]+)/g, replacement: '/Users/<user>' },
+      { regex: /C:\\Users\\(?!<user>)([^\\\s]+)/g, replacement: 'C:\\Users\\<user>' },
+      { regex: /\/home\/(?!<user>)([^/\s]+)/g, replacement: '/home/<user> },
+      { regex: /\/Users\/(?!<user>)([^/\s]+)/g, replacement: '/Users/<user> },
     ],
   },
   private_ips: {
