@@ -29,12 +29,30 @@ require.cache[containerPath] = {
   },
 };
 
+// Force re-load of handler with our mock container
 delete require.cache[handlerPath];
-const { handleReviewTaskOutput } = require('../handlers/review-handler');
+
+let handleReviewTaskOutput;
 
 describe('review-handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Re-inject our mock container (may have been overwritten by other test files)
+    require.cache[containerPath] = {
+      id: containerPath, filename: containerPath, loaded: true,
+      exports: {
+        defaultContainer: {
+          get(name) {
+            if (name === 'taskCore') return mockTaskCore;
+            if (name === 'taskManager') return mockTaskManager;
+            return null;
+          },
+          has() { return true; },
+        },
+      },
+    };
+    delete require.cache[handlerPath];
+    ({ handleReviewTaskOutput } = require('../handlers/review-handler'));
   });
 
   it('returns error for missing task', () => {
