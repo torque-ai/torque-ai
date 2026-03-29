@@ -1,0 +1,6 @@
+Config for <user>'s workstation:
+  ollama_host: http://192.0.2.100:11434
+  gpu_server: example-host
+  project: C:\Users\<user>\Projects\example-project
+  notify: user@example.com
+  backup: /home/<user>/backups/example-project

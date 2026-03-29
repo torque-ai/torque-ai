@@ -1,0 +1,5 @@
+example-project deployment notes:
+Deploy to example-host at 192.0.2.183
+SSH: user@192.0.2.183
+Repo: /home/<user>/Projects/example-project
+Contact user@example.com for access
