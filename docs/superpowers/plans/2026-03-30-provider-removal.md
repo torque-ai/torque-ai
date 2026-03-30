@@ -590,3 +590,79 @@ After starting the server, call `list_providers`. Expected: 11 providers (was 14
 ```bash
 git add -A && git commit -m "verify: provider removal complete — 11 providers, zero hashline/aider references"
 ```
+
+---
+
+### Task 12: Fix smart routing null-provider fallback
+
+**Context:** Tasks submitted without an explicit provider rely on smart routing to assign one. If `smart_routing_default_provider` points to a disabled/removed provider (as happened with `aider-ollama`), tasks get queued with `provider = NULL` and sit forever — the queue scheduler ignores them.
+
+**Files:**
+- Modify: `server/db/smart-routing.js`
+- Create: `server/tests/smart-routing-null-provider.test.js`
+
+- [ ] **Step 1: Write failing test**
+
+```js
+// server/tests/smart-routing-null-provider.test.js
+'use strict';
+
+describe('smart routing null-provider safety', () => {
+  it('never returns null/empty provider from route selection', () => {
+    // Smart routing must always return a provider, even if the default is disabled.
+    // If the configured default provider is disabled or missing, it should fall back
+    // to the first enabled provider.
+    jest.resetModules();
+    const Database = require('better-sqlite3');
+    const testDb = new Database(':memory:');
+    const db = require('../database');
+    db.initForTest(testDb);
+
+    // Set default to a provider that doesn't exist
+    db.setConfig('smart_routing_default_provider', 'nonexistent-provider');
+    db.setConfig('smart_routing_enabled', '1');
+
+    const smartRouting = require('../db/smart-routing');
+    if (typeof smartRouting.setDb === 'function') smartRouting.setDb(testDb);
+
+    // Route a simple task — should get a real provider, not null
+    const result = smartRouting.routeTask ? smartRouting.routeTask({ task_description: 'write a test' }) : null;
+    if (result) {
+      expect(result.provider).toBeTruthy();
+      expect(result.provider).not.toBe('nonexistent-provider');
+    }
+  });
+});
+```
+
+- [ ] **Step 2: Add null-provider safety net to smart routing**
+
+In `server/db/smart-routing.js`, find the function that returns the routed provider (likely `routeTask`, `smartRoute`, or `getSmartRoutedProvider`). At the end of the function, before returning, add a safety check:
+
+```js
+// Safety net: if routing resolved to a disabled/missing provider or null,
+// fall back to the first enabled provider to prevent tasks sitting in queue forever.
+if (!resolvedProvider) {
+  const enabledProviders = db.prepare(
+    "SELECT provider FROM provider_config WHERE enabled = 1 ORDER BY priority ASC LIMIT 1"
+  ).all();
+  if (enabledProviders.length > 0) {
+    resolvedProvider = enabledProviders[0].provider;
+    logger.warn(`[SmartRouting] Null provider resolved — falling back to ${resolvedProvider}`);
+  }
+}
+```
+
+Also add the same safety net to the task submission path — in the function that creates/queues a task, if `provider` is still null/empty after smart routing, assign the first enabled provider before inserting into the DB.
+
+- [ ] **Step 3: Run tests**
+
+Run: `cd server && npx vitest run tests/smart-routing-null-provider.test.js`
+Expected: PASS
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add server/db/smart-routing.js server/tests/smart-routing-null-provider.test.js
+git commit -m "fix: smart routing never returns null provider — falls back to first enabled provider"
+```
