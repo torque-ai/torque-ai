@@ -596,19 +596,6 @@ module.exports = [
     }
   },
   {
-    name: 'get_budget_status',
-    description: 'Get budget status and spending.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        budget_id: {
-          type: 'string',
-          description: 'Specific budget ID (optional)'
-        }
-      }
-    }
-  },
-  {
     name: 'set_budget',
     description: 'Create or update a cost budget.',
     inputSchema: {

@@ -273,7 +273,7 @@ routeMap.set('search_symbols', symbolIndexerHandlers.handleSearchSymbols);
 routeMap.set('get_file_outline', symbolIndexerHandlers.handleGetFileOutline);
 routeMap.set('index_project', symbolIndexerHandlers.handleIndexProject);
 routeMap.set('get_project_template', templateHandlers.handleGetProjectTemplate);
-routeMap.set('list_templates', templateHandlers.handleListTemplates);
+routeMap.set('list_project_templates', templateHandlers.handleListTemplates);
 routeMap.set('detect_project_type', templateHandlers.handleDetectProjectType);
 
 const FILE_WRITE_TOOL_NAMES = new Set([

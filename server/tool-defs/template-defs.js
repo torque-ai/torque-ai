@@ -11,7 +11,7 @@ module.exports = [
     },
   },
   {
-    name: 'list_templates',
+    name: 'list_project_templates',
     description: 'List all available project templates with their detection rules and priorities.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
