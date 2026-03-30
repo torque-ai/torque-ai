@@ -133,7 +133,7 @@ describe('workflow-await handlers with DB-backed state', () => {
     installCjsModuleMock('../utils/safe-exec', {
       safeExecChain: mocks.safeExecChain,
     });
-    installCjsModuleMock('../handlers/peek-handlers', {
+    installCjsModuleMock('../plugins/snapscope/handlers/capture', {
       handlePeekUi: mocks.handlePeekUi,
     });
     mocks.executeValidatedCommandSync.mockReset();

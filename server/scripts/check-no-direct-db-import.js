@@ -29,7 +29,7 @@ const ALLOWED = new Set([
   'mcp-sse.js',                       // getDbInstance — raw DB for subscription persistence
   'config.js',                        // getDbInstance — raw DB for encrypted API key lookup
   'handlers/experiment-handlers.js',  // getDbInstance — raw DB for SQLite transactions
-  'handlers/peek/compliance.js',      // getDbInstance — raw DB for direct SQL audit queries
+  'plugins/snapscope/handlers/compliance.js', // getDbInstance — raw DB for direct SQL audit queries
   // Raw SQL users — these call db.prepare() or db.getDbInstance().prepare() directly
   'ci/watcher.js',                    // raw SQL for CI watch state
   'hooks/event-dispatch.js',          // raw SQL for event persistence

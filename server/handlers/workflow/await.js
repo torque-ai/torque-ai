@@ -24,7 +24,7 @@ function getCommitMutex() {
   if (!_cmLoaded) { _cmLoaded = true; try { _commitMutex = require('../../utils/commit-mutex'); } catch { _commitMutex = null; } }
   return _commitMutex;
 }
-const { handlePeekUi } = require('../peek-handlers');
+const { handlePeekUi } = require('../../plugins/snapscope/handlers/capture');
 const logger = require('../../logger').child({ component: 'workflow-await' });
 const { safeJsonParse } = require('../../utils/json');
 

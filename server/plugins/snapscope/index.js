@@ -46,7 +46,10 @@ function createSnapScopePlugin() {
   function mcpTools() {
     if (!installed) return [];
 
-    const toolDefs = require('./tool-defs');
+    const toolDefs = [
+      ...require('./tool-defs'),
+      ...require('./new-tool-defs'),
+    ];
     const handlerModules = [
       require('./handlers/cli'),
       require('./handlers/capture'),
@@ -65,6 +68,8 @@ function createSnapScopePlugin() {
       require('./handlers/rollback'),
       require('./handlers/webhook-outbound'),
     ];
+    const { createVerifyHandlers } = require('./handlers/verify');
+    const { createWatchHandlers } = require('./handlers/watch');
 
     const FIXUPS = {
       export_report_c_s_v: 'export_report_csv',
@@ -76,14 +81,21 @@ function createSnapScopePlugin() {
       return name.replace(/([A-Z])/g, (match, char, index) => (index > 0 ? '_' : '') + char.toLowerCase());
     }
 
-    for (const mod of handlerModules) {
-      for (const [fnName, fn] of Object.entries(mod)) {
+    function registerHandlers(mod) {
+      for (const [fnName, fn] of Object.entries(mod || {})) {
         if (!fnName.startsWith('handle') || typeof fn !== 'function') continue;
         let toolName = pascalToSnake(fnName.slice(6));
         toolName = FIXUPS[toolName] || toolName;
         routeMap.set(toolName, fn);
       }
     }
+
+    for (const mod of handlerModules) {
+      registerHandlers(mod);
+    }
+
+    registerHandlers(createVerifyHandlers(peekClient));
+    registerHandlers(createWatchHandlers(peekClient));
 
     return toolDefs
       .filter((def) => def && def.name && routeMap.has(def.name))

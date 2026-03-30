@@ -6,13 +6,13 @@ const {
   generateBundleChecksum,
   signBundleMetadata,
   validateBundleIntegrity,
-} = require('../handlers/peek/artifacts');
+} = require('../plugins/snapscope/handlers/artifacts');
 const {
   FEDERATION_PROTOCOL_VERSION,
   exportBundle,
   importBundle,
   resolveConflict,
-} = require('../handlers/peek/federation');
+} = require('../plugins/snapscope/handlers/federation');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));

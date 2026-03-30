@@ -248,7 +248,7 @@ describe('handleAwaitTask heartbeat integration', () => {
     installCjsModuleMock('../utils/safe-exec', {
       safeExecChain: mocks.safeExecChain,
     });
-    installCjsModuleMock('../handlers/peek-handlers', {
+    installCjsModuleMock('../plugins/snapscope/handlers/capture', {
       handlePeekUi: mocks.handlePeekUi,
     });
     mocks.executeValidatedCommandSync.mockReset();
@@ -510,7 +510,7 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
     installCjsModuleMock('../utils/safe-exec', {
       safeExecChain: mocks.safeExecChain,
     });
-    installCjsModuleMock('../handlers/peek-handlers', {
+    installCjsModuleMock('../plugins/snapscope/handlers/capture', {
       handlePeekUi: mocks.handlePeekUi,
     });
     mocks.executeValidatedCommandSync.mockReset();
@@ -773,7 +773,7 @@ describe('heartbeat integration', () => {
     installCjsModuleMock('../utils/safe-exec', {
       safeExecChain: mocks.safeExecChain,
     });
-    installCjsModuleMock('../handlers/peek-handlers', {
+    installCjsModuleMock('../plugins/snapscope/handlers/capture', {
       handlePeekUi: mocks.handlePeekUi,
     });
     mocks.executeValidatedCommandSync.mockReset();

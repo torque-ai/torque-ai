@@ -8,7 +8,7 @@ const {
   detectAppTypeFromClassName,
   handlePeekOnboard,
   handlePeekOnboardDetect,
-} = require('../handlers/peek/onboarding');
+} = require('../plugins/snapscope/handlers/onboarding');
 const emailPeek = require('../db/email-peek');
 
 function createHttpGetMock(queue) {

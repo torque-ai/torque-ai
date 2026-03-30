@@ -358,7 +358,7 @@ async function handlePeekAttestationExport(req, res) {
   }
 
   try {
-    const { exportAttestation } = require('../handlers/peek/compliance');
+    const { exportAttestation } = require('../plugins/snapscope/handlers/compliance');
     const attestation = exportAttestation(reportId, req.query || {});
     sendJson(res, attestation, 200, req);
   } catch (err) {

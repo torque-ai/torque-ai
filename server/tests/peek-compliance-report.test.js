@@ -7,7 +7,7 @@ const { createRequire } = require('module');
 const Database = require('better-sqlite3');
 
 function loadCompliance(injectedModules = {}) {
-  const resolvedPath = path.resolve(__dirname, '../handlers/peek/compliance.js');
+  const resolvedPath = path.resolve(__dirname, '../plugins/snapscope/handlers/compliance.js');
   const source = fs.readFileSync(resolvedPath, 'utf8');
   const requireFromModule = createRequire(resolvedPath);
   const exportedModule = { exports: {} };

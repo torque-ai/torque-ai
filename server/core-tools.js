@@ -2,13 +2,13 @@
  * Tool tier system — controls which tools are visible in each mode.
  *
  * Tier 1 (default core): Essential task lifecycle — what 90% of workflows need.
- * Tier 2 (extended):     Power user tools — batch orchestration, TS structural, SnapScope.
+ * Tier 2 (extended):     Power user tools — batch orchestration, TS structural, advanced config.
  * Tier 3 (full):         Everything — admin, provider config, webhooks, experiments.
  *
  * Modes:
- *   'core'     → Tier 1 only (~20 tools). Default on connect.
- *   'extended' → Tier 1 + 2 (~85 tools). Unlocked via unlock_tier(2).
- *   'full'     → All tools (~494). Unlocked via unlock_all_tools.
+ *   'core'     → Tier 1 only. Default on connect.
+ *   'extended' → Tier 1 + 2. Unlocked via unlock_tier(2).
+ *   'full'     → All tools. Unlocked via unlock_all_tools.
  *
  * Shared between index.js (stdio) and mcp-sse.js (SSE transport).
  */
@@ -59,14 +59,6 @@ const TIER_2 = [
   'add_ts_method_to_class', 'replace_ts_method_body', 'add_import_statement',
   // Validation & maintenance
   'normalize_interface_formatting',
-  // SnapScope & Peek
-  'capture_screenshots', 'capture_view', 'capture_views', 'validate_manifest',
-  'peek_ui', 'peek_interact', 'peek_launch', 'peek_discover', 'peek_open_url',
-  'peek_cdp', 'peek_refresh', 'peek_health_all', 'peek_build_and_open',
-  'peek_elements', 'peek_regression', 'peek_diagnose', 'peek_semantic_diff',
-  'peek_wait', 'peek_action_sequence', 'peek_assert', 'peek_ocr',
-  'peek_hit_test', 'peek_summary', 'peek_table', 'peek_snapshot', 'peek_color',
-  'list_peek_hosts',
 ];
 
 /**

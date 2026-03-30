@@ -11,7 +11,7 @@ const {
   flattenTree,
   diffTrees,
   createDiffSnapshot,
-} = require('../handlers/peek/accessibility-diff');
+} = require('../plugins/snapscope/handlers/accessibility-diff');
 
 function cloneValue(value) {
   return JSON.parse(JSON.stringify(value));

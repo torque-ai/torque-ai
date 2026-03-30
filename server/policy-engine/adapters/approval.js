@@ -2,7 +2,7 @@
 
 const schedulingAutomation = require('../../db/scheduling-automation');
 const evaluationStore = require('../evaluation-store');
-const { RISK_CLASSIFICATION } = require('../../handlers/peek/rollback');
+const { RISK_CLASSIFICATION } = require('../../plugins/snapscope/handlers/rollback');
 
 const APPROVAL_EVIDENCE_TYPE = 'approval_recorded';
 const POLICY_APPROVAL_SOURCE = 'policy-engine';

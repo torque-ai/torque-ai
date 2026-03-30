@@ -3,8 +3,8 @@ const {
   classifyActionRisk,
   createRollbackPlan,
   validateHighRiskEvidence,
-} = require('../handlers/peek/rollback');
-const { resolveRecoveryMode } = require('../handlers/peek/recovery');
+} = require('../plugins/snapscope/handlers/rollback');
+const { resolveRecoveryMode } = require('../plugins/snapscope/handlers/recovery');
 
 const HIGH_RISK_ACTIONS = [
   'force_kill_process',

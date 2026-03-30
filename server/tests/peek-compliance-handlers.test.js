@@ -4,15 +4,15 @@ const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { safeJsonParse } = require('../utils/json');
 
-const MODULE_PATH = require.resolve('../handlers/peek/compliance');
+const MODULE_PATH = require.resolve('../plugins/snapscope/handlers/compliance');
 
 let currentModules = {};
 
 vi.mock('../database', () => currentModules.database);
 vi.mock('../db/peek-policy-audit', () => currentModules.database);
 vi.mock('../logger', () => currentModules.logger);
-vi.mock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
-vi.mock('../handlers/peek/rollback', () => currentModules.rollback);
+vi.mock('../plugins/snapscope/handlers/webhook-outbound', () => currentModules.webhookOutbound);
+vi.mock('../plugins/snapscope/handlers/rollback', () => currentModules.rollback);
 
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
@@ -59,17 +59,17 @@ function loadCompliance() {
   vi.doMock('../database', () => currentModules.database);
   vi.doMock('../db/peek-policy-audit', () => currentModules.database);
   vi.doMock('../logger', () => currentModules.logger);
-  vi.doMock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
-  vi.doMock('../handlers/peek/rollback', () => currentModules.rollback);
+  vi.doMock('../plugins/snapscope/handlers/webhook-outbound', () => currentModules.webhookOutbound);
+  vi.doMock('../plugins/snapscope/handlers/rollback', () => currentModules.rollback);
 
   installCjsModuleMock('../database', currentModules.database);
   installCjsModuleMock('../db/peek-policy-audit', currentModules.database);
   installCjsModuleMock('../logger', currentModules.logger);
-  installCjsModuleMock('../handlers/peek/webhook-outbound', currentModules.webhookOutbound);
-  installCjsModuleMock('../handlers/peek/rollback', currentModules.rollback);
+  installCjsModuleMock('../plugins/snapscope/handlers/webhook-outbound', currentModules.webhookOutbound);
+  installCjsModuleMock('../plugins/snapscope/handlers/rollback', currentModules.rollback);
 
   delete require.cache[MODULE_PATH];
-  return require('../handlers/peek/compliance');
+  return require('../plugins/snapscope/handlers/compliance');
 }
 
 function createLoggerMock() {

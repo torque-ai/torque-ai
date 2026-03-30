@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const crypto = require('crypto');
 
-const MODULE_PATH = require.resolve('../handlers/peek/federation');
+const MODULE_PATH = require.resolve('../plugins/snapscope/handlers/federation');
 const FIXED_TIME = '2026-03-12T19:00:00.000Z';
 const FIXED_DIGEST = 'a'.repeat(64);
 
 let currentModules = {};
 
 vi.mock('../contracts/peek', () => currentModules.contracts);
-vi.mock('../handlers/peek/artifacts', () => currentModules.artifacts);
+vi.mock('../plugins/snapscope/handlers/artifacts', () => currentModules.artifacts);
 vi.mock('../logger', () => currentModules.logger);
 
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -25,15 +25,15 @@ function installCjsModuleMock(modulePath, exportsValue) {
 function loadFederation() {
   vi.resetModules();
   vi.doMock('../contracts/peek', () => currentModules.contracts);
-  vi.doMock('../handlers/peek/artifacts', () => currentModules.artifacts);
+  vi.doMock('../plugins/snapscope/handlers/artifacts', () => currentModules.artifacts);
   vi.doMock('../logger', () => currentModules.logger);
 
   installCjsModuleMock('../contracts/peek', currentModules.contracts);
-  installCjsModuleMock('../handlers/peek/artifacts', currentModules.artifacts);
+  installCjsModuleMock('../plugins/snapscope/handlers/artifacts', currentModules.artifacts);
   installCjsModuleMock('../logger', currentModules.logger);
 
   delete require.cache[MODULE_PATH];
-  return require('../handlers/peek/federation');
+  return require('../plugins/snapscope/handlers/federation');
 }
 
 function createLoggerMock() {

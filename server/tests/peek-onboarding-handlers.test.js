@@ -1,6 +1,6 @@
 'use strict';
 
-const MODULE_PATH = require.resolve('../handlers/peek/onboarding');
+const MODULE_PATH = require.resolve('../plugins/snapscope/handlers/onboarding');
 
 const realShared = require('../handlers/shared');
 const realContracts = require('../contracts/peek');
@@ -14,7 +14,7 @@ const {
 
 let currentModules = {};
 
-vi.mock('../handlers/peek/shared', () => currentModules.peekShared);
+vi.mock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
 vi.mock('../logger', () => currentModules.loggerModule);
 
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -72,14 +72,14 @@ function createModules(overrides = {}) {
 
 function loadHandlers() {
   vi.resetModules();
-  vi.doMock('../handlers/peek/shared', () => currentModules.peekShared);
+  vi.doMock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
   vi.doMock('../logger', () => currentModules.loggerModule);
 
-  installCjsModuleMock('../handlers/peek/shared', currentModules.peekShared);
+  installCjsModuleMock('../plugins/snapscope/handlers/shared', currentModules.peekShared);
   installCjsModuleMock('../logger', currentModules.loggerModule);
 
   delete require.cache[MODULE_PATH];
-  return require('../handlers/peek/onboarding');
+  return require('../plugins/snapscope/handlers/onboarding');
 }
 
 function getText(result) {

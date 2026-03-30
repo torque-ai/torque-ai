@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const snapscopeDefs = require('../tool-defs/snapscope-defs');
+const snapscopeDefs = require('../plugins/snapscope/tool-defs');
 const {
   attachPeekArtifactReferences,
   buildPeekBundleArtifactReferences,

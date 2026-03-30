@@ -59,17 +59,17 @@ function installCjsModuleMock(modulePath, exportsValue) {
 }
 
 function loadAnalysis() {
-  delete require.cache[require.resolve('../handlers/peek/analysis')];
-  installCjsModuleMock('../handlers/peek/shared', mockShared);
-  installCjsModuleMock('../handlers/peek/artifacts', mockArtifacts);
+  delete require.cache[require.resolve('../plugins/snapscope/handlers/analysis')];
+  installCjsModuleMock('../plugins/snapscope/handlers/shared', mockShared);
+  installCjsModuleMock('../plugins/snapscope/handlers/artifacts', mockArtifacts);
   installCjsModuleMock('../contracts/peek', mockContracts);
-  installCjsModuleMock('../handlers/peek/capture', mockCapture);
+  installCjsModuleMock('../plugins/snapscope/handlers/capture', mockCapture);
   installCjsModuleMock('../logger', mockLogger);
-  return require('../handlers/peek/analysis');
+  return require('../plugins/snapscope/handlers/analysis');
 }
 
 function loadAnalysisWithHelpers() {
-  const resolvedPath = path.resolve(__dirname, '../handlers/peek/analysis.js');
+  const resolvedPath = path.resolve(__dirname, '../plugins/snapscope/handlers/analysis.js');
   const source = fs.readFileSync(resolvedPath, 'utf8');
   const requireFromAnalysis = createRequire(resolvedPath);
   const exportedModule = { exports: {} };
@@ -188,7 +188,7 @@ function createDiagnoseIntegrationHarness(tempRoot, overrides = {}) {
       return normalized || fallback;
     }),
   };
-  const artifacts = loadModuleFromSource('../handlers/peek/artifacts.js', {
+  const artifacts = loadModuleFromSource('../plugins/snapscope/handlers/artifacts.js', {
     fs: fsProxy,
     '../../contracts/peek': contracts,
     '../../database': dbMock,
@@ -199,7 +199,7 @@ function createDiagnoseIntegrationHarness(tempRoot, overrides = {}) {
     '../../logger': loggerModule,
     './shared': sharedModule,
   });
-  const analysis = loadModuleFromSource('../handlers/peek/analysis.js', {
+  const analysis = loadModuleFromSource('../plugins/snapscope/handlers/analysis.js', {
     './artifacts': artifacts,
     './capture': mockCapture,
     './shared': sharedModule,
@@ -222,10 +222,10 @@ function createDiagnoseIntegrationHarness(tempRoot, overrides = {}) {
   };
 }
 
-vi.mock('../handlers/peek/shared', () => mockShared);
-vi.mock('../handlers/peek/artifacts', () => mockArtifacts);
+vi.mock('../plugins/snapscope/handlers/shared', () => mockShared);
+vi.mock('../plugins/snapscope/handlers/artifacts', () => mockArtifacts);
 vi.mock('../contracts/peek', () => mockContracts);
-vi.mock('../handlers/peek/capture', () => mockCapture);
+vi.mock('../plugins/snapscope/handlers/capture', () => mockCapture);
 vi.mock('../logger', () => mockLogger);
 
 const { ErrorCodes } = require('../handlers/error-codes');

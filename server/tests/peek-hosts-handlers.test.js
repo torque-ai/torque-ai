@@ -23,14 +23,14 @@ function installCjsModuleMock(modulePath, exportsValue) {
 }
 
 function loadHandlers() {
-  delete require.cache[require.resolve('../handlers/peek/hosts')];
+  delete require.cache[require.resolve('../plugins/snapscope/handlers/hosts')];
   installCjsModuleMock('../db/email-peek', mockDb);
-  installCjsModuleMock('../handlers/peek/shared', mockPeekShared);
-  return require('../handlers/peek/hosts');
+  installCjsModuleMock('../plugins/snapscope/handlers/shared', mockPeekShared);
+  return require('../plugins/snapscope/handlers/hosts');
 }
 
 vi.mock('../db/email-peek', () => mockDb);
-vi.mock('../handlers/peek/shared', () => mockPeekShared);
+vi.mock('../plugins/snapscope/handlers/shared', () => mockPeekShared);
 
 function resetMockDefaults() {
   mockDb.registerPeekHost = vi.fn(() => undefined);

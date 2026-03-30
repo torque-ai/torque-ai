@@ -6,7 +6,7 @@ const { EventEmitter } = require('node:events');
 const { createRequire } = require('node:module');
 const realCrypto = require('node:crypto');
 
-const MODULE_PATH = path.resolve(__dirname, '../handlers/peek/webhook-outbound.js');
+const MODULE_PATH = path.resolve(__dirname, '../plugins/snapscope/handlers/webhook-outbound.js');
 const realSetImmediate = global.setImmediate;
 
 let currentModules = {};

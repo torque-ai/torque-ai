@@ -8,7 +8,7 @@ const {
   generateBundleChecksum,
   signBundleMetadata,
   validateBundleIntegrity,
-} = require('../handlers/peek-handlers');
+} = require('../plugins/snapscope/handlers/artifacts');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -82,9 +82,8 @@ describe('peek bundle signing helpers', () => {
       expires_at: '2026-04-09T00:00:00.000Z',
     }));
 
-    delete require.cache[require.resolve('../handlers/peek/artifacts')];
-    delete require.cache[require.resolve('../handlers/peek-handlers')];
-    const { storePeekArtifactsForTask: freshStorePeekArtifactsForTask } = require('../handlers/peek-handlers');
+    delete require.cache[require.resolve('../plugins/snapscope/handlers/artifacts')];
+    const { storePeekArtifactsForTask: freshStorePeekArtifactsForTask } = require('../plugins/snapscope/handlers/artifacts');
 
     const refs = freshStorePeekArtifactsForTask('task-peek-signing', [{
       source: 'peek_diagnose',

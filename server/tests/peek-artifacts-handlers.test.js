@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const { createConfigMock } = require('./test-helpers');
 
-const MODULE_PATH = require.resolve('../handlers/peek/artifacts');
+const MODULE_PATH = require.resolve('../plugins/snapscope/handlers/artifacts');
 
 let currentModules = {};
 
@@ -15,8 +15,8 @@ vi.mock('../db/task-metadata', () => currentModules.database);
 vi.mock('../db/workflow-engine', () => currentModules.database);
 vi.mock('../db/peek-policy-audit', () => currentModules.database);
 vi.mock('../contracts/peek', () => currentModules.contracts);
-vi.mock('../handlers/peek/shared', () => currentModules.shared);
-vi.mock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
+vi.mock('../plugins/snapscope/handlers/shared', () => currentModules.shared);
+vi.mock('../plugins/snapscope/handlers/webhook-outbound', () => currentModules.webhookOutbound);
 vi.mock('../logger', () => currentModules.logger);
 
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -38,8 +38,8 @@ function loadArtifacts() {
   vi.doMock('../db/workflow-engine', () => currentModules.database);
   vi.doMock('../db/peek-policy-audit', () => currentModules.database);
   vi.doMock('../contracts/peek', () => currentModules.contracts);
-  vi.doMock('../handlers/peek/shared', () => currentModules.shared);
-  vi.doMock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
+  vi.doMock('../plugins/snapscope/handlers/shared', () => currentModules.shared);
+  vi.doMock('../plugins/snapscope/handlers/webhook-outbound', () => currentModules.webhookOutbound);
   vi.doMock('../logger', () => currentModules.logger);
 
   installCjsModuleMock('fs', currentModules.fsModule);
@@ -49,12 +49,12 @@ function loadArtifacts() {
   installCjsModuleMock('../db/workflow-engine', currentModules.database);
   installCjsModuleMock('../db/peek-policy-audit', currentModules.database);
   installCjsModuleMock('../contracts/peek', currentModules.contracts);
-  installCjsModuleMock('../handlers/peek/shared', currentModules.shared);
-  installCjsModuleMock('../handlers/peek/webhook-outbound', currentModules.webhookOutbound);
+  installCjsModuleMock('../plugins/snapscope/handlers/shared', currentModules.shared);
+  installCjsModuleMock('../plugins/snapscope/handlers/webhook-outbound', currentModules.webhookOutbound);
   installCjsModuleMock('../logger', currentModules.logger);
 
   delete require.cache[MODULE_PATH];
-  return require('../handlers/peek/artifacts');
+  return require('../plugins/snapscope/handlers/artifacts');
 }
 
 function createLoggerMock() {

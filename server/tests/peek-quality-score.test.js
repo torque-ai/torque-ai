@@ -7,7 +7,7 @@ const {
   WINFORMS_FIXTURE,
   WPF_FIXTURE,
 } = require('../contracts/peek-fixtures');
-const { EVIDENCE_WEIGHTS, MAX_SCORE, scoreBundle } = require('../handlers/peek/quality-score');
+const { EVIDENCE_WEIGHTS, MAX_SCORE, scoreBundle } = require('../plugins/snapscope/handlers/quality-score');
 
 function cloneValue(value) {
   return JSON.parse(JSON.stringify(value));

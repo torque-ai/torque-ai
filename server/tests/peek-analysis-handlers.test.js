@@ -8,16 +8,16 @@ const { installMock } = require('./cjs-mock');
 const realShared = require('../handlers/shared');
 
 const { ErrorCodes } = realShared;
-const ANALYSIS_MODULE_PATH = require.resolve('../handlers/peek/analysis');
+const ANALYSIS_MODULE_PATH = require.resolve('../plugins/snapscope/handlers/analysis');
 
 let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);
-vi.mock('../handlers/peek/shared', () => currentModules.peekShared);
-vi.mock('../handlers/peek/artifacts', () => currentModules.artifacts);
+vi.mock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
+vi.mock('../plugins/snapscope/handlers/artifacts', () => currentModules.artifacts);
 vi.mock('../contracts/peek', () => currentModules.contracts);
-vi.mock('../handlers/peek/capture', () => currentModules.capture);
+vi.mock('../plugins/snapscope/handlers/capture', () => currentModules.capture);
 vi.mock('../logger', () => currentModules.logger);
 
 function getText(result) {
@@ -130,16 +130,16 @@ function createModules(tempHomeDir) {
 function loadHandlers() {
   installMock('../database', currentModules.db);
   installMock('../task-manager', currentModules.taskManager);
-  installMock('../handlers/peek/shared', currentModules.peekShared);
-  installMock('../handlers/peek/artifacts', currentModules.artifacts);
+  installMock('../plugins/snapscope/handlers/shared', currentModules.peekShared);
+  installMock('../plugins/snapscope/handlers/artifacts', currentModules.artifacts);
   installMock('../contracts/peek', currentModules.contracts);
-  installMock('../handlers/peek/capture', currentModules.capture);
+  installMock('../plugins/snapscope/handlers/capture', currentModules.capture);
   installMock('../handlers/shared', realShared);
   installMock('../logger', currentModules.logger);
 
   delete require.cache[ANALYSIS_MODULE_PATH];
 
-  return require('../handlers/peek/analysis');
+  return require('../plugins/snapscope/handlers/analysis');
 }
 
 describe('peek/analysis exported handlers', () => {

@@ -180,7 +180,7 @@ const tools = [
       properties: {
         process: {
           type: 'string',
-          description: 'Capture window by process name (e.g. "SpudgetBooks", "deluge", "notepad"). Matches substring, case-insensitive.'
+          description: 'Capture window by process name (e.g. "example-project", "deluge", "notepad"). Matches substring, case-insensitive.'
         },
         title: {
           type: 'string',
@@ -335,7 +335,7 @@ const tools = [
         },
         process: {
           type: 'string',
-          description: 'Target window by process name (e.g. "SpudgetBooks")'
+          description: 'Target window by process name (e.g. "example-project")'
         },
         title: {
           type: 'string',
@@ -450,7 +450,7 @@ const tools = [
         },
         process: {
           type: 'string',
-          description: 'Target window by process name (e.g. "SpudgetBooks")'
+          description: 'Target window by process name (e.g. "example-project")'
         },
         title: {
           type: 'string',
@@ -542,7 +542,7 @@ const tools = [
         },
         process: {
           type: 'string',
-          description: 'Filter to windows of a specific process (e.g. "SpudgetBooks")'
+          description: 'Filter to windows of a specific process (e.g. "example-project")'
         },
         snapshot_id: {
           type: 'string',
@@ -864,7 +864,7 @@ const tools = [
       properties: {
         process: {
           type: 'string',
-          description: 'Target window by process name (e.g. "SpudgetBooks", "Taskmgr")'
+          description: 'Target window by process name (e.g. "example-project", "Taskmgr")'
         },
         title: {
           type: 'string',
@@ -944,7 +944,7 @@ const tools = [
       properties: {
         process: {
           type: 'string',
-          description: 'Target window by process name (e.g. "SpudgetBooks", "Taskmgr")'
+          description: 'Target window by process name (e.g. "example-project", "Taskmgr")'
         },
         title: {
           type: 'string',

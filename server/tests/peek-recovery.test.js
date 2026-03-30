@@ -4,7 +4,7 @@ const mockShared = {
   resolvePeekHost: vi.fn(),
   resolvePeekTaskContext: vi.fn(),
 };
-const { createRollbackPlan, formatPolicyProof } = require('../handlers/peek/rollback');
+const { createRollbackPlan, formatPolicyProof } = require('../plugins/snapscope/handlers/rollback');
 
 const mockShadowEnforcer = {
   enforceMode: vi.fn(),
@@ -24,7 +24,7 @@ const mockLogger = {
 
 const configCore = require('../db/config-core');
 const recoveryMetrics = require('../db/recovery-metrics');
-const sharedModule = require('../handlers/peek/shared');
+const sharedModule = require('../plugins/snapscope/handlers/shared');
 const shadowEnforcerModule = require('../policy-engine/shadow-enforcer');
 const taskHooksModule = require('../policy-engine/task-hooks');
 const loggerModule = require('../logger');
@@ -69,12 +69,12 @@ describe('peek recovery handlers', () => {
     loggerModule.child = mockLogger.child;
     configCore.getConfig = vi.fn(() => null);
 
-    delete require.cache[require.resolve('../handlers/peek/recovery')];
+    delete require.cache[require.resolve('../plugins/snapscope/handlers/recovery')];
 
     ({
       handlePeekRecovery,
       handlePeekRecoveryStatus,
-    } = require('../handlers/peek/recovery'));
+    } = require('../plugins/snapscope/handlers/recovery'));
 
     mockShared.resolvePeekHost.mockReturnValue({
       hostName: 'snap-host',

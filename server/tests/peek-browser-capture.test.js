@@ -12,7 +12,7 @@ const {
   listBrowserPages,
   getBrowserElements,
   buildCdpUrl,
-} = require('../handlers/peek/browser-capture');
+} = require('../plugins/snapscope/handlers/browser-capture');
 
 describe('peek/browser-capture scaffold', () => {
   it('exposes planned browser capture status and reports the provider as unavailable', () => {

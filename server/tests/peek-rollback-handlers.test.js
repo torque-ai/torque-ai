@@ -19,7 +19,7 @@ const {
   countPassingResults,
   countFailingResults,
   formatPolicyProof,
-} = require('../handlers/peek/rollback');
+} = require('../plugins/snapscope/handlers/rollback');
 
 const LOW_EVIDENCE = ['screenshot_before'];
 const MEDIUM_EVIDENCE = ['screenshot_before', 'screenshot_after'];

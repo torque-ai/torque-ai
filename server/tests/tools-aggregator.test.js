@@ -5,6 +5,7 @@ const { createRequire } = require('node:module');
 const MODULE_PATH = path.resolve(__dirname, '../tools.js');
 const MODULE_SOURCE = fs.readFileSync(MODULE_PATH, 'utf8');
 const REQUIRE_FROM_TOOLS = createRequire(MODULE_PATH);
+const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../core-tools');
 const realTools = require('../tools');
 
 const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier'];
@@ -154,6 +155,15 @@ function collectLiveExpectedRoutes() {
 
 function getToolNames() {
   return realTools.TOOLS.map((tool) => tool.name);
+}
+
+function getTierLabel(tier) {
+  const labels = {
+    1: `core (~${CORE_TOOL_NAMES.length} tools)`,
+    2: `extended (~${EXTENDED_TOOL_NAMES.length} tools)`,
+    3: `all (~${getToolNames().length} tools)`,
+  };
+  return labels[tier];
 }
 
 function restoreTorqueEnv(originalEnv) {
@@ -585,7 +595,7 @@ describe('tools.js aggregator source-loader', () => {
 
       await expect(subject.mod.handleToolCall('unlock_tier', { tier: '2' })).resolves.toEqual({
         __unlock_tier: 2,
-        content: [{ type: 'text', text: 'Unlocked Tier 2: extended (~78 tools). The tools list has been refreshed.' }],
+        content: [{ type: 'text', text: `Unlocked Tier 2: ${getTierLabel(2)}. The tools list has been refreshed.` }],
       });
     });
 
@@ -595,7 +605,7 @@ describe('tools.js aggregator source-loader', () => {
       await expect(subject.mod.handleToolCall('unlock_tier', { tier: '9' })).resolves.toEqual({
         content: [{
           type: 'text',
-          text: 'Invalid tier. Use 1 (core, ~25 tools), 2 (extended, ~78 tools), or 3 (all, ~488 tools).',
+          text: `Invalid tier. Use 1 (${getTierLabel(1)}), 2 (${getTierLabel(2)}), or 3 (${getTierLabel(3)}).`,
         }],
         isError: true,
       });
@@ -624,8 +634,6 @@ describe('tools.js live registry integration', () => {
     ['add_webhook', 'handleAddWebhook'],
     ['run_batch', 'handleRunBatch'],
     ['hashline_read', 'handleHashlineRead'],
-    ['peek_ui', 'handlePeekUi'],
-    ['capture_screenshots', 'handleCaptureScreenshots'],
     ['register_remote_agent', 'handleRegisterRemoteAgent'],
     ['list_policies', 'handleListPolicies'],
     ['export_report_csv', 'handleExportReportCSV'],
@@ -639,6 +647,12 @@ describe('tools.js live registry integration', () => {
   it('omits inline-only tools from the auto-built routeMap', () => {
     expect([...realTools.routeMap.keys()]).not.toEqual(
       expect.arrayContaining(INLINE_TOOL_NAMES),
+    );
+  });
+
+  it('does not expose SnapScope or peek routes from the core routeMap', () => {
+    expect([...realTools.routeMap.keys()]).not.toEqual(
+      expect.arrayContaining(['peek_ui', 'capture_screenshots', 'peek_diagnose', 'list_peek_hosts']),
     );
   });
 

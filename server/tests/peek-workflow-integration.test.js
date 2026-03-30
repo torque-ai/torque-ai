@@ -15,7 +15,7 @@
 
 const {
   classifyEvidenceSufficiency,
-} = require('../handlers/peek/artifacts');
+} = require('../plugins/snapscope/handlers/artifacts');
 const {
   injectDependencyOutputs,
   applyContextFrom,
@@ -23,7 +23,7 @@ const {
 const {
   handlePeekRecovery,
   handlePeekRecoveryStatus,
-} = require('../handlers/peek/recovery');
+} = require('../plugins/snapscope/handlers/recovery');
 const { WPF_FIXTURE } = require('../contracts/peek-fixtures');
 const { routeMap, TOOLS } = require('../tools');
 

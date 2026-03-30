@@ -1,7 +1,7 @@
 const {
   RISK_CLASSIFICATION,
   classifyActionRisk,
-} = require('../handlers/peek/rollback');
+} = require('../plugins/snapscope/handlers/rollback');
 
 describe('peek rollback risk classification', () => {
   const LOW_EVIDENCE = ['screenshot_before'];

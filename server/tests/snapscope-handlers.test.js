@@ -2,7 +2,7 @@
  * Snapscope Handlers Tests
  *
  * Tests for handleCaptureScreenshots, handleCaptureView, handleCaptureViews,
- * and handleValidateManifest from snapscope-handlers.js.
+ * and handleValidateManifest from the SnapScope plugin handlers.
  *
  * Mocking strategy:
  * - vi.mock('child_process') does NOT work for Node built-ins in pool:forks + CJS mode.
@@ -46,7 +46,7 @@ const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
 const taskMetadata = require('../db/task-metadata');
 const { loadPeekContractFixture } = require('../contracts/peek');
-const snapscopeDefs = require('../tool-defs/snapscope-defs');
+const snapscopeDefs = require('../plugins/snapscope/tool-defs');
 
 const originalHttpGet = http.get;
 const originalHttpRequest = http.request;
@@ -77,8 +77,21 @@ taskMetadata.storeArtifact = vi.fn((artifact) => artifact);
 
 // ─── Load the handler AFTER patching ─────────────────────────────────────────
 const handlers = {
-  ...require('../handlers/snapscope-handlers'),
-  ...require('../handlers/peek-handlers'),
+  ...require('../plugins/snapscope/handlers/cli'),
+  ...require('../plugins/snapscope/handlers/capture'),
+  ...require('../plugins/snapscope/handlers/analysis'),
+  ...require('../plugins/snapscope/handlers/artifacts'),
+  ...require('../plugins/snapscope/handlers/hosts'),
+  ...require('../plugins/snapscope/handlers/recovery'),
+  ...require('../plugins/snapscope/handlers/onboarding'),
+  ...require('../plugins/snapscope/handlers/compliance'),
+  ...require('../plugins/snapscope/handlers/federation'),
+  ...require('../plugins/snapscope/handlers/quality-score'),
+  ...require('../plugins/snapscope/handlers/accessibility-diff'),
+  ...require('../plugins/snapscope/handlers/browser-capture'),
+  ...require('../plugins/snapscope/handlers/live-autonomy'),
+  ...require('../plugins/snapscope/handlers/rollback'),
+  ...require('../plugins/snapscope/handlers/webhook-outbound'),
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

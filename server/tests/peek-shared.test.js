@@ -48,13 +48,13 @@ function installCjsModuleMock(modulePath, exportsValue) {
 }
 
 function loadPeekShared() {
-  delete require.cache[require.resolve('../handlers/peek/shared')];
+  delete require.cache[require.resolve('../plugins/snapscope/handlers/shared')];
   installCjsModuleMock(TASK_CORE_MODULE, mockDb);
   installCjsModuleMock(WORKFLOW_ENGINE_MODULE, mockDb);
   installCjsModuleMock(TASK_METADATA_MODULE, mockDb);
   installCjsModuleMock(EMAIL_PEEK_MODULE, mockDb);
   installCjsModuleMock('../handlers/shared', mockHandlerShared);
-  return require('../handlers/peek/shared');
+  return require('../plugins/snapscope/handlers/shared');
 }
 
 function resetMockDefaults() {

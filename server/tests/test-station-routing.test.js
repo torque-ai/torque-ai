@@ -94,7 +94,7 @@ describeV('await verify routing', () => {
     installAwaitMock('../utils/safe-exec', {
       safeExecChain: awaitMocks.safeExecChain,
     });
-    installAwaitMock('../handlers/peek-handlers', {
+    installAwaitMock('../plugins/snapscope/handlers/capture', {
       handlePeekUi: awaitMocks.handlePeekUi,
     });
 

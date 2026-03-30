@@ -15,17 +15,20 @@ function clone(value) {
 }
 
 const HANDLER_MODULES = [
-  '../handlers/peek-handlers',
-  '../handlers/peek/analysis',
-  '../handlers/peek/artifacts',
-  '../handlers/peek/shared',
+  '../plugins/snapscope/handlers/analysis',
+  '../plugins/snapscope/handlers/artifacts',
+  '../plugins/snapscope/handlers/capture',
+  '../plugins/snapscope/handlers/shared',
 ];
 
 function loadHandlers() {
   for (const modulePath of HANDLER_MODULES) {
     delete require.cache[require.resolve(modulePath)];
   }
-  return require('../handlers/peek-handlers');
+  return {
+    ...require('../plugins/snapscope/handlers/artifacts'),
+    ...require('../plugins/snapscope/handlers/analysis'),
+  };
 }
 
 function createHttpRequestMock(queue) {

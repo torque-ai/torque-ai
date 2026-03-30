@@ -11,7 +11,7 @@ const { createConfigMock } = require('./test-helpers');
 
 const { installMock } = require('./cjs-mock');
 
-const MODULE_PATH = require.resolve('../handlers/peek/shared');
+const MODULE_PATH = require.resolve('../plugins/snapscope/handlers/shared');
 const TASK_CORE_MODULE = '../db/task-core';
 const WORKFLOW_ENGINE_MODULE = '../db/workflow-engine';
 const TASK_METADATA_MODULE = '../db/task-metadata';
@@ -48,7 +48,7 @@ function loadPeekShared() {
   installMock(TASK_METADATA_MODULE, mockDb);
   installMock(EMAIL_PEEK_MODULE, mockDb);
   installMock('../handlers/shared', mockHandlerShared);
-  return require('../handlers/peek/shared');
+  return require('../plugins/snapscope/handlers/shared');
 }
 
 function resetMockDefaults() {

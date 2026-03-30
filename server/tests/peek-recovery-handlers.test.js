@@ -5,11 +5,11 @@ const require = createRequire(import.meta.url);
 
 const { installMock } = require('./cjs-mock');
 const realShared = require('../handlers/shared');
-const realRollback = require('../handlers/peek/rollback');
-const realLiveAutonomy = require('../handlers/peek/live-autonomy');
+const realRollback = require('../plugins/snapscope/handlers/rollback');
+const realLiveAutonomy = require('../plugins/snapscope/handlers/live-autonomy');
 
 const { ErrorCodes, makeError } = realShared;
-const RECOVERY_MODULE_PATH = require.resolve('../handlers/peek/recovery');
+const RECOVERY_MODULE_PATH = require.resolve('../plugins/snapscope/handlers/recovery');
 
 let currentModules = {};
 
@@ -17,11 +17,11 @@ vi.mock('../database', () => currentModules.db);
 vi.mock('../db/config-core', () => currentModules.db);
 vi.mock('../db/peek-recovery-approvals', () => currentModules.db);
 vi.mock('../db/recovery-metrics', () => currentModules.db);
-vi.mock('../handlers/peek/shared', () => currentModules.peekShared);
-vi.mock('../handlers/peek/rollback', () => currentModules.rollback);
-vi.mock('../handlers/peek/live-autonomy', () => currentModules.liveAutonomy);
+vi.mock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
+vi.mock('../plugins/snapscope/handlers/rollback', () => currentModules.rollback);
+vi.mock('../plugins/snapscope/handlers/live-autonomy', () => currentModules.liveAutonomy);
 vi.mock('../policy-engine/task-hooks', () => currentModules.taskHooks);
-vi.mock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
+vi.mock('../plugins/snapscope/handlers/webhook-outbound', () => currentModules.webhookOutbound);
 vi.mock('../logger', () => currentModules.loggerModule);
 
 function getText(result) {
@@ -196,26 +196,26 @@ function loadHandlers() {
   vi.doMock('../db/config-core', () => currentModules.db);
   vi.doMock('../db/peek-recovery-approvals', () => currentModules.db);
   vi.doMock('../db/recovery-metrics', () => currentModules.db);
-  vi.doMock('../handlers/peek/shared', () => currentModules.peekShared);
-  vi.doMock('../handlers/peek/rollback', () => currentModules.rollback);
-  vi.doMock('../handlers/peek/live-autonomy', () => currentModules.liveAutonomy);
+  vi.doMock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
+  vi.doMock('../plugins/snapscope/handlers/rollback', () => currentModules.rollback);
+  vi.doMock('../plugins/snapscope/handlers/live-autonomy', () => currentModules.liveAutonomy);
   vi.doMock('../policy-engine/task-hooks', () => currentModules.taskHooks);
-  vi.doMock('../handlers/peek/webhook-outbound', () => currentModules.webhookOutbound);
+  vi.doMock('../plugins/snapscope/handlers/webhook-outbound', () => currentModules.webhookOutbound);
   vi.doMock('../logger', () => currentModules.loggerModule);
 
   installMock('../database', currentModules.db);
   installMock('../db/config-core', currentModules.db);
   installMock('../db/peek-recovery-approvals', currentModules.db);
   installMock('../db/recovery-metrics', currentModules.db);
-  installMock('../handlers/peek/shared', currentModules.peekShared);
-  installMock('../handlers/peek/rollback', currentModules.rollback);
-  installMock('../handlers/peek/live-autonomy', currentModules.liveAutonomy);
+  installMock('../plugins/snapscope/handlers/shared', currentModules.peekShared);
+  installMock('../plugins/snapscope/handlers/rollback', currentModules.rollback);
+  installMock('../plugins/snapscope/handlers/live-autonomy', currentModules.liveAutonomy);
   installMock('../policy-engine/task-hooks', currentModules.taskHooks);
-  installMock('../handlers/peek/webhook-outbound', currentModules.webhookOutbound);
+  installMock('../plugins/snapscope/handlers/webhook-outbound', currentModules.webhookOutbound);
   installMock('../logger', currentModules.loggerModule);
 
   delete require.cache[RECOVERY_MODULE_PATH];
-  return require('../handlers/peek/recovery');
+  return require('../plugins/snapscope/handlers/recovery');
 }
 
 describe('peek/recovery exported handlers', () => {

@@ -9,7 +9,7 @@ const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
 const projectConfigCore = require('../db/project-config-core');
 const { getPeekFirstSliceCanonicalEntry } = require('../contracts/peek');
-const peekHandlers = require('../handlers/peek-handlers');
+const peekHandlers = require('../plugins/snapscope/handlers/analysis');
 const tools = require('../tools');
 
 const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema']);
@@ -486,7 +486,7 @@ describe('handler/tool wiring parity', () => {
     expect(orphaned).toEqual([]);
   });
 
-  it('routes the canonical first-slice diagnose entry through exactly one tool path', () => {
+  it('does not expose the canonical first-slice diagnose entry through the core routeMap', () => {
     const canonicalEntry = getPeekFirstSliceCanonicalEntry();
     const handler = peekHandlers[canonicalEntry.handler_name];
     const matchingToolNames = [...tools.routeMap.entries()]
@@ -494,8 +494,9 @@ describe('handler/tool wiring parity', () => {
       .map(([name]) => name)
       .sort();
 
-    expect(matchingToolNames).toEqual([canonicalEntry.tool_name]);
-    expect(tools.routeMap.get(canonicalEntry.tool_name)).toBe(handler);
+    expect(handler).toEqual(expect.any(Function));
+    expect(matchingToolNames).toEqual([]);
+    expect(tools.routeMap.has(canonicalEntry.tool_name)).toBe(false);
   });
 
   it('collects valid handler exports from routed modules', () => {

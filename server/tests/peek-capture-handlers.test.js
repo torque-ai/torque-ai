@@ -9,14 +9,14 @@ const { installMock } = require('./cjs-mock');
 const realShared = require('../handlers/shared');
 
 const { ErrorCodes, makeError } = realShared;
-const CAPTURE_MODULE_PATH = require.resolve('../handlers/peek/capture');
+const CAPTURE_MODULE_PATH = require.resolve('../plugins/snapscope/handlers/capture');
 
 let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../db/peek-policy-audit', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);
-vi.mock('../handlers/peek/shared', () => currentModules.peekShared);
+vi.mock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
 vi.mock('../logger', () => currentModules.logger);
 
 const mockTesseractWorker = {
@@ -156,7 +156,7 @@ function loadHandlers() {
   installMock('../database', currentModules.db);
   installMock('../db/peek-policy-audit', currentModules.db);
   installMock('../task-manager', currentModules.taskManager);
-  installMock('../handlers/peek/shared', currentModules.peekShared);
+  installMock('../plugins/snapscope/handlers/shared', currentModules.peekShared);
   installMock('../handlers/shared', realShared);
   installMock('../logger', currentModules.logger);
   installMock('sharp', mockSharp);
@@ -164,7 +164,7 @@ function loadHandlers() {
 
   delete require.cache[CAPTURE_MODULE_PATH];
 
-  return require('../handlers/peek/capture');
+  return require('../plugins/snapscope/handlers/capture');
 }
 
 describe('peek/capture exported handlers', () => {

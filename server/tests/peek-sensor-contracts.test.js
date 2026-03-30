@@ -2,7 +2,7 @@
 
 const { PEEK_SENSOR_TYPES, validatePeekInvestigationBundleEnvelope } = require('../contracts/peek');
 const { FIXTURE_CATALOG, WPF_FIXTURE } = require('../contracts/peek-fixtures');
-const { EVIDENCE_WEIGHTS, scoreBundle } = require('../handlers/peek/quality-score');
+const { EVIDENCE_WEIGHTS, scoreBundle } = require('../plugins/snapscope/handlers/quality-score');
 
 const SENSOR_FIXTURES = Object.entries(FIXTURE_CATALOG);
 const PERFORMANCE_COUNTER_FIELDS = ['cpu_percent', 'memory_bytes', 'handle_count', 'thread_count', 'uptime_seconds'];

@@ -146,11 +146,10 @@ describe('EXTENDED_TOOL_NAMES (Tier 1 + 2)', () => {
     expect(missing).toEqual([]);
   });
 
-  it('includes SnapScope/Peek tools in Tier 2', () => {
-    expect(EXTENDED_TOOL_NAMES).toEqual(
+  it('does not include SnapScope/Peek tools now that they live in the plugin', () => {
+    expect(EXTENDED_TOOL_NAMES).not.toEqual(
       expect.arrayContaining(['peek_ui', 'peek_interact', 'capture_screenshots']),
     );
-    // But NOT in Tier 1
     expect(CORE_TOOL_NAMES).not.toContain('peek_ui');
   });
 

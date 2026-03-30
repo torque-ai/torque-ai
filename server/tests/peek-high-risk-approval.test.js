@@ -46,7 +46,7 @@ const mockLogger = {
   })),
 };
 
-const sharedModule = require('../handlers/peek/shared');
+const sharedModule = require('../plugins/snapscope/handlers/shared');
 const shadowEnforcerModule = require('../policy-engine/shadow-enforcer');
 const taskHooksModule = require('../policy-engine/task-hooks');
 const loggerModule = require('../logger');
@@ -66,8 +66,8 @@ let testDir;
 let handlePeekRecovery;
 
 function loadRecoveryHandler() {
-  delete require.cache[require.resolve('../handlers/peek/recovery')];
-  ({ handlePeekRecovery } = require('../handlers/peek/recovery'));
+  delete require.cache[require.resolve('../plugins/snapscope/handlers/recovery')];
+  ({ handlePeekRecovery } = require('../plugins/snapscope/handlers/recovery'));
 }
 
 function primeAllowedAction(action, maxRetries = 0, timeoutMs = 5000) {
@@ -133,7 +133,7 @@ describe('peek high-risk recovery approvals', () => {
   afterEach(() => {
     teardownTestDb();
     vi.restoreAllMocks();
-    delete require.cache[require.resolve('../handlers/peek/recovery')];
+    delete require.cache[require.resolve('../plugins/snapscope/handlers/recovery')];
   });
 
   afterAll(() => {

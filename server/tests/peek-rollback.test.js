@@ -2,7 +2,7 @@ const {
   attachRollbackData,
   createRollbackPlan,
   formatPolicyProof,
-} = require('../handlers/peek/rollback');
+} = require('../plugins/snapscope/handlers/rollback');
 
 const mockShared = {
   peekHttpGetWithRetry: vi.fn(),
@@ -28,7 +28,7 @@ const mockLogger = {
 };
 
 const configCore = require('../db/config-core');
-const sharedModule = require('../handlers/peek/shared');
+const sharedModule = require('../plugins/snapscope/handlers/shared');
 const shadowEnforcerModule = require('../policy-engine/shadow-enforcer');
 const taskHooksModule = require('../policy-engine/task-hooks');
 const loggerModule = require('../logger');
@@ -59,8 +59,8 @@ describe('peek rollback helpers', () => {
     loggerModule.child = mockLogger.child;
     configCore.getConfig = vi.fn(() => null);
 
-    delete require.cache[require.resolve('../handlers/peek/recovery')];
-    ({ handlePeekRecovery } = require('../handlers/peek/recovery'));
+    delete require.cache[require.resolve('../plugins/snapscope/handlers/recovery')];
+    ({ handlePeekRecovery } = require('../plugins/snapscope/handlers/recovery'));
 
     mockShared.resolvePeekHost.mockReturnValue({
       hostName: 'snap-host',

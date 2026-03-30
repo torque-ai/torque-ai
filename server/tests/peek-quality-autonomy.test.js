@@ -5,8 +5,8 @@ const path = require('path');
 const { createRequire } = require('module');
 
 const configCore = require('../db/config-core');
-const { classifyActionRisk } = require('../handlers/peek/rollback');
-const { resolveRecoveryMode } = require('../handlers/peek/recovery');
+const { classifyActionRisk } = require('../plugins/snapscope/handlers/rollback');
+const { resolveRecoveryMode } = require('../plugins/snapscope/handlers/recovery');
 
 function loadModuleWithInternals(moduleRelativePath, internals) {
   const absolutePath = path.join(__dirname, '..', moduleRelativePath);
@@ -40,11 +40,11 @@ module.exports = {
   return localModule.exports;
 }
 
-const qualityScoreModule = loadModuleWithInternals('handlers/peek/quality-score.js', [
+const qualityScoreModule = loadModuleWithInternals('plugins/snapscope/handlers/quality-score.js', [
   'isPresent',
   'isImageBlobPresent',
 ]);
-const liveAutonomyModule = loadModuleWithInternals('handlers/peek/live-autonomy.js', [
+const liveAutonomyModule = loadModuleWithInternals('plugins/snapscope/handlers/live-autonomy.js', [
   'normalizeString',
   'normalizeActionName',
   'buildRiskJustification',

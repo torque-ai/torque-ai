@@ -75,7 +75,7 @@ installMockFrom(artifactsDir, '../../contracts/peek', contractsMock);
 installMockFrom(artifactsDir, './shared', sharedMock);
 installMockFrom(artifactsDir, '../../logger', loggerMock);
 
-const artifacts = require('../handlers/peek/artifacts');
+const artifacts = require('../plugins/snapscope/handlers/artifacts');
 
 describe('peek/artifacts — unit tests', () => {
   beforeEach(() => {

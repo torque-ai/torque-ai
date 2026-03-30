@@ -63,7 +63,7 @@ const mockSharp = vi.fn((input) => {
   return instance;
 });
 
-const sharedModule = require('../handlers/peek/shared');
+const sharedModule = require('../plugins/snapscope/handlers/shared');
 const loggerModule = require('../logger');
 const childProcessModule = require('child_process');
 const tesseractModule = require('tesseract.js');
@@ -99,8 +99,8 @@ function sanitizeTargetKey(value, fallback) {
 }
 
 function loadCapture() {
-  delete require.cache[require.resolve('../handlers/peek/capture')];
-  return require('../handlers/peek/capture');
+  delete require.cache[require.resolve('../plugins/snapscope/handlers/capture')];
+  return require('../plugins/snapscope/handlers/capture');
 }
 
 function createPeekCaptureData(overrides = {}) {

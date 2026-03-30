@@ -8,7 +8,7 @@ const { installMock } = require('./cjs-mock');
 const SUBJECT_MODULE = '../policy-engine/adapters/approval';
 const SCHEDULING_AUTOMATION_MODULE = '../db/scheduling-automation';
 const EVALUATION_STORE_MODULE = '../policy-engine/evaluation-store';
-const ROLLBACK_MODULE = '../handlers/peek/rollback';
+const ROLLBACK_MODULE = '../plugins/snapscope/handlers/rollback';
 
 const subjectPath = require.resolve(SUBJECT_MODULE);
 const schedulingAutomationPath = require.resolve(SCHEDULING_AUTOMATION_MODULE);
@@ -19,7 +19,7 @@ let currentModules = {};
 
 vi.mock('../db/scheduling-automation', () => currentModules.schedulingAutomation);
 vi.mock('../policy-engine/evaluation-store', () => currentModules.evaluationStore);
-vi.mock('../handlers/peek/rollback', () => currentModules.rollback);
+vi.mock('../plugins/snapscope/handlers/rollback', () => currentModules.rollback);
 
 function hasOwn(value, key) {
   return Object.prototype.hasOwnProperty.call(value, key);

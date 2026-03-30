@@ -33,19 +33,19 @@ function loadInjectedModule(filePath, injectedModules = {}) {
 }
 
 function loadWebhookOutbound(injectedModules = {}) {
-  return loadInjectedModule(path.resolve(__dirname, '../handlers/peek/webhook-outbound.js'), injectedModules);
+  return loadInjectedModule(path.resolve(__dirname, '../plugins/snapscope/handlers/webhook-outbound.js'), injectedModules);
 }
 
 function loadPeekRecovery(injectedModules = {}) {
-  return loadInjectedModule(path.resolve(__dirname, '../handlers/peek/recovery.js'), injectedModules);
+  return loadInjectedModule(path.resolve(__dirname, '../plugins/snapscope/handlers/recovery.js'), injectedModules);
 }
 
 function loadPeekArtifacts(injectedModules = {}) {
-  return loadInjectedModule(path.resolve(__dirname, '../handlers/peek/artifacts.js'), injectedModules);
+  return loadInjectedModule(path.resolve(__dirname, '../plugins/snapscope/handlers/artifacts.js'), injectedModules);
 }
 
 function loadPeekCompliance(injectedModules = {}) {
-  return loadInjectedModule(path.resolve(__dirname, '../handlers/peek/compliance.js'), injectedModules);
+  return loadInjectedModule(path.resolve(__dirname, '../plugins/snapscope/handlers/compliance.js'), injectedModules);
 }
 
 function createLoggerMock() {
@@ -204,7 +204,7 @@ function createRecoveryHandlerSubject({ fireWebhookForEvent = vi.fn(() => Promis
       hostUrl: 'http://peek-host',
     })),
     resolvePeekTaskContext: vi.fn(() => ({
-      task: { id: 'task-1', requested_by: 'operator@example.test' },
+      task: { id: 'task-1', requested_by: 'user@example.com' },
       taskId: 'task-1',
       workflowId: null,
       taskLabel: null,

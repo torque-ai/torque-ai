@@ -73,7 +73,7 @@ vi.mock('../utils/resource-gate', () => ({
   checkResourceGate: mocks.checkResourceGate,
 }));
 vi.mock('../utils/host-monitoring', () => mocks.hostMonitoring);
-vi.mock('../handlers/peek-handlers', () => ({
+vi.mock('../plugins/snapscope/handlers/capture', () => ({
   handlePeekUi: mocks.handlePeekUi,
 }));
 vi.mock('../hooks/event-dispatch', () => ({
@@ -334,7 +334,7 @@ beforeEach(() => {
     checkResourceGate: mocks.checkResourceGate,
   });
   installCjsModuleMock('../utils/host-monitoring', mocks.hostMonitoring);
-  installCjsModuleMock('../handlers/peek-handlers', {
+  installCjsModuleMock('../plugins/snapscope/handlers/capture', {
     handlePeekUi: mocks.handlePeekUi,
   });
   installCjsModuleMock('../hooks/event-dispatch', {

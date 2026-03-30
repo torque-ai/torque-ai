@@ -410,14 +410,14 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('intelligenceHandlers', require('./handlers/advanced/intelligence'));
     _defaultContainer.registerValue('performanceHandlers', require('./handlers/advanced/performance'));
     _defaultContainer.registerValue('schedulingHandlers', require('./handlers/advanced/scheduling'));
-    // handlers/peek/
-    _defaultContainer.registerValue('peekArtifactsHandlers', require('./handlers/peek/artifacts'));
-    _defaultContainer.registerValue('peekCaptureHandlers', require('./handlers/peek/capture'));
-    _defaultContainer.registerValue('peekComplianceHandlers', require('./handlers/peek/compliance'));
-    _defaultContainer.registerValue('peekHostsHandlers', require('./handlers/peek/hosts'));
-    _defaultContainer.registerValue('peekRecoveryHandlers', require('./handlers/peek/recovery'));
-    _defaultContainer.registerValue('peekSharedHandlers', require('./handlers/peek/shared'));
-    _defaultContainer.registerValue('peekWebhookOutboundHandlers', require('./handlers/peek/webhook-outbound'));
+    // plugins/snapscope/handlers/
+    _defaultContainer.registerValue('peekArtifactsHandlers', require('./plugins/snapscope/handlers/artifacts'));
+    _defaultContainer.registerValue('peekCaptureHandlers', require('./plugins/snapscope/handlers/capture'));
+    _defaultContainer.registerValue('peekComplianceHandlers', require('./plugins/snapscope/handlers/compliance'));
+    _defaultContainer.registerValue('peekHostsHandlers', require('./plugins/snapscope/handlers/hosts'));
+    _defaultContainer.registerValue('peekRecoveryHandlers', require('./plugins/snapscope/handlers/recovery'));
+    _defaultContainer.registerValue('peekSharedHandlers', require('./plugins/snapscope/handlers/shared'));
+    _defaultContainer.registerValue('peekWebhookOutboundHandlers', require('./plugins/snapscope/handlers/webhook-outbound'));
     // handlers/validation/
     _defaultContainer.registerValue('validationHandlers', require('./handlers/validation/index'));
     _defaultContainer.registerValue('validationAnalysisHandlers', require('./handlers/validation/analysis'));
