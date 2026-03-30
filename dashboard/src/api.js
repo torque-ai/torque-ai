@@ -165,7 +165,7 @@ export const tasks = {
 // ─── Provider endpoints (v2 for list/stats/trends/toggle) ───────────────────
 
 export const providers = {
-  list: () => requestV2('/providers').then(d => d.items || d),
+  list: () => requestV2('/providers').then(d => d.items || d.providers || d),
   stats: (id, days = 7) => requestV2(`/providers/${id}/stats?days=${days}`),
   trends: (days = 7) => requestV2(`/providers/trends?days=${days}`),
   percentiles: (id, days = 7) => request(`/providers/${id}/percentiles?days=${days}`),

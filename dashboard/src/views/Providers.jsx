@@ -430,7 +430,36 @@ export default function Providers({ statsVersion, tasksTick }) {
         request('/quota/history?days=7').catch(() => ({ history: [] })),
       ]);
       if (!mountedRef.current) return;
-      setProvidersList(providersData);
+
+      // Enrich providers with per-provider task stats
+      const enriched = Array.isArray(providersData) ? await Promise.all(
+        providersData.map(async (p) => {
+          try {
+            const statsData = await providersApi.stats(p.id || p.provider, days);
+            const rows = Array.isArray(statsData) ? statsData : Object.values(statsData || {}).filter(v => v && typeof v === 'object' && v.provider);
+            const totalTasks = rows.reduce((s, r) => s + (r.total_tasks || 0), 0);
+            const successfulTasks = rows.reduce((s, r) => s + (r.successful_tasks || 0), 0);
+            const failedTasks = rows.reduce((s, r) => s + (r.failed_tasks || 0), 0);
+            const avgDuration = totalTasks > 0
+              ? rows.reduce((s, r) => s + (r.avg_duration_seconds || 0) * (r.total_tasks || 0), 0) / totalTasks
+              : 0;
+            return {
+              ...p,
+              stats: {
+                total_tasks: totalTasks,
+                successful_tasks: successfulTasks,
+                failed_tasks: failedTasks,
+                success_rate: totalTasks > 0 ? Math.round((successfulTasks / totalTasks) * 100) : 0,
+                avg_duration_seconds: avgDuration,
+              },
+            };
+          } catch {
+            return { ...p, stats: { total_tasks: 0, successful_tasks: 0, failed_tasks: 0, success_rate: 0, avg_duration_seconds: 0 } };
+          }
+        })
+      ) : providersData;
+
+      setProvidersList(enriched);
       setTimeSeries(timeSeriesData);
       setUsageHistory(Array.isArray(historyResult?.history) ? historyResult.history : []);
       setHostCount(Array.isArray(hostsData) ? hostsData.length : 0);
