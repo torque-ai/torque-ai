@@ -157,16 +157,18 @@ function createAdversarialReviewStage({
     };
 
     taskCore.createTask(reviewTask);
-    taskManager.startTask(reviewTaskId);
 
     // Mark original task (best effort)
     try {
       const updatedMeta = {
         ...metadata,
         adversarial_review_pending: true,
+        adversarial_review_task_id: reviewTaskId,
       };
-      taskCore.updateTask(ctx.taskId, { metadata: JSON.stringify(updatedMeta) });
+      taskCore.updateTask(ctx.taskId, { metadata: updatedMeta });
     } catch (_) { /* best effort */ }
+
+    taskManager.startTask(reviewTaskId);
   };
 }
 

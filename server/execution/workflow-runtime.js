@@ -114,6 +114,15 @@ function isQueuedStartResult(result) {
   return Boolean(result && typeof result === 'object' && result.queued === true);
 }
 
+function resolveWorkflowNodeId(task, workflowId) {
+  if (task?.workflow_node_id) return task.workflow_node_id;
+  if (!workflowId || !task?.id || typeof db?.getWorkflowTasks !== 'function') return null;
+
+  const workflowTasks = db.getWorkflowTasks(workflowId) || [];
+  const match = workflowTasks.find((workflowTask) => workflowTask?.id === task.id);
+  return match?.workflow_node_id || null;
+}
+
 // ---------------------------------------------------------------------------
 // Plan Project Functions
 // ---------------------------------------------------------------------------
@@ -777,6 +786,23 @@ function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
 
   const completedTask = db.getTask(taskId);
   if (!completedTask) return;
+
+  const completedMetadata = typeof completedTask.metadata === 'string'
+    ? safeJsonParse(completedTask.metadata, {})
+    : (completedTask.metadata && typeof completedTask.metadata === 'object' ? completedTask.metadata : {});
+  if (
+    workflowId
+    && completedMetadata.adversarial_review_pending
+    && completedMetadata.adversarial_review_task_id
+    && typeof db.injectReviewDependency === 'function'
+  ) {
+    const completedNodeId = resolveWorkflowNodeId(completedTask, workflowId);
+    if (completedNodeId) {
+      db.injectReviewDependency(workflowId, completedNodeId, completedMetadata.adversarial_review_task_id);
+    } else {
+      logger.info(`[workflow-runtime] Skipping adversarial review DAG injection for task ${taskId}: missing workflow node id`);
+    }
+  }
 
   // Get all dependencies where this task is the prerequisite
   const dependents = db.getTaskDependents(taskId);

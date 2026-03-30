@@ -502,6 +502,142 @@ function deleteTaskDependency(dependencyId) {
   return result.changes > 0;
 }
 
+function normalizeTaskMetadata(rawMetadata) {
+  const parsed = typeof rawMetadata === 'string'
+    ? safeJsonParse(rawMetadata, {})
+    : (rawMetadata && typeof rawMetadata === 'object' && !Array.isArray(rawMetadata) ? rawMetadata : {});
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+function mergeContextFrom(metadata, nodeId) {
+  const existing = Array.isArray(metadata.context_from)
+    ? metadata.context_from.filter(value => typeof value === 'string' && value.length > 0)
+    : [];
+  return [...new Set([...existing, nodeId])];
+}
+
+/**
+ * Inject an adversarial review task into an existing workflow DAG.
+ * The review task is attached as a workflow node that depends on the completed
+ * node, and downstream tasks gain an additional dependency on the review node.
+ * @param {string} workflowId
+ * @param {string} completedNodeId
+ * @param {string} reviewTaskId
+ * @returns {{ review_node_id: string, completed_task_id: string, downstream_task_ids: string[] } | null}
+ */
+function injectReviewDependency(workflowId, completedNodeId, reviewTaskId) {
+  if (!workflowId || !completedNodeId || !reviewTaskId) return null;
+
+  const reviewNodeId = `review-${completedNodeId}`;
+  const inject = db.transaction(() => {
+    const completedTask = db.prepare(`
+      SELECT id, workflow_node_id
+      FROM tasks
+      WHERE workflow_id = ? AND workflow_node_id = ?
+      LIMIT 1
+    `).get(workflowId, completedNodeId);
+    if (!completedTask) {
+      throw new Error(`Cannot inject review dependency: node '${completedNodeId}' was not found in workflow '${workflowId}'`);
+    }
+
+    const reviewTask = db.prepare(`
+      SELECT id, workflow_id, workflow_node_id, metadata
+      FROM tasks
+      WHERE id = ?
+      LIMIT 1
+    `).get(reviewTaskId);
+    if (!reviewTask) {
+      throw new Error(`Cannot inject review dependency: review task '${reviewTaskId}' was not found`);
+    }
+    if (reviewTask.workflow_id && reviewTask.workflow_id !== workflowId) {
+      throw new Error(`Cannot inject review dependency: review task '${reviewTaskId}' already belongs to workflow '${reviewTask.workflow_id}'`);
+    }
+    if (reviewTask.workflow_node_id && reviewTask.workflow_node_id !== reviewNodeId) {
+      throw new Error(`Cannot inject review dependency: review task '${reviewTaskId}' already uses node '${reviewTask.workflow_node_id}'`);
+    }
+
+    const conflictingNode = db.prepare(`
+      SELECT id
+      FROM tasks
+      WHERE workflow_id = ? AND workflow_node_id = ?
+      LIMIT 1
+    `).get(workflowId, reviewNodeId);
+    if (conflictingNode && conflictingNode.id !== reviewTaskId) {
+      throw new Error(`Cannot inject review dependency: workflow '${workflowId}' already has a different task for node '${reviewNodeId}'`);
+    }
+
+    const reviewMeta = normalizeTaskMetadata(reviewTask.metadata);
+    const updatedReviewMeta = {
+      ...reviewMeta,
+      context_from: mergeContextFrom(reviewMeta, completedNodeId),
+    };
+    db.prepare(`
+      UPDATE tasks
+      SET workflow_id = ?, workflow_node_id = ?, metadata = ?
+      WHERE id = ?
+    `).run(workflowId, reviewNodeId, JSON.stringify(updatedReviewMeta), reviewTaskId);
+
+    const reviewDep = db.prepare(`
+      SELECT id
+      FROM task_dependencies
+      WHERE workflow_id = ? AND task_id = ? AND depends_on_task_id = ?
+      LIMIT 1
+    `).get(workflowId, reviewTaskId, completedTask.id);
+    if (!reviewDep) {
+      addTaskDependency({
+        workflow_id: workflowId,
+        task_id: reviewTaskId,
+        depends_on_task_id: completedTask.id,
+        on_fail: 'continue',
+      });
+    }
+
+    const downstreamDeps = db.prepare(`
+      SELECT DISTINCT td.task_id
+      FROM task_dependencies td
+      WHERE td.workflow_id = ?
+        AND td.depends_on_task_id = ?
+        AND td.task_id <> ?
+    `).all(workflowId, completedTask.id, reviewTaskId);
+
+    for (const dep of downstreamDeps) {
+      const reviewGate = db.prepare(`
+        SELECT id
+        FROM task_dependencies
+        WHERE workflow_id = ? AND task_id = ? AND depends_on_task_id = ?
+        LIMIT 1
+      `).get(workflowId, dep.task_id, reviewTaskId);
+      if (!reviewGate) {
+        addTaskDependency({
+          workflow_id: workflowId,
+          task_id: dep.task_id,
+          depends_on_task_id: reviewTaskId,
+          on_fail: 'continue',
+        });
+      }
+
+      const downstreamTask = db.prepare('SELECT metadata FROM tasks WHERE id = ? LIMIT 1').get(dep.task_id);
+      if (!downstreamTask) continue;
+      const downstreamMeta = normalizeTaskMetadata(downstreamTask.metadata);
+      const updatedDownstreamMeta = {
+        ...downstreamMeta,
+        context_from: mergeContextFrom(downstreamMeta, reviewNodeId),
+      };
+      db.prepare('UPDATE tasks SET metadata = ? WHERE id = ?').run(JSON.stringify(updatedDownstreamMeta), dep.task_id);
+    }
+
+    return {
+      review_node_id: reviewNodeId,
+      completed_task_id: completedTask.id,
+      downstream_task_ids: downstreamDeps.map(dep => dep.task_id),
+    };
+  });
+
+  const result = inject();
+  updateWorkflowCounts(workflowId);
+  return result;
+}
+
 // ============================================
 // Workflow Task Queries
 // ============================================
@@ -1223,6 +1359,7 @@ module.exports = {
   getTaskDependents,
   getWorkflowDependencies,
   deleteTaskDependency,
+  injectReviewDependency,
   getWorkflowTasks,
   getBlockedTasks,
   areTaskDependenciesSatisfied,

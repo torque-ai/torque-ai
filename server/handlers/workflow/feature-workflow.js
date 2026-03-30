@@ -1,14 +1,13 @@
 /**
  * Create Feature Workflow handler — extracted from workflow/index.js
  *
- * Builds a standardized feature workflow DAG:
- * types -> data -> events -> system -> tests + wire
+ * Builds a standardized feature workflow DAG with optional review checkpoints.
  */
 
 const { v4: uuidv4 } = require('uuid');
 const taskCore = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
-const projectConfigCore = require('../../db/project-config-core');
+const projectConfigCoreModule = require('../../db/project-config-core');
 const {
   ErrorCodes,
   makeError,
@@ -22,9 +21,27 @@ function init({ startWorkflowExecution, buildEmptyWorkflowCreationError }) {
   _buildEmptyWorkflowCreationError = buildEmptyWorkflowCreationError;
 }
 
+function getProjectConfigCore() {
+  try {
+    const { defaultContainer } = require('../../container');
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && typeof defaultContainer.get === 'function'
+      && defaultContainer.has('projectConfigCore')
+    ) {
+      return defaultContainer.get('projectConfigCore');
+    }
+  } catch (_e) {
+    // Fall back to the direct module below.
+  }
+
+  return projectConfigCoreModule;
+}
+
 /**
- * Create a standardized feature workflow following the pattern:
- * types -> data -> events -> system -> tests + wire
+ * Create a standardized feature workflow with optional adversarial-review
+ * checkpoints between code-producing steps.
  * This eliminates repetitive workflow construction for game system features.
  */
 function handleCreateFeatureWorkflow(args) {
@@ -40,8 +57,10 @@ function handleCreateFeatureWorkflow(args) {
   const _camel = name.charAt(0).toLowerCase() + name.slice(1);
   const pascal = name.charAt(0).toUpperCase() + name.slice(1);
   const wdir = args.working_directory;
-  const projectConfig = projectConfigCore ? projectConfigCore.getProjectConfig(wdir) : {};
-  const adversarialReviewEnabled = projectConfig.adversarial_review === 'auto' || projectConfig.adversarial_review === 'always';
+  const projectConfigCore = getProjectConfigCore();
+  const config = projectConfigCore?.getProjectConfig?.(wdir) || {};
+  const reviewMode = config.adversarial_review || 'off';
+  const adversarialReviewEnabled = reviewMode === 'auto' || reviewMode === 'always';
   const stepProviders = args.step_providers || {};
   const routingTemplate = args.routing_template || null;
   const fixedStepNodeIds = [
@@ -52,6 +71,15 @@ function handleCreateFeatureWorkflow(args) {
     `${kebab}-tests`,
     `${kebab}-wire`
   ];
+  if (adversarialReviewEnabled) {
+    fixedStepNodeIds.push(
+      `review-${kebab}-types`,
+      `review-${kebab}-data`,
+      `review-${kebab}-events`,
+      `review-${kebab}-system`,
+      `review-${kebab}-wire`
+    );
+  }
   const fixedStepNodeIdSet = new Set(fixedStepNodeIds);
   if (args.parallel_tasks !== undefined && !Array.isArray(args.parallel_tasks)) {
     return makeError(ErrorCodes.INVALID_PARAM, 'parallel_tasks must be an array');
@@ -110,155 +138,141 @@ function handleCreateFeatureWorkflow(args) {
   // Build metadata for a feature workflow task.
   // step_providers takes priority (explicit provider override).
   // If no step_provider is set, routing_template is propagated for smart routing.
-  const buildStepMeta = (stepProvider, extraMeta) => {
+  const buildStepMeta = (stepProvider, extraMeta, options = {}) => {
+    const { inheritRouting = true } = options;
     const meta = { ...extraMeta };
-    if (!stepProvider && routingTemplate) {
+    if (inheritRouting && !stepProvider && routingTemplate) {
       meta._routing_template = routingTemplate;
     }
     return Object.keys(meta).length > 0 ? JSON.stringify(meta) : undefined;
   };
 
-  // Step 1: Types (no deps)
-  if (args.types_task) {
-    const typesId = uuidv4();
-    taskCore.createTask({
-      id: typesId,
-      task_description: args.types_task,
-      working_directory: wdir,
-      workflow_id: workflowId,
-      workflow_node_id: `${kebab}-types`,
-      status: 'pending',
-      provider: stepProviders.types,
-      metadata: buildStepMeta(stepProviders.types, adversarialReviewEnabled ? { adversarial_review: true } : undefined),
-    });
-    tasks.push({ id: typesId, nodeId: `${kebab}-types`, step: 'types', provider: stepProviders.types });
-  }
+  const reviewableSteps = new Set(['types', 'data', 'events', 'system', 'wire']);
 
-  // Step 2: Events (no deps, parallel with types)
-  if (args.events_task) {
-    const eventsId = uuidv4();
-    taskCore.createTask({
-      id: eventsId,
-      task_description: args.events_task,
-      working_directory: wdir,
-      workflow_id: workflowId,
-      workflow_node_id: `${kebab}-events`,
-      status: 'pending',
-      provider: stepProviders.events,
-      metadata: buildStepMeta(stepProviders.events, adversarialReviewEnabled ? { adversarial_review: true } : undefined),
-    });
-    tasks.push({ id: eventsId, nodeId: `${kebab}-events`, step: 'events', provider: stepProviders.events });
-  }
+  const getStepMetadata = (stepName) => {
+    const extraMeta = {};
+    if (stepName === 'system') {
+      extraMeta.needs_review = true;
+    }
+    if (adversarialReviewEnabled && reviewableSteps.has(stepName)) {
+      extraMeta.adversarial_review = true;
+    }
 
-  // Step 3: Data (depends on types)
-  if (args.data_task) {
-    const dataId = uuidv4();
-    const typesTask = tasks.find(t => t.step === 'types');
+    return buildStepMeta(
+      stepProviders[stepName],
+      Object.keys(extraMeta).length > 0 ? extraMeta : undefined
+    );
+  };
+
+  const createWorkflowTaskRecord = ({
+    nodeId,
+    step,
+    taskDescription,
+    status,
+    provider,
+    metadata,
+    tags,
+    kind = 'step',
+  }) => {
+    const id = uuidv4();
     taskCore.createTask({
-      id: dataId,
-      task_description: args.data_task,
+      id,
+      task_description: taskDescription,
       working_directory: wdir,
       workflow_id: workflowId,
-      workflow_node_id: `${kebab}-data`,
-      status: typesTask ? 'blocked' : 'pending',
-      provider: stepProviders.data,
-      metadata: buildStepMeta(stepProviders.data, adversarialReviewEnabled ? { adversarial_review: true } : undefined),
+      workflow_node_id: nodeId,
+      status,
+      provider,
+      metadata,
+      tags,
     });
-    if (typesTask) {
+    const record = {
+      id,
+      nodeId,
+      step,
+      provider: provider || null,
+      status,
+      kind,
+    };
+    tasks.push(record);
+    return record;
+  };
+
+  const addDependencies = (taskRecord, dependencyRecords) => {
+    for (const dep of dependencyRecords.filter(Boolean)) {
       workflowEngine.addTaskDependency({
         workflow_id: workflowId,
-        task_id: dataId,
-        depends_on_task_id: typesTask.id,
+        task_id: taskRecord.id,
+        depends_on_task_id: dep.id,
       });
     }
-    tasks.push({ id: dataId, nodeId: `${kebab}-data`, step: 'data', provider: stepProviders.data });
-  }
+  };
 
-  // Step 4: System (depends on data + events)
-  if (args.system_task) {
-    const systemId = uuidv4();
-    const dataTask = tasks.find(t => t.step === 'data');
-    const eventsTask = tasks.find(t => t.step === 'events');
-    const hasDeps = dataTask || eventsTask;
-    taskCore.createTask({
-      id: systemId,
-      task_description: args.system_task,
-      working_directory: wdir,
-      workflow_id: workflowId,
-      workflow_node_id: `${kebab}-system`,
-      status: hasDeps ? 'blocked' : 'pending',
-      provider: stepProviders.system,
+  const createStepTask = (stepName, dependencyRecords = []) => {
+    const taskDescription = args[`${stepName}_task`];
+    if (!taskDescription) {
+      return null;
+    }
+
+    const deps = dependencyRecords.filter(Boolean);
+    const record = createWorkflowTaskRecord({
+      nodeId: `${kebab}-${stepName}`,
+      step: stepName,
+      taskDescription,
+      status: deps.length > 0 ? 'blocked' : 'pending',
+      provider: stepProviders[stepName],
+      metadata: getStepMetadata(stepName),
+    });
+    addDependencies(record, deps);
+    return record;
+  };
+
+  const createReviewTask = (stepName, sourceTask) => {
+    if (!sourceTask) {
+      return null;
+    }
+
+    const reviewRecord = createWorkflowTaskRecord({
+      nodeId: `review-${sourceTask.nodeId}`,
+      step: `review-${stepName}`,
+      taskDescription: `Review the ${stepName} step output. Check get_adversarial_reviews for the task and present the verdict.`,
+      status: 'blocked',
       metadata: buildStepMeta(
-        stepProviders.system,
-        {
-          needs_review: true,
-          ...(adversarialReviewEnabled ? { adversarial_review: true } : {}),
-        }
+        undefined,
+        { context_from: [sourceTask.nodeId] },
+        { inheritRouting: false }
       ),
+      tags: ['review-checkpoint'],
+      kind: 'review',
     });
-    if (dataTask) {
-      workflowEngine.addTaskDependency({
-        workflow_id: workflowId,
-        task_id: systemId,
-        depends_on_task_id: dataTask.id,
-      });
-    }
-    if (eventsTask) {
-      workflowEngine.addTaskDependency({
-        workflow_id: workflowId,
-        task_id: systemId,
-        depends_on_task_id: eventsTask.id,
-      });
-    }
-    tasks.push({ id: systemId, nodeId: `${kebab}-system`, step: 'system', provider: stepProviders.system });
-  }
+    addDependencies(reviewRecord, [sourceTask]);
+    return reviewRecord;
+  };
 
-  // Step 5: Tests (depends on system)
-  if (args.tests_task) {
-    const testsId = uuidv4();
-    const systemTask = tasks.find(t => t.step === 'system');
-    taskCore.createTask({
-      id: testsId,
-      task_description: args.tests_task,
-      working_directory: wdir,
-      workflow_id: workflowId,
-      workflow_node_id: `${kebab}-tests`,
-      status: systemTask ? 'blocked' : 'pending',
-      provider: stepProviders.tests,
-      metadata: buildStepMeta(stepProviders.tests),
-    });
-    if (systemTask) {
-      workflowEngine.addTaskDependency({
-        workflow_id: workflowId,
-        task_id: testsId,
-        depends_on_task_id: systemTask.id,
-      });
-    }
-    tasks.push({ id: testsId, nodeId: `${kebab}-tests`, step: 'tests', provider: stepProviders.tests });
-  }
+  if (adversarialReviewEnabled) {
+    let previousTerminalTask = null;
+    const orderedSteps = ['types', 'data', 'events', 'system', 'tests', 'wire'];
 
-  // Step 6: Wire (depends on system, parallel with tests)
-  if (args.wire_task) {
-    const wireId = uuidv4();
-    const systemTask = tasks.find(t => t.step === 'system');
-    taskCore.createTask({
-      id: wireId,
-      task_description: args.wire_task,
-      working_directory: wdir,
-      workflow_id: workflowId,
-      workflow_node_id: `${kebab}-wire`,
-      status: systemTask ? 'blocked' : 'pending',
-      provider: stepProviders.wire,
-      metadata: buildStepMeta(stepProviders.wire, adversarialReviewEnabled ? { adversarial_review: true } : undefined),
-    });
-    if (systemTask) {
-      workflowEngine.addTaskDependency({
-        workflow_id: workflowId,
-        task_id: wireId,
-        depends_on_task_id: systemTask.id,
-      });
+    for (const stepName of orderedSteps) {
+      const stepTask = createStepTask(stepName, previousTerminalTask ? [previousTerminalTask] : []);
+      if (!stepTask) {
+        continue;
+      }
+
+      if (reviewableSteps.has(stepName)) {
+        previousTerminalTask = createReviewTask(stepName, stepTask);
+      } else {
+        previousTerminalTask = stepTask;
+      }
     }
-    tasks.push({ id: wireId, nodeId: `${kebab}-wire`, step: 'wire', provider: stepProviders.wire });
+  } else {
+    const typesTask = createStepTask('types');
+    const eventsTask = createStepTask('events');
+    const dataTask = createStepTask('data', typesTask ? [typesTask] : []);
+    const systemDeps = [dataTask, eventsTask].filter(Boolean);
+    const systemTask = createStepTask('system', systemDeps);
+    createStepTask('tests', systemTask ? [systemTask] : []);
+    createStepTask('wire', systemTask ? [systemTask] : []);
   }
 
   // Add extra parallel tasks (tests that run alongside, no deps)
@@ -281,7 +295,7 @@ function handleCreateFeatureWorkflow(args) {
         provider: ptProvider,
         metadata: buildStepMeta(ptProvider),
       });
-      tasks.push({ id: ptId, nodeId, step: 'parallel', provider: ptProvider });
+      tasks.push({ id: ptId, nodeId, step: 'parallel', provider: ptProvider || null, status: 'pending', kind: 'parallel' });
     }
   }
 
@@ -290,7 +304,7 @@ function handleCreateFeatureWorkflow(args) {
   // Auto-run if requested
   let started = 0;
   let queued = 0;
-  let blocked = tasks.filter(t => t.step !== 'parallel' && !['types', 'events'].includes(t.step)).length;
+  let blocked = tasks.filter(t => t.status === 'blocked').length;
   let startFailures = [];
   if (args.auto_run) {
     const startResult = _startWorkflowExecution({
@@ -327,8 +341,10 @@ function handleCreateFeatureWorkflow(args) {
   output += `\n### DAG\n\n`;
   output += `| Node | Step | Provider | Status |\n|------|------|----------|--------|\n`;
   for (const t of tasks) {
-    const prov = t.provider || (routingTemplate ? `via ${routingTemplate}` : 'smart routing');
-    output += `| ${t.nodeId} | ${t.step} | ${prov} | ${t.step === 'parallel' || !tasks.find(d => d.step === 'types') ? 'pending' : (t.step === 'types' || t.step === 'events' ? 'pending' : 'blocked')} |\n`;
+    const prov = t.kind === 'review'
+      ? 'checkpoint'
+      : (t.provider || (routingTemplate ? `via ${routingTemplate}` : 'smart routing'));
+    output += `| ${t.nodeId} | ${t.step} | ${prov} | ${t.status} |\n`;
   }
 
   if (!args.auto_run) {

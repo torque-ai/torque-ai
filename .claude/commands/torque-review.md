@@ -11,6 +11,7 @@ allowed-tools:
   - mcp__torque__run_build_check
   - mcp__torque__run_syntax_check
   - mcp__torque__get_adversarial_reviews
+  - mcp__torque__request_adversarial_review
   - mcp__torque__await_task
   - mcp__torque__submit_task
   - mcp__torque__approve_task
@@ -26,6 +27,8 @@ allowed-tools:
 # TORQUE Review
 
 Review completed task output with validation, quality scoring, and approval.
+
+If task metadata includes `adversarial_review_pending: true`, warn the user that an adversarial review is still in progress and they should wait for it to complete before making a final approval or rejection decision.
 
 ## Instructions
 
@@ -49,52 +52,45 @@ Review completed task output with validation, quality scoring, and approval.
 
 6. **Present findings**:
 
-```
-## Review: [Task ID] — [Brief description]
+    ## Review: [Task ID] - [Brief description]
 
-**Provider:** [local/cloud] | **Model:** [model] | **Quality:** [score]/100
+    **Provider:** [local/cloud] | **Model:** [model] | **Quality:** [score]/100
 
-### Output Summary
-[Summarize what the task produced — key changes, files modified]
+    ### Output Summary
+    [Summarize what the task produced - key changes, files modified]
 
-### Validation
-[List any issues found, or "No issues detected"]
+    ### Validation
+    [List any issues found, or "No issues detected"]
 
-### Baseline Comparison
-[File size changes, truncation warnings, or "Within normal range"]
+    ### Baseline Comparison
+    [File size changes, truncation warnings, or "Within normal range"]
 
-### Build Check
-[Pass/Fail/Skipped]
-```
+    ### Build Check
+    [Pass/Fail/Skipped]
 
 7. **Adversarial Review Check**:
    1. Call `get_adversarial_reviews` with the task ID.
-   2. If no reviews are returned:
-      - If metadata has `adversarial_review_pending: true` and `adversarial_review_task_id`:
-        - Call `await_task` on `adversarial_review_task_id` and wait for completion.
-        - Re-run `get_adversarial_reviews`.
-      - If `adversarial_review_pending: true` but no `adversarial_review_task_id` exists:
-        - Report this as blocked and continue to next task only after the metadata is cleaned.
-      - If there is no pending metadata:
-        - Continue to final decision without adversarial feedback.
-   3. If reviews exist, display verdict and confidence for each review and include an issues table with headers:
+   2. If task metadata has `adversarial_review_pending: true`, warn the user that the adversarial review is still in progress and they should wait for it to complete before making a final decision.
+      - If `adversarial_review_task_id` exists, call `await_task` on that task ID, then re-run `get_adversarial_reviews`.
+      - If no `adversarial_review_task_id` exists, report the review as blocked metadata and do not present the task as fully ready for approval.
+   3. If reviews exist, present them in a structured format:
+      - **Verdict:** `approve` / `concerns` / `reject`
+      - **Confidence:** `high` / `medium` / `low`
+      - **Issues found:** table with `file`, `line`, `severity`, `category`, `description`, `suggestion`
 
-   `file | line | severity | category | description | suggestion`
+      Example format:
 
-   Example format:
+          - Verdict: approve | concerns | reject
+          - Confidence: high | medium | low
+          - Issues found:
+          | file | line | severity | category | description | suggestion |
+          | --- | --- | --- | --- | --- | --- |
+          | [file] | [line] | [severity] | [category] | [description] | [suggestion] |
 
-   ```md
-   - Verdict: approve | concerns | reject
-   - Confidence: high | medium | low
-   - Issues:
-   | file | line | severity | category | description | suggestion |
-   | --- | --- | --- | --- | --- | --- |
-   | [file] | [line] | [severity] | [category] | [description] | [suggestion] |
-   ```
-
-   4. If `verdict` is `approve`, proceed as safe to commit.
-   5. If `verdict` is `concerns`, request fixes if needed and commit only if acceptable.
-   6. If `verdict` is `reject`, do NOT commit. Submit a fix task targeting critical issues, then re-review.
+   4. If the verdict is `reject`, recommend rolling back with `rollback_task` or submitting a fix task before re-review.
+   5. If the verdict is `concerns`, present the issues and ask the user whether to proceed.
+   6. If no adversarial review exists but the task modified high-risk files, suggest running one and call `request_adversarial_review` with the `task_id` and `working_directory`.
+   7. If no adversarial review exists and the task is not high-risk, continue to the final decision without adversarial feedback.
 
 8. **Decision**: Ask user via AskUserQuestion:
    - **Approve** — accept the output, mark task approved
