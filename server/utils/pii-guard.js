@@ -7,6 +7,7 @@
 
 
 const os = require('os');
+const { execFileSync } = require('child_process');
 
 
 
@@ -15,6 +16,20 @@ const os = require('os');
 
 
 const SYSTEM_HOSTNAME = os.hostname();
+const OS_USERNAME = os.userInfo().username || '';
+
+let GIT_USER_NAME = '';
+let GIT_USER_EMAIL = '';
+try {
+  GIT_USER_NAME = execFileSync('git', ['config', 'user.name'], {
+    encoding: 'utf8', timeout: 3000, windowsHide: true
+  }).trim();
+} catch { /* git not available or not configured */ }
+try {
+  GIT_USER_EMAIL = execFileSync('git', ['config', 'user.email'], {
+    encoding: 'utf8', timeout: 3000, windowsHide: true
+  }).trim();
+} catch { /* git not available or not configured */ }
 
 
 
@@ -50,15 +65,15 @@ const BUILTIN_CATEGORIES = {
 
 
 
-      { regex: /C:\\Users\\(?!<user>)([^\\\s]+)/g, replacement: 'C:\\Users\\<user>' },
+      { regex: /C:\\Users\\(?!<user>|<os-user>)([^\\\s]+)/g, replacement: 'C:\\Users\\<user>' },
 
 
 
-      { regex: /\/home\/(?!<user>)([^/\s]+)/g, replacement: '/home/<user>' },
+      { regex: /\/home\/(?!<user>|<os-user>)([^/\s]+)/g, replacement: '/home/<user>' },
 
 
 
-      { regex: /\/Users\/(?!<user>)([^/\s]+)/g, replacement: '/Users/<user>' },
+      { regex: /\/Users\/(?!<user>|<os-user>)([^/\s]+)/g, replacement: '/Users/<user>' },
 
 
 
@@ -131,17 +146,11 @@ const BUILTIN_CATEGORIES = {
 
 
   hostnames: {
-
-
-
     patterns: [],
-
-
-
   },
-
-
-
+  auto_identity: {
+    patterns: [],
+  },
 };
 
 
@@ -162,7 +171,7 @@ if (SYSTEM_HOSTNAME && SYSTEM_HOSTNAME.length > 2) {
 
 
 
-    replacement: 'example-host',
+    replacement: '<hostname>',
 
 
 
@@ -170,6 +179,30 @@ if (SYSTEM_HOSTNAME && SYSTEM_HOSTNAME.length > 2) {
 
 
 
+}
+
+// OS username (bare occurrences — paths are caught by user_paths)
+if (OS_USERNAME && OS_USERNAME.length > 2) {
+  BUILTIN_CATEGORIES.auto_identity.patterns.push({
+    regex: new RegExp('\\b' + escapeRegexLiteral(OS_USERNAME) + '\\b', 'g'),
+    replacement: '<os-user>',
+  });
+}
+
+// Git user.name (only if different from OS username)
+if (GIT_USER_NAME && GIT_USER_NAME.length > 2 && GIT_USER_NAME.toLowerCase() !== OS_USERNAME.toLowerCase()) {
+  BUILTIN_CATEGORIES.auto_identity.patterns.push({
+    regex: new RegExp(escapeRegexLiteral(GIT_USER_NAME), 'gi'),
+    replacement: '<git-user>',
+  });
+}
+
+// Git user.email (skip noreply/example addresses — already safe)
+if (GIT_USER_EMAIL && GIT_USER_EMAIL.includes('@') && !GIT_USER_EMAIL.includes('noreply') && !GIT_USER_EMAIL.includes('example.com')) {
+  BUILTIN_CATEGORIES.auto_identity.patterns.push({
+    regex: new RegExp(escapeRegexLiteral(GIT_USER_EMAIL), 'gi'),
+    replacement: '<git-email>',
+  });
 }
 
 
@@ -358,4 +391,4 @@ function scanAndReplace(text, options = {}) {
 
 
 
-module.exports = { scanAndReplace, BUILTIN_CATEGORIES, SYSTEM_HOSTNAME };
+module.exports = { scanAndReplace, BUILTIN_CATEGORIES, SYSTEM_HOSTNAME, OS_USERNAME, GIT_USER_NAME, GIT_USER_EMAIL };
