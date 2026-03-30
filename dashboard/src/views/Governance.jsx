@@ -12,9 +12,16 @@ const MODE_OPTIONS = [
 ];
 
 const JUDGMENT_POLICIES = [
-  'Never manually implement what TORQUE should produce',
-  'Investigate before deleting unknown files',
-  'Prefer hashline tools over Read/Edit',
+  'Never manually implement what TORQUE should produce — plan, submit, verify, integrate',
+  'On TORQUE failure: diagnose root cause, fix, resubmit — do not bypass by writing code manually',
+  'Investigate before deleting unknown files — untracked files may be work products from other sessions',
+  'Prefer hashline tools over Read/Edit when TORQUE is available for higher edit precision',
+  'Always Read before Edit — never guess at indentation, whitespace, or surrounding context',
+  'Separate harness failures from code failures — "did the edit apply?" vs "is the code correct?"',
+  'Avoid retry loops — if an approach fails twice, change strategy instead of retrying',
+  'TORQUE is shared infrastructure — never restart or shutdown TORQUE to solve a task-level problem',
+  'When in doubt, ASK the user — cancellation is irreversible, a task\'s work is lost',
+  'Always await after run_workflow or submit_task — monitor progress, don\'t ask first',
 ];
 
 function normalizeRules(payload) {
