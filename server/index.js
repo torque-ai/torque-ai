@@ -53,7 +53,7 @@ const CLAUDE_DIR_NAME = '.claude';
 const MCP_CONFIG_FILENAME = '.mcp.json';
 const DEFAULT_MCP_HOST = '127.0.0.1';
 const DEFAULT_MCP_SSE_PORT = 3458;
-const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope']);
+const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control']);
 const LOCAL_MCP_DESCRIPTION = 'TORQUE - Task Orchestration System with local LLM routing';
 
 // Remote agent registry — initialized in init() after DB is ready
