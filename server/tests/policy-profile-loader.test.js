@@ -406,9 +406,11 @@ describe('policy-engine/profile-loader', () => {
     });
     expect(result.rules).toHaveLength(seed.rules.length);
     expect(result.bindings).toHaveLength(seed.bindings.length);
-    expect(__mocks.profileStore.__state.profiles).toHaveLength(1);
-    expect(__mocks.profileStore.__state.rules).toHaveLength(seed.rules.length);
-    expect(__mocks.profileStore.__state.bindings).toHaveLength(seed.bindings.length);
+    // 3 builtin profiles + 1 seed profile = 4 total
+    const BUILTIN_PROFILE_COUNT = 3;
+    expect(__mocks.profileStore.__state.profiles).toHaveLength(BUILTIN_PROFILE_COUNT + 1);
+    expect(__mocks.profileStore.__state.rules).toHaveLength(BUILTIN_PROFILE_COUNT + seed.rules.length);
+    expect(__mocks.profileStore.__state.bindings).toHaveLength(BUILTIN_PROFILE_COUNT + seed.bindings.length);
   });
 
   it('loadTorqueDefaults returns null and skips persistence when the conventional seed is absent', () => {
@@ -424,8 +426,10 @@ describe('policy-engine/profile-loader', () => {
 
     expect(loadTorqueDefaults(projectRoot)).toBeNull();
     expect(__mocks.fs.existsSync).toHaveBeenCalledWith(expectedPath);
-    expect(__mocks.profileStore.savePolicyProfile).not.toHaveBeenCalled();
-    expect(__mocks.profileStore.savePolicyRule).not.toHaveBeenCalled();
-    expect(__mocks.profileStore.savePolicyBinding).not.toHaveBeenCalled();
+    // Builtin profiles are still loaded even when seed is absent
+    const BUILTIN_PROFILE_COUNT = 3;
+    expect(__mocks.profileStore.savePolicyProfile).toHaveBeenCalledTimes(BUILTIN_PROFILE_COUNT);
+    expect(__mocks.profileStore.savePolicyRule).toHaveBeenCalledTimes(BUILTIN_PROFILE_COUNT);
+    expect(__mocks.profileStore.savePolicyBinding).toHaveBeenCalledTimes(BUILTIN_PROFILE_COUNT);
   });
 });

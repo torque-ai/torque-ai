@@ -139,7 +139,7 @@ describe('resolveTuning', () => {
     expect(result.temperature).toBe(0.3);
     expect(result.num_ctx).toBe(4096);
     expect(result.top_k).toBe(40);
-    expect(result.repeat_penalty).toBe(1.1);
+    expect(result.repeat_penalty).toBe(1.0);
   });
 
   it('family template overrides role defaults', () => {
@@ -209,7 +209,7 @@ describe('resolveTuning', () => {
     expect(result.temperature).toBe(0.2);
     expect(result.num_ctx).toBe(8192);
     expect(result.top_k).toBe(30);
-    expect(result.repeat_penalty).toBe(1.1);
+    expect(result.repeat_penalty).toBe(1.0);
   });
 
   it('unknown sizeBucket is ignored, family tuning remains', () => {

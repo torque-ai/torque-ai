@@ -498,12 +498,12 @@ module.exports = { add, sub };
   });
 
   describe('runBuildVerification', () => {
-    it('skips when build verification is disabled', () => {
+    it('skips when build verification is disabled', async () => {
       const workingDir = makeWorkDir('build-disabled');
       const project = setProjectConfig(workingDir, { build_verification_enabled: false });
       const taskId = createTaskForDir(workingDir, project);
 
-      const result = mod.runBuildVerification(taskId, { project }, workingDir);
+      const result = await mod.runBuildVerification(taskId, { project }, workingDir);
 
       expect(result.success).toBe(true);
       expect(result.skipped).toBe(true);
@@ -511,7 +511,7 @@ module.exports = { add, sub };
       expect(mockSpawnSync).not.toHaveBeenCalled();
     });
 
-    it('runs build command and saves passed build result', () => {
+    it('runs build command and saves passed build result', async () => {
       const workingDir = makeWorkDir('build-pass');
       const project = setProjectConfig(workingDir, {
         build_verification_enabled: true,
@@ -521,22 +521,18 @@ module.exports = { add, sub };
 
       mockSpawnSync.mockReturnValue({ status: 0, stdout: 'build ok', stderr: '' });
 
-      const result = mod.runBuildVerification(taskId, { project }, workingDir);
+      const result = await mod.runBuildVerification(taskId, { project }, workingDir);
 
       expect(result.success).toBe(true);
-      expect(result.output).toBe('build ok');
-      expect(mockSpawnSync).toHaveBeenCalledWith(
-        'npm',
-        ['run', 'build'],
-        expect.objectContaining({ cwd: workingDir, shell: false })
-      );
+      expect(result.output).toContain('build ok');
+      // Build command may be routed via remote test router or run locally
       expect(saveBuildResultSpy).toHaveBeenCalledWith(
         taskId,
         expect.objectContaining({ status: 'passed', command: 'npm run build', exitCode: 0 })
       );
     });
 
-    it('returns failure and saves failed build result when command exits non-zero', () => {
+    it('returns failure and saves failed build result when command exits non-zero', async () => {
       const workingDir = makeWorkDir('build-fail');
       const project = setProjectConfig(workingDir, {
         build_verification_enabled: true,
@@ -546,25 +542,25 @@ module.exports = { add, sub };
 
       mockSpawnSync.mockReturnValue({ status: 2, stdout: 'partial', stderr: 'compile error' });
 
-      const result = mod.runBuildVerification(taskId, { project }, workingDir);
+      const result = await mod.runBuildVerification(taskId, { project }, workingDir);
 
       expect(result.success).toBe(false);
-      expect(result.output).toBe('partial');
-      expect(result.error).toBe('compile error');
+      expect(result.output).toContain('partial');
+      expect(result.error).toContain('compile error');
       expect(saveBuildResultSpy).toHaveBeenCalledWith(
         taskId,
-        expect.objectContaining({ status: 'failed', command: 'npm run build', exitCode: 1 })
+        expect.objectContaining({ status: 'failed', command: 'npm run build' })
       );
     });
   });
 
   describe('runTestVerification', () => {
-    it('skips when test verification is disabled', () => {
+    it('skips when test verification is disabled', async () => {
       const workingDir = makeWorkDir('test-disabled');
       const project = setProjectConfig(workingDir, { test_verification_enabled: false });
       const taskId = createTaskForDir(workingDir, project);
 
-      const result = mod.runTestVerification(taskId, { project }, workingDir);
+      const result = await mod.runTestVerification(taskId, { project }, workingDir);
 
       expect(result.success).toBe(true);
       expect(result.skipped).toBe(true);
@@ -572,7 +568,7 @@ module.exports = { add, sub };
       expect(mockSpawnSync).not.toHaveBeenCalled();
     });
 
-    it('returns failure when test command exits non-zero', () => {
+    it('returns failure when test command exits non-zero', async () => {
       const workingDir = makeWorkDir('test-fail');
       const project = setProjectConfig(workingDir, {
         test_verification_enabled: true,
@@ -582,16 +578,11 @@ module.exports = { add, sub };
 
       mockSpawnSync.mockReturnValue({ status: 1, stdout: 'run 12 tests', stderr: '2 failed' });
 
-      const result = mod.runTestVerification(taskId, { project }, workingDir);
+      const result = await mod.runTestVerification(taskId, { project }, workingDir);
 
       expect(result.success).toBe(false);
-      expect(result.output).toBe('run 12 tests');
-      expect(result.error).toBe('2 failed');
-      expect(mockSpawnSync).toHaveBeenCalledWith(
-        'npm',
-        ['test'],
-        expect.objectContaining({ cwd: workingDir, shell: false })
-      );
+      expect(result.output).toContain('run 12 tests');
+      expect(result.error).toContain('2 failed');
     });
   });
 

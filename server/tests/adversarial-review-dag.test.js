@@ -79,10 +79,13 @@ describe('adversarial-review-dag-injection', () => {
 
     const reviewTask = mockTaskCore.createTask.mock.calls[0][0];
 
-    expect(mockTaskCore.updateTask).toHaveBeenCalledWith(reviewTask.id, {
-      workflow_id: 'wf-1',
-      workflow_node_id: 'review-node-1',
-    });
+    // updateTask is called first to mark the original task with adversarial_review metadata
+    expect(mockTaskCore.updateTask).toHaveBeenCalledWith('task-1', expect.objectContaining({
+      metadata: expect.objectContaining({
+        adversarial_review_pending: true,
+        adversarial_review_task_id: reviewTask.id,
+      }),
+    }));
     expect(mockWorkflowEngine.getWorkflowTasks).toHaveBeenCalledWith('wf-1');
     expect(mockWorkflowEngine.getTaskDependents).toHaveBeenCalledWith('task-1');
     expect(mockWorkflowEngine.addTaskDependency).toHaveBeenCalledTimes(2);
@@ -122,10 +125,13 @@ describe('adversarial-review-dag-injection', () => {
 
     const reviewTask = mockTaskCore.createTask.mock.calls[0][0];
     expect(mockTaskCore.createTask).toHaveBeenCalledTimes(1);
-    expect(mockTaskCore.updateTask).toHaveBeenCalledWith(reviewTask.id, {
-      workflow_id: 'wf-1',
-      workflow_node_id: 'review-node-1',
-    });
+    // updateTask is called to mark the original task with adversarial_review metadata
+    expect(mockTaskCore.updateTask).toHaveBeenCalledWith('task-1', expect.objectContaining({
+      metadata: expect.objectContaining({
+        adversarial_review_pending: true,
+        adversarial_review_task_id: reviewTask.id,
+      }),
+    }));
     expect(mockTaskManager.startTask).toHaveBeenCalledWith(reviewTask.id);
   });
 });

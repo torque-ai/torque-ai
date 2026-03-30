@@ -7,6 +7,7 @@ const workflowRuntime = require('../execution/workflow-runtime');
 const taskPolicyHooks = require('../policy-engine/task-hooks');
 const policyEngine = require('../policy-engine/engine');
 const shadowEnforcer = require('../policy-engine/shadow-enforcer');
+const projectConfigCore = require('../db/project-config-core');
 const logger = require('../logger');
 const handlers = require('../handlers/workflow');
 
@@ -25,6 +26,8 @@ describe('handler:workflow-handlers', () => {
     vi.restoreAllMocks();
     // Prevent reconcileStaleWorkflows from hitting an uninitialised raw db handle
     vi.spyOn(workflowEngine, 'reconcileStaleWorkflows').mockReturnValue(0);
+    // Prevent getProjectConfig from hitting an uninitialised db handle
+    vi.spyOn(projectConfigCore, 'getProjectConfig').mockReturnValue({});
   });
 
   afterEach(() => {

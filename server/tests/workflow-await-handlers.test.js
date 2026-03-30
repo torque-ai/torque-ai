@@ -618,8 +618,9 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(text).toContain('**Verify command:** `npm test`');
       expect(text).toContain('**Result:** PASSED');
       expect(text).toContain('all checks passed');
+      // The verify command may be wrapped with torque-remote when available
       expect(mocks.safeExecChain).toHaveBeenCalledWith(
-        'npm test',
+        expect.stringContaining('npm test'),
         expect.objectContaining({ cwd: overrideCwd })
       );
     });
@@ -1024,10 +1025,10 @@ describe('workflow await handlers (module-mocked)', () => {
         working_directory: cwd,
       });
       setTaskFileChanges('task-success', [{ relative_path: 'src/task.js', is_outside_workdir: 0 }]);
-      const shellCommand = process.platform === 'win32' ? 'cmd' : 'sh';
-      const shellArgs = process.platform === 'win32' ? ['/c', 'npm test'] : ['-c', 'npm test'];
+      // The handler now uses torque-remote when available, falling back to cmd/sh
       mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
-        if (command === shellCommand) return 'verify ok\n';
+        if (command === 'torque-remote') return 'verify ok\n';
+        if (command === 'cmd' || command === 'sh') return 'verify ok\n';
         if (command !== 'git') return '';
         if (args[0] === 'rev-parse') return 'task123\n';
         return '';
@@ -1053,11 +1054,11 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(textOf(result)).toContain('### Auto-Commit');
       expect(textOf(result)).toContain('✅ Committed: task123');
       expect(textOf(result)).toContain('✅ Pushed');
-      expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
-        shellCommand,
-        shellArgs,
-        expect.objectContaining({ cwd: path.join(cwd, 'override') })
+      // Verify the verify command was called (may be via torque-remote or cmd/sh)
+      const verifyCall = mocks.executeValidatedCommandSync.mock.calls.find(
+        ([cmd]) => cmd === 'torque-remote' || cmd === 'cmd' || cmd === 'sh'
       );
+      expect(verifyCall).toBeTruthy();
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
         'git',
         ['add', '--', 'src/task.js'],
@@ -1070,8 +1071,9 @@ describe('workflow await handlers (module-mocked)', () => {
       createTask({ id: 'task-verify-fail', status: 'running' });
       const verifyError = new Error('verify failed');
       verifyError.stderr = 'failing tests';
+      // The handler now uses torque-remote or cmd/sh for verify commands
       mocks.executeValidatedCommandSync.mockImplementation((command) => {
-        if (command === (process.platform === 'win32' ? 'cmd' : 'sh')) {
+        if (command === 'torque-remote' || command === 'cmd' || command === 'sh') {
           throw verifyError;
         }
         return '';

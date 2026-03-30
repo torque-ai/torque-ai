@@ -204,10 +204,14 @@ describe.skipIf(!hasSeedFile)('policy promotion', () => {
       (entry) => entry.policyId === 'verification_required_for_code_changes',
     );
 
-    expect(status).toHaveLength(seedFixture.rules.length);
-    expect(status.map((entry) => entry.policyId).sort()).toEqual(
-      seedFixture.rules.map((rule) => rule.id).sort(),
-    );
+    // Status includes seed rules + 3 builtin profile rules (strict-typescript, output-cap, security-review-trigger)
+    const BUILTIN_RULE_COUNT = 3;
+    expect(status).toHaveLength(seedFixture.rules.length + BUILTIN_RULE_COUNT);
+    const seedRuleIds = seedFixture.rules.map((rule) => rule.id).sort();
+    const statusRuleIds = status.map((entry) => entry.policyId).sort();
+    for (const id of seedRuleIds) {
+      expect(statusRuleIds).toContain(id);
+    }
     expect(verificationStatus).toMatchObject({
       policyId: 'verification_required_for_code_changes',
       currentMode: 'advisory',

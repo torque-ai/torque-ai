@@ -204,10 +204,10 @@ describe('server/plugins/auth/index — mcpTools', () => {
     // Create an extra key so we can revoke the bootstrap one
     const created = JSON.parse(createTool.handler({ name: 'to-revoke' }).content[0].text);
 
-    const result = revokeTool.handler({ id: created.id });
+    const result = revokeTool.handler({ key_id: created.id });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.revoked).toBe(true);
-    expect(parsed.id).toBe(created.id);
+    expect(parsed.key_id).toBe(created.id);
   });
 });
 

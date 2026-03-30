@@ -411,7 +411,7 @@ describe('execute-hashline.js', () => {
       expect(genReqs[0].body.prompt).toContain('FILE CONTEXT');
     });
 
-    it('uses hashline-lite format for small files', async () => {
+    it('uses hashline format even for small files (hashline-lite disabled)', async () => {
       const _host = addHost({ url: mockUrl, model: TEST_MODELS.SMALL });
       const srcDir = path.join(testDir, 'src7');
       fs.mkdirSync(srcDir, { recursive: true });
@@ -421,7 +421,6 @@ describe('execute-hashline.js', () => {
       const deps = makeDeps({
         safeUpdateTaskStatus: vi.fn(),
         tryHashlineTieredFallback: vi.fn(),
-        // selectHashlineFormat returns 'hashline' but file size override should switch to lite
         selectHashlineFormat: vi.fn(() => ({ format: 'hashline', reason: 'default' })),
       });
       mod.init(deps);
@@ -443,10 +442,10 @@ describe('execute-hashline.js', () => {
         working_directory: testDir,
       });
 
-      // The system prompt should be the hashline-lite prompt since file size < threshold
+      // hashline-lite is disabled (0% success with current models), always uses hashline
       const genReqs = mockOllama.requestLog.filter(r => r.url === '/api/generate');
       if (genReqs.length > 0) {
-        expect(genReqs[0].body.system).toBe('You are a hashline-lite editor.');
+        expect(genReqs[0].body.system).toBe('You are a hashline editor.');
       }
     });
 

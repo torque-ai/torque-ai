@@ -604,9 +604,11 @@ describe('policy profile/hooks coverage suite', () => {
 
       expect(subject.loadTorqueDefaults(projectRoot)).toBeNull();
       expect(mocks.fs.existsSync).toHaveBeenCalledWith(seedPath);
-      expect(mocks.profileStore.savePolicyProfile).not.toHaveBeenCalled();
-      expect(mocks.profileStore.savePolicyRule).not.toHaveBeenCalled();
-      expect(mocks.profileStore.savePolicyBinding).not.toHaveBeenCalled();
+      // Builtin profiles (strict-typescript, output-cap, security-review-trigger) are still loaded
+      const BUILTIN_PROFILE_COUNT = 3;
+      expect(mocks.profileStore.savePolicyProfile).toHaveBeenCalledTimes(BUILTIN_PROFILE_COUNT);
+      expect(mocks.profileStore.savePolicyRule).toHaveBeenCalledTimes(BUILTIN_PROFILE_COUNT);
+      expect(mocks.profileStore.savePolicyBinding).toHaveBeenCalledTimes(BUILTIN_PROFILE_COUNT);
     });
   });
 
