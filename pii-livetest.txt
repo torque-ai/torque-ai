@@ -1,3 +1,0 @@
-example-project deployment on example-host at 192.0.2.183
-Contact: user@example.com
-Path: /home/<user>/Projects/example-project
