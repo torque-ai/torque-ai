@@ -22,7 +22,7 @@ const logger = require('../logger').child({ component: 'experiment-handlers' });
  * @param {object} args
  * @param {string} args.task_description - The task to submit to both providers
  * @param {string} args.provider_a - First provider (e.g., 'codex')
- * @param {string} args.provider_b - Second provider (e.g., 'hashline-ollama')
+ * @param {string} args.provider_b - Second provider (e.g., 'ollama')
  * @param {string} args.working_directory - Working directory for both tasks
  * @param {string} [args.model_a] - Optional model override for provider A
  * @param {string} [args.model_b] - Optional model override for provider B

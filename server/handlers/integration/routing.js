@@ -459,7 +459,7 @@ async function handleSmartSubmitTask(args) {
       // Determine model for subtasks - use balanced tier (14B) since subtasks are simpler
       const subtaskTier = hostManagement.getModelTierForComplexity('normal');
       const subtaskModel = model || subtaskTier.modelConfig;
-      const subtaskProvider = 'hashline-ollama';
+      const subtaskProvider = 'ollama';
 
       let _prevNodeId = null;
       let prevTaskId = null;
@@ -620,7 +620,7 @@ async function handleSmartSubmitTask(args) {
           workflowEngine.createWorkflow({ id: workflowId, name: `JS Auto: ${task.substring(0, 55)}${task.length > 55 ? '...' : ''}`, description: `Auto-decomposed: ${largestFile} (${largestLineCount} lines, ${boundaries.length} fns, ${batches.length} batches)`, status: 'pending' });
 
           const subtaskModel = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
-          const subtaskProvider = 'hashline-ollama';
+          const subtaskProvider = 'ollama';
           let prevTaskId = null;
           const createdTasks = [];
 
@@ -726,11 +726,9 @@ async function handleSmartSubmitTask(args) {
     }
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (local LLMs unreliable for tests)`);
   }
-  // Modification + greenfield routing for local Ollama providers.
-  // hashline-ollama handles modifications at any file size (line-number edits),
-  // so modification routing only applies to raw ollama. But BOTH providers
-  // cannot create new files, so the greenfield guard applies to both.
-  const _isLocalOllamaProvider = selectedProvider === 'ollama' || selectedProvider === 'hashline-ollama';
+  // Modification + greenfield routing for the local Ollama provider.
+  // Ollama cannot create new files safely, so the greenfield guard applies.
+  const _isLocalOllamaProvider = selectedProvider === 'ollama';
   if (!taskModel && _isLocalOllamaProvider) {
     // Detect modification tasks for capability-driven routing decisions.
     // Models with low max_safe_edit_lines cannot safely modify existing files — route to Codex.
@@ -795,14 +793,8 @@ async function handleSmartSubmitTask(args) {
       }
     }
 
-    // hashline-ollama handles modifications safely at any file size via line-number
-    // annotations — skip modification routing entirely and only check greenfield guard.
-    const isHashlineProvider = selectedProvider === 'hashline-ollama';
     const canUseLocalForMod = fileSizeKnown && maxFileLines < modSafeLineLimit;
-    if (isHashlineProvider && isModificationTask) {
-      // No-op: hashline handles modifications at any file size
-      logger.info(`[SmartRouting] hashline-ollama: modification task, keeping provider (line-number edits handle any size)`);
-    } else if (isModificationTask && canUseLocalForMod && !override_provider) {
+    if (isModificationTask && canUseLocalForMod && !override_provider) {
       // Model capability check: local model handles modifications safely within max_safe_edit_lines
       taskModel = modelRoles.getModelForRole('ollama', 'default') || DEFAULT_FALLBACK_MODEL;
       modRoutingReason = `Modification task (${maxFileLines} lines < ${modSafeLineLimit} limit) → local model (safe)`;
@@ -1230,7 +1222,7 @@ function handleAddRoutingRule(args) {
   // Validate provider exists
   const provider = providerRoutingCore.getProvider(target_provider);
   if (!provider) {
-    return makeError(ErrorCodes.INVALID_PARAM, `Unknown provider: ${target_provider}. Available: codex, claude-cli, ollama, hashline-ollama`);
+    return makeError(ErrorCodes.INVALID_PARAM, `Unknown provider: ${target_provider}. Available: codex, claude-cli, ollama`);
   }
 
   // Validate rule_type

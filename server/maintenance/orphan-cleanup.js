@@ -64,7 +64,6 @@ const BASE_STALL_THRESHOLD_SECONDS = 180; // 3 minutes without output = stalled
 // Per-provider stall thresholds (in seconds)
 // These are base thresholds before model-size adjustments
 const PROVIDER_STALL_THRESHOLDS = {
-  'hashline-ollama': 300,   // 5 minutes - hashline edits need time
   'ollama': 240,            // 4 minutes - direct API is faster
   'claude-cli': 600,        // 10 minutes - claude can be slow on complex tasks
   'codex': 600,             // 10 minutes - only kills truly orphaned codex processes (monitored tasks are excluded)
@@ -79,7 +78,6 @@ const PROVIDER_STALL_THRESHOLDS = {
 
 // Map provider names to stall config keys (configure_stall_detection writes these)
 const PROVIDER_STALL_CONFIG_KEYS = {
-  'hashline-ollama': 'stall_threshold_hashline',
   'ollama': 'stall_threshold_ollama',
   'claude-cli': 'stall_threshold_claude',
   'codex': 'stall_threshold_codex',
@@ -100,8 +98,6 @@ let zombieCheckCycle = 0;
 // ============================================================
 // Orphaned Process Cleanup
 // ============================================================
-
-// cleanupOrphanedAiderProcesses removed — aider provider no longer exists
 
 /**
  * Kill orphaned dotnet processes from previous crashed sessions
@@ -556,7 +552,7 @@ function cleanupOrphanedHostTasks(hostId, hostName) {
  * Calculate dynamic stall threshold based on model size and provider.
  * Priority: runtime config override > model-size heuristic > provider default > base.
  * @param {string} model - Model name (e.g., "some-model:32b")
- * @param {string} provider - Provider name (e.g., "hashline-ollama")
+ * @param {string} provider - Provider name (e.g., "ollama")
  * @returns {number|null} Stall threshold in seconds, or null if stall detection disabled for provider
  */
 function getStallThreshold(model, provider) {

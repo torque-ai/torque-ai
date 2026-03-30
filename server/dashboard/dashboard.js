@@ -163,7 +163,7 @@
 
   // ---- Providers ----
   var PROVIDER_GROUPS = {
-    'Local (Ollama)': ['ollama', 'hashline-ollama'],
+    'Local (Ollama)': ['ollama'],
     'Cloud (Subscription CLI)': ['codex', 'claude-cli'],
     'Cloud (API — Bring Your Own Key)': []  // everything else
   };

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Pre-Flight Type Validation for hashline-ollama
+ * Pre-Flight Type Validation
  *
  * Parses the IMPORTED TYPE SIGNATURES string from buildImportContext()
  * into structured data, cross-checks the task description against them,

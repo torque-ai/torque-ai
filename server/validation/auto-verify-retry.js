@@ -29,7 +29,6 @@ const { elicit } = require('../mcp/elicitation');
 const AUTO_VERIFY_PROVIDERS = new Set([
   'codex',
   'codex-spark',
-  'hashline-ollama',
   'ollama',
 ]);
 

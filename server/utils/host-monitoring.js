@@ -182,18 +182,16 @@ async function runHostHealthChecks() {
         if (result.healthy && result.models && result.models.length > 0) {
           try {
             const registry = require('../models/registry');
-            const ollamaProviders = ['ollama', 'hashline-ollama'];
-            for (const provider of ollamaProviders) {
-              const sync = registry.syncModelsFromHealthCheck(provider, host.id, result.models);
-              if (sync.new.length > 0) {
-                logger.info(`[Health Check] ${sync.new.length} new model(s) on ${host.name || host.url}: ${sync.new.map(m => m.model_name).join(', ')}`);
-                // Post-discovery: apply heuristic capabilities + auto-assign roles for new models
-                try {
-                  const { runPostDiscovery } = require('../discovery/discovery-engine');
-                  const rawDb = db.getDbInstance ? db.getDbInstance() : db;
-                  runPostDiscovery(rawDb, provider, sync);
-                } catch (_postErr) { void _postErr; }
-              }
+            const provider = 'ollama';
+            const sync = registry.syncModelsFromHealthCheck(provider, host.id, result.models);
+            if (sync.new.length > 0) {
+              logger.info(`[Health Check] ${sync.new.length} new model(s) on ${host.name || host.url}: ${sync.new.map(m => m.model_name).join(', ')}`);
+              // Post-discovery: apply heuristic capabilities + auto-assign roles for new models
+              try {
+                const { runPostDiscovery } = require('../discovery/discovery-engine');
+                const rawDb = db.getDbInstance ? db.getDbInstance() : db;
+                runPostDiscovery(rawDb, provider, sync);
+              } catch (_postErr) { void _postErr; }
             }
           } catch (_err) { void _err; /* registry not available */ }
         }

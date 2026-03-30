@@ -18,7 +18,7 @@ let _taskManager;
 function taskManager() { return _taskManager || (_taskManager = require('../task-manager')); }
 
 const FILESYSTEM_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
-const APPLY_CAPABLE_PROVIDERS = ['ollama', 'codex', 'claude-cli', 'ollama-cloud', 'hashline-ollama'];
+const APPLY_CAPABLE_PROVIDERS = ['ollama', 'codex', 'claude-cli', 'ollama-cloud'];
 const DEFAULT_SCOUT_TIMEOUT = 30;
 const DEFAULT_SCOUT_PROVIDER = 'codex';
 

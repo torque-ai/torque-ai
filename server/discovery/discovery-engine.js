@@ -71,8 +71,8 @@ async function discoverFromAdapter(db, adapter, provider, hostId) {
   const syncResult = registry.syncModelsFromHealthCheck(provider, hostId || null, models);
 
   // Auto-approve new models from cloud providers.
-  // ollama, hashline-ollama, and ollama-cloud are treated as local — stay pending.
-  const isCloudProvider = !['ollama', 'hashline-ollama', 'ollama-cloud'].includes(provider);
+  // ollama and ollama-cloud are treated as local — stay pending.
+  const isCloudProvider = !['ollama', 'ollama-cloud'].includes(provider);
   if (isCloudProvider) {
     for (const model of syncResult.new) {
       try {

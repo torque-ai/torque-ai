@@ -35,7 +35,6 @@ let _isShellSafe = null;
 let _sanitizeTaskOutput = null;
 let _safeUpdateTaskStatus = null;
 let _tryLocalFirstFallback = null;
-let _tryHashlineTieredFallback = null;
 let _processQueue = null;
 
 /**
@@ -58,7 +57,6 @@ function init(deps) {
   if (deps.sanitizeTaskOutput) _sanitizeTaskOutput = deps.sanitizeTaskOutput;
   if (deps.safeUpdateTaskStatus) _safeUpdateTaskStatus = deps.safeUpdateTaskStatus;
   if (deps.tryLocalFirstFallback) _tryLocalFirstFallback = deps.tryLocalFirstFallback;
-  if (deps.tryHashlineTieredFallback) _tryHashlineTieredFallback = deps.tryHashlineTieredFallback;
   if (deps.processQueue) _processQueue = deps.processQueue;
 }
 
@@ -344,7 +342,7 @@ function handleProviderFailover(ctx) {
         ctx.code = 1;
       }
     }
-  } else if (ctx.status === 'failed' && task && ['ollama', 'hashline-ollama'].includes(task.provider)) {
+  } else if (ctx.status === 'failed' && task && task.provider === 'ollama') {
     // Local LLM task failed — try fallback to different host/model/provider
     logger.info(`[Local-Fallback] Task ${taskId} failed on ${task.provider}/${task.model || '?'} — attempting local-first fallback`);
 
@@ -356,9 +354,7 @@ function handleProviderFailover(ctx) {
       files_modified: filesModified,
     };
     if (fallbackTask && fallbackTask.id) {
-      const handled = task.provider === 'hashline-ollama'
-        ? _tryHashlineTieredFallback(taskId, fallbackTask, errorOutput || 'task failed')
-        : _tryLocalFirstFallback(taskId, fallbackTask, errorOutput || 'task failed');
+      const handled = _tryLocalFirstFallback(taskId, fallbackTask, errorOutput || 'task failed');
       if (handled) {
         logger.info(`[Local-Fallback] Task ${taskId} re-queued via fallback chain`);
         _processQueue();

@@ -24,7 +24,7 @@ const BUILD_TOOL_KEYWORDS = [
   'make',
 ];
 
-const OLLAMA_PROVIDERS = ['ollama', 'hashline-ollama'];
+const OLLAMA_PROVIDERS = ['ollama'];
 
 function setDb(dbInstance) {
   model.setDb(dbInstance);

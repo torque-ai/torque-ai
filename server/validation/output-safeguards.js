@@ -18,7 +18,6 @@ const piiGuard = require('../utils/pii-guard');
 let db = null;
 let _getFileChangesForValidation = null;
 let _checkFileQuality = null;
-let _verifyHashlineReferences = null;
 let _cleanupJunkFiles = null;
 let _findPlaceholderArtifacts = null;
 
@@ -26,7 +25,6 @@ function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.getFileChangesForValidation) _getFileChangesForValidation = deps.getFileChangesForValidation;
   if (deps.checkFileQuality) _checkFileQuality = deps.checkFileQuality;
-  if (deps.verifyHashlineReferences) _verifyHashlineReferences = deps.verifyHashlineReferences;
   if (deps.cleanupJunkFiles) _cleanupJunkFiles = deps.cleanupJunkFiles;
   if (deps.findPlaceholderArtifacts) _findPlaceholderArtifacts = deps.findPlaceholderArtifacts;
 }
@@ -261,7 +259,7 @@ async function runOutputSafeguards(taskId, status, task) {
     }
 
     // 1b. Clean up junk files created by LLM hallucinating filenames
-    if (status === 'completed' && task?.working_directory && (task?.provider === 'ollama' || task?.provider === 'hashline-ollama')) {
+    if (status === 'completed' && task?.working_directory && task?.provider === 'ollama') {
       try {
         _cleanupJunkFiles(task.working_directory, taskId);
       } catch (err) {
@@ -317,21 +315,6 @@ async function runOutputSafeguards(taskId, status, task) {
       }
     }
 
-    // 3b. Hashline verification (if enabled)
-    let hashlineScore = 100;
-    const hashlineVerificationEnabled = serverConfig.getBool('hashline_verification_enabled');
-    if (hashlineVerificationEnabled && status === 'completed' && task?.working_directory) {
-      try {
-        const hashResult = _verifyHashlineReferences(taskId, output, task.working_directory);
-        hashlineScore = hashResult.score;
-        if (hashResult.mismatched > 0) {
-          logger.info(`[Safeguard] Hashline verification: ${hashResult.matched}/${hashResult.total} matched, ${hashResult.mismatched} stale`);
-        }
-      } catch (e) {
-        logger.info(`[Safeguard] Hashline verification error: ${e.message}`);
-      }
-    }
-
     // 4. Calculate and record quality score
     if (qualityScoringEnabled && status === 'completed') {
       const taskType = db.classifyTaskType(task?.task_description || '');
@@ -352,16 +335,11 @@ async function runOutputSafeguards(taskId, status, task) {
         validation: validationScore,
         syntax: syntaxScore,
         completeness: completenessScore,
-        hashline: hashlineScore,
         metrics: { outputLength: output.length }
       });
 
-      // Include hashline score (15% weight) when hashline references were present
-      const hasHashlineRefs = hashlineScore < 100 || (output && /L\d{3}:[0-9a-f]{2}:/.test(output));
-      const overallScore = hasHashlineRefs
-        ? validationScore * 0.35 + syntaxScore * 0.25 + completenessScore * 0.25 + hashlineScore * 0.15
-        : validationScore * 0.4 + syntaxScore * 0.3 + completenessScore * 0.3;
-      logger.info(`[Safeguard] Quality score recorded for ${taskId}: ${overallScore.toFixed(1)}${hasHashlineRefs ? ' (hashline-weighted)' : ''}`);
+      const overallScore = validationScore * 0.4 + syntaxScore * 0.3 + completenessScore * 0.3;
+      logger.info(`[Safeguard] Quality score recorded for ${taskId}: ${overallScore.toFixed(1)}`);
     }
 
     // 5. Update provider statistics (isolated — must not be killed by other safeguard failures)
@@ -372,11 +350,8 @@ async function runOutputSafeguards(taskId, status, task) {
           ? (new Date(task.completed_at) - new Date(task.started_at)) / 1000
           : null;
 
-        const hasHashlineRefs = hashlineScore < 100 || (output && /L\d{3}:[0-9a-f]{2}:/.test(output));
         const qualityScore = qualityScoringEnabled
-          ? (hasHashlineRefs
-            ? validationScore * 0.35 + syntaxScore * 0.25 + completenessScore * 0.25 + hashlineScore * 0.15
-            : validationScore * 0.4 + syntaxScore * 0.3 + completenessScore * 0.3)
+          ? (validationScore * 0.4 + syntaxScore * 0.3 + completenessScore * 0.3)
           : null;
 
         db.updateProviderStats(

@@ -585,7 +585,7 @@ function handleSetModelPrompt(args) {
  */
 function handleGetInstructionTemplates(args) {
   const taskManager = require('../task-manager');
-  const providers = ['hashline-ollama', 'claude-cli', 'codex'];
+  const providers = ['claude-cli', 'codex'];
 
   if (args.provider) {
     // Get template for specific provider
@@ -638,7 +638,7 @@ function handleSetInstructionTemplate(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider and template are required');
   }
 
-  const validProviders = ['hashline-ollama', 'claude-cli', 'codex'];
+  const validProviders = ['claude-cli', 'codex'];
   if (!validProviders.includes(provider)) {
     return makeError(ErrorCodes.INVALID_PARAM, `Invalid provider. Must be one of: ${validProviders.join(', ')}`);
   }
