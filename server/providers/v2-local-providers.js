@@ -718,50 +718,6 @@ class OllamaProvider extends BaseLocalOllamaProvider {
   }
 }
 
-class HashlineOllamaProvider extends BaseLocalOllamaProvider {
-  constructor(config = {}) {
-    super({
-      providerId: 'hashline-ollama',
-      defaultModel: config.defaultModel || sanitizeModel(configCore.getConfig?.('ollama_model')) || DEFAULT_FALLBACK_MODEL,
-      ...config,
-    });
-  }
-
-  _isModelAllowed(model) {
-    return isHashlineCapableModelName(model);
-  }
-
-  _normalizeRequestedModel(model) {
-    const requested = sanitizeModel(model);
-    if (requested && this._isModelAllowed(requested)) {
-      return requested;
-    }
-
-    if (!requested) return '';
-
-    return this._findBestAvailableModel() || '';
-  }
-
-  async _selectExecutionTarget(model, options = {}) {
-    const requested = sanitizeModel(model);
-    let selectedModel = this._normalizeRequestedModel(requested);
-
-    if (!selectedModel && requested && !this._isModelAllowed(requested)) {
-      const fallback = this._findBestAvailableModel();
-      if (!fallback) {
-        throw new Error(`No hashline-capable model available for '${requested}'`);
-      }
-      selectedModel = fallback;
-    }
-
-    return super._selectExecutionTarget(selectedModel, options);
-  }
-
-  _filterModelList(rawModels) {
-    return uniqueStrings((rawModels || []).filter((model) => this._isModelAllowed(model)));
-  }
-}
-
 // ── DI factory ──────────────────────────────────────────────────────────────
 
 function createV2LocalProviders({ db: _dbInstance } = {}) {
@@ -781,5 +737,4 @@ module.exports = {
   buildTruncatedError,
   BaseLocalOllamaProvider,
   OllamaProvider,
-  HashlineOllamaProvider,
 };

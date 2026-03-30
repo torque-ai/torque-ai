@@ -24,10 +24,7 @@ const OllamaCloudProvider = require('./ollama-cloud');
 const OpenRouterProvider = require('./openrouter');
 const OllamaStrategicProvider = require('./ollama-strategic');
 const { CodexCliProvider, ClaudeCliProvider } = require('./v2-cli-providers');
-const {
-  OllamaProvider,
-  HashlineOllamaProvider,
-} = require('./v2-local-providers');
+const { OllamaProvider } = require('./v2-local-providers');
 
 const DEFAULT_CAPABILITIES = {
   supportsStream: false,
@@ -220,10 +217,6 @@ registerApiAdapter('ollama', OllamaProvider, {
   supportsStream: true,
   supportsAsync: true,
 });
-registerApiAdapter('hashline-ollama', HashlineOllamaProvider, {
-  supportsStream: true,
-  supportsAsync: true,
-});
 registerApiAdapter('ollama-strategic', OllamaStrategicProvider, {
   supportsStream: false,
   supportsAsync: false,
@@ -253,7 +246,7 @@ function invalidateAdapterCache(providerId) {
   }
 }
 
-const LOCAL_PROVIDERS = new Set(['ollama', 'hashline-ollama', 'ollama-strategic']);
+const LOCAL_PROVIDERS = new Set(['ollama', 'ollama-strategic']);
 
 /**
  * Run model discovery across all registered provider adapters.

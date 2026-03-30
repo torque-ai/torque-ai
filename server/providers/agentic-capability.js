@@ -18,7 +18,7 @@
 // These providers use their own execution paths and must never be routed through
 // the agentic tool-calling loop.
 
-const EXCLUDED_PROVIDERS = new Set(['hashline-ollama', 'codex', 'claude-cli']);
+const EXCLUDED_PROVIDERS = new Set(['codex', 'claude-cli']);
 
 // ── Cloud providers known to support OpenAI-compatible tool calling ───────────
 
@@ -94,9 +94,6 @@ function getServerConfig() {
 function isAgenticCapable(provider, model) {
   // ── Step 0: Excluded providers ─────────────────────────────────────────────
   if (EXCLUDED_PROVIDERS.has(provider)) {
-    if (provider === 'hashline-ollama') {
-      return { capable: false, reason: 'hashline protocol preferred', source: 'config' };
-    }
     return { capable: false, reason: `${provider} uses its own CLI execution path`, source: 'config' };
   }
 

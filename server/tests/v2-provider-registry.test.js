@@ -18,7 +18,6 @@ describe('v2-provider-registry', () => {
       'codex',
       'claude-cli',
       'ollama',
-      'hashline-ollama',
       'anthropic',
       'groq',
       'hyperbolic',
@@ -65,8 +64,8 @@ describe('v2-provider-registry', () => {
   });
 
   it('v2-router.js now gets the same providers (dedup verification)', () => {
-    // v2-router.js previously had only 10 providers. After consolidation,
-    // both files import from the same module with all 14.
+    // v2-router.js imports the same provider registry module, so provider additions
+    // and removals stay centralized here.
     expect(PROVIDER_REGISTRY['cerebras']).toBeDefined();
     expect(PROVIDER_REGISTRY['ollama-cloud']).toBeDefined();
     expect(PROVIDER_REGISTRY['google-ai']).toBeDefined();

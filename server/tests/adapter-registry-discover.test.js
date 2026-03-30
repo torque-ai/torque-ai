@@ -71,7 +71,6 @@ function installAllProviderMocks() {
     codex: makeProviderMock('codex', { supportsStreaming: false }),
     'claude-cli': makeProviderMock('claude-cli', { supportsStreaming: false }),
     ollama: makeProviderMock('ollama'),
-    'hashline-ollama': makeProviderMock('hashline-ollama'),
   };
 
   installMock('../providers/anthropic', providers.anthropic.MockClass);
@@ -89,7 +88,6 @@ function installAllProviderMocks() {
   });
   installMock('../providers/v2-local-providers', {
     OllamaProvider: providers.ollama.MockClass,
-    HashlineOllamaProvider: providers['hashline-ollama'].MockClass,
   });
 
   return providers;
@@ -142,7 +140,6 @@ describe('adapter-registry discoverAllModels', () => {
     expect(typeof result).toBe('object');
     // Local Ollama providers run unconditionally
     expect(result).toHaveProperty('ollama');
-    expect(result).toHaveProperty('hashline-ollama');
     expect(result).toHaveProperty('ollama-strategic');
   });
 
@@ -183,7 +180,6 @@ describe('adapter-registry discoverAllModels', () => {
     const result = await registry.discoverAllModels(null);
 
     expect(result).toHaveProperty('ollama');
-    expect(result).toHaveProperty('hashline-ollama');
     expect(result).toHaveProperty('ollama-strategic');
   });
 
@@ -204,8 +200,8 @@ describe('adapter-registry discoverAllModels', () => {
     expect(result.ollama.error).toMatch(/ollama connection refused/);
 
     // Other local providers still run fine
-    expect(result).toHaveProperty('hashline-ollama');
-    expect(result['hashline-ollama']).not.toHaveProperty('error');
+    expect(result).toHaveProperty('ollama-strategic');
+    expect(result['ollama-strategic']).not.toHaveProperty('error');
   });
 
   it('discoverFromAdapter is called with the correct arguments (db, adapter, providerId, null)', async () => {

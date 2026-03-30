@@ -59,22 +59,6 @@ const PROVIDER_REGISTRY = {
       code_interpretation: true,
     },
   },
-  'hashline-ollama': {
-    name: 'Hashline (Ollama)',
-    transport: 'api',
-    local: true,
-    request_rate_per_minute: 60,
-    features: {
-      chat: true,
-      stream: true,
-      tools: true,
-      vision: false,
-      embeddings: true,
-      image_input: false,
-      file_edit: true,
-      reasoning: true,
-    },
-  },
   anthropic: {
     name: 'Anthropic',
     transport: 'api',
@@ -197,7 +181,7 @@ const PROVIDER_REGISTRY = {
   },
 };
 
-const PROVIDER_LOCAL_IDS = new Set(['ollama', 'hashline-ollama']);
+const PROVIDER_LOCAL_IDS = new Set(['ollama']);
 const V2_TRANSPORTS = new Set(['api', 'cli', 'hybrid']);
 
 module.exports = {

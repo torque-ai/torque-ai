@@ -54,7 +54,6 @@ describe('provider adapter registry', () => {
       'codex',
       'deepinfra',
       'groq',
-      'hashline-ollama',
       'hyperbolic',
       'ollama',
     ];

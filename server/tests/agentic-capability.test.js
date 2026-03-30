@@ -57,13 +57,6 @@ describe('isAgenticCapable — global kill switch', () => {
 });
 
 describe('isAgenticCapable — excluded providers', () => {
-  it('returns false for hashline-ollama with hashline reason', () => {
-    const result = isAgenticCapable('hashline-ollama', 'qwen3-coder:30b');
-    expect(result.capable).toBe(false);
-    expect(result.reason).toBe('hashline protocol preferred');
-    expect(result.source).toBe('config');
-  });
-
   it('returns false for codex', () => {
     const result = isAgenticCapable('codex', 'gpt-4');
     expect(result.capable).toBe(false);
