@@ -477,24 +477,23 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('refactorDebtAdapter', require('./policy-engine/adapters/refactor-debt'));
     _defaultContainer.registerValue('releaseGateAdapter', require('./policy-engine/adapters/release-gate'));
   }
-  let governanceRules = null;
-  if (!_defaultContainer.has('governanceRules')) {
-    const { createGovernanceRules } = require('./db/governance-rules');
-    governanceRules = createGovernanceRules({ db });
-    governanceRules.seedBuiltinRules();
-    _defaultContainer.registerValue('governanceRules', governanceRules);
-  } else {
-    try {
-      governanceRules = _defaultContainer.get('governanceRules');
-    } catch (_e) {
+  // Governance — isolated try/catch so it initializes even if earlier registrations fail
+  try {
+    let governanceRules = null;
+    if (!_defaultContainer.has('governanceRules')) {
       const { createGovernanceRules } = require('./db/governance-rules');
       governanceRules = createGovernanceRules({ db });
       governanceRules.seedBuiltinRules();
+      _defaultContainer.registerValue('governanceRules', governanceRules);
+    } else {
+      governanceRules = _defaultContainer.get('governanceRules');
     }
-  }
-  if (!_defaultContainer.has('governanceHooks')) {
-    const { createGovernanceHooks } = require('./governance/hooks');
-    _defaultContainer.registerValue('governanceHooks', createGovernanceHooks({ governanceRules, logger }));
+    if (!_defaultContainer.has('governanceHooks')) {
+      const { createGovernanceHooks } = require('./governance/hooks');
+      _defaultContainer.registerValue('governanceHooks', createGovernanceHooks({ governanceRules, logger }));
+    }
+  } catch (e) {
+    if (logger) logger.debug('Governance init: ' + e.message);
   }
 
   if (!_defaultContainer.has('fileRisk')) {

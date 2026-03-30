@@ -64,32 +64,29 @@ function normalizeRule(rule) {
 }
 
 function resolveGovernanceRules() {
+  // Try container first (preferred — registered during boot)
   try {
     const { defaultContainer } = require('../container');
-    if (!defaultContainer || typeof defaultContainer.get !== 'function') {
-      throw new Error('Container unavailable');
+    if (defaultContainer && typeof defaultContainer.get === 'function') {
+      try {
+        const governanceRules = defaultContainer.get('governanceRules');
+        if (governanceRules) return { governanceRules };
+      } catch (_) { /* not registered yet */ }
     }
+  } catch (_) { /* container not available */ }
 
-    try {
-      const governanceRules = defaultContainer.get('governanceRules');
-      if (governanceRules) {
-        return { governanceRules };
-      }
-    } catch (_error) {
-      // Fall back to a DB-backed store when the explicit service is not registered.
+  // Fallback: create directly from the database module
+  try {
+    const database = require('../database');
+    const db = database.getDbInstance ? database.getDbInstance() : null;
+    if (db && typeof db.prepare === 'function') {
+      const rules = createGovernanceRules({ db });
+      rules.seedBuiltinRules();
+      return { governanceRules: rules };
     }
+  } catch (_) { /* database not initialized */ }
 
-    const db = defaultContainer.get('db');
-    if (!db || typeof db.prepare !== 'function') {
-      throw new Error('Governance rules not initialized');
-    }
-
-    return {
-      governanceRules: createGovernanceRules({ db }),
-    };
-  } catch (error) {
-    return { error };
-  }
+  return { error: new Error('Governance rules not initialized — database not available') };
 }
 
 function makeNotInitializedError(error) {
