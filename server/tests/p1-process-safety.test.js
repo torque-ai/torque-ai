@@ -65,6 +65,7 @@ describe('index.killStaleInstance process safety', () => {
 
     const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
     vi.spyOn(childProcess, 'execSync').mockReturnValue('python -m simple_server');
+    vi.spyOn(childProcess, 'execFileSync').mockReturnValue('python -m simple_server');
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     index.killStaleInstance();
