@@ -36,7 +36,6 @@ let buildCodexCommand;
 let buildFileContext;
 let resolveFileReferences;
 let executeOllamaTask;
-let executeHashlineOllamaTask;
 let executeApiProvider;
 let evaluateTaskPreExecutePolicy;
 let getPolicyBlockReason;
@@ -80,7 +79,6 @@ function init(deps) {
   buildFileContext = deps.buildFileContext;
   resolveFileReferences = deps.resolveFileReferences;
   executeOllamaTask = deps.executeOllamaTask;
-  executeHashlineOllamaTask = deps.executeHashlineOllamaTask;
   executeApiProvider = deps.executeApiProvider;
   evaluateTaskPreExecutePolicy = deps.evaluateTaskPreExecutePolicy;
   getPolicyBlockReason = deps.getPolicyBlockReason;
@@ -463,7 +461,7 @@ function startTask(taskId) {
   // Sandboxed providers (codex, codex-spark, claude-cli) start from a repo snapshot.
   // Concurrent tasks editing the same file silently overwrite each other's changes.
   // For these providers: block and requeue when a file conflict is detected.
-  // For non-sandboxed providers (ollama, hashline-ollama, cloud APIs): warn only.
+  // For non-sandboxed providers (ollama, cloud APIs): warn only.
   const SANDBOXED_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
   const isSandboxed = SANDBOXED_PROVIDERS.has(provider);
   if (resolvedFilePaths.length > 0) {
@@ -499,9 +497,6 @@ function startTask(taskId) {
 
   if (provider === 'ollama') {
     return executeOllamaTask(task);
-  } else if (provider === 'hashline-ollama') {
-    recordTaskStartedAuditEvent(task, taskId, provider);
-    return executeHashlineOllamaTask(task);
   } else if (providerRegistry.isApiProvider(provider)) {
     // All cloud API providers use the same execution path via registry
     const instance = providerRegistry.getProviderInstance(provider);

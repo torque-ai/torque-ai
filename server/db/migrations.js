@@ -115,10 +115,8 @@ const MIGRATIONS = [
     up: [
       // Delete aider-specific config keys
       "DELETE FROM config WHERE key IN ('aider_auto_commits', 'aider_auto_switch_format', 'aider_edit_format', 'aider_map_tokens', 'aider_model_edit_formats', 'aider_subtree_only')",
-      // Rename stall_threshold_aider → stall_threshold_hashline (hashline-ollama uses this key)
-      "UPDATE config SET key = 'stall_threshold_hashline' WHERE key = 'stall_threshold_aider'",
-      // Reroute complexity_routing from aider-ollama to hashline-ollama
-      "UPDATE complexity_routing SET target_provider = 'hashline-ollama' WHERE target_provider = 'aider-ollama'",
+      // Rename stall_threshold_aider → stall_threshold_ollama
+      "UPDATE config SET key = 'stall_threshold_ollama' WHERE key = 'stall_threshold_aider'",
     ].join('; '),
     down: '',
   },
@@ -161,7 +159,7 @@ const MIGRATIONS = [
   {
     version: 12,
     name: 'remove-hashline-aider-providers',
-    description: 'Remove hashline-ollama, hashline-openai, aider-ollama providers and hashline config keys',
+    description: 'Remove deprecated local providers and hashline config keys',
     up: (db) => {
       const removedProviders = ['hashline-ollama', 'hashline-openai', 'aider-ollama'];
 

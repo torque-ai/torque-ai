@@ -606,7 +606,7 @@ function routeTask(complexity) {
   let targetModel = rule.model;
   let fallbackApplied = false;
 
-  if (targetHost && (rule.target_provider === 'ollama' || rule.target_provider === 'hashline-ollama')) {
+  if (targetHost && rule.target_provider === 'ollama') {
     const host = getOllamaHost(targetHost);
 
     // If target host is not healthy OR not enabled, find a fallback

@@ -308,7 +308,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
   // EXP7: Raw ollama cannot create new files — it produces instructions instead of code.
   // Skip 'ollama' as a fallback candidate when the task is greenfield.
   const isGreenfield = _isGreenfieldTask(task.task_description);
-  const localProviders = ['ollama', 'hashline-ollama'];
+  const localProviders = ['ollama'];
   const untriedProviders = localProviders.filter(p => {
     if (p === currentProvider) return false;
     if (priorErrors.includes(`provider ${p}`)) return false;
@@ -400,7 +400,7 @@ function tryStallRecovery(taskId, activity) {
     strategy = 'switch_edit_format';
     newSettings = { editFormat: 'whole' };
     logger.info(`[StallRecovery] Task ${taskId}: Attempt ${recovery.attempts + 1} - switching edit format ${currentEditFormat} → whole`);
-  } else if (recovery.attempts <= 1 && (currentProvider === 'ollama' || currentProvider === 'hashline-ollama')) {
+  } else if (recovery.attempts <= 1 && currentProvider === 'ollama') {
     // Attempt 2: Try larger model if available
     const largerModel = findLargerAvailableModel(currentModel);
     if (largerModel && largerModel !== currentModel) {
@@ -651,10 +651,10 @@ function tryHashlineTieredFallback(taskId, task, reason) {
     }
   } catch { /* proceed with stale data if getTask fails */ }
 
-  const currentProvider = task.provider || 'hashline-ollama';
+  const currentProvider = task.provider || 'ollama';
 
-  // ── Local model escalation (hashline-ollama only) ──
-  if (currentProvider === 'hashline-ollama') {
+  // ── Local model escalation (ollama only) ──
+  if (currentProvider === 'ollama') {
     const rawErrors = (task.error_output || '') + `\n${reason}`;
     const priorErrors = rawErrors.length > 50000 ? rawErrors.slice(-50000) : rawErrors;
     const localAttempts = (priorErrors.match(/\[Hashline-Local\]/g) || []).length;
@@ -663,7 +663,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
     if (localAttempts < maxRetries) {
       let currentModel = resolveOllamaModel(task, null);
       if (!currentModel) {
-        try { currentModel = modelRoles.getModelForRole('hashline-ollama', 'default') || modelRoles.getModelForRole('ollama', 'default'); } catch (_e) { void _e; }
+        try { currentModel = modelRoles.getModelForRole('ollama', 'default'); } catch (_e) { void _e; }
       }
       if (!currentModel) currentModel = DEFAULT_FALLBACK_MODEL;
       const currentHost = task.ollama_host_id;
@@ -677,7 +677,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
             logger.info(`[Hashline-Local] Task ${taskId.slice(0,8)}: trying ${currentModel} on different host ${otherHost.name || otherHost.id}`);
             db.recordFailoverEvent({ task_id: taskId, from_host: currentHost, to_host: otherHost.name || otherHost.id, from_model: currentModel, to_model: currentModel, reason, failover_type: 'host', attempt_num: localAttempts + 1 });
             db.updateTaskStatus(taskId, 'queued', {
-              provider: 'hashline-ollama',
+              provider: 'ollama',
               model: currentModel,
               ollama_host_id: otherHost.id,
               pid: null, started_at: null,
@@ -698,7 +698,7 @@ function tryHashlineTieredFallback(taskId, task, reason) {
         logger.info(`[Hashline-Local] Task ${taskId.slice(0,8)}: upgrading from ${currentModel} to ${nextModel.name}`);
         db.recordFailoverEvent({ task_id: taskId, from_model: currentModel, to_model: nextModel.name, reason, failover_type: 'model', attempt_num: localAttempts + 1 });
         db.updateTaskStatus(taskId, 'queued', {
-          provider: 'hashline-ollama',
+          provider: 'ollama',
           model: nextModel.name,
           ollama_host_id: nextModel.hostId,
           pid: null, started_at: null,

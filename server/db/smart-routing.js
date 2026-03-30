@@ -95,13 +95,9 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   if (preferFree) {
     // Try local Ollama if healthy (best free option: no rate limits, 24GB VRAM)
     if (ollamaHealthy !== false) {
-      const descLower = (taskDescription || '').toLowerCase();
-      const hasFileRef = /[\w\-./\\]+\.\w{1,5}\b/.test(taskDescription);
-      const isEditTask = hasFileRef && /\b(fix|update|change|modify|add|insert|remove|rename)\b/i.test(descLower);
-      const provider = isEditTask ? 'hashline-ollama' : 'ollama';
-      const providerConfig = getProvider(provider);
+      const providerConfig = getProvider('ollama');
       if (providerConfig && providerConfig.enabled) {
-        return { provider, rule: null, reason: `Free routing: local Ollama (${provider})`, complexity: 'normal' };
+        return { provider: 'ollama', rule: null, reason: 'Free routing: local Ollama (ollama)', complexity: 'normal' };
       }
     }
     // Fallback to cloud free tiers
@@ -137,7 +133,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   }
 
   // Helper to check if provider needs Ollama and handle fallback
-  const isOllamaProvider = (provider) => provider === 'ollama' || provider === 'hashline-ollama';
+  const isOllamaProvider = (provider) => provider === 'ollama';
 
   const maybeApplyFallback = (result) => {
     if (!skipHealthCheck && isOllamaProvider(result.provider) && ollamaHealthy === false) {
@@ -447,25 +443,6 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     }
   }
 
-  // Helper: detect if a task is a targeted file edit (good for hashline-ollama)
-  // These are tasks that reference specific files and make bounded changes
-  const isTargetedFileEdit = (desc) => {
-    // Must reference at least one file
-    const hasFileRef = /[\w\-./\\]+\.\w{1,5}\b/.test(desc);
-    if (!hasFileRef) return false;
-    // Match edit-type verbs applied to specific targets
-    const editPatterns = [
-      /\b(add|insert|append)\b.{0,30}\b(jsdoc|comment|docstring|annotation|import|export|field|property|method|function|getter|setter|constructor|decorator|attribute|type|param|return)\b/i,
-      /\b(fix|update|change|modify|replace|rename|move)\b.{0,40}\b(in|at|on|to)\b/i,
-      /\b(remove|delete)\b.{0,30}\b(unused|dead|deprecated|obsolete|import|line|method|function|comment)\b/i,
-      /\b(add|write|create)\b.{0,20}\b(test|spec)\b.{0,20}\b(for|to|in)\b/i,
-      /\bjsdoc\b|\bdocstring\b|\bxml doc\b|\btsdoc\b/i,
-      /\badd\b.{0,15}\b(logging|log statement|console\.log)\b/i,
-      /\b(add|update)\b.{0,20}\b(error handling|validation|null check|type guard)\b/i,
-    ];
-    return editPatterns.some(p => p.test(desc));
-  };
-
   // PRIMARY: Complexity-based routing (Claude workflow)
   // - Simple tasks → Laptop WSL (default host)
   // - Normal tasks → Desktop (desktop-17)
@@ -494,20 +471,6 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
         fallbackApplied: complexityRouting.fallbackApplied,
         originalHost: complexityRouting.originalHost
       };
-
-      // HASHLINE-OLLAMA UPGRADE: For simple/normal tasks routed to a local LLM
-      // that are targeted file edits, use hashline-ollama instead of raw ollama.
-      // Hashline is faster and more reliable (hash-verified edits).
-      if ((complexity === 'simple' || complexity === 'normal') &&
-          result.provider === 'ollama' &&
-          isTargetedFileEdit(descLower)) {
-        const hashlineProvider = getProvider('hashline-ollama');
-        if (hashlineProvider && hashlineProvider.enabled) {
-          result.provider = 'hashline-ollama';
-          result.reason += ` [upgraded to hashline-ollama: targeted file edit]`;
-          logger.info(`[SmartRouting] Upgraded to hashline-ollama for targeted file edit`);
-        }
-      }
 
       // For ollama providers, include host selection
       if (isOllamaProvider(result.provider) && result.hostId) {
@@ -588,7 +551,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   }
 
   // No rule matched, use default smart routing provider
-  const defaultSmartProvider = getDatabaseConfig('smart_routing_default_provider') || 'hashline-ollama';
+  const defaultSmartProvider = getDatabaseConfig('smart_routing_default_provider') || 'ollama';
   const result = maybeApplyFallback({
     provider: defaultSmartProvider,
     rule: null,
@@ -660,7 +623,7 @@ const CLOUD_PROVIDERS = [
 ];
 
 // Providers that run locally (Ollama-backed).
-const LOCAL_PROVIDERS = ['ollama', 'hashline-ollama'];
+const LOCAL_PROVIDERS = ['ollama'];
 
 /**
  * Get the fallback chain for a provider.
@@ -684,23 +647,21 @@ function getProviderFallbackChain(provider, options) {
 
   if (!chain) {
     // Local-first fallback chains — try local providers before cloud
-    // hashline-ollama is the primary local edit provider (82% success rate).
     // groq removed from fallback chains — its tool calling fails on multi-step
     // tasks (only reliable for single-tool-call docs/simple tasks via smart routing).
     const defaultChains = {
-      'codex':           ['claude-cli', 'deepinfra', 'ollama-cloud', 'hashline-ollama', 'ollama'],
-      'claude-cli':      ['codex', 'deepinfra', 'ollama-cloud', 'hashline-ollama', 'ollama'],
-      'groq':            ['ollama-cloud', 'cerebras', 'deepinfra', 'claude-cli', 'hashline-ollama'],
+      'codex':           ['claude-cli', 'deepinfra', 'ollama-cloud', 'ollama'],
+      'claude-cli':      ['codex', 'deepinfra', 'ollama-cloud', 'ollama'],
+      'groq':            ['ollama-cloud', 'cerebras', 'deepinfra', 'claude-cli', 'ollama'],
       'ollama-cloud':    ['cerebras', 'deepinfra', 'codex', 'claude-cli'],
       'cerebras':        ['google-ai', 'ollama-cloud', 'deepinfra', 'codex'],
       'google-ai':       ['openrouter', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
       'openrouter':      ['google-ai', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
-      'hyperbolic':      ['deepinfra', 'ollama-cloud', 'claude-cli', 'codex', 'hashline-ollama'],
-      'deepinfra':       ['ollama-cloud', 'hyperbolic', 'claude-cli', 'codex', 'hashline-ollama'],
-      'ollama':          ['hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
-      'hashline-ollama': ['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
+      'hyperbolic':      ['deepinfra', 'ollama-cloud', 'claude-cli', 'codex', 'ollama'],
+      'deepinfra':       ['ollama-cloud', 'hyperbolic', 'claude-cli', 'codex', 'ollama'],
+      'ollama':          ['ollama-cloud', 'deepinfra', 'codex', 'claude-cli'],
     };
-    chain = defaultChains[provider] || ['hashline-ollama', 'ollama', 'deepinfra', 'codex', 'claude-cli'];
+    chain = defaultChains[provider] || ['ollama', 'deepinfra', 'codex', 'claude-cli'];
   }
 
   // Filter to cloud-only if requested (used by Ollama→cloud fallback paths)

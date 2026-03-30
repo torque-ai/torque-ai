@@ -275,15 +275,15 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   safeAddColumn('tasks', 'reviewed_at TEXT');
   safeAddColumn('tasks', 'metadata TEXT');
   try {
-      db.exec(`
-        UPDATE complexity_routing SET model = NULL, target_host = NULL
-          WHERE complexity IN ('simple', 'normal');
-        UPDATE complexity_routing SET target_provider = 'aider-ollama', model = NULL, target_host = NULL
-          WHERE complexity = 'complex';
-      `);
-    } catch (e) {
-      logger.debug(`Schema migration (complexity routing): ${e.message}`);
-    }
+    db.exec(`
+      UPDATE complexity_routing SET model = NULL, target_host = NULL
+        WHERE complexity IN ('simple', 'normal');
+      UPDATE complexity_routing SET target_provider = 'codex', model = NULL, target_host = NULL
+        WHERE complexity = 'complex';
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (complexity routing): ${e.message}`);
+  }
   try {
       if (!getConfig('ollama_fast_model_fallback')) setConfig('ollama_fast_model_fallback', 'codestral:22b');
       if (!getConfig('ollama_balanced_model_fallback')) setConfig('ollama_balanced_model_fallback', 'codestral:22b');
@@ -394,7 +394,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     logger.debug(`Schema migration (host_credentials): ${e.message}`);
   }
 
-  // R-hashline: Consolidate to best models only, route simple/normal to hashline-ollama
+  // Consolidate to best local models only, route simple/normal to ollama
   try {
     try {
       db.prepare('ALTER TABLE model_task_outcomes ADD COLUMN failure_category TEXT').run();
@@ -402,14 +402,14 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
       void _e;
       // Column already exists
     }
-    // Update complexity routing to use hashline-ollama with best model
+    // Update complexity routing to use ollama with best model
     const updateRouting = db.prepare(`
       UPDATE complexity_routing
       SET target_provider = ?, model = ?, target_host = NULL, name = ?
       WHERE complexity = ?
     `);
-    updateRouting.run('hashline-ollama', 'qwen2.5-coder:32b', 'Normal tasks to hashline', 'normal');
-    updateRouting.run('hashline-ollama', 'qwen2.5-coder:32b', 'Simple tasks to hashline', 'simple');
+    updateRouting.run('ollama', 'qwen2.5-coder:32b', 'Normal tasks to Ollama', 'normal');
+    updateRouting.run('ollama', 'qwen2.5-coder:32b', 'Simple tasks to Ollama', 'simple');
     // Set model tiers to best models
     setConfig('ollama_fast_model', 'qwen2.5-coder:32b');
     setConfig('ollama_balanced_model', 'qwen2.5-coder:32b');
@@ -422,12 +422,6 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
       UPDATE ollama_hosts SET memory_limit_mb = 24576
       WHERE memory_limit_mb = 8192 AND memory_limit_mb < 24576
     `).run();
-    // Restrict hashline to only the best models
-    setConfig('hashline_capable_models', 'qwen2.5-coder:32b,codestral:22b');
-    // Enable hashline format auto-selection based on success rates
-    setConfig('hashline_format_auto_select', '1');
-    // Force standard hashline for qwen2.5-coder (abbreviates SEARCH content in hashline-lite)
-    setConfig('hashline_model_formats', JSON.stringify({ 'qwen2.5-coder:32b': 'hashline', 'qwen2.5-coder': 'hashline' }));
     // Enable error feedback for self-correcting edits
     setConfig('error_feedback_enabled', '1');
     setConfig('verify_max_fix_attempts', '2');
@@ -455,11 +449,10 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     }
     // Increase keep_alive to reduce cold-start latency between tasks
     setConfig('ollama_keep_alive', '30m');
-    // Enable hashline-ollama provider (was disabled)
-    db.prepare(`UPDATE provider_config SET enabled = 1 WHERE provider = 'hashline-ollama'`).run();
-    logger.debug('Schema migration (R-hashline): consolidated to best models, hashline-ollama routing');
+    db.prepare(`UPDATE provider_config SET enabled = 1 WHERE provider = 'ollama'`).run();
+    logger.debug('Schema migration (local routing): consolidated to best models and ollama routing');
   } catch (e) {
-    logger.debug(`Schema migration (R-hashline): ${e.message}`);
+    logger.debug(`Schema migration (local routing): ${e.message}`);
   }
 
   // provider_health_history table for persistent provider health tracking
