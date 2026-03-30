@@ -5,6 +5,7 @@ const SERVER_INFO = { name: 'torque', version: '1.0.0' };
 let _tools = [];
 let _coreToolNames = [];
 let _extendedToolNames = [];
+let _allTierNames = new Set();
 let _handleToolCall = null;
 let _onInitialize = null;
 
@@ -22,6 +23,7 @@ function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onIniti
   _tools = tools || [];
   _coreToolNames = coreToolNames || [];
   _extendedToolNames = extendedToolNames || [];
+  _allTierNames = new Set([..._coreToolNames, ..._extendedToolNames]);
   _handleToolCall = handleToolCall;
   _onInitialize = onInitialize || null;
 }
@@ -59,10 +61,13 @@ async function handleRequest(request, session) {
     case 'tools/list': {
       if (session.toolMode === 'core' || session.toolMode === 'extended') {
         const allowedNames = session.toolMode === 'core' ? _coreToolNames : _extendedToolNames;
+        const allowedSet = new Set(allowedNames);
         const filtered = [];
-        for (const name of allowedNames) {
-          const tool = _tools.find(t => t.name === name);
-          if (tool) filtered.push(tool);
+        for (const tool of _tools) {
+          // Include tier-allowed tools + plugin tools (not in any tier = always visible)
+          if (allowedSet.has(tool.name) || !_allTierNames.has(tool.name)) {
+            filtered.push(tool);
+          }
         }
         return { tools: filtered };
       }
@@ -98,9 +103,10 @@ async function _handleToolCallInternal(params, session) {
   const normalizedArgs = args || {};
 
   // Enforce tool mode at execution boundary (RB-073)
+  // Plugin tools (not in any tier) are always allowed
   if (session.toolMode !== 'full') {
     const allowedNames = session.toolMode === 'core' ? _coreToolNames : _extendedToolNames;
-    if (!allowedNames.includes(name)) {
+    if (!allowedNames.includes(name) && _allTierNames.has(name)) {
       return {
         content: [{ type: 'text', text: `Tool '${name}' is not available in ${session.toolMode} mode. Call 'unlock_all_tools' to access all tools.` }],
         isError: true,
