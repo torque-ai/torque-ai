@@ -468,6 +468,16 @@ export const coordination = {
   listClaims: () => request('/coordination/claims'),
 };
 
+export const versionControl = {
+  getWorktrees: () => request('/version-control/worktrees'),
+  getCommits: (days = 7) => request('/version-control/commits?days=' + days),
+  deleteWorktree: (id) => request('/version-control/worktrees/' + id, { method: 'DELETE' }),
+  mergeWorktree: (id, opts = {}) => request('/version-control/worktrees/' + id + '/merge', {
+    method: 'POST',
+    body: JSON.stringify(opts),
+  }),
+};
+
 // ─── Free-tier quota status (legacy — no v2 equivalent yet) ─────────────────
 
 const LEGACY_FREE_TIER_BASE = `/${['free', 'tier'].join('-')}`;
@@ -516,4 +526,4 @@ export const routingTemplates = {
   categories: (opts = {}) => requestV2('/routing/categories', opts),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, strategic, routingTemplates };
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates };

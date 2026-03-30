@@ -11,6 +11,7 @@ const infrastructure = require('./routes/infrastructure');
 const analytics = require('./routes/analytics');
 const admin = require('./routes/admin');
 const governanceHandlers = require('../handlers/governance-handlers');
+const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 
 const LOCALHOST_IPS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -91,6 +92,123 @@ function resolveDashboardGovernanceDb() {
   }
 }
 
+function resolveDashboardVersionControlDb() {
+  try {
+    const { defaultContainer } = require('../container');
+    if (!defaultContainer || typeof defaultContainer.get !== 'function') {
+      throw new Error('Container unavailable');
+    }
+
+    const dbService = defaultContainer.get('db');
+    const db = dbService && typeof dbService.getDbInstance === 'function'
+      ? dbService.getDbInstance()
+      : (dbService && typeof dbService.getDb === 'function' ? dbService.getDb() : dbService);
+
+    if (!db || typeof db.prepare !== 'function') {
+      throw new Error('Version control tables not initialized');
+    }
+
+    return { db };
+  } catch (error) {
+    return { error };
+  }
+}
+
+function getTableColumns(db, tableName) {
+  try {
+    return db.prepare(`PRAGMA table_info('${tableName}')`).all().map((column) => column.name);
+  } catch {
+    return [];
+  }
+}
+
+function hasColumn(columns, columnName) {
+  return columns.length > 0 && columns.includes(columnName);
+}
+
+function normalizeOptionalString(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function parsePositiveInteger(value, fallback, options = {}) {
+  const numeric = Number.parseInt(value, 10);
+  const min = Number.isFinite(options.min) ? options.min : 1;
+  const max = Number.isFinite(options.max) ? options.max : Number.MAX_SAFE_INTEGER;
+
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  return Math.max(min, Math.min(max, numeric));
+}
+
+function normalizeVersionControlFeatureName(row) {
+  const explicitFeature = normalizeOptionalString(row?.feature_name);
+  if (explicitFeature) {
+    return explicitFeature;
+  }
+
+  const branch = normalizeOptionalString(row?.branch)?.replace(/^refs\/heads\//, '');
+  if (!branch) {
+    return null;
+  }
+
+  const suffix = branch.includes('/') ? branch.split('/').pop() : branch;
+  return suffix.replace(/[-_]+/g, ' ');
+}
+
+function isStaleVersionControlWorktree(row, staleDays = 7) {
+  if (!row || typeof row !== 'object') {
+    return false;
+  }
+
+  const status = normalizeOptionalString(row.status)?.toLowerCase() || '';
+  if (status === 'merged') {
+    return false;
+  }
+
+  if (row.is_stale === true || row.isStale === true) {
+    return true;
+  }
+
+  const timestamp = row.last_activity_at || row.created_at;
+  if (!timestamp) {
+    return false;
+  }
+
+  const parsed = Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) {
+    return false;
+  }
+
+  return Date.now() - parsed >= staleDays * 24 * 60 * 60 * 1000;
+}
+
+function normalizeVersionControlWorktreeRow(row) {
+  const isStale = isStaleVersionControlWorktree(row);
+  const status = normalizeOptionalString(row?.status)?.toLowerCase() || 'unknown';
+
+  return {
+    ...row,
+    feature_name: normalizeVersionControlFeatureName(row),
+    commit_count: Number(row?.commit_count || 0),
+    is_stale: isStale,
+    display_status: status === 'active' && isStale ? 'stale' : status,
+  };
+}
+
+function getVersionControlTimestampColumn(columns) {
+  if (hasColumn(columns, 'generated_at')) {
+    return 'generated_at';
+  }
+
+  if (hasColumn(columns, 'created_at')) {
+    return 'created_at';
+  }
+
+  return null;
+}
+
 async function handleGetGovernanceRulesRoute(req, res, query) {
   const args = {};
   if (typeof query.stage === 'string' && query.stage.trim()) {
@@ -167,6 +285,202 @@ async function handleResetGovernanceRuleRoute(_req, res, _query, ruleId) {
     });
   } catch (err) {
     return sendJson(res, { error: err.message }, 500);
+  }
+}
+
+async function handleGetVersionControlWorktreesRoute(_req, res, query) {
+  const { db, error } = resolveDashboardVersionControlDb();
+  if (error) {
+    return sendJson(res, {
+      error: 'Version control data unavailable',
+      details: error.message,
+    }, 503);
+  }
+
+  const columns = getTableColumns(db, 'vc_worktrees');
+  if (columns.length === 0) {
+    return sendJson(res, {
+      worktrees: [],
+      count: 0,
+      summary: {
+        active_worktrees: 0,
+        stale_worktrees: 0,
+        policy_violations: 0,
+      },
+    });
+  }
+
+  try {
+    const repoPath = normalizeOptionalString(query.repo_path);
+    const statusFilter = normalizeOptionalString(query.status)?.toLowerCase() || null;
+    const whereClauses = [];
+    const params = [];
+
+    if (repoPath) {
+      whereClauses.push('repo_path = ?');
+      params.push(repoPath);
+    }
+
+    if (statusFilter && statusFilter !== 'stale') {
+      whereClauses.push('status = ?');
+      params.push(statusFilter);
+    }
+
+    const selectColumns = [
+      'id',
+      'repo_path',
+      'worktree_path',
+      'branch',
+      hasColumn(columns, 'feature_name') ? 'feature_name' : 'NULL AS feature_name',
+      hasColumn(columns, 'base_branch') ? 'base_branch' : "'main' AS base_branch",
+      hasColumn(columns, 'status') ? 'status' : "'active' AS status",
+      hasColumn(columns, 'commit_count') ? 'COALESCE(commit_count, 0) AS commit_count' : '0 AS commit_count',
+      hasColumn(columns, 'created_at') ? 'created_at' : "datetime('now') AS created_at",
+      hasColumn(columns, 'last_activity_at') ? 'last_activity_at' : 'NULL AS last_activity_at',
+      hasColumn(columns, 'merged_at') ? 'merged_at' : 'NULL AS merged_at',
+    ].join(', ');
+
+    const whereSql = whereClauses.length > 0 ? ` WHERE ${whereClauses.join(' AND ')}` : '';
+    const rows = db
+      .prepare(`SELECT ${selectColumns} FROM vc_worktrees${whereSql} ORDER BY datetime(COALESCE(last_activity_at, created_at)) DESC, datetime(created_at) DESC`)
+      .all(...params);
+
+    const worktrees = rows
+      .map((row) => normalizeVersionControlWorktreeRow(row))
+      .filter((row) => (statusFilter === 'stale' ? row.is_stale : true));
+
+    const summary = {
+      active_worktrees: worktrees.filter((row) => row.display_status === 'active').length,
+      stale_worktrees: worktrees.filter((row) => row.is_stale).length,
+      policy_violations: worktrees.reduce((total, row) => total + (Number(row.policy_violations || 0) || 0), 0),
+    };
+
+    return sendJson(res, {
+      worktrees,
+      count: worktrees.length,
+      summary,
+    });
+  } catch (err) {
+    return sendJson(res, { error: err.message }, 500);
+  }
+}
+
+async function handleGetVersionControlCommitsRoute(_req, res, query) {
+  const { db, error } = resolveDashboardVersionControlDb();
+  if (error) {
+    return sendJson(res, {
+      error: 'Version control data unavailable',
+      details: error.message,
+    }, 503);
+  }
+
+  const columns = getTableColumns(db, 'vc_commits');
+  const timestampColumn = getVersionControlTimestampColumn(columns);
+  if (columns.length === 0 || !timestampColumn) {
+    return sendJson(res, { commits: [], count: 0 });
+  }
+
+  try {
+    const repoPath = normalizeOptionalString(query.repo_path);
+    const days = parsePositiveInteger(query.days, 7, { min: 1, max: 365 });
+    const limit = parsePositiveInteger(query.limit, 50, { min: 1, max: 500 });
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const whereClauses = [`datetime(${timestampColumn}) >= datetime(?)`];
+    const params = [since];
+
+    if (repoPath) {
+      whereClauses.push('repo_path = ?');
+      params.push(repoPath);
+    }
+
+    const selectColumns = [
+      'id',
+      'repo_path',
+      hasColumn(columns, 'worktree_id') ? 'worktree_id' : 'NULL AS worktree_id',
+      hasColumn(columns, 'branch') ? 'branch' : 'NULL AS branch',
+      hasColumn(columns, 'commit_hash') ? 'commit_hash' : 'NULL AS commit_hash',
+      hasColumn(columns, 'message') ? 'message' : "'' AS message",
+      hasColumn(columns, 'commit_type') ? 'commit_type' : "'chore' AS commit_type",
+      hasColumn(columns, 'scope') ? 'scope' : 'NULL AS scope',
+      hasColumn(columns, 'files_changed') ? 'COALESCE(files_changed, 0) AS files_changed' : '0 AS files_changed',
+      `${timestampColumn} AS created_at`,
+    ].join(', ');
+
+    const commits = db
+      .prepare(`SELECT ${selectColumns} FROM vc_commits WHERE ${whereClauses.join(' AND ')} ORDER BY datetime(${timestampColumn}) DESC LIMIT ?`)
+      .all(...params, limit);
+
+    return sendJson(res, {
+      commits,
+      count: commits.length,
+      days,
+    });
+  } catch (err) {
+    return sendJson(res, { error: err.message }, 500);
+  }
+}
+
+async function handleDeleteVersionControlWorktreeRoute(_req, res, _query, worktreeId) {
+  const { db, error } = resolveDashboardVersionControlDb();
+  if (error) {
+    return sendJson(res, {
+      error: 'Version control data unavailable',
+      details: error.message,
+    }, 503);
+  }
+
+  const columns = getTableColumns(db, 'vc_worktrees');
+  if (columns.length === 0) {
+    return sendError(res, 'Version control tables not initialized', 503);
+  }
+
+  try {
+    const existing = db.prepare('SELECT id FROM vc_worktrees WHERE id = ?').get(worktreeId);
+    if (!existing) {
+      return sendError(res, `Version control worktree not found: ${worktreeId}`, 404);
+    }
+
+    const manager = createWorktreeManager({ db });
+    const result = manager.cleanupWorktree(worktreeId);
+    return sendJson(res, result || { removed: false }, 200);
+  } catch (err) {
+    return sendJson(res, { error: err.message }, 500);
+  }
+}
+
+async function handleMergeVersionControlWorktreeRoute(req, res, _query, worktreeId) {
+  const { db, error } = resolveDashboardVersionControlDb();
+  if (error) {
+    return sendJson(res, {
+      error: 'Version control data unavailable',
+      details: error.message,
+    }, 503);
+  }
+
+  const columns = getTableColumns(db, 'vc_worktrees');
+  if (columns.length === 0) {
+    return sendError(res, 'Version control tables not initialized', 503);
+  }
+
+  try {
+    const existing = db.prepare('SELECT id FROM vc_worktrees WHERE id = ?').get(worktreeId);
+    if (!existing) {
+      return sendError(res, `Version control worktree not found: ${worktreeId}`, 404);
+    }
+
+    const body = await parseBody(req);
+    const manager = createWorktreeManager({ db });
+    const result = manager.mergeWorktree(worktreeId, {
+      strategy: body.strategy,
+      targetBranch: body.targetBranch || body.target_branch,
+      deleteAfter: body.deleteAfter,
+      delete_after: body.delete_after,
+    });
+
+    return sendJson(res, result || { merged: false }, 200);
+  } catch (err) {
+    const status = /strategy must be one of/i.test(err.message) ? 400 : 500;
+    return sendJson(res, { error: err.message }, status);
   }
 }
 
@@ -270,6 +584,12 @@ const routes = [
   { method: 'GET',   pattern: /^\/api\/governance\/rules$/,               handler: handleGetGovernanceRulesRoute },
   { method: 'PATCH', pattern: /^\/api\/governance\/rules\/([^/]+)$/,      handler: handlePatchGovernanceRuleRoute },
   { method: 'POST',  pattern: /^\/api\/governance\/rules\/([^/]+)\/reset$/, handler: handleResetGovernanceRuleRoute },
+
+  // --- Version Control ---
+  { method: 'GET',    pattern: /^\/api\/version-control\/worktrees$/,                 handler: handleGetVersionControlWorktreesRoute },
+  { method: 'GET',    pattern: /^\/api\/version-control\/commits$/,                   handler: handleGetVersionControlCommitsRoute },
+  { method: 'DELETE', pattern: /^\/api\/version-control\/worktrees\/([^/]+)$/,        handler: handleDeleteVersionControlWorktreeRoute },
+  { method: 'POST',   pattern: /^\/api\/version-control\/worktrees\/([^/]+)\/merge$/, handler: handleMergeVersionControlWorktreeRoute },
 
   // --- Workflows --- (compat: v2 equivalents at /api/v2/workflows)
   { method: 'GET', pattern: /^\/api\/workflows$/,                       handler: analytics.handleListWorkflows, compat: true },
