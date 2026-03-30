@@ -16,6 +16,7 @@ const { execFileSync } = require('child_process');
 const logger = require('../logger').child({ component: 'context-enrichment' });
 const serverConfig = require('../config');
 const { SENSITIVE_FILE_PATTERNS } = require('./context-stuffing');
+const { computeLineHash } = require('../handlers/hashline-handlers');
 
 function _isSensitiveFile(filePath) {
   const basename = path.basename(filePath);
@@ -638,8 +639,6 @@ ${(originalOutput || '').slice(0, 2000)}`;
 function buildHashlineErrorFeedbackPrompt(workingDir, modifiedFiles, errors, editFormat, options = {}) {
   if (!errors || errors.length === 0) return '';
   if (!modifiedFiles || modifiedFiles.length === 0) return '';
-
-  const { computeLineHash } = require('./hashline-parser');
   const fileSections = [];
 
   for (const relPath of modifiedFiles) {

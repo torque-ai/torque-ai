@@ -11,19 +11,15 @@ const { MAX_STREAMING_OUTPUT } = require('../constants');
 let testDir;
 let db;
 let taskCore;
-let executeHashline;
 let executeOllama;
 let executeApi;
 const hostManagement = require('../db/host-management');
-const webhooksStreaming = require('../db/webhooks-streaming');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
   ({ db, testDir } = setupTestDb('p1-streaming-'));
 
   taskCore = require('../db/task-core');
-
-  executeHashline = require('../providers/execute-hashline');
   executeOllama = require('../providers/execute-ollama');
   executeApi = require('../providers/execute-api');
 }
@@ -48,29 +44,6 @@ function resetDb() {
       conn.prepare(`DELETE FROM ${table}`).run();
     } catch { /* ignore missing tables during targeted cleanup */ }
   }
-}
-
-function makeHashlineDeps(overrides = {}) {
-  return {
-    db,
-    dashboard: {
-      broadcast: vi.fn(),
-      broadcastTaskUpdate: vi.fn(),
-      notifyTaskUpdated: vi.fn(),
-      notifyTaskOutput: vi.fn(),
-    },
-    safeUpdateTaskStatus: vi.fn(),
-    tryReserveHostSlotWithFallback: vi.fn(() => ({ success: true })),
-    tryHashlineTieredFallback: vi.fn(),
-    selectHashlineFormat: vi.fn(() => ({ format: 'hashline', reason: 'default' })),
-    isHashlineCapableModel: vi.fn(() => true),
-    isLargeModelBlockedOnHost: vi.fn(() => ({ blocked: false })),
-    processQueue: vi.fn(),
-    hashlineOllamaSystemPrompt: 'You are hashline.',
-    hashlineLiteSystemPrompt: 'You are hashline-lite.',
-    executeOllamaTask: vi.fn(),
-    ...overrides,
-  };
 }
 
 function makeOllamaDeps(overrides = {}) {
@@ -174,39 +147,6 @@ describe('P1 streaming fixes', () => {
   });
 
   describe('Issue 1: trailing NDJSON line is flushed', () => {
-    it('accepts a final no-newline NDJSON line in runOllamaGenerate', async () => {
-      const payload = '{"response":"Hello from LLM","done":true}';
-      const streamServer = await startStreamServer({
-        statusCode: 200,
-        responsePayloads: [payload],
-      });
-      executeHashline.init(makeHashlineDeps());
-
-      const taskId = randomUUID();
-      taskCore.createTask({
-        id: taskId,
-        task_description: 'Trailing line test',
-        status: 'running',
-        provider: 'hashline-ollama',
-        working_directory: testDir,
-      });
-
-      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
-      const result = await executeHashline.runOllamaGenerate({
-        ollamaHost: streamServer.url,
-        ollamaModel: 'codellama:latest',
-        prompt: 'Test',
-        systemPrompt: 'Test',
-        options: {},
-        timeoutMs: 10000,
-        taskId,
-        streamId,
-      });
-
-      expect(result.response).toBe('Hello from LLM');
-      await streamServer.close();
-    });
-
     it('accepts a final no-newline NDJSON line from execute-ollama task stream', async () => {
       const payload = '{"response":"Hello from Ollama","done":true}';
       const streamServer = await startStreamServer({
@@ -243,42 +183,6 @@ describe('P1 streaming fixes', () => {
   });
 
   describe('Issue 2: streaming output caps', () => {
-    it('truncates hashline streaming output at MAX_STREAMING_OUTPUT', async () => {
-      const huge = 'A'.repeat(MAX_STREAMING_OUTPUT + 2048);
-      const payload = `{"response":"${huge}","done":true}`;
-      const streamServer = await startStreamServer({
-        responsePayloads: [payload],
-      });
-      executeHashline.init(makeHashlineDeps());
-
-      const taskId = randomUUID();
-      taskCore.createTask({
-        id: taskId,
-        task_description: 'Output cap test',
-        status: 'running',
-        provider: 'hashline-ollama',
-        working_directory: testDir,
-      });
-
-      const streamId = webhooksStreaming.getOrCreateTaskStream(taskId, 'output');
-      const result = await executeHashline.runOllamaGenerate({
-        ollamaHost: streamServer.url,
-        ollamaModel: 'codellama:latest',
-        prompt: 'Generate huge',
-        systemPrompt: 'Test',
-        options: {},
-        timeoutMs: 10000,
-        taskId,
-        streamId,
-      });
-
-      expect(result.response).toContain('\n[output truncated at 10MB]');
-      expect(result.response.length).toBeLessThanOrEqual(
-        MAX_STREAMING_OUTPUT + '\n[output truncated at 10MB]'.length
-      );
-      await streamServer.close();
-    });
-
     it('truncates execute-ollama output at MAX_STREAMING_OUTPUT', async () => {
       const huge = 'A'.repeat(MAX_STREAMING_OUTPUT + 2048);
       const payload = `{"response":"${huge}","done":true}`;

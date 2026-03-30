@@ -4,7 +4,6 @@
  * Thin aggregator that delegates to sub-modules:
  * - execute-api.js      — executeApiProvider (API-based providers)
  * - execute-ollama.js   — executeOllamaTask, estimateRequiredContext (plain Ollama)
- * - execute-hashline.js — executeHashlineOllamaTask, error-feedback helpers
  * - execute-cli.js      — buildAiderOllamaCommand, buildClaudeCliCommand, buildCodexCommand, spawnAndTrackProcess
  *
  * Also hosts the agentic tool-calling pipeline that wraps Ollama and cloud API
@@ -23,7 +22,6 @@ const path = require('path');
 
 const _executeApiModule = require('./execute-api');
 const _executeOllamaModule = require('./execute-ollama');
-const _executeHashlineModule = require('./execute-hashline');
 const _executeCliModule = require('./execute-cli');
 
 // Agentic pipeline components
@@ -119,27 +117,6 @@ function init(deps) {
     isLargeModelBlockedOnHost: deps.isLargeModelBlockedOnHost,
     buildFileContext: deps.buildFileContext,
     processQueue: deps.processQueue,
-  });
-
-  // execute-hashline.js needs: db, dashboard, safeUpdateTaskStatus, tryReserveHostSlotWithFallback,
-  //   tryHashlineTieredFallback, selectHashlineFormat, isHashlineCapableModel,
-  //   isLargeModelBlockedOnHost, processQueue, hashlineOllamaSystemPrompt, hashlineLiteSystemPrompt,
-  //   handleWorkflowTermination,
-  //   executeOllamaTask (for fallback)
-  _executeHashlineModule.init({
-    db: deps.db,
-    dashboard: deps.dashboard,
-    safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
-    tryReserveHostSlotWithFallback: deps.tryReserveHostSlotWithFallback,
-    tryHashlineTieredFallback: deps.tryHashlineTieredFallback,
-    selectHashlineFormat: deps.selectHashlineFormat,
-    isHashlineCapableModel: deps.isHashlineCapableModel,
-    isLargeModelBlockedOnHost: deps.isLargeModelBlockedOnHost,
-    processQueue: deps.processQueue,
-    hashlineOllamaSystemPrompt: deps.hashlineOllamaSystemPrompt,
-    hashlineLiteSystemPrompt: deps.hashlineLiteSystemPrompt,
-    handleWorkflowTermination: deps.handleWorkflowTermination,
-    executeOllamaTask: _executeOllamaModule.executeOllamaTask,
   });
 
    // execute-cli.js needs: db, dashboard, runningProcesses, safeUpdateTaskStatus,
@@ -1274,11 +1251,8 @@ module.exports = {
   executeOllamaTask: executeOllamaTaskWithAgentic,
   // From execute-api.js (wrapped with agentic interceptor for capable providers)
   executeApiProvider: executeApiProviderWithAgentic,
-  // From execute-hashline.js
-  executeHashlineOllamaTask: _executeHashlineModule.executeHashlineOllamaTask,
-  runOllamaGenerate: _executeHashlineModule.runOllamaGenerate,
-  parseAndApplyEdits: _executeHashlineModule.parseAndApplyEdits,
-  runErrorFeedbackLoop: _executeHashlineModule.runErrorFeedbackLoop,
+  // Hashline compatibility now routes through plain Ollama execution.
+  executeHashlineOllamaTask: executeOllamaTaskWithAgentic,
   // From execute-cli.js
   buildAiderOllamaCommand: _executeCliModule.buildAiderOllamaCommand,
   buildClaudeCliCommand: _executeCliModule.buildClaudeCliCommand,

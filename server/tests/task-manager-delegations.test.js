@@ -2,14 +2,9 @@
 
 // All sub-module mocks — keyed by the require path used in task-manager-delegations.js
 const mockModules = {
-  '../utils/hashline-parser': {
+  '../handlers/hashline-handlers': {
     computeLineHash: vi.fn(() => 'ab'),
     lineSimilarity: vi.fn(() => 0.5),
-    parseHashlineLiteEdits: vi.fn(() => []),
-    findSearchMatch: vi.fn(() => null),
-    applyHashlineLiteEdits: vi.fn(() => 'edited'),
-    parseHashlineEdits: vi.fn(() => []),
-    applyHashlineEdits: vi.fn(() => 'edited'),
   },
   '../utils/file-resolution': {
     isShellSafe: vi.fn(() => true),
@@ -153,8 +148,7 @@ describe('task-manager-delegations', () => {
 
   it('exports all expected delegation functions', () => {
     const expected = [
-      'computeLineHash', 'lineSimilarity', 'parseHashlineLiteEdits',
-      'findSearchMatch', 'applyHashlineLiteEdits', 'parseHashlineEdits', 'applyHashlineEdits',
+      'computeLineHash', 'lineSimilarity',
       'verifyHashlineReferences', 'attemptFuzzySearchRepair',
       'isShellSafe', 'extractTargetFilesFromDescription', 'buildFileIndex',
       'extractFileReferencesExpanded', 'resolveFileReferences', 'isValidFilePath', 'extractModifiedFiles',
@@ -195,14 +189,9 @@ describe('task-manager-delegations', () => {
 
   // Sync delegation specs: [exportName, mockModulePath, targetMethodName]
   const syncSpecs = [
-    // hashline-parser
-    ['computeLineHash', '../utils/hashline-parser'],
-    ['lineSimilarity', '../utils/hashline-parser'],
-    ['parseHashlineLiteEdits', '../utils/hashline-parser'],
-    ['findSearchMatch', '../utils/hashline-parser'],
-    ['applyHashlineLiteEdits', '../utils/hashline-parser'],
-    ['parseHashlineEdits', '../utils/hashline-parser'],
-    ['applyHashlineEdits', '../utils/hashline-parser'],
+    // hashline handlers
+    ['computeLineHash', '../handlers/hashline-handlers'],
+    ['lineSimilarity', '../handlers/hashline-handlers'],
     // hashline-verify
     ['verifyHashlineReferences', '../validation/hashline-verify'],
     ['attemptFuzzySearchRepair', '../validation/hashline-verify'],

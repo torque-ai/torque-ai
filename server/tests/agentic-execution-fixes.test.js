@@ -7,7 +7,6 @@ const { TEST_MODELS } = require('./test-helpers');
 const SUBJECT_PATH = require.resolve('../providers/execution');
 const EXECUTE_API_PATH = require.resolve('../providers/execute-api');
 const EXECUTE_OLLAMA_PATH = require.resolve('../providers/execute-ollama');
-const EXECUTE_HASHLINE_PATH = require.resolve('../providers/execute-hashline');
 const EXECUTE_CLI_PATH = require.resolve('../providers/execute-cli');
 const AGENTIC_CAPABILITY_PATH = require.resolve('../providers/agentic-capability');
 const OLLAMA_TOOLS_PATH = require.resolve('../providers/ollama-tools');
@@ -27,7 +26,6 @@ const TRACKED_CACHE_PATHS = [
   SUBJECT_PATH,
   EXECUTE_API_PATH,
   EXECUTE_OLLAMA_PATH,
-  EXECUTE_HASHLINE_PATH,
   EXECUTE_CLI_PATH,
   AGENTIC_CAPABILITY_PATH,
   OLLAMA_TOOLS_PATH,
@@ -114,13 +112,6 @@ function loadSubject(overrides = {}) {
     estimateRequiredContext: vi.fn(),
     executeOllamaTask: vi.fn(async () => ({ legacy: true })),
   };
-  const executeHashlineMock = {
-    init: vi.fn(),
-    executeHashlineOllamaTask: vi.fn(),
-    runOllamaGenerate: vi.fn(),
-    parseAndApplyEdits: vi.fn(),
-    runErrorFeedbackLoop: vi.fn(),
-  };
   const executeCliMock = {
     init: vi.fn(),
     buildAiderOllamaCommand: vi.fn(),
@@ -155,7 +146,6 @@ function loadSubject(overrides = {}) {
   installMock(GIT_SAFETY_PATH, gitSafetyMock);
   installMock(EXECUTE_API_PATH, executeApiMock);
   installMock(EXECUTE_OLLAMA_PATH, executeOllamaMock);
-  installMock(EXECUTE_HASHLINE_PATH, executeHashlineMock);
   installMock(EXECUTE_CLI_PATH, executeCliMock);
   installMock(AGENTIC_CAPABILITY_PATH, capabilityMock);
   installMock(OLLAMA_TOOLS_PATH, { createToolExecutor: vi.fn(), TOOL_DEFINITIONS: [] });

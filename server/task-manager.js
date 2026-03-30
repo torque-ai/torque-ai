@@ -51,7 +51,6 @@ const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS
 const { sanitizeLLMOutput } = require('./utils/sanitize');
 const { parseModelSizeB, isSmallModel, getModelSizeCategory, isThinkingModel } = require('./utils/model');
 const { parseGitStatusLine, getModifiedFiles } = require('./utils/git');
-const _hashlineParser = require('./utils/hashline-parser');
 const _fileResolution = require('./utils/file-resolution');
 const hostMonitoring = require('./utils/host-monitoring');
 const contextEnrichment = require('./utils/context-enrichment');
@@ -126,8 +125,6 @@ const codexIntelligence = require('./providers/codex-intelligence');
 // Phase D3: All pure pass-through delegation stubs extracted to task-manager-delegations.js
 const {
   computeLineHash, lineSimilarity,
-  parseHashlineLiteEdits, findSearchMatch, applyHashlineLiteEdits,
-  parseHashlineEdits, applyHashlineEdits,
   isShellSafe, extractTargetFilesFromDescription,
   buildFileIndex, extractFileReferencesExpanded, resolveFileReferences,
   isValidFilePath, extractModifiedFiles,
@@ -1207,16 +1204,9 @@ Object.assign(module.exports, {
   verifyHashlineReferences,
   attemptFuzzySearchRepair,
   lineSimilarity,
-  // Hashline-Ollama provider internals (exported for testing)
-  parseHashlineEdits,
-  applyHashlineEdits,
   HASHLINE_OLLAMA_SYSTEM_PROMPT,
-  // Hashline-Lite provider internals (exported for testing)
   HASHLINE_LITE_SYSTEM_PROMPT,
-  parseHashlineLiteEdits,
-  applyHashlineLiteEdits,
   selectHashlineFormat,
-  findSearchMatch,
   // Hashline local fallback (exported for testing)
   tryHashlineTieredFallback,
   findNextHashlineModel,
@@ -1360,14 +1350,9 @@ function createTaskManager(_deps) {
     verifyHashlineReferences,
     attemptFuzzySearchRepair,
     lineSimilarity,
-    parseHashlineEdits,
-    applyHashlineEdits,
     HASHLINE_OLLAMA_SYSTEM_PROMPT,
     HASHLINE_LITE_SYSTEM_PROMPT,
-    parseHashlineLiteEdits,
-    applyHashlineLiteEdits,
     selectHashlineFormat,
-    findSearchMatch,
     tryHashlineTieredFallback,
     findNextHashlineModel,
     tryLocalFirstFallback,
