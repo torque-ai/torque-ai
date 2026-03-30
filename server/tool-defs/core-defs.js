@@ -25,7 +25,9 @@ const tools = [
         reason: {
           type: 'string',
           description: 'Optional reason for restart (logged)'
-        }
+        },
+        drain: { type: 'boolean', description: 'Wait for all running tasks to complete before restarting (queue drain mode). New tasks are queued but not started during drain.' },
+        drain_timeout_minutes: { type: 'number', description: 'Maximum minutes to wait for tasks to drain (default: 10). If exceeded, drain aborts and server stays on current version.' },
       }
     }
   },

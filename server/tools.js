@@ -390,46 +390,73 @@ const RESTART_RESPONSE_GRACE_MS = 1500;
 
 function handleRestartServer(args) {
   const reason = args.reason || 'Manual restart requested';
-  // Use module-level logger (not a re-require) to avoid shadowing the top-level binding.
+  const drain = args.drain === true;
+  const drainTimeoutMinutes = args.drain_timeout_minutes || 10;
   const taskManager = require('./task-manager');
   const taskCore = require('./db/task-core');
 
-  logger.info(`[Restart] Server restart requested: ${reason}`);
+  logger.info(`[Restart] Server restart requested: ${reason}${drain ? ' (drain mode)' : ''}`);
 
   const localRunning = taskManager.getRunningTaskCount();
   const allRunningTasks = taskCore.listTasks({ status: 'running', limit: 1000 });
   const totalRunning = allRunningTasks.length;
 
-  if (totalRunning > 0) {
+  if (totalRunning > 0 && !drain) {
     const siblingRunning = totalRunning - localRunning;
     let errorMsg = `Cannot restart: ${totalRunning} task(s) still running`;
     if (siblingRunning > 0) {
       errorMsg += ` (${localRunning} local, ${siblingRunning} from other sessions)`;
     }
-    errorMsg += '. Cancel them first or wait for completion.';
+    errorMsg += '. Cancel them first, wait for completion, or use drain: true to wait automatically.';
     return {
       success: false,
       content: [{ type: 'text', text: errorMsg }],
       error: errorMsg,
       running_tasks: totalRunning,
       local_running: localRunning,
-      sibling_running: siblingRunning
     };
   }
 
-  // Return success to the caller BEFORE triggering shutdown. This is intentional:
-  // the MCP response must be flushed to the client before the process exits.
-  // The setTimeout gives the response time to be sent, then triggers shutdown.
-  // Note: rapid consecutive restart calls will each schedule a shutdown timeout.
-  // The torque:shutdown handler is idempotent (no-op on second call), so this is safe.
+  if (totalRunning > 0 && drain) {
+    logger.info(`[Restart] Drain mode: waiting for ${totalRunning} task(s) to complete (timeout: ${drainTimeoutMinutes}min)`);
 
-  // Signal the shutdown handler to respawn after cleanup.
-  // The gracefulShutdown function checks this flag and spawns a new server
-  // right before process.exit — same process, same env, no intermediary.
+    const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
+    const drainStarted = Date.now();
+    const DRAIN_POLL_INTERVAL = 10000;
+
+    const drainPoll = setInterval(() => {
+      const remaining = taskCore.listTasks({ status: 'running', limit: 1000 }).length;
+
+      if (remaining === 0) {
+        clearInterval(drainPoll);
+        logger.info('[Restart] Drain complete — all tasks finished. Restarting...');
+        process._torqueRestartPending = true;
+        eventBus.emitShutdown(`restart (drain complete): ${reason}`);
+        return;
+      }
+
+      const elapsed = Date.now() - drainStarted;
+      if (elapsed >= drainTimeoutMs) {
+        clearInterval(drainPoll);
+        logger.info(`[Restart] Drain timeout after ${drainTimeoutMinutes}min — ${remaining} task(s) still running. Aborting restart.`);
+        return;
+      }
+
+      logger.info(`[Restart] Drain: ${remaining} task(s) still running (${Math.round(elapsed / 1000)}s elapsed)`);
+    }, DRAIN_POLL_INTERVAL);
+
+    return {
+      success: true,
+      status: 'drain_started',
+      content: [{ type: 'text', text: `Queue drain started — waiting for ${totalRunning} task(s) to complete (timeout: ${drainTimeoutMinutes}min). Server will restart automatically when all tasks finish.` }],
+      running_tasks: totalRunning,
+      drain_timeout_minutes: drainTimeoutMinutes,
+    };
+  }
+
   process._torqueRestartPending = true;
   logger.info(`[Restart] Restart flag set — server will respawn after shutdown`);
 
-  // Trigger full graceful shutdown via process event (avoids circular dependency with index.js)
   setTimeout(() => {
     logger.info(`[Restart] Triggering graceful shutdown (reason: ${reason}). MCP client will auto-reconnect.`);
     eventBus.emitShutdown(`restart: ${reason}`);
