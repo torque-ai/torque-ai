@@ -159,6 +159,108 @@ function migrateLegacyProviderConfigs(legacyDir, activeDir) {
     if (migratedKeys > 0 || migratedStates > 0) {
       console.log(`[data-dir] Legacy migration: ${migratedKeys} API key(s), ${migratedStates} provider enable(s) migrated from ${legacyDb}`);
     }
+
+    // Migrate config table (only insert keys missing from active DB)
+    let migratedConfig = 0;
+    try {
+      const legacyHasConfig = legacySql.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='config'"
+      ).get();
+      const activeHasConfig = activeSql.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='config'"
+      ).get();
+
+      if (legacyHasConfig && activeHasConfig) {
+        const legacyConfigs = legacySql.prepare(
+          "SELECT key, value FROM config WHERE key NOT LIKE 'task_%' AND value != '' AND key != 'api_key'"
+        ).all();
+
+        const insertConfig = activeSql.prepare(
+          "INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)"
+        );
+
+        const configMigrate = activeSql.transaction(() => {
+          for (const row of legacyConfigs) {
+            const existing = activeSql.prepare('SELECT value FROM config WHERE key = ?').get(row.key);
+            if (!existing) {
+              insertConfig.run(row.key, row.value);
+              migratedConfig++;
+            }
+          }
+        });
+        configMigrate();
+
+        if (migratedConfig > 0) {
+          console.log(`[data-dir] Legacy migration: ${migratedConfig} config key(s) migrated`);
+        }
+      }
+    } catch (cfgErr) {
+      console.log(`[data-dir] Config migration error (non-fatal): ${cfgErr.message}`);
+    }
+
+    // Migrate workstations table
+    let migratedWorkstations = 0;
+    try {
+      const legacyHasWS = legacySql.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='workstations'"
+      ).get();
+      const activeHasWS = activeSql.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='workstations'"
+      ).get();
+
+      if (legacyHasWS && activeHasWS) {
+        const legacyWS = legacySql.prepare('SELECT * FROM workstations').all();
+        for (const ws of legacyWS) {
+          const existing = activeSql.prepare('SELECT id FROM workstations WHERE id = ?').get(ws.id);
+          if (!existing) {
+            try {
+              const cols = Object.keys(ws).filter(k => ws[k] !== null);
+              const placeholders = cols.map(() => '?').join(', ');
+              const values = cols.map(k => ws[k]);
+              activeSql.prepare(`INSERT INTO workstations (${cols.join(', ')}) VALUES (${placeholders})`).run(...values);
+              migratedWorkstations++;
+            } catch { /* column mismatch — skip */ }
+          }
+        }
+        if (migratedWorkstations > 0) {
+          console.log(`[data-dir] Legacy migration: ${migratedWorkstations} workstation(s) migrated`);
+        }
+      }
+    } catch (wsErr) {
+      console.log(`[data-dir] Workstation migration error (non-fatal): ${wsErr.message}`);
+    }
+
+    // Migrate ollama_hosts table
+    let migratedHosts = 0;
+    try {
+      const legacyHasHosts = legacySql.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ollama_hosts'"
+      ).get();
+      const activeHasHosts = activeSql.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='ollama_hosts'"
+      ).get();
+
+      if (legacyHasHosts && activeHasHosts) {
+        const legacyHosts = legacySql.prepare('SELECT * FROM ollama_hosts').all();
+        for (const host of legacyHosts) {
+          const existing = activeSql.prepare('SELECT id FROM ollama_hosts WHERE id = ?').get(host.id);
+          if (!existing) {
+            try {
+              const cols = Object.keys(host).filter(k => host[k] !== null);
+              const placeholders = cols.map(() => '?').join(', ');
+              const values = cols.map(k => host[k]);
+              activeSql.prepare(`INSERT INTO ollama_hosts (${cols.join(', ')}) VALUES (${placeholders})`).run(...values);
+              migratedHosts++;
+            } catch { /* column mismatch — skip */ }
+          }
+        }
+        if (migratedHosts > 0) {
+          console.log(`[data-dir] Legacy migration: ${migratedHosts} ollama host(s) migrated`);
+        }
+      }
+    } catch (hostErr) {
+      console.log(`[data-dir] Host migration error (non-fatal): ${hostErr.message}`);
+    }
   } catch (err) {
     console.log(`[data-dir] Legacy migration error (non-fatal): ${err.message}`);
   } finally {
