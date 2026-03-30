@@ -16,7 +16,6 @@ const { extractModifiedFiles } = require('../utils/file-resolution');
 // ── Thresholds ──────────────────────────────────────────────────────────
 
 const COMPLETION_OUTPUT_THRESHOLDS = {
-  'hashline-ollama': 4000,  // Hashline has structured output but can echo
   'claude-cli': 4000,       // Claude-cli can be verbose
   'codex': 500,             // Codex produces tight 1-3KB summaries
   'ollama': 2000,           // Raw ollama varies

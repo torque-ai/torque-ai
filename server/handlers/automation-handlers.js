@@ -140,7 +140,6 @@ function handleConfigureStallDetection(args) {
   output += `| Provider | Threshold (s) |\n|----------|---------------|\n`;
   output += `| codex | ${config.codex} |\n`;
   output += `| ollama | ${config.ollama} |\n`;
-  output += `| hashline-ollama | ${config.hashline} |\n`;
   output += `| claude-cli | ${config.claude} |\n`;
   output += `\n**Auto-resubmit:** ${config.auto_resubmit ? 'Yes' : 'No'}\n`;
   output += `**Max attempts:** ${config.max_attempts}\n`;
@@ -565,7 +564,7 @@ function handleSetProjectDefaults(args) {
   const configUpdate = {};
 
   if (args.provider) {
-    const validProviders = ['codex', 'codex-spark', 'claude-cli', 'ollama', 'hashline-ollama', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'anthropic', 'ollama-cloud'];
+    const validProviders = ['codex', 'codex-spark', 'claude-cli', 'ollama', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'anthropic', 'ollama-cloud'];
     if (!validProviders.includes(args.provider)) {
       return makeError(ErrorCodes.INVALID_PARAM, `Invalid provider "${args.provider}". Valid: ${validProviders.join(', ')}`);
     }

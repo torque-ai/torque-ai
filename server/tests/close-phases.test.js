@@ -110,7 +110,7 @@ describe('Close Phases', () => {
   function makeTask(overrides = {}) {
     return {
       id: 'task-001',
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       model: 'codellama:latest',
       working_directory: '/tmp/test-project',
       task_description: 'Test task for close phases',
@@ -503,8 +503,8 @@ describe('Close Phases', () => {
       expect(mocks.processQueue).toHaveBeenCalled();
     });
 
-    it('falls back locally for hashline-ollama failures (uses tryHashlineTieredFallback)', () => {
-      const task = makeTask({ provider: 'hashline-ollama', retry_count: 0 });
+    it('falls back locally for ollama failures (uses tryHashlineTieredFallback)', () => {
+      const task = makeTask({ provider: 'ollama', retry_count: 0 });
       const proc = makeProc({ errorOutput: 'model not found' });
       const ctx = makeCtx({ status: 'failed', task, proc, code: 1 });
 
@@ -516,7 +516,7 @@ describe('Close Phases', () => {
       expect(mocks.tryHashlineTieredFallback).toHaveBeenCalledWith(
         'task-001',
         expect.objectContaining({
-          provider: 'hashline-ollama',
+          provider: 'ollama',
           error_output: 'model not found',
         }),
         'model not found'

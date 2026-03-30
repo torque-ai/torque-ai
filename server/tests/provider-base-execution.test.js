@@ -5,7 +5,6 @@ const EXECUTION_PATH = require.resolve('../providers/execution');
 const LOGGER_PATH = require.resolve('../logger');
 const EXECUTE_API_PATH = require.resolve('../providers/execute-api');
 const EXECUTE_OLLAMA_PATH = require.resolve('../providers/execute-ollama');
-const EXECUTE_HASHLINE_PATH = require.resolve('../providers/execute-hashline');
 const EXECUTE_CLI_PATH = require.resolve('../providers/execute-cli');
 
 const TRACKED_CACHE_PATHS = [
@@ -14,7 +13,6 @@ const TRACKED_CACHE_PATHS = [
   LOGGER_PATH,
   EXECUTE_API_PATH,
   EXECUTE_OLLAMA_PATH,
-  EXECUTE_HASHLINE_PATH,
   EXECUTE_CLI_PATH,
 ];
 
@@ -66,13 +64,6 @@ function createExecutionSubmoduleMocks() {
     estimateRequiredContext: vi.fn((...args) => ({ source: 'ollama:estimate', args })),
     executeOllamaTask: vi.fn((...args) => ({ source: 'ollama:execute', args })),
   };
-  const hashlineMock = {
-    init: vi.fn(),
-    executeHashlineOllamaTask: vi.fn((...args) => ({ source: 'hashline:ollama', args })),
-    runOllamaGenerate: vi.fn((...args) => ({ source: 'hashline:generate', args })),
-    parseAndApplyEdits: vi.fn((...args) => ({ source: 'hashline:edits', args })),
-    runErrorFeedbackLoop: vi.fn((...args) => ({ source: 'hashline:feedback', args })),
-  };
   const cliMock = {
     init: vi.fn(),
     buildAiderOllamaCommand: vi.fn((...args) => ({ source: 'cli:aider', args })),
@@ -81,7 +72,7 @@ function createExecutionSubmoduleMocks() {
     spawnAndTrackProcess: vi.fn((...args) => ({ source: 'cli:spawn', args })),
   };
 
-  return { apiMock, ollamaMock, hashlineMock, cliMock };
+  return { apiMock, ollamaMock, cliMock };
 }
 
 function loadExecutionModule() {
@@ -89,7 +80,6 @@ function loadExecutionModule() {
 
   installMock(EXECUTE_API_PATH, mocks.apiMock);
   installMock(EXECUTE_OLLAMA_PATH, mocks.ollamaMock);
-  installMock(EXECUTE_HASHLINE_PATH, mocks.hashlineMock);
   installMock(EXECUTE_CLI_PATH, mocks.cliMock);
   delete require.cache[EXECUTION_PATH];
 
@@ -502,30 +492,6 @@ describe('providers/execution.js', () => {
     });
   });
 
-  it('initializes execute-hashline with hashline dependencies and the ollama fallback executor', () => {
-    const { mod, hashlineMock, ollamaMock } = loadExecutionModule();
-    const deps = makeExecutionDeps();
-
-    mod.init(deps);
-
-    expect(hashlineMock.init).toHaveBeenCalledTimes(1);
-    expect(hashlineMock.init).toHaveBeenCalledWith({
-      db: deps.db,
-      dashboard: deps.dashboard,
-      safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
-      tryReserveHostSlotWithFallback: deps.tryReserveHostSlotWithFallback,
-      tryHashlineTieredFallback: deps.tryHashlineTieredFallback,
-      selectHashlineFormat: deps.selectHashlineFormat,
-      isHashlineCapableModel: deps.isHashlineCapableModel,
-      isLargeModelBlockedOnHost: deps.isLargeModelBlockedOnHost,
-      processQueue: deps.processQueue,
-      hashlineOllamaSystemPrompt: deps.hashlineOllamaSystemPrompt,
-      hashlineLiteSystemPrompt: deps.hashlineLiteSystemPrompt,
-      handleWorkflowTermination: deps.handleWorkflowTermination,
-      executeOllamaTask: ollamaMock.executeOllamaTask,
-    });
-  });
-
   it('initializes execute-cli with process execution dependencies', () => {
     const { mod, cliMock } = loadExecutionModule();
     const deps = makeExecutionDeps();
@@ -559,12 +525,11 @@ describe('providers/execution.js', () => {
   });
 
   it('passes through missing optional dependencies as undefined instead of throwing', () => {
-    const { mod, apiMock, ollamaMock, hashlineMock, cliMock } = loadExecutionModule();
+    const { mod, apiMock, ollamaMock, cliMock } = loadExecutionModule();
 
     expect(() => mod.init({ db: { kind: 'db' } })).not.toThrow();
     expect(apiMock.init).toHaveBeenCalledWith(expect.objectContaining({ db: { kind: 'db' } }));
     expect(ollamaMock.init).toHaveBeenCalledWith(expect.objectContaining({ db: { kind: 'db' } }));
-    expect(hashlineMock.init).toHaveBeenCalledWith(expect.objectContaining({ db: { kind: 'db' } }));
     expect(cliMock.init).toHaveBeenCalledWith(expect.objectContaining({ db: { kind: 'db' } }));
   });
 
@@ -582,9 +547,6 @@ describe('providers/execution.js', () => {
       'executeHashlineOllamaTask',
       'executeOllamaTask',
       'init',
-      'parseAndApplyEdits',
-      'runErrorFeedbackLoop',
-      'runOllamaGenerate',
       'spawnAndTrackProcess',
     ]));
   });
@@ -599,6 +561,7 @@ describe('providers/execution.js', () => {
   // Async-wrapped exports (agentic wrappers) — only pass task, await result
   it.each([
     ['executeOllamaTask', 'ollamaMock', 'executeOllamaTask', [{ id: 'task-1' }]],
+    ['executeHashlineOllamaTask', 'ollamaMock', 'executeOllamaTask', [{ id: 'task-3' }]],
     ['executeApiProvider', 'apiMock', 'executeApiProvider', [{ id: 'task-2' }, { name: 'openrouter' }]],
   ])('dispatches %s through the agentic wrapper to the correct provider implementation', async (exportName, mockContainerName, mockFnName, args) => {
     const loaded = loadExecutionModule();
@@ -616,10 +579,6 @@ describe('providers/execution.js', () => {
   // Synchronous pass-through exports
   it.each([
     ['estimateRequiredContext', 'ollamaMock', 'estimateRequiredContext', ['Review the whole repo', ['a.js']]],
-    ['executeHashlineOllamaTask', 'hashlineMock', 'executeHashlineOllamaTask', [{ id: 'task-3' }]],
-    ['runOllamaGenerate', 'hashlineMock', 'runOllamaGenerate', ['prompt', { signal: true }]],
-    ['parseAndApplyEdits', 'hashlineMock', 'parseAndApplyEdits', ['diff body', ['file.js']]],
-    ['runErrorFeedbackLoop', 'hashlineMock', 'runErrorFeedbackLoop', [{ id: 'task-5' }, { error: 'boom' }]],
     ['buildAiderOllamaCommand', 'cliMock', 'buildAiderOllamaCommand', [{ id: 'task-6' }, 'CTX', ['a.js']]],
     ['buildClaudeCliCommand', 'cliMock', 'buildClaudeCliCommand', [{ id: 'task-7' }, 'CTX', { cli_path: 'claude' }]],
     ['buildCodexCommand', 'cliMock', 'buildCodexCommand', [{ id: 'task-8' }, 'CTX', { cli_path: 'codex' }]],

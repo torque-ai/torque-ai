@@ -407,7 +407,7 @@ describe('Host Distribution & Load Balancing', () => {
       const hostA = addHost('fb-host-a', ['qwen2.5-coder:14b'], { runningTasks: 0 });
       const _hostB = addHost('fb-host-b', ['qwen2.5-coder:14b'], { runningTasks: 0 });
 
-      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:14b', hostA);
+      const taskId = createTask('ollama', 'qwen2.5-coder:14b', hostA);
       const task = db.getTask(taskId);
 
       const result = taskManager.tryLocalFirstFallback(taskId, task, 'connection timeout');
@@ -416,7 +416,7 @@ describe('Host Distribution & Load Balancing', () => {
 
       const updated = db.getTask(taskId);
       // Should stay on same provider + model, just different host
-      expect(updated.provider).toBe('hashline-ollama');
+      expect(updated.provider).toBe('ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       // processQueue() may have started the task already (which fails in test env since the provider
       // binary doesn't exist), so accept queued, running, or failed
@@ -443,33 +443,11 @@ describe('Host Distribution & Load Balancing', () => {
       expect(updated.error_output).toContain('[Local-First]');
     });
 
-    it('step 3: tries different local provider when models exhausted', () => {
-      // No other models or hosts available, but different provider can be tried
-      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:7b', null);
-
-      // Simulate prior errors showing models already tried
-      const allModels = db.getAggregatedModels ? db.getAggregatedModels() : [];
-      const priorErrors = allModels.map(m => `model ${m.name}`).join('\n');
-      db.updateTaskStatus(taskId, 'running', {
-        error_output: priorErrors + '\n[Local-First] Trying qwen2.5-coder:7b on host fb-host-a'
-      });
-
-      const task = db.getTask(taskId);
-      const result = taskManager.tryLocalFirstFallback(taskId, task, 'still failing', { skipSameModel: true });
-
-      expect(result).toBe(true);
-
-      const updated = db.getTask(taskId);
-      // Should have switched to different local provider
-      expect(['ollama', 'hashline-ollama']).toContain(updated.provider);
-      expect(updated.error_output).toContain('[Local-First]');
-    });
-
-    it('step 4: only escalates to cloud after ALL local options exhausted', () => {
+    it('step 3: only escalates to cloud after ALL local options exhausted', () => {
       db.setConfig('max_local_retries', '3');
       db.setConfig('codex_enabled', '1');
 
-      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:7b', null);
+      const taskId = createTask('ollama', 'qwen2.5-coder:7b', null);
       // Simulate 3 prior local retries via the metadata counter (authoritative source)
       const priorErrors = [
         '[Local-First] Trying qwen2.5-coder:7b on host X',
@@ -494,14 +472,14 @@ describe('Host Distribution & Load Balancing', () => {
     it('preserves original_provider metadata on first fallback', () => {
       addHost('meta-host', ['qwen2.5-coder:14b'], { runningTasks: 0 });
 
-      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:14b', null);
+      const taskId = createTask('ollama', 'qwen2.5-coder:14b', null);
       const task = db.getTask(taskId);
 
       taskManager.tryLocalFirstFallback(taskId, task, 'error');
 
       const updated = db.getTask(taskId);
       const metadata = updated.metadata || {};
-      expect(metadata.original_provider).toBe('hashline-ollama');
+      expect(metadata.original_provider).toBe('ollama');
     });
   });
 
@@ -520,14 +498,14 @@ describe('Host Distribution & Load Balancing', () => {
       addHost('hl-dist-a', ['qwen2.5-coder:7b', TEST_MODELS.DEFAULT], { runningTasks: 0 });
       db.setConfig('hashline_capable_models', 'qwen2.5-coder');
 
-      const taskId = createTask('hashline-ollama', 'qwen2.5-coder:7b', null);
+      const taskId = createTask('ollama', 'qwen2.5-coder:7b', null);
       const task = db.getTask(taskId);
 
       taskManager.tryHashlineTieredFallback(taskId, task, 'no edits parsed');
 
       const updated = db.getTask(taskId);
       // Should stay local, just bigger model
-      expect(updated.provider).toBe('hashline-ollama');
+      expect(updated.provider).toBe('ollama');
       expect(updated.model).not.toBe('qwen2.5-coder:7b');
       expect(updated.status).toBe('queued');
       // Should not escalate away from the local hashline provider yet.
@@ -544,7 +522,7 @@ describe('Host Distribution & Load Balancing', () => {
         `[Hashline-Local] Trying ${TEST_MODELS.DEFAULT}`
       ].join('\n');
 
-      const taskId = createTask('hashline-ollama', TEST_MODELS.DEFAULT, null);
+      const taskId = createTask('ollama', TEST_MODELS.DEFAULT, null);
       db.updateTaskStatus(taskId, 'running', { error_output: priorErrors });
       const task = db.getTask(taskId);
 
@@ -552,7 +530,7 @@ describe('Host Distribution & Load Balancing', () => {
 
       const updated = db.getTask(taskId);
       // Now the task should escalate away from local hashline execution.
-      expect(updated.provider).not.toBe('hashline-ollama');
+      expect(updated.provider).not.toBe('ollama');
     });
   });
 
@@ -743,7 +721,7 @@ describe('Host Distribution & Load Balancing', () => {
         id: taskId,
         status: 'running',
         task_description: 'Test VRAM tracking',
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'codellama:34b',
         working_directory: process.cwd()
       });
@@ -773,7 +751,7 @@ describe('Host Distribution & Load Balancing', () => {
         id: runningTaskId,
         status: 'running',
         task_description: 'Already running large model',
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'codellama:34b',
         working_directory: process.cwd()
       });

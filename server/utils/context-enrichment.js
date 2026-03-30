@@ -618,96 +618,6 @@ Previous output (for context of what was already done):
 ${(originalOutput || '').slice(0, 2000)}`;
 }
 
-// ─── 6. Hashline Error-Feedback Context Builder ─────────────────────────
-
-/**
- * Build a hashline-annotated error-feedback prompt for in-context retry.
- * Reads the current (post-edit) content of each modified file, re-annotates
- * with fresh lineNum|hash anchors, and combines with the error list.
- * Used by the error-feedback loop in hashline-ollama to fix syntax errors
- * without cold-starting a new task.
- *
- * @param {string} workingDir - Project root directory
- * @param {string[]} modifiedFiles - Relative paths of files to re-annotate
- * @param {string[]} errors - Array of error strings from checkSyntax
- * @param {string} editFormat - 'hashline' or 'hashline-lite'
- * @param {Object} [options] - Optional settings
- * @param {string} [options.typeContext] - Pre-built import type signatures (from buildImportContext)
- * @returns {string} Focused error-fix prompt with re-annotated file content
- */
-function buildHashlineErrorFeedbackPrompt(workingDir, modifiedFiles, errors, editFormat, options = {}) {
-  if (!errors || errors.length === 0) return '';
-  if (!modifiedFiles || modifiedFiles.length === 0) return '';
-
-  const { computeLineHash } = require('./hashline-parser');
-  const fileSections = [];
-
-  for (const relPath of modifiedFiles) {
-    const fullPath = path.resolve(workingDir, relPath);
-    let content;
-    try {
-      content = fs.readFileSync(fullPath, 'utf8');
-    } catch (err) {
-      logger.debug("enrichment step skipped", { err: err.message });
-      continue;
-    }
-
-    const fileLines = content.split('\n');
-    const annotatedLines = fileLines.map((line, idx) => {
-      const lineNum = String(idx + 1).padStart(3, '0');
-      const hash = computeLineHash(line);
-      return `L${lineNum}:${hash}: ${line}`;
-    });
-
-    const ext = path.extname(relPath).replace('.', '');
-    fileSections.push(`### FILE: ${relPath}\n\`\`\`${ext}\n${annotatedLines.join('\n')}\n\`\`\``);
-  }
-
-  if (fileSections.length === 0) return '';
-
-  const formatInstruction = editFormat === 'hashline-lite'
-    ? 'Use <<<<<<< SEARCH / ======= / >>>>>>> REPLACE format to fix the errors.'
-    : 'Use HASHLINE_EDIT format with REPLACE/INSERT_BEFORE/DELETE operations to fix the errors.';
-
-  // Add hints for common error patterns
-  const hints = [];
-  const ts2339Errors = errors.filter(e => e.includes('TS2339') && e.includes('does not exist on type'));
-  if (ts2339Errors.length > 0) {
-    // Extract missing property names from TS2339 errors
-    const missingProps = new Set();
-    for (const e of ts2339Errors) {
-      const m = e.match(/Property '(\w+)' does not exist on type/);
-      if (m) missingProps.add(m[1]);
-    }
-    const propList = [...missingProps].map(p => `\`${p}\``).join(', ');
-    hints.push(`FIX: The properties ${propList} are used but NOT declared in the class. Add a property declaration for each one (e.g., \`private ${[...missingProps][0]}: <type>;\`) in a SEARCH/REPLACE block targeting the existing \`private\` property declarations at the top of the class.`);
-  }
-  const hasTS2532 = errors.some(e => e.includes('TS2532') || e.includes('TS18048'));
-  if (hasTS2532) {
-    hints.push('FIX: "Object is possibly undefined" — use `|| 0` for numbers, `?? defaultValue` for other types, or add an `if` check before using the value.');
-  }
-  const hasTS2393 = errors.some(e => e.includes('TS2393'));
-  if (hasTS2393) {
-    hints.push('FIX: "Duplicate function implementation" means a method was defined twice. SEARCH for the duplicate and DELETE it (empty REPLACE block).');
-  }
-  const hintSection = hints.length > 0 ? '\n\n' + hints.join('\n') : '';
-
-  // Include type context if provided (helps LLM reference correct types during fix)
-  const typeSection = options.typeContext ? `\n\n${options.typeContext}` : '';
-
-  return `FIX THE FOLLOWING ERRORS — make minimal targeted fixes only.
-
-ERRORS:
-${errors.map(e => `- ${e}`).join('\n')}${hintSection}
-${typeSection}
-CURRENT FILE CONTENT (lines prefixed with L###:xx:):
-${fileSections.join('\n\n')}
-
-${formatInstruction}
-Do NOT rewrite the entire file. Fix ONLY the lines causing the errors above.
-Stop output after your last >>>>>>> REPLACE.`;
-}
-
 // ─── Orchestrator ───────────────────────────────────────────────────────
 
 /**
@@ -920,7 +830,6 @@ module.exports = {
   buildGitContext,
   buildFewShotContext,
   buildErrorFeedbackPrompt,
-  buildHashlineErrorFeedbackPrompt,
   // Orchestrator
   enrichResolvedContext,
   enrichResolvedContextAsync,

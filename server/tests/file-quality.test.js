@@ -695,7 +695,7 @@ describe('file-quality', () => {
       const result = mod.calculateTaskComplexityScore('task-c1', 'Update the timeout value');
       expect(result.task_id).toBe('task-c1');
       expect(result.total_score).toBeLessThanOrEqual(4);
-      expect(result.recommended_provider).toBe('hashline-ollama');
+      expect(result.recommended_provider).toBe('ollama');
       expect(result.routing_reason).toContain('suitable for local LLM');
     });
 

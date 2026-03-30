@@ -63,7 +63,6 @@ const FREE_PROVIDERS = Object.freeze([
 const COST_FREE_PROVIDERS = Object.freeze([
   ...FREE_PROVIDERS,
   'ollama',
-  'hashline-ollama',
 ]);
 
 function removeStaleQueueChangedListeners() {
@@ -397,7 +396,7 @@ function createProviderRuntimeState(runningAll = []) {
   }
 
   // Providers that share the same GPU — running count must be unified
-  const _gpuSharingProviders = new Set(['ollama', 'hashline-ollama']);
+  const _gpuSharingProviders = new Set(['ollama']);
 
   function getProviderCapacity(provider, fallbackLimit = null) {
     const normalizedProvider = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
@@ -573,11 +572,11 @@ function attemptCodexOverflow(codexTask) {
       }
       if (!localModel) localModel = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
       const statusUpdates = {
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: localModel,
         metadata: JSON.stringify({ ...metadata, overflow: true, original_provider: 'codex' }),
         // TDA-02: narrate the movement with a specific reason
-        _provider_switch_reason: `codex -> hashline-ollama (codex overflow to local LLM, complexity=${taskComplexity})`,
+        _provider_switch_reason: `codex -> ollama (codex overflow to local LLM, complexity=${taskComplexity})`,
       };
       db.updateTaskStatus(codexTask.id, 'queued', statusUpdates);
       notifyDashboard(codexTask.id, { status: 'queued', ...statusUpdates });
@@ -789,11 +788,11 @@ function processQueueInternal(options = {}) {
   let apiStarted = 0;
 
   // Try to start Ollama tasks — limited only by per-host capacity (independent of Codex/API)
-  // Issue #10 fix: ollama and hashline-ollama share the same GPU.
+  // Issue #10 fix: all Ollama tasks share the same GPU.
   // providerCounts.ollama aggregates both via providerRegistry.getCategory(), making
-  // runningOllama a unified GPU total.  The explicit set below documents which providers
-  // share the GPU constraint and guards against future category mapping changes.
-  const _ollamaGpuProviders = new Set(['ollama', 'hashline-ollama']);
+  // runningOllama a unified GPU total. The explicit set below documents the provider
+  // that shares the GPU constraint and guards against future category mapping changes.
+  const _ollamaGpuProviders = new Set(['ollama']);
   // Unified GPU oversubscription check: count all running tasks across GPU-sharing providers
   const totalOllamaRunning = runningAll.filter(t => _ollamaGpuProviders.has(t.provider)).length;
   const runningOllama = totalOllamaRunning; // alias — providerCounts.ollama equals this

@@ -77,7 +77,6 @@ const mockTaskManager = {
     ollama: 25,
     'claude-cli': 45,
     openrouter: 50,
-    'hashline-ollama': 20,
   },
 };
 
@@ -292,7 +291,6 @@ function resetMockState() {
     codex: { name: 'codex', enabled: true },
     'claude-cli': { name: 'claude-cli', enabled: true },
     ollama: { name: 'ollama', enabled: true },
-    'hashline-ollama': { name: 'hashline-ollama', enabled: true },
     openrouter: { name: 'openrouter', enabled: true },
     'google-ai': { name: 'google-ai', enabled: true },
   };

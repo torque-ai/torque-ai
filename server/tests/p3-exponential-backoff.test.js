@@ -88,7 +88,7 @@ describe('retry scheduling exponential backoff', () => {
       id: taskId,
       status: overrides.status || 'running',
       task_description: overrides.task_description || 'p3-exponential-backoff task',
-      provider: overrides.provider || 'hashline-ollama',
+      provider: overrides.provider || 'ollama',
       model: overrides.model || 'qwen2.5-coder:14b',
       working_directory: overrides.working_directory || path.join(process.cwd(), 'tmp'),
       ollama_host_id: overrides.ollama_host_id || null,
@@ -109,7 +109,7 @@ describe('retry scheduling exponential backoff', () => {
     registerHost('hashline-host-b', ['qwen2.5-coder:14b']);
 
     const task = createTask({
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       model: 'qwen2.5-coder:14b',
       ollama_host_id: hostA,
       retry_count: retryCount,

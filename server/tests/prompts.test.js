@@ -314,11 +314,11 @@ describe('Prompts Module', () => {
       expect(result).not.toContain('x'.repeat(2200));
     });
 
-    it('caps small model context for hashline-ollama providers', () => {
+    it('caps small model context for ollama providers', () => {
       const fileContext = 'x'.repeat(5000);
       const result = prompts.wrapWithInstructions(
         'Fix bug',
-        'hashline-ollama',
+        'ollama',
         'gemma3:4b',
         { fileContext }
       );
@@ -354,11 +354,11 @@ describe('Prompts Module', () => {
       expect(result).not.toContain('z'.repeat(4300));
     });
 
-    it('does not cap large model context for hashline-ollama providers', () => {
+    it('does not cap large model context for ollama providers', () => {
       const fileContext = 'x'.repeat(5000);
       const result = prompts.wrapWithInstructions(
         'Fix bug',
-        'hashline-ollama',
+        'ollama',
         'qwen3-coder:30b',
         { fileContext }
       );

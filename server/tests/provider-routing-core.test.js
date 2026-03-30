@@ -81,8 +81,8 @@ function createProviderMap(overrides = {}) {
       transport: 'api',
       quota_error_patterns: '[]',
     },
-    'hashline-ollama': {
-      provider: 'hashline-ollama',
+    'ollama': {
+      provider: 'ollama',
       enabled: 1,
       priority: 90,
       transport: 'api',
@@ -118,7 +118,7 @@ function createDbHarness(overrides = {}) {
       Object.entries({
         smart_routing_enabled: '1',
         default_provider: 'codex',
-        smart_routing_default_provider: 'hashline-ollama',
+        smart_routing_default_provider: 'ollama',
         ollama_fallback_provider: 'codex',
         ...overrides.config,
       }),
@@ -180,6 +180,18 @@ function createDbHarness(overrides = {}) {
             return Array.from(state.providers.values())
               .sort((left, right) => (left.priority || 0) - (right.priority || 0))
               .map((provider) => cloneValue(provider));
+          },
+        };
+      }
+
+      if (normalizedSql === 'SELECT provider FROM provider_config WHERE enabled = 1 ORDER BY priority ASC LIMIT 1') {
+        return {
+          all() {
+            return Array.from(state.providers.values())
+              .filter((provider) => provider && provider.enabled)
+              .sort((left, right) => (left.priority || 0) - (right.priority || 0))
+              .slice(0, 1)
+              .map((provider) => ({ provider: provider.provider }));
           },
         };
       }
@@ -525,6 +537,32 @@ describe('provider-routing-core', () => {
       });
     });
 
+    it('falls back to the first enabled provider when smart routing is disabled and the default is disabled', () => {
+      const { core, loggerChild } = loadCore({
+        db: {
+          config: {
+            smart_routing_enabled: '0',
+            default_provider: 'codex',
+          },
+          providers: {
+            codex: { enabled: 0, priority: 10 },
+            'claude-cli': { enabled: 1, priority: 20 },
+          },
+        },
+      });
+
+      const result = core.analyzeTaskForRouting('Write docs', 'C:/repo');
+
+      expect(result).toEqual({
+        provider: 'claude-cli',
+        rule: null,
+        reason: 'Smart routing disabled',
+      });
+      expect(loggerChild.warn).toHaveBeenCalledWith(
+        '[SmartRouting] Invalid provider resolved (codex) — falling back to claude-cli',
+      );
+    });
+
     it('routes security tasks to default provider (anthropic demoted to opt-in)', () => {
       const { core } = loadCore({
         db: {
@@ -633,7 +671,7 @@ describe('provider-routing-core', () => {
       expect(result.reason).toContain('Complexity-based routing');
     });
 
-    it('upgrades targeted local edits to hashline-ollama', () => {
+    it('upgrades targeted local edits to ollama', () => {
       const hostManagement = createHostManagement({
         determineTaskComplexity: vi.fn(() => 'normal'),
         routeTask: vi.fn(() => ({
@@ -648,9 +686,9 @@ describe('provider-routing-core', () => {
         'src/app.js',
       ]);
 
-      expect(result.provider).toBe('hashline-ollama');
+      expect(result.provider).toBe('ollama');
       expect(result.model).toBe(TEST_MODELS.SMALL);
-      expect(result.reason).toContain('hashline-ollama');
+      expect(result.reason).toContain('ollama');
     });
 
     it('keeps targeted codex edits on codex when no hashline cloud provider is configured', () => {
@@ -943,6 +981,32 @@ describe('provider-routing-core', () => {
         reason: 'No rule matched, using smart routing default: codex',
       });
     });
+
+    it('falls back to the first enabled provider when the smart routing default is disabled', () => {
+      const { core, loggerChild } = loadCore({
+        db: {
+          config: {
+            smart_routing_default_provider: 'codex',
+          },
+          providers: {
+            codex: { enabled: 0, priority: 10 },
+            'claude-cli': { enabled: 1, priority: 20 },
+          },
+          rules: [],
+        },
+      });
+
+      const result = core.analyzeTaskForRouting('Perform a generic task', 'C:/repo');
+
+      expect(result).toEqual({
+        provider: 'claude-cli',
+        rule: null,
+        reason: 'No rule matched, using smart routing default: codex',
+      });
+      expect(loggerChild.warn).toHaveBeenCalledWith(
+        '[SmartRouting] Invalid provider resolved (codex) — falling back to claude-cli',
+      );
+    });
   });
 
   describe('fallback chains and provider switching', () => {
@@ -952,7 +1016,7 @@ describe('provider-routing-core', () => {
         'claude-cli',
         'deepinfra',
         'ollama-cloud',
-        'hashline-ollama',
+        'ollama',
         'ollama',
       ]);
     });

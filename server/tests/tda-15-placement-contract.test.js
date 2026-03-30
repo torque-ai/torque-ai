@@ -92,14 +92,14 @@ describe('TDA-15: Movement narrative reason contract', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       task_description: 'review the API integration for edge cases',
     });
 
     try { tm.startTask(id); } catch { /* execution may fail */ }
     const task = db.getTask(id);
 
-    expect(task.provider).toBe('hashline-ollama');
+    expect(task.provider).toBe('ollama');
     const meta = parseMetadata(task);
     expect(meta._provider_switch_reason).toBeFalsy();
     expect(meta.last_provider_switch).toBeFalsy();
@@ -179,11 +179,11 @@ describe('TDA-15: Sovereignty + review redirect interaction', () => {
   beforeEach(setup);
   afterEach(cleanup);
 
-  it('user-override hashline-ollama review task stays on hashline-ollama', () => {
+  it('user-override review task preserves its explicit ollama provider', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       task_description: 'review the codebase for security issues',
       metadata: JSON.stringify({ user_provider_override: true }),
     });
@@ -191,15 +191,15 @@ describe('TDA-15: Sovereignty + review redirect interaction', () => {
     try { tm.startTask(id); } catch { /* execution may fail */ }
     const task = db.getTask(id);
 
-    // User chose hashline-ollama explicitly — review redirect should NOT override
-    expect(task.provider).toBe('hashline-ollama');
+    // User chose ollama explicitly — review redirect should NOT override
+    expect(task.provider).toBe('ollama');
   });
 
-  it('auto-routed hashline-ollama review task stays on hashline-ollama', () => {
+  it('auto-routed review task does not record a provider switch when it stays on ollama', () => {
     registerMockHost(db, 'http://127.0.0.1:11434', ['codellama:latest']);
 
     const id = createTask({
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       task_description: 'review the codebase for security issues',
       // No user_provider_override
     });
@@ -207,7 +207,7 @@ describe('TDA-15: Sovereignty + review redirect interaction', () => {
     try { tm.startTask(id); } catch { /* execution may fail */ }
     const task = db.getTask(id);
 
-    expect(task.provider).toBe('hashline-ollama');
+    expect(task.provider).toBe('ollama');
     const meta = parseMetadata(task);
     expect(meta._provider_switch_reason).toBeFalsy();
   });

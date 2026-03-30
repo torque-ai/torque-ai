@@ -19,7 +19,7 @@ import { tasks as tasksApi, providers as providersApi, hosts as hostsApi } from 
 const mockProviders = [
   { provider: 'codex', enabled: true, stats: {} },
   { provider: 'ollama', enabled: true, stats: {} },
-  { provider: 'hashline-ollama', enabled: true, stats: {} },
+  { provider: 'openrouter', enabled: true, stats: {} },
   { provider: 'deepinfra', enabled: false, stats: {} },
   { provider: 'claude-cli', enabled: true, stats: {} },
 ];
@@ -312,9 +312,9 @@ describe('TaskSubmitForm', () => {
       expect(providersApi.list).toHaveBeenCalled();
     });
 
-    // Select hashline-openai which has no known models and no ollama hosts
+    // Select openrouter which has no known models and no ollama hosts
     const providerSelect = screen.getByLabelText('Provider');
-    fireEvent.change(providerSelect, { target: { value: 'hashline-openai' } });
+    fireEvent.change(providerSelect, { target: { value: 'openrouter' } });
 
     await waitFor(() => {
       const modelInput = screen.getByLabelText('Model');

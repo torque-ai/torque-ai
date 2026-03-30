@@ -269,7 +269,7 @@ describe('task-finalizer', () => {
       vi.setSystemTime(now);
 
       const dbBundle = createTaskDb({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: TEST_MODELS.DEFAULT,
         task_description: 'Write unit tests for src/app.ts',
         started_at: new Date(now.getTime() - 45_000).toISOString(),

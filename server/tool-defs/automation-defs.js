@@ -10,7 +10,7 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        provider: { type: 'string', description: 'Provider to configure (any provider name or "all"). Default: all', enum: ['codex', 'codex-spark', 'ollama', 'hashline-ollama', 'claude-cli', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'anthropic', 'ollama-cloud', 'all'] },
+        provider: { type: 'string', description: 'Provider to configure (any provider name or "all"). Default: all', enum: ['codex', 'codex-spark', 'ollama', 'claude-cli', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'anthropic', 'ollama-cloud', 'all'] },
         stall_threshold_seconds: { type: 'number', description: 'Seconds of no output before a task is considered stalled. Recommended: 120-180 for codex, 90-120 for local LLMs.' },
         auto_resubmit: { type: 'boolean', description: 'Automatically resubmit stalled tasks (default: false). When true, stalled tasks are cancelled and resubmitted with the same description.' },
         max_resubmit_attempts: { type: 'number', description: 'Max resubmit attempts before giving up (default: 3)' }
@@ -56,7 +56,7 @@ const tools = [
       type: 'object',
       properties: {
         working_directory: { type: 'string', description: 'Project directory' },
-        provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, ollama, ollama-cloud, hashline-ollama, anthropic, cerebras, deepinfra, google-ai, groq, hyperbolic, openrouter)', enum: ['codex', 'claude-cli', 'ollama', 'ollama-cloud', 'hashline-ollama', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'] },
+        provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, ollama, ollama-cloud, anthropic, cerebras, deepinfra, google-ai, groq, hyperbolic, openrouter)', enum: ['codex', 'claude-cli', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'] },
         model: { type: 'string', description: 'Default model for this project' },
         verify_command: { type: 'string', description: 'Post-task verify command (e.g., "npx tsc --noEmit && npx vitest run")' },
         auto_fix: { type: 'boolean', description: 'Auto-fix type errors after task completion' },
@@ -99,7 +99,7 @@ const tools = [
           }
         },
         remote_agent_id: { type: 'string', description: 'Remote agent ID for test execution (from register_remote_agent). Set to empty string to clear.' },
-        remote_project_path: { type: 'string', description: 'Project path on the remote agent (e.g., "C:/Users/username/Projects/Torque/server")' },
+        remote_project_path: { type: 'string', description: 'Project path on the remote agent (e.g., "C:/Users/<user>/Projects/Torque/server")' },
         prefer_remote_tests: { type: 'boolean', description: 'Route verify/test commands to the remote agent when available' }
       },
       required: ['working_directory']

@@ -8,9 +8,7 @@ const taskCore = require('../db/task-core');
 let testDir;
 let db;
 let ollamaMod;
-let hashlineMod;
 let hostMgmt;
-let webhooksStreaming;
 let mockOllamaA;
 let mockOllamaB;
 let mockUrlA;
@@ -44,10 +42,7 @@ function setup() {
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   hostMgmt = require('../db/host-management');
   hostMgmt.setDb(db.getDb());
-  webhooksStreaming = require('../db/webhooks-streaming');
-  webhooksStreaming.setDb(db.getDb());
   ollamaMod = require('../providers/execute-ollama');
-  hashlineMod = require('../providers/execute-hashline');
 }
 
 function teardown() {
@@ -168,51 +163,7 @@ describe('provider fixes', () => {
     expect(safeUpdate).toHaveBeenCalledWith(taskId, 'completed', expect.anything());
   });
 
-  it('validates pre-routed hashline host has requested model before execution', async () => {
-    const wrongHost = addHost({
-      id: randomUUID(),
-      url: mockUrlA,
-      name: 'wrong-hashline-host',
-      model: 'llama3.2:3b',
-    });
-    addHost({
-      id: randomUUID(),
-      url: mockUrlB,
-      name: 'correct-hashline-host',
-      model: 'qwen2.5-coder:7b',
-    });
-
-    const srcDir = path.join(testDir, 'hashline-pre-routed');
-    fs.mkdirSync(srcDir, { recursive: true });
-    fs.writeFileSync(path.join(srcDir, 'fix.js'), 'export const value = 1;\\n', 'utf8');
-
-    const fallback = vi.fn();
-    hashlineMod.init(makeDeps({ safeUpdateTaskStatus: vi.fn(), tryHashlineTieredFallback: fallback }));
-
-    const taskId = randomUUID();
-    taskCore.createTask({
-      id: taskId,
-      task_description: 'Fix hashline-pre-routed/fix.js',
-      status: 'running',
-      provider: 'hashline-ollama',
-      model: 'qwen2.5-coder:7b',
-      working_directory: testDir,
-    });
-
-    await hashlineMod.executeHashlineOllamaTask({
-      id: taskId,
-      task_description: 'Fix hashline-pre-routed/fix.js',
-      model: 'qwen2.5-coder:7b',
-      ollama_host_id: wrongHost.id,
-      working_directory: testDir,
-    });
-
-    expect(mockOllamaA.requestLog).toHaveLength(0);
-    expect(mockOllamaB.requestLog.filter(r => r.url === '/api/generate').length).toBeGreaterThan(0);
-    expect(fallback).not.toHaveBeenCalledWith(taskId, expect.anything(), expect.stringContaining('not hashline-capable'));
-  });
-
-  it('forwards abort signal to Ollama request options in both providers', async () => {
+  it('forwards abort signal to Ollama request options', async () => {
     const taskId = randomUUID();
     const { spy: ollamaSpy, getRequestOptions: getOllamaOptions } = captureHttpRequestWithSignal();
     ollamaMod.init(makeDeps({ safeUpdateTaskStatus: vi.fn() }));
@@ -244,33 +195,5 @@ describe('provider fixes', () => {
     expect(ollamaSpy).toHaveBeenCalled();
     expect(getOllamaOptions().signal).toBeInstanceOf(AbortSignal);
     ollamaSpy.mockRestore();
-    vi.restoreAllMocks();
-
-    const hashlineTaskId = randomUUID();
-    const { spy: hashSpy, getRequestOptions: getHashlineOptions } = captureHttpRequestWithSignal();
-    hashlineMod.init(makeDeps());
-    taskCore.createTask({
-      id: hashlineTaskId,
-      task_description: 'Hashline signal test',
-      status: 'running',
-      provider: 'hashline-ollama',
-      model: 'codellama:latest',
-      working_directory: testDir,
-    });
-    const streamId = webhooksStreaming.getOrCreateTaskStream(hashlineTaskId, 'output');
-
-    await hashlineMod.runOllamaGenerate({
-      ollamaHost: 'http://localhost:11434',
-      ollamaModel: 'codellama:latest',
-      prompt: 'Hello',
-      systemPrompt: 'System',
-      options: { temperature: 0.3 },
-      timeoutMs: 10000,
-      taskId: hashlineTaskId,
-      streamId,
-    });
-
-    expect(hashSpy).toHaveBeenCalled();
-    expect(getHashlineOptions().signal).toBeInstanceOf(AbortSignal);
   });
 });

@@ -115,10 +115,8 @@ const MIGRATIONS = [
     up: [
       // Delete aider-specific config keys
       "DELETE FROM config WHERE key IN ('aider_auto_commits', 'aider_auto_switch_format', 'aider_edit_format', 'aider_map_tokens', 'aider_model_edit_formats', 'aider_subtree_only')",
-      // Rename stall_threshold_aider → stall_threshold_hashline (hashline-ollama uses this key)
-      "UPDATE config SET key = 'stall_threshold_hashline' WHERE key = 'stall_threshold_aider'",
-      // Reroute complexity_routing from aider-ollama to hashline-ollama
-      "UPDATE complexity_routing SET target_provider = 'hashline-ollama' WHERE target_provider = 'aider-ollama'",
+      // Rename stall_threshold_aider → stall_threshold_ollama
+      "UPDATE config SET key = 'stall_threshold_ollama' WHERE key = 'stall_threshold_aider'",
     ].join('; '),
     down: '',
   },
@@ -158,6 +156,68 @@ const MIGRATIONS = [
     up: "UPDATE model_registry SET status = 'removed' WHERE model_name IN ('qwen2.5-coder:32b', 'codestral:22b') AND status = 'approved'",
     down: '',
   },
+  {
+    version: 12,
+    name: 'remove-hashline-aider-providers',
+    description: 'Remove deprecated local providers and hashline config keys',
+    up: (db) => {
+      const removedProviders = ['hashline-ollama', 'hashline-openai', 'aider-ollama'];
+
+      db.prepare("DELETE FROM provider_config WHERE provider IN ('hashline-ollama', 'hashline-openai', 'aider-ollama')").run();
+
+      const hashlineKeys = [
+        'hashline_capable_models',
+        'hashline_format_auto_select',
+        'hashline_model_formats',
+        'hashline_lite_min_samples',
+        'hashline_lite_threshold',
+        'max_hashline_local_retries',
+      ];
+      const deleteConfig = db.prepare('DELETE FROM config WHERE key = ?');
+      for (const key of hashlineKeys) {
+        deleteConfig.run(key);
+      }
+
+      const defaultProvider = db.prepare("SELECT value FROM config WHERE key = 'smart_routing_default_provider'").get();
+      if (defaultProvider && removedProviders.includes(defaultProvider.value)) {
+        db.prepare("UPDATE config SET value = 'ollama' WHERE key = 'smart_routing_default_provider'").run();
+      }
+
+      try {
+        db.prepare("DELETE FROM provider_task_stats WHERE provider IN ('hashline-ollama', 'hashline-openai', 'aider-ollama')").run();
+      } catch {
+        // Table may not exist in older databases.
+      }
+
+      try {
+        const templates = db.prepare('SELECT id, rules FROM routing_templates').all();
+        const updateTemplate = db.prepare('UPDATE routing_templates SET rules = ? WHERE id = ?');
+        for (const template of templates) {
+          try {
+            const rules = JSON.parse(template.rules);
+            let changed = false;
+            for (const [category, chain] of Object.entries(rules)) {
+              if (Array.isArray(chain)) {
+                const filtered = chain.filter(provider => !removedProviders.includes(provider));
+                if (filtered.length !== chain.length) {
+                  rules[category] = filtered;
+                  changed = true;
+                }
+              }
+            }
+            if (changed) {
+              updateTemplate.run(JSON.stringify(rules), template.id);
+            }
+          } catch {
+            // Skip malformed template rules.
+          }
+        }
+      } catch {
+        // Table may not exist in older databases.
+      }
+    },
+    down: '',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
@@ -185,16 +245,20 @@ function runMigrations(sqliteDb) {
 
     // Wrap each migration in a transaction for atomicity
     const runOne = sqliteDb.transaction(() => {
-      const stmts = migration.up.split(';').filter(s => s.trim());
-      for (const stmt of stmts) {
-        try {
-          sqliteDb.prepare(stmt).run();
-        } catch (err) {
-          // Tolerate "duplicate column" errors — the column may already exist in the base schema
-          if (err.message && err.message.includes('duplicate column')) {
-            // Column already exists, migration is effectively a no-op for this statement
-          } else {
-            throw err;
+      if (typeof migration.up === 'function') {
+        migration.up(sqliteDb);
+      } else {
+        const stmts = migration.up.split(';').filter(s => s.trim());
+        for (const stmt of stmts) {
+          try {
+            sqliteDb.prepare(stmt).run();
+          } catch (err) {
+            // Tolerate "duplicate column" errors — the column may already exist in the base schema
+            if (err.message && err.message.includes('duplicate column')) {
+              // Column already exists, migration is effectively a no-op for this statement
+            } else {
+              throw err;
+            }
           }
         }
       }

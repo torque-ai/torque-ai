@@ -9,7 +9,6 @@ const DEFAULT_CAPABILITIES = {
   'ollama-cloud': { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
   hyperbolic: { capabilities: ['reasoning', 'large_context'], band: 'B' },
   anthropic: { capabilities: ['reasoning', 'code_review'], band: 'B' },
-  'hashline-ollama': { capabilities: ['file_edit'], band: 'C' },
   ollama: { capabilities: ['reasoning', 'code_review'], band: 'C' },
   openrouter: { capabilities: ['reasoning', 'code_review'], band: 'C' },
   groq: { capabilities: [], band: 'D' },

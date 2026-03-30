@@ -51,7 +51,7 @@ describe('Per-Step Provider Routing', () => {
         workflow_id: workflowId,
         task_description: 'test task with model',
         node_id: 'node-with-model',
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         working_directory: os.tmpdir(),
       });
@@ -60,7 +60,7 @@ describe('Per-Step Provider Routing', () => {
       const tasks = db.getWorkflowTasks(workflowId);
       const task = tasks.find(t => t.workflow_node_id === 'node-with-model');
       expect(task).toBeDefined();
-      expect(task.provider).toBe('hashline-ollama');
+      expect(task.provider).toBe('ollama');
       expect(task.model).toBe('qwen2.5-coder:14b');
     });
 
@@ -94,11 +94,11 @@ describe('Per-Step Provider Routing', () => {
         wire_task: 'Wire system',
         step_providers: {
           types: 'ollama',
-          events: 'hashline-ollama',
+          events: 'ollama',
           data: 'ollama',
           system: 'codex',
           tests: 'ollama',
-          wire: 'hashline-ollama',
+          wire: 'ollama',
         },
       });
       expect(result.isError).toBeFalsy();
@@ -114,11 +114,11 @@ describe('Per-Step Provider Routing', () => {
       }
 
       expect(byNode['step-test-types'].provider).toBe('ollama');
-      expect(byNode['step-test-events'].provider).toBe('hashline-ollama');
+      expect(byNode['step-test-events'].provider).toBe('ollama');
       expect(byNode['step-test-data'].provider).toBe('ollama');
       expect(byNode['step-test-system'].provider).toBe('codex');
       expect(byNode['step-test-tests'].provider).toBe('ollama');
-      expect(byNode['step-test-wire'].provider).toBe('hashline-ollama');
+      expect(byNode['step-test-wire'].provider).toBe('ollama');
     });
 
     it('falls through to codex when step not in step_providers', async () => {

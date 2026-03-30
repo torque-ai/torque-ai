@@ -520,7 +520,7 @@ const tools = [
         },
         host: {
           type: 'string',
-          description: 'Ollama host URL (e.g., http://localhost:11434 or http://172.26.176.1:11434 for WSL2)'
+          description: 'Ollama host URL (e.g., http://localhost:11434 or http://172.16.0.1:11434 for WSL2)'
         },
         auto_start_enabled: {
           type: 'boolean',
@@ -658,7 +658,7 @@ const tools = [
       properties: {
         provider: {
           type: 'string',
-          description: 'Provider to view template for (hashline-ollama, claude-cli, codex). Omit to see all.'
+          description: 'Provider to view template for (claude-cli, codex). Omit to see all.'
         }
       }
     }
@@ -671,7 +671,7 @@ const tools = [
       properties: {
         provider: {
           type: 'string',
-          description: 'Provider (hashline-ollama, claude-cli, codex)'
+          description: 'Provider (claude-cli, codex)'
         },
         model: {
           type: 'string',

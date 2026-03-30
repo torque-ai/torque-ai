@@ -454,7 +454,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     scheduler.processQueueInternal();
 
     const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-      (c) => c[0] === 'bug001-user-override' && c[2]?.provider === 'hashline-ollama'
+      (c) => c[0] === 'bug001-user-override' && c[2]?.provider === 'ollama'
     );
     expect(overflowCalls).toHaveLength(0);
   });
@@ -526,7 +526,7 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
     scheduler.processQueueInternal();
 
     const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-      (c) => c[0] === 'bug001-smart-overflow' && c[2]?.provider === 'hashline-ollama'
+      (c) => c[0] === 'bug001-smart-overflow' && c[2]?.provider === 'ollama'
     );
     expect(overflowCalls).toHaveLength(1);
   });
@@ -614,13 +614,13 @@ describe('BUG-001: override_provider blocks queue overflow', () => {
 
     // User-override task stays queued (not overflowed)
     const userOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-      (c) => c[0] === 'bug001-user-explicit' && c[2]?.provider === 'hashline-ollama'
+      (c) => c[0] === 'bug001-user-explicit' && c[2]?.provider === 'ollama'
     );
     expect(userOverflow).toHaveLength(0);
 
     // Smart-routed task behind it gets overflowed
     const smartOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-      (c) => c[0] === 'bug001-smart-behind' && c[2]?.provider === 'hashline-ollama'
+      (c) => c[0] === 'bug001-smart-behind' && c[2]?.provider === 'ollama'
     );
     expect(smartOverflow).toHaveLength(1);
   });

@@ -9,7 +9,7 @@
  * Grouped by target sub-module for readability.
  */
 
-const hashlineParser = require('./utils/hashline-parser');
+const hashlineHandlers = require('./handlers/hashline-handlers');
 const fileResolution = require('./utils/file-resolution');
 const hostMonitoring = require('./utils/host-monitoring');
 const activityMonitoring = require('./utils/activity-monitoring');
@@ -28,14 +28,9 @@ const _taskFinalizer = require('./execution/task-finalizer');
 const _queueScheduler = require('./execution/queue-scheduler');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
 
-// ─── utils/hashline-parser.js ─────────────────────────────────────────────
-function computeLineHash(...args) { return hashlineParser.computeLineHash(...args); }
-function lineSimilarity(...args) { return hashlineParser.lineSimilarity(...args); }
-function parseHashlineLiteEdits(...args) { return hashlineParser.parseHashlineLiteEdits(...args); }
-function findSearchMatch(...args) { return hashlineParser.findSearchMatch(...args); }
-function applyHashlineLiteEdits(...args) { return hashlineParser.applyHashlineLiteEdits(...args); }
-function parseHashlineEdits(...args) { return hashlineParser.parseHashlineEdits(...args); }
-function applyHashlineEdits(...args) { return hashlineParser.applyHashlineEdits(...args); }
+// ─── handlers/hashline-handlers.js ───────────────────────────────────────
+function computeLineHash(...args) { return hashlineHandlers.computeLineHash(...args); }
+function lineSimilarity(...args) { return hashlineHandlers.lineSimilarity(...args); }
 
 // ─── validation/hashline-verify.js ────────────────────────────────────────
 function verifyHashlineReferences(...args) { return _hashlineVerify.verifyHashlineReferences(...args); }
@@ -142,10 +137,8 @@ function cleanupOrphanedHostTasks(...args) { return _orphanCleanup.cleanupOrphan
 function getStallThreshold(...args) { return _orphanCleanup.getStallThreshold(...args); }
 
 module.exports = {
-  // hashline-parser
+  // hashline handlers
   computeLineHash, lineSimilarity,
-  parseHashlineLiteEdits, findSearchMatch, applyHashlineLiteEdits,
-  parseHashlineEdits, applyHashlineEdits,
   // file-resolution
   isShellSafe, extractTargetFilesFromDescription,
   buildFileIndex, extractFileReferencesExpanded, resolveFileReferences,

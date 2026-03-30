@@ -24,8 +24,6 @@ const TIER_1 = [
   'workflow_status', 'list_workflows',
   // Project config
   'scan_project', 'set_project_defaults', 'get_project_defaults',
-  // Hashline editing (Harness Problem solution)
-  'hashline_read', 'hashline_edit',
   // CI Watcher
   'await_ci_run', 'list_ci_runs', 'ci_run_status',
   'diagnose_ci_failure', 'watch_ci_repo', 'stop_ci_watch',

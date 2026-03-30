@@ -9,9 +9,8 @@ describe('COST_FREE_PROVIDERS constant', () => {
     }
   });
 
-  it('includes local Ollama providers', () => {
+  it('includes the local Ollama provider', () => {
     expect(COST_FREE_PROVIDERS).toContain('ollama');
-    expect(COST_FREE_PROVIDERS).toContain('hashline-ollama');
   });
 
   it('does not include paid providers', () => {
@@ -26,9 +25,9 @@ describe('COST_FREE_PROVIDERS constant', () => {
     expect(Object.isFrozen(COST_FREE_PROVIDERS)).toBe(true);
   });
 
-  it('is a superset of FREE_PROVIDERS with exactly the local Ollama additions', () => {
+  it('is a superset of FREE_PROVIDERS with exactly the local Ollama addition', () => {
     const extras = COST_FREE_PROVIDERS.filter(p => !FREE_PROVIDERS.includes(p));
-    expect(extras.sort()).toEqual(['hashline-ollama', 'ollama']);
+    expect(extras.sort()).toEqual(['ollama']);
   });
 });
 
@@ -78,7 +77,7 @@ describe('prefer_free routing in analyzeTaskForRouting', () => {
     expect(result.reason).toContain('Free routing');
   });
 
-  it('routes to hashline-ollama for file edit tasks when preferFree=true', () => {
+  it('routes to ollama for file edit tasks when preferFree=true', () => {
     const result = providerRoutingCore.analyzeTaskForRouting(
       'Fix the bug in server/tools.js by updating the export',
       '/tmp/project',
@@ -86,7 +85,7 @@ describe('prefer_free routing in analyzeTaskForRouting', () => {
       { preferFree: true }
     );
 
-    expect(result.provider).toBe('hashline-ollama');
+    expect(result.provider).toBe('ollama');
     expect(result.reason).toContain('Free routing');
     expect(result.reason).toContain('local Ollama');
   });

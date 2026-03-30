@@ -183,7 +183,7 @@ describe('handleV2TaskCancel — running task with taskManager', () => {
 
 describe('handleV2TaskCancel — running task without taskManager', () => {
   it('falls back to db.updateTaskStatus when taskManager is not set', async () => {
-    const taskRow = { id: 'task-run3', status: 'running', provider: 'hashline-ollama', model: null };
+    const taskRow = { id: 'task-run3', status: 'running', provider: 'ollama', model: null };
     mockTaskCore.getTask
       .mockReturnValueOnce(taskRow)
       .mockReturnValueOnce({ ...taskRow, status: 'cancelled' });

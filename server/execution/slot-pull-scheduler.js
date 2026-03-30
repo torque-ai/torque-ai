@@ -23,8 +23,8 @@ let _heartbeatInterval = null;
 const STARVATION_THRESHOLD_MS = 5 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 
-// Providers that share Ollama host VRAM — must respect host-level max_concurrent
-const OLLAMA_PROVIDERS = new Set(['ollama', 'hashline-ollama']);
+// Ollama tasks share host VRAM and must respect host-level max_concurrent.
+const OLLAMA_PROVIDERS = new Set(['ollama']);
 
 function init(deps) {
   stopHeartbeat(); // clear any existing interval before re-initializing
@@ -55,7 +55,7 @@ function getMaxRetries(provider) {
 
 /**
  * Check whether Ollama host-level VRAM cap allows another task on this provider.
- * All Ollama-based providers (ollama, hashline-ollama) sharing a host
+ * All Ollama tasks sharing a host
  * must not exceed the host's max_concurrent collectively.
  */
 function hasOllamaHostCapacity(provider) {

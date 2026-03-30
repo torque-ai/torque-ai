@@ -390,8 +390,8 @@ describe('Provider Handlers', () => {
       expect(getText(result)).toContain('codex');
     });
 
-    it('returns template for hashline-ollama', async () => {
-      const result = await safeTool('get_instruction_templates', { provider: 'hashline-ollama' });
+    it('returns template for ollama', async () => {
+      const result = await safeTool('get_instruction_templates', { provider: 'ollama' });
       expect(result.isError).toBeFalsy();
     });
 
@@ -448,9 +448,9 @@ describe('Provider Handlers', () => {
       expect(getText(result)).toContain('placeholder');
     });
 
-    it('sets template for hashline-ollama', async () => {
+    it('sets template for ollama', async () => {
       const result = await safeTool('set_instruction_template', {
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         template: 'Hashline: {TASK_DESCRIPTION}'
       });
       expect(result.isError).toBeFalsy();

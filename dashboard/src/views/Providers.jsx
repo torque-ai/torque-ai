@@ -25,7 +25,7 @@ const ENV_VAR_NAMES = {
 };
 
 const PROVIDER_GROUPS = [
-  { label: 'Local (Ollama)', providers: new Set(['ollama', 'hashline-ollama']) },
+  { label: 'Local (Ollama)', providers: new Set(['ollama']) },
   { label: 'Cloud (Subscription CLI)', providers: new Set(['codex', 'claude-cli']) },
   { label: 'Cloud (API — Bring Your Own Key)', providers: null }, // everything else
 ];

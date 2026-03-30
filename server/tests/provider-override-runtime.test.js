@@ -126,14 +126,14 @@ function createTask(overrides = {}) {
 describe('runtime fallback guards respect user_provider_override', () => {
   afterEach(cleanup);
 
-  it('routes hashline-ollama review tasks through ollama even when user_provider_override is set', async () => {
+  it('keeps user-overridden ollama review tasks on ollama', async () => {
     await setup();
 
-    providerRoutingCore.updateProvider('hashline-ollama', { enabled: 1 });
+    providerRoutingCore.updateProvider('ollama', { enabled: 1 });
     helpers.registerMockHost(db, 'http://127.0.0.1:19816', ['codellama:latest'], { name: 'override-review-runtime' });
 
     const taskId = createTask({
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       task_description: 'review the code and report any bugs found',
       metadata: JSON.stringify({ user_provider_override: true }),
     });
@@ -149,7 +149,7 @@ describe('runtime fallback guards respect user_provider_override', () => {
     const tryLocalFirstFallbackSpy = vi.spyOn(fallbackRetry, 'tryLocalFirstFallback');
 
     const taskId = createTask({
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       task_description: 'implement the login flow',
       metadata: JSON.stringify({ user_provider_override: true }),
       max_retries: 2,

@@ -51,7 +51,7 @@ describe('Host Failover Chain', () => {
       id: taskId,
       task_description: `Failover test task ${taskId}`,
       status,
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       model: TEST_MODELS.SMALL,
       working_directory: process.cwd(),
       ollama_host_id: hostId,

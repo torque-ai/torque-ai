@@ -28,7 +28,7 @@ const {
   enrichResolvedContext,
     MAX_IMPORT_FILES,
 } = require('../utils/context-enrichment');
-const { computeLineHash } = require('../utils/hashline-parser');
+const { computeLineHash } = require('../handlers/hashline-handlers');
 
 let testDir;
 

@@ -28,7 +28,7 @@ const DEFAULT_PROFILES = [
     description: 'Compresses task output to 500 lines for free providers to save storage',
     enabled: false,
     matchers: [
-      { type: 'provider_in', providers: ['ollama', 'hashline-ollama', 'groq', 'cerebras'] },
+      { type: 'provider_in', providers: ['ollama', 'groq', 'cerebras'] },
     ],
     effects: [
       {

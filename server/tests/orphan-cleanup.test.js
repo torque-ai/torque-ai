@@ -31,7 +31,7 @@ describe('Orphan Cleanup', () => {
 
     it('exports PROVIDER_STALL_THRESHOLDS with all expected providers', () => {
       const thresholds = orphanCleanup.PROVIDER_STALL_THRESHOLDS;
-      expect(thresholds['hashline-ollama']).toBe(300);
+      expect(thresholds['ollama']).toBe(300);
       expect(thresholds['ollama']).toBe(240);
       expect(thresholds['claude-cli']).toBe(600);
       expect(thresholds['codex']).toBe(600);
@@ -40,7 +40,7 @@ describe('Orphan Cleanup', () => {
 
     it('exports PROVIDER_STALL_CONFIG_KEYS mapping', () => {
       const keys = orphanCleanup.PROVIDER_STALL_CONFIG_KEYS;
-      expect(keys['hashline-ollama']).toBe('stall_threshold_hashline');
+      expect(keys['ollama']).toBe('stall_threshold_hashline');
       expect(keys['ollama']).toBe('stall_threshold_ollama');
       expect(keys['codex']).toBe('stall_threshold_codex');
     });
@@ -72,7 +72,7 @@ describe('Orphan Cleanup', () => {
     });
 
     it('returns provider default for unknown model', () => {
-      expect(orphanCleanup.getStallThreshold(null, 'hashline-ollama')).toBe(300);
+      expect(orphanCleanup.getStallThreshold(null, 'ollama')).toBe(300);
       expect(orphanCleanup.getStallThreshold(null, 'ollama')).toBe(240);
     });
 
@@ -93,21 +93,21 @@ describe('Orphan Cleanup', () => {
         if (key === 'stall_threshold_hashline') return '0';
         return null;
       });
-      expect(orphanCleanup.getStallThreshold('qwen3:8b', 'hashline-ollama')).toBeNull();
+      expect(orphanCleanup.getStallThreshold('qwen3:8b', 'ollama')).toBeNull();
     });
 
     it('scales threshold for 32b models', () => {
-      const threshold = orphanCleanup.getStallThreshold('qwen3-coder:30b', 'hashline-ollama');
+      const threshold = orphanCleanup.getStallThreshold('qwen3-coder:30b', 'ollama');
       expect(threshold).toBeGreaterThanOrEqual(360);
     });
 
     it('scales threshold for 14b models', () => {
-      const threshold = orphanCleanup.getStallThreshold('qwen2.5:14b', 'hashline-ollama');
+      const threshold = orphanCleanup.getStallThreshold('qwen2.5:14b', 'ollama');
       expect(threshold).toBeGreaterThanOrEqual(240);
     });
 
     it('scales threshold for 8b models', () => {
-      const threshold = orphanCleanup.getStallThreshold('llama3:8b', 'hashline-ollama');
+      const threshold = orphanCleanup.getStallThreshold('llama3:8b', 'ollama');
       expect(threshold).toBeGreaterThanOrEqual(210);
     });
 
@@ -147,7 +147,7 @@ describe('Orphan Cleanup', () => {
         if (key === 'stall_threshold_hashline') return 'null';
         return null;
       });
-      expect(orphanCleanup.getStallThreshold('qwen3:8b', 'hashline-ollama')).toBeNull();
+      expect(orphanCleanup.getStallThreshold('qwen3:8b', 'ollama')).toBeNull();
     });
   });
 

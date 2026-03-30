@@ -74,8 +74,8 @@ function createProviderMap(overrides = {}) {
       transport: 'api',
       quota_error_patterns: '[]',
     },
-    'hashline-ollama': {
-      provider: 'hashline-ollama',
+    'ollama': {
+      provider: 'ollama',
       enabled: 1,
       priority: 90,
       transport: 'api',
@@ -111,7 +111,7 @@ function createDbHarness(overrides = {}) {
       Object.entries({
         smart_routing_enabled: '1',
         default_provider: 'codex',
-        smart_routing_default_provider: 'hashline-ollama',
+        smart_routing_default_provider: 'ollama',
         ollama_fallback_provider: 'codex',
         ...overrides.config,
       }),
@@ -234,7 +234,7 @@ describe('slot-pull routing tier lists', () => {
       tierList: true,
     });
 
-    expect(result.provider).toBe('hashline-ollama');
+    expect(result.provider).toBe('ollama');
     expect(result.eligible_providers).toEqual(expect.any(Array));
     expect(result.eligible_providers.length).toBeGreaterThan(0);
     expect(result.eligible_providers).toContain('codex');
@@ -246,9 +246,9 @@ describe('slot-pull routing tier lists', () => {
     const result = core.analyzeTaskForRouting('Create a new API handler', 'C:/repo');
 
     expect(result).toEqual({
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       rule: null,
-      reason: 'No rule matched, using smart routing default: hashline-ollama',
+      reason: 'No rule matched, using smart routing default: ollama',
     });
   });
 

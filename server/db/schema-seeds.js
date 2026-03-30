@@ -133,12 +133,6 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertProvider.run('ollama', 1, 3, 'api', 'api', null, JSON.stringify([
       'connection refused', 'timeout', 'ECONNREFUSED', 'model not found'
     ]), 2, now);
-  insertProvider.run('aider-ollama', 1, 4, 'aider', 'api', null, JSON.stringify([
-      'connection refused', 'timeout', 'ECONNREFUSED', 'model not found'
-    ]), 2, now);
-  insertProvider.run('hashline-ollama', 1, 5, 'api', 'api', null, JSON.stringify([
-      'connection refused', 'timeout', 'ECONNREFUSED', 'model not found'
-    ]), 2, now);
   // anthropic provider not seeded by default — add via provider CRUD if you have an API key
   // insertProvider.run('anthropic', 0, 6, 'api', 'api', null, JSON.stringify([
   //     'rate_limit_error', 'overloaded_error', '429', '529'
@@ -166,7 +160,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     ]), 50, now);
   const providerTypes = {
     codex: 'cloud-cli', 'claude-cli': 'cloud-cli',
-    ollama: 'ollama', 'aider-ollama': 'ollama', 'hashline-ollama': 'ollama',
+    ollama: 'ollama',
     anthropic: 'cloud-api', deepinfra: 'cloud-api', groq: 'cloud-api',
     hyperbolic: 'cloud-api', cerebras: 'cloud-api', 'google-ai': 'cloud-api',
     openrouter: 'cloud-api', 'ollama-cloud': 'cloud-api',
@@ -184,9 +178,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     'ollama-cloud': { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
     hyperbolic: { capabilities: ['reasoning', 'large_context'], band: 'B' },
     anthropic: { capabilities: ['reasoning', 'code_review'], band: 'B' },
-    'hashline-ollama': { capabilities: ['file_edit'], band: 'C' },
-    'aider-ollama': { capabilities: ['file_creation', 'file_edit', 'multi_file'], band: 'C' },
-    ollama: { capabilities: ['reasoning', 'code_review'], band: 'C' },
+    ollama: { capabilities: ['file_edit', 'reasoning', 'code_review'], band: 'C' },
     openrouter: { capabilities: ['reasoning', 'code_review'], band: 'C' },
     groq: { capabilities: [], band: 'D' },
     cerebras: { capabilities: [], band: 'D' },
@@ -209,11 +201,9 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   // Legacy: populated dynamically by discovery engine
   insertConfig.run('ollama_model', '');
   insertConfig.run('smart_routing_enabled', '1');
-  insertConfig.run('smart_routing_default_provider', 'hashline-ollama');
+  insertConfig.run('smart_routing_default_provider', 'ollama');
   insertConfig.run('ollama_fallback_provider', 'codex');
   insertConfig.run('ollama_health_check_enabled', '1');
-  // Legacy: populated dynamically by discovery engine
-  insertConfig.run('hashline_capable_models', '');
   insertConfig.run('ollama_temperature', '0.3');
   insertConfig.run('ollama_num_ctx', '8192');
   insertConfig.run('ollama_top_p', '0.9');
@@ -381,17 +371,6 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertConfig.run('stall_recovery_enabled', '1');
   insertConfig.run('stall_recovery_max_attempts', '3');
   insertConfig.run('max_local_retries', '3');
-  insertConfig.run('max_hashline_local_retries', '2');
-  insertConfig.run('hashline_format_auto_select', '1');
-  insertConfig.run('hashline_lite_min_samples', '3');
-  insertConfig.run('hashline_lite_threshold', '0.5');
-  insertConfig.run('hashline_model_formats', JSON.stringify({
-      'gemma3:4b': 'hashline-lite',
-      'llama3:8b': 'hashline-lite',
-      'mistral': 'hashline-lite',
-      'deepseek-r1:14b': 'hashline-lite',
-      'qwen3:8b': 'hashline-lite'
-    }));
   const insertRule = db.prepare(`
       INSERT OR IGNORE INTO routing_rules (name, description, rule_type, pattern, target_provider, priority, enabled, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -401,20 +380,20 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertRule.run('simple-test', 'Test writing (legacy — see integration-handlers test guard)', 'keyword', 'write test|add test|unit test|test case|test file|tests for|comprehensive test|test suite|spec file|write spec|add spec', 'codex', 15, 0, now);
   insertRule.run('commit-msg', 'Commit message generation', 'keyword', 'commit message|git commit', 'ollama', 10, 1, now);
   insertRule.run('explain-code', 'Code explanation tasks', 'keyword', 'explain|what does|how does|describe', 'ollama', 10, 1, now);
-  insertRule.run('simple-refactor', 'Simple refactoring', 'keyword', 'rename|move|extract|inline', 'hashline-ollama', 20, 1, now);
-  insertRule.run('config-edit', 'Config file edits', 'extension', '.json|.yaml|.yml|.toml|.ini|.env', 'hashline-ollama', 15, 1, now);
-  insertRule.run('boilerplate', 'Boilerplate generation', 'keyword', 'boilerplate|scaffold|template|skeleton', 'hashline-ollama', 20, 1, now);
+  insertRule.run('simple-refactor', 'Simple refactoring', 'keyword', 'rename|move|extract|inline', 'ollama', 20, 1, now);
+  insertRule.run('config-edit', 'Config file edits', 'extension', '.json|.yaml|.yml|.toml|.ini|.env', 'ollama', 15, 1, now);
+  insertRule.run('boilerplate', 'Boilerplate generation', 'keyword', 'boilerplate|scaffold|template|skeleton', 'codex', 20, 1, now);
   insertRule.run('multi-file', 'Multi-file refactoring', 'keyword', 'refactor multiple|across files|all files|entire codebase', 'claude-cli', 80, 1, now);
   insertRule.run('architecture', 'Architectural decisions', 'keyword', 'architecture|design pattern|restructure|redesign', 'claude-cli', 85, 1, now);
   insertRule.run('security', 'Security-sensitive code', 'keyword', 'security|auth|password|encrypt|credential|vulnerability|xss|injection', 'claude-cli', 90, 1, now);
   insertRule.run('complex-debug', 'Complex debugging', 'keyword', 'debug complex|investigate|root cause|deep dive', 'codex', 85, 1, now);
   insertRule.run('api-integration', 'API integrations', 'keyword', 'integrate api|api integration|external api|third-party', 'claude-cli', 75, 1, now);
   insertRule.run('production', 'Production deployments', 'keyword', 'production|deploy|release|publish', 'claude-cli', 90, 1, now);
-  insertRule.run('lang-python', 'Python files (local-friendly)', 'extension', '.py', 'hashline-ollama', 30, 1, now);
-  insertRule.run('lang-javascript', 'JavaScript/TypeScript files', 'extension', '.js|.ts|.jsx|.tsx', 'hashline-ollama', 30, 1, now);
+  insertRule.run('lang-python', 'Python files (local-friendly)', 'extension', '.py', 'ollama', 30, 1, now);
+  insertRule.run('lang-javascript', 'JavaScript/TypeScript files', 'extension', '.js|.ts|.jsx|.tsx', 'ollama', 30, 1, now);
   insertRule.run('lang-csharp', 'C# files (prefer cloud)', 'extension', '.cs', 'claude-cli', 50, 1, now);
-  insertRule.run('lang-powershell', 'PowerShell files', 'extension', '.ps1|.psm1', 'hashline-ollama', 35, 1, now);
-  insertRule.run('lang-gdscript', 'GDScript files', 'extension', '.gd', 'hashline-ollama', 40, 1, now);
+  insertRule.run('lang-powershell', 'PowerShell files', 'extension', '.ps1|.psm1', 'ollama', 35, 1, now);
+  insertRule.run('lang-gdscript', 'GDScript files', 'extension', '.gd', 'ollama', 40, 1, now);
   insertRule.run('xaml-generation', 'XAML file generation (complex markup)', 'extension', '.xaml|.axaml', 'claude-cli', 70, 1, now);
   insertRule.run('implement-service', 'Service/interface implementation', 'keyword', 'implement.*service|implement.*interface|create.*service', 'claude-cli', 75, 1, now);
   insertRule.run('create-view', 'View/component creation', 'keyword', 'create.*view|create.*component|build.*view|build.*component', 'claude-cli', 75, 1, now);
@@ -455,10 +434,10 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       INSERT OR IGNORE INTO failure_patterns (id, name, description, pattern_type, pattern_definition, signature, task_types, provider, occurrence_count, recommended_action, auto_learned, enabled, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-  insertFailurePattern.run('fp-stub-methods', 'Stub Methods', 'Methods with // implementation goes here', 'output', '// implementation|implementation goes here', '// implementation|implementation goes here', 'code_generation', 'hashline-ollama', 5, 'retry_with_cloud', 0, 1, now);
-  insertFailurePattern.run('fp-filepath-content', 'File Path as Content', 'File contains only its own path', 'output', '^[a-zA-Z/\\\\:._-]+\\.(cs|xaml|ts|js)$', '^[a-zA-Z/\\\\:._-]+\\.(cs|xaml|ts|js)$', 'code_generation', 'hashline-ollama', 3, 'retry_with_cloud', 0, 1, now);
-  insertFailurePattern.run('fp-empty-output', 'Empty Output', 'Task completed but file is empty', 'output', '^$', '^$', 'code_generation', 'hashline-ollama', 2, 'retry_with_cloud', 0, 1, now);
-  insertFailurePattern.run('fp-duplicate-class', 'Duplicate Class Definition', 'Same class defined multiple times', 'output', 'class\\s+(\\w+).*class\\s+\\1', 'class\\s+(\\w+).*class\\s+\\1', 'code_generation', 'hashline-ollama', 1, 'retry_with_cloud', 0, 1, now);
+  insertFailurePattern.run('fp-stub-methods', 'Stub Methods', 'Methods with // implementation goes here', 'output', '// implementation|implementation goes here', '// implementation|implementation goes here', 'code_generation', 'ollama', 5, 'retry_with_cloud', 0, 1, now);
+  insertFailurePattern.run('fp-filepath-content', 'File Path as Content', 'File contains only its own path', 'output', '^[a-zA-Z/\\\\:._-]+\\.(cs|xaml|ts|js)$', '^[a-zA-Z/\\\\:._-]+\\.(cs|xaml|ts|js)$', 'code_generation', 'ollama', 3, 'retry_with_cloud', 0, 1, now);
+  insertFailurePattern.run('fp-empty-output', 'Empty Output', 'Task completed but file is empty', 'output', '^$', '^$', 'code_generation', 'ollama', 2, 'retry_with_cloud', 0, 1, now);
+  insertFailurePattern.run('fp-duplicate-class', 'Duplicate Class Definition', 'Same class defined multiple times', 'output', 'class\\s+(\\w+).*class\\s+\\1', 'class\\s+(\\w+).*class\\s+\\1', 'code_generation', 'ollama', 1, 'retry_with_cloud', 0, 1, now);
   insertFailurePattern.run('fp-truncated', 'Truncated Output', 'Output truncated mid-sentence or mid-code', 'output', '[^.;\\}\\)]\\s*$', '[^.;\\}\\)]\\s*$', 'code_generation', 'ollama', 2, 'retry_with_cloud', 0, 1, now);
   const insertRetryRule = db.prepare(`
       INSERT OR IGNORE INTO retry_rules (id, name, description, trigger_type, trigger_condition, action, fallback_provider, max_retries, retry_delay_seconds, enabled, created_at)
@@ -536,8 +515,8 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       INSERT OR IGNORE INTO rate_limits (id, provider, limit_type, max_value, window_seconds, enabled, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-  insertWindowRateLimit.run('rl-ollama-rpm', 'hashline-ollama', 'requests', 10, 60, 1, now);
-  insertWindowRateLimit.run('rl-ollama-concurrent', 'hashline-ollama', 'concurrent', 4, 0, 1, now);
+  insertWindowRateLimit.run('rl-ollama-rpm', 'ollama', 'requests', 10, 60, 1, now);
+  insertWindowRateLimit.run('rl-ollama-concurrent', 'ollama', 'concurrent', 4, 0, 1, now);
   insertWindowRateLimit.run('rl-claude-rpm', 'claude-cli', 'requests', 50, 60, 1, now);
   insertWindowRateLimit.run('rl-claude-concurrent', 'claude-cli', 'concurrent', 5, 0, 1, now);
   const insertBudget = db.prepare(`
@@ -573,15 +552,15 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
   insertOutputLimit.run('limit-default', null, null, 1048576, 524288, 1, now);
-  insertOutputLimit.run('limit-ollama', 'hashline-ollama', null, 524288, 262144, 1, now);
+  insertOutputLimit.run('limit-ollama', 'ollama', null, 524288, 262144, 1, now);
   const existingComplexityRules = db.prepare('SELECT COUNT(*) as count FROM complexity_routing').get();
   if (existingComplexityRules.count === 0) {
       const now = new Date().toISOString();
       db.prepare(`
         INSERT INTO complexity_routing (name, complexity, target_provider, target_host, model, priority, enabled, created_at) VALUES
         ('Complex tasks to Codex', 'complex', 'codex', NULL, NULL, 1, 1, ?),
-        ('Normal tasks to hashline', 'normal', 'hashline-ollama', NULL, NULL, 2, 1, ?),
-        ('Simple tasks to hashline', 'simple', 'hashline-ollama', NULL, NULL, 3, 1, ?)
+        ('Normal tasks to Ollama', 'normal', 'ollama', NULL, NULL, 2, 1, ?),
+        ('Simple tasks to Ollama', 'simple', 'ollama', NULL, NULL, 3, 1, ?)
       `).run(now, now, now);
     }
   try {

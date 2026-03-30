@@ -110,7 +110,7 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     try {
       handleSubmitTask({
         task: 'Test task for sovereignty',
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         working_directory: '/tmp',
       });
     } catch {
@@ -171,7 +171,7 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     try {
       handleSubmitTask({
         task: 'Test hashline task',
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         working_directory: '/tmp',
       });
     } catch {
@@ -179,7 +179,7 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     }
     // ESM/CJS interop: skip when mock not intercepted
     if (spy.mock.calls.length === 0) return;
-    expect(spy.mock.calls[0][0].provider).toBe('hashline-ollama');
+    expect(spy.mock.calls[0][0].provider).toBe('ollama');
   });
 });
 
@@ -272,13 +272,13 @@ describe('TDA-01: handleSmartSubmitTask — disabled provider sovereignty', () =
     expect(handleSmartSubmitTask, 'handleSmartSubmitTask should be importable').toBeTruthy();
 
     mockDb.getProvider.mockImplementation((name) => {
-      if (name === 'hashline-ollama') return { enabled: false, max_concurrent: 5 };
+      if (name === 'ollama') return { enabled: false, max_concurrent: 5 };
       return { enabled: true, max_concurrent: 10 };
     });
 
     const result = await handleSmartSubmitTask({
       task: 'Fix bug in server/index.js',
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       working_directory: '/tmp',
     });
 
@@ -394,7 +394,7 @@ describe('TDA-01: Queue processing — overflow sovereignty', () => {
 // --- Provider change in startTask ---
 
 describe('TDA-01: startTask — provider identity preservation', () => {
-  it.todo('resolveProviderRouting should not reroute user-override from hashline-ollama to ollama for review tasks');
+  it.todo('resolveProviderRouting should preserve user-overridden review providers');
 
   it.todo('API provider instance fallback should fail for user overrides instead of silently switching to codex');
 });

@@ -20,7 +20,7 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('../logger').child({ component: 'ollama-tools' });
 const { isSafeRegex } = require('../utils/safe-regex');
-const { lineSimilarity } = require('../utils/hashline-parser');
+const { lineSimilarity } = require('../handlers/hashline-handlers');
 
 // Safety limits
 const MAX_FILE_READ_BYTES = 512 * 1024; // 512KB per file read

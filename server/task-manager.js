@@ -6,8 +6,6 @@
  */
 
 // spawn moved to execution/process-lifecycle.js (D4.3)
-const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 const db = require('./database');
 const taskCore = require('./db/task-core');
@@ -51,7 +49,6 @@ const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS
 const { sanitizeLLMOutput } = require('./utils/sanitize');
 const { parseModelSizeB, isSmallModel, getModelSizeCategory, isThinkingModel } = require('./utils/model');
 const { parseGitStatusLine, getModifiedFiles } = require('./utils/git');
-const _hashlineParser = require('./utils/hashline-parser');
 const _fileResolution = require('./utils/file-resolution');
 const hostMonitoring = require('./utils/host-monitoring');
 const contextEnrichment = require('./utils/context-enrichment');
@@ -100,7 +97,6 @@ const _instanceManager = require('./coordination/instance-manager');
 
 // Phase 7-10 extracted modules
 const _promptsModule = require('./providers/prompts');
-const _hashlineVerify = require('./validation/hashline-verify');
 const _closePhases = require('./validation/close-phases');
 const _autoVerifyRetry = require('./validation/auto-verify-retry');
 const _retryFramework = require('./execution/retry-framework');
@@ -126,8 +122,6 @@ const codexIntelligence = require('./providers/codex-intelligence');
 // Phase D3: All pure pass-through delegation stubs extracted to task-manager-delegations.js
 const {
   computeLineHash, lineSimilarity,
-  parseHashlineLiteEdits, findSearchMatch, applyHashlineLiteEdits,
-  parseHashlineEdits, applyHashlineEdits,
   isShellSafe, extractTargetFilesFromDescription,
   buildFileIndex, extractFileReferencesExpanded, resolveFileReferences,
   isValidFilePath, extractModifiedFiles,
@@ -142,9 +136,7 @@ const {
   rollbackTaskChanges, revertScopedFiles, scopedRollback,
   detectTaskTypes, getInstructionTemplate, wrapWithInstructions,
   executeApiProvider, executeOllamaTask,
-  executeHashlineOllamaTask,
   tryOllamaCloudFallback, tryLocalFirstFallback, classifyError,
-  findNextHashlineModel, tryHashlineTieredFallback, selectHashlineFormat,
   handlePipelineStepCompletion, handleWorkflowTermination,
   evaluateWorkflowDependencies, unblockTask, applyFailureAction,
   cancelDependentTasks, checkWorkflowCompletion,
@@ -154,9 +146,7 @@ const {
   recordModelOutcome, recordProviderHealth,
   handlePostCompletion,
   finalizeTask,
-  buildAiderCommand, configureAiderHost,
   categorizeQueuedTasks, processQueueInternal,
-  verifyHashlineReferences, attemptFuzzySearchRepair,
   cleanupOrphanedHostTasks, getStallThreshold,
 } = require('./task-manager-delegations');
 
@@ -742,45 +732,6 @@ activityMonitoring.init({
   getSkipGitInCloseHandler: () => skipGitInCloseHandler,
 });
 
-// ─── Hashline-Ollama Provider ─────────────────────────────────────────────────
-// Direct Ollama API + hashline edits.
-// Hash verification catches hallucinated edits before writing to disk.
-
-const HASHLINE_OLLAMA_SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts/hashline-ollama-system.txt'), 'utf-8');
-
-const HASHLINE_LITE_SYSTEM_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts/hashline-lite-system.txt'), 'utf-8');
-
-/**
- * Execute a task using the hashline-ollama provider.
- * Calls Ollama API directly with hashline-annotated file context,
- * parses structured edit blocks from the response, and applies them.
- * Falls back to regular executeOllamaTask if no file can be resolved.
- */
-/**
- * Check if a model is on the hashline-capable allowlist.
- * Models not on the list hallucinate hashes and should not be used for hashline editing.
- */
-
-/**
- * Find the next larger hashline-capable model available on any healthy host.
- * Prefers the smallest model larger than the current one.
- * Falls back to any untried hashline-capable model if no larger one exists.
- * @param {string} currentModel - Current model name (e.g., 'qwen2.5-coder:7b')
- * @param {string} priorErrors - Accumulated error_output to check for already-tried models
- * @returns {{ name: string, hostId: string|null } | null}
- */
-
-/**
- * Tiered fallback for hashline tasks.
- * Now tries local model escalation before leaving the machine:
- *   1. Same model on different host (for host-related failures)
- *   2. Larger hashline-capable local model
- *   3. codex (always available)
- *
- * Tracks attempts via [Hashline-Local] markers in error_output.
- * Configurable max retries via max_hashline_local_retries (default: 2).
- */
-
 // Periodic queue processor — started explicitly by index.js:init() via startQueuePoll().
 // Previously ran at require()-time; now runs only when called.
 let _queuePollInterval = null;
@@ -858,7 +809,6 @@ _taskStartup.init({
   buildFileContext,
   resolveFileReferences,
   executeOllamaTask,
-  executeHashlineOllamaTask,
   executeApiProvider,
   evaluateTaskPreExecutePolicy,
   getPolicyBlockReason,
@@ -878,16 +828,8 @@ _executionModule.init({
   markTaskCleanedUp,
   tryOllamaCloudFallback: _fallbackRetryModule.tryOllamaCloudFallback,
   tryLocalFirstFallback: _fallbackRetryModule.tryLocalFirstFallback,
-  verifyHashlineReferences,
-  attemptFuzzySearchRepair,
-  tryHashlineTieredFallback: _fallbackRetryModule.tryHashlineTieredFallback,
-  selectHashlineFormat: _fallbackRetryModule.selectHashlineFormat,
-  findNextHashlineModel: _fallbackRetryModule.findNextHashlineModel,
-  isHashlineCapableModel: _fallbackRetryModule.isHashlineCapableModel,
   shellEscape,
   processQueue,
-  hashlineOllamaSystemPrompt: HASHLINE_OLLAMA_SYSTEM_PROMPT,
-  hashlineLiteSystemPrompt: HASHLINE_LITE_SYSTEM_PROMPT,
   handleWorkflowTermination,
   isLargeModelBlockedOnHost,
   buildFileContext,
@@ -960,7 +902,6 @@ _outputSafeguards.init({
   getFileChangesForValidation,
   checkFileQuality,
   findPlaceholderArtifacts,
-  verifyHashlineReferences,
   cleanupJunkFiles,
 });
 
@@ -1001,11 +942,6 @@ _commandBuilders.init({
   db,
   nvmNodePath: NVM_NODE_PATH,
 });
-_hashlineVerify.init({
-  computeLineHash,
-  getFileChangesForValidation,
-  lineSimilarity,
-});
 _closePhases.init({
   db,
   dashboard,
@@ -1022,7 +958,6 @@ _closePhases.init({
   sanitizeTaskOutput,
   safeUpdateTaskStatus,
   tryLocalFirstFallback,
-  tryHashlineTieredFallback,
   processQueue,
 });
 _retryFramework.init({
@@ -1204,22 +1139,7 @@ Object.assign(module.exports, {
   // Harness improvement internals (exported for testing)
   computeLineHash,
   detectTaskTypes,
-  verifyHashlineReferences,
-  attemptFuzzySearchRepair,
   lineSimilarity,
-  // Hashline-Ollama provider internals (exported for testing)
-  parseHashlineEdits,
-  applyHashlineEdits,
-  HASHLINE_OLLAMA_SYSTEM_PROMPT,
-  // Hashline-Lite provider internals (exported for testing)
-  HASHLINE_LITE_SYSTEM_PROMPT,
-  parseHashlineLiteEdits,
-  applyHashlineLiteEdits,
-  selectHashlineFormat,
-  findSearchMatch,
-  // Hashline local fallback (exported for testing)
-  tryHashlineTieredFallback,
-  findNextHashlineModel,
   // Local-first fallback chain (exported for testing)
   tryLocalFirstFallback,
   tryOllamaCloudFallback,
@@ -1236,8 +1156,6 @@ Object.assign(module.exports, {
   // Cancellation helpers (exported for testing)
   triggerCancellationWebhook,
   // Provider command builders (exported for testing)
-  buildAiderCommand,
-  configureAiderHost,
   buildClaudeCliCommand,
   buildCodexCommand,
   // Close-handler helpers (exported for testing)
@@ -1357,19 +1275,7 @@ function createTaskManager(_deps) {
     fireTaskCompletionPolicyHook,
     computeLineHash,
     detectTaskTypes,
-    verifyHashlineReferences,
-    attemptFuzzySearchRepair,
     lineSimilarity,
-    parseHashlineEdits,
-    applyHashlineEdits,
-    HASHLINE_OLLAMA_SYSTEM_PROMPT,
-    HASHLINE_LITE_SYSTEM_PROMPT,
-    parseHashlineLiteEdits,
-    applyHashlineLiteEdits,
-    selectHashlineFormat,
-    findSearchMatch,
-    tryHashlineTieredFallback,
-    findNextHashlineModel,
     tryLocalFirstFallback,
     tryOllamaCloudFallback,
     parseModelSizeB,
@@ -1381,8 +1287,6 @@ function createTaskManager(_deps) {
     safeStartTask,
     categorizeQueuedTasks,
     triggerCancellationWebhook,
-    buildAiderCommand,
-    configureAiderHost,
     buildClaudeCliCommand,
     buildCodexCommand,
     revertScopedFiles,

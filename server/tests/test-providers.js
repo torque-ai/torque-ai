@@ -49,19 +49,19 @@ describe('Provider Routing & Fallback', { retry: 2 }, () => {
     it('respects override_provider on explicit "test task" prompts', async () => {
       const result = await safeTool('smart_submit_task', {
         task: 'Test task for qwen2.5-coder:7b',
-        override_provider: 'hashline-ollama'
+        override_provider: 'ollama'
       });
       expect(result.isError).toBeFalsy();
-      expect(getText(result)).toMatch(/\|\s*Provider\s*\|\s*\*\*hashline-ollama\*\*\s*\|/i);
+      expect(getText(result)).toMatch(/\|\s*Provider\s*\|\s*\*\*ollama\*\*\s*\|/i);
     });
 
     it('respects override_provider on explicit "test task" prompts with qwen3-coder:30b', async () => {
       const result = await safeTool('smart_submit_task', {
         task: 'Test task for qwen3-coder:30b',
-        override_provider: 'hashline-ollama'
+        override_provider: 'ollama'
       });
       expect(result.isError).toBeFalsy();
-      expect(getText(result)).toMatch(/\|\s*Provider\s*\|\s*\*\*hashline-ollama\*\*\s*\|/i);
+      expect(getText(result)).toMatch(/\|\s*Provider\s*\|\s*\*\*ollama\*\*\s*\|/i);
     });
 
     it('rejects empty task', async () => {
@@ -294,7 +294,7 @@ describe('Provider Routing & Fallback', { retry: 2 }, () => {
     });
 
     it('uses default days', async () => {
-      const result = await safeTool('provider_stats', { provider: 'hashline-ollama' });
+      const result = await safeTool('provider_stats', { provider: 'ollama' });
       expect(result.isError).toBeFalsy();
     });
 

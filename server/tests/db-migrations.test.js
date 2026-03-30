@@ -103,9 +103,6 @@ function createBaseSchema(conn, options = {}) {
         target_provider TEXT
       );
     `);
-    conn.exec(`
-      INSERT INTO complexity_routing (target_provider) VALUES ('aider-ollama');
-    `);
   }
 
   if (includeModelFamilyTemplates) {

@@ -423,7 +423,6 @@ describe('slot-pull-scheduler', () => {
     it('returns true for Ollama providers when combined running is below host cap', () => {
       // Default host max_concurrent is 4, no tasks running
       expect(scheduler.hasOllamaHostCapacity('ollama')).toBe(true);
-      expect(scheduler.hasOllamaHostCapacity('hashline-ollama')).toBe(true);
     });
 
     it('blocks Ollama providers when combined running tasks hit host cap', () => {
@@ -441,17 +440,15 @@ describe('slot-pull-scheduler', () => {
 
       // Create running tasks across Ollama providers up to host cap
       for (let i = 0; i < hostCap; i++) {
-        const provider = ['ollama', 'hashline-ollama'][i % 2];
         createAssignedTask({
           id: `vram-fill-${i}`,
-          provider,
+          provider: 'ollama',
           status: 'running',
         });
       }
 
       // All Ollama providers should be blocked
       expect(scheduler.hasOllamaHostCapacity('ollama')).toBe(false);
-      expect(scheduler.hasOllamaHostCapacity('hashline-ollama')).toBe(false);
       // Non-Ollama still fine
       expect(scheduler.hasOllamaHostCapacity('codex')).toBe(true);
     });
@@ -478,7 +475,7 @@ describe('slot-pull-scheduler', () => {
       });
 
       // Disable others to avoid interference
-      for (const p of ['hashline-ollama', 'claude-cli']) {
+      for (const p of ['ollama', 'claude-cli']) {
         setProviderConfig(p, { enabled: 0 });
       }
 
@@ -530,7 +527,7 @@ describe('slot-pull-scheduler', () => {
         qualityBand: 'A',
       });
       // Disable all others
-      for (const p of ['ollama', 'hashline-ollama', 'claude-cli']) {
+      for (const p of ['ollama', 'claude-cli']) {
         setProviderConfig(p, { enabled: 0 });
       }
 

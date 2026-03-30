@@ -340,8 +340,6 @@ describe('db/schema.js — smoke test', () => {
       expect(providers).toContain('codex');
       expect(providers).toContain('claude-cli');
       expect(providers).toContain('ollama');
-      expect(providers).toContain('aider-ollama');
-      expect(providers).toContain('hashline-ollama');
     });
 
     it('codex provider is enabled by default', () => {
@@ -359,8 +357,8 @@ describe('db/schema.js — smoke test', () => {
       expect(columnNames).toContain('max_retries');
 
       const rows = rawDb().prepare(
-        'SELECT provider, transport FROM provider_config WHERE provider IN (?, ?, ?, ?)',
-      ).all('codex', 'claude-cli', 'ollama', 'hashline-ollama');
+        'SELECT provider, transport FROM provider_config WHERE provider IN (?, ?, ?)',
+      ).all('codex', 'claude-cli', 'ollama');
       const transportByProvider = {};
       rows.forEach((row) => {
         transportByProvider[row.provider] = row.transport;
@@ -369,7 +367,6 @@ describe('db/schema.js — smoke test', () => {
       expect(transportByProvider.codex).toBe('hybrid');
       expect(transportByProvider['claude-cli']).toBe('cli');
       expect(transportByProvider.ollama).toBe('api');
-      expect(transportByProvider['hashline-ollama']).toBe('api');
       // Note: anthropic may or may not be seeded depending on template DB state.
       // The seed is commented out in schema-seeds.js but prior runs can leave stale rows.
     });
@@ -511,12 +508,6 @@ describe('db/migrations.js', () => {
       "SELECT key FROM config WHERE key IN ('aider_auto_commits', 'aider_auto_switch_format', 'aider_edit_format', 'aider_map_tokens', 'aider_model_edit_formats', 'aider_subtree_only')"
     ).all();
     expect(aiderKeys).toHaveLength(0);
-
-    // Verify no complexity_routing rows target aider-ollama
-    const aiderRouting = conn.prepare(
-      "SELECT * FROM complexity_routing WHERE target_provider = 'aider-ollama'"
-    ).all();
-    expect(aiderRouting).toHaveLength(0);
 
     // Verify migration v8 is recorded
     const applied = conn.prepare(

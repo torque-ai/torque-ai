@@ -325,32 +325,6 @@ module.exports = { greet, farewell };
     });
   });
 
-  // ── Hashline Edit Parsing ────────────────────────────────
-  describe('parseHashlineEdits', () => {
-    it('parses valid hashline edit blocks', () => {
-      const result = tm.parseHashlineEdits(`
-HASHLINE_EDIT file.ts
-REPLACE 5:ab-8:cd
-new content here
-more content
-END_REPLACE
-END_EDIT
-`);
-      expect(result).toBeDefined();
-      expect(Array.isArray(result.edits)).toBe(true);
-      expect(Array.isArray(result.parseErrors)).toBe(true);
-    });
-
-    it('returns empty edits for empty input', () => {
-      const result = tm.parseHashlineEdits('');
-      expect(result.edits.length).toBe(0);
-    });
-
-    it('returns empty edits for null input', () => {
-      const result = tm.parseHashlineEdits(null);
-      expect(result.edits.length).toBe(0);
-    });
-  });
 });
 
 describe('Task Manager shutdown behaviour', () => {

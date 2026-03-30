@@ -231,7 +231,7 @@ describe('API Server endpoints', () => {
       'codex',
       'deepinfra',
       'groq',
-      'hashline-ollama',
+      'ollama',
       'hyperbolic',
       'ollama',
     ];

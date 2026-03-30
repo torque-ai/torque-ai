@@ -64,7 +64,7 @@ describe('Automation Handlers', () => {
       expect(text).toContain('Current Settings');
       expect(text).toContain('codex');
       expect(text).toContain('ollama');
-      expect(text).toContain('hashline-ollama');
+      expect(text).toContain('ollama');
       expect(text).toContain('claude-cli');
     });
 

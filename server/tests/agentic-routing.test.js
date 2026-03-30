@@ -23,7 +23,7 @@ function validRules(overrides = {}) {
     large_code_gen: 'ollama',
     documentation: 'ollama',
     simple_generation: 'ollama',
-    targeted_file_edit: 'hashline-ollama',
+    targeted_file_edit: 'ollama',
     default: 'ollama',
     ...overrides,
   };
@@ -522,7 +522,7 @@ function validRulesForResolve(overrides = {}) {
     large_code_gen: 'ollama',
     documentation: 'ollama',
     simple_generation: 'ollama',
-    targeted_file_edit: 'hashline-ollama',
+    targeted_file_edit: 'ollama',
     default: 'ollama',
     ...overrides,
   };

@@ -8,7 +8,7 @@ vi.mock('../api', () => ({
   routingTemplates: {
     list: vi.fn().mockResolvedValue({
       items: [
-        { id: 'preset-system-default', name: 'System Default', preset: true, rules: { default: 'ollama', security: 'anthropic', xaml_wpf: 'anthropic', architectural: 'deepinfra', reasoning: 'deepinfra', large_code_gen: 'codex', documentation: 'groq', simple_generation: 'ollama', targeted_file_edit: 'hashline-ollama' }, complexity_overrides: {} },
+        { id: 'preset-system-default', name: 'System Default', preset: true, rules: { default: 'ollama', security: 'anthropic', xaml_wpf: 'anthropic', architectural: 'deepinfra', reasoning: 'deepinfra', large_code_gen: 'codex', documentation: 'groq', simple_generation: 'ollama', targeted_file_edit: 'ollama' }, complexity_overrides: {} },
         { id: 'user-1', name: 'My Custom', preset: false, rules: { default: 'codex', security: 'codex', xaml_wpf: 'codex', architectural: 'codex', reasoning: 'codex', large_code_gen: 'codex', documentation: 'codex', simple_generation: 'codex', targeted_file_edit: 'codex' }, complexity_overrides: {} },
       ],
     }),

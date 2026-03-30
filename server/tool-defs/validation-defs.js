@@ -414,7 +414,7 @@ module.exports = [
       properties: {
         provider: {
           type: 'string',
-          description: 'Provider name (e.g., hashline-ollama, claude-cli)'
+          description: 'Provider name (e.g., claude-cli)'
         }
       },
       required: [

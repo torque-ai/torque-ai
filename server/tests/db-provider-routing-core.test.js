@@ -276,7 +276,7 @@ describe('db/provider-routing-core', () => {
       expect(result.reason).toContain('Complexity-based routing');
     });
 
-    it('upgrades simple targeted local edits to hashline-ollama', () => {
+    it('upgrades simple targeted local edits to ollama', () => {
       bindCore({
         determineTaskComplexity: () => 'simple',
         routeTask: () => ({
@@ -287,8 +287,8 @@ describe('db/provider-routing-core', () => {
       });
 
       const result = core.analyzeTaskForRouting('Add jsdoc comments to src/app.js', os.tmpdir(), ['src/app.js']);
-      expect(result.provider).toBe('hashline-ollama');
-      expect(result.reason).toContain('upgraded to hashline-ollama');
+      expect(result.provider).toBe('ollama');
+      expect(result.reason).toContain('upgraded to ollama');
     });
 
     it('keeps simple targeted codex edits on codex when no hashline cloud provider is configured', () => {
@@ -523,7 +523,7 @@ describe('db/provider-routing-core', () => {
         large_code_gen: 'ollama',
         documentation: 'ollama',
         simple_generation: 'ollama',
-        targeted_file_edit: 'hashline-ollama',
+        targeted_file_edit: 'ollama',
         default: 'ollama',
         ...overrides,
       };

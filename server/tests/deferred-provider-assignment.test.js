@@ -16,7 +16,7 @@ const { TEST_MODELS } = require('./test-helpers');
 // Provider registry mock
 vi.mock('../providers/registry', () => {
   const cats = {
-    ollama: 'ollama', 'hashline-ollama': 'ollama',
+    ollama: 'ollama',
     codex: 'codex', 'claude-cli': 'codex',
     anthropic: 'api', groq: 'api', hyperbolic: 'api',
     deepinfra: 'api', 'ollama-cloud': 'api', cerebras: 'api', 'google-ai': 'api', openrouter: 'api',
