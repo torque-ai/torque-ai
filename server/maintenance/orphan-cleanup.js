@@ -67,8 +67,8 @@ const PROVIDER_STALL_THRESHOLDS = {
   'hashline-ollama': 300,   // 5 minutes - hashline edits need time
   'ollama': 240,            // 4 minutes - direct API is faster
   'claude-cli': 600,        // 10 minutes - claude can be slow on complex tasks
-  'codex': 1200,            // 20 minutes - codex reads extensively before writing; 10 min was too aggressive
-  'codex-spark': 600,       // 10 minutes - spark is faster than full codex
+  'codex': 600,             // 10 minutes - only kills truly orphaned codex processes (monitored tasks are excluded)
+  'codex-spark': 300,       // 5 minutes - spark is fast
   'anthropic': 300,         // 5 minutes - API can be slow
   'groq': 120,              // 2 minutes - groq is fast
   'ollama-cloud': 300,      // 5 minutes - cloud inference on large models
@@ -441,6 +441,32 @@ function checkStalledTasks(autoCancel = false) {
 
     // isStalled is false if threshold is null (provider excluded)
     if (isStalled) {
+      // If a Claude session is actively monitoring this task (via await_task,
+      // await_workflow, or subscribe_task_events), defer stall handling to Claude.
+      // Claude receives heartbeat check-ins and can decide to cancel/resubmit itself.
+      let monitored = false;
+      try {
+        const { isTaskMonitored } = require('../transports/sse/session');
+        monitored = isTaskMonitored(taskId);
+      } catch (_) { /* SSE session module not available */ }
+
+      if (monitored) {
+        logger.info(`[Heartbeat] Task ${taskId} appears stalled (${activity.lastActivitySeconds}s) but has active session monitor — deferring to Claude`);
+        // Still emit the warning event so Claude's heartbeat picks it up
+        try {
+          const { taskEvents } = require('../hooks/event-dispatch');
+          taskEvents.emit('task:stall_warning', {
+            taskId,
+            provider: proc?.provider || 'unknown',
+            elapsed: activity.lastActivitySeconds,
+            threshold: Math.round(activity.stallThreshold || 0),
+            description: proc?.description || '',
+            deferred_to_session: true,
+          });
+        } catch { /* non-fatal */ }
+        continue;
+      }
+
       stalledTasks.push({
         taskId,
         lastActivitySeconds: activity.lastActivitySeconds

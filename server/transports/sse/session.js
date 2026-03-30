@@ -128,6 +128,22 @@ function addSessionToTaskSubscription(taskId, sessionId) {
   set.add(sessionId);
 }
 
+/**
+ * Check if a task has any active SSE session monitoring it.
+ * A monitored task has at least one session subscribed to its events
+ * (via subscribe_task_events, await_task, or await_workflow).
+ * Stall detection should defer to Claude for monitored tasks.
+ */
+function isTaskMonitored(taskId) {
+  const normalized = normalizeTaskId(taskId);
+  if (!normalized) return false;
+  const specific = taskSubscriptions.get(normalized);
+  if (specific && specific.size > 0) return true;
+  // Also check if any session is subscribed to ALL tasks
+  const all = taskSubscriptions.get(ALL_TASKS_SUBSCRIPTION_KEY);
+  return !!(all && all.size > 0);
+}
+
 function removeSessionFromTaskSubscription(taskId, sessionId) {
   const set = taskSubscriptions.get(taskId);
   if (!set) return;
@@ -797,6 +813,7 @@ module.exports = {
   addSessionToTaskSubscriptions,
   removeSessionFromTaskSubscriptions,
   purgeSessionFromTaskSubscriptions,
+  isTaskMonitored,
   updateTaskFilterSubscriptions,
   buildSubscriptionTargetFromResult,
   applySubscriptionTargetToSession,
