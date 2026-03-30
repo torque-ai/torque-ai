@@ -85,15 +85,6 @@ const BUILTIN_RULES = Object.freeze([
     config: null,
   }),
   Object.freeze({
-    id: 'no-large-file-full-read',
-    name: 'no-large-file-full-read',
-    description: 'Warn when Ollama tasks instruct full reads of files over 300 lines. Use search + line-range reads instead.',
-    stage: 'task_submit',
-    default_mode: 'warn',
-    checker_id: 'checkNoLargeFileFullRead',
-    config: { threshold_lines: 300 },
-  }),
-  Object.freeze({
     id: 'update-annotations-on-tool-change',
     name: 'update-annotations-on-tool-change',
     description: 'Warn when MCP tools are added or removed without updating tool-annotations.js.',
