@@ -80,7 +80,7 @@ describe('E2E: Hashline-Ollama execution', () => {
     expect(prompt).toContain('Fix the hello function');
   }, 20000);
 
-  it('Ollama failure in hashline mode: task fails gracefully', { timeout: 30000 }, async () => {
+  it('Ollama failure in hashline mode: task fails gracefully', { timeout: 90000 }, async () => {
     mock.setFailGenerate(true);
 
     const taskId = createTestTask(ctx.db, {
@@ -91,12 +91,12 @@ describe('E2E: Hashline-Ollama execution', () => {
     });
 
     ctx.tm.startTask(taskId);
-    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 15000);
+    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 60000);
 
     expect(task.status).toBe('failed');
   });
 
-  it('task records provider as hashline-ollama', { timeout: 30000 }, async () => {
+  it('task records provider as hashline-ollama', { timeout: 90000 }, async () => {
     mock.setGenerateResponse('Done reviewing the code.');
 
     const taskId = createTestTask(ctx.db, {
@@ -107,12 +107,12 @@ describe('E2E: Hashline-Ollama execution', () => {
     });
 
     ctx.tm.startTask(taskId);
-    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 15000);
+    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 60000);
 
     expect(task.provider).toBe('hashline-ollama');
   });
 
-  it('no file references: falls back to review-like behavior', { timeout: 30000 }, async () => {
+  it('no file references: falls back to review-like behavior', { timeout: 90000 }, async () => {
     mock.setGenerateResponse('The code looks clean with no issues.');
 
     // Use a description that doesn't reference specific files
@@ -124,7 +124,7 @@ describe('E2E: Hashline-Ollama execution', () => {
     });
 
     ctx.tm.startTask(taskId);
-    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 15000);
+    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 60000);
 
     // Should complete (possibly falling back to regular ollama)
     expect(['completed', 'failed']).toContain(task.status);

@@ -247,11 +247,16 @@ describe('fallback-retry module', () => {
       configCore.setConfig('codex_enabled', '0');
       configCore.setConfig('claude_cli_enabled', '1');
 
-      const task = createTask({ provider: 'ollama' });
-      const ok = mod.tryOllamaCloudFallback(task.id, task, 'model missing');
+      // Only codex and claude-cli are visible cloud providers for this test
+      withDbMethods({
+        getProvider: vi.fn((name) => ({ enabled: ['claude-cli'].includes(name) })),
+      }, () => {
+        const task = createTask({ provider: 'ollama' });
+        const ok = mod.tryOllamaCloudFallback(task.id, task, 'model missing');
 
-      expect(ok).toBe(true);
-      expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
+        expect(ok).toBe(true);
+        expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
+      });
     });
 
     it('falls through to claude-cli when explicit codex fallback is configured but disabled', () => {
@@ -259,41 +264,50 @@ describe('fallback-retry module', () => {
       configCore.setConfig('codex_enabled', '0');
       configCore.setConfig('claude_cli_enabled', '1');
 
-      const task = createTask({ provider: 'ollama' });
-      const ok = mod.tryOllamaCloudFallback(task.id, task, 'provider disabled');
+      withDbMethods({
+        getProvider: vi.fn((name) => ({ enabled: ['claude-cli'].includes(name) })),
+      }, () => {
+        const task = createTask({ provider: 'ollama' });
+        const ok = mod.tryOllamaCloudFallback(task.id, task, 'provider disabled');
 
-      expect(ok).toBe(true);
-      expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
+        expect(ok).toBe(true);
+        expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
+      });
     });
 
     it('returns false when all cloud providers are disabled', () => {
       configCore.setConfig('codex_enabled', '0');
       configCore.setConfig('claude_cli_enabled', '0');
 
-      const task = createTask({ provider: 'ollama' });
-      const ok = mod.tryOllamaCloudFallback(task.id, task, 'all disabled');
+      withDbMethods({
+        getProvider: vi.fn(() => null),
+      }, () => {
+        const task = createTask({ provider: 'ollama' });
+        const ok = mod.tryOllamaCloudFallback(task.id, task, 'all disabled');
 
-      expect(ok).toBe(false);
-      expect(taskCore.getTask(task.id).status).toBe('running');
-      expect(notifyCalls).toHaveLength(0);
-      expect(processQueueCalls).toBe(0);
+        expect(ok).toBe(false);
+        expect(taskCore.getTask(task.id).status).toBe('running');
+        expect(notifyCalls).toHaveLength(0);
+        expect(processQueueCalls).toBe(0);
+      });
     });
 
     it('prefers healthy provider over unhealthy one when isProviderHealthy is available', () => {
       configCore.setConfig('codex_enabled', '1');
       configCore.setConfig('claude_cli_enabled', '1');
-      // Mark codex as unhealthy by recording many failures
-      for (let i = 0; i < 10; i++) providerRoutingCore.recordProviderOutcome('codex', false);
 
-      const task = createTask({ provider: 'ollama' });
-      const ok = mod.tryOllamaCloudFallback(task.id, task, 'OOM');
+      withDbMethods({
+        getProvider: vi.fn((name) => ({ enabled: ['codex', 'claude-cli'].includes(name) })),
+        isProviderHealthy: vi.fn((name) => name === 'claude-cli'),
+      }, () => {
+        // Mark codex as unhealthy
+        const task = createTask({ provider: 'ollama' });
+        const ok = mod.tryOllamaCloudFallback(task.id, task, 'OOM');
 
-      expect(ok).toBe(true);
-      // Should pick claude-cli (healthy) instead of codex (unhealthy)
-      expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
-
-      // Clean up in-memory health state to avoid leaking into other tests
-      if (typeof providerRoutingCore.resetProviderHealth === 'function') providerRoutingCore.resetProviderHealth();
+        expect(ok).toBe(true);
+        // Should pick claude-cli (healthy) instead of codex (unhealthy)
+        expect(taskCore.getTask(task.id).provider).toBe('claude-cli');
+      });
     });
 
     it('uses configured fallback provider when it is healthy', () => {
