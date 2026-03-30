@@ -37,7 +37,6 @@
       {"provider": "groq", "model": "openai/gpt-oss-120b"}
     ],
     "targeted_file_edit": [
-      {"provider": "hashline-ollama"},
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "codex"}
     ],

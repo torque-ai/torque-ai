@@ -38,7 +38,6 @@
       {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-30b-a3b:free"}
     ],
     "targeted_file_edit": [
-      {"provider": "hashline-ollama"},
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"}
     ],
@@ -52,8 +51,7 @@
   "complexity_overrides": {
     "targeted_file_edit": {
       "complex": [
-        {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
-        {"provider": "hashline-ollama"}
+        {"provider": "ollama-cloud", "model": "kimi-k2:1t"}
       ]
     }
   }
