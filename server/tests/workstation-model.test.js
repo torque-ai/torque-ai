@@ -274,7 +274,7 @@ describe('workstation/model', () => {
     it('returns ollama hosts in legacy URL-based shape', () => {
       createWs({
         name: 'ollama-old',
-        host: '10.10.0.1',
+        host: '10.0.0.1',
         ollama_port: 11438,
         capabilities: { ollama: { detected: true, version: 'v1' } },
         models_cache: JSON.stringify(['gpt4:alpha', 'gpt4:mini']),
@@ -285,7 +285,7 @@ describe('workstation/model', () => {
       expect(hosts.length).toBe(1);
       expect(hosts[0]).toEqual(expect.objectContaining({
         name: 'ollama-old',
-        url: 'http://10.10.0.1:11438',
+        url: 'http://10.0.0.1:11438',
         models: ['gpt4:alpha', 'gpt4:mini'],
       }));
     });

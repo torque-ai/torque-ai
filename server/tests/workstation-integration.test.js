@@ -82,7 +82,7 @@ describe('workstation integration', () => {
     it('returns a summary with capabilities and normalized gpu size', () => {
       createWs({
         name: 'healthy-node',
-        host: '10.1.1.1',
+        host: '10.0.0.1',
         status: 'healthy',
         enabled: true,
         capabilities: { ollama: { detected: true }, command_exec: { detected: true } },
@@ -106,7 +106,7 @@ describe('workstation integration', () => {
       expect(summary.workstations[0]).toMatchObject({
         name: 'healthy-node',
         status: 'healthy',
-        host: '10.1.1.1',
+        host: '10.0.0.1',
         is_default: false,
         gpu: 'RTX 4090 (24GB)',
       });

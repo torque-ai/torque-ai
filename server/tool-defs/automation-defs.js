@@ -99,7 +99,7 @@ const tools = [
           }
         },
         remote_agent_id: { type: 'string', description: 'Remote agent ID for test execution (from register_remote_agent). Set to empty string to clear.' },
-        remote_project_path: { type: 'string', description: 'Project path on the remote agent (e.g., "C:/Users/username/Projects/Torque/server")' },
+        remote_project_path: { type: 'string', description: 'Project path on the remote agent (e.g., "C:/Users/<user>/Projects/Torque/server")' },
         prefer_remote_tests: { type: 'boolean', description: 'Route verify/test commands to the remote agent when available' }
       },
       required: ['working_directory']

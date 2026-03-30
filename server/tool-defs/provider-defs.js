@@ -520,7 +520,7 @@ const tools = [
         },
         host: {
           type: 'string',
-          description: 'Ollama host URL (e.g., http://localhost:11434 or http://172.26.176.1:11434 for WSL2)'
+          description: 'Ollama host URL (e.g., http://localhost:11434 or http://172.16.0.1:11434 for WSL2)'
         },
         auto_start_enabled: {
           type: 'boolean',
