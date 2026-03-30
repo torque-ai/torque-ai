@@ -61,9 +61,8 @@ describe('data-dir legacy migration', () => {
     seedProvider(activeDb, 'cerebras', { enabled: false });
     activeDb.close();
 
-    jest.resetModules();
-    const dataDir = require('../data-dir');
-    dataDir.migrateLegacyProviderConfigs(legacyDir, activeDir);
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
 
     const verifyDb = new Database(path.join(activeDir, 'tasks.db'), { readonly: true });
     const groq = verifyDb.prepare('SELECT * FROM provider_config WHERE provider = ?').get('groq');
@@ -87,9 +86,8 @@ describe('data-dir legacy migration', () => {
     seedProvider(activeDb, 'groq', { enabled: true, key: 'existing-active-key' });
     activeDb.close();
 
-    jest.resetModules();
-    const dataDir = require('../data-dir');
-    dataDir.migrateLegacyProviderConfigs(legacyDir, activeDir);
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
 
     const verifyDb = new Database(path.join(activeDir, 'tasks.db'), { readonly: true });
     const groq = verifyDb.prepare('SELECT * FROM provider_config WHERE provider = ?').get('groq');
@@ -109,9 +107,8 @@ describe('data-dir legacy migration', () => {
     seedProvider(activeDb, 'groq', { enabled: true });
     activeDb.close();
 
-    jest.resetModules();
-    const dataDir = require('../data-dir');
-    dataDir.migrateLegacyProviderConfigs(legacyDir, activeDir);
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
 
     const verifyDb = new Database(path.join(activeDir, 'tasks.db'), { readonly: true });
     const groq = verifyDb.prepare('SELECT * FROM provider_config WHERE provider = ?').get('groq');
@@ -133,9 +130,8 @@ describe('data-dir legacy migration', () => {
     seedProvider(activeDb, 'groq', { enabled: false });
     activeDb.close();
 
-    jest.resetModules();
-    const dataDir = require('../data-dir');
-    dataDir.migrateLegacyProviderConfigs(legacyDir, activeDir);
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
 
     expect(fs.existsSync(path.join(activeDir, 'secret.key'))).toBe(true);
     expect(fs.readFileSync(path.join(activeDir, 'secret.key'), 'utf8')).toBe('test-encryption-key-data');
@@ -155,17 +151,15 @@ describe('data-dir legacy migration', () => {
     seedProvider(activeDb, 'groq', { enabled: false });
     activeDb.close();
 
-    jest.resetModules();
-    const dataDir = require('../data-dir');
-    dataDir.migrateLegacyProviderConfigs(legacyDir, activeDir);
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
 
     expect(fs.readFileSync(path.join(activeDir, 'secret.key'), 'utf8')).toBe('current-key');
   });
 
   it('handles missing legacy DB gracefully', () => {
-    jest.resetModules();
-    const dataDir = require('../data-dir');
-    dataDir.migrateLegacyProviderConfigs(legacyDir, activeDir);
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
   });
 
   it('handles missing active DB gracefully (copies secret.key only)', () => {
@@ -175,9 +169,8 @@ describe('data-dir legacy migration', () => {
     seedProvider(legacyDb, 'groq', { enabled: true, key: 'encrypted-data' });
     legacyDb.close();
 
-    jest.resetModules();
-    const dataDir = require('../data-dir');
-    dataDir.migrateLegacyProviderConfigs(legacyDir, activeDir);
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
 
     expect(fs.existsSync(path.join(activeDir, 'secret.key'))).toBe(true);
   });
@@ -193,9 +186,8 @@ describe('data-dir legacy migration', () => {
     seedProvider(activeDb, 'groq', { enabled: false });
     activeDb.close();
 
-    jest.resetModules();
-    const dataDir = require('../data-dir');
-    dataDir.migrateLegacyProviderConfigs(legacyDir, activeDir);
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
 
     const verifyDb = new Database(path.join(activeDir, 'tasks.db'), { readonly: true });
     const groq = verifyDb.prepare('SELECT * FROM provider_config WHERE provider = ?').get('groq');
