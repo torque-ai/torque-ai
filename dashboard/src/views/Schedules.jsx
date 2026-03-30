@@ -232,7 +232,6 @@ export default function Schedules() {
                 <option value="codex">Codex</option>
                 <option value="claude-cli">Claude CLI</option>
                 <option value="ollama">Ollama</option>
-                <option value="hashline-ollama">Hashline Ollama</option>
               </select>
             </div>
             <div>

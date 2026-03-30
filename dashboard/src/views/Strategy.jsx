@@ -17,15 +17,12 @@ const PROVIDER_TEXT_COLORS = {
   ollama: 'text-green-400',
   groq: 'text-pink-400',
   hyperbolic: 'text-purple-400',
-  'hashline-openai': 'text-cyan-400',
 };
 
 const PROVIDER_STYLES = {
   codex: { bg: 'bg-blue-500/20', text: PROVIDER_TEXT_COLORS.codex, border: 'border-blue-500/30', dot: 'bg-blue-400' },
   'claude-cli': { bg: 'bg-violet-500/20', text: PROVIDER_TEXT_COLORS['claude-cli'], border: 'border-violet-500/30', dot: 'bg-violet-400' },
   ollama: { bg: 'bg-green-500/20', text: PROVIDER_TEXT_COLORS.ollama, border: 'border-green-500/30', dot: 'bg-green-400' },
-  'hashline-ollama': { bg: 'bg-teal-500/20', text: PROVIDER_TEXT_COLORS['hashline-ollama'], border: 'border-teal-500/30', dot: 'bg-teal-400' },
-  'hashline-openai': { bg: 'bg-cyan-500/20', text: PROVIDER_TEXT_COLORS['hashline-openai'], border: 'border-cyan-500/30', dot: 'bg-cyan-400' },
   anthropic: { bg: 'bg-amber-500/20', text: PROVIDER_TEXT_COLORS.anthropic, border: 'border-amber-500/30', dot: 'bg-amber-400' },
   groq: { bg: 'bg-pink-500/20', text: PROVIDER_TEXT_COLORS.groq, border: 'border-pink-500/30', dot: 'bg-pink-400' },
   deepinfra: { bg: 'bg-orange-500/20', text: PROVIDER_TEXT_COLORS.deepinfra, border: 'border-orange-500/30', dot: 'bg-orange-400' },

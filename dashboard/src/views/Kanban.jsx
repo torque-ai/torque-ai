@@ -26,7 +26,6 @@ const COMMON_PROVIDER_OPTIONS = [
   'claude-cli',
   'ollama',
   'ollama-cloud',
-  'hashline-ollama',
   'anthropic',
   'cerebras',
   'groq',

@@ -7,7 +7,7 @@ import LoadingSkeleton from '../components/LoadingSkeleton';
 // ─── Provider Colors (hex for colored dots) ─────────────────────────────────
 
 const KNOWN_PROVIDERS = [
-  'ollama', 'hashline-ollama', 'codex', 'claude-cli',
+  'ollama', 'codex', 'claude-cli',
   'anthropic', 'deepinfra', 'hyperbolic', 'groq', 'cerebras',
   'google-ai', 'openrouter', 'ollama-cloud',
 ];
@@ -22,7 +22,6 @@ const MODEL_SUGGESTIONS = {
                    'deepseek-v3.2', 'devstral-2:123b', 'gpt-oss:120b'],
   openrouter: ['nvidia/nemotron-3-nano-30b-a3b:free', 'google/gemma-3-27b-it:free'],
   ollama: ['qwen2.5-coder:32b', 'codestral:22b'],
-  'hashline-ollama': ['qwen2.5-coder:32b'],
 };
 
 const PROVIDER_DEFAULT_MODELS = {

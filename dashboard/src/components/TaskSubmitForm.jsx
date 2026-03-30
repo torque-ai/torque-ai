@@ -25,7 +25,7 @@ const PROVIDER_KNOWN_MODELS = {
 };
 
 /** Providers that use Ollama hosts and pull models from the hosts list */
-const OLLAMA_PROVIDERS = new Set(['ollama', 'hashline-ollama']);
+const OLLAMA_PROVIDERS = new Set(['ollama']);
 
 export default function TaskSubmitForm({ onClose, onSubmitted }) {
   const [task, setTask] = useState('');
@@ -131,8 +131,8 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
       enabled: p.enabled,
     }))
     : [
-      'codex', 'claude-cli', 'ollama', 'hashline-ollama',
-      'hashline-openai', 'anthropic', 'groq', 'deepinfra', 'hyperbolic',
+      'codex', 'claude-cli', 'ollama',
+      'anthropic', 'groq', 'deepinfra', 'hyperbolic',
     ].map((p) => ({ value: p, label: p, enabled: true }));
 
   return (
