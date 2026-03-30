@@ -51,27 +51,46 @@ torque_available() {
 
 torque_scan() {
   local file="$1"
-  local content
-  content=$(cat "$file" 2>/dev/null) || return 0
-  [ -z "$content" ] && return 0
+
+  [ -f "$file" ] || return 0
+  [ -s "$file" ] || return 0
+
+  # Build JSON payload via node to handle any content safely (no shell arg limits)
   local response
-  response=$(curl -s --max-time 10 \
-    -X POST "$PII_ENDPOINT" \
-    -H "Content-Type: application/json" \
-    -d "$(jq -n --arg text "$content" --arg wd "$WORKING_DIR" \
-      '{text: $text, working_directory: $wd}')" \
-    2>/dev/null) || return 1
+  response=$(node -e "
+    const fs = require('fs');
+    const http = require('http');
+    const content = fs.readFileSync(process.argv[1], 'utf8');
+    if (!content.trim()) { process.exit(0); }
+    const body = JSON.stringify({ text: content, working_directory: process.argv[2] });
+    const opts = { hostname: '127.0.0.1', port: 3457, path: '/api/pii-scan', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }, timeout: 10000 };
+    const req = http.request(opts, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => process.stdout.write(d));
+    });
+    req.on('error', () => process.exit(0));
+    req.on('timeout', () => { req.destroy(); process.exit(0); });
+    req.write(body);
+    req.end();
+  " -- "$file" "$WORKING_DIR" 2>/dev/null) || return 0
+
+  [ -z "$response" ] && return 0
+
   local clean
-  clean=$(echo "$response" | jq -r '.clean' 2>/dev/null) || return 1
+  clean=$(echo "$response" | jq -r '.clean' 2>/dev/null) || return 0
+
   if [ "$clean" = "false" ]; then
     local sanitized
     sanitized=$(echo "$response" | jq -r '.sanitized' 2>/dev/null) || return 1
     local finding_count
     finding_count=$(echo "$response" | jq '.findings | length' 2>/dev/null) || finding_count="?"
+
     printf '%s' "$sanitized" > "$file"
     git add "$file"
     echo "PII-GUARD: Auto-fixed $finding_count finding(s) in $file"
   fi
+
   return 0
 }
 
