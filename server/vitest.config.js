@@ -7,7 +7,7 @@ module.exports = defineConfig({
     testTimeout: 15000,
     hookTimeout: 15000,
     teardownTimeout: 5000,
-    include: ['tests/**/*.test.js'],
+    include: ['tests/**/*.test.js', 'plugins/**/tests/**/*.test.js'],
     exclude: ['**/node_modules/**', '**/dist/**', 'tests/test-container.js'],
     setupFiles: ['tests/worker-setup.js'],
     pool: 'forks',
