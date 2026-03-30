@@ -67,12 +67,12 @@ describe('version-control plugin contract', () => {
     expect(tableNames).toEqual(['vc_commits', 'vc_worktrees']);
   });
 
-  it('mcpTools() returns 8 tools after install', () => {
+  it('mcpTools() returns 13 tools after install (Phase 1 + Phase 2)', () => {
     plugin.install(makeContainer(db));
 
     const tools = plugin.mcpTools();
 
-    expect(tools).toHaveLength(8);
+    expect(tools).toHaveLength(13);
     expect(tools.map((tool) => tool.name).sort()).toEqual(toolDefs.map((tool) => tool.name).sort());
     expect(tools.every((tool) => typeof tool.handler === 'function')).toBe(true);
   });
