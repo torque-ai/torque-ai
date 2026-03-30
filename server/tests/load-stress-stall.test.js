@@ -115,6 +115,9 @@ describe('Stall recovery', () => {
     // Set last output to 10 minutes ago to trigger stall
     proc.lastOutputAt = Date.now() - 700 * 1000;
     proc.provider = 'ollama'; // Use ollama which has a real stall threshold
+    // Null out process/pid so CPU activity rescue doesn't find a live system process
+    proc.process = null;
+    proc.pid = undefined;
 
     const stalled = ctx.tm.checkStalledTasks(false);
     // Should detect the stalled task
@@ -138,6 +141,9 @@ describe('Stall recovery', () => {
       if (proc) {
         proc.lastOutputAt = Date.now() - 700 * 1000;
         proc.provider = 'ollama';
+        // Null out process/pid so CPU activity rescue doesn't find a live system process
+        proc.process = null;
+        proc.pid = undefined;
       }
     }
 

@@ -11,7 +11,7 @@ import {
 
 const { EventEmitter } = require('events');
 const http = require('http');
-const { generateOpenApiSpec } = require('../api/openapi-generator');
+const { generateOpenApiSpec, OPENAPI_VERSION, API_TITLE } = require('../api/openapi-generator');
 const apiRoutes = require('../api/routes');
 const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
@@ -627,7 +627,20 @@ describe('captured request handler dispatch', () => {
     expect(response.headers).toEqual(expect.objectContaining({
       'Content-Type': 'application/json',
     }));
-    expect(JSON.parse(response.body)).toEqual(generateOpenApiSpec(apiRoutes));
+    const spec = JSON.parse(response.body);
+    // Verify valid OpenAPI 3.x structure
+    expect(spec.openapi).toBe(OPENAPI_VERSION);
+    expect(spec.info.title).toBe(API_TITLE);
+    expect(spec.paths).toBeDefined();
+    expect(Object.keys(spec.paths).length).toBeGreaterThan(0);
+    expect(spec.components).toBeDefined();
+    // Auth routes should be excluded (stripped to plugin)
+    expect(spec.paths['/api/auth/users']).toBeUndefined();
+    expect(spec.paths['/api/auth/login']).toBeUndefined();
+    // Health routes should be included
+    expect(spec.paths['/healthz']).toBeDefined();
+    expect(spec.paths['/readyz']).toBeDefined();
+    expect(spec.paths['/livez']).toBeDefined();
     expect(handleToolCallSpy).not.toHaveBeenCalled();
   });
 

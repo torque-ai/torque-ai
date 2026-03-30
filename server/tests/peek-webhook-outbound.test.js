@@ -146,9 +146,9 @@ function createSubject({ webhooks = [], httpOptions = {}, httpsOptions = {}, int
   const http = createRequestModule(httpOptions);
   const https = createRequestModule(httpsOptions);
   const mod = loadWebhookOutbound({
-    '../../db/webhooks-streaming': database,
-    '../../logger': logger.module,
-    '../shared': shared,
+    '../../../db/webhooks-streaming': database,
+    '../../../logger': logger.module,
+    '../../../handlers/shared': shared,
     http: http.module,
     https: https.module,
   });
@@ -240,7 +240,7 @@ function createRecoveryHandlerSubject({ fireWebhookForEvent = vi.fn(() => Promis
   };
 
   const mod = loadPeekRecovery({
-    '../shared': {
+    '../../../handlers/shared': {
       ErrorCodes: {
         MISSING_REQUIRED_PARAM: 'missing_required_param',
         INVALID_PARAM: 'invalid_param',
@@ -255,12 +255,12 @@ function createRecoveryHandlerSubject({ fireWebhookForEvent = vi.fn(() => Promis
     './shared': handlerShared,
     './rollback': rollback,
     './live-autonomy': liveAutonomy,
-    '../../policy-engine/task-hooks': taskHooks,
+    '../../../policy-engine/task-hooks': taskHooks,
     './webhook-outbound': { fireWebhookForEvent },
-    '../../logger': logger.module,
-    '../../db/config-core': database,
-    '../../db/peek-recovery-approvals': database,
-    '../../db/recovery-metrics': database,
+    '../../../logger': logger.module,
+    '../../../db/config-core': database,
+    '../../../db/peek-recovery-approvals': database,
+    '../../../db/recovery-metrics': database,
   });
 
   return {
@@ -310,14 +310,14 @@ function createArtifactsHandlerSubject({ fireWebhookForEvent = vi.fn(() => Promi
 
   const mod = loadPeekArtifacts({
     fs: fsMock,
-    '../../db/task-core': database,
-    '../../db/task-metadata': database,
-    '../../db/workflow-engine': database,
-    '../../db/peek-policy-audit': database,
-    '../../contracts/peek': contracts,
+    '../../../db/task-core': database,
+    '../../../db/task-metadata': database,
+    '../../../db/workflow-engine': database,
+    '../../../db/peek-policy-audit': database,
+    '../../../contracts/peek': contracts,
     './shared': shared,
     './webhook-outbound': { fireWebhookForEvent },
-    '../../logger': logger.module,
+    '../../../logger': logger.module,
   });
 
   return {
@@ -484,12 +484,12 @@ function createComplianceHandlerSubject({ fireWebhookForEvent = vi.fn(() => Prom
   seedComplianceDatabase(databaseHandle);
 
   const mod = loadPeekCompliance({
-    '../../database': databaseHandle,
+    '../../../database': databaseHandle,
     './webhook-outbound': { fireWebhookForEvent },
     './rollback': {
       classifyActionRisk: vi.fn(() => ({ level: 'low' })),
     },
-    '../../logger': logger.module,
+    '../../../logger': logger.module,
   });
 
   return {

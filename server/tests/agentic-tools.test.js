@@ -614,9 +614,9 @@ describe('parseToolCalls', () => {
 // ---------------------------------------------------------------------------
 
 describe('TOOL_DEFINITIONS', () => {
-  it('is an array with 6 entries', () => {
+  it('is an array with 7 entries', () => {
     expect(Array.isArray(TOOL_DEFINITIONS)).toBe(true);
-    expect(TOOL_DEFINITIONS).toHaveLength(6);
+    expect(TOOL_DEFINITIONS).toHaveLength(7);
   });
 
   it('each entry has type "function" and a function.name', () => {
@@ -627,13 +627,14 @@ describe('TOOL_DEFINITIONS', () => {
     }
   });
 
-  it('contains all 6 expected tool names', () => {
+  it('contains all 7 expected tool names', () => {
     const names = TOOL_DEFINITIONS.map(d => d.function.name);
     expect(names).toContain('read_file');
     expect(names).toContain('write_file');
     expect(names).toContain('edit_file');
     expect(names).toContain('list_directory');
     expect(names).toContain('search_files');
+    expect(names).toContain('replace_lines');
     expect(names).toContain('run_command');
   });
 

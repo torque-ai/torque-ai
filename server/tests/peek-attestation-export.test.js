@@ -134,8 +134,8 @@ describe('peek attestation export', () => {
   beforeEach(() => {
     const loggerMock = createLoggerMock();
     compliance = loadCompliance({
-      '../../database': {},
-      '../../logger': loggerMock.module,
+      '../../../database': {},
+      '../../../logger': loggerMock.module,
       './webhook-outbound': {
         fireWebhookForEvent: vi.fn(() => Promise.resolve()),
       },

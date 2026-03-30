@@ -14,11 +14,11 @@ try {
   templateStore = null;
 }
 
-let providerScoring;
-try {
-  const { defaultContainer } = require('../container');
-  providerScoring = defaultContainer.get('providerScoring');
-} catch (_) { /* not available */ }
+let providerScoring = null;
+function setProviderScoring(scoring) { providerScoring = scoring || null; }
+
+let circuitBreakerInstance = null;
+function setCircuitBreaker(cb) { circuitBreakerInstance = cb || null; }
 
 let db;
 let getTaskFn;
@@ -45,6 +45,7 @@ function _buildDeps() {
     isOllamaHealthy: ollamaHealth.isOllamaHealthy,
     getFallbackChain: smartRouting.getProviderFallbackChain,
     getDb: () => db,
+    getCircuitBreaker: () => circuitBreakerInstance,
   };
 }
 
@@ -1431,6 +1432,8 @@ module.exports = {
   setDb,
   setGetTask,
   setHostManagement,
+  setProviderScoring,
+  setCircuitBreaker,
 
   // Provider Core
   getTask,

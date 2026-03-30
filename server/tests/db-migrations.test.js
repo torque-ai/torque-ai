@@ -28,6 +28,8 @@ function createBaseSchema(conn, options = {}) {
     includeConfig = true,
     includeComplexityRouting = true,
     existingModelAffinityColumns = false,
+    includeModelFamilyTemplates = true,
+    includeModelRegistry = true,
   } = options;
 
   if (includeNotificationTemplates) {
@@ -104,6 +106,35 @@ function createBaseSchema(conn, options = {}) {
     conn.exec(`
       INSERT INTO complexity_routing (target_provider) VALUES ('aider-ollama');
     `);
+  }
+
+  if (includeModelFamilyTemplates) {
+    conn.prepare(`
+      CREATE TABLE IF NOT EXISTS model_family_templates (
+        family TEXT PRIMARY KEY,
+        tuning_json TEXT NOT NULL DEFAULT '{}',
+        description TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+  }
+
+  if (includeModelRegistry) {
+    conn.prepare(`
+      CREATE TABLE IF NOT EXISTS model_registry (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        host_id TEXT,
+        model_name TEXT NOT NULL,
+        size_bytes INTEGER,
+        status TEXT DEFAULT 'pending',
+        first_seen_at TEXT,
+        last_seen_at TEXT,
+        approved_at TEXT,
+        approved_by TEXT,
+        UNIQUE(provider, host_id, model_name)
+      )
+    `).run();
   }
 }
 

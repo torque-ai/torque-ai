@@ -58,56 +58,60 @@ function persistDetectedTemplate(db, projectConfigCore, workingDirectory, templa
 }
 
 async function handleGetProjectTemplate(args) {
-  const container = getDefaultContainer();
-  if (!container) {
-    return { content: [{ type: 'text', text: 'Template services unavailable' }], isError: true };
-  }
-
-  const projectConfigCore = container.get('projectConfigCore');
-  const templateRegistry = container.get('templateRegistry');
-
-  if (!projectConfigCore || !templateRegistry) {
-    return { content: [{ type: 'text', text: 'Template services unavailable' }], isError: true };
-  }
-
-  const workingDirectory = args.working_directory;
-  const candidates = resolveProjectCandidates(projectConfigCore, workingDirectory);
-  let project = null;
-  let detectedTemplateId = null;
-
-  for (const candidate of candidates) {
-    const config = projectConfigCore.getProjectConfig(candidate);
-    if (config && config.detected_template) {
-      project = candidate;
-      detectedTemplateId = config.detected_template;
-      break;
+  try {
+    const container = getDefaultContainer();
+    if (!container) {
+      return { content: [{ type: 'text', text: 'Template services unavailable' }], isError: true };
     }
-  }
 
-  if (!project) {
-    return { content: [{ type: 'text', text: `No project template detected yet for ${workingDirectory}. Run detect_project_type first.` }] };
-  }
+    const projectConfigCore = container.get('projectConfigCore');
+    const templateRegistry = container.get('templateRegistry');
 
-  const template = templateRegistry.getTemplate(detectedTemplateId);
-  if (!template) {
+    if (!projectConfigCore || !templateRegistry) {
+      return { content: [{ type: 'text', text: 'Template services unavailable' }], isError: true };
+    }
+
+    const workingDirectory = args.working_directory;
+    const candidates = resolveProjectCandidates(projectConfigCore, workingDirectory);
+    let project = null;
+    let detectedTemplateId = null;
+
+    for (const candidate of candidates) {
+      const config = projectConfigCore.getProjectConfig(candidate);
+      if (config && config.detected_template) {
+        project = candidate;
+        detectedTemplateId = config.detected_template;
+        break;
+      }
+    }
+
+    if (!project) {
+      return { content: [{ type: 'text', text: `No project template detected yet for ${workingDirectory}. Run detect_project_type first.` }] };
+    }
+
+    const template = templateRegistry.getTemplate(detectedTemplateId);
+    if (!template) {
+      return {
+        content: [{ type: 'text', text: `Detected template "${detectedTemplateId}" is no longer available in the registry.` }],
+        isError: true,
+      };
+    }
+
+    const text = `## Project Template for ${project}\n\n` +
+      `**Template ID:** ${template.id}\n` +
+      `**Template Name:** ${template.name}\n` +
+      `**Category:** ${template.category}\n` +
+      `**Priority:** ${template.priority}\n\n` +
+      `## Agent Context\n\n\`\`\`\n${template.agent_context || '(not provided)'}\n\`\`\`\n\n` +
+      `**Suggested verify command:** ${template.verify_command_suggestion || '(not provided)'}`;
+
     return {
-      content: [{ type: 'text', text: `Detected template "${detectedTemplateId}" is no longer available in the registry.` }],
-      isError: true,
+      content: [{ type: 'text', text }],
+      structuredData: template,
     };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text', text: `Template error: ${err.message}` }] };
   }
-
-  const text = `## Project Template for ${project}\n\n` +
-    `**Template ID:** ${template.id}\n` +
-    `**Template Name:** ${template.name}\n` +
-    `**Category:** ${template.category}\n` +
-    `**Priority:** ${template.priority}\n\n` +
-    `## Agent Context\n\n\`\`\`\n${template.agent_context || '(not provided)'}\n\`\`\`\n\n` +
-    `**Suggested verify command:** ${template.verify_command_suggestion || '(not provided)'}`;
-
-  return {
-    content: [{ type: 'text', text }],
-    structuredData: template,
-  };
 }
 
 function handleListTemplates(_args) {
@@ -142,44 +146,48 @@ function handleListTemplates(_args) {
 }
 
 async function handleDetectProjectType(args) {
-  const container = getDefaultContainer();
-  if (!container) {
-    return { content: [{ type: 'text', text: 'Template services unavailable' }], isError: true };
+  try {
+    const container = getDefaultContainer();
+    if (!container) {
+      return { content: [{ type: 'text', text: 'Template services unavailable' }], isError: true };
+    }
+
+    const projectDetector = container.get('projectDetector');
+    const projectConfigCore = container.get('projectConfigCore');
+    const templateRegistry = container.get('templateRegistry');
+    const db = container.get('db');
+
+    if (!projectDetector || typeof projectDetector.detectProjectType !== 'function') {
+      return { content: [{ type: 'text', text: 'Project detector unavailable' }], isError: true };
+    }
+    if (!templateRegistry || typeof templateRegistry.getTemplate !== 'function') {
+      return { content: [{ type: 'text', text: 'Template registry unavailable' }], isError: true };
+    }
+
+    const workingDirectory = args.working_directory;
+    const detection = projectDetector.detectProjectType(workingDirectory);
+    if (!detection || !detection.template) {
+      return { content: [{ type: 'text', text: `No project template detected in ${workingDirectory}.` }] };
+    }
+
+    const template = detection.template;
+    const templateId = template.id;
+    persistDetectedTemplate(db, projectConfigCore, workingDirectory, templateId);
+
+    const text = `## Project Type Detected: ${template.name || template.id}\n\n` +
+      `**Template ID:** ${template.id}\n` +
+      `**Priority:** ${template.priority}\n` +
+      `**Score:** ${detection.score}\n` +
+      `**Confidence:** ${detection.confidence ?? 'N/A'}\n\n` +
+      `### Agent Context\n\n\`\`\`\n${template.agent_context || '(not provided)'}\n\`\`\`\n`;
+
+    return {
+      content: [{ type: 'text', text }],
+      structuredData: detection,
+    };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text', text: `Project detection error: ${err.message}` }] };
   }
-
-  const projectDetector = container.get('projectDetector');
-  const projectConfigCore = container.get('projectConfigCore');
-  const templateRegistry = container.get('templateRegistry');
-  const db = container.get('db');
-
-  if (!projectDetector || typeof projectDetector.detectProjectType !== 'function') {
-    return { content: [{ type: 'text', text: 'Project detector unavailable' }], isError: true };
-  }
-  if (!templateRegistry || typeof templateRegistry.getTemplate !== 'function') {
-    return { content: [{ type: 'text', text: 'Template registry unavailable' }], isError: true };
-  }
-
-  const workingDirectory = args.working_directory;
-  const detection = projectDetector.detectProjectType(workingDirectory);
-  if (!detection || !detection.template) {
-    return { content: [{ type: 'text', text: `No project template detected in ${workingDirectory}.` }] };
-  }
-
-  const template = detection.template;
-  const templateId = template.id;
-  persistDetectedTemplate(db, projectConfigCore, workingDirectory, templateId);
-
-  const text = `## Project Type Detected: ${template.name || template.id}\n\n` +
-    `**Template ID:** ${template.id}\n` +
-    `**Priority:** ${template.priority}\n` +
-    `**Score:** ${detection.score}\n` +
-    `**Confidence:** ${detection.confidence ?? 'N/A'}\n\n` +
-    `### Agent Context\n\n\`\`\`\n${template.agent_context || '(not provided)'}\n\`\`\`\n`;
-
-  return {
-    content: [{ type: 'text', text }],
-    structuredData: detection,
-  };
 }
 
 module.exports = {

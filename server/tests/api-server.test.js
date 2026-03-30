@@ -2632,7 +2632,7 @@ describe('API Server endpoints', () => {
       expect(payload.status).toBe('shutting_down');
     });
 
-    it('allows shutdown from a remote IP when the correct API key is provided', async () => {
+    it('rejects shutdown from a remote IP even with a valid API key (localhost-only)', async () => {
       getConfigSpy.mockImplementation((key) => key === 'api_key' ? 'secret-key' : null);
 
       const response = await dispatchRequest(requestHandler, {
@@ -2644,13 +2644,14 @@ describe('API Server endpoints', () => {
 
       vi.runAllTimers();
 
-      expect(response.statusCode).toBe(200);
+      // Auth was stripped — shutdown is now localhost-only regardless of API key
+      expect(response.statusCode).toBe(403);
       const payload = JSON.parse(response.body);
-      expect(payload.status).toBe('shutting_down');
-      expect(shutdownEvents).toHaveLength(1);
+      expect(payload.error).toBe('Forbidden');
+      expect(shutdownEvents).toHaveLength(0);
     });
 
-    it('allows shutdown from any IP when no API key is configured (auth disabled)', async () => {
+    it('rejects shutdown from an external IP even when no API key is configured', async () => {
       // getConfigSpy returns null by default in beforeEach — auth disabled
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
@@ -2661,9 +2662,10 @@ describe('API Server endpoints', () => {
 
       vi.runAllTimers();
 
-      expect(response.statusCode).toBe(200);
+      // Shutdown is localhost-only — remote IPs always get 403
+      expect(response.statusCode).toBe(403);
       const payload = JSON.parse(response.body);
-      expect(payload.status).toBe('shutting_down');
+      expect(payload.error).toBe('Forbidden');
     });
 
     it('uses the provided reason in the response body', async () => {

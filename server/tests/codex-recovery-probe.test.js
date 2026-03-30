@@ -149,6 +149,7 @@ describe('probeCodexRecovery', () => {
       timeout: 10000,
       stdio: 'pipe',
       shell: process.platform === 'win32',
+      windowsHide: true,
     });
     expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(false);
     // Should NOT update the timestamp since we cleared the flag

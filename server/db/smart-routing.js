@@ -131,10 +131,9 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   }
 
   // ─── Lazy-loaded optional integrations ────────────────────────────────
-  let _circuitBreaker = null, _cbLoaded = false;
   function getCircuitBreaker() {
-    if (!_cbLoaded) { _cbLoaded = true; try { _circuitBreaker = require('../execution/circuit-breaker'); } catch { _circuitBreaker = null; } }
-    return _circuitBreaker;
+    if (typeof _deps?.getCircuitBreaker === 'function') return _deps.getCircuitBreaker();
+    return null;
   }
 
   // Helper to check if provider needs Ollama and handle fallback

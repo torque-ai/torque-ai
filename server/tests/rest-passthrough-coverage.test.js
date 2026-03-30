@@ -113,8 +113,11 @@ const EXPECTED_DOMAINS = [
   'workflows',
 ];
 
-// Passthrough tools that are built-in MCP-SSE handlers, not registered in tool-defs files
-const BUILTIN_PASSTHROUGH_TOOLS = new Set(['check_notifications', 'subscribe_task_events']);
+// Passthrough tools that are built-in MCP-SSE handlers or aliased tool names, not registered in tool-defs files
+const BUILTIN_PASSTHROUGH_TOOLS = new Set([
+  'check_notifications', 'subscribe_task_events',
+  'register_peek_host', 'unregister_peek_host', // Aliased to create_peek_host / delete_peek_host in tool-defs
+]);
 
 // Passthrough routes intentionally duplicated in v2CpRoutes (routing layer handles priority)
 const KNOWN_PASSTHROUGH_CP_OVERLAPS = new Set(['GET string:/api/v2/routing/categories']);

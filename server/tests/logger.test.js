@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Logger } = require('../logger');
+const { getDataDir } = require('../data-dir');
 
 function createMockStream() {
   return {
@@ -26,7 +27,7 @@ describe('Logger constructor defaults and helpers', () => {
     const logger = new Logger();
 
     expect(logger.level).toBe(1);
-    expect(logger.logDir).toBe(path.join(__dirname, '..'));
+    expect(logger.logDir).toBe(getDataDir());
     expect(logger.logFile).toBe('torque.log');
     expect(logger.maxSize).toBe(10 * 1024 * 1024);
     expect(logger.maxFiles).toBe(5);

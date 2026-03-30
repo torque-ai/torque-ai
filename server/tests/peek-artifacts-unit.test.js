@@ -52,8 +52,8 @@ function installMock(modPath, mock) {
   };
 }
 
-// Resolve relative paths from artifacts.js location (server/handlers/peek/)
-const artifactsDir = path.resolve(__dirname, '..', 'handlers', 'peek');
+// Resolve relative paths from artifacts.js location (server/plugins/snapscope/handlers/)
+const artifactsDir = path.resolve(__dirname, '..', 'plugins', 'snapscope', 'handlers');
 
 function installMockFrom(dir, relPath, mock) {
   const resolved = require.resolve(path.resolve(dir, relPath));
@@ -66,14 +66,14 @@ function installMockFrom(dir, relPath, mock) {
 }
 
 installMock('fs', fsMock);
-installMockFrom(artifactsDir, '../../database', dbMock);
-installMockFrom(artifactsDir, '../../db/task-core', dbMock);
-installMockFrom(artifactsDir, '../../db/task-metadata', dbMock);
-installMockFrom(artifactsDir, '../../db/workflow-engine', dbMock);
-installMockFrom(artifactsDir, '../../db/peek-policy-audit', dbMock);
-installMockFrom(artifactsDir, '../../contracts/peek', contractsMock);
+installMockFrom(artifactsDir, '../../../database', dbMock);
+installMockFrom(artifactsDir, '../../../db/task-core', dbMock);
+installMockFrom(artifactsDir, '../../../db/task-metadata', dbMock);
+installMockFrom(artifactsDir, '../../../db/workflow-engine', dbMock);
+installMockFrom(artifactsDir, '../../../db/peek-policy-audit', dbMock);
+installMockFrom(artifactsDir, '../../../contracts/peek', contractsMock);
 installMockFrom(artifactsDir, './shared', sharedMock);
-installMockFrom(artifactsDir, '../../logger', loggerMock);
+installMockFrom(artifactsDir, '../../../logger', loggerMock);
 
 const artifacts = require('../plugins/snapscope/handlers/artifacts');
 

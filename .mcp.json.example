@@ -1,16 +1,9 @@
 {
   "mcpServers": {
     "torque": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["PATH_TO_TORQUE/server/index.js"],
-      "cwd": "PATH_TO_TORQUE/server",
-      "description": "TORQUE - Task Orchestration System with local LLM routing"
-    },
-    "torque-sse": {
       "type": "sse",
-      "url": "http://127.0.0.1:3458/sse",
-      "description": "TORQUE (SSE transport) - local-first, auth-free default"
+      "url": "http://127.0.0.1:3458/sse?apiKey=${TORQUE_API_KEY}",
+      "description": "TORQUE - Task Orchestration System with local LLM routing"
     }
   }
 }

@@ -15,10 +15,10 @@ const TASK_CORE_MODULE_PATH = path.resolve(__dirname, '..', 'db', 'task-core.js'
 const TASK_METADATA_MODULE_PATH = path.resolve(__dirname, '..', 'db', 'task-metadata.js');
 const WORKFLOW_ENGINE_MODULE_PATH = path.resolve(__dirname, '..', 'db', 'workflow-engine.js');
 const PEEK_POLICY_AUDIT_MODULE_PATH = path.resolve(__dirname, '..', 'db', 'peek-policy-audit.js');
-const PEEK_SHARED_MODULE_PATH = path.resolve(__dirname, '..', 'handlers', 'peek', 'shared.js');
-const PEEK_WEBHOOK_MODULE_PATH = path.resolve(__dirname, '..', 'handlers', 'peek', 'webhook-outbound.js');
-const PEEK_ARTIFACTS_MODULE_PATH = path.resolve(__dirname, '..', 'handlers', 'peek', 'artifacts.js');
-const PEEK_CAPTURE_MODULE_PATH = path.resolve(__dirname, '..', 'handlers', 'peek', 'capture.js');
+const PEEK_SHARED_MODULE_PATH = path.resolve(__dirname, '..', 'plugins', 'snapscope', 'handlers', 'shared.js');
+const PEEK_WEBHOOK_MODULE_PATH = path.resolve(__dirname, '..', 'plugins', 'snapscope', 'handlers', 'webhook-outbound.js');
+const PEEK_ARTIFACTS_MODULE_PATH = path.resolve(__dirname, '..', 'plugins', 'snapscope', 'handlers', 'artifacts.js');
+const PEEK_CAPTURE_MODULE_PATH = path.resolve(__dirname, '..', 'plugins', 'snapscope', 'handlers', 'capture.js');
 
 function makeProof(overrides = {}) {
   return {

@@ -299,98 +299,106 @@ function handleGetVerificationSummary(args = {}) {
 }
 
 async function handleGetAdversarialReviews(args = {}) {
-  const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
-  if (!taskId) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
+  try {
+    const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
+    if (!taskId) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
+    }
+
+    const adversarialReviews = getAdversarialReviewsService();
+    if (!adversarialReviews) {
+      return makeError(ErrorCodes.INTERNAL_ERROR, 'adversarialReviews service is not available');
+    }
+
+    const reviews = adversarialReviews.getReviewsForTask(taskId) || [];
+    const parsed = reviews.map(r => ({ ...r, issues: JSON.parse(r.issues || '[]') }));
+    const payload = {
+      task_id: taskId,
+      reviews: parsed,
+      count: parsed.length,
+    };
+
+    return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
+  } catch (err) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, `Adversarial review error: ${err.message}`);
   }
-
-  const adversarialReviews = getAdversarialReviewsService();
-  if (!adversarialReviews) {
-    return makeError(ErrorCodes.INTERNAL_ERROR, 'adversarialReviews service is not available');
-  }
-
-  const reviews = adversarialReviews.getReviewsForTask(taskId) || [];
-  const parsed = reviews.map(r => ({ ...r, issues: JSON.parse(r.issues || '[]') }));
-  const payload = {
-    task_id: taskId,
-    reviews: parsed,
-    count: parsed.length,
-  };
-
-  return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
 }
 
 async function handleRequestAdversarialReview(args = {}) {
-  const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
-  if (!taskId) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
-  }
-  if (typeof args.working_directory !== 'string' || !args.working_directory.trim()) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
-  }
-
-  const taskCore = defaultContainer.get('taskCore');
-  const task = taskCore.getTask(taskId);
-  if (!task) {
-    return makeError(ErrorCodes.TASK_NOT_FOUND, 'Task not found');
-  }
-  if (task.status !== 'completed') {
-    return makeError(ErrorCodes.INVALID_PARAM, 'Task must be completed to review');
-  }
-
-  const { createAdversarialReviewStage } = require('../execution/adversarial-review-stage');
-  const adversarialReviews = defaultContainer.get('adversarialReviews');
-  const fileRiskAdapter = defaultContainer.get('fileRiskAdapter');
-  const taskManager = defaultContainer.get('taskManager');
-  const projectConfigCore = defaultContainer.get('projectConfigCore');
-  const workflowEngine = defaultContainer.get('workflowEngine');
-
-  let metadata = {};
   try {
-    metadata = JSON.parse(task.metadata || '{}');
-  } catch (_err) {
-    metadata = {};
-  }
-
-  let filesModified = [];
-  try {
-    const parsedFiles = JSON.parse(task.files_modified);
-    if (Array.isArray(parsedFiles)) {
-      filesModified = parsedFiles;
+    const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
+    if (!taskId) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
     }
-  } catch (_err) {
-    filesModified = [];
+    if (typeof args.working_directory !== 'string' || !args.working_directory.trim()) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
+    }
+
+    const taskCore = defaultContainer.get('taskCore');
+    const task = taskCore.getTask(taskId);
+    if (!task) {
+      return makeError(ErrorCodes.TASK_NOT_FOUND, 'Task not found');
+    }
+    if (task.status !== 'completed') {
+      return makeError(ErrorCodes.INVALID_PARAM, 'Task must be completed to review');
+    }
+
+    const { createAdversarialReviewStage } = require('../execution/adversarial-review-stage');
+    const adversarialReviews = defaultContainer.get('adversarialReviews');
+    const fileRiskAdapter = defaultContainer.get('fileRiskAdapter');
+    const taskManager = defaultContainer.get('taskManager');
+    const projectConfigCore = defaultContainer.get('projectConfigCore');
+    const workflowEngine = defaultContainer.get('workflowEngine');
+
+    let metadata = {};
+    try {
+      metadata = JSON.parse(task.metadata || '{}');
+    } catch (_err) {
+      metadata = {};
+    }
+
+    let filesModified = [];
+    try {
+      const parsedFiles = JSON.parse(task.files_modified);
+      if (Array.isArray(parsedFiles)) {
+        filesModified = parsedFiles;
+      }
+    } catch (_err) {
+      filesModified = [];
+    }
+
+    const reviewer = typeof args.provider === 'string' ? args.provider.trim() : '';
+    const stage = createAdversarialReviewStage({
+      adversarialReviews,
+      fileRiskAdapter,
+      taskCore,
+      workflowEngine,
+      taskManager,
+      projectConfigCore,
+    });
+
+    const ctx = {
+      taskId,
+      task: {
+        ...task,
+        metadata: JSON.stringify({ ...metadata, adversarial_review: true, adversarial_reviewer: reviewer || undefined }),
+      },
+      status: 'completed',
+      code: 0,
+      filesModified,
+      earlyExit: false,
+      validationStages: {},
+      proc: { baselineCommit: task.git_before_sha },
+    };
+
+    await stage(ctx);
+
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ success: true, task_id: taskId, message: 'Adversarial review task spawned' }) }],
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, `Adversarial review request error: ${err.message}`);
   }
-
-  const reviewer = typeof args.provider === 'string' ? args.provider.trim() : '';
-  const stage = createAdversarialReviewStage({
-    adversarialReviews,
-    fileRiskAdapter,
-    taskCore,
-    workflowEngine,
-    taskManager,
-    projectConfigCore,
-  });
-
-  const ctx = {
-    taskId,
-    task: {
-      ...task,
-      metadata: JSON.stringify({ ...metadata, adversarial_review: true, adversarial_reviewer: reviewer || undefined }),
-    },
-    status: 'completed',
-    code: 0,
-    filesModified,
-    earlyExit: false,
-    validationStages: {},
-    proc: { baselineCommit: task.git_before_sha },
-  };
-
-  await stage(ctx);
-
-  return {
-    content: [{ type: 'text', text: JSON.stringify({ success: true, task_id: taskId, message: 'Adversarial review task spawned' }) }],
-  };
 }
 
 module.exports = {

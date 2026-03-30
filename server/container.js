@@ -313,7 +313,13 @@ function initModules(db, serverConfig) {
   }
   if (!_defaultContainer.has('providerScoring')) {
     const { createProviderScoring } = require('./db/provider-scoring');
-    _defaultContainer.registerValue('providerScoring', createProviderScoring({ db }));
+    const scoring = createProviderScoring({ db });
+    _defaultContainer.registerValue('providerScoring', scoring);
+    // Inject into provider-routing-core so scored fallback chains work
+    const providerRoutingCore = require('./db/provider-routing-core');
+    if (typeof providerRoutingCore.setProviderScoring === 'function') {
+      providerRoutingCore.setProviderScoring(scoring);
+    }
   }
   if (!_defaultContainer.has('budgetWatcher')) {
     const { createBudgetWatcher } = require('./db/budget-watcher');
@@ -356,7 +362,13 @@ function initModules(db, serverConfig) {
     const eventBus = _defaultContainer.has('eventBus')
       ? _defaultContainer.get('eventBus')
       : null;
-    _defaultContainer.registerValue('circuitBreaker', createCircuitBreaker({ eventBus }));
+    const cbInstance = createCircuitBreaker({ eventBus });
+    _defaultContainer.registerValue('circuitBreaker', cbInstance);
+    // Inject into provider-routing-core so smart-routing circuit breaker guard works
+    const providerRoutingCore = require('./db/provider-routing-core');
+    if (typeof providerRoutingCore.setCircuitBreaker === 'function') {
+      providerRoutingCore.setCircuitBreaker(cbInstance);
+    }
   }
 
   // API modules

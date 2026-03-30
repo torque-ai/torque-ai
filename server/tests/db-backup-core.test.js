@@ -11,6 +11,7 @@ const OS_MODULE = 'os';
 const LOGGER_MODULE = '../logger';
 const MIGRATIONS_MODULE = '../db/migrations';
 const SCHEMA_MODULE = '../db/schema';
+const DATA_DIR_MODULE = '../data-dir';
 
 const subjectPath = require.resolve(SUBJECT_MODULE);
 const sqlitePath = require.resolve(SQLITE_MODULE);
@@ -19,6 +20,7 @@ const osPath = require.resolve(OS_MODULE);
 const loggerPath = require.resolve(LOGGER_MODULE);
 const migrationsPath = require.resolve(MIGRATIONS_MODULE);
 const schemaPath = require.resolve(SCHEMA_MODULE);
+const dataDirPath = require.resolve(DATA_DIR_MODULE);
 
 function clearModuleCaches() {
   delete require.cache[subjectPath];
@@ -28,6 +30,14 @@ function clearModuleCaches() {
   delete require.cache[loggerPath];
   delete require.cache[migrationsPath];
   delete require.cache[schemaPath];
+  delete require.cache[dataDirPath];
+}
+
+function createDataDirMock(dataDir = 'C:\\mock-home\\.torque') {
+  return {
+    getDataDir: vi.fn(() => dataDir),
+    setDataDir: vi.fn(),
+  };
 }
 
 function createFsMock(overrides = {}) {
@@ -35,6 +45,7 @@ function createFsMock(overrides = {}) {
     existsSync: vi.fn(() => true),
     mkdirSync: vi.fn(),
     writeFileSync: vi.fn(),
+    readFileSync: vi.fn(() => ''),
     statSync: vi.fn(() => ({
       size: 123,
       mtime: new Date('2026-03-01T00:00:00.000Z'),
@@ -119,11 +130,13 @@ function loadSubject(options = {}) {
   const fs = options.fs || createFsMock();
   const os = options.os || {
     homedir: vi.fn(() => 'C:\\mock-home'),
+    tmpdir: vi.fn(() => 'C:\\mock-tmp'),
   };
   const loggerMock = createLoggerMock();
   const runMigrations = options.runMigrations || vi.fn();
   const applySchema = options.applySchema || vi.fn();
   const Database = options.Database || createDatabaseMock(options.databaseInstances || []);
+  const dataDirMock = options.dataDirMock || createDataDirMock();
 
   clearModuleCaches();
   installMock(SQLITE_MODULE, Database);
@@ -132,6 +145,7 @@ function loadSubject(options = {}) {
   installMock(LOGGER_MODULE, loggerMock.exports);
   installMock(MIGRATIONS_MODULE, { runMigrations });
   installMock(SCHEMA_MODULE, { applySchema });
+  installMock(DATA_DIR_MODULE, dataDirMock);
 
   return {
     subject: require(SUBJECT_MODULE),
@@ -142,6 +156,7 @@ function loadSubject(options = {}) {
     applySchema,
     logger: loggerMock.exports,
     backupLogger: loggerMock.childLogger,
+    dataDirMock,
   };
 }
 
@@ -238,13 +253,15 @@ describe('db/backup-core', () => {
   });
 
   it('creates scheduled backups and removes files beyond the retention limit', () => {
-    const { subject, fs, backupLogger } = loadSubject();
+    const backupRoot = path.join('C:\\data-root');
+    const backupDir = path.join(backupRoot, 'backups');
+    const { subject, fs, backupLogger } = loadSubject({
+      dataDirMock: createDataDirMock(backupRoot),
+    });
     const buffer = Buffer.from('scheduler-bytes');
     const db = createDbHandle({
       serialize: vi.fn(() => buffer),
     });
-    const backupRoot = path.join('C:\\data-root');
-    const backupDir = path.join(backupRoot, 'backups');
     let intervalCallback;
 
     process.env.TORQUE_DATA_DIR = backupRoot;
@@ -470,14 +487,14 @@ describe('db/backup-core', () => {
   });
 
   it('returns an empty list when the backup directory does not exist', () => {
-    const { subject, fs, os } = loadSubject();
+    const { subject, fs, dataDirMock } = loadSubject();
     const defaultDir = path.join('C:\\mock-home', '.torque', 'backups');
 
     delete process.env.TORQUE_DATA_DIR;
     fs.existsSync.mockReturnValue(false);
 
     expect(subject.listBackups()).toEqual([]);
-    expect(os.homedir).toHaveBeenCalledOnce();
+    expect(dataDirMock.getDataDir).toHaveBeenCalled();
     expect(fs.existsSync).toHaveBeenCalledWith(defaultDir);
   });
 

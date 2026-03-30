@@ -10,6 +10,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const dataDir = require('../data-dir');
 
 let db;
 let configCore;
@@ -389,6 +390,8 @@ describe('db/migrations.js', () => {
     fs.mkdirSync(migrationsTestDir, { recursive: true });
     migrationsOrigDataDir = process.env.TORQUE_DATA_DIR;
     process.env.TORQUE_DATA_DIR = migrationsTestDir;
+    // Reset data-dir cache so init() uses the new TORQUE_DATA_DIR
+    dataDir.setDataDir(null);
 
     const dbModulePath = require.resolve('../database');
     delete require.cache[dbModulePath];
@@ -410,6 +413,7 @@ describe('db/migrations.js', () => {
       } else {
         delete process.env.TORQUE_DATA_DIR;
       }
+      dataDir.setDataDir(null);
     }
   });
 

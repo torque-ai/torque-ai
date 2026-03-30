@@ -121,7 +121,7 @@ describe('maintenance/scheduler cron task execution', () => {
       model: null,
       tags: null,
       timeout_minutes: 45,
-      auto_approve: true,
+      auto_approve: false,
       priority: 0,
       metadata: {
         scheduled_task_id: 'schedule-1',

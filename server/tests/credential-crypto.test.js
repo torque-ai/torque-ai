@@ -20,6 +20,8 @@ beforeEach(() => {
   process.env.TORQUE_DATA_DIR = testDir;
   delete process.env.TORQUE_SECRET_KEY;
   delete require.cache[MODULE_PATH];
+  // Reset the data-dir cache so getDataDir() re-resolves from TORQUE_DATA_DIR
+  require('../data-dir').setDataDir(null);
   // On Windows, fsyncSync on certain temp-dir paths fails with EPERM.
   // Mock it to a no-op since fsync is a durability hint, not a correctness
   // requirement for tests. closeSync is mocked for symmetry.
@@ -30,6 +32,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   delete require.cache[MODULE_PATH];
+  require('../data-dir').setDataDir(null);
 
   if (testDir) {
     fs.rmSync(testDir, { recursive: true, force: true });

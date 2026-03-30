@@ -190,21 +190,21 @@ function createDiagnoseIntegrationHarness(tempRoot, overrides = {}) {
   };
   const artifacts = loadModuleFromSource('../plugins/snapscope/handlers/artifacts.js', {
     fs: fsProxy,
-    '../../contracts/peek': contracts,
-    '../../database': dbMock,
-    '../../db/task-core': dbMock,
-    '../../db/task-metadata': dbMock,
-    '../../db/workflow-engine': dbMock,
-    '../../db/peek-policy-audit': dbMock,
-    '../../logger': loggerModule,
+    '../../../contracts/peek': contracts,
+    '../../../database': dbMock,
+    '../../../db/task-core': dbMock,
+    '../../../db/task-metadata': dbMock,
+    '../../../db/workflow-engine': dbMock,
+    '../../../db/peek-policy-audit': dbMock,
+    '../../../logger': loggerModule,
     './shared': sharedModule,
   });
   const analysis = loadModuleFromSource('../plugins/snapscope/handlers/analysis.js', {
     './artifacts': artifacts,
     './capture': mockCapture,
     './shared': sharedModule,
-    '../../contracts/peek': contracts,
-    '../../logger': loggerModule,
+    '../../../contracts/peek': contracts,
+    '../../../logger': loggerModule,
   });
 
   return {

@@ -3,6 +3,7 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const dataDir = require('../data-dir');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 
@@ -33,6 +34,8 @@ describe('Database backup scheduler', () => {
     backupDataDir = path.join(testDir, `backup-scheduler-${randomUUID()}`);
     process.env.TORQUE_DATA_DIR = backupDataDir;
     fs.mkdirSync(backupDataDir, { recursive: true });
+    // Reset data-dir cache so getDataDir() re-resolves from the new TORQUE_DATA_DIR
+    dataDir.setDataDir(null);
   });
 
   afterEach(async () => {
@@ -46,6 +49,7 @@ describe('Database backup scheduler', () => {
       fs.rmSync(backupDataDir, { recursive: true, force: true });
     }
     process.env.TORQUE_DATA_DIR = testDir;
+    dataDir.setDataDir(null);
     backupDataDir = null;
   });
 

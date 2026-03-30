@@ -448,6 +448,7 @@ describe('handler/tool wiring parity', () => {
     'set_api_key', 'clear_api_key',
     'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
     'subscribe_task_events', // SSE-only tool defined in mcp-sse.js
+    'get_verification_ledger', // Internal handler without tool-def (accessed via task finalizer pipeline)
   ]);
 
   it('all handler modules referenced by tools.js export handle* functions', () => {

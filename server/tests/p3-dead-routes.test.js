@@ -11,6 +11,8 @@ const INTERNAL_ONLY_ROUTES = new Set([
   'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
   // Built-in MCP-SSE handler, not registered in tool-defs
   'subscribe_task_events',
+  // Internal handler without tool-def (accessed via task finalizer pipeline, not MCP)
+  'get_verification_ledger',
 ]);
 
 function loadToolDefinitionNames() {

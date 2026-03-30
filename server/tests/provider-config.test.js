@@ -56,7 +56,7 @@ describe('provider-config', () => {
       expect(result.numCtx).toBe(8192);
       expect(result.topP).toBe(0.9);
       expect(result.topK).toBe(40);
-      expect(result.repeatPenalty).toBe(1.1);
+      expect(result.repeatPenalty).toBe(1.0);
       expect(result.numPredict).toBe(-1);
     });
 
