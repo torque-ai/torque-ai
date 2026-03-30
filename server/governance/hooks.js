@@ -68,6 +68,11 @@ function getRuleConfig(rule) {
   return parseJsonObject(rule && rule.config);
 }
 
+function safeParseConfig(value, defaults = {}) {
+  const parsed = parseJsonObject(value);
+  return { ...defaults, ...parsed };
+}
+
 function getTaskId(task) {
   return task?.id || task?.task_id || task?.taskId || null;
 }
@@ -291,12 +296,124 @@ function checkDiffAfterCodex(task) {
   }
 }
 
+// ── New checkers for expanded governance rules ──
+
+function checkNoProcessKill(task, rule, _context) {
+  const config = safeParseConfig(rule.config, { commands: ['kill', 'taskkill', 'Stop-Process', 'pkill', 'killall'] });
+  const desc = (task.task_description || '').toLowerCase();
+  const blocked = (config.commands || []);
+  const matched = blocked.find(cmd => desc.includes(cmd.toLowerCase()));
+  if (matched) {
+    return { pass: false, message: `Process kill command detected: "${matched}". Use cancel_task or cancel_workflow instead.` };
+  }
+  return { pass: true };
+}
+
+function checkNoDirectDbAccess(task, rule, _context) {
+  const config = safeParseConfig(rule.config, { patterns: ['sqlite3', '.torque/torque.db', 'better-sqlite3'] });
+  const desc = (task.task_description || '').toLowerCase();
+  const matched = (config.patterns || []).find(p => desc.includes(p.toLowerCase()));
+  if (matched) {
+    return { pass: false, message: `Direct database access detected: "${matched}". Use MCP tools or REST API instead.` };
+  }
+  return { pass: true };
+}
+
+function checkNoForegroundBash(_task, _rule, context) {
+  // This checker is advisory — it flags when bash is used without run_in_background
+  if (context && context.tool === 'bash' && !context.run_in_background) {
+    return { pass: false, message: 'Foreground bash detected. Use MCP tools or run_in_background: true.' };
+  }
+  return { pass: true };
+}
+
+function checkRequireWorktree(task, _rule, _context) {
+  if (!task.working_directory) return { pass: true };
+  try {
+    const branch = childProcess.execFileSync('git', ['branch', '--show-current'], {
+      cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
+    }).trim();
+    if (branch === 'main' || branch === 'master') {
+      // Check if worktrees exist
+      const worktrees = childProcess.execFileSync('git', ['worktree', 'list', '--porcelain'], {
+        cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
+      });
+      const worktreeCount = (worktrees.match(/^worktree /gm) || []).length;
+      if (worktreeCount > 1) {
+        return { pass: false, message: 'Feature work detected on main/master while worktrees exist. Develop in a worktree instead.' };
+      }
+    }
+  } catch (_) { /* git not available or not a repo */ }
+  return { pass: true };
+}
+
+function checkNoLargeFileFullRead(task, rule, _context) {
+  const config = safeParseConfig(rule.config, { threshold_lines: 300 });
+  const desc = (task.task_description || '').toLowerCase();
+  // Check for patterns like "read the file" or "read file X" without line range instructions
+  if (desc.includes('read the file') || desc.includes('read file')) {
+    if (!desc.includes('start_line') && !desc.includes('line_range') && !desc.includes('search_files')) {
+      const threshold = config.threshold_lines || 300;
+      return { pass: false, message: `Task may instruct full file read. For files over ${threshold} lines, use search_files + line-range reads + replace_lines.` };
+    }
+  }
+  return { pass: true };
+}
+
+function checkAnnotationsUpdated(task, _rule, _context) {
+  // Informational: check if task output mentions adding/removing tools without mentioning annotations
+  const output = (task.output || '').toLowerCase();
+  const desc = (task.task_description || '').toLowerCase();
+  if ((output.includes('tool-defs') || desc.includes('tool-defs') || desc.includes('mcp tool')) &&
+      !output.includes('tool-annotations') && !desc.includes('tool-annotations')) {
+    return { pass: false, message: 'MCP tools were added/modified but tool-annotations.js may not have been updated.' };
+  }
+  return { pass: true };
+}
+
+function checkRequireRemoteForBuilds(task, rule, _context) {
+  const config = safeParseConfig(rule.config, { commands: ['npm test', 'npx vitest', 'dotnet build', 'cargo build', 'go build', 'make'] });
+  const desc = (task.task_description || '').toLowerCase();
+  const matched = (config.commands || []).find(cmd => desc.includes(cmd.toLowerCase()));
+  if (matched) {
+    return { pass: false, message: `Build/test command "${matched}" should run via torque-remote, not locally.` };
+  }
+  return { pass: true };
+}
+
+function checkPushBeforeSubagentTests(task, _rule, _context) {
+  const meta = safeParseConfig(task.metadata, {});
+  if (!meta.subagent && !meta.dispatched_by_agent) return { pass: true };
+  const desc = (task.task_description || '').toLowerCase();
+  if (desc.includes('test') || desc.includes('vitest') || desc.includes('jest')) {
+    if (task.working_directory) {
+      try {
+        const unpushed = childProcess.execFileSync('git', ['log', 'origin/main..HEAD', '--oneline'], {
+          cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
+        }).trim();
+        if (unpushed.length > 0) {
+          return { pass: false, message: 'Subagent test task dispatched with unpushed commits. Push to origin/main first.' };
+        }
+      } catch (_) { /* git unavailable */ }
+    }
+  }
+  return { pass: true };
+}
+
 const CHECKERS = Object.freeze({
   checkVisibleProvider,
   checkInspectedBeforeCancel,
   checkPushedBeforeRemote,
   checkNoLocalTests,
   checkDiffAfterCodex,
+  checkNoProcessKill,
+  checkNoDirectDbAccess,
+  checkNoForegroundBash,
+  checkRequireWorktree,
+  checkNoLargeFileFullRead,
+  checkAnnotationsUpdated,
+  checkRequireRemoteForBuilds,
+  checkPushBeforeSubagentTests,
 });
 
 function normalizeCheckerResult(result) {
