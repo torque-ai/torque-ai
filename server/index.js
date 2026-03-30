@@ -75,6 +75,63 @@ let mcpPlatform = null;
 // 'torque' command-line check is astronomically low in practice (requires another node
 // process running a torque-named script to claim the exact same PID within 30s of reboot).
 const PID_FILE = path.join(db.getDataDir(), 'torque.pid');
+const LOCK_FILE = path.join(db.getDataDir(), 'torque.lock');
+
+/**
+ * Acquire an exclusive startup lock to prevent concurrent instances.
+ * Uses O_CREAT|O_EXCL (wx) — fails atomically if the file already exists.
+ * The lock is released on exit via cleanup handler.
+ * Returns true if lock acquired, false if another instance holds it.
+ */
+function acquireStartupLock() {
+  try {
+    // Check if lock is held by a live process
+    if (fs.existsSync(LOCK_FILE)) {
+      const lockContent = fs.readFileSync(LOCK_FILE, 'utf8').trim();
+      const lockPid = parseInt(lockContent, 10);
+      if (lockPid && lockPid !== process.pid) {
+        try {
+          process.kill(lockPid, 0); // existence check
+          // Process is alive — lock is valid, we must not start
+          process.stderr.write(`[TORQUE] Startup lock held by PID ${lockPid} — exiting to prevent dual instance\n`);
+          return false;
+        } catch {
+          // Lock holder is dead — stale lock, remove and continue
+          process.stderr.write(`[TORQUE] Removing stale startup lock (PID ${lockPid} is dead)\n`);
+          try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
+        }
+      }
+    }
+
+    // Acquire lock atomically
+    const fd = fs.openSync(LOCK_FILE, 'wx');
+    fs.writeSync(fd, String(process.pid));
+    fs.closeSync(fd);
+    return true;
+  } catch (err) {
+    if (err.code === 'EEXIST') {
+      // Another instance just created the lock between our check and open
+      process.stderr.write('[TORQUE] Startup lock contention — exiting to prevent dual instance\n');
+      return false;
+    }
+    // Other errors (permissions, etc.) — log but allow startup
+    process.stderr.write(`[TORQUE] Startup lock warning: ${err.message}\n`);
+    return true;
+  }
+}
+
+function releaseStartupLock() {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const content = fs.readFileSync(LOCK_FILE, 'utf8').trim();
+      const lockPid = parseInt(content, 10);
+      // Only remove if we own the lock
+      if (lockPid === process.pid) {
+        fs.unlinkSync(LOCK_FILE);
+      }
+    }
+  } catch { /* non-fatal */ }
+}
 
 // PID heartbeat — periodic updates prove the server is alive, not just started
 const PID_HEARTBEAT_INTERVAL_MS = 10000; // 10 seconds
@@ -422,8 +479,9 @@ async function gracefulShutdown(signal) {
     } catch (err) {
       debugLog(`Shutdown error: ${err.message}`);
     } finally {
-      // Always clean up PID file, even if shutdown had errors
+      // Always clean up PID + lock files, even if shutdown had errors
       try { fs.unlinkSync(PID_FILE); } catch { /* may already be gone */ }
+      releaseStartupLock();
     }
 
     // If restart was requested, spawn a new server before exiting.
@@ -561,6 +619,13 @@ function init() {
   // Kill guard: terminate stale TORQUE instance from a prior session (PID-file based).
   // Without this, stale instances from prior sessions can overwrite files with old code.
   killStaleInstance();
+
+  // Exclusive startup lock — prevents dual instances from corrupting the database.
+  // If another instance holds the lock, exit immediately.
+  if (!acquireStartupLock()) {
+    process.stderr.write('[TORQUE] Another instance is starting — aborting to protect database integrity.\n');
+    process.exit(1);
+  }
 
   if (isPlatformEnabled(process.env)) {
     try {
@@ -1314,6 +1379,9 @@ const _testing = {
   getPidHeartbeatInterval: () => pidHeartbeatInterval,
   getProviderQuotaInferenceInterval: () => null, // now managed by maintenance/scheduler.js
   PID_FILE,
+  LOCK_FILE,
+  acquireStartupLock,
+  releaseStartupLock,
   PID_HEARTBEAT_INTERVAL_MS,
   PID_HEARTBEAT_STALE_MS,
   PROVIDER_QUOTA_INFERENCE_INTERVAL_MS: maintenanceScheduler.PROVIDER_QUOTA_INFERENCE_INTERVAL_MS,
