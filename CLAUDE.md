@@ -41,6 +41,41 @@ The current plugin contract includes `name`, `version`, `install`, `uninstall`, 
 
 To enable enterprise auth, set `TORQUE_AUTH_MODE=enterprise` and restart. The loader will add the `auth` plugin from `server/plugins/auth/`.
 
+## Version Control — Worktree Workflow
+
+All feature work MUST use a git worktree. TORQUE runs from main — never develop directly on main.
+
+### Creating a Feature Worktree
+
+```bash
+scripts/worktree-create.sh <feature-name>
+```
+
+This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Open that directory in Claude Code to develop the feature.
+
+### During Development
+
+- All commits go to the feature branch in the worktree
+- TORQUE continues running from main undisturbed
+- Run tests via `torque-remote` from the worktree directory
+- The pre-commit hook blocks direct commits to main while worktrees exist
+
+### Cutting Over to New Code
+
+```bash
+scripts/worktree-cutover.sh <feature-name>
+```
+
+This merges the feature branch to main, triggers TORQUE queue drain (waits for running tasks to complete), restarts TORQUE on the new code, and cleans up the worktree.
+
+### Emergency Hotfixes
+
+For critical fixes that can't wait for the worktree workflow:
+```bash
+git commit --no-verify  # bypasses the worktree guard
+```
+Document the bypass in the commit message.
+
 ## Quick Start
 
 Use the `/torque-*` commands to interact with TORQUE. Commands compose multiple tools automatically � you rarely need to call raw MCP tools directly.
