@@ -17,11 +17,11 @@ module.exports = [
         },
         provider_a: {
           type: 'string',
-          description: 'First provider (e.g., "codex", "hashline-ollama", "ollama")',
+          description: 'First provider (e.g., "codex", "ollama")',
         },
         provider_b: {
           type: 'string',
-          description: 'Second provider (e.g., "codex", "hashline-ollama", "ollama")',
+          description: 'Second provider (e.g., "codex", "ollama")',
         },
         working_directory: {
           type: 'string',

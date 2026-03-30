@@ -658,7 +658,7 @@ const tools = [
       properties: {
         provider: {
           type: 'string',
-          description: 'Provider to view template for (hashline-ollama, claude-cli, codex). Omit to see all.'
+          description: 'Provider to view template for (claude-cli, codex). Omit to see all.'
         }
       }
     }
@@ -671,7 +671,7 @@ const tools = [
       properties: {
         provider: {
           type: 'string',
-          description: 'Provider (hashline-ollama, claude-cli, codex)'
+          description: 'Provider (claude-cli, codex)'
         },
         model: {
           type: 'string',

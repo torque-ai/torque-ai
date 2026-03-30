@@ -447,7 +447,7 @@ const tools = [
         },
         model: {
           type: 'string',
-          description: 'Model to use. For ollama/hashline-ollama: e.g., qwen2.5-coder:7b. For codex: e.g., gpt-5.3-codex-spark (passed as -m flag).'
+          description: 'Model to use. For ollama: e.g., qwen2.5-coder:7b. For codex: e.g., gpt-5.3-codex-spark (passed as -m flag).'
         },
         timeout_minutes: {
           type: 'number',
@@ -603,7 +603,7 @@ const tools = [
         },
         target_provider: {
           type: 'string',
-          description: 'Provider to use when rule matches (e.g., "ollama", "hashline-ollama", "claude-cli", "codex")'
+          description: 'Provider to use when rule matches (e.g., "ollama", "claude-cli", "codex")'
         },
         priority: {
           type: 'number',
