@@ -1,0 +1,6 @@
+Config for <user>:
+  host: example-host
+  ip: 192.0.2.183
+  project: example-project
+  email: user@example.com
+  path: /home/<user>/backups/example-project
