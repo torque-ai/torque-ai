@@ -364,29 +364,33 @@ async function runOutputSafeguards(taskId, status, task) {
       logger.info(`[Safeguard] Quality score recorded for ${taskId}: ${overallScore.toFixed(1)}${hasHashlineRefs ? ' (hashline-weighted)' : ''}`);
     }
 
-    // 5. Update provider statistics
-    if (providerStatsEnabled) {
-      const taskType = db.classifyTaskType(task?.task_description || '');
-      const durationSeconds = task?.started_at && task?.completed_at
-        ? (new Date(task.completed_at) - new Date(task.started_at)) / 1000
-        : null;
+    // 5. Update provider statistics (isolated — must not be killed by other safeguard failures)
+    try {
+      if (providerStatsEnabled) {
+        const taskType = db.classifyTaskType(task?.task_description || '');
+        const durationSeconds = task?.started_at && task?.completed_at
+          ? (new Date(task.completed_at) - new Date(task.started_at)) / 1000
+          : null;
 
-      const hasHashlineRefs = hashlineScore < 100 || (output && /L\d{3}:[0-9a-f]{2}:/.test(output));
-      const qualityScore = qualityScoringEnabled
-        ? (hasHashlineRefs
-          ? validationScore * 0.35 + syntaxScore * 0.25 + completenessScore * 0.25 + hashlineScore * 0.15
-          : validationScore * 0.4 + syntaxScore * 0.3 + completenessScore * 0.3)
-        : null;
+        const hasHashlineRefs = hashlineScore < 100 || (output && /L\d{3}:[0-9a-f]{2}:/.test(output));
+        const qualityScore = qualityScoringEnabled
+          ? (hasHashlineRefs
+            ? validationScore * 0.35 + syntaxScore * 0.25 + completenessScore * 0.25 + hashlineScore * 0.15
+            : validationScore * 0.4 + syntaxScore * 0.3 + completenessScore * 0.3)
+          : null;
 
-      db.updateProviderStats(
-        task?.provider || 'unknown',
-        taskType,
-        status === 'completed',
-        qualityScore,
-        durationSeconds
-      );
+        db.updateProviderStats(
+          task?.provider || 'unknown',
+          taskType,
+          status === 'completed',
+          qualityScore,
+          durationSeconds
+        );
 
-      logger.info(`[Safeguard] Provider stats updated: ${task?.provider || 'unknown'} / ${taskType}`);
+        logger.info(`[Safeguard] Provider stats updated: ${task?.provider || 'unknown'} / ${taskType}`);
+      }
+    } catch (statsErr) {
+      logger.info(`[Safeguard] Provider stats recording error for ${taskId}: ${statsErr.message}`);
     }
 
     // 6. Run build check (if enabled and task was code-related)
@@ -409,6 +413,9 @@ async function runOutputSafeguards(taskId, status, task) {
     }
 
     // ============ Extended Safeguards ============
+    // Each section isolated so failures don't cascade
+
+    try { // Extended safeguards block
 
     // 7. Record cost tracking (for cloud providers)
     const costTrackingEnabled = serverConfig.getBool('cost_tracking_enabled');
@@ -763,6 +770,10 @@ async function runOutputSafeguards(taskId, status, task) {
           logger.info(`[Safeguard] Smoke test execution error for ${taskId}: ${smokeErr.message}`);
         }
       }
+    }
+
+    } catch (extErr) {
+      logger.info(`[Safeguard] Extended safeguards error for ${taskId}: ${extErr.message}`);
     }
 
   } catch (err) {
