@@ -37,6 +37,10 @@ beforeAll(async () => {
   mockUrl = info.url;
   registerMockHost(ctx.db, mockUrl, ['codellama:latest']);
 
+  // Disable error feedback and limit retries so tests complete quickly
+  ctx.db.setConfig('error_feedback_enabled', '0');
+  ctx.db.setConfig('max_hashline_local_retries', '0');
+
   // Create a working directory with test files
   workDir = path.join(ctx.testDir, 'project');
   fs.mkdirSync(workDir, { recursive: true });
