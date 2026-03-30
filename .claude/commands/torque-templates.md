@@ -83,7 +83,7 @@ Free models first, Codex as last resort.
 | large_code_gen | ollama-cloud (kimi-k2) → ollama-cloud (qwen3-coder) → cerebras → codex |
 | documentation | groq → cerebras → google-ai |
 | simple_generation | cerebras → groq → openrouter |
-| targeted_file_edit | hashline-ollama → cerebras → codex |
+| targeted_file_edit | cerebras → codex |
 | default | cerebras → google-ai → ollama-cloud → openrouter → codex |
 
 Complexity overrides: [if any]

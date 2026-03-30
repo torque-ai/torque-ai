@@ -96,18 +96,17 @@ For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit
 
 ## Providers
 
-TORQUE routes between **13 execution providers**. Smart routing picks the best one automatically � you rarely need to choose manually.
+TORQUE routes between **12 execution providers**. Smart routing picks the best one automatically - you rarely need to choose manually.
 
 ### Local (Ollama)
 
-Run on your local Ollama instance or registered LAN hosts. Free, private, no API keys needed. Smart routing picks the edit format based on task type.
+Run on your local Ollama instance or registered LAN hosts. Free, private, no API keys needed.
 
 | Provider | Edit Format | Best For |
 |----------|------------|----------|
-| **ollama** | Raw prompt ? text response | General prompts, documentation, brainstorming |
-| **hashline-ollama** | Line-hash annotated file content | Targeted single-file edits (highest precision) |
+| **ollama** | Raw prompt -> text response | General prompts, documentation, lightweight local edits |
 
-Both share the same Ollama host and GPU. Configure hosts with `add_ollama_host` or let TORQUE auto-discover.
+Local Ollama tasks share the same host and GPU pool. Configure hosts with `add_ollama_host` or let TORQUE auto-discover.
 
 ### Cloud (Subscription CLI Tools)
 
@@ -141,8 +140,8 @@ To enable a cloud API provider:
 ### Smart Routing
 
 `smart_submit_task` analyzes task complexity and routes automatically:
-- **Simple** (docs, comments, config) ? hashline-ollama on local host
-- **Normal** (tests, single-file code) ? hashline-ollama
+- **Simple** (docs, comments, config) -> ollama on local host
+- **Normal** (tests, single-file code) -> ollama or codex-spark
 - **Normal greenfield** (new file creation) ? codex
 - **Complex reasoning/large code** ? deepinfra or hyperbolic (large models)
 - **Complex multi-file** ? codex or claude-cli
@@ -239,10 +238,10 @@ If local LLM unavailable:
 4. Falls back to `codex` or `claude-cli` if all other options exhausted
 5. Auto-recovers when Ollama returns
 
-Cloud API provider fallback chains (from `server/db/provider-routing-core.js`):
-- `codex` ? `claude-cli` ? `deepinfra` ? `ollama-cloud` ? `hashline-ollama` ? `ollama`
-- `deepinfra` ? `ollama-cloud` ? `hyperbolic` ? `claude-cli` ? `codex` ? `hashline-ollama`
-- `hyperbolic` ? `deepinfra` ? `ollama-cloud` ? `claude-cli` ? `codex` ? `hashline-ollama`
+Common fallback chains:
+- `codex` -> `claude-cli` -> `deepinfra` -> `ollama-cloud` -> `ollama`
+- `deepinfra` -> `ollama-cloud` -> `hyperbolic` -> `claude-cli` -> `codex`
+- `hyperbolic` -> `deepinfra` -> `ollama-cloud` -> `claude-cli` -> `codex`
 
 Chains are user-configurable via `configure_fallback_chain`. Anthropic is not in any default fallback chain.
 

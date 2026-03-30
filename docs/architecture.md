@@ -157,10 +157,10 @@ startTask(taskId)
       │
       ├─ Ollama family:
       │   ├─ ollama → executeOllamaTask() → HTTP to Ollama API
-      │   └─ hashline-ollama → executeHashlineOllamaTask() → hashline format
       │
       ├─ CLI tools:
       │   ├─ codex → spawn codex CLI with stdin prompt
+      │   ├─ codex-spark → spawn codex CLI with fast edit model
       │   └─ claude-cli → spawn claude CLI with stdin prompt
       │
       └─ Cloud APIs:
@@ -225,8 +225,8 @@ Process exits
 
 | Category | Providers | Execution Method |
 |----------|-----------|-----------------|
-| **Ollama** | ollama, hashline-ollama | HTTP to local/LAN Ollama API |
-| **CLI** | codex, claude-cli | Spawn CLI process with stdin prompt |
+| **Ollama** | ollama | HTTP to local/LAN Ollama API |
+| **CLI** | codex, codex-spark, claude-cli | Spawn CLI process with stdin prompt |
 | **Cloud API** | anthropic, deepinfra, hyperbolic, groq, cerebras, google-ai, openrouter, ollama-cloud | HTTP to cloud API (BYOK keys) |
 
 ### Smart Routing
@@ -235,8 +235,8 @@ Process exits
 
 | Complexity | Characteristics | Routed To |
 |-----------|----------------|-----------|
-| **Simple** | docs, comments, config changes | hashline-ollama |
-| **Normal** | single-file code, tests | hashline-ollama |
+| **Simple** | docs, comments, config changes | ollama |
+| **Normal** | single-file code, tests | ollama or codex-spark |
 | **Normal greenfield** | new file creation | codex |
 | **Complex reasoning** | large code, architecture | deepinfra or hyperbolic |
 | **Complex multi-file** | cross-file refactoring | codex or claude-cli |
@@ -247,7 +247,7 @@ Process exits
 When a provider fails, the system tries the next provider:
 
 ```
-hashline-ollama → codex → claude-cli → anthropic
+ollama → codex → claude-cli → anthropic
 deepinfra ↔ hyperbolic → anthropic → codex
 ```
 
