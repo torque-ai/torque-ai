@@ -57,7 +57,7 @@ const TOOLS = [
   ...require('./tool-defs/routing-template-defs'),
   ...require('./tool-defs/strategic-config-defs'),
   ...require('./tool-defs/context-defs'),
-  ...competitiveFeatureDefs.filter((tool) => tool && tool.name !== 'review_task_output'),
+  ...competitiveFeatureDefs,
   ...require('./tool-defs/review-defs'),
   ...require('./tool-defs/symbol-indexer-defs'),
   ...require('./tool-defs/template-defs'),

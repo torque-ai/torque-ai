@@ -112,10 +112,6 @@ describe('tool-annotations', () => {
   });
 
   describe('explicit overrides', () => {
-    it('peek_interact overrides peek_* readOnly convention', () => {
-      expect(getAnnotations('peek_interact')).toEqual(LIFECYCLE); // all false
-    });
-
     it('restart_server is destructive', () => {
       expect(getAnnotations('restart_server')).toEqual({
         readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false,
@@ -254,8 +250,8 @@ describe('tool-annotations', () => {
 
     it('returns stale list containing override names not in provided tool list', () => {
       const result = validateCoverage([]);
-      expect(result.stale).toContain('peek_interact');
       expect(result.stale).toContain('restart_server');
+      expect(result.stale).toContain('smart_submit_task');
     });
   });
 

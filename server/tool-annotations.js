@@ -67,9 +67,6 @@ const EXACT_MATCHES = Object.freeze({
 
 // ── Explicit overrides (checked first — full 4-field objects) ──
 const OVERRIDES = Object.freeze({
-  peek_interact:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
-  peek_launch:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
-  peek_build_and_open:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   restart_server:                  Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: false }),
   unlock_all_tools:                Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   unlock_tier:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),

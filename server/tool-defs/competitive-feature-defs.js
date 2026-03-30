@@ -11,19 +11,6 @@ module.exports = [
     },
   },
   {
-    name: 'review_task_output',
-    description: 'Run AI-powered structured code review on a completed task. Creates an async review task that checks for logic errors, readability, performance, test coverage, and security.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        task_id: { type: 'string', description: 'ID of the completed task to review' },
-        provider: { type: 'string', description: 'Provider for the review (default: codex)' },
-        working_directory: { type: 'string', description: 'Working directory for git diff' },
-      },
-      required: ['task_id'],
-    },
-  },
-  {
     name: 'polish_task_description',
     description: 'Convert rough task text into structured format with title, description, and acceptance criteria.',
     inputSchema: {

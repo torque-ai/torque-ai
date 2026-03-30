@@ -115,6 +115,7 @@ function loadIndex(tempDir) {
   vi.resetModules();
   const mocks = createIndexMocks(tempDir);
   vi.spyOn(process, 'on').mockImplementation(() => process);
+  vi.spyOn(process, 'exit').mockImplementation(() => {});
   vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   const dashboardServer = require('../dashboard-server');
   const apiServer = require('../api-server');
@@ -123,7 +124,8 @@ function loadIndex(tempDir) {
   const gpuMetricsServer = require('../scripts/gpu-metrics-server');
   vi.spyOn(dashboardServer, 'start').mockResolvedValue({ success: false });
   vi.spyOn(dashboardServer, 'stop').mockImplementation(() => {});
-  vi.spyOn(apiServer, 'start').mockResolvedValue({ success: false });
+  // At least one critical transport must succeed to avoid checkCriticalPorts exit
+  vi.spyOn(apiServer, 'start').mockResolvedValue({ success: true, port: 3457 });
   vi.spyOn(apiServer, 'stop').mockImplementation(() => {});
   vi.spyOn(mcpGateway, 'start').mockResolvedValue({ success: false });
   vi.spyOn(mcpGateway, 'stop').mockImplementation(() => {});

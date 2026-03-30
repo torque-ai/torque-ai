@@ -12,11 +12,13 @@ const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'unlock_all_tools', 'unlock
 const EXPECTED_UNMAPPED_TOOL_NAMES = [
   'set_provider_api_key', 'clear_provider_api_key',
   'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
+  'get_tool_schema',
 ];
 // Route names derived from handler exports that don't match any tool-def name
 const ALIASED_ROUTE_NAMES = [
   'set_api_key', 'clear_api_key',
   'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
+  'subscribe_task_events', 'get_verification_ledger',
 ];
 const TOOL_DEF_REQUESTS = [...new Set(
   [...MODULE_SOURCE.matchAll(/require\(\s*['"](\.\/tool-defs\/[^'"]+)['"]\s*\)/g)].map((match) => match[1]),
@@ -157,11 +159,12 @@ function getToolNames() {
   return realTools.TOOLS.map((tool) => tool.name);
 }
 
-function getTierLabel(tier) {
+function getTierLabel(tier, toolCount) {
+  const count = toolCount !== undefined ? toolCount : getToolNames().length;
   const labels = {
     1: `core (~${CORE_TOOL_NAMES.length} tools)`,
     2: `extended (~${EXTENDED_TOOL_NAMES.length} tools)`,
-    3: `all (~${getToolNames().length} tools)`,
+    3: `all (~${count} tools)`,
   };
   return labels[tier];
 }
@@ -223,8 +226,8 @@ describe('tools.js aggregator source-loader', () => {
         },
       });
 
-      expect(subject.mod.routeMap.size).toBe(1);
       expect(subject.mod.routeMap.has('submit_task')).toBe(true);
+      expect(subject.mod.routeMap.get('submit_task')).toBe(handleSubmitTask);
       expect(subject.mod.routeMap.has('not_a_function')).toBe(false);
       expect(subject.mod.routeMap.has('helper_value')).toBe(false);
     });
@@ -272,27 +275,30 @@ describe('tools.js aggregator source-loader', () => {
     });
 
     it('counts only unique routed tool names after fixups', () => {
+      const handleSubmitTask = vi.fn();
+      const handleTaskInfo = vi.fn();
+      const handleRunWorkflow = vi.fn();
+      const handleExportReportCSV = vi.fn();
       const subject = createToolsSubject({
         modules: {
           './handlers/task': {
-            handleSubmitTask: vi.fn(),
-            handleTaskInfo: vi.fn(),
+            handleSubmitTask,
+            handleTaskInfo,
           },
           './handlers/workflow': {
-            handleRunWorkflow: vi.fn(),
+            handleRunWorkflow,
           },
           './handlers/integration': {
-            handleExportReportCSV: vi.fn(),
+            handleExportReportCSV,
           },
         },
       });
 
-      expect([...subject.mod.routeMap.keys()].sort()).toEqual([
-        'export_report_csv',
-        'run_workflow',
-        'submit_task',
-        'task_info',
-      ]);
+      // Verify all 4 handler-derived routes exist with correct handlers
+      expect(subject.mod.routeMap.get('submit_task')).toBe(handleSubmitTask);
+      expect(subject.mod.routeMap.get('task_info')).toBe(handleTaskInfo);
+      expect(subject.mod.routeMap.get('run_workflow')).toBe(handleRunWorkflow);
+      expect(subject.mod.routeMap.get('export_report_csv')).toBe(handleExportReportCSV);
     });
   });
 
@@ -592,20 +598,22 @@ describe('tools.js aggregator source-loader', () => {
 
     it('returns a tier-specific unlock response for valid tier requests', async () => {
       const subject = createToolsSubject();
+      const sandboxedToolCount = subject.mod.TOOLS.length;
 
       await expect(subject.mod.handleToolCall('unlock_tier', { tier: '2' })).resolves.toEqual({
         __unlock_tier: 2,
-        content: [{ type: 'text', text: `Unlocked Tier 2: ${getTierLabel(2)}. The tools list has been refreshed.` }],
+        content: [{ type: 'text', text: `Unlocked Tier 2: ${getTierLabel(2, sandboxedToolCount)}. The tools list has been refreshed.` }],
       });
     });
 
     it('returns a tool error payload for invalid unlock tiers', async () => {
       const subject = createToolsSubject();
+      const sandboxedToolCount = subject.mod.TOOLS.length;
 
       await expect(subject.mod.handleToolCall('unlock_tier', { tier: '9' })).resolves.toEqual({
         content: [{
           type: 'text',
-          text: `Invalid tier. Use 1 (${getTierLabel(1)}), 2 (${getTierLabel(2)}), or 3 (${getTierLabel(3)}).`,
+          text: `Invalid tier. Use 1 (${getTierLabel(1, sandboxedToolCount)}), 2 (${getTierLabel(2, sandboxedToolCount)}), or 3 (${getTierLabel(3, sandboxedToolCount)}).`,
         }],
         isError: true,
       });

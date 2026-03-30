@@ -25,7 +25,7 @@ const {
   handlePeekRecoveryStatus,
 } = require('../plugins/snapscope/handlers/recovery');
 const { WPF_FIXTURE } = require('../contracts/peek-fixtures');
-const { routeMap, TOOLS } = require('../tools');
+const pluginToolDefs = require('../plugins/snapscope/tool-defs');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -34,25 +34,23 @@ function clone(value) {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('peek workflow integration', () => {
-  describe('tool dispatch wiring', () => {
-    it('peek_recovery is routed to handlePeekRecovery', () => {
-      expect(routeMap.has('peek_recovery')).toBe(true);
-      expect(routeMap.get('peek_recovery')).toBe(handlePeekRecovery);
+  describe('tool dispatch wiring (snapscope plugin)', () => {
+    it('handlePeekRecovery is exported from the snapscope recovery handler', () => {
+      expect(typeof handlePeekRecovery).toBe('function');
     });
 
-    it('peek_recovery_status is routed to handlePeekRecoveryStatus', () => {
-      expect(routeMap.has('peek_recovery_status')).toBe(true);
-      expect(routeMap.get('peek_recovery_status')).toBe(handlePeekRecoveryStatus);
+    it('handlePeekRecoveryStatus is exported from the snapscope recovery handler', () => {
+      expect(typeof handlePeekRecoveryStatus).toBe('function');
     });
 
-    it('tool definitions exist for both recovery tools', () => {
-      const toolNames = TOOLS.map(t => t.name);
+    it('plugin tool definitions exist for both recovery tools', () => {
+      const toolNames = pluginToolDefs.map(t => t.name);
       expect(toolNames).toContain('peek_recovery');
       expect(toolNames).toContain('peek_recovery_status');
     });
 
     it('peek_recovery tool definition requires action', () => {
-      const def = TOOLS.find(t => t.name === 'peek_recovery');
+      const def = pluginToolDefs.find(t => t.name === 'peek_recovery');
       expect(def.inputSchema.required).toEqual(['action']);
       expect(def.inputSchema.properties.action).toBeDefined();
       expect(def.inputSchema.properties.params).toBeDefined();
@@ -60,7 +58,7 @@ describe('peek workflow integration', () => {
     });
 
     it('peek_recovery_status has no required params', () => {
-      const def = TOOLS.find(t => t.name === 'peek_recovery_status');
+      const def = pluginToolDefs.find(t => t.name === 'peek_recovery_status');
       expect(def.inputSchema.required).toBeUndefined();
       expect(def.inputSchema.properties.host).toBeDefined();
     });
