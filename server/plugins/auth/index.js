@@ -8,7 +8,7 @@ const { createUserManager } = require('./user-manager');
 const { createSessionManager } = require('./session-manager');
 const { createAuthMiddleware } = require('./middleware');
 const { createResolvers } = require('./resolvers');
-const { createRoleGuard } = require('./role-guard');
+const { createRoleGuard, ROLE_HIERARCHY } = require('./role-guard');
 const { createSseAuth } = require('./sse-auth');
 const { createConfigInjector } = require('./config-injector');
 const { AuthRateLimiter } = require('./rate-limiter');
@@ -16,8 +16,71 @@ const { AuthRateLimiter } = require('./rate-limiter');
 const PLUGIN_NAME = 'auth';
 const PLUGIN_VERSION = '1.0.0';
 const KEY_FILENAME = '.torque-api-key';
+const BOOTSTRAP_KEY_NAME = 'Bootstrap Admin Key';
+const DEFAULT_SSE_PORT = 3458;
+
+function getContainerService(container, name) {
+  if (!container || typeof container.get !== 'function') {
+    return null;
+  }
+
+  try {
+    return container.get(name);
+  } catch {
+    return null;
+  }
+}
+
+function resolveLogger(logger) {
+  return {
+    info: logger && typeof logger.info === 'function' ? logger.info.bind(logger) : () => {},
+    warn: logger && typeof logger.warn === 'function' ? logger.warn.bind(logger) : () => {},
+  };
+}
+
+function resolveRawDb(dbService) {
+  const rawDb = dbService && typeof dbService.getDbInstance === 'function'
+    ? dbService.getDbInstance()
+    : dbService;
+
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    throw new Error('auth plugin requires container db service with prepare() or getDbInstance()');
+  }
+
+  return rawDb;
+}
+
+function resolveSsePort(serverConfig) {
+  if (serverConfig && typeof serverConfig.getInt === 'function') {
+    return serverConfig.getInt('sse_port', DEFAULT_SSE_PORT);
+  }
+
+  if (serverConfig && typeof serverConfig.get === 'function') {
+    const rawValue = serverConfig.get('sse_port');
+    const parsed = Number.parseInt(rawValue, 10);
+    return Number.isFinite(parsed) ? parsed : DEFAULT_SSE_PORT;
+  }
+
+  return DEFAULT_SSE_PORT;
+}
+
+function writeBootstrapKeyFile(dataDir, key, logger) {
+  if (!dataDir || typeof dataDir !== 'string' || !key) {
+    return null;
+  }
+
+  const keyPath = path.join(dataDir, KEY_FILENAME);
+  try {
+    fs.writeFileSync(keyPath, key, { mode: 0o600 });
+    return keyPath;
+  } catch (error) {
+    logger.warn(`[auth-plugin] Failed to write bootstrap key file ${keyPath}: ${error.message}`);
+    return null;
+  }
+}
 
 function createAuthPlugin() {
+  let db = null;
   let keyManager = null;
   let userManager = null;
   let sessionManager = null;
@@ -27,57 +90,58 @@ function createAuthPlugin() {
   let resolvers = null;
   let authMiddleware = null;
   let configInjector = null;
+  let eventBus = null;
+  let logger = resolveLogger(null);
   let installed = false;
 
   function install(container) {
-    const db = container.get('db');
-    const serverConfig = container.get('serverConfig');
-    const eventBus = container.get('eventBus');
+    const dbService = getContainerService(container, 'db');
+    const serverConfig = getContainerService(container, 'serverConfig');
 
-    const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+    db = resolveRawDb(dbService);
+    eventBus = getContainerService(container, 'eventBus');
+    logger = resolveLogger(getContainerService(container, 'logger'));
 
-    keyManager = createKeyManager({ db: rawDb });
-    userManager = createUserManager({ db: rawDb });
+    keyManager = createKeyManager({ db });
+    userManager = createUserManager({ db });
     sessionManager = createSessionManager();
     sseAuth = createSseAuth();
     roleGuard = createRoleGuard();
     rateLimiter = new AuthRateLimiter();
-    configInjector = createConfigInjector({ logger: { info() {} } });
+    resolvers = createResolvers({ keyManager, sseAuth, sessionManager, roleGuard });
+    authMiddleware = createAuthMiddleware({ keyManager, userManager, resolvers, roleGuard, rateLimiter });
+    configInjector = createConfigInjector({ logger });
 
-    resolvers = createResolvers({ keyManager, sseAuth, sessionManager });
-    authMiddleware = createAuthMiddleware({ keyManager, userManager, resolvers });
-
-    // Bootstrap key flow: create first admin key if none exist
+    let bootstrapKey = null;
     if (!keyManager.hasAnyKeys()) {
-      // Attempt migration of legacy config-based API key first
-      const migratedId = keyManager.migrateConfigApiKey();
+      const migratedKeyId = keyManager.migrateConfigApiKey();
+      if (!migratedKeyId) {
+        const createdKey = keyManager.createKey({ name: BOOTSTRAP_KEY_NAME, role: 'admin' });
+        bootstrapKey = createdKey.key;
+        logger.info(`[auth-plugin] Bootstrap admin API key created: ${createdKey.key}`);
 
-      if (!migratedId) {
-        const result = keyManager.createKey({ name: 'Bootstrap Admin Key', role: 'admin' });
-
-        // Write plaintext key to .torque-api-key file
-        const dataDir = typeof db.getDataDir === 'function' ? db.getDataDir() : null;
-        if (dataDir) {
-          try {
-            const keyPath = path.join(dataDir, KEY_FILENAME);
-            fs.writeFileSync(keyPath, result.key, { mode: 0o600 });
-          } catch {
-            // best effort — key was already returned from createKey
-          }
-
-          // Inject MCP config so Claude Code sessions can connect
-          const ssePort = serverConfig && typeof serverConfig.getInt === 'function'
-            ? serverConfig.getInt('sse_port', 3458)
-            : 3458;
-          configInjector.ensureGlobalMcpConfig(result.key, { ssePort });
-        }
+        const dataDir = dbService && typeof dbService.getDataDir === 'function'
+          ? dbService.getDataDir()
+          : null;
+        writeBootstrapKeyFile(dataDir, createdKey.key, logger);
       }
+    }
+
+    const dataDir = dbService && typeof dbService.getDataDir === 'function'
+      ? dbService.getDataDir()
+      : null;
+    const injectionKey = bootstrapKey || (configInjector ? configInjector.readKeyFromFile(dataDir) : null);
+    if (configInjector) {
+      configInjector.ensureGlobalMcpConfig(injectionKey, {
+        ssePort: resolveSsePort(serverConfig),
+      });
     }
 
     installed = true;
   }
 
   function uninstall() {
+    db = null;
     keyManager = null;
     userManager = null;
     sessionManager = null;
@@ -87,49 +151,54 @@ function createAuthPlugin() {
     resolvers = null;
     authMiddleware = null;
     configInjector = null;
+    eventBus = null;
+    logger = resolveLogger(null);
     installed = false;
   }
 
   function middleware() {
-    if (!installed || !authMiddleware) return [];
+    if (!installed || !authMiddleware) {
+      return [];
+    }
+
     return authMiddleware.authenticate;
   }
 
   function mcpTools() {
-    if (!installed) return [];
+    if (!installed || !keyManager) {
+      return [];
+    }
 
     return [
       {
         name: 'create_api_key',
-        description: 'Create a new TORQUE API key',
+        description: 'Create a new TORQUE API key and return the raw key once.',
         inputSchema: {
           type: 'object',
           properties: {
-            name: { type: 'string', description: 'Human-readable key name' },
+            name: { type: 'string', description: 'Human-readable key name.' },
             role: {
               type: 'string',
-              enum: ['admin', 'operator'],
+              enum: ROLE_HIERARCHY,
               default: 'admin',
-              description: 'Key role (admin or operator)',
+              description: 'Role granted to the new API key.',
             },
           },
           required: ['name'],
+          additionalProperties: false,
         },
-        handler(params) {
-          const { name, role = 'admin' } = params || {};
-          if (!name || typeof name !== 'string') {
-            throw new Error('name is required');
-          }
-          const result = keyManager.createKey({ name, role });
+        handler(args = {}) {
+          const { name, role = 'admin' } = args;
+          const createdKey = keyManager.createKey({ name, role });
           return {
             content: [
               {
                 type: 'text',
                 text: JSON.stringify({
-                  id: result.id,
-                  key: result.key,
-                  name: result.name,
-                  role: result.role,
+                  id: createdKey.id,
+                  name: createdKey.name,
+                  role: createdKey.role,
+                  key: createdKey.key,
                 }, null, 2),
               },
             ],
@@ -138,27 +207,28 @@ function createAuthPlugin() {
       },
       {
         name: 'list_api_keys',
-        description: 'List all TORQUE API keys (hashes are never exposed)',
+        description: 'List API keys without exposing raw keys or hashes.',
         inputSchema: {
           type: 'object',
           properties: {},
+          additionalProperties: false,
         },
         handler() {
-          const keys = keyManager.listKeys();
-          const safe = keys.map((k) => ({
-            id: k.id,
-            name: k.name,
-            role: k.role,
-            created_at: k.created_at,
-            last_used_at: k.last_used_at,
-            revoked_at: k.revoked_at,
-            user_id: k.user_id,
+          const keys = keyManager.listKeys().map((key) => ({
+            id: key.id,
+            name: key.name,
+            role: key.role,
+            created_at: key.created_at,
+            last_used_at: key.last_used_at,
+            revoked_at: key.revoked_at,
+            user_id: key.user_id,
           }));
+
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify(safe, null, 2),
+                text: JSON.stringify(keys, null, 2),
               },
             ],
           };
@@ -166,25 +236,27 @@ function createAuthPlugin() {
       },
       {
         name: 'revoke_api_key',
-        description: 'Revoke a TORQUE API key by ID',
+        description: 'Revoke an API key by key ID.',
         inputSchema: {
           type: 'object',
           properties: {
-            id: { type: 'string', description: 'Key ID to revoke' },
+            key_id: { type: 'string', description: 'API key ID to revoke.' },
           },
-          required: ['id'],
+          required: ['key_id'],
+          additionalProperties: false,
         },
-        handler(params) {
-          const { id } = params || {};
-          if (!id || typeof id !== 'string') {
-            throw new Error('id is required');
+        handler(args = {}) {
+          const keyId = args.key_id || args.id;
+          if (!keyId || typeof keyId !== 'string') {
+            throw new Error('key_id is required');
           }
-          keyManager.revokeKey(id);
+
+          keyManager.revokeKey(keyId);
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify({ revoked: true, id }),
+                text: JSON.stringify({ revoked: true, key_id: keyId }, null, 2),
               },
             ],
           };
@@ -194,6 +266,10 @@ function createAuthPlugin() {
   }
 
   function eventHandlers() {
+    if (!installed || !eventBus) {
+      return {};
+    }
+
     return {};
   }
 
@@ -205,9 +281,15 @@ function createAuthPlugin() {
           type: 'string',
           enum: ['open', 'api_key', 'full'],
           default: 'api_key',
-          description: 'Authentication mode: open (no auth), api_key (key-only), full (keys + users + sessions)',
+          description: 'Authentication mode for HTTP, SSE, and MCP requests.',
+        },
+        bootstrap_admin_key_name: {
+          type: 'string',
+          default: BOOTSTRAP_KEY_NAME,
+          description: 'Display name used when the first bootstrap admin key is created.',
         },
       },
+      additionalProperties: true,
     };
   }
 
@@ -223,4 +305,7 @@ function createAuthPlugin() {
   };
 }
 
-module.exports = { createAuthPlugin };
+const authPlugin = createAuthPlugin();
+
+module.exports = authPlugin;
+module.exports.createAuthPlugin = createAuthPlugin;

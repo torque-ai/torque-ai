@@ -1,35 +1,76 @@
 'use strict';
 
 class AuthRateLimiter {
-  constructor({ maxAttempts = 5, windowMs = 60000 } = {}) {
-    this._attempts = new Map();
+  constructor({ maxAttempts = 5, windowMs = 60000, blockMs = 60000 } = {}) {
+    this._entries = new Map();
     this._maxAttempts = maxAttempts;
     this._windowMs = windowMs;
+    this._blockMs = blockMs;
   }
 
-  recordFailure(ip) {
+  _pruneEntry(ip, now) {
+    const entry = this._entries.get(ip);
+    if (!entry) {
+      return null;
+    }
+
+    const attempts = entry.attempts.filter((timestamp) => now - timestamp < this._windowMs);
+    const blockedUntil = entry.blockedUntil > now ? entry.blockedUntil : 0;
+
+    if (attempts.length === 0 && blockedUntil === 0) {
+      this._entries.delete(ip);
+      return null;
+    }
+
+    entry.attempts = attempts;
+    entry.blockedUntil = blockedUntil;
+    return entry;
+  }
+
+  cleanup(now = Date.now()) {
+    for (const ip of this._entries.keys()) {
+      this._pruneEntry(ip, now);
+    }
+  }
+
+  check(ip) {
+    if (!ip) {
+      return true;
+    }
+
     const now = Date.now();
-    const attempts = this._attempts.get(ip) || [];
-    const recent = attempts.filter((timestamp) => now - timestamp < this._windowMs);
-    recent.push(now);
-    this._attempts.set(ip, recent);
-    return recent.length <= this._maxAttempts;
+    this.cleanup(now);
+    const entry = this._entries.get(ip);
+    return !entry || entry.blockedUntil <= now;
   }
 
   isLimited(ip) {
-    const now = Date.now();
-    const attempts = this._attempts.get(ip) || [];
-    const recent = attempts.filter((timestamp) => now - timestamp < this._windowMs);
-    return recent.length >= this._maxAttempts;
+    return !this.check(ip);
   }
 
-  cleanup() {
-    const now = Date.now();
-    for (const [ip, attempts] of this._attempts) {
-      const recent = attempts.filter((timestamp) => now - timestamp < this._windowMs);
-      if (recent.length === 0) this._attempts.delete(ip);
-      else this._attempts.set(ip, recent);
+  recordFailure(ip) {
+    if (!ip) {
+      return true;
     }
+
+    const now = Date.now();
+    const entry = this._pruneEntry(ip, now) || { attempts: [], blockedUntil: 0 };
+    entry.attempts.push(now);
+
+    if (entry.attempts.length >= this._maxAttempts) {
+      entry.blockedUntil = now + this._blockMs;
+    }
+
+    this._entries.set(ip, entry);
+    return this.check(ip);
+  }
+
+  reset(ip) {
+    if (!ip) {
+      return;
+    }
+
+    this._entries.delete(ip);
   }
 }
 

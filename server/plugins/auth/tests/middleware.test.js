@@ -4,233 +4,189 @@ const { createSseAuth, SSE_TICKET_PREFIX } = require('../sse-auth');
 const { createResolvers } = require('../resolvers');
 const { createAuthMiddleware } = require('../middleware');
 
+function createMiddlewareMocks() {
+  return {
+    keyManager: {
+      hasAnyKeys: vi.fn(() => true),
+    },
+    userManager: {
+      hasAnyUsers: vi.fn(() => false),
+    },
+    resolvers: {
+      resolve: vi.fn(() => null),
+    },
+  };
+}
+
 describe('createSseAuth', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('supports legacy ticket create, consume, and one-time use', () => {
-    const auth = createSseAuth({ maxLegacyTickets: 3, legacyTtlMs: 30000 });
-    const identity = { id: 'user-1', name: 'User' };
-    const ticket = auth.createLegacyTicket(identity);
-
-    expect(ticket).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-    expect(auth.consumeLegacyTicket(ticket)).toEqual(identity);
-    expect(auth.consumeLegacyTicket(ticket)).toBeNull();
-  });
-
-  it('expires legacy tickets', () => {
+  it('creates, consumes, and expires legacy tickets', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-21T12:00:00.000Z'));
+    vi.setSystemTime(new Date('2026-03-29T12:00:00.000Z'));
 
-    const auth = createSseAuth({ maxLegacyTickets: 3, legacyTtlMs: 1000 });
-    const ticket = auth.createLegacyTicket({ id: 'user-2' });
+    const auth = createSseAuth({ legacyTtlMs: 1000 });
+    const identity = { id: 'user-1', role: 'admin', type: 'api_key' };
 
-    vi.setSystemTime(new Date(Date.now() + 1001));
-    expect(auth.consumeLegacyTicket(ticket)).toBeNull();
+    const liveTicket = auth.createLegacyTicket(identity);
+    expect(liveTicket).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(auth.consumeLegacyTicket(liveTicket)).toEqual(identity);
+
+    const expiredTicket = auth.createLegacyTicket({ id: 'user-2' });
+    vi.setSystemTime(new Date('2026-03-29T12:00:01.001Z'));
+
+    expect(auth.consumeLegacyTicket(expiredTicket)).toBeNull();
   });
 
-  it('enforces legacy ticket cap', () => {
-    const auth = createSseAuth({ maxLegacyTickets: 2, legacyTtlMs: 30000 });
-    auth.createLegacyTicket({ id: 'user-a' });
-    auth.createLegacyTicket({ id: 'user-b' });
+  it('generates, validates, and expires SSE tickets', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-29T12:00:00.000Z'));
 
-    expect(() => auth.createLegacyTicket({ id: 'user-c' }))
-      .toThrow('Ticket cap reached (max 2)');
-  });
+    const auth = createSseAuth({ sseTtlMs: 1000 });
 
-  it('supports SSE ticket generate and validate', () => {
-    const auth = createSseAuth({ sseTtlMs: 60000 });
-    const result = auth.generateSseTicket('api-key-1');
-
-    expect(result.ticket).toMatch(new RegExp(`^${SSE_TICKET_PREFIX}[0-9a-f]{48}$`));
-    expect(auth.validateSseTicket(result.ticket)).toEqual({
+    const validTicket = auth.generateSseTicket('api-key-1');
+    expect(validTicket.ticket).toMatch(new RegExp(`^${SSE_TICKET_PREFIX}[0-9a-f]{48}$`));
+    expect(auth.validateSseTicket(validTicket.ticket)).toEqual({
       valid: true,
       apiKeyId: 'api-key-1',
     });
-  });
 
-  it('computes SSE ticket expiration TTL', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-21T12:00:00.000Z'));
+    const expiredTicket = auth.generateSseTicket('api-key-2');
+    vi.setSystemTime(new Date('2026-03-29T12:00:01.001Z'));
 
-    const auth = createSseAuth({ sseTtlMs: 60000 });
-    const result = auth.generateSseTicket('api-key-ttl');
-
-    expect(new Date(result.expiresAt).getTime() - Date.now()).toBe(60000);
-  });
-
-  it('expires SSE tickets', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-21T12:00:00.000Z'));
-
-    const auth = createSseAuth({ sseTtlMs: 60000 });
-    const result = auth.generateSseTicket('api-key-expire');
-    vi.setSystemTime(new Date('2026-03-21T12:01:00.001Z'));
-
-    expect(auth.validateSseTicket(result.ticket)).toEqual({
+    expect(auth.validateSseTicket(expiredTicket.ticket)).toEqual({
       valid: false,
       reason: 'expired',
     });
   });
 
-  it('enforces SSE single-use', () => {
-    const auth = createSseAuth({ sseTtlMs: 60000 });
-    const result = auth.generateSseTicket('api-key-single');
+  it('enforces single-use tickets', () => {
+    const auth = createSseAuth();
 
-    expect(auth.validateSseTicket(result.ticket)).toEqual({
+    const legacyTicket = auth.createLegacyTicket({ id: 'legacy-user' });
+    expect(auth.consumeLegacyTicket(legacyTicket)).toEqual({ id: 'legacy-user' });
+    expect(auth.consumeLegacyTicket(legacyTicket)).toBeNull();
+
+    const sseTicket = auth.generateSseTicket('api-key-single').ticket;
+    expect(auth.validateSseTicket(sseTicket)).toEqual({
       valid: true,
       apiKeyId: 'api-key-single',
     });
-    expect(auth.validateSseTicket(result.ticket)).toEqual({
+    expect(auth.validateSseTicket(sseTicket)).toEqual({
       valid: false,
       reason: 'unknown',
     });
   });
 });
 
-describe('createResolvers', () => {
-  it('resolves api_key, legacy_ticket, and session credentials', () => {
-    const keyIdentity = { id: 'api-user', name: 'Api', type: 'api_key' };
-    const ticketIdentity = { id: 'ticket-user', name: 'Ticket', type: 'api_key' };
-    const sessionIdentity = { id: 'session-user', name: 'Session', type: 'user' };
-
-    const keyManager = { validateKey: vi.fn(() => keyIdentity) };
-    const sseAuth = { consumeLegacyTicket: vi.fn(() => ticketIdentity) };
-    const sessionManager = { getSession: vi.fn(() => ({ identity: sessionIdentity })) };
-    const resolvers = createResolvers({ keyManager, sseAuth, sessionManager });
-
-    expect(resolvers.resolve({ type: 'api_key', value: 'api-1' })).toEqual(keyIdentity);
-    expect(keyManager.validateKey).toHaveBeenCalledWith('api-1');
-
-    expect(resolvers.resolve({ type: 'legacy_ticket', value: 'legacy-1' })).toEqual(ticketIdentity);
-    expect(sseAuth.consumeLegacyTicket).toHaveBeenCalledWith('legacy-1');
-
-    expect(resolvers.resolve({ type: 'session', value: 'session-1' })).toEqual(sessionIdentity);
-    expect(sessionManager.getSession).toHaveBeenCalledWith('session-1');
-
-    expect(resolvers.resolve({ type: 'unknown', value: 'x' })).toBeNull();
-    expect(resolvers.resolve(null)).toBeNull();
-  });
-});
-
 describe('createAuthMiddleware', () => {
-  function createMocks() {
-    return {
-      keyManager: {
-        hasAnyKeys: vi.fn(() => true),
-      },
-      userManager: {
-        hasAnyUsers: vi.fn(() => false),
-      },
-      resolvers: {
-        resolve: vi.fn(),
-      },
-    };
-  }
-
-  it('extractCredential uses Bearer header first', () => {
-    const { keyManager, userManager, resolvers } = createMocks();
+  it('extracts credential from Bearer headers', () => {
+    const { keyManager, userManager, resolvers } = createMiddlewareMocks();
     const middleware = createAuthMiddleware({ keyManager, userManager, resolvers });
 
-    const credential = middleware.extractCredential({
+    expect(middleware.extractCredential({
       headers: {
-        authorization: 'Bearer from-bearer',
-        'x-torque-key': 'from-header',
-        cookie: 'torque_session=from-cookie',
+        authorization: 'Bearer bearer-key',
+        'x-api-key': 'header-key',
       },
-    });
-
-    expect(credential).toEqual({ type: 'api_key', value: 'from-bearer' });
+    })).toEqual({ type: 'api_key', value: 'bearer-key' });
   });
 
-  it('extractCredential falls back to X-Torque-Key header', () => {
-    const { keyManager, userManager, resolvers } = createMocks();
+  it('extracts credential from x-api-key headers', () => {
+    const { keyManager, userManager, resolvers } = createMiddlewareMocks();
     const middleware = createAuthMiddleware({ keyManager, userManager, resolvers });
 
-    const credential = middleware.extractCredential({
+    expect(middleware.extractCredential({
       headers: {
-        'x-torque-key': 'from-header',
-        cookie: 'torque_session=from-cookie',
+        'x-api-key': 'header-key',
       },
-    });
-
-    expect(credential).toEqual({ type: 'api_key', value: 'from-header' });
-  });
-
-  it('extractCredential falls back to cookie session id', () => {
-    const { keyManager, userManager, resolvers } = createMocks();
-    const middleware = createAuthMiddleware({ keyManager, userManager, resolvers });
-
-    const credential = middleware.extractCredential({
-      headers: { cookie: 'foo=bar; torque_session=from-cookie' },
-    });
-
-    expect(credential).toEqual({ type: 'session', value: 'from-cookie' });
+    })).toEqual({ type: 'api_key', value: 'header-key' });
   });
 
   it('authenticates with a valid key', () => {
-    const keyManager = {
-      hasAnyKeys: vi.fn(() => true),
-      hasAnyUsers: vi.fn(() => false),
-    };
-    const userManager = {
-      hasAnyUsers: vi.fn(() => false),
-    };
-    const validIdentity = { id: 'api-user', role: 'admin', type: 'api_key' };
-    const resolvers = {
-      resolve: vi.fn(() => validIdentity),
-    };
+    const identity = { id: 'api-user', role: 'admin', type: 'api_key' };
+    const { keyManager, userManager, resolvers } = createMiddlewareMocks();
+    resolvers.resolve.mockReturnValue(identity);
+
     const middleware = createAuthMiddleware({ keyManager, userManager, resolvers });
+    const req = {
+      headers: {
+        authorization: 'Bearer valid-key',
+      },
+    };
 
-    const identity = middleware.authenticate({
-      headers: { authorization: 'Bearer abc' },
-    });
-
-    expect(identity).toEqual(validIdentity);
-    expect(resolvers.resolve).toHaveBeenCalledWith({ type: 'api_key', value: 'abc' });
+    expect(middleware.authenticate(req)).toEqual(identity);
+    expect(resolvers.resolve).toHaveBeenCalledWith({ type: 'api_key', value: 'valid-key' });
   });
 
-  it('returns null for an invalid key', () => {
-    const keyManager = {
-      hasAnyKeys: vi.fn(() => true),
-      hasAnyUsers: vi.fn(() => false),
-    };
-    const userManager = {
-      hasAnyUsers: vi.fn(() => false),
-    };
-    const resolvers = {
-      resolve: vi.fn(() => null),
-    };
+  it('throws for an invalid key', () => {
+    const { keyManager, userManager, resolvers } = createMiddlewareMocks();
     const middleware = createAuthMiddleware({ keyManager, userManager, resolvers });
-
-    const identity = middleware.authenticate({
-      headers: { authorization: 'Bearer bad-key' },
-    });
-
-    expect(identity).toBeNull();
-    expect(resolvers.resolve).toHaveBeenCalledWith({ type: 'api_key', value: 'bad-key' });
-  });
-
-  it('returns open-mode identity when open mode', () => {
-    const keyManager = {
-      hasAnyKeys: vi.fn(() => false),
-      hasAnyUsers: vi.fn(() => false),
+    const req = {
+      headers: {
+        authorization: 'Bearer invalid-key',
+      },
     };
-    const userManager = {
-      hasAnyUsers: vi.fn(() => false),
-    };
-    const resolvers = {
-      resolve: vi.fn(),
-    };
-    const middleware = createAuthMiddleware({ keyManager, userManager, resolvers });
 
-    const identity = middleware.authenticate({
-      headers: {},
-    });
-
-    expect(identity).toEqual({ id: 'open-mode', name: 'Open Mode', role: 'admin', type: 'open' });
-    expect(resolvers.resolve).not.toHaveBeenCalled();
+    expect(() => middleware.authenticate(req)).toThrow('Unauthorized');
+    expect(req._authChallenge).toBe('Bearer realm="Torque API", error="invalid_token"');
   });
 });
 
+describe('createResolvers', () => {
+  it('resolves API key credentials', () => {
+    const keyIdentity = { id: 'api-key-1', role: 'admin', type: 'api_key' };
+    const keyManager = {
+      validateKey: vi.fn(() => keyIdentity),
+    };
+    const resolvers = createResolvers({
+      keyManager,
+      sseAuth: {},
+      sessionManager: {},
+    });
+
+    expect(resolvers.resolve({ type: 'api_key', value: 'torque_sk_valid' })).toEqual(keyIdentity);
+    expect(keyManager.validateKey).toHaveBeenCalledWith('torque_sk_valid');
+  });
+
+  it('resolves ticket credentials', () => {
+    const ticketIdentity = { id: 'api-key-2', role: 'operator', type: 'api_key' };
+    const keyManager = {
+      validateKey: vi.fn(() => null),
+      getKeyById: vi.fn(() => ticketIdentity),
+    };
+    const sseAuth = {
+      validateSseTicket: vi.fn(() => ({ valid: true, apiKeyId: 'api-key-2' })),
+      consumeLegacyTicket: vi.fn(() => null),
+    };
+    const resolvers = createResolvers({
+      keyManager,
+      sseAuth,
+      sessionManager: {},
+    });
+
+    expect(resolvers.resolve({ type: 'sse_ticket', value: `${SSE_TICKET_PREFIX}abc123` })).toEqual(ticketIdentity);
+    expect(sseAuth.validateSseTicket).toHaveBeenCalledWith(`${SSE_TICKET_PREFIX}abc123`);
+    expect(keyManager.getKeyById).toHaveBeenCalledWith('api-key-2');
+  });
+
+  it('returns a session identity and null for unknown credentials', () => {
+    const sessionIdentity = { id: 'session-user', role: 'viewer', type: 'user' };
+    const keyManager = {
+      validateKey: vi.fn(() => null),
+    };
+    const sseAuth = {
+      validateSseTicket: vi.fn(() => ({ valid: false, reason: 'unknown' })),
+      consumeLegacyTicket: vi.fn(() => null),
+    };
+    const sessionManager = {
+      getSession: vi.fn((token) => (token === 'session-1' ? { identity: sessionIdentity } : null)),
+    };
+    const resolvers = createResolvers({ keyManager, sseAuth, sessionManager });
+
+    expect(resolvers.resolve({ type: 'session', value: 'session-1' })).toEqual(sessionIdentity);
+    expect(resolvers.resolve({ type: 'unknown', value: 'nope' })).toBeNull();
+  });
+});

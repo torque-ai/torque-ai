@@ -12,24 +12,45 @@ function createSseAuth(options = {}) {
   const legacyTtlMs = Number.isFinite(options.legacyTtlMs) ? Math.max(1, Math.floor(options.legacyTtlMs)) : DEFAULT_LEGACY_TTL_MS;
   const sseTtlMs = Number.isFinite(options.sseTtlMs) ? Math.max(1, Math.floor(options.sseTtlMs)) : DEFAULT_SSE_TTL_MS;
 
-  const legacyTickets = new Map(); // ticket -> { identity, createdAt }
+  const legacyTickets = new Map(); // ticket -> { identity, expiresAtMs }
   const sseTickets = new Map(); // ticket -> { apiKeyId, expiresAtMs }
 
+  function cleanup() {
+    const now = Date.now();
+
+    for (const [ticket, entry] of legacyTickets) {
+      if (entry.expiresAtMs <= now) {
+        legacyTickets.delete(ticket);
+      }
+    }
+
+    for (const [ticket, entry] of sseTickets) {
+      if (entry.expiresAtMs <= now) {
+        sseTickets.delete(ticket);
+      }
+    }
+  }
+
   function createLegacyTicket(identity) {
+    cleanup();
+
     if (legacyTickets.size >= maxLegacyTickets) {
       throw new Error(`Ticket cap reached (max ${maxLegacyTickets})`);
     }
+
     const ticket = crypto.randomUUID();
-    legacyTickets.set(ticket, { identity, createdAt: Date.now() });
+    legacyTickets.set(ticket, { identity, expiresAtMs: Date.now() + legacyTtlMs });
     return ticket;
   }
 
   function consumeLegacyTicket(ticket) {
+    if (!ticket || typeof ticket !== 'string') return null;
+
     const entry = legacyTickets.get(ticket);
     if (!entry) return null;
-    legacyTickets.delete(ticket); // single-use
+    legacyTickets.delete(ticket);
 
-    if (Date.now() - entry.createdAt > legacyTtlMs) return null;
+    if (entry.expiresAtMs <= Date.now()) return null;
     return entry.identity;
   }
 
@@ -65,22 +86,8 @@ function createSseAuth(options = {}) {
     return { valid: true, apiKeyId: entry.apiKeyId };
   }
 
-  function cleanup() {
-    const now = Date.now();
-    for (const [ticket, entry] of legacyTickets) {
-      if (now - entry.createdAt > legacyTtlMs) {
-        legacyTickets.delete(ticket);
-      }
-    }
-
-    for (const [ticket, entry] of sseTickets) {
-      if (entry.expiresAtMs <= now) {
-        sseTickets.delete(ticket);
-      }
-    }
-  }
-
   function getTicketCount() {
+    cleanup();
     return legacyTickets.size + sseTickets.size;
   }
 

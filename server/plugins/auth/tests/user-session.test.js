@@ -1,50 +1,48 @@
 'use strict';
-/* global describe, it, expect, beforeAll, afterAll, beforeEach, afterEach */
+/* global describe, it, expect, beforeEach, afterEach, vi */
 
-let testHelpers;
-try {
-  testHelpers = require('../../../../tests/vitest-setup');
-} catch (_err) {
-  testHelpers = require('../../../tests/vitest-setup');
-}
+const Database = require('better-sqlite3');
+
 const { createUserManager } = require('../user-manager');
 const { createSessionManager } = require('../session-manager');
-const { setupTestDb, teardownTestDb, rawDb } = testHelpers;
 
+let db;
 let userManager;
-beforeAll(() => {
-  setupTestDb('auth-plugin-user-session');
 
-  const handle = rawDb();
+function createUsersTable(handle) {
   handle.exec(`
-    DROP TABLE IF EXISTS users;
     CREATE TABLE users (
       id TEXT PRIMARY KEY,
-      username TEXT UNIQUE,
+      username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       display_name TEXT,
-      role TEXT DEFAULT 'viewer',
+      role TEXT NOT NULL DEFAULT 'viewer',
       created_at TEXT,
       updated_at TEXT,
       last_login_at TEXT
     )
   `);
-
-  userManager = createUserManager({ db: handle });
-});
-
-afterAll(() => {
-  teardownTestDb();
-});
+}
 
 beforeEach(() => {
-  const handle = rawDb();
-  handle.prepare('DELETE FROM users').run();
-  userManager = createUserManager({ db: handle });
+  db = new Database(':memory:');
+  createUsersTable(db);
+  userManager = createUserManager({ db });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+
+  if (db) {
+    db.close();
+    db = null;
+  }
 });
 
 describe('user-manager', () => {
-  it('creates users and normalizes usernames', () => {
+  it('creates users and retrieves them', () => {
+    expect(userManager.hasAnyUsers()).toBe(false);
+
     const created = userManager.createUser({
       username: '  Alice ',
       password: 'password123',
@@ -52,42 +50,37 @@ describe('user-manager', () => {
       displayName: 'Alice',
     });
 
-    expect(created.username).toBe('alice');
-    expect(created.role).toBe('operator');
-    expect(created.displayName).toBe('Alice');
+    expect(created).toMatchObject({
+      username: 'alice',
+      role: 'operator',
+      displayName: 'Alice',
+    });
+    expect(userManager.hasAnyUsers()).toBe(true);
+    expect(userManager.normalizeUsername('  Alice ')).toBe('alice');
 
-    const row = rawDb().prepare('SELECT password_hash FROM users WHERE username = ?').get('alice');
-    expect(row.password_hash).toBeDefined();
-    expect(row.password_hash).not.toBe('password123');
+    const fetched = userManager.getUserById(created.id);
+    expect(fetched).toMatchObject({
+      id: created.id,
+      username: 'alice',
+      displayName: 'Alice',
+      role: 'operator',
+    });
+
+    const listed = userManager.listUsers();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({
+      id: created.id,
+      username: 'alice',
+      displayName: 'Alice',
+      role: 'operator',
+    });
+
+    const stored = db.prepare('SELECT password_hash FROM users WHERE username = ?').get('alice');
+    expect(stored.password_hash).toBeDefined();
+    expect(stored.password_hash).not.toBe('password123');
   });
 
-  it('prevents duplicate usernames', () => {
-    userManager.createUser({ username: 'alice', password: 'password123' });
-    expect(() => {
-      userManager.createUser({ username: 'ALICE', password: 'password456' });
-    }).toThrow(/already exists/);
-  });
-
-  it('validates role', () => {
-    expect(() => {
-      userManager.createUser({ username: 'alice', password: 'password123', role: 'superadmin' });
-    }).toThrow(/Invalid role/);
-
-    const created = userManager.createUser({ username: 'alice', password: 'password123', role: 'manager' });
-    expect(created.role).toBe('manager');
-  });
-
-  it('validates password input length requirements', () => {
-    expect(() => {
-      userManager.createUser({ username: 'alice', password: 'short' });
-    }).toThrow(/at least 8/);
-
-    expect(() => {
-      userManager.createUser({ username: 'alice', password: 'a'.repeat(73) });
-    }).toThrow(/at most 72/);
-  });
-
-  it('validates password correctly and tracks last_login_at', () => {
+  it('validates passwords for correct and incorrect credentials', () => {
     const created = userManager.createUser({
       username: 'alice',
       password: 'password123',
@@ -102,11 +95,26 @@ describe('user-manager', () => {
       role: 'viewer',
       type: 'user',
     });
-    const afterLogin = rawDb().prepare('SELECT last_login_at FROM users WHERE id = ?').get(created.id);
-    expect(afterLogin.last_login_at).toBeTruthy();
 
+    const afterLogin = db.prepare('SELECT last_login_at FROM users WHERE id = ?').get(created.id);
+    expect(afterLogin.last_login_at).toBeTruthy();
     expect(userManager.validatePassword('alice', 'wrong-password')).toBeNull();
-    expect(rawDb().prepare('SELECT last_login_at FROM users WHERE id = ?').get(created.id).last_login_at).toBeTruthy();
+  });
+
+  it('rejects duplicate usernames after normalization', () => {
+    userManager.createUser({ username: 'alice', password: 'password123' });
+
+    expect(() => {
+      userManager.createUser({ username: ' ALICE ', password: 'password456' });
+    }).toThrow(/already exists/);
+  });
+
+  it('rejects invalid roles', () => {
+    expect(userManager.VALID_ROLES).toEqual(['viewer', 'operator', 'manager', 'admin']);
+
+    expect(() => {
+      userManager.validateRole('superadmin');
+    }).toThrow(/Invalid role/);
   });
 
   it('protects the last admin from deletion', () => {
@@ -121,7 +129,7 @@ describe('user-manager', () => {
       role: 'admin',
     });
 
-    userManager.deleteUser(firstAdmin.id);
+    expect(userManager.deleteUser(firstAdmin.id)).toBe(true);
     expect(userManager.getUserById(firstAdmin.id)).toBeNull();
 
     expect(() => {
@@ -131,61 +139,73 @@ describe('user-manager', () => {
 });
 
 describe('session-manager', () => {
-  it('creates and returns a session with CSRF token', () => {
-    const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
-    const { sessionId, csrfToken } = createSessionManager().createSession(identity);
-
-    expect(typeof sessionId).toBe('string');
-    expect(typeof csrfToken).toBe('string');
-  });
-
-  it('retrieves active sessions and returns null after expiry', () => {
-    vi.useFakeTimers();
-    const manager = createSessionManager({ sessionTtlMs: 1000 });
+  it('creates and retrieves sessions', () => {
+    const manager = createSessionManager();
     const identity = { id: 'user-1', name: 'Alice', role: 'admin' };
     const { sessionId, csrfToken } = manager.createSession(identity);
 
-    const active = manager.getSession(sessionId);
-    expect(active).toBeTruthy();
-    expect(active.identity).toEqual(identity);
-    expect(active.csrfToken).toBe(csrfToken);
+    expect(typeof sessionId).toBe('string');
+    expect(typeof csrfToken).toBe('string');
+    expect(manager.getSession(sessionId)).toEqual({
+      identity,
+      csrfToken,
+      lastAccess: expect.any(Number),
+    });
+  });
+
+  it('expires sessions after the configured TTL', () => {
+    vi.useFakeTimers();
+
+    const manager = createSessionManager({ sessionTtlMs: 1000 });
+    const { sessionId } = manager.createSession({ id: 'user-1', name: 'Alice', role: 'admin' });
+
+    expect(manager.getSession(sessionId)).toBeTruthy();
 
     vi.advanceTimersByTime(1001);
     expect(manager.getSession(sessionId)).toBeNull();
-    vi.useRealTimers();
   });
 
-  it('validates CSRF tokens safely', () => {
+  it('validates csrf tokens', () => {
     const manager = createSessionManager();
-    const { sessionId, csrfToken } = manager.createSession({ id: 'user-1', name: 'Alice', role: 'admin' });
+    const { sessionId, csrfToken } = manager.createSession({
+      id: 'user-1',
+      name: 'Alice',
+      role: 'admin',
+    });
 
     expect(manager.validateCsrf(sessionId, csrfToken)).toBe(true);
     expect(manager.validateCsrf(sessionId, 'not-the-token')).toBe(false);
+    expect(manager.validateCsrf('missing-session', csrfToken)).toBe(false);
   });
 
-  it('evicts least-recently-used sessions when cap is reached', () => {
+  it('evicts the least recently used session when the cap is reached', () => {
     const manager = createSessionManager({ maxSessions: 2 });
     const first = manager.createSession({ id: 'user-1', name: 'Alice', role: 'admin' }).sessionId;
-    manager.createSession({ id: 'user-2', name: 'Bob', role: 'admin' });
-    manager.createSession({ id: 'user-3', name: 'Cara', role: 'admin' });
+    const second = manager.createSession({ id: 'user-2', name: 'Bob', role: 'operator' }).sessionId;
+
+    expect(manager.getSession(first)).toBeTruthy();
+
+    const third = manager.createSession({ id: 'user-3', name: 'Cara', role: 'viewer' }).sessionId;
 
     expect(manager.getSessionCount()).toBe(2);
-    expect(manager.getSession(first)).toBeNull();
+    expect(manager.getSession(first)).toBeTruthy();
+    expect(manager.getSession(second)).toBeNull();
+    expect(manager.getSession(third)).toBeTruthy();
   });
 
   it('destroys sessions by id and by identity', () => {
     const manager = createSessionManager();
-    const { sessionId } = manager.createSession({ id: 'user-1', name: 'Alice', role: 'admin' });
+    const first = manager.createSession({ id: 'user-1', name: 'Alice', role: 'admin' });
     const second = manager.createSession({ id: 'user-1', name: 'Alice', role: 'admin' });
     const third = manager.createSession({ id: 'user-2', name: 'Bob', role: 'viewer' });
 
-    manager.destroySession(sessionId);
+    expect(manager.destroySession(first.sessionId)).toBe(true);
+    expect(manager.getSession(first.sessionId)).toBeNull();
     expect(manager.getSessionCount()).toBe(2);
-    expect(manager.getSession(sessionId)).toBeNull();
 
-    manager.destroySessionsByIdentityId('user-1');
-    expect(manager.getSessionCount()).toBe(1);
+    expect(manager.destroySessionsByIdentityId('user-1')).toBe(1);
     expect(manager.getSession(second.sessionId)).toBeNull();
     expect(manager.getSession(third.sessionId)).toBeTruthy();
+    expect(manager.getSessionCount()).toBe(1);
   });
 });

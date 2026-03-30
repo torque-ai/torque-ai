@@ -522,7 +522,9 @@ function init() {
   // Initialize database
   db.init();
 
+  // Auth mode: local (default) or enterprise (plugin-based)
   const authMode = process.env.TORQUE_AUTH_MODE || db.getConfig('auth_mode') || 'local';
+
   if (authMode === 'local') {
     debugLog('Auth mode: local (no authentication, 127.0.0.1 only)');
   }
@@ -543,16 +545,17 @@ function init() {
   taskManager.initSubModules();
   serverConfig.init({ db });
 
+  // Auto-inject TORQUE MCP config (keyless for local mode)
   if (authMode === 'local') {
     try {
       const mcpConfigInjector = require('./auth/mcp-config-injector');
       const ssePort = serverConfig.getInt('mcp_sse_port', 3458);
       const result = mcpConfigInjector.ensureGlobalMcpConfig({ ssePort });
       if (result.injected) {
-        debugLog(`MCP config ${result.reason}: ${result.path}`);
+        debugLog('MCP config ' + result.reason + ': ' + result.path);
       }
     } catch (err) {
-      debugLog(`MCP config injection skipped: ${err.message}`);
+      debugLog('MCP config injection skipped: ' + err.message);
     }
   }
 
@@ -578,6 +581,7 @@ function init() {
     // Non-fatal during migration — existing require() paths still work
   }
 
+  // Plugin loading (enterprise auth, future plugins)
   let loadedPlugins = [];
   if (authMode === 'enterprise') {
     try {
@@ -585,10 +589,10 @@ function init() {
       loadedPlugins = loadPlugins({ authMode, logger });
       for (const plugin of loadedPlugins) {
         plugin.install(defaultContainer);
-        debugLog(`Plugin installed: ${plugin.name} v${plugin.version}`);
+        debugLog('Plugin installed: ' + plugin.name + ' v' + plugin.version);
       }
     } catch (err) {
-      debugLog(`Plugin loading failed, falling back to local mode: ${err.message}`);
+      debugLog('Plugin loading failed, falling back to local mode: ' + err.message);
     }
   }
 
@@ -920,12 +924,28 @@ function init() {
     debugLog(`Failed to write PID file: ${err.message}`);
   }
 
+  // Collect plugin MCP tools
+  const pluginTools = [];
+  for (const plugin of loadedPlugins) {
+    const tools = plugin.mcpTools();
+    if (Array.isArray(tools)) {
+      pluginTools.push(...tools);
+    }
+  }
+
   // Initialize shared MCP protocol handler (used by both stdio and SSE transports)
   mcpProtocol.init({
-    tools: getTools(),
+    tools: [...getTools(), ...pluginTools],
     coreToolNames: CORE_TOOL_NAMES,
     extendedToolNames: EXTENDED_TOOL_NAMES,
-    handleToolCall: async (name, args, _session) => callTool(name, args),
+    handleToolCall: async (name, args, _session) => {
+      // Check plugin tools first
+      const pluginTool = pluginTools.find(t => t.name === name);
+      if (pluginTool && typeof pluginTool.handler === 'function') {
+        return pluginTool.handler(args);
+      }
+      return callTool(name, args);
+    },
   });
 
   // Listen for shutdown event from tools.js (e.g., restart_server)

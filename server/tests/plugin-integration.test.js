@@ -1,5 +1,4 @@
 'use strict';
-const { describe, it, expect } = require('vitest');
 const { validatePlugin } = require('../plugins/plugin-contract');
 const { loadPlugins } = require('../plugins/loader');
 
