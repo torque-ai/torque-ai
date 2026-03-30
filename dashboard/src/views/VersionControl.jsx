@@ -27,6 +27,21 @@ const COMMIT_TYPE_STYLES = {
   unknown: 'bg-slate-700 text-slate-300 border border-slate-600',
 };
 
+const RELEASE_BUMP_STYLES = {
+  major: 'bg-red-600/20 text-red-300 border border-red-500/30',
+  minor: 'bg-blue-600/20 text-blue-300 border border-blue-500/30',
+  patch: 'bg-green-600/20 text-green-300 border border-green-500/30',
+  unknown: 'bg-slate-700 text-slate-300 border border-slate-600',
+};
+
+function createEmptyReleaseState() {
+  return {
+    latestTag: null,
+    nextVersion: null,
+    recentReleases: [],
+  };
+}
+
 function deriveFeatureName(worktree) {
   if (typeof worktree?.feature_name === 'string' && worktree.feature_name.trim()) {
     return worktree.feature_name.trim();
@@ -107,6 +122,74 @@ function getCommitTypeStyle(type) {
   return COMMIT_TYPE_STYLES[normalized] || COMMIT_TYPE_STYLES.unknown;
 }
 
+function getReleaseBumpStyle(type) {
+  const normalized = String(type || '').toLowerCase();
+  return RELEASE_BUMP_STYLES[normalized] || RELEASE_BUMP_STYLES.unknown;
+}
+
+function pluralize(value, singular, plural = `${singular}s`) {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+function normalizeReleaseData(payload) {
+  const nextVersion = payload?.next_version && typeof payload.next_version === 'object'
+    ? {
+      current: typeof payload.next_version.current === 'string' ? payload.next_version.current : null,
+      next: typeof payload.next_version.next === 'string' ? payload.next_version.next : null,
+      bump: typeof payload.next_version.bump === 'string' ? payload.next_version.bump.toLowerCase() : null,
+      commitCount: Number(payload.next_version.commitCount || 0),
+      breakdown: payload.next_version.breakdown && typeof payload.next_version.breakdown === 'object'
+        ? payload.next_version.breakdown
+        : {},
+    }
+    : null;
+
+  return {
+    latestTag: typeof payload?.latest_tag === 'string' && payload.latest_tag.trim()
+      ? payload.latest_tag.trim()
+      : null,
+    nextVersion: nextVersion && nextVersion.next ? nextVersion : null,
+    recentReleases: Array.isArray(payload?.recent_releases)
+      ? payload.recent_releases.map((release) => ({
+        version: typeof release?.version === 'string' && release.version.trim() ? release.version.trim() : null,
+        tag: typeof release?.tag === 'string' && release.tag.trim() ? release.tag.trim() : null,
+        releasedAt: release?.released_at || release?.created_at || null,
+        commitCount: Number(release?.commit_count ?? release?.commitCount ?? 0),
+        bumpType: typeof release?.bump_type === 'string' ? release.bump_type.toLowerCase() : null,
+      }))
+      : [],
+  };
+}
+
+function formatNextVersionReason(nextVersion) {
+  if (!nextVersion) {
+    return 'No unreleased commits detected';
+  }
+
+  const bump = String(nextVersion.bump || '').toLowerCase();
+  const commitCount = Number(nextVersion.commitCount || 0);
+  const featCount = Number(nextVersion.breakdown?.feat || 0);
+  const fixCount = Number(nextVersion.breakdown?.fix || 0);
+
+  if (bump === 'major') {
+    return 'major bump, breaking changes detected';
+  }
+
+  if (bump === 'minor') {
+    return featCount > 0
+      ? `minor bump, ${pluralize(featCount, 'feat commit')}`
+      : `minor bump, ${pluralize(commitCount, 'commit')}`;
+  }
+
+  if (bump === 'patch') {
+    return fixCount > 0
+      ? `patch bump, ${pluralize(fixCount, 'fix commit')}`
+      : `patch bump, ${pluralize(commitCount, 'commit')}`;
+  }
+
+  return commitCount > 0 ? `${pluralize(commitCount, 'commit')} since last tag` : 'No unreleased commits detected';
+}
+
 function getCommitTimestamp(commit) {
   return commit?.created_at || commit?.generated_at || null;
 }
@@ -171,7 +254,9 @@ export default function VersionControl() {
   const toast = useToast();
   const [worktrees, setWorktrees] = useState([]);
   const [commits, setCommits] = useState([]);
+  const [releaseData, setReleaseData] = useState(createEmptyReleaseState);
   const [loading, setLoading] = useState(true);
+  const [releasesLoading, setReleasesLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [actionInProgress, setActionInProgress] = useState(null);
@@ -208,16 +293,41 @@ export default function VersionControl() {
     }
   }, [toast]);
 
+  const loadReleases = useCallback(async ({ background = false, notifyError = true } = {}) => {
+    if (!background) {
+      setReleasesLoading(true);
+    }
+
+    try {
+      const response = await versionControlApi.getReleases();
+      setReleaseData(normalizeReleaseData(response));
+    } catch (err) {
+      console.error('Failed to load version control releases:', err);
+      if (!background) {
+        setReleaseData(createEmptyReleaseState());
+      }
+      if (notifyError) {
+        toast.error(`Failed to load release data: ${err.message}`);
+      }
+    } finally {
+      if (!background) {
+        setReleasesLoading(false);
+      }
+    }
+  }, [toast]);
+
   useEffect(() => {
     loadData({ background: false, notifyError: true });
+    loadReleases({ background: false, notifyError: true });
     const interval = setInterval(() => {
       if (document.hidden) {
         return;
       }
       loadData({ background: true, notifyError: false });
+      loadReleases({ background: true, notifyError: false });
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [loadData, loadReleases]);
 
   const recentCommits = useMemo(() => {
     return [...commits]
@@ -264,9 +374,12 @@ export default function VersionControl() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadData({ background: true, notifyError: true });
+    await Promise.all([
+      loadData({ background: true, notifyError: true }),
+      loadReleases({ background: true, notifyError: true }),
+    ]);
     setRefreshing(false);
-  }, [loadData]);
+  }, [loadData, loadReleases]);
 
   const handleConfirmAction = useCallback(async () => {
     if (!confirmAction?.worktree) {
@@ -481,6 +594,83 @@ export default function VersionControl() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      <div className="glass-card overflow-hidden mt-8">
+        <div className="px-5 py-4 border-b border-slate-700/50">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <h3 className="text-lg font-semibold text-white">Releases</h3>
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-700 text-slate-200 border border-slate-600">
+                  {releasesLoading ? 'Loading...' : (releaseData.latestTag || 'No tags')}
+                </span>
+              </div>
+              <p className="text-sm text-slate-400 mt-1">Latest tags, inferred version bumps, and recorded release history</p>
+            </div>
+            <div className="xl:text-right">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Next version</p>
+              {releasesLoading ? (
+                <p className="text-sm text-slate-400 mt-2">Loading release data...</p>
+              ) : releaseData.nextVersion ? (
+                <>
+                  <p className="text-lg font-semibold text-white mt-2">{releaseData.nextVersion.next}</p>
+                  <p className="text-sm text-slate-400 mt-1">{formatNextVersionReason(releaseData.nextVersion)}</p>
+                </>
+              ) : (
+                <p className="text-sm text-slate-400 mt-2">No unreleased commits detected</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {releasesLoading ? (
+          <div className="p-5 text-sm text-slate-400">
+            Loading release history...
+          </div>
+        ) : releaseData.recentReleases.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">
+            No releases recorded yet
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px]">
+              <thead>
+                <tr className="border-b border-slate-700/50">
+                  <th className="text-left p-4 heading-sm">Version</th>
+                  <th className="text-left p-4 heading-sm">Date</th>
+                  <th className="text-left p-4 heading-sm">Commit Count</th>
+                  <th className="text-left p-4 heading-sm">Bump</th>
+                </tr>
+              </thead>
+              <tbody>
+                {releaseData.recentReleases.map((release, index) => (
+                  <tr
+                    key={`${release.tag || release.version || 'release'}-${release.releasedAt || index}`}
+                    className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors"
+                  >
+                    <td className="p-4 align-top">
+                      <p className="text-sm font-medium text-white">{release.version || release.tag || '-'}</p>
+                      <p className="text-xs text-slate-500 mt-1">{release.tag || 'Release tag unavailable'}</p>
+                    </td>
+                    <td className="p-4 align-top">
+                      <p className="text-sm text-slate-200">{formatDate(release.releasedAt)}</p>
+                      <p className="text-xs text-slate-500 mt-1">{formatRelativeTime(release.releasedAt)}</p>
+                    </td>
+                    <td className="p-4 align-top text-sm text-slate-200">
+                      {Number(release.commitCount || 0).toLocaleString()}
+                    </td>
+                    <td className="p-4 align-top">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getReleaseBumpStyle(release.bumpType)}`}>
+                        {release.bumpType || 'unknown'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

@@ -160,6 +160,150 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'vc_prepare_pr',
+    description: 'Generate a pull request title, body, and labels for the target repository branch.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: {
+          type: 'string',
+          description: 'Absolute path to the git repository root.',
+        },
+        source_branch: {
+          type: 'string',
+          description: 'Optional source branch to use when building the pull request summary.',
+        },
+        target_branch: {
+          type: 'string',
+          description: 'Optional target branch to diff against when building the pull request summary.',
+        },
+      },
+      required: ['repo_path'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'vc_create_pr',
+    description: 'Create a GitHub pull request for the current repository branch using the GitHub CLI.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: {
+          type: 'string',
+          description: 'Absolute path to the git repository root.',
+        },
+        title: {
+          type: 'string',
+          description: 'Pull request title.',
+        },
+        body: {
+          type: 'string',
+          description: 'Pull request body markdown.',
+        },
+        labels: {
+          type: 'array',
+          description: 'Optional labels to apply to the pull request.',
+          items: {
+            type: 'string',
+          },
+        },
+        target_branch: {
+          type: 'string',
+          description: 'Optional base branch to target when creating the pull request.',
+        },
+        draft: {
+          type: 'boolean',
+          description: 'When true, create the pull request as a draft.',
+          default: false,
+        },
+      },
+      required: ['repo_path', 'title', 'body'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'vc_generate_changelog',
+    description: 'Generate changelog markdown for the target repository using commit history and release metadata.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: {
+          type: 'string',
+          description: 'Absolute path to the git repository root.',
+        },
+        from_tag: {
+          type: 'string',
+          description: 'Optional starting git tag used to derive the changelog range.',
+        },
+        to_tag: {
+          type: 'string',
+          description: 'Optional ending git tag used to derive the changelog range.',
+        },
+        from_date: {
+          type: 'string',
+          description: 'Optional starting ISO-8601 timestamp used to filter changelog entries.',
+        },
+        to_date: {
+          type: 'string',
+          description: 'Optional ending ISO-8601 timestamp used to filter changelog entries.',
+        },
+        version: {
+          type: 'string',
+          description: 'Optional version label to use in the generated changelog heading.',
+        },
+      },
+      required: ['repo_path'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'vc_update_changelog_file',
+    description: 'Update the repository changelog file with a generated or provided changelog entry.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: {
+          type: 'string',
+          description: 'Absolute path to the git repository root.',
+        },
+        version: {
+          type: 'string',
+          description: 'Version heading for the changelog entry.',
+        },
+        changelog_text: {
+          type: 'string',
+          description: 'Optional changelog markdown to prepend to the changelog file.',
+        },
+      },
+      required: ['repo_path', 'version'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'vc_create_release',
+    description: 'Create a version tag and release record for the target repository.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: {
+          type: 'string',
+          description: 'Absolute path to the git repository root.',
+        },
+        version: {
+          type: 'string',
+          description: 'Optional semantic version to release. When omitted, the next version is inferred.',
+        },
+        push: {
+          type: 'boolean',
+          description: 'When true, push the created release tag to origin.',
+          default: false,
+        },
+      },
+      required: ['repo_path'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 module.exports = tools;

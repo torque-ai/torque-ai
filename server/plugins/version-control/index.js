@@ -5,10 +5,13 @@ const { createConfigResolver } = require('./config-resolver');
 const { createWorktreeManager } = require('./worktree-manager');
 const { createCommitGenerator } = require('./commit-generator');
 const { createPolicyEngine } = require('./policy-engine');
+const { createPrPreparer } = require('./pr-preparer');
+const { createChangelogGenerator } = require('./changelog-generator');
+const { createReleaseManager } = require('./release-manager');
 const { createHandlers } = require('./handlers');
 
 const PLUGIN_NAME = 'version-control';
-const PLUGIN_VERSION = '1.0.0';
+const PLUGIN_VERSION = '2.0.0';
 
 const CREATE_WORKTREES_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS vc_worktrees (
@@ -73,6 +76,9 @@ function createVersionControlPlugin() {
   let worktreeManager = null;
   let commitGenerator = null;
   let policyEngine = null;
+  let prPreparer = null;
+  let changelogGenerator = null;
+  let releaseManager = null;
   let handlers = null;
   let installed = false;
 
@@ -93,12 +99,18 @@ function createVersionControlPlugin() {
     worktreeManager = createWorktreeManager({ db });
     commitGenerator = createCommitGenerator();
     policyEngine = createPolicyEngine({ configResolver });
+    prPreparer = createPrPreparer();
+    changelogGenerator = createChangelogGenerator({ db });
+    releaseManager = createReleaseManager({ db });
     handlers = createHandlers({
       db,
       configResolver,
       worktreeManager,
       commitGenerator,
       policyEngine,
+      prPreparer,
+      changelogGenerator,
+      releaseManager,
     });
 
     installed = true;
@@ -110,6 +122,9 @@ function createVersionControlPlugin() {
     worktreeManager = null;
     commitGenerator = null;
     policyEngine = null;
+    prPreparer = null;
+    changelogGenerator = null;
+    releaseManager = null;
     handlers = null;
     installed = false;
   }

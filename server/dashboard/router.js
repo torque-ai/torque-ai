@@ -209,6 +209,244 @@ function getVersionControlTimestampColumn(columns) {
   return null;
 }
 
+function resolveDashboardVersionControlReleaseManager(db) {
+  try {
+    const releaseManagerModule = require('../plugins/version-control/release-manager');
+    if (!releaseManagerModule || typeof releaseManagerModule.createReleaseManager !== 'function') {
+      return null;
+    }
+
+    return releaseManagerModule.createReleaseManager({ db });
+  } catch {
+    return null;
+  }
+}
+
+function resolveDashboardVersionControlRepoPath(db, preferredRepoPath) {
+  const repoPath = normalizeOptionalString(preferredRepoPath);
+  if (repoPath) {
+    return repoPath;
+  }
+
+  const commitColumns = getTableColumns(db, 'vc_commits');
+  const commitTimestampColumn = getVersionControlTimestampColumn(commitColumns);
+  if (commitColumns.length > 0 && commitTimestampColumn && hasColumn(commitColumns, 'repo_path')) {
+    const latestReleaseRow = db.prepare(`
+      SELECT repo_path
+      FROM vc_commits
+      WHERE LOWER(COALESCE(commit_type, '')) = 'release'
+        AND repo_path IS NOT NULL
+        AND TRIM(repo_path) != ''
+      ORDER BY datetime(${commitTimestampColumn}) DESC
+      LIMIT 1
+    `).get();
+    if (normalizeOptionalString(latestReleaseRow?.repo_path)) {
+      return latestReleaseRow.repo_path;
+    }
+
+    const latestCommitRow = db.prepare(`
+      SELECT repo_path
+      FROM vc_commits
+      WHERE repo_path IS NOT NULL
+        AND TRIM(repo_path) != ''
+      ORDER BY datetime(${commitTimestampColumn}) DESC
+      LIMIT 1
+    `).get();
+    if (normalizeOptionalString(latestCommitRow?.repo_path)) {
+      return latestCommitRow.repo_path;
+    }
+  }
+
+  const worktreeColumns = getTableColumns(db, 'vc_worktrees');
+  if (worktreeColumns.length > 0 && hasColumn(worktreeColumns, 'repo_path')) {
+    const activityExpression = hasColumn(worktreeColumns, 'last_activity_at')
+      ? 'COALESCE(last_activity_at, created_at)'
+      : (hasColumn(worktreeColumns, 'created_at') ? 'created_at' : null);
+    const orderByClause = activityExpression
+      ? ` ORDER BY datetime(${activityExpression}) DESC`
+      : '';
+    const latestWorktreeRow = db.prepare(`
+      SELECT repo_path
+      FROM vc_worktrees
+      WHERE repo_path IS NOT NULL
+        AND TRIM(repo_path) != ''${orderByClause}
+      LIMIT 1
+    `).get();
+    if (normalizeOptionalString(latestWorktreeRow?.repo_path)) {
+      return latestWorktreeRow.repo_path;
+    }
+  }
+
+  return null;
+}
+
+function parseVersionControlSemver(value) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = /^(?:v)?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(normalized);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] || null,
+  };
+}
+
+function formatVersionControlSemver(version) {
+  if (!version) {
+    return null;
+  }
+
+  return `${version.major}.${version.minor}.${version.patch}${version.prerelease ? `-${version.prerelease}` : ''}`;
+}
+
+function extractVersionControlReleaseVersion(row) {
+  const candidates = [
+    normalizeOptionalString(row?.commit_hash),
+    normalizeOptionalString(row?.message),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const taggedMatch = /(?:^v|release\s+)(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/i.exec(candidate);
+    if (taggedMatch) {
+      return taggedMatch[1];
+    }
+
+    const parsed = parseVersionControlSemver(candidate);
+    if (parsed) {
+      return formatVersionControlSemver(parsed);
+    }
+  }
+
+  return null;
+}
+
+function inferVersionControlReleaseBumpType(currentVersionText, previousVersionText) {
+  const currentVersion = parseVersionControlSemver(currentVersionText);
+  if (!currentVersion) {
+    return null;
+  }
+
+  const previousVersion = parseVersionControlSemver(previousVersionText);
+  if (!previousVersion) {
+    if (currentVersion.major > 0) {
+      return 'major';
+    }
+
+    if (currentVersion.minor > 0) {
+      return 'minor';
+    }
+
+    return 'patch';
+  }
+
+  if (currentVersion.major !== previousVersion.major) {
+    return 'major';
+  }
+
+  if (currentVersion.minor !== previousVersion.minor) {
+    return 'minor';
+  }
+
+  return 'patch';
+}
+
+function countVersionControlReleaseCommits(db, repoPath, timestampColumn, releasedAt, previousReleasedAt) {
+  if (!normalizeOptionalString(repoPath) || !normalizeOptionalString(releasedAt) || !timestampColumn) {
+    return 0;
+  }
+
+  try {
+    const whereClauses = [
+      'repo_path = ?',
+      `datetime(${timestampColumn}) < datetime(?)`,
+      "LOWER(COALESCE(commit_type, '')) != 'release'",
+    ];
+    const params = [repoPath, releasedAt];
+
+    if (normalizeOptionalString(previousReleasedAt)) {
+      whereClauses.push(`datetime(${timestampColumn}) > datetime(?)`);
+      params.push(previousReleasedAt);
+    }
+
+    const row = db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM vc_commits
+      WHERE ${whereClauses.join(' AND ')}
+    `).get(...params);
+
+    const count = Number(row?.count || 0);
+    return Number.isFinite(count) ? count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function listRecentVersionControlReleases(db, repoPath, limit = 10) {
+  const normalizedRepoPath = normalizeOptionalString(repoPath);
+  if (!normalizedRepoPath) {
+    return [];
+  }
+
+  const columns = getTableColumns(db, 'vc_commits');
+  const timestampColumn = getVersionControlTimestampColumn(columns);
+  if (
+    columns.length === 0
+    || !timestampColumn
+    || !hasColumn(columns, 'repo_path')
+    || !hasColumn(columns, 'commit_type')
+  ) {
+    return [];
+  }
+
+  const selectColumns = [
+    'repo_path',
+    hasColumn(columns, 'commit_hash') ? 'commit_hash' : 'NULL AS commit_hash',
+    hasColumn(columns, 'message') ? 'message' : 'NULL AS message',
+    `${timestampColumn} AS released_at`,
+  ].join(', ');
+
+  try {
+    const rows = db.prepare(`
+      SELECT ${selectColumns}
+      FROM vc_commits
+      WHERE repo_path = ?
+        AND LOWER(COALESCE(commit_type, '')) = 'release'
+      ORDER BY datetime(${timestampColumn}) DESC
+      LIMIT ?
+    `).all(normalizedRepoPath, limit);
+
+    return rows.map((row, index) => {
+      const previousRow = rows[index + 1] || null;
+      const version = extractVersionControlReleaseVersion(row);
+      const previousVersion = extractVersionControlReleaseVersion(previousRow);
+
+      return {
+        version: version || normalizeOptionalString(row.commit_hash) || null,
+        tag: normalizeOptionalString(row.commit_hash) || (version ? `v${version}` : null),
+        released_at: row.released_at || null,
+        commit_count: countVersionControlReleaseCommits(
+          db,
+          normalizedRepoPath,
+          timestampColumn,
+          row.released_at,
+          previousRow?.released_at,
+        ),
+        bump_type: inferVersionControlReleaseBumpType(version, previousVersion),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 async function handleGetGovernanceRulesRoute(req, res, query) {
   const args = {};
   if (typeof query.stage === 'string' && query.stage.trim()) {
@@ -420,6 +658,81 @@ async function handleGetVersionControlCommitsRoute(_req, res, query) {
   }
 }
 
+async function handleGetVersionControlReleasesRoute(_req, res, query) {
+  const defaults = {
+    latest_tag: null,
+    next_version: null,
+    recent_releases: [],
+  };
+
+  const { db, error } = resolveDashboardVersionControlDb();
+  if (error) {
+    return sendJson(res, defaults);
+  }
+
+  const repoPath = resolveDashboardVersionControlRepoPath(db, query.repo_path);
+  if (!repoPath) {
+    return sendJson(res, defaults);
+  }
+
+  const recentReleases = listRecentVersionControlReleases(db, repoPath);
+  const releaseManager = resolveDashboardVersionControlReleaseManager(db);
+  if (!releaseManager) {
+    return sendJson(res, {
+      ...defaults,
+      recent_releases: recentReleases,
+    });
+  }
+
+  try {
+    const latestTagResult = await Promise.resolve(releaseManager.getLatestTag(repoPath));
+    const inferredNextVersion = await Promise.resolve(releaseManager.inferNextVersion(repoPath));
+
+    return sendJson(res, {
+      latest_tag: latestTagResult?.tag || null,
+      next_version: Number(inferredNextVersion?.commitCount || 0) > 0 ? inferredNextVersion : null,
+      recent_releases: recentReleases,
+    });
+  } catch (err) {
+    return sendJson(res, { error: err.message }, 500);
+  }
+}
+
+async function handleCreateVersionControlReleaseRoute(req, res) {
+  const { db, error } = resolveDashboardVersionControlDb();
+  if (error) {
+    return sendJson(res, {
+      error: 'Version control data unavailable',
+      details: error.message,
+    }, 503);
+  }
+
+  const releaseManager = resolveDashboardVersionControlReleaseManager(db);
+  if (!releaseManager || typeof releaseManager.createRelease !== 'function') {
+    return sendJson(res, {
+      error: 'Version control release manager unavailable',
+    }, 503);
+  }
+
+  try {
+    const body = await parseBody(req);
+    const repoPath = normalizeOptionalString(body.repo_path);
+    if (!repoPath) {
+      return sendError(res, 'repo_path is required', 400);
+    }
+
+    const result = await Promise.resolve(releaseManager.createRelease(repoPath, {
+      version: normalizeOptionalString(body.version),
+      push: body.push === true,
+    }));
+
+    return sendJson(res, result || {});
+  } catch (err) {
+    const status = /semantic version|repoPath is required/i.test(err.message) ? 400 : 500;
+    return sendJson(res, { error: err.message }, status);
+  }
+}
+
 async function handleDeleteVersionControlWorktreeRoute(_req, res, _query, worktreeId) {
   const { db, error } = resolveDashboardVersionControlDb();
   if (error) {
@@ -586,6 +899,8 @@ const routes = [
   { method: 'POST',  pattern: /^\/api\/governance\/rules\/([^/]+)\/reset$/, handler: handleResetGovernanceRuleRoute },
 
   // --- Version Control ---
+  { method: 'GET',    pattern: /^\/api\/version-control\/releases$/,                  handler: handleGetVersionControlReleasesRoute },
+  { method: 'POST',   pattern: /^\/api\/version-control\/releases$/,                  handler: handleCreateVersionControlReleaseRoute },
   { method: 'GET',    pattern: /^\/api\/version-control\/worktrees$/,                 handler: handleGetVersionControlWorktreesRoute },
   { method: 'GET',    pattern: /^\/api\/version-control\/commits$/,                   handler: handleGetVersionControlCommitsRoute },
   { method: 'DELETE', pattern: /^\/api\/version-control\/worktrees\/([^/]+)$/,        handler: handleDeleteVersionControlWorktreeRoute },

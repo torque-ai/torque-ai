@@ -85,6 +85,18 @@ function getArrayValue(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function normalizeOptionalStringArray(value, fieldName) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array of strings`);
+  }
+
+  return value.map((item, index) => requireString(item, `${fieldName}[${index}]`));
+}
+
 function ensureTrailingSlash(prefix) {
   if (typeof prefix !== 'string' || !prefix.trim()) {
     return '';
@@ -373,6 +385,116 @@ async function resolveDefaultStaleDays(getEffectiveConfig, getGlobalDefaults, re
   return DEFAULT_STALE_DAYS;
 }
 
+function extractUrl(output) {
+  const match = String(output || '').match(/https?:\/\/\S+/);
+  return match ? match[0].replace(/[),.;\]}]+$/, '') : null;
+}
+
+async function handleVcPreparePr(args, services = {}) {
+  const payload = normalizeArgs(args);
+  const repoPath = requireString(payload.repo_path, 'repo_path');
+  const sourceBranch = normalizeOptionalString(payload.source_branch);
+  const targetBranch = normalizeOptionalString(payload.target_branch);
+  const preparePr = resolveMethod(services.prPreparer, 'prPreparer', ['preparePr']);
+  const result = await Promise.resolve(preparePr(repoPath, sourceBranch, targetBranch));
+
+  return toTextResponse({
+    title: normalizeOptionalString(result?.title) || '',
+    body: typeof result?.body === 'string' ? result.body : '',
+    labels: getArrayValue(result?.labels),
+  });
+}
+
+async function handleVcCreatePr(args) {
+  const payload = normalizeArgs(args);
+  const repoPath = requireString(payload.repo_path, 'repo_path');
+  const title = requireString(payload.title, 'title');
+  const body = requireString(payload.body, 'body');
+  const targetBranch = normalizeOptionalString(payload.target_branch) || DEFAULT_BASE_BRANCH;
+  const labels = normalizeOptionalStringArray(payload.labels, 'labels');
+  const output = execFileSync('gh', [
+    'pr',
+    'create',
+    '--title',
+    title,
+    '--body',
+    body,
+    '--base',
+    targetBranch,
+    ...(payload.draft === true ? ['--draft'] : []),
+    ...labels.flatMap((label) => ['--label', label]),
+  ], {
+    cwd: repoPath,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const message = String(output || '').trim() || 'Pull request created';
+  const url = extractUrl(message);
+
+  return toTextResponse({ url, message });
+}
+
+async function handleVcGenerateChangelog(args, services = {}) {
+  const payload = normalizeArgs(args);
+  const repoPath = requireString(payload.repo_path, 'repo_path');
+  const fromTag = normalizeOptionalString(payload.from_tag);
+  const toTag = normalizeOptionalString(payload.to_tag);
+  const fromDate = normalizeOptionalString(payload.from_date);
+  const toDate = normalizeOptionalString(payload.to_date);
+  const version = normalizeOptionalString(payload.version);
+  const generateChangelog = resolveMethod(services.changelogGenerator, 'changelogGenerator', ['generateChangelog']);
+  const markdown = await Promise.resolve(generateChangelog(repoPath, {
+    ...payload,
+    fromTag,
+    toTag,
+    fromDate,
+    toDate,
+    version,
+  }));
+
+  return toTextResponse({
+    markdown: typeof markdown === 'string' ? markdown : '',
+  });
+}
+
+async function handleVcUpdateChangelogFile(args, services = {}) {
+  const payload = normalizeArgs(args);
+  const repoPath = requireString(payload.repo_path, 'repo_path');
+  const version = requireString(payload.version, 'version');
+  const updateChangelogFile = resolveMethod(services.changelogGenerator, 'changelogGenerator', ['updateChangelogFile']);
+  let changelogText = typeof payload.changelog_text === 'string' ? payload.changelog_text : null;
+
+  if (!changelogText || !changelogText.trim()) {
+    const generateChangelog = resolveMethod(services.changelogGenerator, 'changelogGenerator', ['generateChangelog']);
+    changelogText = await Promise.resolve(generateChangelog(repoPath, {
+      ...payload,
+      version,
+    }));
+  }
+
+  const result = await Promise.resolve(updateChangelogFile(repoPath, version, changelogText));
+  return toTextResponse({
+    path: result?.path,
+    version: result?.version || version,
+  });
+}
+
+async function handleVcCreateRelease(args, services = {}) {
+  const payload = normalizeArgs(args);
+  const repoPath = requireString(payload.repo_path, 'repo_path');
+  const version = normalizeOptionalString(payload.version);
+  const push = payload.push === true;
+  const createRelease = resolveMethod(services.releaseManager, 'releaseManager', ['createRelease']);
+  const result = await Promise.resolve(createRelease(repoPath, { version, push }));
+
+  return toTextResponse({
+    version: result?.version || version,
+    tag: result?.tag || (result?.version ? `v${result.version}` : null),
+    bump: Object.prototype.hasOwnProperty.call(result || {}, 'bump') ? result.bump : null,
+    pushed: result?.pushed ?? push,
+  });
+}
+
 function createHandlers(services = {}) {
   const {
     worktreeManager,
@@ -380,6 +502,9 @@ function createHandlers(services = {}) {
     policyEngine,
     configResolver,
     db,
+    prPreparer,
+    changelogGenerator,
+    releaseManager,
   } = services;
 
   const createWorktree = resolveMethod(worktreeManager, 'worktreeManager', ['createWorktree']);
@@ -677,7 +802,49 @@ function createHandlers(services = {}) {
       const policy = await Promise.resolve(getEffectiveConfig(repoPath));
       return toTextResponse(policy || {});
     },
+
+    async vc_prepare_pr(args) {
+      return handleVcPreparePr(args, { prPreparer });
+    },
+
+    async vc_create_pr(args) {
+      return handleVcCreatePr(args);
+    },
+
+    async vc_generate_changelog(args) {
+      return handleVcGenerateChangelog(args, { changelogGenerator });
+    },
+
+    async vc_update_changelog_file(args) {
+      return handleVcUpdateChangelogFile(args, { changelogGenerator });
+    },
+
+    async vc_create_release(args) {
+      return handleVcCreateRelease(args, { releaseManager });
+    },
   };
 }
 
-module.exports = { createHandlers };
+module.exports = {
+  createHandlers,
+  toTextResponse,
+  normalizeArgs,
+  requireString,
+  normalizeOptionalString,
+  normalizeOptionalNumber,
+  resolveMethod,
+  resolveOptionalMethod,
+  resolveDbHandle,
+  getArrayValue,
+  ensureTrailingSlash,
+  buildBranchCandidate,
+  getBranchNamingMode,
+  getDefaultMergeStrategy,
+  normalizeTimestamp,
+  extractCommitMessage,
+  handleVcPreparePr,
+  handleVcCreatePr,
+  handleVcGenerateChangelog,
+  handleVcUpdateChangelogFile,
+  handleVcCreateRelease,
+};

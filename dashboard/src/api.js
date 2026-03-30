@@ -471,6 +471,11 @@ export const coordination = {
 export const versionControl = {
   getWorktrees: () => request('/version-control/worktrees'),
   getCommits: (days = 7) => request('/version-control/commits?days=' + days),
+  getReleases: () => request('/version-control/releases'),
+  createRelease: (body) => request('/version-control/releases', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }),
   deleteWorktree: (id) => request('/version-control/worktrees/' + id, { method: 'DELETE' }),
   mergeWorktree: (id, opts = {}) => request('/version-control/worktrees/' + id + '/merge', {
     method: 'POST',
