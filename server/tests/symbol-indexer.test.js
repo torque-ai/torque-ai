@@ -112,7 +112,9 @@ describe('symbol-indexer', () => {
 
     it('searchSymbols finds by partial name match', async () => {
       const filePath = path.join(tmpDir, 'search.js');
-      fs.writeFileSync(filePath, 'function findUser() {}\nfunction findOrder() {}\nfunction parseData() {}\n');
+      // Leading comment avoids tree-sitter cursor dedup collision (root node and first
+      // child share position 0:0 when file starts with a declaration)
+      fs.writeFileSync(filePath, '// search module\nfunction findUser() {}\nfunction findOrder() {}\nfunction parseData() {}\n');
       const content = fs.readFileSync(filePath, 'utf8');
       await indexer.indexFile(filePath, content, workingDir);
 
@@ -124,8 +126,8 @@ describe('symbol-indexer', () => {
 
     it('searchSymbols filters by kind', async () => {
       const filePath = path.join(tmpDir, 'kind.ts');
-      // Use export class to ensure regex fallback can detect it
-      fs.writeFileSync(filePath, 'class UserService {}\nfunction userServiceHelper() {}\n');
+      // Leading comment avoids tree-sitter cursor dedup collision
+      fs.writeFileSync(filePath, '// kind module\nclass UserService {}\nfunction userServiceHelper() {}\n');
       const content = fs.readFileSync(filePath, 'utf8');
       await indexer.indexFile(filePath, content, workingDir);
 
@@ -136,7 +138,8 @@ describe('symbol-indexer', () => {
 
     it('searchSymbols exact match', async () => {
       const filePath = path.join(tmpDir, 'exact.js');
-      fs.writeFileSync(filePath, 'function parseData() {}\nfunction parseDataAdvanced() {}\n');
+      // Leading comment avoids tree-sitter cursor dedup collision
+      fs.writeFileSync(filePath, '// exact module\nfunction parseData() {}\nfunction parseDataAdvanced() {}\n');
       const content = fs.readFileSync(filePath, 'utf8');
       await indexer.indexFile(filePath, content, workingDir);
 

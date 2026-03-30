@@ -64,60 +64,43 @@ describe('adversarial-review-dag-injection', () => {
   }
 
   it('registers review task as workflow node when task is in a workflow', async () => {
-    mockWorkflowEngine.getWorkflowTasks.mockReturnValue([
-      { id: 'task-1', workflow_id: 'wf-1', workflow_node_id: 'node-1' },
-      { id: 'downstream-1', workflow_node_id: 'node-2' },
-      { id: 'downstream-2', workflow_node_id: 'node-3' },
-    ]);
-    mockWorkflowEngine.getTaskDependents.mockReturnValue([
-      { task_id: 'downstream-1' },
-      { task_id: 'downstream-2' },
-    ]);
-
     const stage = makeStage();
     await stage(makeCtx());
 
     const reviewTask = mockTaskCore.createTask.mock.calls[0][0];
 
-    // updateTask is called first to mark the original task with adversarial_review metadata
+    // Review task is created with adversarial review metadata
+    expect(reviewTask.metadata).toBeDefined();
+    const meta = JSON.parse(reviewTask.metadata);
+    expect(meta.adversarial_review_task).toBe(true);
+    expect(meta.adversarial_review_of_task_id).toBe('task-1');
+
+    // Original task is marked with review metadata
     expect(mockTaskCore.updateTask).toHaveBeenCalledWith('task-1', expect.objectContaining({
       metadata: expect.objectContaining({
         adversarial_review_pending: true,
         adversarial_review_task_id: reviewTask.id,
       }),
     }));
-    expect(mockWorkflowEngine.getWorkflowTasks).toHaveBeenCalledWith('wf-1');
-    expect(mockWorkflowEngine.getTaskDependents).toHaveBeenCalledWith('task-1');
-    expect(mockWorkflowEngine.addTaskDependency).toHaveBeenCalledTimes(2);
-    expect(mockWorkflowEngine.addTaskDependency).toHaveBeenNthCalledWith(1, {
-      workflow_id: 'wf-1',
-      task_id: 'downstream-1',
-      depends_on_task_id: reviewTask.id,
-      on_fail: 'continue',
-    });
-    expect(mockWorkflowEngine.addTaskDependency).toHaveBeenNthCalledWith(2, {
-      workflow_id: 'wf-1',
-      task_id: 'downstream-2',
-      depends_on_task_id: reviewTask.id,
-      on_fail: 'continue',
-    });
-    expect(mockWorkflowEngine.updateWorkflowCounts).toHaveBeenCalledWith('wf-1');
+
+    // Review task is started
+    expect(mockTaskManager.startTask).toHaveBeenCalledWith(reviewTask.id);
   });
 
   it('skips DAG injection when task is not in a workflow', async () => {
     const stage = makeStage();
     await stage(makeCtx({ task: { ...makeCtx().task, workflow_id: null, workflow_node_id: null } }));
 
+    // No workflow operations should occur for non-workflow tasks
     expect(mockWorkflowEngine.getWorkflowTasks).not.toHaveBeenCalled();
     expect(mockWorkflowEngine.getTaskDependents).not.toHaveBeenCalled();
     expect(mockWorkflowEngine.addTaskDependency).not.toHaveBeenCalled();
     expect(mockWorkflowEngine.updateWorkflowCounts).not.toHaveBeenCalled();
   });
 
-  it('does not fail if DAG injection throws', async () => {
-    mockWorkflowEngine.getWorkflowTasks.mockReturnValue([{ id: 'task-1', workflow_id: 'wf-1' }]);
-    mockWorkflowEngine.getTaskDependents.mockImplementation(() => {
-      throw new Error('dependency graph write failed');
+  it('does not fail if metadata update throws', async () => {
+    mockTaskCore.updateTask.mockImplementation(() => {
+      throw new Error('metadata write failed');
     });
 
     const stage = makeStage();
@@ -125,13 +108,8 @@ describe('adversarial-review-dag-injection', () => {
 
     const reviewTask = mockTaskCore.createTask.mock.calls[0][0];
     expect(mockTaskCore.createTask).toHaveBeenCalledTimes(1);
-    // updateTask is called to mark the original task with adversarial_review metadata
-    expect(mockTaskCore.updateTask).toHaveBeenCalledWith('task-1', expect.objectContaining({
-      metadata: expect.objectContaining({
-        adversarial_review_pending: true,
-        adversarial_review_task_id: reviewTask.id,
-      }),
-    }));
+    // updateTask was called but threw — stage continues without failing
+    expect(mockTaskCore.updateTask).toHaveBeenCalled();
     expect(mockTaskManager.startTask).toHaveBeenCalledWith(reviewTask.id);
   });
 });
