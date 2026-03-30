@@ -84,7 +84,7 @@ function sortTasks(tasks, sortKey) {
   return sorted;
 }
 
-function getTaskAge(createdAt, now) {
+function getTaskAge(createdAt, now = Date.now()) {
   if (!createdAt) return null;
   const hours = (now - new Date(createdAt).getTime()) / 3600000;
   if (hours < 1) return null;
@@ -94,9 +94,14 @@ function getTaskAge(createdAt, now) {
   return { label: `${days}d`, color: 'text-red-400' };
 }
 
-function LastRefreshed({ timestamp, now }) {
+function LastRefreshed({ timestamp }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 5000);
+    return () => clearInterval(id);
+  }, []);
   if (!timestamp) return null;
-  const secs = Math.floor((now - timestamp) / 1000);
+  const secs = Math.floor((Date.now() - timestamp) / 1000);
   if (secs < 5) return <span className="text-xs text-slate-600">just now</span>;
   if (secs < 60) return <span className="text-xs text-slate-600">{secs}s ago</span>;
   return <span className="text-xs text-slate-600">{Math.floor(secs / 60)}m ago</span>;
@@ -203,18 +208,28 @@ function buildTaskActivityEvent(task, previousTask) {
   }
 }
 
-// Self-ticking queue wait time with color coding
-function QueueAge({ createdAt, now }) {
-  const secs = Math.floor((now - new Date(createdAt).getTime()) / 1000);
+// Self-ticking queue wait time with color coding — owns its own timer
+function QueueAge({ createdAt }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const secs = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
   const mins = Math.floor(secs / 60);
   const color = mins >= 5 ? 'text-red-400' : mins >= 1 ? 'text-yellow-400' : 'text-slate-400';
   const label = mins > 0 ? `${mins}m` : `${secs}s`;
   return <span className={`font-mono ${color}`} title="Queue wait time">{label}</span>;
 }
 
-// Self-ticking elapsed timer so parent card doesn't need to re-render
-function LiveElapsed({ startedAt, now }) {
-  return <span className="text-blue-400 font-mono">{formatElapsed(startedAt, now)}</span>;
+// Self-ticking elapsed timer — owns its own timer, parent card does not re-render
+function LiveElapsed({ startedAt }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <span className="text-blue-400 font-mono">{formatElapsed(startedAt)}</span>;
 }
 
 const TaskCard = memo(function TaskCard({
@@ -226,7 +241,6 @@ const TaskCard = memo(function TaskCard({
   isPinned,
   onPin,
   hostActivity,
-  now,
   providerList,
   selectedProvider,
   isReassigning,
@@ -238,7 +252,7 @@ const TaskCard = memo(function TaskCard({
   const shortId = task.id?.substring(0, 8) || 'unknown';
   const hostLabel = task.ollama_host_name || task.ollama_host_id;
   const gpuActive = task.status === 'running' ? task.gpu_active : undefined;
-  const age = getTaskAge(task.created_at, now);
+  const age = getTaskAge(task.created_at);
   const hostAct = task.status === 'running' && task.ollama_host_id
     ? hostActivity?.hosts?.[task.ollama_host_id] : null;
   const gpu = hostAct?.gpuMetrics || null;
@@ -321,7 +335,7 @@ const TaskCard = memo(function TaskCard({
             </span>
           )}
           {task.status === 'running' && task.started_at && (
-            <LiveElapsed startedAt={task.started_at} now={now} />
+            <LiveElapsed startedAt={task.started_at} />
           )}
           {task.status === 'completed' && task.completed_at && (
             <span className="text-green-400">
@@ -375,7 +389,7 @@ const TaskCard = memo(function TaskCard({
             </>
           )}
           {task.status === 'queued' && task.created_at && (
-            <QueueAge createdAt={task.created_at} now={now} />
+            <QueueAge createdAt={task.created_at} />
           )}
           {age && (
             <span className={`text-[10px] font-mono ${age.color}`} title="Task age">{age.label}</span>
@@ -463,7 +477,6 @@ const TaskCard = memo(function TaskCard({
     && p.ollama_host_id === n.ollama_host_id && p.ollama_host_name === n.ollama_host_name
     && p.gpu_active === n.gpu_active && p.error_output === n.error_output
     && prev.isPinned === next.isPinned && prev.hostActivity === next.hostActivity
-    && prev.now === next.now
     && prev.selectedProvider === next.selectedProvider
     && prev.isReassigning === next.isReassigning
     && prev.providerList === next.providerList;
@@ -487,7 +500,6 @@ const KanbanColumn = memo(function KanbanColumn({
   pinnedIds,
   onPin,
   hostActivity,
-  now,
   providerList,
   queuedProviderSelections,
   reassigningIds,
@@ -564,7 +576,6 @@ const KanbanColumn = memo(function KanbanColumn({
               isPinned={pinnedIds?.has(task.id)}
               onPin={onPin}
               hostActivity={hostActivity}
-              now={now}
               providerList={providerList}
               selectedProvider={queuedProviderSelections?.[task.id] || task.provider || COMMON_PROVIDER_OPTIONS[0]}
               isReassigning={reassigningIds?.has(task.id)}
@@ -640,7 +651,8 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   const [lastRefreshed, setLastRefreshed] = useState(null);
   const [showSubmitForm, setShowSubmitForm] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [now, setNow] = useState(Date.now());
+  // now state removed — clock components (LiveElapsed, QueueAge, LastRefreshed)
+  // each own their own timer to avoid re-rendering the entire Kanban every second
   const [queuedProviderSelections, setQueuedProviderSelections] = useState({});
   const [reassigningIds, setReassigningIds] = useState(new Set());
   const toast = useToast();
@@ -653,10 +665,6 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     setActivityOpen((value) => !value);
   }, []);
 
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     if (!showColMenu) return;
@@ -1018,16 +1026,16 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
 
   // Detect stuck tasks: running for more than 30 minutes (1800 seconds)
   const stuckRunningTasks = useMemo(() => {
-    // Use component-level `now` state (updated by the 1s tick interval) instead of inline Date.now()
     const STUCK_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+    const current = Date.now();
     return allTasks
-      .filter((t) => t.status === 'running' && t.started_at && (now - new Date(t.started_at).getTime()) > STUCK_THRESHOLD_MS)
+      .filter((t) => t.status === 'running' && t.started_at && (current - new Date(t.started_at).getTime()) > STUCK_THRESHOLD_MS)
       .map((t) => ({
         ...t,
-        runningSeconds: Math.floor((now - new Date(t.started_at).getTime()) / 1000),
+        runningSeconds: Math.floor((current - new Date(t.started_at).getTime()) / 1000),
       }))
       .sort((a, b) => b.runningSeconds - a.runningSeconds);
-  }, [allTasks, now]);
+  }, [allTasks]);
 
   // Merge wsStats (flat: { running, queued, completed, failed }) into REST overview shape
   const effectiveOverview = useMemo(() => {
@@ -1172,7 +1180,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         <div className="flex items-center gap-2">
           {/* Task count summary */}
           <span className="text-xs text-slate-500">
-            {searchQuery ? `${filteredTasks.length} of ${allTasks.length}` : `${allTasks.length} total`}{' '}&middot;{' '}<LastRefreshed timestamp={lastRefreshed} now={now} />
+            {searchQuery ? `${filteredTasks.length} of ${allTasks.length}` : `${allTasks.length} total`}{' '}&middot;{' '}<LastRefreshed timestamp={lastRefreshed} />
             {(tasksByStatus.running?.length || 0) > 0 && <> &middot; <span className="text-blue-400">{tasksByStatus.running.length} running</span></>}
             {(tasksByStatus.failed?.length || 0) > 0 && <> &middot; <span className="text-red-400">{tasksByStatus.failed.length} failed</span></>}
           </span>
@@ -1444,7 +1452,6 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
             pinnedIds={pinnedIds}
             onPin={togglePin}
             hostActivity={hostActivity}
-            now={now}
             providerList={providerList}
             queuedProviderSelections={queuedProviderSelections}
             reassigningIds={reassigningIds}
