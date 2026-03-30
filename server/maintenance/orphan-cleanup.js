@@ -67,7 +67,8 @@ const PROVIDER_STALL_THRESHOLDS = {
   'hashline-ollama': 300,   // 5 minutes - hashline edits need time
   'ollama': 240,            // 4 minutes - direct API is faster
   'claude-cli': 600,        // 10 minutes - claude can be slow on complex tasks
-  'codex': 600,             // 10 minutes - catches hung processes below 30-min hard timeout
+  'codex': 1200,            // 20 minutes - codex reads extensively before writing; 10 min was too aggressive
+  'codex-spark': 600,       // 10 minutes - spark is faster than full codex
   'anthropic': 300,         // 5 minutes - API can be slow
   'groq': 120,              // 2 minutes - groq is fast
   'ollama-cloud': 300,      // 5 minutes - cloud inference on large models
