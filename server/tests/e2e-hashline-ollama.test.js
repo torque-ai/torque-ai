@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const { createMockOllama } = require('./mocks/ollama');
 const { setupE2eDb, teardownE2eDb, registerMockHost, createTestTask, waitForTaskStatus } = require('./e2e-helpers');
+const configCore = require('../db/config-core');
 
 let ctx;
 let mock;
@@ -38,8 +39,9 @@ beforeAll(async () => {
   registerMockHost(ctx.db, mockUrl, ['codellama:latest']);
 
   // Disable error feedback and limit retries so tests complete quickly
-  ctx.db.setConfig('error_feedback_enabled', '0');
-  ctx.db.setConfig('max_hashline_local_retries', '0');
+  // (otherwise mock Ollama responses without edit blocks trigger infinite retry loops)
+  configCore.setConfig('error_feedback_enabled', '0');
+  configCore.setConfig('max_hashline_local_retries', '0');
 
   // Create a working directory with test files
   workDir = path.join(ctx.testDir, 'project');
