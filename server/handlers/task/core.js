@@ -107,6 +107,7 @@ function formatGovernanceWarnings(governanceResult) {
   }
 
   return `\n\nGovernance warning${warnings.length === 1 ? '' : 's'}:\n- ${warnings.join('\n- ')}`;
+}
 
 function resolveSafeSubmissionProvider(providerName) {
   const normalizedProvider = typeof providerName === 'string' ? providerName.trim() : '';
