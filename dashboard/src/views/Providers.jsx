@@ -524,8 +524,9 @@ export default function Providers({ statsVersion, tasksTick }) {
     }));
 
   const totalTasks = providersList.reduce((s, p) => s + (p.stats?.total_tasks || 0), 0);
-  const avgSuccessRate = providersList.length > 0
-    ? Math.round(providersList.reduce((s, p) => s + (p.stats?.success_rate || 0), 0) / providersList.length)
+  const activeProvidersList = providersList.filter(p => (p.stats?.total_tasks || 0) > 0);
+  const avgSuccessRate = activeProvidersList.length > 0
+    ? Math.round(activeProvidersList.reduce((s, p) => s + (p.stats?.success_rate || 0), 0) / activeProvidersList.length)
     : 0;
 
   // Filter providers with actual data for trend charts
