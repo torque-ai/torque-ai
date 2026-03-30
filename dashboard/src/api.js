@@ -11,6 +11,28 @@ const V2_BASE = '/api/v2';
 
 const DEFAULT_TIMEOUT = 15000;
 
+function buildQuery(params = {}) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value === undefined || value === null || value === '') {
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        query.append(key, item);
+      }
+      continue;
+    }
+
+    query.append(key, value);
+  }
+
+  const qs = query.toString();
+  return qs ? `?${qs}` : '';
+}
+
 export function getCsrfToken() {
   if (window.__torqueCsrf) return window.__torqueCsrf;
   // Fallback: read from the non-HttpOnly torque_csrf cookie
@@ -424,6 +446,19 @@ export const approvals = {
   }),
 };
 
+// ─── Governance (legacy — no v2 equivalent) ─────────────────────────────────
+
+export const governance = {
+  getRules: (params) => request('/governance/rules' + buildQuery(params)),
+  updateRule: (id, body) => request('/governance/rules/' + id, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }),
+  resetViolations: (id) => request('/governance/rules/' + id + '/reset', {
+    method: 'POST',
+  }),
+};
+
 // ─── Coordination (legacy — no v2 equivalent) ──────────────────────────────
 
 export const coordination = {
@@ -481,4 +516,4 @@ export const routingTemplates = {
   categories: (opts = {}) => requestV2('/routing/categories', opts),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, coordination, strategic, routingTemplates };
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, strategic, routingTemplates };

@@ -63,6 +63,7 @@ const VALID_TABLE_NAMES = new Set([
   'format_success_rates',
   'quota_daily_usage',
   'github_issues',
+  'governance_rules',
   'health_status',
   'host_credentials',
   'i18n_results',
@@ -1027,6 +1028,24 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status);
       CREATE INDEX IF NOT EXISTS idx_approval_requests_rule ON approval_requests(rule_id);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_task_rule ON approval_requests(task_id, rule_id);
+    `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS governance_rules (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'warn',
+        default_mode TEXT NOT NULL DEFAULT 'warn',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        violation_count INTEGER NOT NULL DEFAULT 0,
+        checker_id TEXT NOT NULL,
+        config TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_governance_rules_stage ON governance_rules(stage);
+      CREATE INDEX IF NOT EXISTS idx_governance_rules_enabled ON governance_rules(enabled);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS task_comments (

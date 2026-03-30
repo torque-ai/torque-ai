@@ -12,6 +12,7 @@ const { fireHook } = require('./hooks/post-tool-hooks');
 const eventBus = require('./event-bus');
 const comparisonHandlers = require('./handlers/comparison-handler');
 const evidenceRiskHandlers = require('./handlers/evidence-risk-handlers');
+const governanceHandlers = require('./handlers/governance-handlers');
 const reviewHandlers = require('./handlers/review-handler');
 const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
@@ -41,6 +42,7 @@ const TOOLS = [
   ...require('./tool-defs/tsserver-defs'),
   ...require('./tool-defs/remote-agent-defs'),
   ...require('./tool-defs/policy-defs'),
+  ...require('./tool-defs/governance-defs'),
   ...require('./tool-defs/evidence-risk-defs'),
   ...require('./tool-defs/conflict-resolution-defs'),
   ...require('./tool-defs/orchestrator-defs'),
@@ -275,6 +277,9 @@ routeMap.set('index_project', symbolIndexerHandlers.handleIndexProject);
 routeMap.set('get_project_template', templateHandlers.handleGetProjectTemplate);
 routeMap.set('list_project_templates', templateHandlers.handleListTemplates);
 routeMap.set('detect_project_type', templateHandlers.handleDetectProjectType);
+routeMap.set('get_governance_rules', governanceHandlers.handleGetGovernanceRules);
+routeMap.set('set_governance_rule_mode', governanceHandlers.handleSetGovernanceRuleMode);
+routeMap.set('toggle_governance_rule', governanceHandlers.handleToggleGovernanceRule);
 
 const FILE_WRITE_TOOL_NAMES = new Set([
   'add_import_statement',

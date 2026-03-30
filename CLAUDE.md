@@ -267,16 +267,15 @@ Built into `/torque-submit` and `/torque-review`:
 
 ## Remote Workstation
 
-Heavy commands (builds, tests, compilation) route to the configured remote workstation automatically. **NEVER run test or build commands directly** (`npx vitest`, `dotnet build`, `npm test`, etc.) � the guard hook will block them when a remote workstation is configured.
+Heavy commands (builds, tests, compilation) route to the configured remote workstation automatically. Enforceable remote-execution rules are managed by the governance engine; see `Operational Governance` for the rule source of truth.
 
 **TORQUE's own post-task verification also routes to remote.** The close-handler pipeline (Phases 6 and 6.5) automatically runs build verification, test verification, and verify_command on the remote workstation when one is configured with `test_runners` capability. No manual intervention needed � tasks completed by any provider get their verification routed to remote.
 
-**Always use `torque-remote` for heavy commands:**
-```
-torque-remote npx vitest run path/to/test             # test remotely
-torque-remote dotnet build example-project.sln            # build remotely
-torque-remote cargo build --release                    # any heavy command
-```
+Use `torque-remote` for heavy commands when a remote workstation is configured:
+
+    torque-remote npx vitest run path/to/test             # test remotely
+    torque-remote dotnet build example-project.sln            # build remotely
+    torque-remote cargo build --release                    # any heavy command
 
 If the remote is unreachable or overloaded, `torque-remote` falls back to local execution automatically.
 
@@ -323,13 +322,25 @@ On receiving a heartbeat:
 
 Set `heartbeat_minutes: 0` to disable heartbeats (legacy behavior).
 
-## Workflow Discipline
+## Operational Governance
 
-When TORQUE is the execution engine for a project:
-- **NEVER manually implement what TORQUE should produce** � types, data, events, systems, tests, and wiring are TORQUE's job
-- **Claude's role: architect + orchestrator** � plan, submit, verify, integrate, resolve conflicts
-- **On TORQUE failure: diagnose ? fix root cause ? resubmit** � do NOT bypass by writing the code manually
-- Only write code directly for: TORQUE config fixes, integration glue outside batch scope, or debugging TORQUE itself
+Enforceable operational rules are managed by the governance engine.
+View and configure rules in the dashboard under Operations > Governance,
+or via MCP tools: `get_governance_rules`, `set_governance_rule_mode`, `toggle_governance_rule`.
+
+Built-in rules: `block-visible-providers`, `inspect-before-cancel`,
+`require-push-before-remote`, `no-local-tests`, `verify-diff-after-codex`.
+
+### Judgment Policies (not machine-enforced)
+
+These policies require Claude's judgment and cannot be reduced to rules:
+
+- **Never manually implement what TORQUE should produce** -- types, data, events,
+  systems, tests, and wiring are TORQUE's job. Claude should plan, submit, verify.
+- **Investigate before deleting unknown files** -- untracked files may be work
+  products from other sessions. Never run `git clean`.
+- **Prefer hashline tools over Read/Edit** -- use `hashline_read` + `hashline_edit`
+  when TORQUE is available for higher edit precision.
 
 ## Best Practices
 
@@ -437,11 +448,7 @@ When submitting tasks to Ollama, the task description IS the instruction set. Ol
 
 ### Codex Sandbox Safety
 
-**Codex sandbox contamination is a systemic issue.** Codex tasks start from a potentially stale repo state. When they write files back, they can silently revert changes committed after the sandbox was created. **TORQUE now has file-level locking** � concurrent Codex tasks targeting the same file are automatically requeued to prevent overwrites.
-
-- **ALWAYS run `git diff --stat` after Codex task completion** � check for unexpected deletions or reverts
-- **If reverts detected:** `git checkout HEAD -- <reverted files>` to restore from HEAD before committing
-- **Never trust Codex file writes blindly** � compare against HEAD, especially for files modified by earlier tasks in the same session
+**Codex sandbox contamination is a systemic issue.** Codex tasks start from a potentially stale repo state, and file-level locking only prevents concurrent overwrites. Enforceable post-task diff inspection is managed by the governance engine; see `Operational Governance`.
 
 ### Review Gate
 
@@ -562,12 +569,7 @@ module.exports = { ..., createMyModule };
 
 ## File Safety
 
-**NEVER delete or clean untracked files you didn't create.** Untracked files in `server/docs/`, `server/docs/investigations/`, or any `docs/` directory are likely generated reports, audit results, or investigation outputs from other sessions. Treat them as valuable work products.
-
-- **NEVER run `git clean`** � it destroys untracked work products that may have taken hours to generate
-- **NEVER delete directories you don't understand** � investigate before removing
-- **Commit generated artifacts immediately** � reports, investigations, audit outputs, and any files generated by TORQUE workflows should be committed as soon as they're complete. Untracked = unprotected.
-- **If you need a clean slate**, use `git stash` for tracked changes and leave untracked files alone
+Unknown untracked files in `server/docs/`, `server/docs/investigations/`, or other `docs/` directories may be generated reports, audit results, or work products from other sessions. Investigate provenance before deleting them; enforceable cleanup rules are managed by the governance engine and summarized in `Operational Governance`.
 
 ---
 *Full safeguard documentation: see `docs/safeguards.md`*

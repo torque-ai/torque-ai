@@ -477,6 +477,25 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('refactorDebtAdapter', require('./policy-engine/adapters/refactor-debt'));
     _defaultContainer.registerValue('releaseGateAdapter', require('./policy-engine/adapters/release-gate'));
   }
+  let governanceRules = null;
+  if (!_defaultContainer.has('governanceRules')) {
+    const { createGovernanceRules } = require('./db/governance-rules');
+    governanceRules = createGovernanceRules({ db });
+    governanceRules.seedBuiltinRules();
+    _defaultContainer.registerValue('governanceRules', governanceRules);
+  } else {
+    try {
+      governanceRules = _defaultContainer.get('governanceRules');
+    } catch (_e) {
+      const { createGovernanceRules } = require('./db/governance-rules');
+      governanceRules = createGovernanceRules({ db });
+      governanceRules.seedBuiltinRules();
+    }
+  }
+  if (!_defaultContainer.has('governanceHooks')) {
+    const { createGovernanceHooks } = require('./governance/hooks');
+    _defaultContainer.registerValue('governanceHooks', createGovernanceHooks({ governanceRules, logger }));
+  }
 
   if (!_defaultContainer.has('fileRisk')) {
     const { createFileRisk } = require('./db/file-risk');

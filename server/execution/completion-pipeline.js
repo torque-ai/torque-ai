@@ -181,6 +181,19 @@ function handlePostCompletion(ctx) {
   // Trigger webhooks + workflow dependencies
   try {
     const updatedTask = deps.db.getTask(taskId);
+
+    try {
+      const { defaultContainer } = require('../container');
+      const governance = defaultContainer && typeof defaultContainer.get === 'function'
+        ? defaultContainer.get('governanceHooks')
+        : null;
+      if (governance && typeof governance.evaluate === 'function') {
+        governance.evaluate('task_complete', updatedTask || task);
+      }
+    } catch (_e) {
+      // Non-critical
+    }
+
     const { triggerWebhooks } = require('../handlers/webhook-handlers');
     triggerWebhooks(ctx.status, updatedTask).catch(err => {
       logger.info('Webhook trigger error:', err.message);

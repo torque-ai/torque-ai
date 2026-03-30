@@ -762,6 +762,29 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     logger.debug(`Schema migration (provider_scores): ${e.message}`);
   }
 
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS governance_rules (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'warn',
+        default_mode TEXT NOT NULL DEFAULT 'warn',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        violation_count INTEGER NOT NULL DEFAULT 0,
+        checker_id TEXT NOT NULL,
+        config TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_governance_rules_stage ON governance_rules(stage);
+      CREATE INDEX IF NOT EXISTS idx_governance_rules_enabled ON governance_rules(enabled);
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (governance_rules): ${e.message}`);
+  }
+
   // Resume context for failed task retries
   safeAddColumn('tasks', 'resume_context TEXT');
   migrateModelAgnostic(db);

@@ -24,6 +24,54 @@ const { escapeRegExp, safeLimit,
         MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_TASK_LENGTH, MAX_BATCH_SIZE, ErrorCodes, makeError, requireTask } = require('../shared');
 const { formatTime } = require('./utils');
 
+function evaluateTaskSubmissionGovernance(task) {
+  try {
+    const { defaultContainer } = require('../../container');
+    if (!defaultContainer || typeof defaultContainer.get !== 'function') {
+      return null;
+    }
+
+    const governance = defaultContainer.get('governanceHooks');
+    if (!governance || typeof governance.evaluate !== 'function') {
+      return null;
+    }
+
+    const result = governance.evaluate('task_submit', task);
+    if (!result || typeof result !== 'object') {
+      return null;
+    }
+
+    if (!result.allPassed) {
+      const blockedMessages = Array.isArray(result.blocked)
+        ? result.blocked.map(entry => entry?.message).filter(Boolean)
+        : [];
+      return {
+        error: makeError(
+          ErrorCodes.OPERATION_FAILED,
+          blockedMessages.length > 0 ? blockedMessages.join('\n') : 'Task blocked by governance'
+        ),
+        result,
+      };
+    }
+
+    return { result };
+  } catch (_e) {
+    return null;
+  }
+}
+
+function formatGovernanceWarnings(governanceResult) {
+  const warnings = Array.isArray(governanceResult?.warned)
+    ? governanceResult.warned.map(entry => entry?.message).filter(Boolean)
+    : [];
+
+  if (warnings.length === 0) {
+    return '';
+  }
+
+  return `\n\nGovernance warning${warnings.length === 1 ? '' : 's'}:\n- ${warnings.join('\n- ')}`;
+}
+
 function checkBudgetThresholdsForCompletedTask(task) {
   if (!task || !task.provider) {
     return;
@@ -347,8 +395,7 @@ function handleUseTemplate(args) {
   }
 
   const taskId = uuidv4();
-
-  taskCore.createTask({
+  const createdTask = {
     id: taskId,
     status: 'pending',
     task_description: taskDescription,
@@ -356,8 +403,14 @@ function handleUseTemplate(args) {
     timeout_minutes: template.default_timeout,
     auto_approve: template.auto_approve,
     priority: args.priority !== undefined ? args.priority : template.default_priority,
-    template_name: template.name
-  });
+    template_name: template.name,
+  };
+  const governanceEvaluation = evaluateTaskSubmissionGovernance(createdTask);
+  if (governanceEvaluation?.error) {
+    return governanceEvaluation.error;
+  }
+
+  taskCore.createTask(createdTask);
 
   schedulingAutomation.incrementTemplateUsage(template.name);
 
@@ -366,9 +419,10 @@ function handleUseTemplate(args) {
   return {
     content: [{
       type: 'text',
-      text: result.queued
+      text: (result.queued
         ? `Task created from template "${template.name}" and queued (ID: ${taskId})`
-        : `Task created from template "${template.name}" and started (ID: ${taskId})`
+        : `Task created from template "${template.name}" and started (ID: ${taskId})`)
+        + formatGovernanceWarnings(governanceEvaluation?.result)
     }]
   };
 }
@@ -457,7 +511,7 @@ function handleRetryTask(args) {
     }
   } catch { /* resume context injection is best-effort */ }
 
-  taskCore.createTask({
+  const retryTask = {
     id: taskId,
     status: 'pending',
     task_description: taskDescription,
@@ -466,8 +520,19 @@ function handleRetryTask(args) {
     auto_approve: originalTask.auto_approve,
     priority: (originalTask.priority ?? 0) + 1, // Slightly higher priority for retries
     template_name: originalTask.template_name,
-    context: { retry_of: args.task_id }
+    context: { retry_of: args.task_id },
+  };
+  const governanceEvaluation = evaluateTaskSubmissionGovernance({
+    ...retryTask,
+    provider: originalTask.provider || null,
+    model: originalTask.model || null,
+    metadata: originalTask.metadata || null,
   });
+  if (governanceEvaluation?.error) {
+    return governanceEvaluation.error;
+  }
+
+  taskCore.createTask(retryTask);
 
   eventTracking.recordEvent('task_retried', taskId, { original_task: args.task_id });
 
@@ -476,9 +541,10 @@ function handleRetryTask(args) {
   return {
     content: [{
       type: 'text',
-      text: result.queued
+      text: (result.queued
         ? `Retry task queued (ID: ${taskId}). Original: ${args.task_id.slice(0, 8)}...`
-        : `Retry task started (ID: ${taskId}). Original: ${args.task_id.slice(0, 8)}...`
+        : `Retry task started (ID: ${taskId}). Original: ${args.task_id.slice(0, 8)}...`)
+        + formatGovernanceWarnings(governanceEvaluation?.result)
     }]
   };
 }
@@ -575,12 +641,9 @@ function handleRunPipeline(args) {
     return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Pipeline cannot be started from '${pipeline.status}' status. Only 'pending' pipelines can be started.`);
   }
 
-  // Start the pipeline
-  projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running');
-  eventTracking.recordEvent('pipeline_started', args.pipeline_id, { name: pipeline.name });
-
-  // Start first step
   const firstStep = pipeline.steps[0];
+  let pendingTask = null;
+  let governanceEvaluation = null;
   if (firstStep) {
     let taskDescription = firstStep.task_template;
 
@@ -595,26 +658,38 @@ function handleRunPipeline(args) {
 
     const taskId = uuidv4();
     const taskContext = { pipeline_id: args.pipeline_id, step_id: firstStep.id };
-    logger.info(`[Pipeline] Creating first task ${taskId} with context: ${JSON.stringify(taskContext)}`);
-
-    taskCore.createTask({
+    pendingTask = {
       id: taskId,
       status: 'pending',
       task_description: taskDescription,
       working_directory: pipeline.working_directory,
       timeout_minutes: firstStep.timeout_minutes,
-      context: taskContext
-    });
+      context: taskContext,
+    };
+    governanceEvaluation = evaluateTaskSubmissionGovernance(pendingTask);
+    if (governanceEvaluation?.error) {
+      return governanceEvaluation.error;
+    }
+  }
+
+  // Start the pipeline
+  projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running');
+  eventTracking.recordEvent('pipeline_started', args.pipeline_id, { name: pipeline.name });
+
+  if (firstStep && pendingTask) {
+    logger.info(`[Pipeline] Creating first task ${pendingTask.id} with context: ${JSON.stringify(pendingTask.context)}`);
+
+    taskCore.createTask(pendingTask);
 
     // Verify context was stored
-    const verifyTask = taskCore.getTask(taskId);
+    const verifyTask = taskCore.getTask(pendingTask.id);
     logger.info(`[Pipeline] Verified task context after create: ${JSON.stringify(verifyTask?.context)}`);
 
     projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running', { current_step: 1 });
 
     let startResult;
     try {
-      startResult = taskManager.startTask(taskId);
+      startResult = taskManager.startTask(pendingTask.id);
     } catch (startErr) {
       // Revert pipeline status on start failure
       projectConfigCore.updatePipelineStatus(args.pipeline_id, 'failed', { error: `Failed to start first step: ${startErr.message}` });
@@ -623,7 +698,7 @@ function handleRunPipeline(args) {
     }
 
     projectConfigCore.updatePipelineStep(firstStep.id, {
-      task_id: taskId,
+      task_id: pendingTask.id,
       status: startResult?.queued === true ? 'queued' : 'running',
     });
   }
@@ -632,6 +707,7 @@ function handleRunPipeline(args) {
     content: [{
       type: 'text',
       text: `Pipeline "${pipeline.name}" started.\n\nUse \`get_pipeline_status({pipeline_id: "${args.pipeline_id}"})\` to monitor progress.`
+        + formatGovernanceWarnings(governanceEvaluation?.result)
     }]
   };
 }

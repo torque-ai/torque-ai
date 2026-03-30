@@ -61,6 +61,54 @@ function rejectBlockedSubmission(policyResult) {
   return makeError(ErrorCodes.OPERATION_FAILED, message);
 }
 
+function evaluateTaskSubmissionGovernance(task) {
+  try {
+    const { defaultContainer } = require('../../container');
+    if (!defaultContainer || typeof defaultContainer.get !== 'function') {
+      return null;
+    }
+
+    const governance = defaultContainer.get('governanceHooks');
+    if (!governance || typeof governance.evaluate !== 'function') {
+      return null;
+    }
+
+    const result = governance.evaluate('task_submit', task);
+    if (!result || typeof result !== 'object') {
+      return null;
+    }
+
+    if (!result.allPassed) {
+      const blockedMessages = Array.isArray(result.blocked)
+        ? result.blocked.map(entry => entry?.message).filter(Boolean)
+        : [];
+      return {
+        error: makeError(
+          ErrorCodes.OPERATION_FAILED,
+          blockedMessages.length > 0 ? blockedMessages.join('\n') : 'Task blocked by governance'
+        ),
+        result,
+      };
+    }
+
+    return { result };
+  } catch (_e) {
+    return null;
+  }
+}
+
+function formatGovernanceWarnings(governanceResult) {
+  const warnings = Array.isArray(governanceResult?.warned)
+    ? governanceResult.warned.map(entry => entry?.message).filter(Boolean)
+    : [];
+
+  if (warnings.length === 0) {
+    return '';
+  }
+
+  return `\n\nGovernance warning${warnings.length === 1 ? '' : 's'}:\n- ${warnings.join('\n- ')}`;
+}
+
 
 function formatTaskStatus(task, progress) {
   let result = `## Task: ${task.id}\n\n`;
@@ -322,6 +370,20 @@ function handleSubmitTask(args) {
   if (blockedError) {
     return blockedError;
   }
+  const governanceEvaluation = evaluateTaskSubmissionGovernance({
+    id: taskId,
+    task_description: taskDescription,
+    working_directory: args.working_directory || null,
+    timeout_minutes: timeout,
+    auto_approve: Boolean(args.auto_approve),
+    priority: args.priority || 0,
+    provider: providerName,
+    model,
+    metadata,
+  });
+  if (governanceEvaluation?.error) {
+    return governanceEvaluation.error;
+  }
 
   // Store submitting agent session ID in metadata for coordination tracking
   if (args.__sessionId) {
@@ -448,9 +510,10 @@ function handleSubmitTask(args) {
     __subscribe_task_id: taskId,
     content: [{
       type: 'text',
-      text: result.queued
+      text: (result.queued
         ? `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.\nCurrent running tasks: ${taskManager.getRunningTaskCount()}`
-        : `Task started (ID: ${taskId}, provider: ${providerName}). Use check_status or get_progress to monitor.`
+        : `Task started (ID: ${taskId}, provider: ${providerName}). Use check_status or get_progress to monitor.`)
+        + formatGovernanceWarnings(governanceEvaluation?.result)
     }]
   };
 }
@@ -532,6 +595,20 @@ function handleQueueTask(args) {
   if (blockedError) {
     return blockedError;
   }
+  const governanceEvaluation = evaluateTaskSubmissionGovernance({
+    id: taskId,
+    task_description: taskDescription,
+    working_directory: args.working_directory || null,
+    timeout_minutes: timeout,
+    auto_approve: Boolean(args.auto_approve),
+    priority: args.priority || 0,
+    provider: providerName,
+    model,
+    metadata,
+  });
+  if (governanceEvaluation?.error) {
+    return governanceEvaluation.error;
+  }
 
   checkDepth(metadata);
 
@@ -552,6 +629,7 @@ function handleQueueTask(args) {
     content: [{
       type: 'text',
       text: `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.`
+        + formatGovernanceWarnings(governanceEvaluation?.result)
     }]
   };
 }

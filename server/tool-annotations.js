@@ -114,6 +114,9 @@ const OVERRIDES = Object.freeze({
   get_circuit_breaker_status:      Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   get_budget_status:               Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   get_provider_scores:             Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  get_governance_rules:            READONLY,
+  set_governance_rule_mode:        IDEMPOTENT,
+  toggle_governance_rule:          IDEMPOTENT,
 
   // destructive: deletes, removes, invalidates
   perform_auto_rollback:           Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: false }),

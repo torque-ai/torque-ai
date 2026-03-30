@@ -10,6 +10,7 @@ const tasks = require('./routes/tasks');
 const infrastructure = require('./routes/infrastructure');
 const analytics = require('./routes/analytics');
 const admin = require('./routes/admin');
+const governanceHandlers = require('../handlers/governance-handlers');
 
 const LOCALHOST_IPS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -26,6 +27,147 @@ function isAjaxRequest(req) {
     }
   }
   return false;
+}
+
+function extractGovernancePayload(result) {
+  if (result && result.structuredData && typeof result.structuredData === 'object') {
+    return result.structuredData;
+  }
+
+  const text = Array.isArray(result?.content)
+    ? result.content.find((entry) => entry && entry.type === 'text' && typeof entry.text === 'string')?.text
+    : null;
+  if (typeof text === 'string' && text.trim().length > 0) {
+    try {
+      return JSON.parse(text);
+    } catch (_error) {
+      return result?.isError ? { error: text } : { result: text };
+    }
+  }
+
+  return {};
+}
+
+function parseGovernanceConfig(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return value;
+  }
+}
+
+function normalizeGovernanceRuleRow(row) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+
+  return {
+    ...row,
+    enabled: Boolean(row.enabled),
+    config: parseGovernanceConfig(row.config),
+  };
+}
+
+function resolveDashboardGovernanceDb() {
+  try {
+    const { defaultContainer } = require('../container');
+    if (!defaultContainer || typeof defaultContainer.get !== 'function') {
+      throw new Error('Container unavailable');
+    }
+    const db = defaultContainer.get('db');
+    if (!db || typeof db.prepare !== 'function') {
+      throw new Error('Governance rules not initialized');
+    }
+    return { db };
+  } catch (error) {
+    return { error };
+  }
+}
+
+async function handleGetGovernanceRulesRoute(req, res, query) {
+  const args = {};
+  if (typeof query.stage === 'string' && query.stage.trim()) {
+    args.stage = query.stage.trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(query, 'enabled_only')) {
+    args.enabled_only = query.enabled_only;
+  }
+
+  const result = await governanceHandlers.handleGetGovernanceRules(args);
+  return sendJson(
+    res,
+    extractGovernancePayload(result),
+    Number.isInteger(result?.status) ? result.status : (result?.isError ? 400 : 200),
+  );
+}
+
+async function handlePatchGovernanceRuleRoute(req, res, _query, ruleId) {
+  const body = await parseBody(req);
+  if (body.mode === undefined && body.enabled === undefined) {
+    return sendError(res, 'mode or enabled is required', 400);
+  }
+
+  let result = null;
+
+  if (body.mode !== undefined) {
+    result = await governanceHandlers.handleSetGovernanceRuleMode({
+      rule_id: ruleId,
+      mode: body.mode,
+    });
+    if (result?.isError) {
+      return sendJson(res, extractGovernancePayload(result), result.status || 400);
+    }
+  }
+
+  if (body.enabled !== undefined) {
+    result = await governanceHandlers.handleToggleGovernanceRule({
+      rule_id: ruleId,
+      enabled: body.enabled,
+    });
+    if (result?.isError) {
+      return sendJson(res, extractGovernancePayload(result), result.status || 400);
+    }
+  }
+
+  return sendJson(res, extractGovernancePayload(result), Number.isInteger(result?.status) ? result.status : 200);
+}
+
+async function handleResetGovernanceRuleRoute(_req, res, _query, ruleId) {
+  const { db, error } = resolveDashboardGovernanceDb();
+  if (error) {
+    return sendJson(res, {
+      error: 'Governance rules not initialized',
+      details: error.message,
+    }, 503);
+  }
+
+  try {
+    const existing = db.prepare('SELECT * FROM governance_rules WHERE id = ?').get(ruleId);
+    if (!existing) {
+      return sendError(res, `Governance rule not found: ${ruleId}`, 404);
+    }
+
+    db.prepare(`
+      UPDATE governance_rules
+      SET violation_count = 0, updated_at = ?
+      WHERE id = ?
+    `).run(new Date().toISOString(), ruleId);
+
+    const updated = db.prepare('SELECT * FROM governance_rules WHERE id = ?').get(ruleId);
+    return sendJson(res, {
+      reset: true,
+      rule: normalizeGovernanceRuleRow(updated),
+    });
+  } catch (err) {
+    return sendJson(res, { error: err.message }, 500);
+  }
 }
 
 /**
@@ -124,6 +266,11 @@ const routes = [
   { method: 'POST',   pattern: /^\/api\/schedules\/([^/]+)\/toggle$/,   handler: admin.handleToggleSchedule, compat: true },
   { method: 'DELETE', pattern: /^\/api\/schedules\/([^/]+)$/,           handler: admin.handleDeleteSchedule, compat: true },
 
+  // --- Governance ---
+  { method: 'GET',   pattern: /^\/api\/governance\/rules$/,               handler: handleGetGovernanceRulesRoute },
+  { method: 'PATCH', pattern: /^\/api\/governance\/rules\/([^/]+)$/,      handler: handlePatchGovernanceRuleRoute },
+  { method: 'POST',  pattern: /^\/api\/governance\/rules\/([^/]+)\/reset$/, handler: handleResetGovernanceRuleRoute },
+
   // --- Workflows --- (compat: v2 equivalents at /api/v2/workflows)
   { method: 'GET', pattern: /^\/api\/workflows$/,                       handler: analytics.handleListWorkflows, compat: true },
   { method: 'GET', pattern: /^\/api\/workflows\/([^/]+)\/tasks$/,       handler: analytics.handleGetWorkflowTasks },
@@ -183,7 +330,7 @@ async function dispatch(req, res, context) {
     // CORS preflight
     if (method === 'OPTIONS') {
       const headers = {
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       };
       if (allowedOrigin) {
@@ -194,7 +341,7 @@ async function dispatch(req, res, context) {
       return;
     }
 
-    if ((method === 'POST' || method === 'PUT' || method === 'DELETE') && !isAjaxRequest(req)) {
+    if ((method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') && !isAjaxRequest(req)) {
       sendError(res, 'Forbidden', 403);
       return;
     }
@@ -222,4 +369,4 @@ async function dispatch(req, res, context) {
   }
 }
 
-module.exports = { dispatch, routes };
+module.exports = { isLocalDashboardRequest, isAjaxRequest, dispatch, routes };
