@@ -261,7 +261,7 @@ describe('createV2Router', () => {
     expect(routes[1].method).toBe('GET');
     expect(routes[1].path).toBeInstanceOf(RegExp);
     expect(routes[1].path.test('/api/v2/providers/codex')).toBe(true);
-    expect(routes[1].path.test('/api/v2/providers/hashline-ollama')).toBe(true);
+    expect(routes[1].path.test('/api/v2/providers/ollama')).toBe(true);
     expect(routes[1].path.test('/api/v2/providers/')).toBe(false);
     expect(routes[1].handlerName).toBe('handleV2ProviderDetail');
     expect(routes[1].mapParams).toEqual(['provider_id']);

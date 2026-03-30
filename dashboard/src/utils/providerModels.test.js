@@ -32,6 +32,6 @@ describe('getRelevantModel', () => {
   });
 
   it('returns null for openai-style models on ollama-based providers', () => {
-    expect(getRelevantModel('hashline-ollama', 'gpt-4')).toBeNull();
+    expect(getRelevantModel('ollama', 'gpt-4')).toBeNull();
   });
 });

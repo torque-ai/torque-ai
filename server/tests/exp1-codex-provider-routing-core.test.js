@@ -26,7 +26,6 @@ function createMockDb({ config = {}, providers = {}, routingRules = [] } = {}) {
     deepinfra: createProviderRow('deepinfra'),
     hyperbolic: createProviderRow('hyperbolic'),
     ollama: createProviderRow('ollama'),
-    'hashline-ollama': createProviderRow('hashline-ollama'),
     ...providers,
   };
 
@@ -189,10 +188,10 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     expect(result.reason).toContain('complex reasoning');
   });
 
-  it('routes targeted file edits to hashline-ollama when local complexity routing selects Ollama', () => {
+  it('routes targeted file edits to ollama when local complexity routing selects Ollama', () => {
     const determineTaskComplexity = vi.fn(() => 'simple');
     const routeTask = vi.fn(() => ({
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       hostId: 'host-local',
       model: TEST_MODELS.SMALL,
     }));
@@ -213,7 +212,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
 
     expect(determineTaskComplexity).toHaveBeenCalledWith(taskDescription, files);
     expect(routeTask).toHaveBeenCalledWith('simple');
-    expect(result.provider).toBe('hashline-ollama');
+    expect(result.provider).toBe('ollama');
     expect(result.hostId).toBe('host-local');
     expect(result.selectedHost).toBe('host-local');
     expect(result.reason).toContain('Complexity-based routing');
@@ -223,7 +222,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
-        smart_routing_default_provider: 'hashline-ollama',
+        smart_routing_default_provider: 'ollama',
       },
     });
 
@@ -232,7 +231,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
       'C:/repo'
     );
 
-    expect(result.provider).toBe('hashline-ollama');
+    expect(result.provider).toBe('ollama');
     expect(result.reason).toContain('No rule matched');
   });
 
@@ -240,7 +239,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     bindCore({
       config: {
         smart_routing_enabled: '1',
-        smart_routing_default_provider: 'hashline-ollama',
+        smart_routing_default_provider: 'ollama',
         ollama_fallback_provider: 'codex',
       },
       ollamaHealthy: false,
@@ -252,7 +251,7 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
     );
 
     expect(result.provider).toBe('codex');
-    expect(result.originalProvider).toBe('hashline-ollama');
+    expect(result.originalProvider).toBe('ollama');
     expect(result.fallbackApplied).toBe(true);
     expect(result.reason).toContain('falling back to codex');
   });

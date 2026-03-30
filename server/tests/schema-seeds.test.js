@@ -33,7 +33,7 @@ const EXPECTED_CONFIG_DEFAULTS = {
   default_provider: 'ollama',
   strategic_provider: 'ollama',
   smart_routing_enabled: '1',
-  smart_routing_default_provider: 'hashline-ollama',
+  smart_routing_default_provider: 'ollama',
   ollama_auto_tuning_enabled: '1',
   codex_enabled: '1',
   max_per_host: '4',
@@ -47,8 +47,6 @@ const VALID_PROVIDER_NAMES = new Set([
   'codex',
   'claude-cli',
   'ollama',
-  'aider-ollama',
-  'hashline-ollama',
   'anthropic',
   'groq',
   'ollama-cloud',
@@ -167,7 +165,7 @@ describe('db/schema-seeds', () => {
     const rows = db.prepare(`
       SELECT provider, capability_tags, quality_band
       FROM provider_config
-      WHERE provider IN ('codex', 'claude-cli', 'hashline-ollama', 'groq')
+      WHERE provider IN ('codex', 'claude-cli', 'ollama', 'groq')
       ORDER BY provider
     `).all();
     const byProvider = Object.fromEntries(rows.map((row) => [row.provider, row]));
@@ -186,10 +184,10 @@ describe('db/schema-seeds', () => {
       'reasoning',
     ]);
     expect(byProvider['claude-cli'].quality_band).toBe('A');
-    expect(JSON.parse(byProvider['hashline-ollama'].capability_tags)).toEqual([
+    expect(JSON.parse(byProvider['ollama'].capability_tags)).toEqual([
       'file_edit',
     ]);
-    expect(byProvider['hashline-ollama'].quality_band).toBe('C');
+    expect(byProvider['ollama'].quality_band).toBe('C');
     expect(JSON.parse(byProvider.groq.capability_tags)).toEqual([]);
     expect(byProvider.groq.quality_band).toBe('D');
   });

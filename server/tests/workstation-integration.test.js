@@ -181,7 +181,7 @@ describe('workstation integration', () => {
       });
 
       const selection = routing.findWorkstationForTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'codellama',
       });
 

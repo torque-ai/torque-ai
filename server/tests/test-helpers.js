@@ -28,7 +28,7 @@ const TEST_MODELS = {
 
 const TEST_CONFIG_DEFAULTS = {
   default_provider: 'ollama',
-  smart_routing_default_provider: 'hashline-ollama',
+  smart_routing_default_provider: 'ollama',
   v2_auth_mode: 'permissive',
   default_timeout: '300',
   budget_check_enabled: '1',

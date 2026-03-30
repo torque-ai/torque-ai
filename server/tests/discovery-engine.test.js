@@ -358,17 +358,17 @@ describe('discoverFromAdapter', () => {
     expect(registryMock.approveModel).not.toHaveBeenCalled();
   });
 
-  it('does NOT auto-approve new models from hashline-ollama (stays pending)', async () => {
+  it('does NOT auto-approve new models from ollama (stays pending)', async () => {
     const newModels = [{ model_name: TEST_MODELS.SMALL, family: 'qwen3' }];
     const adapter = {
-      discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'hashline-ollama' }),
+      discoverModels: vi.fn().mockResolvedValue({ models: newModels, provider: 'ollama' }),
     };
     registryMock.syncModelsFromHealthCheck.mockReturnValue({
       new: newModels,
       updated: [],
       removed: [],
     });
-    await discoverFromAdapter(db, adapter, 'hashline-ollama', null);
+    await discoverFromAdapter(db, adapter, 'ollama', null);
     expect(registryMock.approveModel).not.toHaveBeenCalled();
   });
 

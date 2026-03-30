@@ -33,7 +33,6 @@ vi.mock('../providers/registry', () => {
     deepinfra: 'api',
     'ollama-cloud': 'api',
     ollama: 'ollama',
-    'hashline-ollama': 'ollama',
   };
 
   return {

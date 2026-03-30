@@ -584,10 +584,10 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = taskCore.getTask(task.id);
-      expect(updated.provider).toBe('hashline-ollama');
+      expect(updated.provider).toBe('ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.ollama_host_id).toBeNull();
-      expect(updated.error_output).toContain('[Local-First] Trying provider hashline-ollama');
+      expect(updated.error_output).toContain('[Local-First] Trying provider ollama');
     });
 
     it('escalates to cloud after max local retries are exhausted', () => {
@@ -618,7 +618,7 @@ describe('fallback-retry module', () => {
       configCore.setConfig('ollama_fallback_provider', 'codex');
       configCore.setConfig('codex_enabled', '1');
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         task_description: 'Create a new test file for the auth module',
         ollama_host_id: null
@@ -634,7 +634,7 @@ describe('fallback-retry module', () => {
 
     it('allows raw ollama for non-greenfield tasks', () => {
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         task_description: 'Fix the auth handler validation bug in auth.ts',
         ollama_host_id: null
@@ -668,8 +668,8 @@ describe('fallback-retry module', () => {
 
         expect(ok).toBe(true);
         const updated = taskCore.getTask(task.id);
-        expect(updated.provider).toBe('hashline-ollama');
-        expect(updated.error_output).toContain('[Local-First] Trying provider hashline-ollama');
+        expect(updated.provider).toBe('ollama');
+        expect(updated.error_output).toContain('[Local-First] Trying provider ollama');
       });
     });
 
@@ -683,7 +683,7 @@ describe('fallback-retry module', () => {
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         error_output: [
-          '[Local-First] Trying provider hashline-ollama',
+          '[Local-First] Trying provider ollama',
         ].join('\n')
       });
 
@@ -773,7 +773,7 @@ describe('fallback-retry module', () => {
         expect(restartCalls[0].reason).toContain('local_first_fallback');
         expect(stallRecoveryAttempts.get(task.id).attempts).toBe(1);
         expect(stallRecoveryAttempts.get(task.id).lastStrategy).toBe('local_first_fallback');
-        expect(taskCore.getTask(task.id).provider).toBe('hashline-ollama');
+        expect(taskCore.getTask(task.id).provider).toBe('ollama');
       });
     });
 
@@ -917,7 +917,7 @@ describe('fallback-retry module', () => {
           attempts: 3,
           lastStrategy: 'local_first_fallback',
         });
-        expect(taskCore.getTask(task.id).provider).toBe('hashline-ollama');
+        expect(taskCore.getTask(task.id).provider).toBe('ollama');
       });
     });
   });
@@ -1118,7 +1118,7 @@ describe('fallback-retry module', () => {
       const hostB = registerHealthyHost('hashline-b', ['qwen2.5-coder:14b'], { running_tasks: 0 });
 
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:14b',
         ollama_host_id: hostA
       });
@@ -1127,7 +1127,7 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = taskCore.getTask(task.id);
-      expect(updated.provider).toBe('hashline-ollama');
+      expect(updated.provider).toBe('ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.ollama_host_id).toBe(hostB);
       expect(updated.error_output).toContain('[Hashline-Local] Trying qwen2.5-coder:14b on host');
@@ -1139,7 +1139,7 @@ describe('fallback-retry module', () => {
       const host = registerHealthyHost('hashline-single', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
 
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b',
         ollama_host_id: host
       });
@@ -1159,7 +1159,7 @@ describe('fallback-retry module', () => {
       const host = registerHealthyHost('hashline-history', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b', TEST_MODELS.QUALITY]);
 
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b',
         ollama_host_id: host,
         error_output: '[Hashline-Local] Trying model qwen2.5-coder:14b'
@@ -1171,7 +1171,7 @@ describe('fallback-retry module', () => {
       const updated = taskCore.getTask(task.id);
       expect(updated.model).toBeNull();
       expect(updated.provider).toBe('codex');
-      expect(updated.error_output).toContain('Escalated from hashline-ollama');
+      expect(updated.error_output).toContain('Escalated from ollama');
     });
 
     it('falls back to a larger model when only one host is available', () => {
@@ -1180,7 +1180,7 @@ describe('fallback-retry module', () => {
       const host = registerHealthyHost('hashline-alone', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
 
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b',
         ollama_host_id: host
       });
@@ -1189,7 +1189,7 @@ describe('fallback-retry module', () => {
       expect(ok).toBe(true);
 
       const updated = taskCore.getTask(task.id);
-      expect(updated.provider).toBe('hashline-ollama');
+      expect(updated.provider).toBe('ollama');
       expect(updated.model).toBe('qwen2.5-coder:14b');
       expect(updated.error_output).toContain('[Hashline-Local] Trying model qwen2.5-coder:14b');
     });
@@ -1200,7 +1200,7 @@ describe('fallback-retry module', () => {
       const host = registerHealthyHost('hashline-timeout', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
 
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b',
         ollama_host_id: host
       });
@@ -1217,7 +1217,7 @@ describe('fallback-retry module', () => {
 
         expect(ok).toBe(true);
         const updated = taskCore.getTask(task.id);
-        expect(updated.provider).toBe('hashline-ollama');
+        expect(updated.provider).toBe('ollama');
         expect(updated.model).toBe('qwen2.5-coder:14b');
         expect(updated.error_output).toContain('[Hashline-Local] Trying model qwen2.5-coder:14b');
       });
@@ -1231,7 +1231,7 @@ describe('fallback-retry module', () => {
 
       const host = registerHealthyHost('hashline-no-openai', ['qwen2.5-coder:7b', 'qwen2.5-coder:14b']);
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b',
         ollama_host_id: host
       });
@@ -1246,12 +1246,12 @@ describe('fallback-retry module', () => {
       updated = taskCore.getTask(task.id);
       expect(updated.provider).toBe('codex');
       expect(updated.model).toBeNull();
-      expect(updated.error_output).toContain('Escalated from hashline-ollama: still failing');
+      expect(updated.error_output).toContain('Escalated from ollama: still failing');
     });
 
     it('skips fallback when task is already cancelled', () => {
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b'
       });
       // Manually set task to cancelled state
@@ -1262,12 +1262,12 @@ describe('fallback-retry module', () => {
       expect(ok).toBe(false);
       const updated = taskCore.getTask(task.id);
       expect(updated.status).toBe('cancelled');
-      expect(updated.provider).toBe('hashline-ollama'); // unchanged
+      expect(updated.provider).toBe('ollama'); // unchanged
     });
 
     it('skips fallback when task is already completed', () => {
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b'
       });
       taskCore.updateTaskStatus(task.id, 'running', {});
@@ -1304,12 +1304,12 @@ describe('fallback-retry module', () => {
         });
 
         // Call 1: step 1 fails (only one host). Step 2 fails (no models).
-        // Step 3: switch to different local provider (hashline-ollama).
+        // Step 3: switch to different local provider (ollama).
         const first = mod.tryLocalFirstFallback(task.id, taskCore.getTask(task.id), 'first local failure');
         expect(first).toBe(true);
         const afterFirst = taskCore.getTask(task.id);
-        expect(afterFirst.provider).toBe('hashline-ollama');
-        expect(afterFirst.error_output).toContain('[Local-First] Trying provider hashline-ollama');
+        expect(afterFirst.provider).toBe('ollama');
+        expect(afterFirst.error_output).toContain('[Local-First] Trying provider ollama');
 
         // Call 2: 1 [Local-First] marker >= max_local_retries(1), escalates to cloud.
         const second = mod.tryLocalFirstFallback(task.id, taskCore.getTask(task.id), 'second local failure');
@@ -1537,7 +1537,7 @@ describe('scheduleProcessQueue debouncing', () => {
       delete process.env.OPENAI_API_KEY;
 
       const task = createTask({
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         model: 'qwen2.5-coder:7b',
       });
 

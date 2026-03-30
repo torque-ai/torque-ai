@@ -69,7 +69,7 @@ describe('Provider Failover', () => {
     });
 
     it('get_provider_quality returns quality data', async () => {
-      const result = await safeTool('get_provider_quality', { provider: 'hashline-ollama' });
+      const result = await safeTool('get_provider_quality', { provider: 'ollama' });
       expect(result.isError).toBeFalsy();
     });
   });

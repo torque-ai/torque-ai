@@ -13,7 +13,7 @@ const {
 describe('completion-detection', () => {
   describe('constants', () => {
     it('exports COMPLETION_OUTPUT_THRESHOLDS with expected providers', () => {
-      expect(COMPLETION_OUTPUT_THRESHOLDS).toHaveProperty('hashline-ollama');
+      expect(COMPLETION_OUTPUT_THRESHOLDS).toHaveProperty('ollama');
       expect(COMPLETION_OUTPUT_THRESHOLDS).toHaveProperty('codex');
       expect(COMPLETION_OUTPUT_THRESHOLDS).toHaveProperty('default');
       expect(typeof COMPLETION_OUTPUT_THRESHOLDS['default']).toBe('number');
@@ -117,14 +117,14 @@ describe('completion-detection', () => {
     // Provider-aware thresholds
     // Use "89 passed, 0 failed" which matches shared patterns but NOT explicit signals
     // (explicit signals like /\btests\s+passed\b/ bypass threshold checks)
-    it('requires 4KB+ for hashline-ollama before matching shared patterns', () => {
+    it('requires 4KB+ for ollama before matching shared patterns', () => {
       const shortOutput = 'x'.repeat(2000) + '\n89 passed, 0 failed';
-      expect(detectSuccessFromOutput(shortOutput, 'hashline-ollama')).toBe(false);
+      expect(detectSuccessFromOutput(shortOutput, 'ollama')).toBe(false);
     });
 
-    it('matches shared patterns for hashline-ollama when above threshold', () => {
+    it('matches shared patterns for ollama when above threshold', () => {
       const longOutput = 'x'.repeat(5000) + '\n89 passed, 0 failed';
-      expect(detectSuccessFromOutput(longOutput, 'hashline-ollama')).toBe(true);
+      expect(detectSuccessFromOutput(longOutput, 'ollama')).toBe(true);
     });
 
     it('uses low threshold for codex', () => {

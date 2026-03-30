@@ -190,7 +190,7 @@ beforeAll(() => {
       ollama: 30,
       'claude-cli': 45,
       hashline: 45,
-      'hashline-ollama': 30,
+      'ollama': 30,
       deepinfra: 45,
       hyperbolic: 45,
       anthropic: 45,

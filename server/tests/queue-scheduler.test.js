@@ -10,7 +10,7 @@ const { TEST_MODELS } = require('./test-helpers');
 // Provider registry mock — getCategory is used by categorizeQueuedTasks, not hoisted
 vi.mock('../providers/registry', () => {
   const cats = {
-    ollama: 'ollama', 'hashline-ollama': 'ollama',
+    ollama: 'ollama',
     codex: 'codex', 'claude-cli': 'codex',
     anthropic: 'api', groq: 'api', hyperbolic: 'api',
     deepinfra: 'api', 'ollama-cloud': 'api', cerebras: 'api', 'google-ai': 'api', openrouter: 'api',
@@ -172,7 +172,7 @@ describe('Queue Scheduler', () => {
     it('maps all ollama aliases to ollamaTasks', () => {
       const tasks = [
         makeTask({ id: '1', provider: 'ollama' }),
-        makeTask({ id: '2', provider: 'hashline-ollama' }),
+        makeTask({ id: '2', provider: 'ollama' }),
       ];
 
       const result = scheduler.categorizeQueuedTasks(tasks, true);
@@ -205,7 +205,7 @@ describe('Queue Scheduler', () => {
         makeTask({ id: '2', provider: 'anthropic' }),
         makeTask({ id: '3', provider: 'codex' }),
         makeTask({ id: '4', provider: 'groq' }),
-        makeTask({ id: '5', provider: 'hashline-ollama' }),
+        makeTask({ id: '5', provider: 'ollama' }),
       ];
 
       const result = scheduler.categorizeQueuedTasks(tasks, true);
@@ -240,7 +240,7 @@ describe('Queue Scheduler', () => {
     it('separates ollama/codex/api tasks correctly', () => {
       const tasks = [
         makeTask({ id: '1', provider: 'ollama' }),
-        makeTask({ id: '2', provider: 'hashline-ollama' }),
+        makeTask({ id: '2', provider: 'ollama' }),
         makeTask({ id: '3', provider: 'codex' }),
         makeTask({ id: '4', provider: 'claude-cli' }),
         makeTask({ id: '5', provider: 'anthropic' }),
@@ -1455,7 +1455,7 @@ describe('Queue Scheduler', () => {
           'overflow-1',
           'queued',
           expect.objectContaining({
-            provider: 'hashline-ollama',
+            provider: 'ollama',
             model: TEST_MODELS.SMALL,
           })
         );
@@ -1463,13 +1463,13 @@ describe('Queue Scheduler', () => {
           'overflow-1',
           expect.objectContaining({
             status: 'queued',
-            provider: 'hashline-ollama',
+            provider: 'ollama',
             model: TEST_MODELS.SMALL,
           }),
         );
         // Verify metadata includes overflow flag and original provider
         const updateCall = mockDb.updateTaskStatus.mock.calls.find(
-          (c) => c[0] === 'overflow-1' && c[2]?.provider === 'hashline-ollama'
+          (c) => c[0] === 'overflow-1' && c[2]?.provider === 'ollama'
         );
         expect(updateCall).toBeTruthy();
         const updatedMeta = JSON.parse(updateCall[2].metadata);
@@ -1495,9 +1495,9 @@ describe('Queue Scheduler', () => {
 
         scheduler.processQueueInternal();
 
-        // updateTaskStatus should NOT be called with hashline-ollama provider
+        // updateTaskStatus should NOT be called with ollama provider
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'hashline-ollama'
+          (c) => c[2]?.provider === 'ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1521,7 +1521,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'hashline-ollama'
+          (c) => c[2]?.provider === 'ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1549,7 +1549,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'hashline-ollama'
+          (c) => c[2]?.provider === 'ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1575,7 +1575,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'hashline-ollama'
+          (c) => c[2]?.provider === 'ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1599,7 +1599,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'overflow-default' && c[2]?.provider === 'hashline-ollama'
+          (c) => c[0] === 'overflow-default' && c[2]?.provider === 'ollama'
         );
         expect(overflowCalls).toHaveLength(1);
       });
@@ -1623,7 +1623,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'overflow-smart' && c[2]?.provider === 'hashline-ollama'
+          (c) => c[0] === 'overflow-smart' && c[2]?.provider === 'ollama'
         );
         expect(overflowCalls).toHaveLength(1);
       });
@@ -1668,13 +1668,13 @@ describe('Queue Scheduler', () => {
 
         // user-specified task should NOT be overflowed
         const userOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'user-codex' && c[2]?.provider === 'hashline-ollama'
+          (c) => c[0] === 'user-codex' && c[2]?.provider === 'ollama'
         );
         expect(userOverflow).toHaveLength(0);
 
         // smart-routed task behind it SHOULD be overflowed
         const smartOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'smart-codex' && c[2]?.provider === 'hashline-ollama'
+          (c) => c[0] === 'smart-codex' && c[2]?.provider === 'ollama'
         );
         expect(smartOverflow).toHaveLength(1);
       });
@@ -1701,7 +1701,7 @@ describe('Queue Scheduler', () => {
         expect(mocks.safeStartTask).toHaveBeenCalledWith('codex-normal', 'codex');
         // No overflow should have occurred
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[2]?.provider === 'hashline-ollama'
+          (c) => c[2]?.provider === 'ollama'
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1852,7 +1852,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'overflow-full-host' && c[2]?.provider === 'hashline-ollama',
+          (c) => c[0] === 'overflow-full-host' && c[2]?.provider === 'ollama',
         );
         expect(overflowCalls).toHaveLength(0);
       });
@@ -1943,7 +1943,7 @@ describe('Queue Scheduler', () => {
         expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
           'overflow-normal',
           'queued',
-          expect.objectContaining({ provider: 'hashline-ollama', model: TEST_MODELS.SMALL }),
+          expect.objectContaining({ provider: 'ollama', model: TEST_MODELS.SMALL }),
         );
       });
 
@@ -1972,7 +1972,7 @@ describe('Queue Scheduler', () => {
         expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
           'overflow-simple',
           'queued',
-          expect.objectContaining({ provider: 'hashline-ollama', model: TEST_MODELS.FAST }),
+          expect.objectContaining({ provider: 'ollama', model: TEST_MODELS.FAST }),
         );
       });
       it('overflows tasks with null metadata (workflow default path)', () => {
@@ -1994,7 +1994,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
 
         const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-          (c) => c[0] === 'overflow-null-meta' && c[2]?.provider === 'hashline-ollama'
+          (c) => c[0] === 'overflow-null-meta' && c[2]?.provider === 'ollama'
         );
         expect(overflowCalls).toHaveLength(1);
       });

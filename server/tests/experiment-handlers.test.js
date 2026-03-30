@@ -100,7 +100,7 @@ describe('experiment-handlers (Experiment 6)', () => {
       const result = handlers.handleSubmitAbTest({
         task_description: 'Write unit tests for auth module',
         provider_a: 'codex',
-        provider_b: 'hashline-ollama',
+        provider_b: 'ollama',
         working_directory: '/tmp/project',
       });
 
@@ -111,7 +111,7 @@ describe('experiment-handlers (Experiment 6)', () => {
       const callB = taskCore.createTask.mock.calls[1][0];
 
       expect(callA.provider).toBe('codex');
-      expect(callB.provider).toBe('hashline-ollama');
+      expect(callB.provider).toBe('ollama');
       expect(callA.task_description).toBe(callB.task_description);
       expect(callA.working_directory).toBe('/tmp/project');
       expect(callB.working_directory).toBe('/tmp/project');
@@ -205,7 +205,7 @@ describe('experiment-handlers (Experiment 6)', () => {
         })
         .mockReturnValueOnce({
           id: 'b-456',
-          provider: 'hashline-ollama',
+          provider: 'ollama',
           status: 'completed',
           exit_code: 0,
           output: 'Ollama output that is longer than codex',
@@ -222,7 +222,7 @@ describe('experiment-handlers (Experiment 6)', () => {
       expect(result.isError).toBeFalsy();
       expect(result.content[0].text).toContain('A/B Test Comparison');
       expect(result.content[0].text).toContain('codex');
-      expect(result.content[0].text).toContain('hashline-ollama');
+      expect(result.content[0].text).toContain('ollama');
       expect(result.content[0].text).toContain('30s');
       expect(result.content[0].text).toContain('60s');
       // Codex was faster, so A should win duration

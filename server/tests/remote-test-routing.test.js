@@ -348,8 +348,8 @@ describe('remote-test-routing', () => {
 
         // ollama — should NOT auto-discover
         expect(router.getRemoteConfig('/repo', { provider: 'ollama' })).toBeNull();
-        // hashline-ollama — should NOT auto-discover
-        expect(router.getRemoteConfig('/repo', { provider: 'hashline-ollama' })).toBeNull();
+        // ollama — should NOT auto-discover
+        expect(router.getRemoteConfig('/repo', { provider: 'ollama' })).toBeNull();
         // no provider — should NOT auto-discover
         expect(router.getRemoteConfig('/repo')).toBeNull();
         expect(router.getRemoteConfig('/repo', {})).toBeNull();

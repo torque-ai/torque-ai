@@ -25,23 +25,17 @@ describe('Local-First Fallback', () => {
   describe('Default fallback chains', () => {
     it('ollama chain includes local providers first', () => {
       const chain = db.getProviderFallbackChain('ollama');
-      expect(chain).toEqual(['hashline-ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
-    });
-
-    it('hashline-ollama chain includes local providers first', () => {
-      const chain = db.getProviderFallbackChain('hashline-ollama');
       expect(chain).toEqual(['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
     });
 
     it('unknown provider defaults to local-first chain', () => {
       const chain = db.getProviderFallbackChain('unknown-provider');
-      expect(chain).toEqual(['hashline-ollama', 'ollama', 'deepinfra', 'codex', 'claude-cli']);
+      expect(chain).toEqual(['ollama', 'deepinfra', 'codex', 'claude-cli']);
     });
 
     it('codex chain still includes local providers', () => {
       const chain = db.getProviderFallbackChain('codex');
       expect(chain[0]).toBe('claude-cli');
-      expect(chain).toContain('hashline-ollama');
       expect(chain).toContain('ollama');
     });
   });
@@ -68,12 +62,12 @@ describe('Local-First Fallback', () => {
     it('persists via set_project_defaults', async () => {
       const result = await safeTool('set_project_defaults', {
         working_directory: tempDir,
-        step_providers: { types: 'hashline-ollama', system: 'codex', tests: 'ollama' }
+        step_providers: { types: 'ollama', system: 'codex', tests: 'ollama' }
       });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
       expect(text).toContain('Step providers');
-      expect(text).toContain('hashline-ollama');
+      expect(text).toContain('ollama');
     });
 
     it('reads step_providers from get_project_defaults', async () => {
@@ -81,7 +75,7 @@ describe('Local-First Fallback', () => {
       await safeTool('set_project_defaults', {
         working_directory: tempDir,
         provider: 'codex',
-        step_providers: { types: 'hashline-ollama', system: 'codex' }
+        step_providers: { types: 'ollama', system: 'codex' }
       });
 
       const result = await safeTool('get_project_defaults', {
@@ -89,28 +83,28 @@ describe('Local-First Fallback', () => {
       });
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text).toContain('types=hashline-ollama');
+      expect(text).toContain('types=ollama');
       expect(text).toContain('system=codex');
     });
 
     it('merges saved step_providers with per-call overrides', async () => {
-      // Save defaults: types=hashline-ollama, system=codex
+      // Save defaults: types=ollama, system=codex
       await safeTool('set_project_defaults', {
         working_directory: tempDir,
-        step_providers: { types: 'hashline-ollama', system: 'codex', tests: 'ollama' }
+        step_providers: { types: 'ollama', system: 'codex', tests: 'ollama' }
       });
 
       // Read back from metadata directly to verify merge logic
       const project = db.getProjectFromPath(tempDir);
       const saved = JSON.parse(db.getProjectMetadata(project, 'step_providers') || '{}');
-      expect(saved.types).toBe('hashline-ollama');
+      expect(saved.types).toBe('ollama');
       expect(saved.system).toBe('codex');
       expect(saved.tests).toBe('ollama');
 
       // Simulate merge: per-call overrides win
       const perCall = { system: 'claude-cli', wire: 'ollama' };
       const merged = { ...saved, ...perCall };
-      expect(merged.types).toBe('hashline-ollama');     // from saved
+      expect(merged.types).toBe('ollama');     // from saved
       expect(merged.system).toBe('claude-cli');      // overridden by per-call
       expect(merged.tests).toBe('ollama');            // from saved
       expect(merged.wire).toBe('ollama');             // new from per-call
@@ -162,15 +156,15 @@ describe('Local-First Fallback', () => {
       expect.assertions(2);
       const metadata = {};
       if (!metadata.original_provider) {
-        metadata.original_provider = 'hashline-ollama';
+        metadata.original_provider = 'ollama';
       }
-      expect(metadata.original_provider).toBe('hashline-ollama');
+      expect(metadata.original_provider).toBe('ollama');
 
       // Second call shouldn't overwrite
       if (!metadata.original_provider) {
         metadata.original_provider = 'codex';
       }
-      expect(metadata.original_provider).toBe('hashline-ollama');
+      expect(metadata.original_provider).toBe('ollama');
     });
 
     it('[Local-First] marker counting pattern works correctly', () => {
@@ -203,7 +197,7 @@ describe('Local-First Fallback', () => {
       const result = await safeTool('set_project_defaults', {
         working_directory: tempDir,
         provider: 'codex',
-        step_providers: { types: 'hashline-ollama', events: 'ollama', system: 'codex' }
+        step_providers: { types: 'ollama', events: 'ollama', system: 'codex' }
       });
       expect(result.isError).toBeFalsy();
       const text = getText(result);

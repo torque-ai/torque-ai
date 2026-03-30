@@ -29,7 +29,7 @@ function makeTask(overrides = {}) {
     id: 'test-task-1',
     task_description: overrides.description || 'Write a hello world function in hello.js',
     working_directory: overrides.workingDirectory || testDir,
-    provider: overrides.provider || 'hashline-ollama',
+    provider: overrides.provider || 'ollama',
     model: overrides.model || TEST_MODELS.SMALL,
     retry_count: overrides.retry_count || 0,
     metadata: overrides.metadata || null,

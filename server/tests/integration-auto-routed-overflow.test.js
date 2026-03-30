@@ -13,7 +13,7 @@ const mockProviderRegistry = {
   getProviderConfig: vi.fn(),
   getCategory: vi.fn().mockImplementation((provider) => {
     if (provider === 'codex') return 'codex';
-    if (provider === 'ollama' || provider === 'hashline-ollama') return 'ollama';
+    if (provider === 'ollama') return 'ollama';
     return 'api';
   }),
 };
@@ -247,7 +247,7 @@ describe('auto_routed overflow — proof of integration', () => {
       ]);
     }
 
-    it('PROOF: auto_routed task overflows to hashline-ollama when codex full', () => {
+    it('PROOF: auto_routed task overflows to ollama when codex full', () => {
       setupFullCodex([{
         id: 'workflow-task-1',
         provider: 'codex',
@@ -258,9 +258,9 @@ describe('auto_routed overflow — proof of integration', () => {
 
       scheduler.processQueueInternal();
 
-      // Find the updateTaskStatus call that rerouted to hashline-ollama
+      // Find the updateTaskStatus call that rerouted to ollama
       const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-        c => c[0] === 'workflow-task-1' && c[1] === 'queued' && c[2]?.provider === 'hashline-ollama'
+        c => c[0] === 'workflow-task-1' && c[1] === 'queued' && c[2]?.provider === 'ollama'
       );
 
       expect(overflowCalls).toHaveLength(1);
@@ -283,7 +283,7 @@ describe('auto_routed overflow — proof of integration', () => {
       scheduler.processQueueInternal();
 
       const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-        c => c[0] === 'smart-task-1' && c[2]?.provider === 'hashline-ollama'
+        c => c[0] === 'smart-task-1' && c[2]?.provider === 'ollama'
       );
       expect(overflowCalls).toHaveLength(1);
     });
@@ -300,7 +300,7 @@ describe('auto_routed overflow — proof of integration', () => {
       scheduler.processQueueInternal();
 
       const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-        c => c[0] === 'default-task-1' && c[2]?.provider === 'hashline-ollama'
+        c => c[0] === 'default-task-1' && c[2]?.provider === 'ollama'
       );
       // All non-override tasks are overflow-eligible
       expect(overflowCalls).toHaveLength(1);
@@ -318,7 +318,7 @@ describe('auto_routed overflow — proof of integration', () => {
       scheduler.processQueueInternal();
 
       const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
-        c => c[0] === 'override-task-1' && c[2]?.provider === 'hashline-ollama'
+        c => c[0] === 'override-task-1' && c[2]?.provider === 'ollama'
       );
       expect(overflowCalls).toHaveLength(0);
     });
@@ -352,19 +352,19 @@ describe('auto_routed overflow — proof of integration', () => {
 
       // user-override: NOT overflowed
       const overrideOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-        c => c[0] === 'user-override-codex' && c[2]?.provider === 'hashline-ollama'
+        c => c[0] === 'user-override-codex' && c[2]?.provider === 'ollama'
       );
       expect(overrideOverflow).toHaveLength(0);
 
       // workflow-default: OVERFLOWED (no override = eligible)
       const workflowOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-        c => c[0] === 'workflow-default' && c[2]?.provider === 'hashline-ollama'
+        c => c[0] === 'workflow-default' && c[2]?.provider === 'ollama'
       );
       expect(workflowOverflow).toHaveLength(1);
 
       // smart-routed: OVERFLOWED
       const smartOverflow = mockDb.updateTaskStatus.mock.calls.filter(
-        c => c[0] === 'smart-routed' && c[2]?.provider === 'hashline-ollama'
+        c => c[0] === 'smart-routed' && c[2]?.provider === 'ollama'
       );
       expect(smartOverflow).toHaveLength(1);
     });

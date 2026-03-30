@@ -27,7 +27,7 @@ const providerFixtures = {
     previous_failure_rate: 0.4,
     recent_failure_rate: 0.1,
   },
-  'hashline-ollama': {
+  'ollama': {
     trend: 'degrading',
     previous_failure_rate: 0.15,
     recent_failure_rate: 0.35,
@@ -74,7 +74,7 @@ function resetMocks() {
   mockDb.listProviders.mockReturnValue([
     { provider: 'codex' },
     { provider: 'ollama' },
-    { provider: 'hashline-ollama' },
+    { provider: 'ollama' },
   ]);
 
   mockDb.getHealthHistory.mockReset();
@@ -153,7 +153,7 @@ describe('handleGetProviderHealthTrends', () => {
     expect(mockDb.getHealthTrend).toHaveBeenCalledTimes(3);
     expect(mockDb.getHealthTrend).toHaveBeenNthCalledWith(1, 'codex', undefined);
     expect(mockDb.getHealthTrend).toHaveBeenNthCalledWith(2, 'ollama', undefined);
-    expect(mockDb.getHealthTrend).toHaveBeenNthCalledWith(3, 'hashline-ollama', undefined);
+    expect(mockDb.getHealthTrend).toHaveBeenNthCalledWith(3, 'ollama', undefined);
     expect(JSON.parse(result.content[0].text)).toEqual([
       {
         provider: 'codex',
@@ -172,7 +172,7 @@ describe('handleGetProviderHealthTrends', () => {
         recent_failure_rate: 0.1,
       },
       {
-        provider: 'hashline-ollama',
+        provider: 'ollama',
         days: 30,
         trend: 'degrading',
         window_count: 4,
@@ -184,14 +184,14 @@ describe('handleGetProviderHealthTrends', () => {
 
   it('handles empty history with an insufficient_data trend gracefully', () => {
     mockDb.getHealthHistory.mockImplementation((provider) => (
-      provider === 'hashline-ollama' ? [] : makeHistory(provider)
+      provider === 'ollama' ? [] : makeHistory(provider)
     ));
 
-    const result = handleGetProviderHealthTrends({ provider: 'hashline-ollama', days: 14 });
+    const result = handleGetProviderHealthTrends({ provider: 'ollama', days: 14 });
 
     expectMcpTextResponse(result);
     expect(JSON.parse(result.content[0].text)).toEqual([{
-      provider: 'hashline-ollama',
+      provider: 'ollama',
       days: 14,
       trend: 'insufficient_data',
       window_count: 0,

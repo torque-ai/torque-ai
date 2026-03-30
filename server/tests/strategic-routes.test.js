@@ -49,7 +49,7 @@ const mockTasks = [
   {
     id: 'task-002-eeff0011',
     description: 'Fix import in types.ts',
-    provider: 'hashline-ollama',
+    provider: 'ollama',
     model: TEST_MODELS.DEFAULT,
     complexity: 'simple',
     status: 'running',

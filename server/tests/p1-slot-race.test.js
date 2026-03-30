@@ -69,7 +69,7 @@ describe('Slot claim atomicity', () => {
     const task1 = createQueuedTask({ provider: 'ollama' });
     const task2 = createQueuedTask({ provider: 'ollama' });
     const task3 = createQueuedTask({ provider: 'ollama' });
-    const providerGroup = ['ollama', 'hashline-ollama'];
+    const providerGroup = ['ollama'];
 
     const firstClaim = claimSlot(task1, 10, 'ollama', 1, providerGroup);
     const secondClaim = claimSlot(task2, 10, 'ollama', 1, providerGroup);
@@ -89,7 +89,7 @@ describe('Slot claim atomicity', () => {
 
   it('sequential rapid claims do not exceed configured provider/global limits', () => {
     const configByProvider = {
-      ollama: { providerLimit: 1, providerGroup: ['ollama', 'hashline-ollama'] },
+      ollama: { providerLimit: 1, providerGroup: ['ollama'] },
       codex: { providerLimit: 2, providerGroup: ['codex', 'claude-cli'] },
       anthropic: { providerLimit: 1, providerGroup: ['anthropic', 'groq', 'hyperbolic', 'deepinfra'] },
     };

@@ -177,7 +177,7 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
 
       const task = extractTaskFromResult(result);
       expect(task).toBeTruthy();
-      // Smart routing default is now hashline-ollama; modification routing only applies to ollama.
+      // Smart routing default is now ollama; modification routing only applies to ollama.
       const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
       expect(meta.intended_provider || task.provider).toBeTruthy();
     });

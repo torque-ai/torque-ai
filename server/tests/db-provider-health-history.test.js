@@ -192,12 +192,12 @@ describe('db/provider-health-history', () => {
   });
 
   it('getHealthTrend returns degrading when recent failure rate is higher', () => {
-    persistWindow('hashline-ollama', 24, { failure_rate: 0.1, failures: 1 });
-    persistWindow('hashline-ollama', 18, { failure_rate: 0.2, failures: 2 });
-    persistWindow('hashline-ollama', 12, { failure_rate: 0.5, failures: 5 });
-    persistWindow('hashline-ollama', 6, { failure_rate: 0.6, failures: 6 });
+    persistWindow('ollama', 24, { failure_rate: 0.1, failures: 1 });
+    persistWindow('ollama', 18, { failure_rate: 0.2, failures: 2 });
+    persistWindow('ollama', 12, { failure_rate: 0.5, failures: 5 });
+    persistWindow('ollama', 6, { failure_rate: 0.6, failures: 6 });
 
-    const trend = healthHistory.getHealthTrend('hashline-ollama', 7);
+    const trend = healthHistory.getHealthTrend('ollama', 7);
 
     expect(trend.trend).toBe('degrading');
     expect(trend.recent_failure_rate).toBeGreaterThan(trend.previous_failure_rate);

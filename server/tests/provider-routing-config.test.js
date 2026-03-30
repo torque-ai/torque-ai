@@ -62,7 +62,6 @@ function createMockDb(options = {}) {
       anthropic: createProviderRow('anthropic', { priority: 30 }),
       groq: createProviderRow('groq', { priority: 40 }),
       ollama: createProviderRow('ollama', { priority: 50 }),
-      'hashline-ollama': createProviderRow('hashline-ollama', { priority: 60 }),
       ...clone(options.providerConfig || {}),
     },
     templateConditions: clone(options.templateConditions || []),

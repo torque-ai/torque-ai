@@ -81,8 +81,8 @@ function createProviderMap(overrides = {}) {
       transport: 'api',
       quota_error_patterns: '[]',
     },
-    'hashline-ollama': {
-      provider: 'hashline-ollama',
+    'ollama': {
+      provider: 'ollama',
       enabled: 1,
       priority: 90,
       transport: 'api',
@@ -118,7 +118,7 @@ function createDbHarness(overrides = {}) {
       Object.entries({
         smart_routing_enabled: '1',
         default_provider: 'codex',
-        smart_routing_default_provider: 'hashline-ollama',
+        smart_routing_default_provider: 'ollama',
         ollama_fallback_provider: 'codex',
         ...overrides.config,
       }),
@@ -671,7 +671,7 @@ describe('provider-routing-core', () => {
       expect(result.reason).toContain('Complexity-based routing');
     });
 
-    it('upgrades targeted local edits to hashline-ollama', () => {
+    it('upgrades targeted local edits to ollama', () => {
       const hostManagement = createHostManagement({
         determineTaskComplexity: vi.fn(() => 'normal'),
         routeTask: vi.fn(() => ({
@@ -686,9 +686,9 @@ describe('provider-routing-core', () => {
         'src/app.js',
       ]);
 
-      expect(result.provider).toBe('hashline-ollama');
+      expect(result.provider).toBe('ollama');
       expect(result.model).toBe(TEST_MODELS.SMALL);
-      expect(result.reason).toContain('hashline-ollama');
+      expect(result.reason).toContain('ollama');
     });
 
     it('keeps targeted codex edits on codex when no hashline cloud provider is configured', () => {
@@ -1016,7 +1016,7 @@ describe('provider-routing-core', () => {
         'claude-cli',
         'deepinfra',
         'ollama-cloud',
-        'hashline-ollama',
+        'ollama',
         'ollama',
       ]);
     });

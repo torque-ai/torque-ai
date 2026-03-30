@@ -30,18 +30,6 @@ describe('Integration: Stall Detection & Recovery', () => {
       expect(threshold).toBeGreaterThan(0);
     });
 
-    it('getStallThreshold returns a number for hashline-ollama provider', () => {
-      const threshold = tm.getStallThreshold(null, 'hashline-ollama');
-      expect(typeof threshold).toBe('number');
-      expect(threshold).toBeGreaterThan(0);
-    });
-
-    it('ollama threshold differs from hashline-ollama threshold', () => {
-      const ollamaThreshold = tm.getStallThreshold(null, 'ollama');
-      const hashlineThreshold = tm.getStallThreshold(null, 'hashline-ollama');
-      expect(ollamaThreshold).not.toBe(hashlineThreshold);
-    });
-
     it('codex threshold is null or very high by default', () => {
       const threshold = tm.getStallThreshold(null, 'codex');
       if (threshold !== null) {
@@ -127,7 +115,7 @@ describe('Integration: Stall Detection & Recovery', () => {
 
   describe('Provider stall threshold constants', () => {
     it('all standard providers have defined thresholds', () => {
-      const providers = ['ollama', 'hashline-ollama'];
+      const providers = ['ollama'];
       for (const provider of providers) {
         const threshold = tm.getStallThreshold(null, provider);
         expect(threshold).toBeTruthy();
@@ -145,7 +133,7 @@ describe('Integration: Stall Detection & Recovery', () => {
 
   describe('Stall detection integration with DB config', () => {
     it('per-provider config keys are consistent', () => {
-      const providers = ['ollama', 'hashline-ollama', 'codex'];
+      const providers = ['ollama', 'codex'];
       for (const provider of providers) {
         const key = `stall_threshold_${provider.replace(/-/g, '_')}`;
         configCore.setConfig(key, '300');

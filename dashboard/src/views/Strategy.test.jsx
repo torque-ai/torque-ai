@@ -67,7 +67,7 @@ const mockDecisions = [
     task_id: 'task-def-87654321',
     created_at: '2026-03-08T11:30:00Z',
     complexity: 'normal',
-    provider: 'hashline-ollama',
+    provider: 'ollama',
     model: 'qwen2.5-coder:32b',
     status: 'running',
     fallback_used: false,
@@ -547,7 +547,7 @@ describe('Strategic', () => {
 
     await waitFor(() => {
       expect(screen.getByText('gpt-5.3-codex-spark')).toBeInTheDocument();
-      // qwen2.5-coder:32b appears for both hashline-ollama and ollama tasks
+      // qwen2.5-coder:32b appears for multiple local-model tasks
       const qwenElements = screen.getAllByText('qwen2.5-coder:32b');
       expect(qwenElements.length).toBeGreaterThanOrEqual(1);
     });
