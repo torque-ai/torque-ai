@@ -5,8 +5,6 @@ const PROVIDER_MODELS = {
   anthropic: /^claude/i,
   groq: /^(llama|mixtral|gemma)/i,
   ollama: /^(qwen|codestral|llama|mistral|deepseek|phi|gemma|starcoder)/i,
-  'hashline-ollama': /^(qwen|codestral|llama|mistral|deepseek|phi|gemma|starcoder)/i,
-  'hashline-openai': /^(gpt-|o[1-9])/i,
   deepinfra: /^(qwen|llama|deepseek|meta-llama)/i,
   hyperbolic: /^(qwen|llama|deepseek|meta-llama)/i,
 };
