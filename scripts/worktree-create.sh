@@ -40,15 +40,26 @@ if [ -f "${WORKTREE_DIR}/dashboard/package.json" ]; then
   (cd "${WORKTREE_DIR}/dashboard" && npm install --silent)
 fi
 
+# Ensure worktree guard is in the pre-commit hook (must run BEFORE PII guard)
 HOOK_PATH="${REPO_ROOT}/.git/hooks/pre-commit"
 GUARD_SCRIPT="${REPO_ROOT}/scripts/worktree-guard.sh"
+PII_SCRIPT="${REPO_ROOT}/scripts/pii-pre-commit.sh"
 if [ -f "$GUARD_SCRIPT" ]; then
-  if [ ! -f "$HOOK_PATH" ] || ! grep -q "worktree-guard" "$HOOK_PATH" 2>/dev/null; then
-    echo "" >> "$HOOK_PATH"
-    echo "# Worktree guard — block direct main commits when worktrees exist" >> "$HOOK_PATH"
-    echo "bash \"${GUARD_SCRIPT}\" || exit 1" >> "$HOOK_PATH"
+  if ! grep -q "worktree-guard" "$HOOK_PATH" 2>/dev/null; then
+    # Create a thin wrapper that runs worktree guard first, then PII guard
+    cat > "$HOOK_PATH" << HOOKEOF
+#!/usr/bin/env bash
+
+# === Worktree guard — must run FIRST (blocks direct main commits when worktrees exist) ===
+bash "${GUARD_SCRIPT}" || exit 1
+
+# === PII Guard — scans staged files for personal data ===
+if [ -f "${PII_SCRIPT}" ]; then
+  exec bash "${PII_SCRIPT}"
+fi
+HOOKEOF
     chmod +x "$HOOK_PATH"
-    echo "Installed worktree guard hook."
+    echo "Installed pre-commit hook (worktree guard + PII guard)."
   fi
 fi
 

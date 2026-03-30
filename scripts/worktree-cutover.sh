@@ -46,24 +46,26 @@ if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
 fi
 
 if [ "$TORQUE_RUNNING" = "true" ]; then
-  echo "  Triggering TORQUE queue drain + restart..."
-
-  RESPONSE=$(curl -s --max-time 5 -X POST "${TORQUE_API}/api/tools/restart_server" \
-    -H "Content-Type: application/json" \
-    -d "{\"reason\": \"worktree cutover: ${FEATURE_NAME}\", \"drain\": true, \"drain_timeout_minutes\": 10}" \
-    2>/dev/null) || RESPONSE=""
-
-  if echo "$RESPONSE" | grep -q "drain_started"; then
-    echo "[ok] Drain started — TORQUE will restart when all tasks complete"
-    echo "     Monitor with: curl -s ${TORQUE_API}/api/version"
-  elif echo "$RESPONSE" | grep -q "restart_scheduled"; then
-    echo "[ok] No running tasks — restart scheduled"
+  echo "  Restarting TORQUE on updated main..."
+  # Use stop-torque.sh (graceful shutdown) then restart
+  # restart_server MCP tool is blocked on REST API for security
+  STOP_SCRIPT="${REPO_ROOT}/stop-torque.sh"
+  if [ -f "$STOP_SCRIPT" ]; then
+    bash "$STOP_SCRIPT" 2>&1 | sed 's/^/    /'
+    sleep 2
+    # Start fresh on updated main
+    nohup node "${REPO_ROOT}/server/index.js" > /dev/null 2>&1 &
+    sleep 4
+    if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
+      echo "[ok] TORQUE restarted on updated main"
+    else
+      echo "[warn] TORQUE may not have started. Check manually."
+    fi
   else
-    echo "[warn] Could not trigger drain restart. Restart TORQUE manually."
-    echo "       Response: $RESPONSE"
+    echo "[warn] stop-torque.sh not found. Restart TORQUE manually."
   fi
 else
-  echo "  TORQUE not running — no drain needed. Start it when ready."
+  echo "  TORQUE not running — no restart needed. Start it when ready."
 fi
 
 echo "  Cleaning up worktree..."
