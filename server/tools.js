@@ -15,6 +15,7 @@ const evidenceRiskHandlers = require('./handlers/evidence-risk-handlers');
 const reviewHandlers = require('./handlers/review-handler');
 const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
+const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const competitiveFeatureDefs = require('./tool-defs/competitive-feature-defs');
 
 // ── Tool definitions (JSON schemas) ──
@@ -38,7 +39,6 @@ const TOOLS = [
   ...require('./tool-defs/comparison-defs'),
   ...require('./tool-defs/hashline-defs'),
   ...require('./tool-defs/tsserver-defs'),
-  ...require('./tool-defs/snapscope-defs'),
   ...require('./tool-defs/remote-agent-defs'),
   ...require('./tool-defs/policy-defs'),
   ...require('./tool-defs/evidence-risk-defs'),
@@ -99,6 +99,12 @@ if (_schemaCoverage.stale.length > 0) {
   logger.warn(`[tool-output-schemas] ${_schemaCoverage.stale.length} stale schema(s) reference nonexistent tools: ${_schemaCoverage.stale.join(', ')}`);
 }
 
+const TOOL_TIER_LABELS = {
+  1: `core (~${CORE_TOOL_NAMES.length} tools)`,
+  2: `extended (~${EXTENDED_TOOL_NAMES.length} tools)`,
+  3: `all (~${TOOLS.length} tools)`,
+};
+
 // ── Handler modules ──
 const HANDLER_MODULES = [
   require('./handlers/task'),
@@ -114,8 +120,6 @@ const HANDLER_MODULES = [
   require('./handlers/automation-handlers'),
   require('./handlers/hashline-handlers'),
   require('./handlers/tsserver-handlers'),
-  require('./handlers/snapscope-handlers'),
-  require('./handlers/peek-handlers'),
   require('./handlers/remote-agent-handlers'),
   require('./handlers/policy-handlers'),
   require('./handlers/conflict-resolution-handlers'),
@@ -467,13 +471,12 @@ async function handleToolCall(name, args) {
     case 'unlock_tier': {
       const tier = parseInt(args.tier, 10);
       if (![1, 2, 3].includes(tier)) {
-        return { content: [{ type: 'text', text: 'Invalid tier. Use 1 (core, ~25 tools), 2 (extended, ~78 tools), or 3 (all, ~488 tools).' }], isError: true };
+        return { content: [{ type: 'text', text: `Invalid tier. Use 1 (${TOOL_TIER_LABELS[1]}), 2 (${TOOL_TIER_LABELS[2]}), or 3 (${TOOL_TIER_LABELS[3]}).` }], isError: true };
       }
-      const labels = { 1: 'core (~25 tools)', 2: 'extended (~78 tools)', 3: 'all (~488 tools)' };
       if (tier >= 3) {
-        return { __unlock_all_tools: true, content: [{ type: 'text', text: `Unlocked Tier 3: ${labels[3]}. The tools list has been refreshed.` }] };
+        return { __unlock_all_tools: true, content: [{ type: 'text', text: `Unlocked Tier 3: ${TOOL_TIER_LABELS[3]}. The tools list has been refreshed.` }] };
       }
-      return { __unlock_tier: tier, content: [{ type: 'text', text: `Unlocked Tier ${tier}: ${labels[tier]}. The tools list has been refreshed.` }] };
+      return { __unlock_tier: tier, content: [{ type: 'text', text: `Unlocked Tier ${tier}: ${TOOL_TIER_LABELS[tier]}. The tools list has been refreshed.` }] };
     }
   }
 

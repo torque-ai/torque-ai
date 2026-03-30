@@ -139,36 +139,18 @@ const {
 // Route definitions
 // ============================================
 
-const AUTH_ROUTE_HANDLER_NAMES = new Set([
-  'handleCreateTicket',
-  'handleCreateSseTicket',
-  'handleCreateApiKey',
-  'handleListApiKeys',
-  'handleRevokeApiKey',
-  'handleDashboardLogin',
-  'handleDashboardLogout',
-  'handleSetup',
-  'handleAuthStatus',
-  'handleListUsers',
-  'handleCreateUser',
-  'handleUpdateUser',
-  'handleDeleteUser',
-  'handleGetMe',
-  'handleUpdateMe',
-]);
-
-const AUTH_ROUTE_PATH_PREFIXES = [
+const EXCLUDED_ROUTE_PATH_PREFIXES = [
   /^\/api\/auth(?:\/|$)/,
   /^\/api\/keys(?:\/|$)/,
 ];
 
-function isAuthRoute(route) {
+function isExcludedRoute(route) {
   const path = route && route.path;
   if (typeof path === 'string') {
-    return AUTH_ROUTE_PATH_PREFIXES.some((prefix) => prefix.test(path));
+    return EXCLUDED_ROUTE_PATH_PREFIXES.some((prefix) => prefix.test(path));
   }
   if (path instanceof RegExp) {
-    return AUTH_ROUTE_PATH_PREFIXES.some((prefix) => prefix.test(path.source));
+    return EXCLUDED_ROUTE_PATH_PREFIXES.some((prefix) => prefix.test(path.source));
   }
   return false;
 }
@@ -325,10 +307,7 @@ if (!hasPiiScanRoute) {
 
 function resolveApiRoutes(deps = {}) {
   const baseRoutes = routes.filter((route) => !V2_PROVIDER_ROUTE_HANDLER_NAMES.has(route.handlerName))
-    .filter((route) => {
-      if (AUTH_ROUTE_HANDLER_NAMES.has(route.handlerName)) return false;
-      return !isAuthRoute(route);
-    });
+    .filter((route) => !isExcludedRoute(route));
   const resolvedRoutes = baseRoutes.map((route) => {
     if (!route.handler && route.handlerName) {
       return {
@@ -753,7 +732,7 @@ async function handleRequest(req, res, context = {}) {
   const query = parseQuery(req.url);
 
   // Inbound webhook route — POST /api/webhooks/inbound/:name
-  // This is NOT in the routes array — it's a special handler with its own auth (HMAC, not API key)
+  // This is NOT in the routes array — it's a special handler with its own HMAC verification.
   if (req.method === 'POST' && url.startsWith(INBOUND_WEBHOOK_PREFIX)) {
     try {
       const webhookName = decodeURIComponent(url.slice(INBOUND_WEBHOOK_PREFIX.length));
@@ -770,13 +749,13 @@ async function handleRequest(req, res, context = {}) {
   }
 
   if (req.method === 'GET' && url === '/api/openapi.json') {
-    const spec = generateOpenApiSpec(routes);
+    const spec = generateOpenApiSpec(routeTable);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(spec, null, 2));
     return;
   }
 
-  // Version endpoint — always accessible (no auth required)
+  // Version endpoint — always accessible.
   if (req.method === 'GET' && url === '/api/version') {
     const pkg = require('./package.json');
     sendJson(res, { version: pkg.version, name: pkg.name || 'torque' }, 200, req);
@@ -883,7 +862,7 @@ async function handleRequest(req, res, context = {}) {
 
   // Generic tool passthrough — POST /api/tools/:tool_name
   // Exposes MCP tools via REST API without per-tool route definitions.
-  // SECURITY: Enforced by external auth plugin (or none in open mode) and tool-tier config.
+  // SECURITY: Enforced by external middleware/gateway (if configured) and tool-tier config.
   const TOOL_PREFIX = '/api/tools/';
   // Tools that must not be callable via the generic REST passthrough
   const BLOCKED_REST_TOOLS = new Set(['restart_server', 'shutdown', 'database_backup', 'database_restore']);

@@ -16,6 +16,7 @@
 const readline = require('readline');
 const childProcess = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const db = require('./database');
 const { defaultContainer } = require('./container');
@@ -47,6 +48,13 @@ let _shutdownHandler = null;
 // Virtual session for stdio transport (single-client)
 // stdio is a trusted local pipe — always considered authenticated
 const stdioSession = { toolMode: 'core', authenticated: true };
+
+const CLAUDE_DIR_NAME = '.claude';
+const MCP_CONFIG_FILENAME = '.mcp.json';
+const DEFAULT_MCP_HOST = '127.0.0.1';
+const DEFAULT_MCP_SSE_PORT = 3458;
+const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope']);
+const LOCAL_MCP_DESCRIPTION = 'TORQUE - Task Orchestration System with local LLM routing';
 
 // Remote agent registry — initialized in init() after DB is ready
 let agentRegistry = null;
@@ -131,6 +139,60 @@ function stopPidHeartbeat() {
     timerRegistry.remove(pidHeartbeatInterval);
     clearInterval(pidHeartbeatInterval);
     pidHeartbeatInterval = null;
+  }
+}
+
+function ensureLocalMcpConfig(options = {}) {
+  const { ssePort = DEFAULT_MCP_SSE_PORT, host = DEFAULT_MCP_HOST, homeDir } = options;
+  const claudeDir = path.join(homeDir || os.homedir(), CLAUDE_DIR_NAME);
+  const configPath = path.join(claudeDir, MCP_CONFIG_FILENAME);
+  const expectedUrl = `http://${host}:${ssePort}/sse`;
+
+  try {
+    fs.mkdirSync(claudeDir, { recursive: true });
+
+    let data = { mcpServers: {} };
+    try {
+      const raw = fs.readFileSync(configPath, 'utf8');
+      data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') data = { mcpServers: {} };
+      if (!data.mcpServers || typeof data.mcpServers !== 'object') data.mcpServers = {};
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        return { injected: false, path: configPath, reason: 'parse_error' };
+      }
+    }
+
+    const existing = data.mcpServers.torque;
+    if (existing && existing.url === expectedUrl) {
+      return { injected: false, path: configPath, reason: 'already_current' };
+    }
+
+    data.mcpServers.torque = {
+      ...(existing || {}),
+      type: 'sse',
+      url: expectedUrl,
+      description: LOCAL_MCP_DESCRIPTION,
+    };
+
+    const tmpPath = configPath + '.tmp.' + process.pid;
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
+    fs.renameSync(tmpPath, configPath);
+
+    if (process.platform === 'win32') {
+      try {
+        childProcess.execFileSync('icacls', [
+          configPath,
+          '/inheritance:r',
+          '/grant:r',
+          `${process.env.USERNAME}:(F)`,
+        ], { stdio: 'pipe', windowsHide: true });
+      } catch {}
+    }
+
+    return { injected: true, path: configPath, reason: existing ? 'updated' : 'created' };
+  } catch (err) {
+    return { injected: false, path: configPath, reason: `error: ${err.message}` };
   }
 }
 
@@ -522,11 +584,11 @@ function init() {
   // Initialize database
   db.init();
 
-  // Auth mode: local (default) or enterprise (plugin-based)
-  const authMode = process.env.TORQUE_AUTH_MODE || db.getConfig('auth_mode') || 'local';
+  const runtimeMode = process.env.TORQUE_AUTH_MODE || db.getConfig('auth_mode') || 'local';
+  const isLocalMode = runtimeMode === 'local';
 
-  if (authMode === 'local') {
-    debugLog('Auth mode: local (no authentication, 127.0.0.1 only)');
+  if (isLocalMode) {
+    debugLog('Local mode active (127.0.0.1 only)');
   }
 
   // Register core singletons with DI container
@@ -545,12 +607,11 @@ function init() {
   taskManager.initSubModules();
   serverConfig.init({ db });
 
-  // Auto-inject TORQUE MCP config (keyless for local mode)
-  if (authMode === 'local') {
+  // Auto-inject TORQUE MCP config for local mode
+  if (isLocalMode) {
     try {
-      const mcpConfigInjector = require('./auth/mcp-config-injector');
       const ssePort = serverConfig.getInt('mcp_sse_port', 3458);
-      const result = mcpConfigInjector.ensureGlobalMcpConfig({ ssePort });
+      const result = ensureLocalMcpConfig({ ssePort });
       if (result.injected) {
         debugLog('MCP config ' + result.reason + ': ' + result.path);
       }
@@ -581,19 +642,21 @@ function init() {
     // Non-fatal during migration — existing require() paths still work
   }
 
-  // Plugin loading (enterprise auth, future plugins)
+  // Load built-in plugins plus any mode-specific plugins the loader adds.
   let loadedPlugins = [];
-  if (authMode === 'enterprise') {
-    try {
-      const { loadPlugins } = require('./plugins/loader');
-      loadedPlugins = loadPlugins({ authMode, logger });
-      for (const plugin of loadedPlugins) {
-        plugin.install(defaultContainer);
-        debugLog('Plugin installed: ' + plugin.name + ' v' + plugin.version);
-      }
-    } catch (err) {
-      debugLog('Plugin loading failed, falling back to local mode: ' + err.message);
+  try {
+    const { loadPlugins } = require('./plugins/loader');
+    loadedPlugins = loadPlugins({
+      plugins: DEFAULT_PLUGIN_NAMES,
+      authMode: runtimeMode,
+      logger,
+    });
+    for (const plugin of loadedPlugins) {
+      plugin.install(defaultContainer);
+      debugLog('Plugin installed: ' + plugin.name + ' v' + plugin.version);
     }
+  } catch (err) {
+    debugLog('Plugin loading failed: ' + err.message);
   }
 
   // Migrate legacy config keys (ollama_model, hashline_capable_models, etc.) into

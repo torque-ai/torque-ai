@@ -307,12 +307,8 @@ async function handleSseConnection(req, res, url, requestId) {
   const existingSession = requestedSessionId ? sessions.get(requestedSessionId) : null;
   const sessionId = existingSession ? requestedSessionId : generateSessionId();
 
-  const identity = {
-    id: 'local',
-    name: 'Local User',
-    role: 'admin',
-    type: 'local',
-  };
+  // Local mode: accept all connections unconditionally
+  const identity = { id: 'local', name: 'Local User', role: 'admin', type: 'local' };
 
   if (!existingSession && sessions.size >= MAX_SSE_SESSIONS) {
     logger.warn('[SSE] Session cap reached');
@@ -321,7 +317,6 @@ async function handleSseConnection(req, res, url, requestId) {
     return;
   }
 
-  const isAuthenticated = true;
   const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
   if (!existingSession && ip !== 'unknown') {
     const currentIpCount = _perIpSessionCount.get(ip) || 0;
@@ -403,7 +398,7 @@ async function handleSseConnection(req, res, url, requestId) {
     keepaliveTimer,
     res,
     toolMode: 'core',
-    authenticated: isAuthenticated,
+    authenticated: true,
     pendingEvents: [],
     eventFilter: restored ? restored.eventFilter : new Set(['completed', 'failed']),
     taskFilter: restored ? restored.taskFilter : new Set(),
@@ -420,7 +415,7 @@ async function handleSseConnection(req, res, url, requestId) {
   session._remoteAddress = remoteAddress;
   session._origin = req.headers.origin || null;
   if (existingSession) {
-    session.authenticated = isAuthenticated;
+    session.authenticated = true;
   }
 
   if (!existingSession) {
