@@ -262,7 +262,16 @@ function handleBootstrapWorkstation(req, res) {
   const name = url.searchParams.get('name') || '';
   const port = url.searchParams.get('port') || '3460';
   const install = url.searchParams.get('install') === 'true';
-  const torqueHost = req.headers.host || `${getLocalIP()}:3457`;
+  // Use explicit ?host= param, or the Host header, or auto-detect LAN IP.
+  // Always replace loopback addresses with the LAN IP since the script
+  // runs on a REMOTE machine where 127.0.0.1 would point to itself.
+  const explicitHost = url.searchParams.get('host');
+  let torqueHost = explicitHost || req.headers.host || `${getLocalIP()}:3457`;
+  const loopbackPattern = /^(127\.\d+\.\d+\.\d+|localhost|\[::1\])(:\d+)?$/;
+  if (loopbackPattern.test(torqueHost)) {
+    const port = torqueHost.includes(':') ? torqueHost.split(':').pop() : '3457';
+    torqueHost = `${getLocalIP()}:${port}`;
+  }
 
   // Validate inputs to prevent shell injection in the generated script
   if (name && !/^[a-zA-Z0-9._-]{0,64}$/.test(name)) {
