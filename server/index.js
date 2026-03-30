@@ -469,6 +469,14 @@ async function gracefulShutdown(signal) {
       if (slotPullScheduler && typeof slotPullScheduler.stopHeartbeat === 'function') {
         slotPullScheduler.stopHeartbeat();
       }
+      // Pre-shutdown backup — capture DB state before anything is torn down
+      try {
+        const backupCore = require('./db/backup-core');
+        backupCore.takePreShutdownBackup();
+      } catch (backupErr) {
+        debugLog(`Pre-shutdown backup error (non-fatal): ${backupErr.message}`);
+      }
+
       // cancelTasks: true for explicit shutdown (SIGTERM, API), false for orphan-complete and stdin-close
       // Only cancel tasks on intentional shutdown (SIGINT/SIGTERM), not on connection loss or orphan-complete
       const cancelTasks = !isConnectionLoss && signal !== 'orphan-complete';

@@ -259,6 +259,60 @@ function cleanupOldBackups(options = {}) {
  * Factory function for DI container.
  * @param {{ db: object, internals?: object }} deps
  */
+/**
+ * Take a pre-shutdown safety backup. Called during graceful shutdown
+ * BEFORE the database is closed. Uses a dedicated prefix so these
+ * are never pruned by the regular cleanup cycle.
+ *
+ * @returns {{ path: string, size: number } | null}
+ */
+function takePreShutdownBackup() {
+  if (!_db || (_isDbClosed && _isDbClosed())) return null;
+
+  try {
+    const backupDir = path.join(getDataDir(), 'backups');
+    fs.mkdirSync(backupDir, { recursive: true });
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(backupDir, `torque-pre-shutdown-${timestamp}.db`);
+
+    const buffer = _db.serialize();
+
+    // Only save if the DB has meaningful content (>100KB suggests real data)
+    if (buffer.length < 100000) {
+      logger.info(`[backup] Skipping pre-shutdown backup — DB too small (${buffer.length} bytes), likely empty`);
+      return null;
+    }
+
+    fs.writeFileSync(backupPath, buffer);
+
+    const crypto = require('crypto');
+    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+    fs.writeFileSync(backupPath + '.sha256', hash, 'utf-8');
+
+    logger.info(`[backup] Pre-shutdown backup saved: ${backupPath} (${buffer.length} bytes)`);
+
+    // Keep only the last 5 pre-shutdown backups
+    const preShutdownFiles = fs.readdirSync(backupDir)
+      .filter(f => f.startsWith('torque-pre-shutdown-') && f.endsWith('.db'))
+      .sort()
+      .reverse();
+
+    for (let i = 5; i < preShutdownFiles.length; i++) {
+      try {
+        fs.unlinkSync(path.join(backupDir, preShutdownFiles[i]));
+        // Also remove the sha256 file
+        try { fs.unlinkSync(path.join(backupDir, preShutdownFiles[i] + '.sha256')); } catch {}
+      } catch {}
+    }
+
+    return { path: backupPath, size: buffer.length };
+  } catch (err) {
+    logger.warn(`[backup] Pre-shutdown backup failed: ${err.message}`);
+    return null;
+  }
+}
+
 function createBackupCore({ db: dbInstance, internals }) {
   setDb(dbInstance);
   if (internals) {
@@ -267,6 +321,7 @@ function createBackupCore({ db: dbInstance, internals }) {
   return {
     getDbInstance,
     backupDatabase,
+    takePreShutdownBackup,
     startBackupScheduler,
     stopBackupScheduler,
     restoreDatabase,
@@ -281,6 +336,7 @@ module.exports = {
   setInternals,
   createBackupCore,
   backupDatabase,
+  takePreShutdownBackup,
   startBackupScheduler,
   stopBackupScheduler,
   restoreDatabase,

@@ -417,6 +417,33 @@ function _wireAllModules() {
  * @returns {any}
  */
 function init() {
+  // Pre-startup safety backup — capture existing DB before schema migrations
+  // Uses a dedicated prefix never pruned by regular cleanup
+  if (fs.existsSync(DB_PATH)) {
+    try {
+      const stats = fs.statSync(DB_PATH);
+      if (stats.size > 100000) { // Only back up if DB has meaningful data (>100KB)
+        const backupDir = path.join(DATA_DIR, 'backups');
+        fs.mkdirSync(backupDir, { recursive: true });
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupPath = path.join(backupDir, `torque-pre-startup-${timestamp}.db`);
+        fs.copyFileSync(DB_PATH, backupPath);
+        logger.info(`[backup] Pre-startup backup: ${backupPath} (${stats.size} bytes)`);
+
+        // Keep only last 3 pre-startup backups
+        const preStartupFiles = fs.readdirSync(backupDir)
+          .filter(f => f.startsWith('torque-pre-startup-') && f.endsWith('.db'))
+          .sort()
+          .reverse();
+        for (let i = 3; i < preStartupFiles.length; i++) {
+          try { fs.unlinkSync(path.join(backupDir, preStartupFiles[i])); } catch {}
+        }
+      }
+    } catch (err) {
+      logger.warn(`[backup] Pre-startup backup failed (non-fatal): ${err.message}`);
+    }
+  }
+
   const attemptInit = () => {
     configCore.clearConfigCache();
     dbClosed = false;
