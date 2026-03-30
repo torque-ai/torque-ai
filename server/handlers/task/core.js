@@ -61,6 +61,35 @@ function rejectBlockedSubmission(policyResult) {
   return makeError(ErrorCodes.OPERATION_FAILED, message);
 }
 
+function resolveSafeSubmissionProvider(providerName) {
+  const normalizedProvider = typeof providerName === 'string' ? providerName.trim() : '';
+  try {
+    const providerConfig = normalizedProvider ? providerRoutingCore.getProvider(normalizedProvider) : null;
+    if (normalizedProvider && providerConfig && providerConfig.enabled) {
+      return normalizedProvider;
+    }
+  } catch (err) {
+    logger.debug(`[task-core] getProvider failed while resolving safe provider: ${err.message}`);
+  }
+
+  try {
+    if (typeof providerRoutingCore.listProviders === 'function') {
+      const fallbackProvider = providerRoutingCore
+        .listProviders()
+        .find((candidate) => candidate && candidate.enabled);
+      const fallbackName = fallbackProvider ? (fallbackProvider.provider || fallbackProvider.name || null) : null;
+      if (fallbackName) {
+        logger.warn(`[TaskSubmission] Invalid provider resolved (${normalizedProvider || 'null'}) — falling back to ${fallbackName}`);
+        return fallbackName;
+      }
+    }
+  } catch (err) {
+    logger.debug(`[task-core] listProviders failed while resolving safe provider: ${err.message}`);
+  }
+
+  return normalizedProvider;
+}
+
 
 function formatTaskStatus(task, progress) {
   let result = `## Task: ${task.id}\n\n`;
@@ -220,6 +249,7 @@ function handleSubmitTask(args) {
   const taskId = uuidv4();
   const defaultTimeout = serverConfig.getInt('default_timeout', 30);
   const defaultProvider = providerRoutingCore.getDefaultProvider();
+  let providerName = args.provider || defaultProvider;
 
   // Validate provider if specified
   if (args.provider) {
@@ -237,7 +267,9 @@ function handleSubmitTask(args) {
   if (availCheck) return availCheck.error;
 
   // Fix F3: Use per-provider timeout defaults when no explicit timeout given
-  const providerName = args.provider || defaultProvider;
+  if (!args.provider) {
+    providerName = resolveSafeSubmissionProvider(providerName);
+  }
   const providerTimeout = PROVIDER_DEFAULT_TIMEOUTS[providerName] || defaultTimeout;
   const timeout = args.timeout_minutes ?? providerTimeout;
   const taskDescription = args.task.trim();
@@ -257,6 +289,20 @@ function handleSubmitTask(args) {
     : (Array.isArray(tierResult?.eligible_providers) && tierResult.eligible_providers.length > 0
       ? tierResult.eligible_providers
       : [args.provider ? providerName : (tierResult?.provider || providerName)].filter(Boolean));
+  const normalizedSlotPullEligibleProviders = slotPullEligibleProviders
+    .filter((candidate, index, providers) => {
+      if (typeof candidate !== 'string' || !candidate.trim()) {
+        return false;
+      }
+      return providers.findIndex((provider) => provider === candidate) === index;
+    })
+    .map((candidate) => candidate.trim());
+  const slotPullIntendedProvider = args.provider
+    ? providerName
+    : resolveSafeSubmissionProvider(normalizedSlotPullEligibleProviders[0] || providerName) || providerName;
+  if (slotPullIntendedProvider && !normalizedSlotPullEligibleProviders.includes(slotPullIntendedProvider)) {
+    normalizedSlotPullEligibleProviders.unshift(slotPullIntendedProvider);
+  }
   const slotPullCapabilityRequirements = Array.isArray(tierResult?.capability_requirements)
     ? tierResult.capability_requirements
     : [];
@@ -265,11 +311,11 @@ function handleSubmitTask(args) {
       ? 'complex'
       : ((tierResult?.complexity || 'normal') === 'simple' ? 'simple' : 'normal'));
   const slotPullMetadata = {
-    eligible_providers: slotPullEligibleProviders,
+    eligible_providers: normalizedSlotPullEligibleProviders,
     capability_requirements: slotPullCapabilityRequirements,
     quality_tier: slotPullQualityTier,
     user_provider_override: !!args.provider,
-    intended_provider: slotPullEligibleProviders[0] || providerName,
+    intended_provider: slotPullIntendedProvider,
   };
 
   if (serverConfig.getBool('budget_check_enabled')) {
@@ -478,9 +524,9 @@ function handleQueueTask(args) {
   const taskId = uuidv4();
   const defaultTimeout = serverConfig.getInt('default_timeout', 30);
   const defaultProvider = providerRoutingCore.getDefaultProvider();
+  let providerName = args.provider || defaultProvider;
 
   // Validate provider if specified
-  const providerName = args.provider || defaultProvider;
   if (args.provider) {
     const providerConfig = providerRoutingCore.getProvider(args.provider);
     if (!providerConfig) {
@@ -496,6 +542,9 @@ function handleQueueTask(args) {
   if (availCheck2) return availCheck2.error;
 
   // Fix F3: Use per-provider timeout defaults when no explicit timeout given
+  if (!args.provider) {
+    providerName = resolveSafeSubmissionProvider(providerName);
+  }
   const providerTimeout = PROVIDER_DEFAULT_TIMEOUTS[providerName] || defaultTimeout;
   const timeout = args.timeout_minutes ?? providerTimeout;
   const taskDescription = args.task.trim();

@@ -41,6 +41,7 @@ const mockDb = {
   getConfig: vi.fn(),
   getProvider: vi.fn(),
   getDefaultProvider: vi.fn(),
+  listProviders: vi.fn(),
   determineTaskComplexity: vi.fn(),
   getSplitAdvisory: vi.fn(),
   getProviderHealthScore: vi.fn(),
@@ -372,6 +373,14 @@ function resetMockState() {
 
   mockDb.getDefaultProvider.mockReset();
   mockDb.getDefaultProvider.mockImplementation(() => defaultProvider);
+
+  mockDb.listProviders.mockReset();
+  mockDb.listProviders.mockImplementation(() =>
+    Object.entries(providerConfigs).map(([provider, config]) => ({
+      provider,
+      ...config,
+    }))
+  );
 
   mockDb.determineTaskComplexity.mockReset();
   mockDb.determineTaskComplexity.mockImplementation(() => 'normal');
@@ -787,6 +796,7 @@ describe('integration routing handlers', () => {
       expect(task.provider).toBeNull();
       expect(task.metadata).toMatchObject({
         eligible_providers: ['codex', 'deepinfra', 'ollama'],
+        intended_provider: 'codex',
         capability_requirements: ['file_creation'],
         quality_tier: 'normal',
         user_provider_override: false,
@@ -1052,6 +1062,30 @@ describe('integration routing handlers', () => {
       const task = taskFromResult(result);
       expect(task.provider).toBe('codex');
       expect(task.metadata.routing_reason).toContain('original provider disabled');
+    });
+
+    it('falls back to the first enabled provider when the selected and default providers are disabled', async () => {
+      providerConfigs.codex.enabled = false;
+      providerConfigs.openrouter.enabled = false;
+      defaultProvider = 'codex';
+      mockDb.listProviders.mockReturnValue([
+        { provider: 'codex', enabled: false },
+        { provider: 'openrouter', enabled: false },
+        { provider: 'claude-cli', enabled: true },
+      ]);
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'openrouter',
+        complexity: 'normal',
+        reason: 'Rule selected openrouter',
+      }));
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Summarize existing scheduler behavior',
+      });
+
+      const task = taskFromResult(result);
+      expect(task.provider).toBe('claude-cli');
+      expect(task.metadata.routing_reason).toContain('falling back to claude-cli');
     });
 
     it('falls back to the healthiest provider when the selected provider is unhealthy', async () => {

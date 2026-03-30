@@ -184,6 +184,18 @@ function createDbHarness(overrides = {}) {
         };
       }
 
+      if (normalizedSql === 'SELECT provider FROM provider_config WHERE enabled = 1 ORDER BY priority ASC LIMIT 1') {
+        return {
+          all() {
+            return Array.from(state.providers.values())
+              .filter((provider) => provider && provider.enabled)
+              .sort((left, right) => (left.priority || 0) - (right.priority || 0))
+              .slice(0, 1)
+              .map((provider) => ({ provider: provider.provider }));
+          },
+        };
+      }
+
       if (normalizedSql.startsWith('UPDATE provider_config SET ')) {
         return {
           run(...values) {
@@ -523,6 +535,32 @@ describe('provider-routing-core', () => {
         rule: null,
         reason: 'Smart routing disabled',
       });
+    });
+
+    it('falls back to the first enabled provider when smart routing is disabled and the default is disabled', () => {
+      const { core, loggerChild } = loadCore({
+        db: {
+          config: {
+            smart_routing_enabled: '0',
+            default_provider: 'codex',
+          },
+          providers: {
+            codex: { enabled: 0, priority: 10 },
+            'claude-cli': { enabled: 1, priority: 20 },
+          },
+        },
+      });
+
+      const result = core.analyzeTaskForRouting('Write docs', 'C:/repo');
+
+      expect(result).toEqual({
+        provider: 'claude-cli',
+        rule: null,
+        reason: 'Smart routing disabled',
+      });
+      expect(loggerChild.warn).toHaveBeenCalledWith(
+        '[SmartRouting] Invalid provider resolved (codex) — falling back to claude-cli',
+      );
     });
 
     it('routes security tasks to default provider (anthropic demoted to opt-in)', () => {
@@ -942,6 +980,32 @@ describe('provider-routing-core', () => {
         rule: null,
         reason: 'No rule matched, using smart routing default: codex',
       });
+    });
+
+    it('falls back to the first enabled provider when the smart routing default is disabled', () => {
+      const { core, loggerChild } = loadCore({
+        db: {
+          config: {
+            smart_routing_default_provider: 'codex',
+          },
+          providers: {
+            codex: { enabled: 0, priority: 10 },
+            'claude-cli': { enabled: 1, priority: 20 },
+          },
+          rules: [],
+        },
+      });
+
+      const result = core.analyzeTaskForRouting('Perform a generic task', 'C:/repo');
+
+      expect(result).toEqual({
+        provider: 'claude-cli',
+        rule: null,
+        reason: 'No rule matched, using smart routing default: codex',
+      });
+      expect(loggerChild.warn).toHaveBeenCalledWith(
+        '[SmartRouting] Invalid provider resolved (codex) — falling back to claude-cli',
+      );
     });
   });
 

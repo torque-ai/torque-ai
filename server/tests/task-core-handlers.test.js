@@ -43,6 +43,7 @@ const mockDb = {
   getConfig: vi.fn(),
   getDefaultProvider: vi.fn(),
   getProvider: vi.fn(),
+  listProviders: vi.fn(),
   analyzeTaskForRouting: vi.fn(),
   isCodexExhausted: vi.fn(),
   hasHealthyOllamaHost: vi.fn(),
@@ -135,6 +136,7 @@ const mockSmartScan = {
 
 const mockLogger = {
   debug: vi.fn(),
+  warn: vi.fn(),
 };
 mockLogger.child = vi.fn(() => mockLogger);
 
@@ -345,6 +347,7 @@ function resetMockDefaults() {
   mockTaskUtils.calculateDuration.mockReturnValue('duration(5s)');
 
   mockLogger.debug.mockReset();
+  mockLogger.warn.mockReset();
   mockLogger.child.mockReset();
   mockLogger.child.mockImplementation(() => mockLogger);
 
@@ -359,6 +362,12 @@ function resetMockDefaults() {
     provider,
     enabled: true,
   }));
+
+  mockDb.listProviders.mockReset();
+  mockDb.listProviders.mockImplementation(() => ([
+    { provider: 'codex', enabled: true },
+    { provider: 'ollama', enabled: true },
+  ]));
 
   mockDb.analyzeTaskForRouting.mockReset();
   mockDb.analyzeTaskForRouting.mockReturnValue({
@@ -752,6 +761,23 @@ describe('task-core handlers', () => {
       expect(JSON.parse(createdTask.metadata)).toEqual({ intended_provider: 'codex' });
     });
 
+    it('falls back to the first enabled provider when the configured default provider is disabled', () => {
+      mockDb.getDefaultProvider.mockReturnValue('codex');
+      mockDb.getProvider.mockImplementation((provider) => ({
+        provider,
+        enabled: provider !== 'codex',
+      }));
+      mockDb.listProviders.mockReturnValue([
+        { provider: 'codex', enabled: false },
+        { provider: 'openrouter', enabled: true },
+      ]);
+
+      handlers.handleSubmitTask({ task: 'Use a safe fallback default', auto_route: false });
+
+      expect(lastCreatedTask().provider).toBeNull();
+      expect(lastCreatedTaskMetadata()).toEqual({ intended_provider: 'openrouter' });
+    });
+
     it('accepts a null timeout and falls back to the provider timeout default', () => {
       handlers.handleSubmitTask({
         task: 'Null timeout fallback',
@@ -1132,6 +1158,25 @@ describe('task-core handlers', () => {
       });
 
       expect(lastCreatedTaskMetadata()).toEqual({ intended_provider: 'codex' });
+    });
+
+    it('falls back to the first enabled provider for queued tasks when the configured default is disabled', () => {
+      mockDb.getDefaultProvider.mockReturnValue('codex');
+      mockDb.getProvider.mockImplementation((provider) => ({
+        provider,
+        enabled: provider !== 'codex',
+      }));
+      mockDb.listProviders.mockReturnValue([
+        { provider: 'codex', enabled: false },
+        { provider: 'openrouter', enabled: true },
+      ]);
+
+      handlers.handleQueueTask({
+        task: 'Queue using safe fallback default',
+      });
+
+      expect(lastCreatedTask().provider).toBeNull();
+      expect(lastCreatedTaskMetadata()).toEqual({ intended_provider: 'openrouter' });
     });
 
     it('accepts a null timeout and falls back to the provider timeout default when queueing', () => {

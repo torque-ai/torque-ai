@@ -77,15 +77,47 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   const hostManagementFns = _deps.getHostManagementFns();
   const isOllamaHealthy = _deps.isOllamaHealthy;
   const getFallbackChain = _deps.getFallbackChain;
+  const applyProviderSafetyNet = (routingResult) => {
+    if (!routingResult || typeof routingResult !== 'object') {
+      return routingResult;
+    }
+
+    let resolvedProvider = typeof routingResult.provider === 'string' ? routingResult.provider.trim() : '';
+    const providerConfig = resolvedProvider ? getProvider(resolvedProvider) : null;
+    if (resolvedProvider && providerConfig && providerConfig.enabled) {
+      routingResult.provider = resolvedProvider;
+      return routingResult;
+    }
+
+    // Safety net: if routing resolved to a disabled/missing provider or null,
+    // fall back to the first enabled provider to prevent tasks sitting in queue forever.
+    const invalidProvider = resolvedProvider;
+    try {
+      const db = _deps.getDb();
+      const enabledProviders = db.prepare(
+        "SELECT provider FROM provider_config WHERE enabled = 1 ORDER BY priority ASC LIMIT 1"
+      ).all();
+      if (enabledProviders.length > 0) {
+        resolvedProvider = enabledProviders[0].provider;
+        routingResult.provider = resolvedProvider;
+        logger.warn(`[SmartRouting] Invalid provider resolved (${invalidProvider || 'null'}) — falling back to ${resolvedProvider}`);
+      }
+    } catch { /* db may not be available */ }
+
+    if (resolvedProvider) {
+      routingResult.provider = resolvedProvider;
+    }
+    return routingResult;
+  };
 
   // Check if smart routing is enabled
   const smartRoutingEnabled = getDatabaseConfig('smart_routing_enabled') === '1';
   if (!smartRoutingEnabled) {
-    return {
+    return applyProviderSafetyNet({
       provider: getDefaultProvider(),
       rule: null,
       reason: 'Smart routing disabled'
-    };
+    });
   }
 
   // Check Ollama health from cache
@@ -97,7 +129,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     if (ollamaHealthy !== false) {
       const providerConfig = getProvider('ollama');
       if (providerConfig && providerConfig.enabled) {
-        return { provider: 'ollama', rule: null, reason: 'Free routing: local Ollama (ollama)', complexity: 'normal' };
+        return applyProviderSafetyNet({ provider: 'ollama', rule: null, reason: 'Free routing: local Ollama (ollama)', complexity: 'normal' });
       }
     }
     // Fallback to cloud free tiers
@@ -107,7 +139,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       if (!apiKey) continue;
       const pConfig = getProvider(p);
       if (pConfig && pConfig.enabled) {
-        return { provider: p, rule: null, reason: `Free routing: cloud free tier (${p})`, complexity: 'normal' };
+        return applyProviderSafetyNet({ provider: p, rule: null, reason: `Free routing: cloud free tier (${p})`, complexity: 'normal' });
       }
     }
     // No free providers available — fall through to normal routing with a warning
@@ -142,15 +174,15 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       // rather than silently executing under a different provider identity.
       if (isUserOverride) {
         logger.info(`[SmartRouting] Ollama unhealthy but user explicitly requested ${result.provider} — preserving intent (TDA-01)`);
-        return result;
+        return applyProviderSafetyNet(result);
       }
-      return {
+      return applyProviderSafetyNet({
         provider: ollamaFallbackProvider,
         rule: result.rule,
         reason: `${result.reason} [Ollama unavailable - falling back to ${ollamaFallbackProvider}]`,
         originalProvider: result.provider,
         fallbackApplied: true
-      };
+      });
     }
 
     // Context overflow guard: estimate prompt size and reroute if it would exceed
@@ -167,14 +199,14 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       // Reroute if estimated tokens would exceed 70% of context (leave room for response)
       if (estimatedTotal > localCtxLimit * 0.7) {
         logger.info(`[SmartRouting] Context overflow guard: ~${estimatedTotal} estimated tokens exceeds 70% of ${localCtxLimit} limit for ${result.provider} — rerouting to ${ollamaFallbackProvider}`);
-        return {
+        return applyProviderSafetyNet({
           provider: ollamaFallbackProvider,
           rule: result.rule,
           reason: `${result.reason} [context overflow: ~${estimatedTotal} tokens > ${localCtxLimit} limit, rerouted to ${ollamaFallbackProvider}]`,
           originalProvider: result.provider,
           fallbackApplied: true,
           contextOverflow: true,
-        };
+        });
       }
     }
 
@@ -185,19 +217,19 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       const fbChain = getFallbackChain(result.provider);
       for (const fb of fbChain) {
         if (cb.allowRequest(fb) && getProvider(fb)?.enabled) {
-          return {
+          return applyProviderSafetyNet({
             ...result,
             provider: fb,
             originalProvider: result.provider,
             reason: `${result.reason} [circuit breaker: ${result.provider} tripped, rerouted to ${fb}]`,
             fallbackApplied: true,
-          };
+          });
         }
       }
       // All fallbacks also tripped — let it through and fail honestly
     }
 
-    return result;
+    return applyProviderSafetyNet(result);
   };
 
   // ─── ROUTING EVALUATION ORDER ──────────────────────────────────────────
@@ -354,11 +386,11 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     const qs = getQuotaStoreIfAvailable();
     if (diProvider && diProvider.enabled && !(qs && qs.isExhausted('deepinfra'))) {
       const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
-      return {
+      return applyProviderSafetyNet({
         provider: 'deepinfra',
         rule: null,
         reason: `API routing: ${matchType} task → deepinfra (large model)`
-      };
+      });
     }
   }
 
@@ -372,11 +404,11 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       const qs = getQuotaStoreIfAvailable();
       if (hProvider && hProvider.enabled && !(qs && qs.isExhausted('hyperbolic'))) {
         const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
-        return {
+        return applyProviderSafetyNet({
           provider: 'hyperbolic',
           rule: null,
           reason: `API routing: ${matchType} task → hyperbolic (DeepInfra unavailable)`
-        };
+        });
       }
     }
   }
@@ -389,11 +421,11 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     const qs = getQuotaStoreIfAvailable();
     if (ocProvider && ocProvider.enabled && !(qs && qs.isExhausted('ollama-cloud'))) {
       const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
-      return {
+      return applyProviderSafetyNet({
         provider: 'ollama-cloud',
         rule: null,
         reason: `API routing: ${matchType} task → ollama-cloud (480B+ model, free)`
-      };
+      });
     }
   }
 
@@ -403,13 +435,13 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     if (anthropicKey) {
       const anthropicProvider = getProvider('anthropic');
       if (anthropicProvider && anthropicProvider.enabled) {
-        return { provider: 'anthropic', rule: null, reason: 'Security task routed to Anthropic' };
+        return applyProviderSafetyNet({ provider: 'anthropic', rule: null, reason: 'Security task routed to Anthropic' });
       }
     }
     // Fallback to claude-cli for security tasks
     const claudeProvider = getProvider('claude-cli');
     if (claudeProvider && claudeProvider.enabled) {
-      return { provider: 'claude-cli', rule: null, reason: 'Security task routed to Claude CLI' };
+      return applyProviderSafetyNet({ provider: 'claude-cli', rule: null, reason: 'Security task routed to Claude CLI' });
     }
   }
 
@@ -417,7 +449,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   if (isXamlTask && !isUserOverride) {
     const codexProvider = getProvider('codex');
     if (codexProvider && codexProvider.enabled) {
-      return { provider: 'codex', rule: null, reason: 'XAML/WPF task routed to Codex' };
+      return applyProviderSafetyNet({ provider: 'codex', rule: null, reason: 'XAML/WPF task routed to Codex' });
     }
   }
 
@@ -435,11 +467,11 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     const qs = getQuotaStoreIfAvailable();
     if (groqProvider && groqProvider.enabled && !(qs && qs.isExhausted('groq'))) {
       const matchType = isDocsTask ? 'documentation' : 'simple generation';
-      return {
+      return applyProviderSafetyNet({
         provider: 'groq',
         rule: null,
         reason: `API routing: ${matchType} task → groq`
-      };
+      });
     }
   }
 
@@ -577,7 +609,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     result.provider = options.overrideProvider;
   }
 
-  return result;
+  return applyProviderSafetyNet(result);
 }
 
 /**

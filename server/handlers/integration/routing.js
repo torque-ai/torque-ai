@@ -327,6 +327,42 @@ async function handleSmartSubmitTask(args) {
     return [];
   };
 
+  const resolveFirstEnabledProvider = () => {
+    if (typeof providerRoutingCore.listProviders !== 'function') {
+      return null;
+    }
+    try {
+      const enabledProvider = providerRoutingCore
+        .listProviders()
+        .find((candidate) => candidate && candidate.enabled);
+      return enabledProvider ? (enabledProvider.provider || enabledProvider.name || null) : null;
+    } catch (e) {
+      logger.debug('[smart-routing] listProviders error:', e.message);
+      return null;
+    }
+  };
+
+  const resolveSafeSelectedProvider = (providerName) => {
+    const normalizedProvider = typeof providerName === 'string' ? providerName.trim() : '';
+    try {
+      const providerConfig = normalizedProvider ? providerRoutingCore.getProvider(normalizedProvider) : null;
+      if (normalizedProvider && providerConfig && providerConfig.enabled) {
+        return normalizedProvider;
+      }
+    } catch (e) {
+      logger.debug('[smart-routing] getProvider error:', e.message);
+    }
+
+    // Safety net: if routing resolved to a disabled/missing provider or null,
+    // fall back to the first enabled provider to prevent tasks sitting in queue forever.
+    const fallbackProvider = resolveFirstEnabledProvider();
+    if (fallbackProvider) {
+      logger.warn(`[SmartRouting] Invalid provider resolved (${normalizedProvider || 'null'}) — falling back to ${fallbackProvider}`);
+      return fallbackProvider;
+    }
+    return normalizedProvider;
+  };
+
   if (override_provider) {
     // User explicitly requested a provider
     selectedProvider = override_provider;
@@ -353,19 +389,29 @@ async function handleSmartSubmitTask(args) {
   if (availCheck) return availCheck.error;
 
   // Validate provider
-  const providerConfig = providerRoutingCore.getProvider(selectedProvider);
+  let providerConfig = providerRoutingCore.getProvider(selectedProvider);
+  if (!providerConfig || !providerConfig.enabled) {
+    // TDA-01: If user explicitly chose this provider, return an error instead of
+    // silently falling back. Explicit provider intent is sovereign.
+    if (override_provider) {
+      if (!providerConfig) {
+        return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Selected provider not found: ${selectedProvider}`);
+      }
+      return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} is disabled. Enable it or choose a different provider.`);
+    }
+    const fallbackProvider = resolveSafeSelectedProvider(providerRoutingCore.getDefaultProvider());
+    if (fallbackProvider && fallbackProvider !== selectedProvider) {
+      const fallbackReason = providerConfig ? 'original provider disabled' : 'original provider missing';
+      selectedProvider = fallbackProvider;
+      providerConfig = providerRoutingCore.getProvider(selectedProvider);
+      routingResult.reason += ` (${fallbackReason}, falling back to ${selectedProvider})`;
+    }
+  }
   if (!providerConfig) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Selected provider not found: ${selectedProvider}`);
   }
   if (!providerConfig.enabled) {
-    // TDA-01: If user explicitly chose this provider, return an error instead of
-    // silently falling back. Explicit provider intent is sovereign.
-    if (override_provider) {
-      return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} is disabled. Enable it or choose a different provider.`);
-    }
-    // Auto-routed: fallback to default
-    selectedProvider = providerRoutingCore.getDefaultProvider();
-    routingResult.reason += ` (original provider disabled, falling back to ${selectedProvider})`;
+    return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} is disabled. Enable it or choose a different provider.`);
   }
 
   // Determine task complexity for routing and review requirements
@@ -935,19 +981,19 @@ async function handleSmartSubmitTask(args) {
     }
   }
 
-  // Guard: redirect to codex when the selected provider is disabled in provider_config
+  // Guard: redirect to the first enabled provider when the selected provider is disabled in provider_config
   // Skip when user explicitly chose the provider — respect their decision
   const selectedProviderConfig = providerRoutingCore.getProvider(selectedProvider);
-  if (!override_provider && selectedProviderConfig && !selectedProviderConfig.enabled) {
+  if (!override_provider && (!selectedProviderConfig || !selectedProviderConfig.enabled)) {
     const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
     const prevProvider = selectedProvider;
-    selectedProvider = 'codex';
-    if (sparkEnabled && (complexity === 'simple' || complexity === 'normal')) {
+    selectedProvider = resolveSafeSelectedProvider(providerRoutingCore.getDefaultProvider()) || 'codex';
+    if (selectedProvider === 'codex' && sparkEnabled && (complexity === 'simple' || complexity === 'normal')) {
       taskModel = 'gpt-5.3-codex-spark';
     } else {
       taskModel = null;
     }
-    modRoutingReason = `${prevProvider} disabled → Codex${taskModel ? ' Spark' : ''} (provider disabled)`;
+    modRoutingReason = `${prevProvider || 'null'} disabled → ${selectedProvider}${taskModel ? ' Spark' : ''} (provider disabled)`;
     logger.info(`[SmartRouting] ${modRoutingReason}`);
   }
 
@@ -998,6 +1044,20 @@ async function handleSmartSubmitTask(args) {
   const slotPullEligibleProviders = Array.isArray(tierRoutingResult?.eligible_providers) && tierRoutingResult.eligible_providers.length > 0
     ? tierRoutingResult.eligible_providers
     : [override_provider || selectedProvider].filter(Boolean);
+  const slotPullIntendedProvider = override_provider
+    || resolveSafeSelectedProvider(slotPullEligibleProviders[0] || selectedProvider)
+    || selectedProvider;
+  const normalizedSlotPullEligibleProviders = slotPullEligibleProviders
+    .filter((providerName, index, providers) => {
+      if (typeof providerName !== 'string' || !providerName.trim()) {
+        return false;
+      }
+      return providers.findIndex((candidate) => candidate === providerName) === index;
+    })
+    .map((providerName) => providerName.trim());
+  if (slotPullIntendedProvider && !normalizedSlotPullEligibleProviders.includes(slotPullIntendedProvider)) {
+    normalizedSlotPullEligibleProviders.unshift(slotPullIntendedProvider);
+  }
   const slotPullCapabilityRequirements = Array.isArray(tierRoutingResult?.capability_requirements)
     ? tierRoutingResult.capability_requirements
     : [];
@@ -1005,7 +1065,8 @@ async function handleSmartSubmitTask(args) {
     || (complexity === 'complex' ? 'complex' : (complexity === 'simple' ? 'simple' : 'normal'));
   const slotPullMetadata = {
     smart_routing: true,
-    eligible_providers: slotPullEligibleProviders,
+    eligible_providers: normalizedSlotPullEligibleProviders,
+    intended_provider: slotPullIntendedProvider,
     capability_requirements: slotPullCapabilityRequirements,
     quality_tier: slotPullQualityTier,
     user_provider_override: !!override_provider,
