@@ -36,7 +36,13 @@ vi.mock('../utils/commit-mutex', () => ({ mutex: { acquire: vi.fn(async () => ()
 vi.mock('../utils/host-monitoring', () => ({ hostActivityCache: new Map() }));
 vi.mock('../utils/activity-monitoring', () => ({}));
 vi.mock('../plugins/snapscope/handlers/capture', () => ({ handlePeekUi: vi.fn() }));
-vi.mock('../config', () => ({ getEpoch: vi.fn(() => 1) }));
+vi.mock('../config', () => ({ getEpoch: vi.fn(() => 1), getInt: vi.fn(() => 60), get: vi.fn(() => null), init: vi.fn() }));
+vi.mock('../database', () => ({}));
+vi.mock('../logger', () => {
+  const noop = () => {};
+  const child = () => ({ info: noop, warn: noop, error: noop, debug: noop, child });
+  return { info: noop, warn: noop, error: noop, debug: noop, child };
+});
 
 describe('await_restart', () => {
   let handleAwaitRestart;
