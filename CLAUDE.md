@@ -4,7 +4,7 @@
 
 TORQUE requires two things to work in Claude Code:
 
-1. **MCP server** � auto-configured on first startup (provides ~560 tools, 22 core + progressive unlock)
+1. **MCP server** � auto-configured on first startup (provides ~600 tools, ~30 core + progressive unlock)
 2. **Slash commands** � located in `.claude/commands/` (provides the `/torque-*` commands)
 
 Slash commands are auto-discovered from `.claude/commands/`. In local mode, the TORQUE server auto-injects the keyless MCP SSE connection `http://127.0.0.1:3458/sse` into your global `~/.claude/.mcp.json` when it starts � no manual configuration needed.

@@ -1143,20 +1143,40 @@ function init() {
     debugLog(`Failed to write PID file: ${err.message}`);
   }
 
-  // Collect plugin MCP tools
+  // Collect plugin MCP tools — dedup against built-ins
+  const builtInTools = getTools();
+  const builtInNames = new Set(builtInTools.map(t => t.name));
   const pluginTools = [];
+  const pluginTier1 = [];
+  const pluginTier2 = [];
   for (const plugin of loadedPlugins) {
     const tools = plugin.mcpTools();
     if (Array.isArray(tools)) {
-      pluginTools.push(...tools);
+      for (const tool of tools) {
+        if (builtInNames.has(tool.name)) {
+          debugLog(`Plugin "${plugin.name}" tool "${tool.name}" shadows built-in — skipping`);
+          continue;
+        }
+        pluginTools.push(tool);
+      }
+    }
+    // Collect tier membership from plugins
+    if (typeof plugin.tierTools === 'function') {
+      const tiers = plugin.tierTools();
+      if (tiers && Array.isArray(tiers.tier1)) pluginTier1.push(...tiers.tier1);
+      if (tiers && Array.isArray(tiers.tier2)) pluginTier2.push(...tiers.tier2);
     }
   }
 
+  // Merge plugin tier names into the shared tier arrays
+  const mergedCoreTierNames = [...CORE_TOOL_NAMES, ...pluginTier1];
+  const mergedExtendedTierNames = [...EXTENDED_TOOL_NAMES, ...pluginTier2, ...pluginTier1];
+
   // Initialize shared MCP protocol handler (used by both stdio and SSE transports)
   mcpProtocol.init({
-    tools: [...getTools(), ...pluginTools],
-    coreToolNames: CORE_TOOL_NAMES,
-    extendedToolNames: EXTENDED_TOOL_NAMES,
+    tools: [...builtInTools, ...pluginTools],
+    coreToolNames: mergedCoreTierNames,
+    extendedToolNames: mergedExtendedTierNames,
     handleToolCall: async (name, args, _session) => {
       // Check plugin tools first
       const pluginTool = pluginTools.find(t => t.name === name);

@@ -5,7 +5,6 @@ const SERVER_INFO = { name: 'torque', version: '1.0.0' };
 let _tools = [];
 let _coreToolNames = [];
 let _extendedToolNames = [];
-let _allTierNames = new Set();
 let _handleToolCall = null;
 let _onInitialize = null;
 
@@ -23,7 +22,6 @@ function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onIniti
   _tools = tools || [];
   _coreToolNames = coreToolNames || [];
   _extendedToolNames = extendedToolNames || [];
-  _allTierNames = new Set([..._coreToolNames, ..._extendedToolNames]);
   _handleToolCall = handleToolCall;
   _onInitialize = onInitialize || null;
 }
@@ -64,8 +62,7 @@ async function handleRequest(request, session) {
         const allowedSet = new Set(allowedNames);
         const filtered = [];
         for (const tool of _tools) {
-          // Include tier-allowed tools + plugin tools (not in any tier = always visible)
-          if (allowedSet.has(tool.name) || !_allTierNames.has(tool.name)) {
+          if (allowedSet.has(tool.name)) {
             filtered.push(tool);
           }
         }
@@ -102,13 +99,11 @@ async function _handleToolCallInternal(params, session) {
   const { name, arguments: args } = params;
   const normalizedArgs = args || {};
 
-  // Enforce tool mode at execution boundary (RB-073)
-  // Plugin tools (not in any tier) are always allowed
   if (session.toolMode !== 'full') {
     const allowedNames = session.toolMode === 'core' ? _coreToolNames : _extendedToolNames;
-    if (!allowedNames.includes(name) && _allTierNames.has(name)) {
+    if (!allowedNames.includes(name)) {
       return {
-        content: [{ type: 'text', text: `Tool '${name}' is not available in ${session.toolMode} mode. Call 'unlock_all_tools' to access all tools.` }],
+        content: [{ type: 'text', text: `Tool '${name}' is not available in ${session.toolMode} mode. Call 'unlock_tier' or 'unlock_all_tools' to access more tools.` }],
         isError: true,
       };
     }

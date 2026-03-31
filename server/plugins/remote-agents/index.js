@@ -89,6 +89,12 @@ function createPlugin() {
   function middleware() { return []; }
   function eventHandlers() { return {}; }
   function configSchema() { return { type: 'object', properties: {} }; }
+  function tierTools() {
+    return {
+      tier1: [],
+      tier2: ['register_remote_agent', 'list_remote_agents', 'check_remote_agent_health', 'run_remote_command'],
+    };
+  }
 
   return {
     name: PLUGIN_NAME,
@@ -100,6 +106,7 @@ function createPlugin() {
     eventHandlers,
     configSchema,
     getAgentRegistry: () => agentRegistry,
+    tierTools,
   };
 }
 

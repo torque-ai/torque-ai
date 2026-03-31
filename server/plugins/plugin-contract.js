@@ -11,6 +11,15 @@ const REQUIRED_FIELDS = [
   { name: 'configSchema', type: 'function' },
 ];
 
+/**
+ * Optional plugin methods. Validated only when present.
+ * - tierTools(): Returns { tier1: string[], tier2: string[] } mapping tool names to visibility tiers.
+ *   Tools not listed are only visible after unlock_all_tools (Tier 3).
+ */
+const OPTIONAL_METHODS = [
+  { name: 'tierTools', type: 'function' },
+];
+
 function validatePlugin(plugin) {
   const errors = [];
   if (!plugin || typeof plugin !== 'object') {
@@ -23,7 +32,12 @@ function validatePlugin(plugin) {
       errors.push(`${name} must be a ${type}`);
     }
   }
+  for (const { name, type } of OPTIONAL_METHODS) {
+    if (name in plugin && typeof plugin[name] !== type) {
+      errors.push(`optional method ${name} must be a ${type} when provided`);
+    }
+  }
   return { valid: errors.length === 0, errors };
 }
 
-module.exports = { validatePlugin, REQUIRED_FIELDS };
+module.exports = { validatePlugin, REQUIRED_FIELDS, OPTIONAL_METHODS };

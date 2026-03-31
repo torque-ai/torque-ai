@@ -137,6 +137,17 @@ function createSnapScopePlugin() {
     };
   }
 
+  function tierTools() {
+    return {
+      tier1: ['peek_ui'],
+      tier2: [
+        'peek_interact', 'peek_elements', 'peek_hit_test',
+        'peek_launch', 'peek_discover', 'peek_health_all',
+        'peek_build_and_open', 'peek_diagnose',
+      ],
+    };
+  }
+
   return {
     name: PLUGIN_NAME,
     version: PLUGIN_VERSION,
@@ -146,6 +157,7 @@ function createSnapScopePlugin() {
     mcpTools,
     eventHandlers,
     configSchema,
+    tierTools,
   };
 }
 

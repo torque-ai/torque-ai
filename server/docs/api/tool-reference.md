@@ -2,7 +2,7 @@
 
 Complete reference for all TORQUE MCP tools. Tools are grouped by category and listed with their parameters.
 
-TORQUE provides 462 tools total, with a **core mode** (~61 tools) enabled by default to reduce context window usage. Call `unlock_all_tools` to access the full set.
+TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled by default to reduce context window usage. Call `unlock_all_tools` to access the full set.
 
 ---
 
@@ -717,4 +717,4 @@ TORQUE provides 462 tools total, with a **core mode** (~61 tools) enabled by def
 
 | Tool | Description |
 |------|-------------|
-| `unlock_all_tools` | Enable all 462 tools (default: ~64 core tools) |
+| `unlock_all_tools` | Enable all ~600 tools (default: ~30 core tools) |
