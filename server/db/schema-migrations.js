@@ -781,6 +781,10 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   // Resume context for failed task retries
   safeAddColumn('tasks', 'resume_context TEXT');
   migrateModelAgnostic(db);
+
+  // Await restart recovery: structured cancel reason + server epoch
+  safeAddColumn('tasks', 'cancel_reason TEXT');
+  safeAddColumn('tasks', 'server_epoch INTEGER');
   db.exec("RELEASE SAVEPOINT migration_batch");
   } catch (err) {
     try { db.exec("ROLLBACK TO SAVEPOINT migration_batch"); } catch (_e) { void _e; }

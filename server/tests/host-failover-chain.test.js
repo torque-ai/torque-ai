@@ -183,7 +183,7 @@ describe('Host Failover Chain', () => {
       vi.restoreAllMocks();
     });
 
-    it('marks running tasks as failed with HOST FAILOVER and triggers retry', () => {
+    it('marks running tasks as cancelled with HOST FAILOVER and triggers retry', () => {
       const hostId = addHost('cleanup-chain', [TEST_MODELS.SMALL]);
       const taskId = addTask('chain-task-1', hostId);
 
@@ -228,8 +228,8 @@ describe('Host Failover Chain', () => {
       const taskIds = ['multi-1', 'multi-2', 'multi-3', 'multi-4', 'multi-5'];
 
       const retriedTasks = [];
-      const failedTasks = [];
-      const mockUpdateStatus = vi.fn((id, status) => { if (status === 'failed') failedTasks.push(id); });
+      const cancelledTasks = [];
+      const mockUpdateStatus = vi.fn((id, status) => { if (status === 'cancelled') cancelledTasks.push(id); });
       const mockTryLocalFirst = vi.fn((id) => { retriedTasks.push(id); });
 
       orphanCleanup.init({
@@ -258,7 +258,7 @@ describe('Host Failover Chain', () => {
 
       orphanCleanup.cleanupOrphanedHostTasks(hostId, 'MultiHost');
 
-      expect(failedTasks).toHaveLength(5);
+      expect(cancelledTasks).toHaveLength(5);
       expect(retriedTasks).toHaveLength(5);
       expect(retriedTasks).toEqual(expect.arrayContaining(taskIds));
     });
@@ -431,7 +431,8 @@ describe('Host Failover Chain', () => {
 
       expect(capturedUpdates).toHaveLength(1);
       const update = capturedUpdates[0];
-      expect(update.status).toBe('failed');
+      expect(update.status).toBe('cancelled');
+      expect(update.fields.cancel_reason).toBe('host_failover');
       // Error output should contain both the original error and the HOST FAILOVER message
       expect(update.fields.error_output).toContain('Previous error info');
       expect(update.fields.error_output).toContain('HOST FAILOVER');

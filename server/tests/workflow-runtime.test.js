@@ -39,8 +39,8 @@ function initRuntime(overrides = {}) {
       startCalls.push(taskId);
       return { status: 'running' };
     },
-    cancelTask: (taskId, reason) => {
-      cancelCalls.push({ taskId, reason });
+    cancelTask: (taskId, reason, options = {}) => {
+      cancelCalls.push({ taskId, reason, cancel_reason: options.cancel_reason || null });
       return { status: 'cancelled' };
     },
     processQueue: () => {
@@ -352,8 +352,8 @@ describe('workflow-runtime', () => {
           startCalls.push(taskId);
           return { queued: true };
         },
-        cancelTask: (taskId, reason) => {
-          cancelCalls.push({ taskId, reason });
+        cancelTask: (taskId, reason, options = {}) => {
+          cancelCalls.push({ taskId, reason, cancel_reason: options.cancel_reason || null });
           return { status: 'cancelled' };
         },
         processQueue: () => {
@@ -589,6 +589,8 @@ describe('workflow-runtime', () => {
       expect(taskCore.getTask(taskA).status).toBe('cancelled');
       expect(taskCore.getTask(taskB).status).toBe('cancelled');
       expect(taskCore.getTask(taskA).error_output).toContain('Cancelled due to dependency failure');
+      expect(taskCore.getTask(taskA).cancel_reason).toBe('workflow_cascade');
+      expect(taskCore.getTask(taskB).cancel_reason).toBe('workflow_cascade');
     });
 
     it('continue action unblocks task when all dependencies are terminal', () => {
@@ -657,7 +659,23 @@ describe('workflow-runtime', () => {
       expect(taskCore.getTask(d2).status).toBe('cancelled');
       expect(taskCore.getTask(d3).status).toBe('cancelled');
       expect(taskCore.getTask(done).status).toBe('completed');
+      expect(taskCore.getTask(d1).cancel_reason).toBe('workflow_cascade');
+      expect(taskCore.getTask(d2).cancel_reason).toBe('workflow_cascade');
+      expect(taskCore.getTask(d3).cancel_reason).toBe('workflow_cascade');
       expect(cancelCalls.length).toBe(0);
+    });
+
+    it('passes workflow_cascade when cancelling running dependent tasks', () => {
+      const workflowId = createWorkflow({ name: 'wf-cancel-running-dependents' });
+      const root = createWorkflowTask(workflowId, 'root', 'failed');
+      const runningDependent = createWorkflowTask(workflowId, 'running-dependent', 'running', { depends_on: [root] });
+      workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: runningDependent, depends_on_task_id: root });
+
+      mod.cancelDependentTasks(root, workflowId, 'cascade cancel');
+
+      expect(cancelCalls).toEqual([
+        { taskId: runningDependent, reason: 'cascade cancel', cancel_reason: 'workflow_cascade' },
+      ]);
     });
   });
 

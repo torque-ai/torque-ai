@@ -20,6 +20,7 @@ const configCore = require('./db/config-core');
 
 let db = null; // facade: getDbInstance for raw DB access in getApiKey()
 let _decryptWarnedProviders = null;
+let _serverEpoch = 0;
 
 // ── Config Registry ──────────────────────────────────────────────────────
 // Maps config keys to { default, type, envVar, description }
@@ -262,11 +263,19 @@ function init(deps) {
   if (deps.db !== undefined) db = deps.db;
 }
 
+function setEpoch(epoch) {
+  _serverEpoch = epoch;
+}
+
+function getEpoch() {
+  return _serverEpoch;
+}
+
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createConfig(_deps) {
   // deps reserved for Phase 5 when database.js facade is removed
-  return { init, get, getInt, getFloat, getBool, isOptIn, getJson, getApiKey, hasApiKey, getPort, REGISTRY, API_KEY_ENV_VARS };
+  return { init, get, getInt, getFloat, getBool, isOptIn, getJson, getApiKey, hasApiKey, getPort, setEpoch, getEpoch, REGISTRY, API_KEY_ENV_VARS };
 }
 
 // ── Exports ──────────────────────────────────────────────────────────────
@@ -282,6 +291,8 @@ module.exports = {
   getApiKey,
   hasApiKey,
   getPort,
+  setEpoch,
+  getEpoch,
   REGISTRY,
   API_KEY_ENV_VARS,
   createConfig,

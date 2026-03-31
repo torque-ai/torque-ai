@@ -17,6 +17,7 @@ const { mocks } = vi.hoisted(() => {
 
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const serverConfig = require('../config');
 const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
 const taskMetadata = require('../db/task-metadata');
@@ -158,6 +159,7 @@ describe('workflow-await handlers with DB-backed state', () => {
     mocks.handlePeekUi.mockReset();
     mocks.taskEvents.removeAllListeners();
     hostMonitoring.hostActivityCache.clear();
+    serverConfig.setEpoch(0);
     vi.useRealTimers();
     teardownTestDb();
   });
@@ -214,6 +216,77 @@ describe('workflow-await handlers with DB-backed state', () => {
 
       expect(textOf(result)).toContain('Task Finished');
       expect(textOf(result)).toContain('Status:** cancelled');
+    });
+
+    it('returns restart recovery guidance for restart-cancelled tasks', async () => {
+      const taskId = createTask();
+      finalizeTask(taskId, 'cancelled', {
+        cancel_reason: 'server_restart',
+        output: 'partial progress before shutdown',
+      });
+
+      const result = await handlers.handleAwaitTask({ task_id: taskId });
+
+      expect(textOf(result)).toContain('Task Cancelled by Server Restart');
+      expect(textOf(result)).toContain('Cancel Reason:** server_restart');
+      expect(textOf(result)).toContain('partial progress before shutdown');
+      expect(textOf(result)).toContain('auto_resubmit_on_restart: true');
+    });
+
+    it('auto-resubmits restart-cancelled tasks and waits on the replacement task', async () => {
+      const taskId = createTask();
+      finalizeTask(taskId, 'cancelled', {
+        cancel_reason: 'server_restart',
+        output: 'partial progress before shutdown',
+      });
+
+      const promise = handlers.handleAwaitTask({
+        task_id: taskId,
+        auto_resubmit_on_restart: true,
+        poll_interval_ms: 30000,
+        timeout_minutes: 1,
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      const originalTask = taskCore.getTask(taskId);
+      const replacementId = originalTask.metadata.resubmitted_as;
+      const replacementTask = taskCore.getTask(replacementId);
+
+      expect(replacementId).toBeTruthy();
+      expect(replacementTask).toMatchObject({
+        task_description: originalTask.task_description,
+        workflow_id: null,
+        workflow_node_id: null,
+      });
+      expect(replacementTask.metadata.resubmitted_from).toBe(taskId);
+      expect(replacementTask.metadata.restart_resubmit_count).toBe(1);
+
+      finalizeTask(replacementId, 'completed', {
+        output: 'replacement task completed',
+      });
+      mocks.taskEvents.emit('task:completed', replacementId);
+
+      const result = await promise;
+
+      expect(textOf(result)).toContain('Task Completed');
+      expect(textOf(result)).toContain('replacement task completed');
+    });
+
+    it('marks stale running tasks as orphaned when the server epoch advances', async () => {
+      serverConfig.setEpoch(1);
+      const taskId = createTask({ status: 'running' });
+      taskCore.updateTask(taskId, { output: 'partial orphaned output' });
+      serverConfig.setEpoch(2);
+
+      const result = await handlers.handleAwaitTask({ task_id: taskId });
+      const updatedTask = taskCore.getTask(taskId);
+
+      expect(updatedTask.status).toBe('cancelled');
+      expect(updatedTask.cancel_reason).toBe('orphan_cleanup');
+      expect(textOf(result)).toContain('Task Cancelled by Server Restart');
+      expect(textOf(result)).toContain('Cancel Reason:** orphan_cleanup');
+      expect(textOf(result)).toContain('Server Epoch:** 1 -> 2');
+      expect(textOf(result)).toContain('partial orphaned output');
     });
 
     it('times out when the task remains running', async () => {
@@ -680,6 +753,70 @@ describe('workflow-await handlers with DB-backed state', () => {
       expect(textOf(result)).toContain('Task Completed: cancelled-step');
       expect(textOf(result)).toContain('Status:** cancelled');
       expect(textOf(result)).toContain('Workflow Completed: Cancelled Workflow');
+    });
+
+    it('returns restart recovery guidance for restart-cancelled workflow tasks and acknowledges them', async () => {
+      const workflow = createWorkflow({ name: 'Restart Recovery Workflow' });
+      const taskId = createWorkflowTask(workflow.id, 'build');
+      createWorkflowTask(workflow.id, 'test', { status: 'running' });
+      finalizeTask(taskId, 'cancelled', {
+        cancel_reason: 'server_restart',
+        output: 'workflow partial output',
+      });
+
+      const result = await handlers.handleAwaitWorkflow({
+        workflow_id: workflow.id,
+        poll_interval_ms: 10,
+        timeout_minutes: 1,
+      });
+
+      expect(textOf(result)).toContain('Workflow Task Cancelled by Server Restart');
+      expect(textOf(result)).toContain(`**Task ID:** ${taskId}`);
+      expect(textOf(result)).toContain('workflow partial output');
+      expect(textOf(result)).toContain('auto_resubmit_on_restart: true');
+
+      const updatedWorkflow = workflowEngine.getWorkflow(workflow.id);
+      expect(updatedWorkflow.context.acknowledged_tasks).toEqual([taskId]);
+    });
+
+    it('auto-resubmits restart-cancelled workflow tasks and completes on the replacement task', async () => {
+      const workflow = createWorkflow({ name: 'Restart Resubmit Workflow' });
+      const taskId = createWorkflowTask(workflow.id, 'build');
+      finalizeTask(taskId, 'cancelled', {
+        cancel_reason: 'server_restart',
+        output: 'workflow partial output',
+      });
+
+      const promise = handlers.handleAwaitWorkflow({
+        workflow_id: workflow.id,
+        auto_resubmit_on_restart: true,
+        poll_interval_ms: 30000,
+        timeout_minutes: 1,
+      });
+
+      await new Promise((resolve) => setImmediate(resolve));
+      const originalTask = taskCore.getTask(taskId);
+      const replacementId = originalTask.metadata.resubmitted_as;
+      const replacementTask = taskCore.getTask(replacementId);
+
+      expect(replacementId).toBeTruthy();
+      expect(replacementTask.workflow_id).toBe(workflow.id);
+      expect(replacementTask.workflow_node_id).toBe('build');
+      expect(replacementTask.metadata.resubmitted_from).toBe(taskId);
+      expect(replacementTask.metadata.restart_resubmit_count).toBe(1);
+
+      finalizeTask(replacementId, 'completed', {
+        output: 'replacement workflow task completed',
+      });
+      mocks.taskEvents.emit('task:completed', replacementId);
+
+      const result = await promise;
+      const updatedWorkflow = workflowEngine.getWorkflow(workflow.id);
+
+      expect(textOf(result)).toContain('Task Completed: build');
+      expect(textOf(result)).toContain('replacement workflow task completed');
+      expect(textOf(result)).toContain('Workflow Completed: Restart Resubmit Workflow');
+      expect(updatedWorkflow.context.acknowledged_tasks).toEqual([taskId, replacementId]);
     });
 
     it('falls back to timer polling when workflow event listeners cannot be registered', async () => {

@@ -33,7 +33,8 @@ function createCancellationHandler({
     }
   }
 
-  function cancelTask(taskId, reason = 'Cancelled by user') {
+  function cancelTask(taskId, reason = 'Cancelled by user', options = {}) {
+    const cancelReason = options.cancel_reason || 'user';
     const fullId = db.resolveTaskId(taskId);
     if (!fullId) {
       throw new Error(`No task found matching ID prefix: ${taskId}`);
@@ -56,7 +57,8 @@ function createCancellationHandler({
       try {
         db.updateTaskStatus(fullId, 'cancelled', {
           output: sanitizeTaskOutput(proc.output),
-          error_output: proc.errorOutput + `\n${reason}`
+          error_output: proc.errorOutput + `\n${reason}`,
+          cancel_reason: cancelReason
         });
       } catch (dbErr) {
         logger.info(`Failed to update task ${fullId} status:`, dbErr.message);
@@ -89,7 +91,8 @@ function createCancellationHandler({
     if (task && task.status === 'queued') {
       stallRecoveryAttempts.delete(fullId);
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: reason
+        error_output: reason,
+        cancel_reason: cancelReason
       });
 
       triggerCancellationWebhook(fullId, webhookEvent);
@@ -102,7 +105,8 @@ function createCancellationHandler({
     if (task && (task.status === 'blocked' || task.status === 'pending')) {
       stallRecoveryAttempts.delete(fullId);
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: reason
+        error_output: reason,
+        cancel_reason: cancelReason
       });
       triggerCancellationWebhook(fullId, webhookEvent);
       dispatchCancelEvent(fullId, webhookEvent);
@@ -114,7 +118,8 @@ function createCancellationHandler({
       stallRecoveryAttempts.delete(fullId);
       // pendingRetryTimeouts already cleared above (lines 46-51)
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: reason
+        error_output: reason,
+        cancel_reason: cancelReason
       });
       triggerCancellationWebhook(fullId, webhookEvent);
       dispatchCancelEvent(fullId, webhookEvent);
@@ -126,7 +131,8 @@ function createCancellationHandler({
       stallRecoveryAttempts.delete(fullId);
       safeDecrementHostSlot({ ollamaHostId: task.ollama_host_id });
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: `${reason}\nNote: Process was not found in memory (likely exited without cleanup)`
+        error_output: `${reason}\nNote: Process was not found in memory (likely exited without cleanup)`,
+        cancel_reason: cancelReason
       });
       triggerCancellationWebhook(fullId, webhookEvent);
       dispatchCancelEvent(fullId, webhookEvent);

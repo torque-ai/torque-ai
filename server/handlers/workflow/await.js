@@ -447,6 +447,10 @@ async function handleAwaitWorkflow(args) {
 
   // Per-session heartbeat state for computing deltas between heartbeats
   const heartbeatState = { prevOutputBytes: 0, heartbeatCount: 0 };
+  const RESTART_CANCEL_REASONS = new Set(['server_restart', 'orphan_cleanup']);
+  const serverConfig = require('../../config');
+  const currentEpoch = serverConfig.getEpoch();
+  const autoResubmit = args.auto_resubmit_on_restart === true;
 
   // Reason name mapping for notable events
   const REASON_MAP = {
@@ -472,6 +476,136 @@ async function handleAwaitWorkflow(args) {
   while (true) {
     const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
     if (!tasks) break;
+
+    // Epoch check: mark running tasks from a previous epoch as orphaned
+    for (const task of tasks) {
+      if (task.status === 'running' && task.server_epoch && task.server_epoch < currentEpoch) {
+        taskCore.updateTaskStatus(task.id, 'cancelled', {
+          error_output: `Task orphaned -- server epoch ${task.server_epoch} < current ${currentEpoch}`,
+          cancel_reason: 'orphan_cleanup',
+          completed_at: new Date().toISOString(),
+        });
+        task.status = 'cancelled';
+        task.cancel_reason = 'orphan_cleanup';
+      }
+    }
+
+    // Restart recovery: find restart-cancelled tasks not yet acknowledged
+    const restartCancelled = tasks.filter(t =>
+      t.status === 'cancelled' && RESTART_CANCEL_REASONS.has(t.cancel_reason) && !acknowledged.has(t.id)
+    );
+
+    if (restartCancelled.length > 0 && autoResubmit) {
+      for (const task of restartCancelled) {
+        const taskId = task.id;
+        const parsedMeta = typeof task.metadata === 'string'
+          ? safeJsonParse(task.metadata, {})
+          : (task.metadata || {});
+        const meta = parsedMeta && typeof parsedMeta === 'object' && !Array.isArray(parsedMeta)
+          ? parsedMeta
+          : {};
+        if (meta.resubmitted_as) {
+          continue;
+        }
+
+        const restartCount = Number(meta.restart_resubmit_count || 0);
+        if (restartCount >= 3) {
+          continue;
+        }
+
+        const newTaskId = require('crypto').randomUUID();
+        const newMeta = {
+          ...meta,
+          restart_resubmit_count: restartCount + 1,
+          resubmitted_from: taskId,
+        };
+
+        taskCore.createTask({
+          id: newTaskId,
+          status: 'pending',
+          task_description: task.task_description,
+          provider: task.provider,
+          model: task.model,
+          working_directory: task.working_directory,
+          timeout_minutes: task.timeout_minutes,
+          tags: task.tags,
+          workflow_id: task.workflow_id,
+          workflow_node_id: task.workflow_node_id,
+          original_provider: task.original_provider,
+          metadata: newMeta,
+        });
+
+        const originalMeta = {
+          ...meta,
+          resubmitted_as: newTaskId,
+        };
+
+        try {
+          if (typeof taskMetadata.updateMetadata === 'function') {
+            taskMetadata.updateMetadata(taskId, originalMeta);
+          } else if (typeof taskCore.patchTaskMetadata === 'function') {
+            taskCore.patchTaskMetadata(taskId, originalMeta);
+          } else {
+            taskCore.updateTask(taskId, { metadata: originalMeta });
+          }
+        } catch (err) {
+          logger.warn('[workflow-await] failed to persist restart recovery pointer for ' + taskId + ': ' + (err.message || err));
+        }
+
+        workflowTaskIds.add(newTaskId);
+        acknowledged.add(taskId);
+        logger.info(`[workflow-await] Restart recovery: resubmitted ${taskId} as ${newTaskId} at epoch ${currentEpoch}`);
+      }
+
+      const updatedCtx = { ...ctx, acknowledged_tasks: Array.from(acknowledged) };
+      workflowEngine.updateWorkflow(args.workflow_id, { context: updatedCtx });
+      continue;
+    }
+
+    // Manual recovery: yield restart-cancelled tasks one at a time for review
+    if (restartCancelled.length > 0 && !autoResubmit) {
+      const task = restartCancelled[0];
+      acknowledged.add(task.id);
+
+      const updatedCtx = { ...ctx, acknowledged_tasks: Array.from(acknowledged) };
+      workflowEngine.updateWorkflow(args.workflow_id, { context: updatedCtx });
+
+      const completed = tasks.filter(t => t.status === 'completed').length;
+      const cancelled = tasks.filter(t => t.status === 'cancelled').length;
+      const running = tasks.filter(t => t.status === 'running').length;
+      const pending = tasks.filter(t => ['pending', 'queued'].includes(t.status)).length;
+      const failed = tasks.filter(t => t.status === 'failed').length;
+      const partialSource = (task.partial_output || task.output || '').toString();
+      const partialTail = partialSource.length > 1000
+        ? '...(truncated)\n' + partialSource.slice(-1000)
+        : partialSource;
+
+      let output = `## Workflow Task Cancelled by Server Restart\n\n`;
+      output += `**Task ID:** ${task.id}\n`;
+      output += `**Node:** ${task.workflow_node_id || task.id.substring(0, 8)}\n`;
+      output += `**Cancel Reason:** ${task.cancel_reason}\n`;
+      output += `**Description:** ${(task.task_description || '').slice(0, 300)}\n`;
+
+      if (partialTail) {
+        output += `\n### Partial Output\n\`\`\`\n${partialTail}\n\`\`\`\n`;
+      }
+
+      output += `\n### Workflow Progress\n`;
+      output += `| Status | Count |\n`;
+      output += `| --- | ---: |\n`;
+      output += `| Completed | ${completed} |\n`;
+      output += `| Cancelled | ${cancelled} |\n`;
+      output += `| Running | ${running} |\n`;
+      output += `| Pending | ${pending} |\n`;
+      output += `| Failed | ${failed} |\n`;
+
+      output += `\n### Recovery Options\n`;
+      output += `- Resubmit this task manually with \`submit_task\`\n`;
+      output += `- Use \`auto_resubmit_on_restart: true\` for automatic recovery\n`;
+      output += `- Call \`await_workflow\` again to review the next cancelled task\n`;
+
+      return { content: [{ type: 'text', text: output }] };
+    }
 
     // Find terminal tasks not yet acknowledged
     const unacked = tasks.filter(t => terminalStates.includes(t.status) && !acknowledged.has(t.id));
@@ -1054,6 +1188,128 @@ function formatStandaloneTaskResult(task, startTime) {
 }
 
 /**
+ * Handle a task that was cancelled by server restart or detected as an orphan.
+ * Either returns a structured recovery response or auto-resubmits and continues awaiting.
+ */
+async function handleRestartRecovery(task, args, awaitStartTime, currentEpoch) {
+  const taskId = task.id;
+  const autoResubmit = args.auto_resubmit_on_restart === true;
+  const parsedMeta = typeof task.metadata === 'string'
+    ? safeJsonParse(task.metadata, {})
+    : (task.metadata || {});
+  const meta = parsedMeta && typeof parsedMeta === 'object' && !Array.isArray(parsedMeta)
+    ? parsedMeta
+    : {};
+
+  if (meta.resubmitted_as && meta.resubmitted_as !== taskId) {
+    const replacementTask = taskCore.getTask(meta.resubmitted_as);
+    if (replacementTask) {
+      return handleAwaitTask({ ...args, task_id: meta.resubmitted_as });
+    }
+
+    let output = `## Task Already Resubmitted\n\n`;
+    output += `**Original Task ID:** ${taskId}\n`;
+    output += `**Replacement Task ID:** ${meta.resubmitted_as}\n`;
+    output += `**Cancel Reason:** ${task.cancel_reason || 'unknown'}\n`;
+    output += `The replacement task could not be loaded. Re-run \`await_task\` with the replacement ID.\n`;
+    return { content: [{ type: 'text', text: output }] };
+  }
+
+  const restartResubmitCount = Number(meta.restart_resubmit_count || 0);
+
+  if (autoResubmit && restartResubmitCount < 3) {
+    const newTaskId = require('crypto').randomUUID();
+    const newMeta = {
+      ...meta,
+      restart_resubmit_count: restartResubmitCount + 1,
+      resubmitted_from: taskId,
+    };
+
+    taskCore.createTask({
+      id: newTaskId,
+      status: 'pending',
+      task_description: task.task_description,
+      provider: task.provider,
+      model: task.model,
+      working_directory: task.working_directory,
+      timeout_minutes: task.timeout_minutes,
+      tags: task.tags,
+      workflow_id: task.workflow_id,
+      workflow_node_id: task.workflow_node_id,
+      original_provider: task.original_provider,
+      metadata: newMeta,
+    });
+
+    const originalMeta = {
+      ...meta,
+      resubmitted_as: newTaskId,
+    };
+
+    try {
+      if (typeof taskMetadata.updateMetadata === 'function') {
+        taskMetadata.updateMetadata(taskId, originalMeta);
+      } else if (typeof taskCore.patchTaskMetadata === 'function') {
+        taskCore.patchTaskMetadata(taskId, originalMeta);
+      } else {
+        taskCore.updateTask(taskId, { metadata: originalMeta });
+      }
+    } catch (err) {
+      logger.warn('[await-task] failed to persist restart recovery pointer for ' + taskId + ': ' + (err.message || err));
+    }
+
+    logger.info(`[await-task] Restart recovery: resubmitted ${taskId} as ${newTaskId} at epoch ${currentEpoch}`);
+    return handleAwaitTask({ ...args, task_id: newTaskId });
+  }
+
+  const startedAtMs = task.started_at ? new Date(task.started_at).getTime() : null;
+  const completedAtMs = task.completed_at ? new Date(task.completed_at).getTime() : Date.now();
+  const durationMs = Number.isFinite(startedAtMs)
+    ? Math.max(0, completedAtMs - startedAtMs)
+    : Math.max(0, Date.now() - awaitStartTime);
+  const partialOutput = (task.partial_output || task.output || '').toString();
+  const partialTail = partialOutput.length > 1500
+    ? '...(truncated)\n' + partialOutput.slice(-1500)
+    : partialOutput;
+  const modifiedFiles = [...collectTaskCommitPaths(taskId, task.working_directory)];
+
+  let output = `## Task Cancelled by Server Restart\n\n`;
+  output += `**Task ID:** ${taskId}\n`;
+  output += `**Cancel Reason:** ${task.cancel_reason || 'unknown'}\n`;
+  output += `**Original Description:** ${(task.task_description || '').slice(0, 500)}\n`;
+  output += `**Provider:** ${task.provider || 'unknown'}\n`;
+  output += `**Model:** ${task.model || 'default'}\n`;
+  output += `**Running Time Before Cancel:** ${formatDuration(durationMs)}\n`;
+  if (task.cancel_reason === 'orphan_cleanup' && task.server_epoch != null) {
+    output += `**Server Epoch:** ${task.server_epoch} -> ${currentEpoch}\n`;
+  }
+
+  if (restartResubmitCount >= 3) {
+    output += `\n**Warning:** Auto-resubmit stopped after ${restartResubmitCount} restart recoveries.\n`;
+  }
+
+  if (partialTail) {
+    output += `\n### Partial Output\n\`\`\`\n${partialTail}\n\`\`\`\n`;
+  }
+
+  if (modifiedFiles.length > 0) {
+    output += `\n### Files Modified\n`;
+    for (const file of modifiedFiles.slice(0, 20)) {
+      output += `- ${file}\n`;
+    }
+    if (modifiedFiles.length > 20) {
+      output += `- ... and ${modifiedFiles.length - 20} more\n`;
+    }
+  }
+
+  output += `\n### Recovery Options\n`;
+  output += `- Resubmit with \`submit_task\` using the same description\n`;
+  output += `- Check the partial output and modified files before resubmitting\n`;
+  output += `- Use \`auto_resubmit_on_restart: true\` in future await calls for automatic recovery\n`;
+
+  return { content: [{ type: 'text', text: output }] };
+}
+
+/**
  * Block until a standalone task completes or fails, then return its result.
  * Uses the same event-bus wakeup as await_workflow for instant notification.
  * Optionally runs verify_command and auto-commits on success.
@@ -1067,6 +1323,9 @@ async function handleAwaitTask(args) {
     const terminalStates = ['completed', 'failed', 'cancelled', 'skipped'];
     const shutdownSignal = args.__shutdownSignal;
     const taskId = args.task_id;
+    const RESTART_CANCEL_REASONS = new Set(['server_restart', 'orphan_cleanup']);
+    const serverConfig = require('../../config');
+    const currentEpoch = serverConfig.getEpoch();
 
     // Heartbeat configuration: default 5 min, min 0 (disabled), max 30
     const rawHeartbeat = args.heartbeat_minutes != null ? args.heartbeat_minutes : 5;
@@ -1088,8 +1347,20 @@ async function handleAwaitTask(args) {
     const { task: initialTask, error: taskErr } = requireTask(taskId);
     if (taskErr) return taskErr;
 
+    if (initialTask.status === 'running' && initialTask.server_epoch && initialTask.server_epoch < currentEpoch) {
+      taskCore.updateTaskStatus(taskId, 'cancelled', {
+        error_output: `Task orphaned -- server epoch ${initialTask.server_epoch} < current ${currentEpoch}`,
+        cancel_reason: 'orphan_cleanup',
+      });
+      const orphanedTask = taskCore.getTask(taskId);
+      return handleRestartRecovery(orphanedTask, args, awaitStartTime, currentEpoch);
+    }
+
     // If already terminal, return immediately
     if (terminalStates.includes(initialTask.status)) {
+      if (initialTask.status === 'cancelled' && RESTART_CANCEL_REASONS.has(initialTask.cancel_reason)) {
+        return handleRestartRecovery(initialTask, args, awaitStartTime, currentEpoch);
+      }
       const output = formatStandaloneTaskResult(initialTask, awaitStartTime);
       return { content: [{ type: 'text', text: output }] };
     }
@@ -1101,7 +1372,19 @@ async function handleAwaitTask(args) {
         return makeError(ErrorCodes.TASK_NOT_FOUND, `Task disappeared: ${taskId}`);
       }
 
+      if (task.status === 'running' && task.server_epoch && task.server_epoch < currentEpoch) {
+        taskCore.updateTaskStatus(taskId, 'cancelled', {
+          error_output: `Task orphaned -- server epoch ${task.server_epoch} < current ${currentEpoch}`,
+          cancel_reason: 'orphan_cleanup',
+        });
+        const orphanedTask = taskCore.getTask(taskId);
+        return handleRestartRecovery(orphanedTask, args, awaitStartTime, currentEpoch);
+      }
+
       if (terminalStates.includes(task.status)) {
+        if (task.status === 'cancelled' && RESTART_CANCEL_REASONS.has(task.cancel_reason)) {
+          return handleRestartRecovery(task, args, awaitStartTime, currentEpoch);
+        }
         let output = formatStandaloneTaskResult(task, awaitStartTime);
 
         // Verify + commit (serialized via commit mutex)

@@ -946,7 +946,8 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDe
     case 'cancel':
       // Cancel this task and propagate cancellation to all dependents
       db.updateTaskStatus(taskId, 'cancelled', {
-        error_output: 'Cancelled due to dependency failure'
+        error_output: 'Cancelled due to dependency failure',
+        cancel_reason: 'workflow_cascade',
       });
       cancelDependentTasks(taskId, workflowId, 'Dependency cancelled');
       break;
@@ -1033,13 +1034,14 @@ function cancelDependentTasks(taskId, workflowId, reason, visited = new Set()) {
 
     if (task.status === 'running') {
       try {
-        _cancelTask(depTaskId, reason);
+        _cancelTask(depTaskId, reason, { cancel_reason: 'workflow_cascade' });
       } catch (err) {
         logger.info(`cancelDependentTasks: failed to cancel running task ${depTaskId}: ${err.message}`);
       }
     } else if (['pending', 'blocked', 'queued', 'pending_provider_switch'].includes(task.status)) {
       db.updateTaskStatus(depTaskId, 'cancelled', {
-        error_output: reason
+        error_output: reason,
+        cancel_reason: 'workflow_cascade',
       });
     } else {
       // Already in terminal state — skip

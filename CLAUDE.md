@@ -303,12 +303,14 @@ TORQUE pushes notifications through the MCP SSE transport when tasks complete or
 
 - **Single task:** Submit ? `await_task` (heartbeats every 5 min, wakes instantly on completion) ? review result or heartbeat ? re-invoke if heartbeat
 - **Workflow:** Submit workflow ? `await_workflow` (heartbeats every 5 min, wakes instantly per task) ? review each yield/heartbeat ? re-invoke
+- **Restart recovery:** `await_task({ task_id: "...", auto_resubmit_on_restart: true })` -- automatically resubmits tasks cancelled by server restart and continues waiting. The await loop detects restart-related cancellations via the `cancel_reason` field (`server_restart` or `orphan_cleanup`) and server epoch comparison. Without `auto_resubmit_on_restart`, returns a structured recovery response with partial output and recovery options.
 - **Batch monitoring:** `subscribe_task_events` with no task_ids ? `check_notifications` periodically
 
 ### Do NOT
 
 - Poll `check_status` in a loop � this wastes context tokens and adds latency
 - Set short `poll_interval_ms` on `await_workflow` � the event bus wakes it instantly; the interval is only a fallback
+- Worry about server restarts during await -- use `auto_resubmit_on_restart: true` for automatic recovery, or re-invoke `await_task`/`await_workflow` after restart for manual recovery
 
 ### Heartbeat check-ins
 

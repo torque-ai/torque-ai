@@ -116,6 +116,7 @@ describe('task-cancellation', () => {
       expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
         output: 'sanitized output',
         error_output: 'some error\nCancelled by user',
+        cancel_reason: 'user',
       });
       expect(deps.cleanupChildProcessListeners).toHaveBeenCalledWith(fakeProc.process);
       expect(deps.cleanupProcessTracking).toHaveBeenCalledWith(
@@ -236,6 +237,7 @@ describe('task-cancellation', () => {
       expect(deps.killProcessGraceful).not.toHaveBeenCalled();
       expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
         error_output: 'Cancelled by user',
+        cancel_reason: 'user',
       });
       expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
@@ -253,6 +255,7 @@ describe('task-cancellation', () => {
       expect(result).toBe(true);
       expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
         error_output: 'Cancelled by user',
+        cancel_reason: 'user',
       });
       expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
@@ -268,6 +271,7 @@ describe('task-cancellation', () => {
       expect(result).toBe(true);
       expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
         error_output: 'Cancelled by user',
+        cancel_reason: 'user',
       });
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
     });
@@ -283,10 +287,25 @@ describe('task-cancellation', () => {
       expect(deps.safeDecrementHostSlot).toHaveBeenCalledWith({ ollamaHostId: 'host-1' });
       expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
         error_output: expect.stringContaining('Process was not found in memory'),
+        cancel_reason: 'user',
       });
       expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
       expect(deps.processQueue).toHaveBeenCalled();
+    });
+
+    it('passes through a structured cancel_reason option', () => {
+      const fullId = 'structured-cancel-task';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'queued' });
+
+      const result = handler.cancelTask(fullId, 'Server shutdown', { cancel_reason: 'server_restart' });
+
+      expect(result).toBe(true);
+      expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
+        error_output: 'Server shutdown',
+        cancel_reason: 'server_restart',
+      });
     });
 
     it('aborts API controller if present', () => {

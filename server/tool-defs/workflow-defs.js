@@ -785,6 +785,10 @@ const tools = [
           description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable.',
           default: 5
         },
+        auto_resubmit_on_restart: {
+          type: 'boolean',
+          description: 'Automatically resubmit tasks cancelled by server restart and continue waiting (default: false). When true, the await loop clones the task and seamlessly continues.'
+        },
         verify_command: { type: 'string', description: 'Shell command to run after successful completion (e.g., "npx tsc --noEmit && npx vitest run"). Runs in working_directory.' },
         auto_commit: { type: 'boolean', description: 'Auto-commit all changes on success (after verify passes if set)' },
         commit_message: { type: 'string', description: 'Custom commit message (default: workflow name)' },
@@ -807,6 +811,10 @@ const tools = [
           type: 'number',
           description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable.',
           default: 5
+        },
+        auto_resubmit_on_restart: {
+          type: 'boolean',
+          description: 'Automatically resubmit tasks cancelled by server restart and continue waiting (default: false). When true, the await loop clones the task and seamlessly continues.'
         },
         verify_command: { type: 'string', description: 'Shell command to run after successful completion (e.g., "npx tsc --noEmit && npx vitest run"). Runs in working_directory.' },
         auto_commit: { type: 'boolean', description: 'Auto-commit all changes on success (after verify passes if set)' },

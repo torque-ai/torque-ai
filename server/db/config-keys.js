@@ -122,6 +122,7 @@ const VALID_CONFIG_KEYS = new Set([
   'resource_gating_enabled',
   'require_approval_patterns',
   'scheduling_mode',
+  'server_epoch',
   'security_scanning_enabled',
   'smart_routing_default_provider',
   'smart_routing_enabled',

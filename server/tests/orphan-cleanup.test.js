@@ -286,7 +286,11 @@ describe('Orphan Cleanup', () => {
       });
 
       orphanCleanup.checkStalledTasks(true);
-      expect(mockCancelTask).toHaveBeenCalledWith('task-1', expect.stringContaining('Stalled'));
+      expect(mockCancelTask).toHaveBeenCalledWith(
+        'task-1',
+        expect.stringContaining('Stalled'),
+        { cancel_reason: 'stall' },
+      );
       expect(mockTryStallRecovery).not.toHaveBeenCalled();
     });
 
@@ -345,7 +349,11 @@ describe('Orphan Cleanup', () => {
       });
 
       orphanCleanup.checkStalledTasks(true);
-      expect(mockCancelTask).toHaveBeenCalledWith('task-2', expect.stringContaining('Stalled'));
+      expect(mockCancelTask).toHaveBeenCalledWith(
+        'task-2',
+        expect.stringContaining('Stalled'),
+        { cancel_reason: 'stall' },
+      );
     });
 
     it('skips tasks where activity is null', () => {
@@ -424,6 +432,7 @@ describe('Orphan Cleanup', () => {
       // Not in runningProcesses, so should update DB directly
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-old', 'cancelled', expect.objectContaining({
         error_output: expect.stringContaining('exceeded'),
+        cancel_reason: 'timeout',
       }));
     });
 
@@ -435,7 +444,11 @@ describe('Orphan Cleanup', () => {
       ]);
 
       orphanCleanup.checkStaleRunningTasks();
-      expect(mockCancelTask).toHaveBeenCalledWith('task-tracked', expect.stringContaining('Timeout'));
+      expect(mockCancelTask).toHaveBeenCalledWith(
+        'task-tracked',
+        expect.stringContaining('Timeout'),
+        { cancel_reason: 'timeout' },
+      );
     });
 
     it('skips tasks without started_at', () => {
@@ -523,15 +536,16 @@ describe('Orphan Cleanup', () => {
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
     });
 
-    it('marks running tasks as failed when host goes down', () => {
+    it('marks running tasks as cancelled when host goes down', () => {
       mockDb.getRunningTasksForHost.mockReturnValue([
         { id: 'task-1', error_output: '' },
       ]);
 
       orphanCleanup.cleanupOrphanedHostTasks('host-1', 'TestHost');
 
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-1', 'failed', expect.objectContaining({
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-1', 'cancelled', expect.objectContaining({
         error_output: expect.stringContaining('HOST FAILOVER'),
+        cancel_reason: 'host_failover',
       }));
     });
 

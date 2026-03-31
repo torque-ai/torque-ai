@@ -30,7 +30,7 @@ const ALLOWED_TASK_COLUMNS = new Set([
   'id', 'status', 'task_description', 'working_directory', 'timeout_minutes',
   'auto_approve', 'priority', 'context', 'output', 'error_output', 'exit_code',
   'pid', 'progress_percent', 'files_modified', 'created_at', 'started_at',
-  'completed_at', 'retry_count', 'max_retries', 'depends_on', 'template_name',
+  'completed_at', 'cancel_reason', 'retry_count', 'max_retries', 'depends_on', 'template_name',
   'isolated_workspace', 'git_before_sha', 'git_after_sha', 'git_stash_ref',
   'tags', 'project', 'retry_strategy', 'retry_delay_seconds', 'last_retry_at',
   'group_id', 'paused_at', 'pause_reason', 'approval_status', 'workflow_id',
@@ -247,6 +247,8 @@ function normalizeFilesModifiedField(value) {
 
 function createTask(task) {
   if (dbClosed || !db) throw new Error('Database is closed');
+  const serverConfig = require('../config');
+  const currentEpoch = serverConfig.getEpoch();
   const normalizedProvider = normalizeProviderValue(task.provider);
   const normalizedApprovalStatus = normalizeApprovalStatus(task.approval_status);
   const resolvedProvider = normalizedProvider || (_getConfig ? _getConfig('default_provider') : null) || 'codex';
@@ -299,8 +301,8 @@ function createTask(task) {
       id, status, task_description, working_directory,
       timeout_minutes, auto_approve, priority, context, created_at,
       max_retries, depends_on, template_name, isolated_workspace, approval_status, tags, project, provider, model,
-      complexity, review_status, ollama_host_id, original_provider, provider_switched_at, metadata, workflow_id, workflow_node_id, stall_timeout_seconds
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      complexity, review_status, ollama_host_id, original_provider, provider_switched_at, metadata, workflow_id, workflow_node_id, stall_timeout_seconds, server_epoch
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   try {
@@ -331,7 +333,8 @@ function createTask(task) {
       metadataStr,
       task.workflow_id || null,
       task.workflow_node_id || null,
-      task.stall_timeout_seconds ?? null
+      task.stall_timeout_seconds ?? null,
+      currentEpoch
     );
   } catch (err) {
     // F5: Translate SQLITE_FULL to a user-friendly message
@@ -500,6 +503,12 @@ function updateTaskStatus(id, status, additionalFields = {}) {
     ? additionalFields._provider_switch_reason
     : null;
   delete additionalFields._provider_switch_reason;
+  // Persist cancel_reason when cancelling a task
+  const cancelReason = additionalFields.cancel_reason || null;
+  delete additionalFields.cancel_reason;
+  if (status === 'cancelled' && cancelReason) {
+    additionalFields.cancel_reason = cancelReason;
+  }
   if (Object.prototype.hasOwnProperty.call(additionalFields, 'provider')) {
     additionalFields.provider = normalizeProviderValue(additionalFields.provider);
   }

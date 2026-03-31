@@ -680,7 +680,7 @@ function shutdown(options = {}) {
   // When MCP connection drops (stdin-close), tasks should continue running
   if (cancelTasks) {
     for (const taskId of runningProcesses.keys()) {
-      cancelTask(taskId, 'Server shutdown');
+      cancelTask(taskId, 'Server shutdown', { cancel_reason: 'server_restart' });
     }
   } else {
     const runningCount = runningProcesses.size;
