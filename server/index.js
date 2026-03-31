@@ -491,17 +491,38 @@ async function gracefulShutdown(signal) {
       releaseStartupLock();
     }
 
-    // If restart was requested, spawn a new server before exiting.
-    // This runs AFTER all ports are closed and DB is shut down.
+    // If restart was requested, spawn a new server AFTER verifying ports are free.
+    // The port-based singleton check in init() will reject the new instance if
+    // the old one hasn't fully released its ports yet.
     if (process._torqueRestartPending) {
       try {
         const { spawn: spawnChild } = require('child_process');
         const serverScript = path.resolve(__dirname, 'index.js');
+
+        // Wait for the API port to actually close before spawning.
+        // On Windows, port release can lag behind socket.close() by a few seconds.
+        const restartApiPort = serverConfig.getInt('api_port', 3457);
+        const maxWait = 10;
+        for (let i = 0; i < maxWait; i++) {
+          try {
+            childProcess.execFileSync('curl', [
+              '-s', '--max-time', '1', '--output', '/dev/null',
+              `http://127.0.0.1:${restartApiPort}/livez`
+            ], { timeout: 2000, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+            // Port still responding — wait 1 second
+            debugLog(`[Restart] Port ${restartApiPort} still bound, waiting... (${i + 1}/${maxWait})`);
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+          } catch {
+            // Port is free — proceed with spawn
+            break;
+          }
+        }
+
         const child = spawnChild(process.execPath, [serverScript], {
           detached: true,
           stdio: 'ignore',
           windowsHide: true,
-          env: process.env, // same env — TORQUE_DATA_DIR etc. preserved
+          env: process.env,
         });
         child.unref();
         debugLog(`[Restart] Spawned new server (PID ${child.pid})`);
@@ -623,6 +644,24 @@ function killStaleInstance() {
  * Initialize the server
  */
 function init() {
+  // Port-based singleton check — if the API port responds, another instance is running.
+  // This is more reliable than lock files, especially on Windows where process.kill(pid, 0)
+  // gives false results and lock files can go stale.
+  const apiPort = serverConfig.getInt('api_port', 3457);
+  try {
+    const probeResult = childProcess.execFileSync('curl', [
+      '-s', '--max-time', '2', '--output', '/dev/null', '--write-out', '%{http_code}',
+      `http://127.0.0.1:${apiPort}/livez`
+    ], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const httpCode = parseInt(probeResult.trim(), 10);
+    if (httpCode >= 200 && httpCode < 500) {
+      process.stderr.write(`[TORQUE] Port ${apiPort} already in use (HTTP ${httpCode}) — another instance is running. Exiting.\n`);
+      process.exit(1);
+    }
+  } catch {
+    // curl failed (connection refused, timeout, curl not found) — port is free, safe to start
+  }
+
   // Kill guard: terminate stale TORQUE instance from a prior session (PID-file based).
   // Without this, stale instances from prior sessions can overwrite files with old code.
   killStaleInstance();

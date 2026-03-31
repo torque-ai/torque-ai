@@ -20,7 +20,7 @@
 set +e
 
 API_PORT="${TORQUE_API_PORT:-3457}"
-PID_FILE="${TORQUE_PID_FILE:-${TORQUE_DATA_DIR:-$HOME/.local/share/torque}/torque.pid}"
+PID_FILE="${TORQUE_PID_FILE:-${TORQUE_DATA_DIR:-$HOME/.torque}/torque.pid}"
 FORCE=0
 VERIFY_ONLY=0
 TORQUE_NODE_PIDS=()
