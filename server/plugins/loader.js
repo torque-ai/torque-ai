@@ -4,16 +4,17 @@ const { validatePlugin } = require('./plugin-contract');
 
 const DEFAULT_PLUGIN_DIR = __dirname;
 const AUTH_MODE_PLUGIN_MAP = { enterprise: 'auth' };
-const DEFAULT_LOGGER = {
-  warn: console.warn.bind(console),
-  info: console.log.bind(console),
-};
 
-function resolveLogger(logger = {}) {
-  return {
-    warn: typeof logger.warn === 'function' ? logger.warn : DEFAULT_LOGGER.warn,
-    info: typeof logger.info === 'function' ? logger.info : DEFAULT_LOGGER.info,
-  };
+function safeLog(logger, level, message) {
+  try {
+    if (logger && typeof logger[level] === 'function') {
+      logger[level](message);
+      return;
+    }
+  } catch (_) { /* logger method failed */ }
+  // Fallback to console
+  if (level === 'warn') console.warn(message);
+  else console.log(message);
 }
 
 function createPluginInstance(mod) {
@@ -28,9 +29,8 @@ function loadPlugins(options = {}) {
     plugins = [],
     authMode = 'local',
     pluginDir = DEFAULT_PLUGIN_DIR,
-    logger: rawLogger,
+    logger,
   } = options;
-  const logger = resolveLogger(rawLogger);
 
   const toLoad = [...plugins];
 
@@ -48,14 +48,14 @@ function loadPlugins(options = {}) {
       const instance = createPluginInstance(mod);
       const validation = validatePlugin(instance);
       if (!validation.valid) {
-        logger.warn(`[plugin-loader] Plugin "${name}" failed validation: ${validation.errors.join(', ')}`);
+        safeLog(logger, 'warn', `[plugin-loader] Plugin "${name}" failed validation: ${validation.errors.join(', ')}`);
         continue;
       }
 
-      logger.info(`[plugin-loader] Loaded plugin: ${instance.name} v${instance.version}`);
+      safeLog(logger, 'info', `[plugin-loader] Loaded plugin: ${instance.name} v${instance.version}`);
       loaded.push(instance);
     } catch (err) {
-      logger.warn(`[plugin-loader] Failed to load plugin "${name}" from ${pluginPath}: ${err.message}`);
+      safeLog(logger, 'warn', `[plugin-loader] Failed to load plugin "${name}" from ${pluginPath}: ${err.message}`);
     }
   }
   return loaded;

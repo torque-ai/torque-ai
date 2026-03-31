@@ -732,13 +732,12 @@ function init() {
       authMode: runtimeMode,
       logger,
     });
-    console.log('[startup] Loaded ' + loadedPlugins.length + ' plugin(s)');
     for (const plugin of loadedPlugins) {
       try {
         plugin.install(defaultContainer);
-        console.log('[startup] Plugin installed: ' + plugin.name + ' v' + plugin.version);
+        debugLog('Plugin installed: ' + plugin.name + ' v' + plugin.version);
       } catch (pluginErr) {
-        console.log('[startup] Plugin install failed: ' + plugin.name + ' — ' + pluginErr.message);
+        debugLog('Plugin install failed: ' + plugin.name + ' — ' + pluginErr.message);
       }
     }
   } catch (err) {
