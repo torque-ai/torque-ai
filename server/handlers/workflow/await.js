@@ -477,16 +477,30 @@ async function handleAwaitWorkflow(args) {
     const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
     if (!tasks) break;
 
-    // Epoch check: mark running tasks from a previous epoch as orphaned
+    // Epoch check: requeue or cancel running tasks from a previous epoch
     for (const task of tasks) {
       if (task.status === 'running' && task.server_epoch && task.server_epoch < currentEpoch) {
-        taskCore.updateTaskStatus(task.id, 'cancelled', {
-          error_output: `Task orphaned -- server epoch ${task.server_epoch} < current ${currentEpoch}`,
-          cancel_reason: 'orphan_cleanup',
-          completed_at: new Date().toISOString(),
-        });
-        task.status = 'cancelled';
-        task.cancel_reason = 'orphan_cleanup';
+        const retryCount = task.retry_count || 0;
+        const maxRetries = task.max_retries != null ? task.max_retries : 2;
+
+        if (retryCount < maxRetries) {
+          taskCore.updateTaskStatus(task.id, 'queued', {
+            error_output: `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued.`,
+            retry_count: retryCount + 1,
+            mcp_instance_id: null,
+            provider: null,
+            ollama_host_id: null,
+          });
+          task.status = 'queued';
+        } else {
+          taskCore.updateTaskStatus(task.id, 'cancelled', {
+            error_output: `Task orphaned — epoch ${task.server_epoch} < current ${currentEpoch} (max retries exhausted)`,
+            cancel_reason: 'orphan_cleanup',
+            completed_at: new Date().toISOString(),
+          });
+          task.status = 'cancelled';
+          task.cancel_reason = 'orphan_cleanup';
+        }
       }
     }
 
@@ -1348,12 +1362,27 @@ async function handleAwaitTask(args) {
     if (taskErr) return taskErr;
 
     if (initialTask.status === 'running' && initialTask.server_epoch && initialTask.server_epoch < currentEpoch) {
-      taskCore.updateTaskStatus(taskId, 'cancelled', {
-        error_output: `Task orphaned -- server epoch ${initialTask.server_epoch} < current ${currentEpoch}`,
-        cancel_reason: 'orphan_cleanup',
-      });
-      const orphanedTask = taskCore.getTask(taskId);
-      return handleRestartRecovery(orphanedTask, args, awaitStartTime, currentEpoch);
+      const retryCount = initialTask.retry_count || 0;
+      const maxRetries = initialTask.max_retries != null ? initialTask.max_retries : 2;
+
+      if (retryCount < maxRetries) {
+        taskCore.updateTaskStatus(taskId, 'queued', {
+          error_output: `Task orphaned — server epoch ${initialTask.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`,
+          retry_count: retryCount + 1,
+          mcp_instance_id: null,
+          provider: null,
+          ollama_host_id: null,
+        });
+        // Continue polling — the requeued task will transition to running then completed
+      } else {
+        taskCore.updateTaskStatus(taskId, 'cancelled', {
+          error_output: `Task orphaned — server epoch ${initialTask.server_epoch} < current ${currentEpoch} (max retries exhausted)`,
+          cancel_reason: 'orphan_cleanup',
+          completed_at: new Date().toISOString(),
+        });
+        const cancelledTask = taskCore.getTask(taskId);
+        return handleRestartRecovery(cancelledTask, args, awaitStartTime, currentEpoch);
+      }
     }
 
     // If already terminal, return immediately
@@ -1373,12 +1402,27 @@ async function handleAwaitTask(args) {
       }
 
       if (task.status === 'running' && task.server_epoch && task.server_epoch < currentEpoch) {
-        taskCore.updateTaskStatus(taskId, 'cancelled', {
-          error_output: `Task orphaned -- server epoch ${task.server_epoch} < current ${currentEpoch}`,
-          cancel_reason: 'orphan_cleanup',
-        });
-        const orphanedTask = taskCore.getTask(taskId);
-        return handleRestartRecovery(orphanedTask, args, awaitStartTime, currentEpoch);
+        const retryCount = task.retry_count || 0;
+        const maxRetries = task.max_retries != null ? task.max_retries : 2;
+
+        if (retryCount < maxRetries) {
+          taskCore.updateTaskStatus(taskId, 'queued', {
+            error_output: `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`,
+            retry_count: retryCount + 1,
+            mcp_instance_id: null,
+            provider: null,
+            ollama_host_id: null,
+          });
+          // Continue polling — the requeued task will transition to running then completed
+        } else {
+          taskCore.updateTaskStatus(taskId, 'cancelled', {
+            error_output: `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch} (max retries exhausted)`,
+            cancel_reason: 'orphan_cleanup',
+            completed_at: new Date().toISOString(),
+          });
+          const cancelledTask = taskCore.getTask(taskId);
+          return handleRestartRecovery(cancelledTask, args, awaitStartTime, currentEpoch);
+        }
       }
 
       if (terminalStates.includes(task.status)) {
