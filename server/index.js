@@ -848,6 +848,34 @@ function init() {
       orphansCleaned++;
     };
 
+    const requeueOrphanedTask = (task, reason) => {
+      const retryCount = task.retry_count || 0;
+      const maxRetries = task.max_retries != null ? task.max_retries : 2;
+
+      if (retryCount >= maxRetries) {
+        markStartupOrphanCancelled(task, {
+          error_output: `${reason} (max retries exhausted: ${retryCount}/${maxRetries})`,
+          completed_at: new Date().toISOString()
+        });
+        return;
+      }
+
+      db.updateTaskStatus(task.id, 'queued', {
+        error_output: `${reason} — requeued for re-execution (attempt ${retryCount + 1}/${maxRetries})`,
+        retry_count: retryCount + 1,
+        mcp_instance_id: null,
+        provider: null,
+        ollama_host_id: null,
+      });
+
+      if (task.ollama_host_id) {
+        try { db.decrementHostTasks(task.ollama_host_id); } catch { /* host may not exist */ }
+      }
+
+      debugLog(`Orphan requeue: task ${task.id} requeued (attempt ${retryCount + 1}/${maxRetries})${task.workflow_id ? ` [workflow: ${task.workflow_id}]` : ''}`);
+      orphansCleaned++;
+    };
+
     for (const task of runningTasks) {
       const startedAt = task.started_at ? new Date(task.started_at).getTime() : 0;
       const runningTime = now - startedAt;
@@ -856,17 +884,12 @@ function init() {
       if (!task.mcp_instance_id) {
         // Legacy task with no owner — use grace period + timeout logic
         if (runningTime > Math.max(GRACE_PERIOD_MS, timeoutMs)) {
-          markStartupOrphanCancelled(task, {
-            error_output: 'Server restarted - task was interrupted (stale, no instance owner)'
-          });
+          requeueOrphanedTask(task, 'Server restarted — task interrupted (no instance owner)');
         }
       } else if (task.mcp_instance_id === taskManager.getMcpInstanceId()) {
         // Our task but not in runningProcesses — leftover from our own crash/restart
         if (!taskManager.hasRunningProcess(task.id)) {
-          markStartupOrphanCancelled(task, {
-            error_output: 'Server restarted — task orphaned from previous instance',
-            completed_at: new Date().toISOString()
-          });
+          requeueOrphanedTask(task, 'Server restarted — task orphaned from previous instance');
         }
       } else {
         // Task owned by another instance — check if that instance is alive
@@ -900,6 +923,10 @@ function init() {
     }
     if (orphansCleaned > 0) {
       debugLog(`Startup cleanup: recovered ${orphansCleaned} orphaned tasks`);
+      // Defer queue processing so requeued tasks get picked up after full init
+      setTimeout(() => {
+        try { taskManager.processQueue(); } catch { /* non-fatal */ }
+      }, 5000);
     }
 
     // Reconcile host task counts — in-memory/DB running_tasks may be stale after restart
