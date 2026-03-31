@@ -446,6 +446,30 @@ function handleRestartServer(args) {
   const localRunning = taskManager.getRunningTaskCount();
   const allRunningTasks = taskCore.listTasks({ status: 'running', limit: 1000 });
   const allQueuedTasks = taskCore.listTasks({ status: 'queued', limit: 1000 });
+
+  // Governance: block force-restart when tasks are running
+  if (!drain && (allRunningTasks.length > 0 || allQueuedTasks.length > 0)) {
+    try {
+      const { createGovernanceHooks } = require('./governance/hooks');
+      const governanceRules = require('./db/governance-rules');
+      const governance = createGovernanceHooks({ governanceRules, logger });
+      const result = governance.evaluate('server_restart', {}, {
+        force: true,
+        running: allRunningTasks.length,
+        queued: allQueuedTasks.length,
+      });
+      if (result.blocked && result.blocked.length > 0) {
+        const msg = result.blocked.map(b => b.message).join('; ');
+        logger.warn(`[Restart] Governance blocked: ${msg}`);
+        return {
+          success: false,
+          content: [{ type: 'text', text: `Governance blocked: ${msg}\n\nUse await_restart to drain the pipeline safely.` }],
+        };
+      }
+    } catch (govErr) {
+      logger.debug(`[Restart] Governance check failed (non-fatal): ${govErr.message}`);
+    }
+  }
   const allPendingTasks = taskCore.listTasks({ status: 'pending', limit: 1000 });
   const allBlockedRaw = taskCore.listTasks({ status: 'blocked', limit: 1000 });
   // Filter out orphaned blocked tasks whose workflows no longer exist or aren't running

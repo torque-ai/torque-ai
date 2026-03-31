@@ -618,6 +618,32 @@ async function handleShutdown(req, res, _context = {}) {
   const reason = body.reason || 'HTTP /api/shutdown';
   const force = body.force === true;
 
+  // Governance: block force-shutdown when tasks are running
+  if (force) {
+    try {
+      const taskCore = require('./db/task-core');
+      const running = taskCore.listTasks({ status: 'running', limit: 1000 }).length;
+      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 }).length;
+      if (running > 0 || queued > 0) {
+        const { createGovernanceHooks } = require('./governance/hooks');
+        const governanceRules = require('./db/governance-rules');
+        const governance = createGovernanceHooks({ governanceRules, logger });
+        const govResult = governance.evaluate('server_restart', {}, {
+          force: true, running, queued,
+        });
+        if (govResult.blocked && govResult.blocked.length > 0) {
+          const msg = govResult.blocked.map(b => b.message).join('; ');
+          sendJson(res, {
+            error: `Governance blocked: ${msg}`,
+            running, queued,
+            hint: 'Use await_restart to drain the pipeline safely.',
+          }, 409, req);
+          return;
+        }
+      }
+    } catch { /* governance unavailable — allow shutdown */ }
+  }
+
   // Pipeline guard: refuse shutdown if tasks are in-flight, unless force=true.
   // stop-torque.sh should drain the pipeline first or pass force.
   if (!force) {

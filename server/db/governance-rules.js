@@ -111,6 +111,15 @@ const BUILTIN_RULES = Object.freeze([
     checker_id: 'checkPushBeforeSubagentTests',
     config: null,
   }),
+  Object.freeze({
+    id: 'no-force-restart',
+    name: 'no-force-restart',
+    description: 'Block force-restart/shutdown when tasks are running. Use await_restart to drain the pipeline first.',
+    stage: 'server_restart',
+    default_mode: 'block',
+    checker_id: 'checkNoForceRestart',
+    config: null,
+  }),
 ]);
 
 function validateDb(db) {
