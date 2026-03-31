@@ -192,7 +192,7 @@ function releaseSlot(id) {
   db.prepare('UPDATE workstations SET running_tasks = MAX(0, running_tasks - 1) WHERE id = ?').run(id);
 }
 
-function recordHealthCheck(id, healthy, models = null) {
+function recordHealthCheck(id, healthy, models = null, systemInfo = null) {
   const now = new Date().toISOString();
   const ws = getWorkstation(id);
   if (!ws) return null;
@@ -208,6 +208,13 @@ function recordHealthCheck(id, healthy, models = null) {
     if (models) {
       updates.models_cache = JSON.stringify(models);
       updates.models_updated_at = now;
+    }
+    if (systemInfo && typeof systemInfo === 'object') {
+      if (systemInfo.platform) updates.platform = systemInfo.platform;
+      if (systemInfo.arch) updates.arch = systemInfo.arch;
+      if (systemInfo.memory_total_mb) updates.memory_limit_mb = systemInfo.memory_total_mb;
+      if (systemInfo.gpu_name) updates.gpu_name = systemInfo.gpu_name;
+      if (systemInfo.gpu_vram_mb) updates.gpu_vram_mb = systemInfo.gpu_vram_mb;
     }
   } else {
     const newFailures = (ws.consecutive_failures || 0) + 1;

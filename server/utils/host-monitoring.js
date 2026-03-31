@@ -784,21 +784,14 @@ function startTimers() {
           probeCodexRecovery().catch(e => logger.debug(`Codex probe error: ${e.message}`));
           try {
             const wsModel = require('../workstation/model');
-            const httpMod = require('http');
+            const { checkWorkstation } = require('../workstation/health-check');
             const wsList = wsModel.listWorkstations({ enabled: true });
             for (const ws of wsList) {
-              httpMod.get('http://' + ws.host + ':' + ws.agent_port + '/health', { timeout: 5000 }, (res) => {
-                let body = '';
-                res.on('data', chunk => { body += chunk; });
-                res.on('end', () => {
-                  try {
-                    const parsed = JSON.parse(body);
-                    const ollamaModels = parsed.ollama && parsed.ollama.models;
-                    wsModel.recordHealthCheck(ws.id, true, ollamaModels);
-                  }
-                  catch { wsModel.recordHealthCheck(ws.id, false); }
-                });
-              }).on('error', () => { wsModel.recordHealthCheck(ws.id, false); });
+              checkWorkstation(ws).then(result => {
+                wsModel.recordHealthCheck(ws.id, result.healthy, result.models, result.system);
+              }).catch(() => {
+                wsModel.recordHealthCheck(ws.id, false);
+              });
             }
           } catch { /* workstation health deferred */ }
           }

@@ -4,6 +4,7 @@ const http = require('node:http');
 const https = require('node:https');
 const model = require('../workstation/model');
 const probeModule = require('../workstation/probe');
+const { checkWorkstation } = require('../workstation/health-check');
 
 function buildFetchError(message) {
   return {
@@ -314,15 +315,15 @@ async function checkWorkstationHealth(args = {}) {
 
   for (const workstation of targets) {
     try {
-      const healthUrl = workstationUrl(workstation, '/health', 3460);
-      const healthResponse = await fetchJson(healthUrl, 5000);
-      const parsed = normalizeHealthResponse(healthResponse);
-      const updated = model.recordHealthCheck(workstation.id, parsed.healthy, parsed.models);
+      const result = await checkWorkstation(workstation);
+      const updated = model.recordHealthCheck(workstation.id, result.healthy, result.models, result.system);
       outcomes.push({
         name: workstation.name,
         id: workstation.id,
         status: updated.status,
-        healthy: parsed.healthy,
+        healthy: result.healthy,
+        source: result.source,
+        system: result.system || undefined,
       });
     } catch (error) {
       model.recordHealthCheck(workstation.id, false);
