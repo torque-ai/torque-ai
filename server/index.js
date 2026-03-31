@@ -647,19 +647,21 @@ function init() {
   // Port-based singleton check — if the API port responds, another instance is running.
   // This is more reliable than lock files, especially on Windows where process.kill(pid, 0)
   // gives false results and lock files can go stale.
-  const apiPort = serverConfig.getInt('api_port', 3457);
-  try {
-    const probeResult = childProcess.execFileSync('curl', [
-      '-s', '--max-time', '2', '--output', '/dev/null', '--write-out', '%{http_code}',
-      `http://127.0.0.1:${apiPort}/livez`
-    ], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-    const httpCode = parseInt(probeResult.trim(), 10);
-    if (httpCode >= 200 && httpCode < 500) {
-      process.stderr.write(`[TORQUE] Port ${apiPort} already in use (HTTP ${httpCode}) — another instance is running. Exiting.\n`);
-      process.exit(1);
+  {
+    const probePort = serverConfig.getInt('api_port', 3457);
+    try {
+      const probeResult = childProcess.execFileSync('curl', [
+        '-s', '--max-time', '2', '--output', '/dev/null', '--write-out', '%{http_code}',
+        `http://127.0.0.1:${probePort}/livez`
+      ], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const httpCode = parseInt(probeResult.trim(), 10);
+      if (httpCode >= 200 && httpCode < 500) {
+        process.stderr.write(`[TORQUE] Port ${probePort} already in use (HTTP ${httpCode}) — another instance is running. Exiting.\n`);
+        process.exit(1);
+      }
+    } catch {
+      // curl failed (connection refused, timeout, curl not found) — port is free, safe to start
     }
-  } catch {
-    // curl failed (connection refused, timeout, curl not found) — port is free, safe to start
   }
 
   // Kill guard: terminate stale TORQUE instance from a prior session (PID-file based).
