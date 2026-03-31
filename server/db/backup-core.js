@@ -97,12 +97,24 @@ function startBackupScheduler(intervalMs = 3600000) {
       const backupPath = path.join(backupDir, `torque-${timestamp}.db`);
 
       const buffer = _db.serialize();
+
+      // Skip tiny backups — if the DB has less than 100KB of data, don't overwrite
+      // good backups with empty ones (protects against backup-during-corruption)
+      if (buffer.length < 100000) {
+        logger.info(`[backup] Skipping periodic backup — DB too small (${buffer.length} bytes)`);
+        return;
+      }
+
       fs.writeFileSync(backupPath, buffer);
 
       logger.info(`[backup] Database backed up to ${backupPath} (${buffer.length} bytes)`);
 
+      // Only prune periodic backups (torque-YYYY-...), NOT pre-shutdown or pre-startup backups
+      const PERIODIC_BACKUP_PATTERN = /^torque-\d{4}-\d{2}-\d{2}T/;
       const files = fs.readdirSync(backupDir)
-        .filter(f => f.startsWith('torque-') && f.endsWith('.db'))
+        .filter(f => PERIODIC_BACKUP_PATTERN.test(f) && f.endsWith('.db')
+          && !f.includes('pre-shutdown') && !f.includes('pre-startup')
+          && !f.includes('pre-provider'))
         .sort()
         .reverse();
 
