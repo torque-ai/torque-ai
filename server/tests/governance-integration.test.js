@@ -186,6 +186,11 @@ describe('governance integration', () => {
     vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue({ enabled: true });
     vi.spyOn(providerRoutingCore, 'analyzeTaskForRouting').mockReturnValue(null);
     vi.spyOn(configCore, 'getConfig').mockReturnValue('legacy');
+    const serverConfig = require('../config');
+    if (typeof serverConfig.getEpoch !== 'function') {
+      serverConfig.getEpoch = () => 1;
+    }
+    vi.spyOn(serverConfig, 'getEpoch').mockReturnValue(1);
     vi.spyOn(costTracking, 'estimateCost').mockReturnValue({ estimated_cost_usd: 0 });
     vi.spyOn(costTracking, 'checkBudgetBeforeSubmission').mockReturnValue({ allowed: true });
     vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([]);
