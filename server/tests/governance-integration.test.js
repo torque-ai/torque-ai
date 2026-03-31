@@ -16,7 +16,12 @@ function installMock(modulePath, exportsValue) {
 function loadFresh(modulePath) {
   const resolved = require.resolve(modulePath);
   delete require.cache[resolved];
-  return require(modulePath);
+  const mod = require(modulePath);
+  // Re-patch serverConfig after fresh loads (task-core re-requires it)
+  const cfg = require('../config');
+  if (typeof cfg.getEpoch !== 'function') cfg.getEpoch = () => 1;
+  if (typeof cfg.setEpoch !== 'function') cfg.setEpoch = () => {};
+  return mod;
 }
 
 function getText(result) {
@@ -72,20 +77,11 @@ const loggerModuleMock = {
   error: vi.fn(),
 };
 
-// Ensure serverConfig.getEpoch exists (added by await-restart-recovery session)
-// Patch at require.cache level so all downstream modules see it
+// Ensure serverConfig has getEpoch (added by await-restart-recovery session).
+// Must patch BEFORE any module that requires('../config') is loaded.
 const serverConfigModule = require('../config');
-if (typeof serverConfigModule.getEpoch !== 'function') {
-  serverConfigModule.getEpoch = () => 1;
-  serverConfigModule.setEpoch = () => {};
-}
-// Also patch in require.cache to survive loadFresh() calls
-const serverConfigPath = require.resolve('../config');
-const cachedConfig = require.cache[serverConfigPath];
-if (cachedConfig && cachedConfig.exports && typeof cachedConfig.exports.getEpoch !== 'function') {
-  cachedConfig.exports.getEpoch = () => 1;
-  cachedConfig.exports.setEpoch = () => {};
-}
+serverConfigModule.getEpoch = serverConfigModule.getEpoch || (() => 1);
+serverConfigModule.setEpoch = serverConfigModule.setEpoch || (() => {});
 
 let currentGovernanceHooks = null;
 const containerMock = {
