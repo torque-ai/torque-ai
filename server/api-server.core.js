@@ -272,6 +272,8 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpToggleHost: v2InfrastructureHandlers.handleToggleHost,
   handleV2CpDeleteHost: v2InfrastructureHandlers.handleDeleteHost,
   handleV2CpHostScan: v2InfrastructureHandlers.handleHostScan,
+  handleV2CpHostActivity: v2InfrastructureHandlers.handleHostActivity,
+  handleV2CpProviderPercentiles: v2InfrastructureHandlers.handleProviderPercentiles,
   handleV2CpListPeekHosts: v2InfrastructureHandlers.handleListPeekHosts,
   handleV2CpCreatePeekHost: v2InfrastructureHandlers.handleCreatePeekHost,
   handleV2CpDeletePeekHost: v2InfrastructureHandlers.handleDeletePeekHost,
