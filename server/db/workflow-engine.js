@@ -294,7 +294,8 @@ function reconcileStaleWorkflows(workflowId = null) {
       COUNT(t.id)                                                       AS total,
       SUM(CASE WHEN t.status IN ('completed','failed','cancelled','skipped') THEN 1 ELSE 0 END) AS terminal_count,
       SUM(CASE WHEN t.status = 'failed'    THEN 1 ELSE 0 END)          AS failed_count,
-      SUM(CASE WHEN t.status = 'cancelled' THEN 1 ELSE 0 END)          AS cancelled_count
+      SUM(CASE WHEN t.status = 'cancelled' THEN 1 ELSE 0 END)          AS cancelled_count,
+      SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END)          AS completed_count
     FROM workflows w
     JOIN tasks t ON t.workflow_id = w.id
     WHERE w.status IN ('pending', 'running', 'paused') ${filter}
@@ -307,9 +308,15 @@ function reconcileStaleWorkflows(workflowId = null) {
       continue; // Some tasks still active — workflow is not done
     }
 
-    const finalStatus = row.failed_count > 0 ? 'failed'
-      : row.cancelled_count === row.total ? 'cancelled'
-        : 'completed';
+    let finalStatus;
+    const hasFailuresOrCancels = row.failed_count > 0 || row.cancelled_count > 0;
+    if (!hasFailuresOrCancels) {
+      finalStatus = 'completed';
+    } else if (row.completed_count > 0) {
+      finalStatus = 'completed_with_errors';
+    } else {
+      finalStatus = 'failed';
+    }
     updateWorkflow(row.id, {
       status: finalStatus,
       completed_at: new Date().toISOString()

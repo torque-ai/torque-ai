@@ -708,6 +708,76 @@ describe('workflow-runtime', () => {
       expect(workflow.completed_at).toBeTruthy();
     });
 
+    it('marks workflow completed_with_errors when some tasks failed', () => {
+      const workflowId = createWorkflow({ name: 'wf-partial-fail' });
+      createWorkflowTask(workflowId, 'A', 'completed');
+      createWorkflowTask(workflowId, 'B', 'completed');
+      createWorkflowTask(workflowId, 'C', 'failed');
+
+      mod.checkWorkflowCompletion(workflowId);
+
+      const workflow = workflowEngine.getWorkflow(workflowId);
+      expect(workflow.status).toBe('completed_with_errors');
+      expect(workflow.completed_at).toBeTruthy();
+    });
+
+    it('marks workflow completed_with_errors when some tasks cancelled', () => {
+      const workflowId = createWorkflow({ name: 'wf-partial-cancel' });
+      createWorkflowTask(workflowId, 'A', 'completed');
+      createWorkflowTask(workflowId, 'B', 'cancelled');
+
+      mod.checkWorkflowCompletion(workflowId);
+
+      const workflow = workflowEngine.getWorkflow(workflowId);
+      expect(workflow.status).toBe('completed_with_errors');
+    });
+
+    it('marks workflow failed when zero tasks completed', () => {
+      const workflowId = createWorkflow({ name: 'wf-total-fail' });
+      createWorkflowTask(workflowId, 'A', 'failed');
+      createWorkflowTask(workflowId, 'B', 'failed');
+
+      mod.checkWorkflowCompletion(workflowId);
+
+      const workflow = workflowEngine.getWorkflow(workflowId);
+      expect(workflow.status).toBe('failed');
+    });
+
+    it('ignores superseded restart-cancelled tasks for status resolution', () => {
+      const workflowId = createWorkflow({ name: 'wf-restart-recovered' });
+      createWorkflowTask(workflowId, 'A', 'cancelled', {
+        metadata: JSON.stringify({ resubmitted_as: 'replacement-id', restart_resubmit_count: 1 }),
+      });
+      createWorkflowTask(workflowId, 'A-retry', 'completed');
+
+      mod.checkWorkflowCompletion(workflowId);
+
+      const workflow = workflowEngine.getWorkflow(workflowId);
+      expect(workflow.status).toBe('completed');
+    });
+
+    it('marks workflow completed when all tasks completed or skipped (unchanged)', () => {
+      const workflowId = createWorkflow({ name: 'wf-all-good' });
+      createWorkflowTask(workflowId, 'A', 'completed');
+      createWorkflowTask(workflowId, 'B', 'completed');
+      createWorkflowTask(workflowId, 'C', 'skipped');
+
+      mod.checkWorkflowCompletion(workflowId);
+
+      const workflow = workflowEngine.getWorkflow(workflowId);
+      expect(workflow.status).toBe('completed');
+    });
+
+    it('early-exits for completed_with_errors status', () => {
+      const workflowId = createWorkflow({ name: 'wf-already-partial', status: 'completed_with_errors' });
+      createWorkflowTask(workflowId, 'A', 'completed');
+
+      mod.checkWorkflowCompletion(workflowId);
+
+      const workflow = workflowEngine.getWorkflow(workflowId);
+      expect(workflow.status).toBe('completed_with_errors');
+    });
+
   });
 
   describe('injectDependencyOutputs', () => {

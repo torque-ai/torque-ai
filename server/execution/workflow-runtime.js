@@ -1064,12 +1064,21 @@ function cancelDependentTasks(taskId, workflowId, reason, visited = new Set()) {
  */
 function checkWorkflowCompletion(workflowId) {
   const workflow = db.getWorkflow(workflowId);
-  if (!workflow || workflow.status === 'completed' || workflow.status === 'failed' || workflow.status === 'cancelled') {
+  if (!workflow || workflow.status === 'completed' || workflow.status === 'completed_with_errors' || workflow.status === 'failed' || workflow.status === 'cancelled') {
     return;
   }
 
-  // Count tasks by status
   const tasks = db.getWorkflowTasks(workflowId);
+  const isSuperseded = (task) => {
+    if (task.status !== 'cancelled') return false;
+    try {
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
+      return !!meta.resubmitted_as;
+    } catch {
+      return false;
+    }
+  };
+  const effectiveTasks = tasks.filter(t => !isSuperseded(t));
   const stats = {
     total: tasks.length,
     completed: tasks.filter(t => t.status === 'completed').length,
@@ -1077,6 +1086,9 @@ function checkWorkflowCompletion(workflowId) {
     cancelled: tasks.filter(t => t.status === 'cancelled').length,
     skipped: tasks.filter(t => t.status === 'skipped').length
   };
+  const effectiveCompleted = effectiveTasks.filter(t => t.status === 'completed').length;
+  const effectiveFailed = effectiveTasks.filter(t => t.status === 'failed').length;
+  const effectiveCancelled = effectiveTasks.filter(t => t.status === 'cancelled').length;
 
   // Update workflow counters
   db.updateWorkflow(workflowId, {
@@ -1091,7 +1103,14 @@ function checkWorkflowCompletion(workflowId) {
 
   if (terminalCount >= stats.total) {
     // Workflow is complete
-    const finalStatus = stats.failed > 0 ? 'failed' : stats.cancelled > 0 ? 'cancelled' : 'completed';
+    let finalStatus;
+    if (effectiveFailed === 0 && effectiveCancelled === 0) {
+      finalStatus = 'completed';
+    } else if (effectiveCompleted > 0) {
+      finalStatus = 'completed_with_errors';
+    } else {
+      finalStatus = 'failed';
+    }
     db.updateWorkflow(workflowId, {
       status: finalStatus,
       completed_at: new Date().toISOString()
@@ -1099,7 +1118,7 @@ function checkWorkflowCompletion(workflowId) {
     // Finalize audit run status when audit workflow completes
     maybeFinalizeAuditRun(workflowId, finalStatus);
 
-    if (finalStatus === 'completed') {
+    if (finalStatus === 'completed' || finalStatus === 'completed_with_errors') {
       try {
         const conflictResult = resolveWorkflowConflicts(workflowId);
         // Surface unresolved conflicts: store them in workflow context so callers

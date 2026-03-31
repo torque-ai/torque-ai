@@ -6,6 +6,7 @@
 /** Text color classes for task statuses */
 export const STATUS_COLORS = {
   completed: 'text-green-400',
+  completed_with_errors: 'text-yellow-400',
   running: 'text-blue-400',
   queued: 'text-yellow-400',
   failed: 'text-red-400',
@@ -17,6 +18,7 @@ export const STATUS_COLORS = {
 /** Background color classes for task statuses (badge backgrounds) */
 export const STATUS_BG_COLORS = {
   completed: 'bg-green-500',
+  completed_with_errors: 'bg-yellow-600',
   running: 'bg-blue-500',
   queued: 'bg-slate-500',
   failed: 'bg-red-500',
@@ -28,6 +30,7 @@ export const STATUS_BG_COLORS = {
 /** Dot/indicator color classes for task statuses */
 export const STATUS_DOT_COLORS = {
   completed: 'bg-green-400',
+  completed_with_errors: 'bg-yellow-400',
   running: 'bg-blue-400',
   queued: 'bg-slate-400',
   failed: 'bg-red-400',
@@ -39,6 +42,7 @@ export const STATUS_DOT_COLORS = {
 /** Unicode symbol icons for task statuses — secondary visual indicator for colorblind accessibility */
 export const STATUS_ICONS = {
   completed: '✓',
+  completed_with_errors: '\u26A0',
   failed: '✗',
   running: '◉',
   queued: '◌',
