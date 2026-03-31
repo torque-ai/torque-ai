@@ -87,7 +87,7 @@ describe('CORE_TOOL_NAMES (Tier 1)', () => {
 
   it('includes essential meta tools', () => {
     expect(CORE_TOOL_NAMES).toEqual(
-      expect.arrayContaining(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier']),
+      expect.arrayContaining(['ping', 'restart_server', 'await_restart', 'unlock_all_tools', 'unlock_tier']),
     );
   });
 
@@ -99,7 +99,7 @@ describe('CORE_TOOL_NAMES (Tier 1)', () => {
 
   it('includes essential workflow tools', () => {
     expect(CORE_TOOL_NAMES).toEqual(
-      expect.arrayContaining(['create_workflow', 'run_workflow', 'await_workflow', 'await_task']),
+      expect.arrayContaining(['create_workflow', 'run_workflow', 'await_workflow', 'await_task', 'await_restart']),
     );
   });
 

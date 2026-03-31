@@ -32,6 +32,18 @@ const tools = [
     }
   },
   {
+    name: 'await_restart',
+    description: 'Block until the task pipeline drains (all running/queued/pending/blocked tasks finish), then trigger a server restart. Returns heartbeat progress snapshots at configurable intervals. Use instead of restart_server with drain:true to avoid manual polling.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        timeout_minutes: { type: 'number', description: 'Max wait before giving up (default: 30, min: 1, max: 60)' },
+        heartbeat_minutes: { type: 'number', description: 'Progress snapshot interval in minutes (default: 5, 0 to disable, max: 30)' },
+        reason: { type: 'string', description: 'Restart reason (logged and passed to shutdown event)' },
+      },
+    },
+  },
+  {
     name: 'unlock_all_tools',
     description: 'Unlock all TORQUE tools (Tier 3). By default only ~25 core tools are exposed to minimize context usage. Use unlock_tier(2) for extended tools (~78 total) or this tool for all ~488 tools.',
     inputSchema: {

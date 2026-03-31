@@ -15,7 +15,7 @@
 
 const TIER_1 = [
   // Meta
-  'ping', 'restart_server', 'unlock_all_tools', 'unlock_tier',
+  'ping', 'restart_server', 'await_restart', 'unlock_all_tools', 'unlock_tier',
   // Task lifecycle (unified — submit_task now auto-routes by default)
   'submit_task', 'cancel_task', 'task_info', 'list_tasks',
   // Workflows

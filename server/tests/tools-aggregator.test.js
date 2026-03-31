@@ -701,6 +701,7 @@ describe('tools.js live registry integration', () => {
     ['list_tasks', 'handleListTasks'],
     ['task_info', 'handleTaskInfo'],
     ['await_task', 'handleAwaitTask'],
+    ['await_restart', 'handleAwaitRestart'],
     ['create_workflow', 'handleCreateWorkflow'],
     ['run_workflow', 'handleRunWorkflow'],
     ['await_workflow', 'handleAwaitWorkflow'],

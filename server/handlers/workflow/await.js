@@ -1762,6 +1762,177 @@ async function handleAwaitTask(args) {
   }
 }
 
+async function handleAwaitRestart(args) {
+  try {
+    const timeoutMinutes = Math.min(Math.max(args.timeout_minutes || 30, 0.1), 60);
+    const timeoutMs = timeoutMinutes * 60000;
+    const startTime = Date.now();
+    const shutdownSignal = args.__shutdownSignal;
+    const reason = args.reason || 'await_restart';
+    const eventBus = require('../../event-bus');
+
+    const rawHeartbeat = args.heartbeat_minutes != null ? args.heartbeat_minutes : 5;
+    const heartbeatMinutes = Math.min(Math.max(rawHeartbeat, 0), 30);
+    const heartbeatEnabled = heartbeatMinutes > 0;
+    const heartbeatMs = heartbeatMinutes * 60 * 1000;
+    let heartbeatCount = 0;
+
+    const terminalTaskStates = ['completed', 'failed', 'cancelled', 'skipped'];
+    const pollMs = 5000;
+
+    function countPipeline() {
+      const running = taskCore.listTasks({ status: 'running', limit: 1000 });
+      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 });
+      const pending = taskCore.listTasks({ status: 'pending', limit: 1000 });
+      const blocked = taskCore.listTasks({ status: 'blocked', limit: 1000 });
+      return {
+        running, queued, pending, blocked,
+        total: running.length + queued.length + pending.length + blocked.length,
+      };
+    }
+
+    const initial = countPipeline();
+    if (initial.total === 0) {
+      process._torqueRestartPending = true;
+      eventBus.emitShutdown(`restart: ${reason}`);
+      return {
+        content: [{
+          type: 'text',
+          text: `## Restart Ready\n\nPipeline was already empty.\nServer restart triggered \u2014 MCP client will reconnect with fresh code.\nRun \`/mcp\` to force immediate reconnection.`,
+        }],
+      };
+    }
+
+    const initialTotal = initial.total;
+
+    while (true) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= timeoutMs) {
+        const counts = countPipeline();
+        return {
+          content: [{
+            type: 'text',
+            text: `## Drain Timed Out\n\nWaited ${formatDuration(elapsed)} \u2014 ${counts.total} tasks still in pipeline (${counts.running.length} running, ${counts.queued.length} queued, ${counts.pending.length} pending, ${counts.blocked.length} blocked).\nServer was NOT restarted. Cancel remaining tasks or increase timeout.`,
+          }],
+        };
+      }
+
+      let signalType = 'poll';
+
+      await new Promise(resolve => {
+        let resolved = false;
+        let taskEventsRef = null;
+        let terminalHandlerRef = null;
+        let shutdownRef = null;
+
+        const cleanup = () => {
+          if (taskEventsRef && terminalHandlerRef) {
+            for (const ev of terminalTaskStates) {
+              taskEventsRef.removeListener(`task:${ev}`, terminalHandlerRef);
+            }
+          }
+          if (shutdownSignal && shutdownRef) {
+            shutdownSignal.removeEventListener('abort', shutdownRef);
+            shutdownRef = null;
+          }
+        };
+
+        const done = () => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            cleanup();
+            resolve();
+          }
+        };
+
+        let timerDelay = pollMs;
+        let timerSignal = 'poll';
+        if (heartbeatEnabled) {
+          const remaining = timeoutMs - (Date.now() - startTime);
+          if (remaining > heartbeatMs) {
+            timerDelay = heartbeatMs;
+            timerSignal = 'heartbeat';
+          }
+        }
+
+        const timer = setTimeout(() => {
+          signalType = timerSignal;
+          done();
+        }, timerDelay);
+
+        if (shutdownSignal) {
+          if (shutdownSignal.aborted) { signalType = 'shutdown'; done(); return; }
+          shutdownRef = () => { signalType = 'shutdown'; done(); };
+          shutdownSignal.addEventListener('abort', shutdownRef, { once: true });
+        }
+
+        try {
+          const { taskEvents } = require('../../hooks/event-dispatch');
+          taskEventsRef = taskEvents;
+          terminalHandlerRef = () => {
+            signalType = 'terminal';
+            done();
+          };
+          for (const ev of terminalTaskStates) {
+            taskEvents.on(`task:${ev}`, terminalHandlerRef);
+          }
+        } catch {
+          // event-dispatch not available
+        }
+      });
+
+      if (signalType === 'shutdown') {
+        return {
+          content: [{
+            type: 'text',
+            text: '## Await Cancelled\n\nServer shutdown signal received. Await aborted.',
+          }],
+        };
+      }
+
+      const counts = countPipeline();
+      if (counts.total === 0) {
+        const elapsed = Date.now() - startTime;
+        process._torqueRestartPending = true;
+        eventBus.emitShutdown(`restart: ${reason}`);
+        return {
+          content: [{
+            type: 'text',
+            text: `## Restart Ready\n\nPipeline drained in ${formatDuration(elapsed)} (started with ${initialTotal} tasks).\nServer restart triggered \u2014 MCP client will reconnect with fresh code.\nRun \`/mcp\` to force immediate reconnection.`,
+          }],
+        };
+      }
+
+      if (signalType === 'heartbeat') {
+        heartbeatCount++;
+        const elapsed = Date.now() - startTime;
+        const runningDescs = counts.running.slice(0, 5).map(t => {
+          const desc = (t.task_description || t.description || '').slice(0, 60);
+          const provider = t.provider || '?';
+          return `- ${t.id.substring(0, 8)} (${provider}) ${desc}`;
+        }).join('\n');
+
+        let text = `## Restart Drain \u2014 Heartbeat #${heartbeatCount}\n\n`;
+        text += `| Status | Count |\n|--------|-------|\n`;
+        text += `| Running | ${counts.running.length} |\n`;
+        text += `| Queued | ${counts.queued.length} |\n`;
+        text += `| Pending | ${counts.pending.length} |\n`;
+        text += `| Blocked | ${counts.blocked.length} |\n\n`;
+        text += `**Elapsed:** ${formatDuration(elapsed)} / ${formatDuration(timeoutMs)} timeout\n\n`;
+        if (runningDescs) {
+          text += `### Running\n${runningDescs}\n\n`;
+        }
+        text += 'Re-invoke `await_restart` to continue waiting.';
+
+        return { content: [{ type: 'text', text }] };
+      }
+    }
+  } catch (err) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
+  }
+}
+
 function createWorkflowAwaitHandlers(_deps) {
   return {
     formatDuration,
@@ -1769,6 +1940,7 @@ function createWorkflowAwaitHandlers(_deps) {
     formatTaskYield,
     handleAwaitWorkflow,
     handleAwaitTask,
+    handleAwaitRestart,
     formatFinalSummary,
     detectRepeatedErrors,
     recommendAction,
@@ -1781,6 +1953,7 @@ module.exports = {
   formatTaskYield,
   handleAwaitWorkflow,
   handleAwaitTask,
+  handleAwaitRestart,
   formatFinalSummary,
   createWorkflowAwaitHandlers,
   detectRepeatedErrors,
