@@ -5,7 +5,8 @@ const Strategy = lazy(() => import('./Strategy'));
 const RoutingTemplates = lazy(() => import('./RoutingTemplates'));
 const Schedules = lazy(() => import('./Schedules'));
 const Approvals = lazy(() => import('./Approvals'));
-const Coordination = lazy(() => import('./Coordination'));
+// Coordination tab mothballed — repurpose for workstation layer coordination later
+// const Coordination = lazy(() => import('./Coordination'));
 const Budget = lazy(() => import('./Budget'));
 const Governance = lazy(() => import('./Governance'));
 const VersionControl = lazy(() => import('./VersionControl'));
@@ -14,7 +15,6 @@ const TABS = [
   { id: 'routing', label: 'Routing' },
   { id: 'schedules', label: 'Schedules' },
   { id: 'approvals', label: 'Approvals' },
-  { id: 'coordination', label: 'Coordination' },
   { id: 'budget', label: 'Budget' },
   { id: 'governance', label: 'Governance' },
   { id: 'version-control', label: 'Version Control' },
@@ -47,12 +47,6 @@ export default function OperationsHub(props) {
       {tab === 'approvals' && (
         <Suspense fallback={LOADING_FALLBACK}>
           <Approvals {...props} />
-        </Suspense>
-      )}
-
-      {tab === 'coordination' && (
-        <Suspense fallback={LOADING_FALLBACK}>
-          <Coordination {...props} />
         </Suspense>
       )}
 
