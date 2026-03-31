@@ -14,6 +14,10 @@ const PLUGIN_TOOL = { name: 'plugin_tool', description: 'Plugin tool' };
 const ALL_TOOLS = [TOOL_A, TOOL_B, TOOL_C, PLUGIN_TOOL];
 const CORE_NAMES = ['tool_a'];
 const EXTENDED_NAMES = ['tool_a', 'tool_b'];
+const TIERED_TOOL_NAMES = new Set([...CORE_NAMES, ...EXTENDED_NAMES]);
+const UNTIERED_NAMES = ALL_TOOLS
+  .map((tool) => tool.name)
+  .filter((name) => !TIERED_TOOL_NAMES.has(name));
 
 function makeSession(toolMode = 'full', authenticated = true) {
   return { toolMode, authenticated };
@@ -98,22 +102,21 @@ describe('tools/list full mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('tools/list core mode', () => {
-  it('returns core tools plus untiered plugin tools when toolMode is core', async () => {
+  it('returns core tools plus all untiered tools when toolMode is core', async () => {
     const session = makeSession('core');
     const result = await handleRequest({ method: 'tools/list' }, session);
 
-    expect(result.tools).toHaveLength(CORE_NAMES.length + 1);
-    expect(result.tools.map(t => t.name)).toEqual(expect.arrayContaining([...CORE_NAMES, PLUGIN_TOOL.name]));
+    expect(result.tools).toHaveLength(CORE_NAMES.length + UNTIERED_NAMES.length);
+    expect(result.tools.map(t => t.name)).toEqual(expect.arrayContaining([...CORE_NAMES, ...UNTIERED_NAMES]));
   });
 
-  it('does not include non-core tools', async () => {
+  it('does not include tiered tools outside core', async () => {
     const session = makeSession('core');
     const result = await handleRequest({ method: 'tools/list' }, session);
     const names = result.tools.map(t => t.name);
 
     expect(names).not.toContain('tool_b');
-    expect(names).not.toContain('tool_c');
-    expect(names).toContain(PLUGIN_TOOL.name);
+    expect(names).toEqual(expect.arrayContaining(UNTIERED_NAMES));
   });
 });
 
@@ -122,21 +125,20 @@ describe('tools/list core mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('tools/list extended mode', () => {
-  it('returns extended tools plus untiered plugin tools when toolMode is extended', async () => {
+  it('returns extended tools plus all untiered tools when toolMode is extended', async () => {
     const session = makeSession('extended');
     const result = await handleRequest({ method: 'tools/list' }, session);
 
-    expect(result.tools).toHaveLength(EXTENDED_NAMES.length + 1);
-    expect(result.tools.map(t => t.name)).toEqual(expect.arrayContaining([...EXTENDED_NAMES, PLUGIN_TOOL.name]));
+    expect(result.tools).toHaveLength(EXTENDED_NAMES.length + UNTIERED_NAMES.length);
+    expect(result.tools.map(t => t.name)).toEqual(expect.arrayContaining([...EXTENDED_NAMES, ...UNTIERED_NAMES]));
   });
 
-  it('does not include tools outside the extended set', async () => {
+  it('does not drop untiered tools in extended mode', async () => {
     const session = makeSession('extended');
     const result = await handleRequest({ method: 'tools/list' }, session);
     const names = result.tools.map(t => t.name);
 
-    expect(names).not.toContain('tool_c');
-    expect(names).toContain(PLUGIN_TOOL.name);
+    expect(names).toEqual(expect.arrayContaining(UNTIERED_NAMES));
   });
 });
 
@@ -220,16 +222,14 @@ describe('tools/call mode enforcement', () => {
     expect(result.content[0].text).toContain('core');
   });
 
-  it('blocks a tool not in extended mode', async () => {
+  it('allows untiered tools in extended mode', async () => {
     const session = makeSession('extended');
     const result = await handleRequest(
       { method: 'tools/call', params: { name: 'tool_c' } },
       session
     );
 
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('tool_c');
-    expect(result.content[0].text).toContain('extended');
+    expect(result.isError).toBeFalsy();
   });
 
   it('allows a tool present in core mode', async () => {

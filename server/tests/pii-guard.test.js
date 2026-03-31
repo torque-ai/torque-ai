@@ -12,7 +12,7 @@ describe('pii-guard', () => {
 
   describe('scanAndReplace', () => {
     it('replaces Windows user paths', () => {
-      const result = piiGuard.scanAndReplace('File at C:\\Users\\<os-user>\\Projects\\torque');
+      const result = piiGuard.scanAndReplace('File at C:\\Users\\alice\\Projects\\torque');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('File at C:\\Users\\<user>\\Projects\\torque');
       expect(result.findings).toHaveLength(1);
@@ -107,7 +107,7 @@ describe('pii-guard', () => {
     });
 
     it('replaces multiple PII types in one string', () => {
-      const input = 'User C:\\Users\\<os-user> at 192.0.2.100 email user@example.com';
+      const input = 'User C:\\Users\\alice at 192.0.2.100 email user@example.com';
       const result = piiGuard.scanAndReplace(input);
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('User C:\\Users\\<user> at 192.0.2.100 email user@example.com');
@@ -139,7 +139,7 @@ describe('pii-guard', () => {
     });
 
     it('reports line numbers in findings', () => {
-      const input = 'Line one\nPath C:\\Users\\<os-user>\\foo\nLine three';
+      const input = 'Line one\nPath C:\\Users\\alice\\foo\nLine three';
       const result = piiGuard.scanAndReplace(input);
       expect(result.findings[0].line).toBe(2);
     });

@@ -310,6 +310,10 @@ function getPluginToolDef(toolName) {
 }
 
 function getPluginToolHandler(toolName) {
+  if (!getPluginToolDef(toolName)) {
+    return null;
+  }
+
   const handlers = getRemoteAgentPluginHandlers();
   return handlers && typeof handlers[toolName] === 'function'
     ? handlers[toolName]

@@ -26,7 +26,7 @@ describe('E2E: Fallback and recovery', () => {
     if (ctx) await teardownE2eDb(ctx);
   });
 
-  it('no healthy hosts: ollama task fails when the fallback host is unreachable', async () => {
+  it('no healthy hosts: ollama task stays queued when the fallback host is unreachable', async () => {
     // Don't register any hosts and force single-host fallback to an unreachable port
     ctx.db.setConfig('ollama_host', 'http://127.0.0.1:1');
     for (const provider of ['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']) {
@@ -41,11 +41,13 @@ describe('E2E: Fallback and recovery', () => {
     });
 
     const startResult = ctx.tm.startTask(taskId);
-    expect(startResult?.queued).not.toBe(true);
+    expect(startResult?.queued).toBe(true);
 
-    const task = await waitForTaskStatus(ctx.db, taskId, ['failed'], 3000);
-    expect(task.status).toBe('failed');
-    expect(task.error_output).toMatch(/Could not connect to Ollama|timeout/i);
+    const task = await waitForTaskStatus(ctx.db, taskId, ['queued'], 3000);
+    expect(task.status).toBe('queued');
+    expect(task.provider).toBeNull();
+    expect(task.original_provider).toBe('ollama');
+    expect(task.error_output).toBeNull();
   });
 
   it('host at max capacity: task is requeued', async () => {

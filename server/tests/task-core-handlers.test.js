@@ -856,14 +856,14 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('Current running tasks: 4');
     });
 
-    it('uses the explicit model for cost estimation while keeping the default provider budget bucket', () => {
+    it('uses the explicit model for cost estimation after resolving the default provider budget bucket', () => {
       handlers.handleSubmitTask({
         task: 'Default provider with explicit model',
         auto_route: false,
         model: 'gpt-5.3-codex',
       });
 
-      expect(mockDb.getProvider).not.toHaveBeenCalled();
+      expect(mockDb.getProvider).toHaveBeenCalledWith('codex');
       expect(mockDb.estimateCost).toHaveBeenCalledWith('Default provider with explicit model', 'gpt-5.3-codex');
       expect(mockDb.checkBudgetBeforeSubmission).toHaveBeenCalledWith('codex', 0.25);
       expect(lastCreatedTask()).toMatchObject({
@@ -1292,13 +1292,13 @@ describe('task-core handlers', () => {
       expect(mockDb.estimateCost).toHaveBeenCalledWith('Queue budget by provider', 'ollama');
     });
 
-    it('uses the explicit model for cost estimation while keeping the default provider budget bucket when queueing', () => {
+    it('uses the explicit model for cost estimation after resolving the default provider budget bucket when queueing', () => {
       handlers.handleQueueTask({
         task: 'Queue default provider with model',
         model: 'gpt-5.3-codex',
       });
 
-      expect(mockDb.getProvider).not.toHaveBeenCalled();
+      expect(mockDb.getProvider).toHaveBeenCalledWith('codex');
       expect(mockDb.estimateCost).toHaveBeenCalledWith('Queue default provider with model', 'gpt-5.3-codex');
       expect(mockDb.checkBudgetBeforeSubmission).toHaveBeenCalledWith('codex', 0.25);
       expect(lastCreatedTask()).toMatchObject({

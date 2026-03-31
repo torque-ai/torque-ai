@@ -80,7 +80,8 @@ describe('auto_routed overflow — proof of integration', () => {
           workflow_id TEXT,
           workflow_node_id TEXT,
           stall_timeout_seconds INTEGER,
-          approval_status TEXT
+          approval_status TEXT,
+          server_epoch INTEGER
         );
       `);
       taskCore.setDb(dbHandle);
@@ -111,11 +112,12 @@ describe('auto_routed overflow — proof of integration', () => {
       });
 
       const task = taskCore.getTask(taskId);
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
 
       // PROOF: Provider is now null (deferred assignment) when no provider specified
       expect(task.provider).toBeNull();
-      // No user_provider_override — eligible for overflow
-      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+      expect(meta.auto_routed).toBe(true);
+      expect(meta.requested_provider).toBe('codex');
       expect(meta.user_provider_override).toBeFalsy();
     });
 
@@ -134,6 +136,7 @@ describe('auto_routed overflow — proof of integration', () => {
 
       // PROOF: no auto_routed flag — user chose codex deliberately
       expect(meta.auto_routed).toBeUndefined();
+      expect(meta.requested_provider).toBe('codex');
       expect(task.provider).toBe('codex');
     });
 
@@ -153,6 +156,7 @@ describe('auto_routed overflow — proof of integration', () => {
 
       // PROOF: user override blocks auto_routed
       expect(meta.auto_routed).toBeUndefined();
+      expect(meta.requested_provider).toBe('codex');
       expect(meta.user_provider_override).toBe(true);
     });
   });

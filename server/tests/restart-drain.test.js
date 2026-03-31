@@ -4,19 +4,25 @@ describe('restart_server drain mode', () => {
   let tools, taskCore, eventBus;
 
   beforeEach(() => {
-    jest.resetModules();
+    vi.resetModules();
+    vi.useFakeTimers();
 
-    taskCore = { listTasks: jest.fn().mockReturnValue([]) };
-    jest.doMock('../db/task-core', () => taskCore);
+    taskCore = { listTasks: vi.fn().mockReturnValue([]) };
+    vi.doMock('../db/task-core', () => taskCore);
 
-    jest.doMock('../task-manager', () => ({
-      getRunningTaskCount: jest.fn().mockReturnValue(0),
+    vi.doMock('../task-manager', () => ({
+      getRunningTaskCount: vi.fn().mockReturnValue(0),
     }));
 
-    eventBus = { emitShutdown: jest.fn(), onShutdown: jest.fn(), removeListener: jest.fn() };
-    jest.doMock('../event-bus', () => eventBus);
+    eventBus = { emitShutdown: vi.fn(), onShutdown: vi.fn(), removeListener: vi.fn() };
+    vi.doMock('../event-bus', () => eventBus);
 
     tools = require('../tools');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('accepts drain option and schedules restart when no tasks running', async () => {

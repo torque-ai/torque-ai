@@ -85,6 +85,13 @@ function finalizeTask(taskId, status = 'completed', overrides = {}) {
     });
   }
 
+  const extraFields = { ...overrides };
+  delete extraFields.output;
+  delete extraFields.error_output;
+  delete extraFields.exit_code;
+  delete extraFields.completed_at;
+  delete extraFields.files_modified;
+
   taskCore.updateTaskStatus(taskId, status, {
     output: overrides.output ?? (status === 'completed' ? 'task output' : ''),
     error_output: overrides.error_output ?? (status === 'failed' ? 'task failed' : null),
@@ -92,6 +99,7 @@ function finalizeTask(taskId, status = 'completed', overrides = {}) {
       ?? (status === 'completed' ? 0 : ['cancelled', 'skipped'].includes(status) ? null : 1),
     completed_at: overrides.completed_at || '2026-01-01T00:00:05.000Z',
     files_modified: overrides.files_modified ?? null,
+    ...extraFields,
   });
 }
 

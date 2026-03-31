@@ -475,7 +475,7 @@ describe('slot-pull-scheduler', () => {
       });
 
       // Disable others to avoid interference
-      for (const p of ['ollama', 'claude-cli']) {
+      for (const p of ['claude-cli']) {
         setProviderConfig(p, { enabled: 0 });
       }
 

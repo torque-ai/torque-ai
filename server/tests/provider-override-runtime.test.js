@@ -126,7 +126,7 @@ function createTask(overrides = {}) {
 describe('runtime fallback guards respect user_provider_override', () => {
   afterEach(cleanup);
 
-  it('keeps user-overridden ollama review tasks on ollama', async () => {
+  it('requeues unreachable user-overridden ollama review tasks onto the configured failover chain', async () => {
     await setup();
 
     providerRoutingCore.updateProvider('ollama', { enabled: 1 });
@@ -139,7 +139,10 @@ describe('runtime fallback guards respect user_provider_override', () => {
     });
 
     await tm.startTask(taskId);
-    expect(taskCore.getTask(taskId).provider).toBe('ollama');
+    const task = taskCore.getTask(taskId);
+    expect(task.provider).not.toBe('ollama');
+    expect(task.status).toBe('queued');
+    expect(task.error_output).toContain('[Auto-Failover] Ollama unavailable, switching to');
     expect(mockState.spawnAndTrackProcess).not.toHaveBeenCalled();
   });
 

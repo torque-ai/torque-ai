@@ -417,18 +417,24 @@ function _wireAllModules() {
  * @returns {any}
  */
 function init() {
-  // Pre-startup safety backup — capture existing DB before schema migrations
-  // Uses a dedicated prefix never pruned by regular cleanup
+  // Pre-startup safety backup — capture existing DB before schema migrations.
+  // Uses db.serialize() to include WAL data (copyFileSync misses WAL content,
+  // which can hold the majority of data if wal_checkpoint failed at last shutdown).
   if (fs.existsSync(DB_PATH)) {
     try {
-      const stats = fs.statSync(DB_PATH);
-      if (stats.size > 100000) { // Only back up if DB has meaningful data (>100KB)
-        const backupDir = path.join(DATA_DIR, 'backups');
-        fs.mkdirSync(backupDir, { recursive: true });
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const backupPath = path.join(backupDir, `torque-pre-startup-${timestamp}.db`);
-        fs.copyFileSync(DB_PATH, backupPath);
-        logger.info(`[backup] Pre-startup backup: ${backupPath} (${stats.size} bytes)`);
+      const backupDir = path.join(DATA_DIR, 'backups');
+      fs.mkdirSync(backupDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = path.join(backupDir, `torque-pre-startup-${timestamp}.db`);
+
+      // Open temporarily in readonly mode to serialize (includes WAL replay)
+      const tempDb = new Database(DB_PATH, { readonly: true });
+      const buffer = tempDb.serialize();
+      tempDb.close();
+
+      if (buffer.length > 100000) { // Only keep if DB has meaningful data (>100KB)
+        fs.writeFileSync(backupPath, buffer);
+        logger.info(`[backup] Pre-startup backup: ${backupPath} (${buffer.length} bytes, includes WAL)`);
 
         // Keep only last 3 pre-startup backups
         const preStartupFiles = fs.readdirSync(backupDir)
@@ -473,6 +479,19 @@ function init() {
     // Allow concurrent writers to wait up to 30s instead of immediately failing with SQLITE_BUSY
     // Increased from 5s to handle burst scenarios (26+ concurrent task submissions)
     db.pragma('busy_timeout = 30000');
+
+    // Checkpoint any stale WAL data from a previous unclean shutdown.
+    // If the last shutdown's wal_checkpoint(TRUNCATE) failed, data is stuck in the WAL.
+    // This ensures it's consolidated into the main DB file before we proceed.
+    try {
+      const walResult = db.pragma('wal_checkpoint(TRUNCATE)');
+      const walInfo = walResult && walResult[0];
+      if (walInfo && walInfo.log > 0) {
+        logger.info(`[DB] Startup WAL checkpoint: ${walInfo.checkpointed}/${walInfo.log} pages flushed`);
+      }
+    } catch (_e) {
+      // Non-fatal at startup — WAL will be replayed automatically by SQLite
+    }
 
     // Enforce foreign key constraints (off by default in SQLite)
     db.pragma('foreign_keys = ON');
@@ -583,12 +602,23 @@ function close() {
     try { fn(); } catch { /* non-fatal */ }
   }
   if (db) {
+    // Flush WAL into main DB file before closing. If this fails, data stays
+    // in the WAL and is vulnerable to loss (the bug that wiped worklogs).
     try {
-      // Flush WAL file before closing to prevent unbounded growth
-      db.pragma('wal_checkpoint(TRUNCATE)');
-    } catch (_e) {
-      void _e;
-      // Non-fatal — close will still work
+      const result = db.pragma('wal_checkpoint(TRUNCATE)');
+      const info = result && result[0];
+      if (info && info.busy > 0) {
+        // TRUNCATE couldn't complete (another connection holds a lock).
+        // Fall back to PASSIVE which checkpoints what it can without blocking.
+        logger.warn(`[DB] WAL checkpoint TRUNCATE incomplete (${info.busy} busy pages) — falling back to PASSIVE`);
+        const passiveResult = db.pragma('wal_checkpoint(PASSIVE)');
+        const passiveInfo = passiveResult && passiveResult[0];
+        if (passiveInfo && passiveInfo.log > passiveInfo.checkpointed) {
+          logger.error(`[DB] WAL checkpoint PASSIVE incomplete: ${passiveInfo.log - passiveInfo.checkpointed} pages NOT flushed to main DB. Data may be lost if WAL file is deleted.`);
+        }
+      }
+    } catch (checkpointErr) {
+      logger.error(`[DB] WAL checkpoint failed: ${checkpointErr.message}. Data in WAL file may be lost on next startup.`);
     }
     db.close();
     db = null;

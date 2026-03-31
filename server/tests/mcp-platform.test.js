@@ -9,14 +9,24 @@ let currentIndexModules = null;
 
 vi.mock('../logger', () => currentIndexModules.logger);
 vi.mock('../database', () => currentIndexModules.db);
+vi.mock('../container', () => currentIndexModules.container);
+vi.mock('../config', () => currentIndexModules.config);
 vi.mock('../task-manager', () => currentIndexModules.taskManager);
 vi.mock('../dashboard-server', () => currentIndexModules.dashboardServer);
 vi.mock('../api-server', () => currentIndexModules.apiServer);
 vi.mock('../mcp', () => currentIndexModules.mcpGateway);
 vi.mock('../mcp-sse', () => currentIndexModules.mcpSse);
+vi.mock('../tools', () => currentIndexModules.tools);
+vi.mock('../mcp-protocol', () => currentIndexModules.mcpProtocol);
+vi.mock('../plugins/loader', () => currentIndexModules.pluginsLoader);
 vi.mock('../scripts/gpu-metrics-server', () => currentIndexModules.gpuMetricsServer);
+vi.mock('../execution/slot-pull-scheduler', () => currentIndexModules.slotPullScheduler);
+vi.mock('../discovery/config-migrator', () => currentIndexModules.configMigrator);
 vi.mock('../discovery', () => currentIndexModules.discovery);
+vi.mock('../providers/adapter-registry', () => currentIndexModules.adapterRegistry);
 vi.mock('../validation/auto-verify-retry', () => currentIndexModules.autoVerifyRetry);
+vi.mock('../validation/post-task', () => currentIndexModules.postTask);
+vi.mock('../validation/build-verification', () => currentIndexModules.buildVerification);
 vi.mock('../remote/agent-registry', () => currentIndexModules.remoteAgentRegistry);
 
 function createIndexMocks(tempDir) {
@@ -58,6 +68,28 @@ function createIndexMocks(tempDir) {
       child: vi.fn(() => mockLoggerChild),
     },
     db: mockDb,
+    container: {
+      defaultContainer: {
+        has: vi.fn(() => false),
+        registerValue: vi.fn(),
+        boot: vi.fn(),
+        get: vi.fn(() => null),
+      },
+    },
+    config: {
+      init: vi.fn(),
+      get: vi.fn((key, fallback = null) => {
+        const value = mockDb.getConfig(key);
+        return value == null ? fallback : value;
+      }),
+      getInt: vi.fn((key, fallback = 0) => {
+        const value = mockDb.getConfig(key);
+        if (value == null) return fallback;
+        const parsed = parseInt(value, 10);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      }),
+      setEpoch: vi.fn(),
+    },
     taskManager: mockTaskManager,
     dashboardServer: {
       start: resolvedStart,
@@ -75,9 +107,28 @@ function createIndexMocks(tempDir) {
       start: resolvedStart,
       stop: vi.fn(),
     },
+    tools: {
+      TOOLS: [],
+      handleToolCall: vi.fn(),
+    },
+    mcpProtocol: {
+      init: vi.fn(),
+      handleRequest: vi.fn(),
+    },
+    pluginsLoader: {
+      loadPlugins: vi.fn(() => []),
+    },
     gpuMetricsServer: {
       start: resolvedStart,
       stop: vi.fn(),
+    },
+    slotPullScheduler: {
+      init: vi.fn(),
+      startHeartbeat: vi.fn(),
+      stopHeartbeat: vi.fn(),
+    },
+    configMigrator: {
+      migrateConfigToRegistry: vi.fn(),
     },
     discovery: {
       initDiscovery: vi.fn(),
@@ -85,7 +136,16 @@ function createIndexMocks(tempDir) {
       stopAutoScan: vi.fn(),
       shutdownDiscovery: vi.fn(),
     },
+    adapterRegistry: {
+      discoverAllModels: vi.fn(async () => ({})),
+    },
     autoVerifyRetry: {
+      init: vi.fn(),
+    },
+    postTask: {
+      init: vi.fn(),
+    },
+    buildVerification: {
       init: vi.fn(),
     },
     remoteAgentRegistry: {
@@ -95,14 +155,24 @@ function createIndexMocks(tempDir) {
 
   vi.doMock('../logger', () => currentIndexModules.logger);
   vi.doMock('../database', () => currentIndexModules.db);
+  vi.doMock('../container', () => currentIndexModules.container);
+  vi.doMock('../config', () => currentIndexModules.config);
   vi.doMock('../task-manager', () => currentIndexModules.taskManager);
   vi.doMock('../dashboard-server', () => currentIndexModules.dashboardServer);
   vi.doMock('../api-server', () => currentIndexModules.apiServer);
   vi.doMock('../mcp', () => currentIndexModules.mcpGateway);
   vi.doMock('../mcp-sse', () => currentIndexModules.mcpSse);
+  vi.doMock('../tools', () => currentIndexModules.tools);
+  vi.doMock('../mcp-protocol', () => currentIndexModules.mcpProtocol);
+  vi.doMock('../plugins/loader', () => currentIndexModules.pluginsLoader);
   vi.doMock('../scripts/gpu-metrics-server', () => currentIndexModules.gpuMetricsServer);
+  vi.doMock('../execution/slot-pull-scheduler', () => currentIndexModules.slotPullScheduler);
+  vi.doMock('../discovery/config-migrator', () => currentIndexModules.configMigrator);
   vi.doMock('../discovery', () => currentIndexModules.discovery);
+  vi.doMock('../providers/adapter-registry', () => currentIndexModules.adapterRegistry);
   vi.doMock('../validation/auto-verify-retry', () => currentIndexModules.autoVerifyRetry);
+  vi.doMock('../validation/post-task', () => currentIndexModules.postTask);
+  vi.doMock('../validation/build-verification', () => currentIndexModules.buildVerification);
   vi.doMock('../remote/agent-registry', () => currentIndexModules.remoteAgentRegistry);
 
   return {
