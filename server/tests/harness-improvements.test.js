@@ -7,9 +7,16 @@ const {
   computeLineHash,
   detectTaskTypes,
   lineSimilarity,
+} = require('../task-manager');
+const {
+  init: initHashlineVerify,
   verifyHashlineReferences,
   attemptFuzzySearchRepair,
-} = require('../task-manager');
+} = require('../validation/hashline-verify');
+
+beforeAll(() => {
+  initHashlineVerify({ computeLineHash, lineSimilarity });
+});
 
 describe('Harness Improvements — Internal Functions', () => {
 

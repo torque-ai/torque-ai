@@ -792,7 +792,7 @@ describe('dashboard router/utils helpers', () => {
     expect(response.statusCode).toBe(204);
     expect(response.headers).toEqual(expect.objectContaining({
       'Access-Control-Allow-Origin': 'http://localhost:3456',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     }));
   });
 

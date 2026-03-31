@@ -12,7 +12,7 @@ describe('pii-guard', () => {
 
   describe('scanAndReplace', () => {
     it('replaces Windows user paths', () => {
-      const result = piiGuard.scanAndReplace('File at C:\\Users\\Werem\\Projects\\torque');
+      const result = piiGuard.scanAndReplace('File at C:\\Users\\<os-user>\\Projects\\torque');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('File at C:\\Users\\<user>\\Projects\\torque');
       expect(result.findings).toHaveLength(1);
@@ -20,31 +20,31 @@ describe('pii-guard', () => {
     });
 
     it('replaces Linux user paths', () => {
-      const result = piiGuard.scanAndReplace('Path /home/kenten/code/app');
+      const result = piiGuard.scanAndReplace('Path /home/<user>/code/app');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Path /home/<user>/code/app');
     });
 
     it('replaces Mac user paths', () => {
-      const result = piiGuard.scanAndReplace('Path /Users/johndoe/Desktop');
+      const result = piiGuard.scanAndReplace('Path /Users/<user>/Desktop');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Path /Users/<user>/Desktop');
     });
 
     it('replaces 192.168.x.x preserving last octet', () => {
-      const result = piiGuard.scanAndReplace('Host: 192.168.1.100');
+      const result = piiGuard.scanAndReplace('Host: 192.0.2.100');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Host: 192.0.2.100');
     });
 
     it('replaces 10.x.x.x preserving last octet', () => {
-      const result = piiGuard.scanAndReplace('Gateway: 10.0.5.1');
+      const result = piiGuard.scanAndReplace('Gateway: 10.0.0.1');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Gateway: 10.0.0.1');
     });
 
     it('replaces 172.16.0.0/12 addresses preserving last octet', () => {
-      const result = piiGuard.scanAndReplace('VPN: 172.31.99.45');
+      const result = piiGuard.scanAndReplace('VPN: 172.16.0.45');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('VPN: 172.16.0.45');
     });
@@ -60,7 +60,7 @@ describe('pii-guard', () => {
     });
 
     it('replaces real email addresses', () => {
-      const result = piiGuard.scanAndReplace('Contact: weremittens@gmail.com');
+      const result = piiGuard.scanAndReplace('Contact: user@example.com');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Contact: user@example.com');
     });
@@ -83,7 +83,7 @@ describe('pii-guard', () => {
 
       const result = piiGuard.scanAndReplace(`Host: ${hostname}`);
       expect(result.clean).toBe(false);
-      expect(result.sanitized).toBe('Host: example-host');
+      expect(result.sanitized).toBe('Host: <hostname>');
       expect(result.findings[0].category).toBe('hostnames');
     });
 
@@ -107,7 +107,7 @@ describe('pii-guard', () => {
     });
 
     it('replaces multiple PII types in one string', () => {
-      const input = 'User C:\\Users\\Werem at 192.168.1.100 email weremittens@gmail.com';
+      const input = 'User C:\\Users\\<os-user> at 192.0.2.100 email user@example.com';
       const result = piiGuard.scanAndReplace(input);
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('User C:\\Users\\<user> at 192.0.2.100 email user@example.com');
@@ -131,15 +131,15 @@ describe('pii-guard', () => {
     });
 
     it('respects builtinOverrides to disable categories', () => {
-      const result = piiGuard.scanAndReplace('Path /home/kenten/code', {
+      const result = piiGuard.scanAndReplace('Path /home/<user>/code', {
         builtinOverrides: { user_paths: false },
       });
       expect(result.clean).toBe(true);
-      expect(result.sanitized).toBe('Path /home/kenten/code');
+      expect(result.sanitized).toBe('Path /home/<user>/code');
     });
 
     it('reports line numbers in findings', () => {
-      const input = 'Line one\nPath C:\\Users\\Werem\\foo\nLine three';
+      const input = 'Line one\nPath C:\\Users\\<os-user>\\foo\nLine three';
       const result = piiGuard.scanAndReplace(input);
       expect(result.findings[0].line).toBe(2);
     });

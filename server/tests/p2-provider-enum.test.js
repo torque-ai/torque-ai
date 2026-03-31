@@ -4,13 +4,12 @@ const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 describe('submit_task provider enum completeness', () => {
   const submitTaskDef = taskSubmissionDefs.find((tool) => tool.name === 'submit_task');
   const providerEnum = submitTaskDef?.inputSchema?.properties?.provider?.enum ?? [];
+  // codex-spark is an internal routing alias, not a user-selectable provider
+  const INTERNAL_PROVIDERS = new Set(['codex-spark']);
+  const timeoutProviders = Object.keys(PROVIDER_DEFAULT_TIMEOUTS)
+    .filter((p) => !INTERNAL_PROVIDERS.has(p));
 
   it('includes all providers from PROVIDER_DEFAULT_TIMEOUTS', () => {
-    // codex-spark is an internal routing alias, not a user-selectable provider
-    const INTERNAL_PROVIDERS = new Set(['codex-spark']);
-    const timeoutProviders = Object.keys(PROVIDER_DEFAULT_TIMEOUTS)
-      .filter((p) => !INTERNAL_PROVIDERS.has(p));
-
     for (const provider of timeoutProviders) {
       expect(providerEnum).toContain(provider);
     }
@@ -21,7 +20,7 @@ describe('submit_task provider enum completeness', () => {
     expect(PROVIDER_DEFAULT_TIMEOUTS.hyperbolic).toBe(480);
   });
 
-  it('submit_task provider enum has exactly 12 providers', () => {
-    expect(providerEnum).toHaveLength(12);
+  it('submit_task provider enum matches the selectable timeout-backed providers', () => {
+    expect(providerEnum).toHaveLength(timeoutProviders.length);
   });
 });

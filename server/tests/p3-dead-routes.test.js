@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { routeMap } = require('../tools');
+const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 
 const INTERNAL_ONLY_ROUTES = new Set([
   'ping', 'restart_server', 'unlock_all_tools', 'unlock_tier',
@@ -29,6 +30,12 @@ function loadToolDefinitionNames() {
       if (def && typeof def.name === 'string') {
         names.push(def.name);
       }
+    }
+  }
+
+  for (const def of remoteAgentToolDefs) {
+    if (def && typeof def.name === 'string') {
+      names.push(def.name);
     }
   }
 

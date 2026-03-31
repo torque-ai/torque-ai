@@ -201,10 +201,10 @@ describe('db/provider-routing-core', () => {
       expect(result.reason).toContain('Smart routing disabled');
     });
 
-    it('matches keyword rules from routing_rules table', () => {
+    it('routes documentation tasks to the current API provider path', () => {
       const result = core.analyzeTaskForRouting('Update README documentation for setup', os.tmpdir(), []);
-      expect(result.provider).toBe('ollama');
-      expect(result.reason).toContain('Matched keyword rule');
+      expect(result.provider).toBe('groq');
+      expect(result.reason).toContain('API routing: documentation task');
     });
 
     it('matches extension rules using the files argument', () => {
@@ -237,22 +237,22 @@ describe('db/provider-routing-core', () => {
       expect(result.reason).toContain('Matched regex rule');
     });
 
-    it('falls back when an Ollama provider is selected but health cache is false', () => {
+    it('ignores Ollama health when documentation routing resolves to groq', () => {
       core.setOllamaHealthy(false);
       configCore.setConfig('ollama_fallback_provider', 'codex');
 
       const result = core.analyzeTaskForRouting('Update README docs', os.tmpdir(), []);
-      expect(result.provider).toBe('codex');
-      expect(result.fallbackApplied).toBe(true);
-      expect(result.originalProvider).toBe('ollama');
+      expect(result.provider).toBe('groq');
+      expect(result.fallbackApplied).toBeUndefined();
+      expect(result.originalProvider).toBeUndefined();
     });
 
-    it('skipHealthCheck bypasses Ollama fallback application', () => {
+    it('skipHealthCheck still returns groq for documentation routing', () => {
       core.setOllamaHealthy(false);
       configCore.setConfig('ollama_fallback_provider', 'codex');
 
       const result = core.analyzeTaskForRouting('Update README docs', os.tmpdir(), [], { skipHealthCheck: true });
-      expect(result.provider).toBe('ollama');
+      expect(result.provider).toBe('groq');
       expect(result.fallbackApplied).toBeUndefined();
     });
 
@@ -276,7 +276,7 @@ describe('db/provider-routing-core', () => {
       expect(result.reason).toContain('Complexity-based routing');
     });
 
-    it('upgrades simple targeted local edits to ollama', () => {
+    it('routes jsdoc edits through the documentation path before local complexity upgrades', () => {
       bindCore({
         determineTaskComplexity: () => 'simple',
         routeTask: () => ({
@@ -287,11 +287,11 @@ describe('db/provider-routing-core', () => {
       });
 
       const result = core.analyzeTaskForRouting('Add jsdoc comments to src/app.js', os.tmpdir(), ['src/app.js']);
-      expect(result.provider).toBe('ollama');
-      expect(result.reason).toContain('upgraded to ollama');
+      expect(result.provider).toBe('groq');
+      expect(result.reason).toContain('API routing: documentation task');
     });
 
-    it('keeps simple targeted codex edits on codex when no hashline cloud provider is configured', () => {
+    it('routes codex jsdoc edits through the documentation path before codex-specific handling', () => {
       bindCore({
         determineTaskComplexity: () => 'normal',
         routeTask: () => ({
@@ -302,8 +302,8 @@ describe('db/provider-routing-core', () => {
       });
 
       const result = core.analyzeTaskForRouting('Fix validation in src/api.ts and add jsdoc', os.tmpdir(), ['src/api.ts']);
-      expect(result.provider).toBe('codex');
-      expect(result.reason).not.toContain('upgraded to');
+      expect(result.provider).toBe('groq');
+      expect(result.reason).toContain('API routing: documentation task');
     });
 
     it('routes reasoning tasks to deepinfra when configured', () => {
@@ -574,7 +574,7 @@ describe('db/provider-routing-core', () => {
       expect(result.reason).toContain(`Task template '${name}'`);
     });
 
-    it('falls through to normal routing when _routing_template is not set', () => {
+    it('falls through to the current documentation routing when _routing_template is not set', () => {
       const name = `All Codex ${testSuffix}`;
       templateStore.createTemplate({
         name,
@@ -589,8 +589,8 @@ describe('db/provider-routing-core', () => {
         { taskMetadata: {} },
       );
 
-      // Falls through to keyword-matched rule: 'documentation' → ollama
-      expect(result.provider).toBe('ollama');
+      // Falls through to the live documentation route instead of the task template.
+      expect(result.provider).toBe('groq');
       expect(result.reason).not.toContain('Task template');
     });
 

@@ -3,31 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const HANDLER_PATH = path.resolve(__dirname, '../handlers/remote-agent-handlers.js');
+const HANDLER_PATH = path.resolve(__dirname, '../plugins/remote-agents/handlers.js');
 
-const INTENTIONAL_PUBLIC_API = new Set([
-  '_getRegistry',
-  // Core handle* exports (have tool definitions)
-  'handleRegisterRemoteAgent',
-  'handleListRemoteAgents',
-  'handleRemoveRemoteAgent',
-  'handleCheckRemoteAgentHealth',
-  'handleGetRemoteAgent',
-  'handleRunRemoteCommand',
-  'handleRunTests',
-  // Core functions used via dot access by api-server.core.js
-  'runRemoteCommandCore',
-  'runTestsCore',
-  'createRemoteAgentHandlers',
-  // Backward-compat aliases (used by tests and external consumers)
-  'registerRemoteAgent',
-  'listRemoteAgents',
-  'getRemoteAgent',
-  'deleteRemoteAgent',
-  'claimTaskOnAgent',
-  'recordAgentHeartbeat',
-  'runAgentHealthCheck',
-]);
+const INTENTIONAL_PUBLIC_API = new Set([]);
 
 function listJsFiles(dir, files = []) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -57,15 +35,15 @@ function listJsFiles(dir, files = []) {
 function getNamedImportedExports() {
   const imported = new Set();
   const importFromStatements = [
-    /(?:const|let|var)\s*\{([^}]+)\}\s*=\s*require\((['"])([^'"]*remote-agent-handlers[^'"]*)\2\)/gms,
-    /import\s*\{([^}]+)\}\s+from\s+(['"])([^'"]*remote-agent-handlers[^'"]*)\2/gms,
+    /(?:const|let|var)\s*\{([^}]+)\}\s*=\s*require\((['"])([^'"]*remote-agents\/handlers[^'"]*)\2\)/gms,
+    /import\s*\{([^}]+)\}\s+from\s+(['"])([^'"]*remote-agents\/handlers[^'"]*)\2/gms,
   ];
   const files = listJsFiles(path.resolve(__dirname, '..'))
     .filter(file => path.resolve(file) !== HANDLER_PATH);
 
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
-    if (!text.includes('remote-agent-handlers')) {
+    if (!text.includes('remote-agents/handlers')) {
       continue;
     }
 

@@ -18,6 +18,8 @@ const { TASK_TIMEOUTS } = require('../constants');
 const { createTestRunnerRegistry } = require('../test-runner-registry');
 const buildVerification = require('./build-verification');
 
+const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
+
 /**
  * Parse a command string into executable and args, respecting quoted segments.
  * Handles both single and double quotes. Falls back to simple split for unquoted strings.
@@ -1181,11 +1183,14 @@ async function runTestVerification(taskId, task, workingDir) {
 
   // Try remote execution first
   const router = getRouter();
-  const remoteConfig = router.getRemoteConfig(workingDir, { provider });
+  const shouldUseRunnerRegistry = Boolean(
+    (projectConfig && projectConfig.prefer_remote_tests && projectConfig.remote_agent_id)
+      || CODEX_PROVIDERS.has(provider)
+  );
 
-  if (remoteConfig) {
+  if (shouldUseRunnerRegistry) {
     try {
-      logger.info(`[Test Verification] Task ${taskId}: Routing to remote workstation`);
+      logger.info(`[Test Verification] Task ${taskId}: Routing test verification via test runner registry`);
       const result = await router.runVerifyCommand(testCommand, workingDir, {
         timeout,
         provider,

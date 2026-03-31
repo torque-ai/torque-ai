@@ -57,6 +57,7 @@ describe('cancel retry_scheduled tasks (Bug #7)', () => {
     expect(deps.killProcessGraceful).not.toHaveBeenCalled();
     expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
       error_output: 'User cancelled',
+      cancel_reason: 'user',
     });
     expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
     expect(mockDispatchTaskEvent).toHaveBeenCalledWith('cancelled', expect.any(Object));
@@ -140,6 +141,7 @@ describe('cancel retry_scheduled tasks (Bug #7)', () => {
     expect(result).toBe(true);
     expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
       error_output: 'Cancelled by user',
+      cancel_reason: 'user',
     });
   });
 });

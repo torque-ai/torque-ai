@@ -57,8 +57,14 @@ function loadHandlers({
     child,
   });
 
-  const handlers = require('../handlers');
-  handlers._getRegistry = vi.fn(() => registry);
+  const { createHandlers } = require('../handlers');
+  const handlers = createHandlers({
+    agentRegistry: registry,
+    db: {
+      getProjectFromPath,
+      getProjectConfig,
+    },
+  });
 
   return {
     handlers,
@@ -84,7 +90,7 @@ describe('remote command MCP tools', () => {
       },
     });
 
-    const result = await handlers.handleRunRemoteCommand({
+    const result = await handlers.run_remote_command({
       command: 'npm test',
       working_directory: '/repo',
     });
@@ -104,7 +110,7 @@ describe('remote command MCP tools', () => {
   it('handleRunRemoteCommand missing command returns error', async () => {
     const { handlers } = loadHandlers();
 
-    const result = await handlers.handleRunRemoteCommand({
+    const result = await handlers.run_remote_command({
       working_directory: '/repo',
     });
 
@@ -119,7 +125,7 @@ describe('remote command MCP tools', () => {
       projectConfig: {},
     });
 
-    const result = await handlers.handleRunTests({
+    const result = await handlers.run_tests({
       working_directory: '/repo',
     });
 
@@ -131,28 +137,28 @@ describe('remote command MCP tools', () => {
   });
 
   it('handleRunTests delegates to handleRunRemoteCommand with verify_command', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync').mockReturnValue('ok\n');
     const { handlers } = loadHandlers({
       project: 'torque-server',
       projectConfig: {
         verify_command: 'npm test && npm run lint',
       },
     });
-    const delegatedResult = {
-      content: [{ type: 'text', text: '[local fallback] Exit code: 0\n\nok' }],
-      remote: false,
-    };
-    const handleRunRemoteCommand = vi.spyOn(handlers, 'handleRunRemoteCommand').mockResolvedValue(delegatedResult);
 
-    const result = await handlers.handleRunTests({
+    const result = await handlers.run_tests({
       working_directory: '/repo',
     });
 
-    expect(handleRunRemoteCommand).toHaveBeenCalledWith({
-      command: 'npm test && npm run lint',
-      working_directory: '/repo',
+    expect(execSync).toHaveBeenCalledWith('npm test && npm run lint', expect.objectContaining({
+      cwd: '/repo',
       timeout: 600000,
-    });
-    expect(result).toBe(delegatedResult);
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+      windowsHide: true,
+    }));
+    expect(result.remote).toBe(false);
+    expect(getText(result)).toContain('[local fallback] Exit code: 0');
+    expect(getText(result)).toContain('ok');
   });
 
   it('result text includes a [remote:] prefix for healthy agent execution', async () => {
@@ -172,7 +178,7 @@ describe('remote command MCP tools', () => {
       },
     });
 
-    const result = await handlers.handleRunRemoteCommand({
+    const result = await handlers.run_remote_command({
       command: 'npm test',
       working_directory: '/repo',
       timeout: 4321,

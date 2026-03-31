@@ -448,12 +448,13 @@ describe('Provider Handlers', () => {
       expect(getText(result)).toContain('placeholder');
     });
 
-    it('sets template for ollama', async () => {
+    it('rejects providers without instruction-template support', async () => {
       const result = await safeTool('set_instruction_template', {
         provider: 'ollama',
         template: 'Hashline: {TASK_DESCRIPTION}'
       });
-      expect(result.isError).toBeFalsy();
+      expect(result.isError).toBe(true);
+      expect(getText(result)).toContain('Invalid provider');
     });
   });
 

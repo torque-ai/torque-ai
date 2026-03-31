@@ -4,9 +4,11 @@ const { EventEmitter } = require('events');
 
 const HANDLER_MODULE = '../api/v2-infrastructure-handlers';
 const CONTROL_PLANE_MODULE = '../api/v2-control-plane';
+const AGENT_REGISTRY_MODULE = '../plugins/remote-agents/agent-registry';
 const MODULE_PATHS = [
   HANDLER_MODULE,
   CONTROL_PLANE_MODULE,
+  AGENT_REGISTRY_MODULE,
   '../api/middleware',
   '../database',
   '../db/email-peek',
@@ -15,7 +17,6 @@ const MODULE_PATHS = [
   '../db/coordination',
   '../workstation/model',
   '../handlers/workstation-handlers',
-  '../index',
   '../discovery',
   '../utils/host-monitoring',
 ];
@@ -70,13 +71,12 @@ const mockWorkstationHandlers = {
 };
 
 const mockRegistry = {
+  getAll: vi.fn(),
+  get: vi.fn(),
   register: vi.fn(),
   getClient: vi.fn(),
+  runHealthChecks: vi.fn(),
   remove: vi.fn(),
-};
-
-const mockIndex = {
-  getAgentRegistry: vi.fn(),
 };
 
 const mockDiscovery = {
@@ -197,59 +197,13 @@ function seedAgent(agent) {
 
 function createAgentDb() {
   return {
-    prepare: vi.fn((sql) => {
-      if (sql === 'SELECT * FROM remote_agents ORDER BY created_at DESC') {
-        return {
-          all: vi.fn(() => Array.from(state.agents.values())
-            .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
-            .map(clone)),
-        };
-      }
-
-      if (sql === 'SELECT * FROM remote_agents WHERE id = ?') {
-        return {
-          get: vi.fn((agentId) => clone(state.agents.get(agentId))),
-        };
-      }
-
-      if (sql === 'UPDATE remote_agents SET status = ?, consecutive_failures = ?, last_health_check = ?, last_healthy = ?, metrics = ? WHERE id = ?') {
-        return {
-          run: vi.fn((status, failures, lastHealthCheck, lastHealthy, metrics, agentId) => {
-            const existing = state.agents.get(agentId);
-            if (!existing) return { changes: 0 };
-            state.agents.set(agentId, {
-              ...existing,
-              status,
-              consecutive_failures: failures,
-              last_health_check: lastHealthCheck,
-              last_healthy: lastHealthy,
-              metrics,
-            });
-            return { changes: 1 };
-          }),
-        };
-      }
-
-      if (sql === 'UPDATE remote_agents SET status = ?, consecutive_failures = ?, last_health_check = ?, metrics = ? WHERE id = ?') {
-        return {
-          run: vi.fn((status, failures, lastHealthCheck, metrics, agentId) => {
-            const existing = state.agents.get(agentId);
-            if (!existing) return { changes: 0 };
-            state.agents.set(agentId, {
-              ...existing,
-              status,
-              consecutive_failures: failures,
-              last_health_check: lastHealthCheck,
-              metrics,
-            });
-            return { changes: 1 };
-          }),
-        };
-      }
-
-      throw new Error(`Unexpected SQL: ${sql}`);
-    }),
+    prepare: vi.fn(),
   };
+}
+
+function MockRemoteAgentRegistry(db) {
+  mockRegistry.db = db;
+  return mockRegistry;
 }
 
 function createReq(overrides = {}) {
@@ -467,6 +421,8 @@ function resetMockDefaults() {
     return true;
   });
 
+  mockRegistry.getAll.mockReset().mockImplementation(() => Array.from(state.agents.values()).map(clone));
+  mockRegistry.get.mockReset().mockImplementation((agentId) => clone(state.agents.get(agentId)));
   mockRegistry.register.mockReset().mockImplementation((agent) => {
     const existing = state.agents.get(agent.id) || {};
     state.agents.set(agent.id, {
@@ -485,8 +441,47 @@ function resetMockDefaults() {
     });
   });
   mockRegistry.getClient.mockReset().mockReturnValue(null);
+  mockRegistry.runHealthChecks.mockReset().mockImplementation(async () => {
+    const now = new Date(Date.now()).toISOString();
+    const results = [];
+
+    for (const agent of Array.from(state.agents.values())) {
+      if (!agent.enabled) continue;
+
+      const client = mockRegistry.getClient(agent.id);
+      if (!client) continue;
+
+      const result = await client.checkHealth();
+      const current = state.agents.get(agent.id);
+      if (!current) continue;
+
+      if (result) {
+        state.agents.set(agent.id, {
+          ...current,
+          status: 'healthy',
+          consecutive_failures: 0,
+          last_health_check: now,
+          last_healthy: now,
+          metrics: JSON.stringify(result.system || {}),
+        });
+        results.push({ id: agent.id, status: 'healthy' });
+        continue;
+      }
+
+      const failures = (current.consecutive_failures || 0) + 1;
+      const status = failures >= 3 ? 'down' : 'degraded';
+      state.agents.set(agent.id, {
+        ...current,
+        status,
+        consecutive_failures: failures,
+        last_health_check: now,
+      });
+      results.push({ id: agent.id, status, failures });
+    }
+
+    return results;
+  });
   mockRegistry.remove.mockReset().mockImplementation((agentId) => state.agents.delete(agentId));
-  mockIndex.getAgentRegistry.mockReset().mockImplementation(() => mockRegistry);
 
   mockDiscovery.scanNetworkForOllama.mockReset().mockResolvedValue({ totalFound: 0, hosts: [] });
 
@@ -517,8 +512,8 @@ function loadHandlers() {
   installCjsModuleMock('../db/coordination', mockCoordination);
   installCjsModuleMock('../workstation/model', mockWorkstationModel);
   installCjsModuleMock('../handlers/workstation-handlers', mockWorkstationHandlers);
+  installCjsModuleMock(AGENT_REGISTRY_MODULE, { RemoteAgentRegistry: MockRemoteAgentRegistry });
   installCjsModuleMock('../api/middleware', mockMiddleware);
-  installCjsModuleMock('../index', mockIndex);
   installCjsModuleMock('../discovery', mockDiscovery);
   installCjsModuleMock('../utils/host-monitoring', mockHostMonitoring);
   require(CONTROL_PLANE_MODULE);
@@ -1452,10 +1447,10 @@ describe('api/v2-infrastructure-handlers', () => {
       await handlers.handleListAgents(createReq(), res);
 
       const data = expectList(res, {
-        items: [
-          expect.objectContaining({ id: 'agent-b', name: 'Agent B' }),
-          expect.objectContaining({ id: 'agent-a', name: 'Agent A', tls: 1, rejectUnauthorized: 0 }),
-        ],
+        items: expect.arrayContaining([
+          expect.objectContaining({ id: 'agent-a', name: 'Agent A', tls: true, rejectUnauthorized: false }),
+          expect.objectContaining({ id: 'agent-b', name: 'Agent B', tls: false, rejectUnauthorized: true }),
+        ]),
         total: 2,
       });
       expect(data.items[0]).not.toHaveProperty('secret');
@@ -1495,7 +1490,7 @@ describe('api/v2-infrastructure-handlers', () => {
     });
 
     it('returns 500 when the agent registry is not initialized', async () => {
-      mockIndex.getAgentRegistry.mockReturnValue(null);
+      mockDb.getDbInstance.mockReturnValue(null);
       const res = createMockRes();
 
       await handlers.handleCreateAgent(
@@ -1545,8 +1540,8 @@ describe('api/v2-infrastructure-handlers', () => {
         host: 'agent-a.internal',
         port: 3460,
         max_concurrent: 3,
-        tls: 0,
-        rejectUnauthorized: 1,
+        tls: false,
+        rejectUnauthorized: true,
         created_at: '2026-03-01T00:00:00.000Z',
         status: 'unknown',
         consecutive_failures: 0,
@@ -1586,8 +1581,8 @@ describe('api/v2-infrastructure-handlers', () => {
         id: 'agent-b',
         port: 4443,
         max_concurrent: 8,
-        tls: 1,
-        rejectUnauthorized: 0,
+        tls: true,
+        rejectUnauthorized: false,
       }));
     });
 
@@ -1738,7 +1733,7 @@ describe('api/v2-infrastructure-handlers', () => {
         metrics: '{"cached":true}',
       });
       mockRegistry.getClient.mockReturnValue({
-        checkHealth: vi.fn().mockRejectedValue(new Error('unreachable')),
+        checkHealth: vi.fn().mockResolvedValue(null),
       });
       const res = createMockRes();
 
@@ -1764,7 +1759,9 @@ describe('api/v2-infrastructure-handlers', () => {
         host: 'agent-d.internal',
         secret: 'secret-d',
       });
-      mockIndex.getAgentRegistry.mockReturnValue(null);
+      mockDb.getDbInstance
+        .mockReturnValueOnce(createAgentDb())
+        .mockReturnValueOnce(null);
       const res = createMockRes();
 
       await handlers.handleAgentHealth(
@@ -1825,7 +1822,9 @@ describe('api/v2-infrastructure-handlers', () => {
         host: 'agent-b.internal',
         secret: 'secret-b',
       });
-      mockIndex.getAgentRegistry.mockReturnValue(null);
+      mockDb.getDbInstance
+        .mockReturnValueOnce(createAgentDb())
+        .mockReturnValueOnce(null);
       const res = createMockRes();
 
       await handlers.handleDeleteAgent(

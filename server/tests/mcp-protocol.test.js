@@ -9,8 +9,9 @@ const { init, handleRequest, SERVER_INFO } = require('../mcp-protocol');
 const TOOL_A = { name: 'tool_a', description: 'Tool A' };
 const TOOL_B = { name: 'tool_b', description: 'Tool B' };
 const TOOL_C = { name: 'tool_c', description: 'Tool C' };
+const PLUGIN_TOOL = { name: 'plugin_tool', description: 'Plugin tool' };
 
-const ALL_TOOLS = [TOOL_A, TOOL_B, TOOL_C];
+const ALL_TOOLS = [TOOL_A, TOOL_B, TOOL_C, PLUGIN_TOOL];
 const CORE_NAMES = ['tool_a'];
 const EXTENDED_NAMES = ['tool_a', 'tool_b'];
 
@@ -97,12 +98,12 @@ describe('tools/list full mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('tools/list core mode', () => {
-  it('returns only core tools when toolMode is core', async () => {
+  it('returns core tools plus untiered plugin tools when toolMode is core', async () => {
     const session = makeSession('core');
     const result = await handleRequest({ method: 'tools/list' }, session);
 
-    expect(result.tools).toHaveLength(CORE_NAMES.length);
-    expect(result.tools.map(t => t.name)).toEqual(CORE_NAMES);
+    expect(result.tools).toHaveLength(CORE_NAMES.length + 1);
+    expect(result.tools.map(t => t.name)).toEqual(expect.arrayContaining([...CORE_NAMES, PLUGIN_TOOL.name]));
   });
 
   it('does not include non-core tools', async () => {
@@ -112,6 +113,7 @@ describe('tools/list core mode', () => {
 
     expect(names).not.toContain('tool_b');
     expect(names).not.toContain('tool_c');
+    expect(names).toContain(PLUGIN_TOOL.name);
   });
 });
 
@@ -120,12 +122,12 @@ describe('tools/list core mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('tools/list extended mode', () => {
-  it('returns only extended tools when toolMode is extended', async () => {
+  it('returns extended tools plus untiered plugin tools when toolMode is extended', async () => {
     const session = makeSession('extended');
     const result = await handleRequest({ method: 'tools/list' }, session);
 
-    expect(result.tools).toHaveLength(EXTENDED_NAMES.length);
-    expect(result.tools.map(t => t.name)).toEqual(expect.arrayContaining(EXTENDED_NAMES));
+    expect(result.tools).toHaveLength(EXTENDED_NAMES.length + 1);
+    expect(result.tools.map(t => t.name)).toEqual(expect.arrayContaining([...EXTENDED_NAMES, PLUGIN_TOOL.name]));
   });
 
   it('does not include tools outside the extended set', async () => {
@@ -134,6 +136,7 @@ describe('tools/list extended mode', () => {
     const names = result.tools.map(t => t.name);
 
     expect(names).not.toContain('tool_c');
+    expect(names).toContain(PLUGIN_TOOL.name);
   });
 });
 
@@ -237,6 +240,23 @@ describe('tools/call mode enforcement', () => {
     );
 
     expect(result.isError).toBeFalsy();
+  });
+
+  it('allows untiered plugin tools in restricted modes', async () => {
+    const coreSession = makeSession('core');
+    const extendedSession = makeSession('extended');
+
+    const coreResult = await handleRequest(
+      { method: 'tools/call', params: { name: PLUGIN_TOOL.name } },
+      coreSession
+    );
+    const extendedResult = await handleRequest(
+      { method: 'tools/call', params: { name: PLUGIN_TOOL.name } },
+      extendedSession
+    );
+
+    expect(coreResult.isError).toBeFalsy();
+    expect(extendedResult.isError).toBeFalsy();
   });
 
   it('allows any tool in full mode', async () => {

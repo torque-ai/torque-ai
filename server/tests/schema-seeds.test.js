@@ -186,6 +186,8 @@ describe('db/schema-seeds', () => {
     expect(byProvider['claude-cli'].quality_band).toBe('A');
     expect(JSON.parse(byProvider['ollama'].capability_tags)).toEqual([
       'file_edit',
+      'reasoning',
+      'code_review',
     ]);
     expect(byProvider['ollama'].quality_band).toBe('C');
     expect(JSON.parse(byProvider.groq.capability_tags)).toEqual([]);

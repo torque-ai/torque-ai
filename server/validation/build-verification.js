@@ -15,7 +15,10 @@
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
+const logger = require('../logger').child({ component: 'build-verification' });
 const { createTestRunnerRegistry } = require('../test-runner-registry');
+
+const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
 
 let db;
 let parseCommand;
@@ -162,11 +165,14 @@ async function runBuildVerification(taskId, task, workingDir, taskModifiedFiles)
 
   // Try remote execution first
   const router = getRouter();
-  const remoteConfig = router.getRemoteConfig(workingDir, { provider });
+  const shouldUseRunnerRegistry = Boolean(
+    (projectConfig && projectConfig.prefer_remote_tests && projectConfig.remote_agent_id)
+      || CODEX_PROVIDERS.has(provider)
+  );
 
-  if (remoteConfig) {
+  if (shouldUseRunnerRegistry) {
     try {
-      logger.info(`[Build Verification] Task ${taskId}: Routing to remote workstation`);
+      logger.info(`[Build Verification] Task ${taskId}: Routing build verification via test runner registry`);
       const result = await router.runVerifyCommand(buildCommand, workingDir, {
         timeout,
         provider,

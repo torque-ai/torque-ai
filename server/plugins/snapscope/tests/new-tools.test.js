@@ -1,4 +1,3 @@
-const { describe, it, expect, vi, beforeEach } = require('vitest');
 const { createVerifyHandlers } = require('../handlers/verify');
 const { createWatchHandlers } = require('../handlers/watch');
 const newToolDefs = require('../new-tool-defs');

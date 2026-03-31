@@ -15,17 +15,29 @@ const EXEMPT_HANDLER_FILES = new Set([
   'discovery-handlers.js',
 ]);
 
+function getHandlerFiles() {
+  const serverRoot = path.join(__dirname, '..');
+  const coreHandlerDir = path.join(serverRoot, 'handlers');
+  const coreFiles = fs.readdirSync(coreHandlerDir)
+    .filter((file) => file.endsWith('.js'))
+    .map((file) => ({ label: file, filePath: path.join(coreHandlerDir, file) }));
+
+  return [
+    ...coreFiles,
+    {
+      label: 'plugins/remote-agents/handlers.js',
+      filePath: path.join(serverRoot, 'plugins', 'remote-agents', 'handlers.js'),
+    },
+  ];
+}
+
 describe('Async handler safety', () => {
   it('wraps every async handler with a top-level try/catch', () => {
-    const handlerDir = path.join(__dirname, '../handlers');
-    const handlerFiles = fs.readdirSync(handlerDir).filter((file) => file.endsWith('.js'));
-
     const missing = [];
 
-    for (const file of handlerFiles) {
-      if (EXEMPT_HANDLER_FILES.has(file)) continue;
+    for (const { label, filePath } of getHandlerFiles()) {
+      if (EXEMPT_HANDLER_FILES.has(label)) continue;
 
-      const filePath = path.join(handlerDir, file);
       const source = fs.readFileSync(filePath, 'utf8');
       const ast = acorn.parse(source, {
         ecmaVersion: 2023,
@@ -55,7 +67,7 @@ describe('Async handler safety', () => {
 
         if (!hasTopLevelTryCatch) {
           const line = source.slice(0, stmt.start).split(/\r?\n/).length;
-          missing.push(`${file}:${line}:${stmt.id.name}`);
+          missing.push(`${label}:${line}:${stmt.id.name}`);
         }
       }
     }

@@ -117,8 +117,8 @@ describe('completion-detection', () => {
     // Provider-aware thresholds
     // Use "89 passed, 0 failed" which matches shared patterns but NOT explicit signals
     // (explicit signals like /\btests\s+passed\b/ bypass threshold checks)
-    it('requires 4KB+ for ollama before matching shared patterns', () => {
-      const shortOutput = 'x'.repeat(2000) + '\n89 passed, 0 failed';
+    it('requires the configured 2KB threshold for ollama before matching shared patterns', () => {
+      const shortOutput = 'x'.repeat(1500) + '\n89 passed, 0 failed';
       expect(detectSuccessFromOutput(shortOutput, 'ollama')).toBe(false);
     });
 

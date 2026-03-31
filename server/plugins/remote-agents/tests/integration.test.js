@@ -6,9 +6,21 @@ const path = require('node:path');
 
 const { createServer } = require('../agent-server');
 const { RemoteAgentClient } = require('../agent-client');
-const handlers = require('../handlers');
+const { createHandlers } = require('../handlers');
 
 const TEST_SECRET = 'remote-test-integration-secret';
+
+function canSpawnCommands() {
+  try {
+    const { spawnSync } = require('node:child_process');
+    const result = spawnSync(process.execPath, ['-e', 'process.exit(0)'], {
+      windowsHide: true,
+    });
+    return !result.error && result.status === 0;
+  } catch {
+    return false;
+  }
+}
 
 function waitForListening(server) {
   return new Promise((resolve, reject) => {
@@ -37,15 +49,13 @@ function createUnavailableRegistry() {
   };
 }
 
-describe.skipIf(process.env.CI === 'true')('remote test execution integration', { timeout: 20000 }, () => {
+describe.skipIf(process.env.CI === 'true' || !canSpawnCommands())('remote test execution integration', { timeout: 20000 }, () => {
   let server;
   let port;
   let projectsDir;
   let workingDir;
-  let originalGetRegistry;
 
   beforeAll(async () => {
-    originalGetRegistry = handlers._getRegistry;
     projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-remote-agent-projects-'));
     server = createServer({
       secret: TEST_SECRET,
@@ -68,7 +78,6 @@ describe.skipIf(process.env.CI === 'true')('remote test execution integration', 
   });
 
   afterEach(() => {
-    handlers._getRegistry = originalGetRegistry;
     if (workingDir && fs.existsSync(workingDir)) {
       fs.rmSync(workingDir, { recursive: true, force: true });
     }
@@ -76,7 +85,6 @@ describe.skipIf(process.env.CI === 'true')('remote test execution integration', 
   });
 
   afterAll(async () => {
-    handlers._getRegistry = originalGetRegistry;
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
@@ -106,8 +114,7 @@ describe.skipIf(process.env.CI === 'true')('remote test execution integration', 
       status: 'healthy',
       enabled: true,
     }, client);
-
-    handlers._getRegistry = vi.fn(() => registry);
+    const handlers = createHandlers({ agentRegistry: registry });
 
     const health = await client.checkHealth();
     expect(health).toMatchObject({
@@ -116,7 +123,7 @@ describe.skipIf(process.env.CI === 'true')('remote test execution integration', 
       max_concurrent: expect.any(Number),
     });
 
-    const result = await handlers.handleRunRemoteCommand({
+    const result = await handlers.run_remote_command({
       command: 'node remote-flow.js',
       working_directory: workingDir,
       timeout: 5000,
@@ -143,9 +150,9 @@ describe.skipIf(process.env.CI === 'true')('remote test execution integration', 
     );
 
     const registry = createUnavailableRegistry();
-    handlers._getRegistry = vi.fn(() => registry);
+    const handlers = createHandlers({ agentRegistry: registry });
 
-    const result = await handlers.handleRunRemoteCommand({
+    const result = await handlers.run_remote_command({
       command: 'node local-fallback.js',
       working_directory: workingDir,
       timeout: 5000,

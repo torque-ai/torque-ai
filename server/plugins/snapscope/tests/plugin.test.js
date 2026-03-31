@@ -1,4 +1,3 @@
-const { describe, it, expect } = require('vitest');
 const { validatePlugin } = require('../../plugin-contract');
 const { createSnapScopePlugin } = require('../index');
 

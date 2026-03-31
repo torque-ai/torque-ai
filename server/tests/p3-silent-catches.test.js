@@ -35,15 +35,28 @@ const ALLOWED_SILENT_CATCHES = new Set([
   'context-handler.js:334',
 ]);
 
+function getHandlerFiles() {
+  const serverRoot = path.join(__dirname, '..');
+  const coreHandlerDir = path.join(serverRoot, 'handlers');
+  const coreFiles = fs.readdirSync(coreHandlerDir)
+    .filter((file) => file.endsWith('.js'))
+    .sort()
+    .map((file) => ({ label: file, filePath: path.join(coreHandlerDir, file) }));
+
+  return [
+    ...coreFiles,
+    {
+      label: 'plugins/remote-agents/handlers.js',
+      filePath: path.join(serverRoot, 'plugins', 'remote-agents', 'handlers.js'),
+    },
+  ];
+}
+
 describe('p3-silent-catches', () => {
   it('no handler catch blocks should be empty', () => {
-    const handlerDir = path.join(__dirname, '..', 'handlers');
-    const handlerFiles = fs.readdirSync(handlerDir).filter((file) => file.endsWith('.js')).sort();
-
     const silentCatches = [];
 
-    for (const file of handlerFiles) {
-      const filePath = path.join(handlerDir, file);
+    for (const { label, filePath } of getHandlerFiles()) {
       const source = fs.readFileSync(filePath, 'utf8');
       const ast = acorn.parse(source, {
         ecmaVersion: 'latest',
@@ -53,7 +66,7 @@ describe('p3-silent-catches', () => {
 
       walkAst(ast, (node) => {
         if (node.type === 'TryStatement' && node.handler && node.handler.body.body.length === 0) {
-          const loc = `${file}:${node.handler.body.loc.start.line}`;
+          const loc = `${label}:${node.handler.body.loc.start.line}`;
           if (!ALLOWED_SILENT_CATCHES.has(loc)) {
             silentCatches.push(loc);
           }

@@ -23,6 +23,7 @@ function createBaseSchema(conn, options = {}) {
   const {
     includeNotificationTemplates = true,
     includeProviderTaskStats = true,
+    includeProviderConfig = true,
     includeOllamaHosts = true,
     includeDistributedLocks = true,
     includeConfig = true,
@@ -52,6 +53,23 @@ function createBaseSchema(conn, options = {}) {
         task_type TEXT NOT NULL,
         total_tasks INTEGER DEFAULT 0
       );
+    `);
+  }
+
+  if (includeProviderConfig) {
+    conn.exec(`
+      CREATE TABLE provider_config (
+        provider TEXT PRIMARY KEY,
+        enabled INTEGER DEFAULT 1
+      );
+    `);
+    conn.exec(`
+      INSERT INTO provider_config (provider, enabled) VALUES
+        ('hashline-ollama', 1),
+        ('hashline-openai', 1),
+        ('aider-ollama', 1),
+        ('ollama', 1),
+        ('codex', 1);
     `);
   }
 
@@ -233,8 +251,10 @@ describe('db/migrations', () => {
         expect(migration.version).toBeGreaterThan(0);
         expect(typeof migration.name).toBe('string');
         expect(migration.name.length).toBeGreaterThan(0);
-        expect(typeof migration.up).toBe('string');
-        expect(migration.up.length).toBeGreaterThan(0);
+        expect(['string', 'function']).toContain(typeof migration.up);
+        if (typeof migration.up === 'string') {
+          expect(migration.up.length).toBeGreaterThan(0);
+        }
       });
     });
   });

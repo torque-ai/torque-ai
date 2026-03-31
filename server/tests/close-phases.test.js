@@ -503,17 +503,17 @@ describe('Close Phases', () => {
       expect(mocks.processQueue).toHaveBeenCalled();
     });
 
-    it('falls back locally for ollama failures (uses tryHashlineTieredFallback)', () => {
+    it('uses local-first fallback for ollama failures even on model errors', () => {
       const task = makeTask({ provider: 'ollama', retry_count: 0 });
       const proc = makeProc({ errorOutput: 'model not found' });
       const ctx = makeCtx({ status: 'failed', task, proc, code: 1 });
 
       mockDb.getTask.mockReturnValue(task);
-      mocks.tryHashlineTieredFallback.mockReturnValue(true);
+      mocks.tryLocalFirstFallback.mockReturnValue(true);
 
       closePhases.handleProviderFailover(ctx);
 
-      expect(mocks.tryHashlineTieredFallback).toHaveBeenCalledWith(
+      expect(mocks.tryLocalFirstFallback).toHaveBeenCalledWith(
         'task-001',
         expect.objectContaining({
           provider: 'ollama',
@@ -521,7 +521,7 @@ describe('Close Phases', () => {
         }),
         'model not found'
       );
-      expect(mocks.tryLocalFirstFallback).not.toHaveBeenCalled();
+      expect(mocks.tryHashlineTieredFallback).not.toHaveBeenCalled();
       expect(mocks.processQueue).toHaveBeenCalled();
     });
 

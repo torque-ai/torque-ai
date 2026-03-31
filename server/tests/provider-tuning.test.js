@@ -603,7 +603,7 @@ describe('provider-tuning handlers', () => {
         template: 'Do {TASK_DESCRIPTION}'
       });
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Invalid provider. Must be one of: ollama, claude-cli, codex');
+      expect(result.content[0].text).toContain('Invalid provider. Must be one of: claude-cli, codex');
     });
 
     it('returns error when template missing {TASK_DESCRIPTION} placeholder', () => {
@@ -631,14 +631,14 @@ describe('provider-tuning handlers', () => {
 
       const template = 'Model-specific: {TASK_DESCRIPTION}';
       const result = handlers.handleSetInstructionTemplate({
-        provider: 'ollama',
+        provider: 'codex',
         model: TEST_MODELS.SMALL,
         template
       });
       const text = result.content[0].text;
 
-      expect(text).toContain(`ollama (model: ${TEST_MODELS.SMALL})`);
-      expect(configCore.setConfig).toHaveBeenCalledWith(`instruction_template_ollama_${TEST_MODELS.SMALL}`, template);
+      expect(text).toContain(`codex (model: ${TEST_MODELS.SMALL})`);
+      expect(configCore.setConfig).toHaveBeenCalledWith(`instruction_template_codex_${TEST_MODELS.SMALL}`, template);
     });
   });
 

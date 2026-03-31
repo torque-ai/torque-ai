@@ -24,18 +24,6 @@ function clearModules(modulePaths) {
   }
 }
 
-function createHandlerModuleMock() {
-  const stubHandler = vi.fn();
-  return new Proxy({ init: vi.fn() }, {
-    get(target, prop) {
-      if (prop in target) {
-        return target[prop];
-      }
-      return stubHandler;
-    },
-  });
-}
-
 function createMockResponse() {
   const response = {
     statusCode: null,
@@ -60,19 +48,61 @@ function parseJsonBody(response) {
 const MODULES_TO_CLEAR = [
   '../../../database',
   '../../../api/routes',
-  '../../../api/v2-dispatch',
   '../../../api/v2-schemas',
   '../../../api/v2-middleware',
-  '../../../api/v2-task-handlers',
-  '../../../api/v2-workflow-handlers',
-  '../../../api/v2-governance-handlers',
-  '../../../api/v2-analytics-handlers',
-  '../../../api/v2-infrastructure-handlers',
+  '../../../logger',
+  '../../../validation/post-task',
+  '../remote-test-routing',
   '../handlers',
 ];
 
-function loadModules() {
+function loadModules({
+  agentRegistry = null,
+  project = 'torque-server',
+  projectConfig = {
+    verify_command: 'npm test && npm run lint',
+  },
+  parseCommandResult = {
+    executable: 'npm',
+    args: ['test'],
+  },
+  runRemoteOrLocalResult = {
+    success: true,
+    output: 'remote-ok',
+    error: '',
+    exitCode: 0,
+    durationMs: 12,
+    remote: true,
+  },
+  runVerifyCommandResult = {
+    success: true,
+    output: 'verify-ok',
+    error: '',
+    exitCode: 0,
+    durationMs: 18,
+    remote: false,
+  },
+} = {}) {
   clearModules(MODULES_TO_CLEAR);
+
+  const loggerInstance = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+  const child = vi.fn(() => loggerInstance);
+  const parseCommand = vi.fn(() => parseCommandResult);
+  const runRemoteOrLocal = vi.fn().mockResolvedValue(runRemoteOrLocalResult);
+  const runVerifyCommand = vi.fn().mockResolvedValue(runVerifyCommandResult);
+  const createRemoteTestRouter = vi.fn(() => ({
+    runRemoteOrLocal,
+    runVerifyCommand,
+  }));
+  const db = {
+    getProjectFromPath: vi.fn().mockReturnValue(project),
+    getProjectConfig: vi.fn().mockReturnValue(projectConfig),
+  };
 
   installCjsModuleMock('../../../database', {
     getDefaultProvider: vi.fn(() => null),
@@ -89,38 +119,41 @@ function loadModules() {
     requestId: vi.fn((_req, _res, next) => next()),
     validateRequest: vi.fn(() => vi.fn((_req, _res, next) => next())),
   });
-  installCjsModuleMock('../../../api/v2-task-handlers', createHandlerModuleMock());
-  installCjsModuleMock('../../../api/v2-workflow-handlers', createHandlerModuleMock());
-  installCjsModuleMock('../../../api/v2-governance-handlers', createHandlerModuleMock());
-  installCjsModuleMock('../../../api/v2-analytics-handlers', createHandlerModuleMock());
-  installCjsModuleMock('../../../api/v2-infrastructure-handlers', createHandlerModuleMock());
+  installCjsModuleMock('../../../logger', {
+    child,
+  });
+  installCjsModuleMock('../../../validation/post-task', {
+    parseCommand,
+  });
+  installCjsModuleMock('../remote-test-routing', {
+    createRemoteTestRouter,
+  });
+
+  const routes = require('../../../api/routes');
+  const { createHandlers } = require('../handlers');
+  const handlers = createHandlers({ agentRegistry, db });
 
   return {
-    routes: require('../../../api/routes'),
-    ...require('../../../api/v2-dispatch'),
-    remoteAgentHandlers: require('../handlers'),
+    routes,
+    handlers,
+    db,
+    parseCommand,
+    runRemoteOrLocal,
+    runVerifyCommand,
+    createRemoteTestRouter,
+    loggerInstance,
   };
 }
 
-describe('remote command REST control-plane wiring', () => {
-  let routes;
-  let V2_CP_HANDLER_LOOKUP;
-  let remoteAgentHandlers;
-
-  beforeEach(() => {
-    ({
-      routes,
-      V2_CP_HANDLER_LOOKUP,
-      remoteAgentHandlers,
-    } = loadModules());
-  });
-
+describe('remote command REST handlers', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     clearModules(MODULES_TO_CLEAR);
   });
 
   it('defines POST control-plane routes for remote run and remote test', () => {
+    const { routes } = loadModules();
+
     expect(routes).toContainEqual(expect.objectContaining({
       method: 'POST',
       path: '/api/v2/remote/run',
@@ -133,32 +166,41 @@ describe('remote command REST control-plane wiring', () => {
     }));
   });
 
-  it('maps both control-plane handlers into V2_CP_HANDLER_LOOKUP', () => {
-    expect(V2_CP_HANDLER_LOOKUP.handleV2CpRunRemoteCommand).toBe(remoteAgentHandlers.handleRunRemoteCommand);
-    expect(V2_CP_HANDLER_LOOKUP.handleV2CpRunTests).toBe(remoteAgentHandlers.handleRunTests);
+  it('creates HTTP-callable handlers for remote run and remote test', () => {
+    const { handlers } = loadModules();
+
+    expect(typeof handlers.run_remote_command).toBe('function');
+    expect(typeof handlers.run_tests).toBe('function');
   });
 
-  it('handleV2CpRunRemoteCommand is callable as an HTTP handler', async () => {
+  it('run_remote_command is callable as an HTTP handler', async () => {
+    const agentRegistry = { name: 'registry-stub' };
     const response = createMockResponse();
-    const runRemoteCommandCoreSpy = vi.spyOn(remoteAgentHandlers, 'runRemoteCommandCore').mockResolvedValue({
-      success: true,
-      output: 'remote-ok',
-      exitCode: 0,
-      durationMs: 12,
-      remote: true,
-    });
+    const {
+      handlers,
+      parseCommand,
+      runRemoteOrLocal,
+      createRemoteTestRouter,
+      db,
+      loggerInstance,
+    } = loadModules({ agentRegistry });
 
-    await V2_CP_HANDLER_LOOKUP.handleV2CpRunRemoteCommand({
+    await handlers.run_remote_command({
       method: 'POST',
       body: {
         command: 'npm test',
         working_directory: '/repo',
       },
-    }, response, {});
+    }, response);
 
-    expect(runRemoteCommandCoreSpy).toHaveBeenCalledWith({
-      command: 'npm test',
-      working_directory: '/repo',
+    expect(parseCommand).toHaveBeenCalledWith('npm test');
+    expect(createRemoteTestRouter).toHaveBeenCalledWith({
+      agentRegistry,
+      db,
+      logger: loggerInstance,
+    });
+    expect(runRemoteOrLocal).toHaveBeenCalledWith('npm', ['test'], '/repo', {
+      timeout: 300000,
     });
     expect(response.statusCode).toBe(200);
     expect(parseJsonBody(response)).toEqual({
@@ -171,34 +213,40 @@ describe('remote command REST control-plane wiring', () => {
     });
   });
 
-  it('handleV2CpRunTests is callable as an HTTP handler', async () => {
+  it('run_tests is callable as an HTTP handler', async () => {
+    const agentRegistry = { name: 'registry-stub' };
     const response = createMockResponse();
-    const runTestsCoreSpy = vi.spyOn(remoteAgentHandlers, 'runTestsCore').mockResolvedValue({
-      success: true,
-      output: 'verify-ok',
-      exitCode: 0,
-      durationMs: 18,
-      remote: true,
-    });
+    const {
+      handlers,
+      db,
+      runVerifyCommand,
+      createRemoteTestRouter,
+      loggerInstance,
+    } = loadModules({ agentRegistry });
 
-    await V2_CP_HANDLER_LOOKUP.handleV2CpRunTests({
+    await handlers.run_tests({
       method: 'POST',
       body: {
         working_directory: '/repo',
       },
-    }, response, {});
+    }, response);
 
-    expect(runTestsCoreSpy).toHaveBeenCalledWith({
-      working_directory: '/repo',
+    expect(db.getProjectFromPath).toHaveBeenCalledWith('/repo');
+    expect(db.getProjectConfig).toHaveBeenCalledWith('torque-server');
+    expect(createRemoteTestRouter).toHaveBeenCalledWith({
+      agentRegistry,
+      db,
+      logger: loggerInstance,
     });
+    expect(runVerifyCommand).toHaveBeenCalledWith('npm test && npm run lint', '/repo');
     expect(response.statusCode).toBe(200);
     expect(parseJsonBody(response)).toEqual({
       success: true,
       output: 'verify-ok',
       exitCode: 0,
       durationMs: 18,
-      remote: true,
-      warning: null,
+      remote: false,
+      warning: 'Remote agent unavailable or not configured; tests ran locally.',
     });
   });
 });

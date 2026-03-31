@@ -25,7 +25,7 @@ describe('Local-First Fallback', () => {
   describe('Default fallback chains', () => {
     it('ollama chain includes local providers first', () => {
       const chain = db.getProviderFallbackChain('ollama');
-      expect(chain).toEqual(['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
+      expect(chain).toEqual(['ollama-cloud', 'deepinfra', 'codex', 'claude-cli']);
     });
 
     it('unknown provider defaults to local-first chain', () => {

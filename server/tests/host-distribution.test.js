@@ -487,11 +487,13 @@ describe('Host Distribution & Load Balancing', () => {
 
   describe('hashline tiered fallback distribution', () => {
     let taskManager;
+    let fallbackRetry;
 
     beforeAll(() => {
       taskManager = require('../task-manager');
       if (typeof taskManager.initEarlyDeps === 'function') taskManager.initEarlyDeps();
       if (typeof taskManager.initSubModules === 'function') taskManager.initSubModules();
+      fallbackRetry = require('../execution/fallback-retry');
     });
 
     it('tries larger local model before any cloud provider', () => {
@@ -501,7 +503,7 @@ describe('Host Distribution & Load Balancing', () => {
       const taskId = createTask('ollama', 'qwen2.5-coder:7b', null);
       const task = db.getTask(taskId);
 
-      taskManager.tryHashlineTieredFallback(taskId, task, 'no edits parsed');
+      fallbackRetry.tryHashlineTieredFallback(taskId, task, 'no edits parsed');
 
       const updated = db.getTask(taskId);
       // Should stay local, just bigger model
@@ -526,7 +528,7 @@ describe('Host Distribution & Load Balancing', () => {
       db.updateTaskStatus(taskId, 'running', { error_output: priorErrors });
       const task = db.getTask(taskId);
 
-      taskManager.tryHashlineTieredFallback(taskId, task, 'still failing');
+      fallbackRetry.tryHashlineTieredFallback(taskId, task, 'still failing');
 
       const updated = db.getTask(taskId);
       // Now the task should escalate away from local hashline execution.

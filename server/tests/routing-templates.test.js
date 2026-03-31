@@ -257,7 +257,7 @@ describe('resolveProvider', () => {
   it('falls back to base rule when complexity has no override', () => {
     const tmpl = mod.getTemplateByName('System Default');
     // 'simple' is not overridden for targeted_file_edit
-    expect(mod.resolveProvider(tmpl, 'targeted_file_edit', 'simple').provider).toBe('ollama');
+    expect(mod.resolveProvider(tmpl, 'targeted_file_edit', 'simple').provider).toBe('cerebras');
   });
 
   it('falls back to default for unknown category', () => {

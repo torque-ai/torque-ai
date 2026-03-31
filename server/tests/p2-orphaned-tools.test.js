@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { routeMap } = require('../tools');
+const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 
 const INLINE_TOOL_HANDLERS = new Set([
   'ping',
@@ -16,9 +17,17 @@ const EXPECTED_UNMAPPED_TOOLS = new Set([
   // Tool-def names differ from handler route names (strategic_config_* vs config_*)
   'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
 ]);
+const PLUGIN_PROVIDED_TOOLS = new Set(
+  remoteAgentToolDefs
+    .filter((def) => def && typeof def.name === 'string')
+    .map((def) => def.name),
+);
 
 function isHandledOrAllowed(name) {
-  return routeMap.has(name) || INLINE_TOOL_HANDLERS.has(name) || EXPECTED_UNMAPPED_TOOLS.has(name);
+  return routeMap.has(name)
+    || INLINE_TOOL_HANDLERS.has(name)
+    || EXPECTED_UNMAPPED_TOOLS.has(name)
+    || PLUGIN_PROVIDED_TOOLS.has(name);
 }
 
 function loadToolDefinitionNames() {
@@ -35,6 +44,12 @@ function loadToolDefinitionNames() {
       if (def && typeof def.name === 'string') {
         names.push(def.name);
       }
+    }
+  }
+
+  for (const def of remoteAgentToolDefs) {
+    if (def && typeof def.name === 'string') {
+      names.push(def.name);
     }
   }
 

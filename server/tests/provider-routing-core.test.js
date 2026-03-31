@@ -1017,7 +1017,6 @@ describe('provider-routing-core', () => {
         'deepinfra',
         'ollama-cloud',
         'ollama',
-        'ollama',
       ]);
     });
 

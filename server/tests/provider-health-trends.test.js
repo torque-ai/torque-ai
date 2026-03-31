@@ -23,11 +23,6 @@ const providerFixtures = {
     recent_failure_rate: 0.2,
   },
   ollama: {
-    trend: 'improving',
-    previous_failure_rate: 0.4,
-    recent_failure_rate: 0.1,
-  },
-  'ollama': {
     trend: 'degrading',
     previous_failure_rate: 0.15,
     recent_failure_rate: 0.35,
@@ -138,10 +133,10 @@ describe('handleGetProviderHealthTrends', () => {
     expect(JSON.parse(result.content[0].text)).toEqual([{
       provider: 'ollama',
       days: 7,
-      trend: 'improving',
+      trend: 'degrading',
       window_count: 4,
-      previous_failure_rate: 0.4,
-      recent_failure_rate: 0.1,
+      previous_failure_rate: 0.15,
+      recent_failure_rate: 0.35,
     }]);
   });
 
@@ -166,10 +161,10 @@ describe('handleGetProviderHealthTrends', () => {
       {
         provider: 'ollama',
         days: 30,
-        trend: 'improving',
+        trend: 'degrading',
         window_count: 4,
-        previous_failure_rate: 0.4,
-        recent_failure_rate: 0.1,
+        previous_failure_rate: 0.15,
+        recent_failure_rate: 0.35,
       },
       {
         provider: 'ollama',

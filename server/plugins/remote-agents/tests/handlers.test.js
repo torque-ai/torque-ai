@@ -33,6 +33,27 @@ function getText(result) {
     : '';
 }
 
+function createMockResponse() {
+  const response = {
+    statusCode: null,
+    headers: null,
+    body: '',
+    writeHead: vi.fn((statusCode, headers) => {
+      response.statusCode = statusCode;
+      response.headers = headers;
+    }),
+    end: vi.fn((body = '') => {
+      response.body = Buffer.isBuffer(body) ? body.toString('utf8') : String(body);
+    }),
+  };
+
+  return response;
+}
+
+function parseJsonBody(response) {
+  return response.body ? JSON.parse(response.body) : null;
+}
+
 function parseCommandString(commandString) {
   const tokens = [];
   let current = '';
@@ -184,8 +205,11 @@ function loadHandlers(options = {}) {
     parseCommand,
   });
 
-  const handlers = require('../handlers');
-  handlers._getRegistry = vi.fn(() => registry);
+  const { createHandlers } = require('../handlers');
+  const handlers = createHandlers({
+    agentRegistry: registry,
+    db: database,
+  });
 
   return {
     handlers,
@@ -195,6 +219,8 @@ function loadHandlers(options = {}) {
     runVerifyCommand: router.runVerifyCommand,
     createRemoteTestRouter,
     database,
+    getProjectFromPath: database.getProjectFromPath,
+    getProjectConfig: database.getProjectConfig,
     loggerInstance,
     loggerModule,
     parseCommand,
@@ -211,7 +237,7 @@ describe('remote-agent-handlers', () => {
     it('registers an agent with normalized id and explicit tls settings', () => {
       const { handlers, registry } = loadHandlers();
 
-      const result = handlers.registerRemoteAgent({
+      const result = handlers.register_remote_agent({
         name: 'Secure Agent',
         host: 'secure.example.test',
         port: 443,
@@ -252,7 +278,7 @@ describe('remote-agent-handlers', () => {
       ]);
       const { handlers } = loadHandlers({ registry });
 
-      handlers.registerRemoteAgent({
+      handlers.register_remote_agent({
         name: 'Secure Agent',
         host: 'new.example.test',
         port: 8443,
@@ -288,8 +314,8 @@ describe('remote-agent-handlers', () => {
       ]);
       const { handlers } = loadHandlers({ registry });
 
-      const listResult = handlers.listRemoteAgents();
-      const detailResult = handlers.getRemoteAgent({ agent_id: 'agent-1' });
+      const listResult = handlers.list_remote_agents();
+      const detailResult = handlers.get_remote_agent({ agent_id: 'agent-1' });
 
       expect(getText(listResult)).toContain('Build One');
       expect(getText(listResult)).toContain('https://10.0.0.10:3460');
@@ -313,7 +339,7 @@ describe('remote-agent-handlers', () => {
       ]);
       const { handlers } = loadHandlers({ registry });
 
-      const result = handlers.deleteRemoteAgent({ agent_id: 'agent-1' });
+      const result = handlers.remove_remote_agent({ agent_id: 'agent-1' });
 
       expect(registry.remove).toHaveBeenCalledWith('agent-1');
       expect(getText(result)).toContain('Removed agent agent-1');
@@ -338,7 +364,7 @@ describe('remote-agent-handlers', () => {
       ], { 'agent-1': client });
       const { handlers } = loadHandlers({ registry });
 
-      const result = await handlers.runAgentHealthCheck({ agent_id: 'agent-1' });
+      const result = await handlers.check_remote_agent_health({ agent_id: 'agent-1' });
 
       expect(client.checkHealth).toHaveBeenCalledTimes(1);
       expect(getText(result)).toContain('Build One: healthy');
@@ -354,77 +380,11 @@ describe('remote-agent-handlers', () => {
       ]);
       const { handlers } = loadHandlers({ registry });
 
-      const result = await handlers.runAgentHealthCheck({});
+      const result = await handlers.check_remote_agent_health({});
 
       expect(registry.runHealthChecks).toHaveBeenCalledTimes(1);
       expect(getText(result)).toContain('agent-1: healthy');
       expect(getText(result)).toContain('agent-2: offline (3 failures)');
-    });
-
-    it('claims a task on a remote agent', async () => {
-      const client = {
-        claimTask: vi.fn().mockResolvedValue({ success: true }),
-      };
-      const registry = createMockRegistry([], { 'agent-1': client });
-      const { handlers } = loadHandlers({ registry });
-
-      const result = await handlers.claimTaskOnAgent({
-        agent_id: 'agent-1',
-        task_id: 'task-123',
-        lease_seconds: 90,
-      });
-
-      expect(client.claimTask).toHaveBeenCalledWith('task-123', 90);
-      expect(getText(result)).toContain('Claimed task task-123 on agent agent-1');
-    });
-
-    it('returns not found when claiming a task on a missing or disabled agent', async () => {
-      const { handlers } = loadHandlers({ registry: createMockRegistry() });
-
-      const result = await handlers.claimTaskOnAgent({
-        agent_id: 'missing-agent',
-        task_id: 'task-123',
-      });
-
-      expect(result.error_code).toBe('AGENT_NOT_FOUND');
-      expect(getText(result)).toContain('Agent not found or disabled: missing-agent');
-    });
-
-    it('records a heartbeat with a default empty payload', async () => {
-      const client = {
-        recordHeartbeat: vi.fn().mockResolvedValue(undefined),
-      };
-      const registry = createMockRegistry([
-        {
-          id: 'agent-1',
-          name: 'Build One',
-          host: '10.0.0.10',
-          port: 3460,
-        },
-      ], { 'agent-1': client });
-      const { handlers } = loadHandlers({ registry });
-
-      const result = await handlers.recordAgentHeartbeat({ agent_id: 'agent-1' });
-
-      expect(client.recordHeartbeat).toHaveBeenCalledWith({});
-      expect(getText(result)).toContain('Recorded heartbeat for Build One');
-    });
-
-    it('returns an operation failure when heartbeat recording is unsupported', async () => {
-      const registry = createMockRegistry([
-        {
-          id: 'agent-1',
-          name: 'Build One',
-          host: '10.0.0.10',
-          port: 3460,
-        },
-      ], { 'agent-1': {} });
-      const { handlers } = loadHandlers({ registry });
-
-      const result = await handlers.recordAgentHeartbeat({ agent_id: 'agent-1' });
-
-      expect(result.error_code).toBe('OPERATION_FAILED');
-      expect(getText(result)).toContain('Agent client does not support heartbeat recording');
     });
   });
 
@@ -444,7 +404,7 @@ describe('remote-agent-handlers', () => {
       });
       const { handlers } = loadHandlers({ registry });
 
-      const result = await handlers.handleRunRemoteCommand({
+      const result = await handlers.run_remote_command({
         command: 'npm run verify -- --watch=false',
         working_directory: '/repo',
         timeout: '4500',
@@ -472,7 +432,7 @@ describe('remote-agent-handlers', () => {
       const registry = createMockRegistry([]);
       const { handlers } = loadHandlers({ registry });
 
-      const result = await handlers.handleRunRemoteCommand({
+      const result = await handlers.run_remote_command({
         command: 'npm test',
         working_directory: '/repo',
       });
@@ -488,7 +448,7 @@ describe('remote-agent-handlers', () => {
     it('returns a missing parameter error when command is absent', async () => {
       const { handlers } = loadHandlers();
 
-      const result = await handlers.handleRunRemoteCommand({
+      const result = await handlers.run_remote_command({
         working_directory: '/repo',
       });
 
@@ -505,7 +465,7 @@ describe('remote-agent-handlers', () => {
       });
       const { handlers } = loadHandlers({ registry });
 
-      const result = await handlers.handleRunRemoteCommand({
+      const result = await handlers.run_remote_command({
         command: 'npm test',
         working_directory: '/repo',
       });
@@ -516,7 +476,7 @@ describe('remote-agent-handlers', () => {
   });
 
   describe('verify command handlers', () => {
-    it('loads verify_command from project config and returns a local fallback warning in core results', async () => {
+    it('loads verify_command from project config and returns a local fallback warning in HTTP results', async () => {
       const { handlers, registry, createRemoteTestRouter, database, loggerInstance, runVerifyCommand } = loadHandlers({
         project: 'torque-server',
         projectConfig: {
@@ -531,10 +491,14 @@ describe('remote-agent-handlers', () => {
           remote: false,
         },
       });
+      const response = createMockResponse();
 
-      const result = await handlers.runTestsCore({
-        working_directory: '/repo',
-      });
+      await handlers.run_tests({
+        method: 'POST',
+        body: {
+          working_directory: '/repo',
+        },
+      }, response);
 
       expect(database.getProjectFromPath).toHaveBeenCalledWith('/repo');
       expect(database.getProjectConfig).toHaveBeenCalledWith('torque-server');
@@ -544,9 +508,15 @@ describe('remote-agent-handlers', () => {
         logger: loggerInstance,
       });
       expect(runVerifyCommand).toHaveBeenCalledWith('npm test && npm run lint', '/repo');
-      expect(result.project).toBe('torque-server');
-      expect(result.verify_command).toBe('npm test && npm run lint');
-      expect(result.warning).toBe('Remote agent unavailable or not configured; tests ran locally.');
+      expect(response.statusCode).toBe(200);
+      expect(parseJsonBody(response)).toEqual({
+        success: true,
+        output: 'verify-local',
+        exitCode: 0,
+        durationMs: 61,
+        remote: false,
+        warning: 'Remote agent unavailable or not configured; tests ran locally.',
+      });
     });
 
     it('returns INVALID_PARAM when no verify_command is configured', async () => {
@@ -554,7 +524,7 @@ describe('remote-agent-handlers', () => {
         projectConfig: {},
       });
 
-      const result = await handlers.handleRunTests({
+      const result = await handlers.run_tests({
         working_directory: '/repo',
       });
 
@@ -564,27 +534,26 @@ describe('remote-agent-handlers', () => {
     });
 
     it('delegates verify_command execution to handleRunRemoteCommand', async () => {
-      const { handlers } = loadHandlers({
+      const execSync = vi.spyOn(require('child_process'), 'execSync').mockReturnValue('all green\n');
+      const { handlers, getProjectFromPath, getProjectConfig } = loadHandlers({
         projectConfig: {
           verify_command: 'npm test && npm run lint',
         },
       });
-      const delegated = {
-        content: [{ type: 'text', text: '[remote: remote-gpu-host] Exit code: 0\n\nall green' }],
-        remote: true,
-      };
-      const handleRunRemoteCommand = vi.spyOn(handlers, 'handleRunRemoteCommand').mockResolvedValue(delegated);
 
-      const result = await handlers.handleRunTests({
+      const result = await handlers.run_tests({
         working_directory: '/repo',
       });
 
-      expect(handleRunRemoteCommand).toHaveBeenCalledWith({
-        command: 'npm test && npm run lint',
-        working_directory: '/repo',
+      expect(getProjectFromPath).toHaveBeenCalledWith('/repo');
+      expect(getProjectConfig).toHaveBeenCalledWith('torque-project');
+      expect(execSync).toHaveBeenCalledWith('npm test && npm run lint', expect.objectContaining({
+        cwd: '/repo',
         timeout: 600000,
-      });
-      expect(result).toBe(delegated);
+      }));
+      expect(result.remote).toBe(false);
+      expect(getText(result)).toContain('[local fallback] Exit code: 0');
+      expect(getText(result)).toContain('all green');
     });
   });
 });

@@ -11,8 +11,14 @@ const projectConfigCore = require('../db/project-config-core');
 const { getPeekFirstSliceCanonicalEntry } = require('../contracts/peek');
 const peekHandlers = require('../plugins/snapscope/handlers/analysis');
 const tools = require('../tools');
+const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 
 const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema']);
+const PLUGIN_PROVIDED_TOOL_DEFS = new Set(
+  remoteAgentToolDefs
+    .filter((def) => def && typeof def.name === 'string')
+    .map((def) => def.name),
+);
 
 function loadToolDefinitionNames() {
   const toolDefDir = path.join(__dirname, '../tool-defs');
@@ -28,6 +34,12 @@ function loadToolDefinitionNames() {
       if (def && typeof def.name === 'string') {
         names.push(def.name);
       }
+    }
+  }
+
+  for (const def of remoteAgentToolDefs) {
+    if (def && typeof def.name === 'string') {
+      names.push(def.name);
     }
   }
 
@@ -467,7 +479,10 @@ describe('handler/tool wiring parity', () => {
   it('maps all tool definitions to handlers', () => {
     const toolDefinitionNames = loadToolDefinitionNames();
     const missing = toolDefinitionNames.filter(
-      (name) => !tools.routeMap.has(name) && !INLINE_TOOL_HANDLERS.has(name) && !EXPECTED_UNMAPPED_TOOL_DEFS.has(name),
+      (name) => !tools.routeMap.has(name)
+        && !INLINE_TOOL_HANDLERS.has(name)
+        && !EXPECTED_UNMAPPED_TOOL_DEFS.has(name)
+        && !PLUGIN_PROVIDED_TOOL_DEFS.has(name),
     );
     expect(missing).toEqual([]);
   });

@@ -8,6 +8,36 @@ const DISPATCH = { readOnlyHint: false, destructiveHint: false, idempotentHint: 
 const IDEMPOTENT = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const LIFECYCLE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const ASYNC_RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema'];
+const INTERNAL_ONLY_ROUTE_NAMES = new Set([
+  'set_api_key',
+  'clear_api_key',
+  'config_get',
+  'config_set',
+  'config_reset',
+  'config_templates',
+  'config_apply_template',
+  'subscribe_task_events',
+  'get_verification_ledger',
+]);
+
+function getExposedToolNames() {
+  const { TOOLS, routeMap } = require('../tools');
+  const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
+  const coreToolNames = TOOLS.map((tool) => tool.name);
+  const routeOnlyToolNames = [...routeMap.keys()].filter(
+    (name) => !coreToolNames.includes(name) && !INTERNAL_ONLY_ROUTE_NAMES.has(name),
+  );
+
+  return [...new Set([
+    ...coreToolNames,
+    ...remoteAgentToolDefs
+      .filter((tool) => tool && typeof tool.name === 'string')
+      .map((tool) => tool.name),
+    ...INLINE_TOOL_NAMES,
+    ...routeOnlyToolNames,
+  ])];
+}
 
 describe('tool-annotations', () => {
   describe('prefix convention rules', () => {
@@ -255,7 +285,7 @@ describe('tool-annotations', () => {
     });
   });
 
-  describe('integration — real TOOLS array', () => {
+  describe('integration — exposed tool surface', () => {
     it('every tool in TOOLS has annotations after merge', () => {
       const { TOOLS } = require('../tools');
       const expectedKeys = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'];
@@ -278,9 +308,8 @@ describe('tool-annotations', () => {
     });
 
     it('validateCoverage reports zero uncovered tools', () => {
-      const { TOOLS } = require('../tools');
       const { validateCoverage } = require('../tool-annotations');
-      const names = TOOLS.map(t => t.name);
+      const names = getExposedToolNames();
       const result = validateCoverage(names);
       if (result.uncovered.length > 0) {
         throw new Error(
@@ -291,9 +320,8 @@ describe('tool-annotations', () => {
     });
 
     it('validateCoverage reports zero stale overrides', () => {
-      const { TOOLS } = require('../tools');
       const { validateCoverage } = require('../tool-annotations');
-      const names = TOOLS.map(t => t.name);
+      const names = getExposedToolNames();
       const result = validateCoverage(names);
       if (result.stale.length > 0) {
         throw new Error(

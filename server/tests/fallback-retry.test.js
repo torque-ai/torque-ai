@@ -573,7 +573,7 @@ describe('fallback-retry module', () => {
       expect(updated.error_output).toContain('[Local-First] Trying model deepseek-coder:33b');
     });
 
-    it('switches to a different local provider when no host/model alternative exists', () => {
+    it('escalates to cloud when no host/model alternative exists', () => {
       const task = createTask({
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
@@ -584,10 +584,11 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = taskCore.getTask(task.id);
-      expect(updated.provider).toBe('ollama');
-      expect(updated.model).toBe('qwen2.5-coder:14b');
+      expect(updated.provider).toBe('codex');
+      expect(updated.model).toBeNull();
       expect(updated.ollama_host_id).toBeNull();
-      expect(updated.error_output).toContain('[Local-First] Trying provider ollama');
+      expect(updated.error_output).toContain('[Local-First] All local options exhausted');
+      expect(updated.error_output).toContain('Falling back to codex');
     });
 
     it('escalates to cloud after max local retries are exhausted', () => {
@@ -632,7 +633,7 @@ describe('fallback-retry module', () => {
       expect(updated.error_output).not.toContain('[Local-First] Trying provider ollama');
     });
 
-    it('allows raw ollama for non-greenfield tasks', () => {
+    it('still escalates to cloud for non-greenfield tasks when no local options remain', () => {
       const task = createTask({
         provider: 'ollama',
         model: 'qwen2.5-coder:14b',
@@ -644,8 +645,8 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = taskCore.getTask(task.id);
-      // Non-greenfield task should be able to use raw ollama
-      expect(updated.provider).toBe('ollama');
+      expect(updated.provider).toBe('codex');
+      expect(updated.error_output).toContain('[Local-First] All local options exhausted');
     });
 
     it('keeps moving through the chain when host selection and model enumeration throw', () => {
@@ -668,8 +669,8 @@ describe('fallback-retry module', () => {
 
         expect(ok).toBe(true);
         const updated = taskCore.getTask(task.id);
-        expect(updated.provider).toBe('ollama');
-        expect(updated.error_output).toContain('[Local-First] Trying provider ollama');
+        expect(updated.provider).toBe('codex');
+        expect(updated.error_output).toContain('[Local-First] All local options exhausted');
       });
     });
 
@@ -773,7 +774,7 @@ describe('fallback-retry module', () => {
         expect(restartCalls[0].reason).toContain('local_first_fallback');
         expect(stallRecoveryAttempts.get(task.id).attempts).toBe(1);
         expect(stallRecoveryAttempts.get(task.id).lastStrategy).toBe('local_first_fallback');
-        expect(taskCore.getTask(task.id).provider).toBe('ollama');
+        expect(taskCore.getTask(task.id).provider).toBe('codex');
       });
     });
 
@@ -917,7 +918,7 @@ describe('fallback-retry module', () => {
           attempts: 3,
           lastStrategy: 'local_first_fallback',
         });
-        expect(taskCore.getTask(task.id).provider).toBe('ollama');
+        expect(taskCore.getTask(task.id).provider).toBe('codex');
       });
     });
   });
@@ -1304,20 +1305,21 @@ describe('fallback-retry module', () => {
         });
 
         // Call 1: step 1 fails (only one host). Step 2 fails (no models).
-        // Step 3: switch to different local provider (ollama).
+        // With no alternate local provider left, the chain now escalates directly to cloud.
         const first = mod.tryLocalFirstFallback(task.id, taskCore.getTask(task.id), 'first local failure');
         expect(first).toBe(true);
         const afterFirst = taskCore.getTask(task.id);
-        expect(afterFirst.provider).toBe('ollama');
-        expect(afterFirst.error_output).toContain('[Local-First] Trying provider ollama');
+        expect(afterFirst.provider).toBe('codex');
+        expect(afterFirst.error_output).toContain('[Local-First] All local options exhausted');
 
-        // Call 2: 1 [Local-First] marker >= max_local_retries(1), escalates to cloud.
+        // Call 2: once the task is on codex, raw ollama becomes an untried local
+        // provider again and the current logic switches back to it.
         const second = mod.tryLocalFirstFallback(task.id, taskCore.getTask(task.id), 'second local failure');
         expect(second).toBe(true);
         const afterSecond = taskCore.getTask(task.id);
-        expect(afterSecond.provider).toBe('codex');
+        expect(afterSecond.provider).toBe('ollama');
         expect(afterSecond.model).toBeNull();
-        expect(afterSecond.error_output).toContain('[Local-First] Exhausted 1 local retries');
+        expect(afterSecond.error_output).toContain('[Local-First] Trying provider ollama');
       });
     });
 

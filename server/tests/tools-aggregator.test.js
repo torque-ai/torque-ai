@@ -6,6 +6,7 @@ const MODULE_PATH = path.resolve(__dirname, '../tools.js');
 const MODULE_SOURCE = fs.readFileSync(MODULE_PATH, 'utf8');
 const REQUIRE_FROM_TOOLS = createRequire(MODULE_PATH);
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../core-tools');
+const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 const realTools = require('../tools');
 
 const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier'];
@@ -627,6 +628,69 @@ describe('tools.js aggregator source-loader', () => {
         message: 'Unknown tool: missing_tool',
       });
     });
+
+    it('dispatches plugin-provided tools via the lazy-loaded plugin handler registry', async () => {
+      const pluginHandler = vi.fn(async (args) => ({ plugin: true, args }));
+      const createHandlers = vi.fn(() => ({ register_remote_agent: pluginHandler }));
+      const RemoteAgentRegistry = vi.fn(function RemoteAgentRegistry(db) {
+        this.db = db;
+      });
+      const dbHandle = { prepare: vi.fn() };
+      const subject = createToolsSubject({
+        database: {
+          getDbInstance: vi.fn(() => dbHandle),
+        },
+        modules: {
+          './plugins/remote-agents/tool-defs': [{
+            name: 'register_remote_agent',
+            description: 'Register a remote agent',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+              },
+            },
+          }],
+          './plugins/remote-agents/agent-registry': { RemoteAgentRegistry },
+          './plugins/remote-agents/handlers': { createHandlers },
+        },
+      });
+
+      const result = await subject.mod.handleToolCall('register_remote_agent', { name: 'agent-1' });
+
+      expect(subject.mod.routeMap.has('register_remote_agent')).toBe(false);
+      expect(createHandlers).toHaveBeenCalledTimes(1);
+      expect(RemoteAgentRegistry).toHaveBeenCalledTimes(1);
+      expect(pluginHandler).toHaveBeenCalledWith({ name: 'agent-1' });
+      expect(result).toEqual({ plugin: true, args: { name: 'agent-1' } });
+    });
+
+    it('returns schemas for plugin-provided tools via get_tool_schema', async () => {
+      const subject = createToolsSubject({
+        modules: {
+          './plugins/remote-agents/tool-defs': [{
+            name: 'register_remote_agent',
+            description: 'Register a remote agent',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+              },
+            },
+          }],
+        },
+      });
+
+      const result = await subject.mod.handleToolCall('get_tool_schema', {
+        tool_name: 'register_remote_agent',
+      });
+
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredData).toMatchObject({
+        name: 'register_remote_agent',
+        description: 'Register a remote agent',
+      });
+    });
   });
 });
 
@@ -642,7 +706,6 @@ describe('tools.js live registry integration', () => {
     ['add_webhook', 'handleAddWebhook'],
     ['run_batch', 'handleRunBatch'],
     ['hashline_read', 'handleHashlineRead'],
-    ['register_remote_agent', 'handleRegisterRemoteAgent'],
     ['list_policies', 'handleListPolicies'],
     ['export_report_csv', 'handleExportReportCSV'],
     ['export_report_json', 'handleExportReportJSON'],
@@ -662,6 +725,13 @@ describe('tools.js live registry integration', () => {
     expect([...realTools.routeMap.keys()]).not.toEqual(
       expect.arrayContaining(['peek_ui', 'capture_screenshots', 'peek_diagnose', 'list_peek_hosts']),
     );
+  });
+
+  it('keeps remote-agent plugin tools out of the core TOOLS array and core routeMap', () => {
+    const pluginToolNames = remoteAgentToolDefs.map((tool) => tool.name);
+
+    expect(getToolNames()).not.toEqual(expect.arrayContaining(pluginToolNames));
+    expect([...realTools.routeMap.keys()]).not.toEqual(expect.arrayContaining(pluginToolNames));
   });
 
   it('matches the live route names computed from handle* exports in HANDLER_MODULES', () => {
