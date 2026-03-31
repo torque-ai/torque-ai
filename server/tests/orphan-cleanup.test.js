@@ -31,7 +31,6 @@ describe('Orphan Cleanup', () => {
 
     it('exports PROVIDER_STALL_THRESHOLDS with all expected providers', () => {
       const thresholds = orphanCleanup.PROVIDER_STALL_THRESHOLDS;
-      expect(thresholds['ollama']).toBe(300);
       expect(thresholds['ollama']).toBe(240);
       expect(thresholds['claude-cli']).toBe(600);
       expect(thresholds['codex']).toBe(600);
@@ -40,7 +39,6 @@ describe('Orphan Cleanup', () => {
 
     it('exports PROVIDER_STALL_CONFIG_KEYS mapping', () => {
       const keys = orphanCleanup.PROVIDER_STALL_CONFIG_KEYS;
-      expect(keys['ollama']).toBe('stall_threshold_hashline');
       expect(keys['ollama']).toBe('stall_threshold_ollama');
       expect(keys['codex']).toBe('stall_threshold_codex');
     });
@@ -72,7 +70,6 @@ describe('Orphan Cleanup', () => {
     });
 
     it('returns provider default for unknown model', () => {
-      expect(orphanCleanup.getStallThreshold(null, 'ollama')).toBe(300);
       expect(orphanCleanup.getStallThreshold(null, 'ollama')).toBe(240);
     });
 
@@ -90,7 +87,7 @@ describe('Orphan Cleanup', () => {
 
     it('returns null when config explicitly disabled (value "0")', () => {
       serverConfig.get.mockImplementation((key) => {
-        if (key === 'stall_threshold_hashline') return '0';
+        if (key === 'stall_threshold_ollama') return '0';
         return null;
       });
       expect(orphanCleanup.getStallThreshold('qwen3:8b', 'ollama')).toBeNull();
@@ -144,7 +141,7 @@ describe('Orphan Cleanup', () => {
     it('config value "null" disables stall detection (returns null)', () => {
       // Config value "null" is treated as explicit disable — returns null
       serverConfig.get.mockImplementation((key) => {
-        if (key === 'stall_threshold_hashline') return 'null';
+        if (key === 'stall_threshold_ollama') return 'null';
         return null;
       });
       expect(orphanCleanup.getStallThreshold('qwen3:8b', 'ollama')).toBeNull();
