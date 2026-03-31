@@ -602,23 +602,27 @@ function close() {
     try { fn(); } catch { /* non-fatal */ }
   }
   if (db) {
-    // Flush WAL into main DB file before closing. If this fails, data stays
-    // in the WAL and is vulnerable to loss (the bug that wiped worklogs).
+    // Flush WAL into main DB file before closing. Switching from WAL to DELETE
+    // journal mode forces SQLite to checkpoint all WAL data into the main file
+    // and delete the WAL, which is atomic and doesn't require exclusive access
+    // the way wal_checkpoint(TRUNCATE) does. This prevents the data loss bug
+    // where a new TORQUE instance opens the DB before the old one checkpoints,
+    // causing the TRUNCATE to fail with "database table is locked".
     try {
-      const result = db.pragma('wal_checkpoint(TRUNCATE)');
-      const info = result && result[0];
-      if (info && info.busy > 0) {
-        // TRUNCATE couldn't complete (another connection holds a lock).
-        // Fall back to PASSIVE which checkpoints what it can without blocking.
-        logger.warn(`[DB] WAL checkpoint TRUNCATE incomplete (${info.busy} busy pages) — falling back to PASSIVE`);
-        const passiveResult = db.pragma('wal_checkpoint(PASSIVE)');
-        const passiveInfo = passiveResult && passiveResult[0];
-        if (passiveInfo && passiveInfo.log > passiveInfo.checkpointed) {
-          logger.error(`[DB] WAL checkpoint PASSIVE incomplete: ${passiveInfo.log - passiveInfo.checkpointed} pages NOT flushed to main DB. Data may be lost if WAL file is deleted.`);
-        }
-      }
+      db.pragma('journal_mode = DELETE');
+      logger.info('[DB] Shutdown: switched to DELETE journal mode (WAL flushed to main DB)');
     } catch (checkpointErr) {
-      logger.error(`[DB] WAL checkpoint failed: ${checkpointErr.message}. Data in WAL file may be lost on next startup.`);
+      // If journal_mode switch fails, try explicit checkpoint as fallback
+      logger.warn(`[DB] journal_mode switch failed (${checkpointErr.message}), trying wal_checkpoint...`);
+      try {
+        const result = db.pragma('wal_checkpoint(TRUNCATE)');
+        const info = result && result[0];
+        if (info && info.busy > 0) {
+          logger.error(`[DB] WAL checkpoint TRUNCATE incomplete (${info.busy} busy pages). Data may be at risk.`);
+        }
+      } catch (cpErr) {
+        logger.error(`[DB] WAL checkpoint also failed: ${cpErr.message}. Data in WAL file may be lost.`);
+      }
     }
     db.close();
     db = null;
