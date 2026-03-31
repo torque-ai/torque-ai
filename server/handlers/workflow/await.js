@@ -1784,7 +1784,16 @@ async function handleAwaitRestart(args) {
       const running = taskCore.listTasks({ status: 'running', limit: 1000 });
       const queued = taskCore.listTasks({ status: 'queued', limit: 1000 });
       const pending = taskCore.listTasks({ status: 'pending', limit: 1000 });
-      const blocked = taskCore.listTasks({ status: 'blocked', limit: 1000 });
+      const allBlocked = taskCore.listTasks({ status: 'blocked', limit: 1000 });
+      // Filter out orphaned blocked tasks — only count those in a running workflow
+      const blocked = allBlocked.filter(t => {
+        if (!t.workflow_id) return true; // standalone blocked task — count it
+        try {
+          const wfEngine = require('../../db/workflow-engine');
+          const wf = wfEngine.getWorkflow(t.workflow_id);
+          return wf && wf.status === 'running';
+        } catch { return true; }
+      });
       return {
         running, queued, pending, blocked,
         total: running.length + queued.length + pending.length + blocked.length,

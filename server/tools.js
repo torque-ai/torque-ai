@@ -447,7 +447,16 @@ function handleRestartServer(args) {
   const allRunningTasks = taskCore.listTasks({ status: 'running', limit: 1000 });
   const allQueuedTasks = taskCore.listTasks({ status: 'queued', limit: 1000 });
   const allPendingTasks = taskCore.listTasks({ status: 'pending', limit: 1000 });
-  const allBlockedTasks = taskCore.listTasks({ status: 'blocked', limit: 1000 });
+  const allBlockedRaw = taskCore.listTasks({ status: 'blocked', limit: 1000 });
+  // Filter out orphaned blocked tasks whose workflows no longer exist or aren't running
+  const workflowEngine = require('./db/workflow-engine');
+  const allBlockedTasks = allBlockedRaw.filter(t => {
+    if (!t.workflow_id) return true;
+    try {
+      const wf = workflowEngine.getWorkflow(t.workflow_id);
+      return wf && wf.status === 'running';
+    } catch { return true; }
+  });
   const totalRunning = allRunningTasks.length;
   const totalQueued = allQueuedTasks.length;
   const totalPending = allPendingTasks.length;
@@ -484,7 +493,11 @@ function handleRestartServer(args) {
       const running = taskCore.listTasks({ status: 'running', limit: 1000 }).length;
       const queued = taskCore.listTasks({ status: 'queued', limit: 1000 }).length;
       const pending = taskCore.listTasks({ status: 'pending', limit: 1000 }).length;
-      const blocked = taskCore.listTasks({ status: 'blocked', limit: 1000 }).length;
+      const blockedRaw = taskCore.listTasks({ status: 'blocked', limit: 1000 });
+      const blocked = blockedRaw.filter(t => {
+        if (!t.workflow_id) return true;
+        try { const wf = workflowEngine.getWorkflow(t.workflow_id); return wf && wf.status === 'running'; } catch { return true; }
+      }).length;
       const remaining = running + queued + pending + blocked;
 
       if (remaining === 0) {
