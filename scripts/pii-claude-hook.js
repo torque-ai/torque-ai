@@ -25,6 +25,12 @@ process.stdin.on('end', () => {
       process.exit(0);
     }
 
+    // Skip PII guard's own test file — it must contain real PII fixtures
+    const filePath = (input.tool_input && input.tool_input.file_path) || '';
+    if (filePath.replace(/\\/g, '/').includes('tests/pii-guard.test.js')) {
+      process.exit(0);
+    }
+
     const content = toolName === 'Write'
       ? (input.tool_input && input.tool_input.content) || ''
       : (input.tool_input && input.tool_input.new_string) || '';

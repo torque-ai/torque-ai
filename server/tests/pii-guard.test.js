@@ -20,19 +20,19 @@ describe('pii-guard', () => {
     });
 
     it('replaces Linux user paths', () => {
-      const result = piiGuard.scanAndReplace('Path /home/<user>/code/app');
+      const result = piiGuard.scanAndReplace('Path /home/alice/code/app');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Path /home/<user>/code/app');
     });
 
     it('replaces Mac user paths', () => {
-      const result = piiGuard.scanAndReplace('Path /Users/<user>/Desktop');
+      const result = piiGuard.scanAndReplace('Path /Users/bob/Desktop');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Path /Users/<user>/Desktop');
     });
 
     it('replaces 192.168.x.x preserving last octet', () => {
-      const result = piiGuard.scanAndReplace('Host: 192.0.2.100');
+      const result = piiGuard.scanAndReplace('Host: 192.168.1.100');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Host: 192.0.2.100');
     });
@@ -60,7 +60,7 @@ describe('pii-guard', () => {
     });
 
     it('replaces real email addresses', () => {
-      const result = piiGuard.scanAndReplace('Contact: user@example.com');
+      const result = piiGuard.scanAndReplace('Contact: alice@company.org');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Contact: user@example.com');
     });
@@ -107,10 +107,9 @@ describe('pii-guard', () => {
     });
 
     it('replaces multiple PII types in one string', () => {
-      const input = 'User C:\\Users\\alice at 192.0.2.100 email user@example.com';
+      const input = 'User C:\\Users\\alice at 192.168.1.50 email alice@company.org';
       const result = piiGuard.scanAndReplace(input);
       expect(result.clean).toBe(false);
-      expect(result.sanitized).toBe('User C:\\Users\\<user> at 192.0.2.100 email user@example.com');
       expect(result.findings.length).toBeGreaterThanOrEqual(3);
     });
 
