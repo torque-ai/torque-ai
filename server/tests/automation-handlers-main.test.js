@@ -240,13 +240,13 @@ function loadAutomationModule(overrides = {}) {
       durationMs: 0,
     })),
   };
-  const createRemoteTestRouter = overrides.createRemoteTestRouter || vi.fn(() => mockRouter);
+  const createTestRunnerRegistry = overrides.createTestRunnerRegistry || vi.fn(() => mockRouter);
   const buildErrorFeedbackPrompt = overrides.buildErrorFeedbackPrompt || vi.fn((prompt) => `[error-feedback]\n${prompt}`);
   const safeExecChain = overrides.safeExecChain || vi.fn(() => ({ exitCode: 0, output: '', error: '' }));
   const executeValidatedCommandSync = overrides.executeValidatedCommandSync || vi.fn(() => '');
   const uuidV4 = overrides.uuidV4 || vi.fn(() => '12345678-aaaa-bbbb-cccc-123456789012');
   const indexModule = overrides.indexModule || {
-    getAgentRegistry: vi.fn(() => overrides.agentRegistry || null),
+    getTestRunnerRegistry: vi.fn(() => overrides.testRunnerRegistry || null),
   };
 
   const throwRequests = new Map(Object.entries(overrides.throwRequests || {}));
@@ -260,7 +260,7 @@ function loadAutomationModule(overrides = {}) {
     '../utils/safe-exec': { safeExecChain },
     '../execution/command-policy': { executeValidatedCommandSync },
     './shared': { ErrorCodes, makeError },
-    '../remote/remote-test-routing': { createRemoteTestRouter },
+    '../test-runner-registry': { createTestRunnerRegistry },
     '../logger': { child: vi.fn(() => mockLogger) },
     '../database': mockDatabase,
     '../db/config-core': mockConfigCore,
@@ -322,7 +322,7 @@ module.exports.__testHelpers = {
       fs: mockFs,
       logger: mockLogger,
       router: mockRouter,
-      createRemoteTestRouter,
+      createTestRunnerRegistry,
       buildErrorFeedbackPrompt,
       safeExecChain,
       executeValidatedCommandSync,
@@ -370,47 +370,32 @@ describe('automation-handlers main unit suite', () => {
       expect(requireCounts['../task-manager']).toBe(1);
     });
 
-    it('getVerifyRouter creates and memoizes the router with the resolved agent registry', () => {
-      const registry = { id: 'agent-registry' };
+    it('getVerifyRouter memoizes the registry returned by the index module', () => {
       const router = { runVerifyCommand: vi.fn() };
-      const createRemoteTestRouter = vi.fn(() => router);
+      const createTestRunnerRegistry = vi.fn(() => ({ runVerifyCommand: vi.fn() }));
+      const indexModule = { getTestRunnerRegistry: vi.fn(() => router) };
       const { helpers, mocks } = loadAutomationModule({
-        agentRegistry: registry,
-        router,
-        createRemoteTestRouter,
+        createTestRunnerRegistry,
+        indexModule,
       });
 
       expect(helpers.getVerifyRouter()).toBe(router);
       expect(helpers.getVerifyRouter()).toBe(router);
-      expect(createRemoteTestRouter).toHaveBeenCalledTimes(1);
-      expect(createRemoteTestRouter).toHaveBeenCalledWith({
-        agentRegistry: registry,
-        db: mocks.db,
-        logger: mocks.logger,
-      });
-      expect(mocks.indexModule.getAgentRegistry).toHaveBeenCalledTimes(1);
-      expect(mocks.logger.info).toHaveBeenCalledWith('[automation-handlers] agentRegistry resolved: yes');
+      expect(createTestRunnerRegistry).not.toHaveBeenCalled();
+      expect(mocks.indexModule.getTestRunnerRegistry).toHaveBeenCalledTimes(1);
     });
 
-    it('getVerifyRouter warns when the index module cannot be loaded and still builds a router', () => {
+    it('getVerifyRouter falls back to createTestRunnerRegistry when the index module cannot be loaded', () => {
       const router = { runVerifyCommand: vi.fn() };
-      const createRemoteTestRouter = vi.fn(() => router);
+      const createTestRunnerRegistry = vi.fn(() => router);
       const { helpers, mocks } = loadAutomationModule({
-        router,
-        createRemoteTestRouter,
+        createTestRunnerRegistry,
         throwRequests: { '../index': new Error('index unavailable') },
       });
 
       expect(helpers.getVerifyRouter()).toBe(router);
-      expect(createRemoteTestRouter).toHaveBeenCalledWith({
-        agentRegistry: null,
-        db: mocks.db,
-        logger: mocks.logger,
-      });
-      expect(mocks.logger.warn).toHaveBeenCalledWith(
-        '[automation-handlers] Failed to resolve agent registry:',
-        'index unavailable',
-      );
+      expect(createTestRunnerRegistry).toHaveBeenCalledTimes(1);
+      expect(mocks.indexModule.getTestRunnerRegistry).not.toHaveBeenCalled();
     });
 
     it('findRelatedExistingTestPath prefers exact __tests__ matches', () => {

@@ -2,10 +2,10 @@
  * Unit tests for auto-verify-retry close-handler phase.
  *
  * Uses manual dependency injection + fresh module loading per test to
- * control remote-test-routing/context-enrichment bindings captured at require time.
+ * control test-runner-registry/context-enrichment bindings captured at require time.
  *
- * The module now uses createRemoteTestRouter().runVerifyCommand() instead of
- * execSync directly, so we mock the remote-test-routing module.
+ * The module now uses the shared test runner registry instead of execSync
+ * directly, so we mock the test-runner-registry module.
  *
  * The source has a scoped error check: it only proceeds to retry logic if
  * the verify errors are in files that this task actually modified. Tests that
@@ -20,8 +20,8 @@ const MODULE_PATH = '../validation/auto-verify-retry';
 const MODULE_RESOLVED = require.resolve(MODULE_PATH);
 const LOGGER_MODULE_PATH = '../logger';
 const LOGGER_MODULE_RESOLVED = require.resolve(LOGGER_MODULE_PATH);
-const ROUTING_MODULE_PATH = '../remote/remote-test-routing';
-const ROUTING_MODULE_RESOLVED = require.resolve(ROUTING_MODULE_PATH);
+const TEST_RUNNER_REGISTRY_MODULE_PATH = '../test-runner-registry';
+const TEST_RUNNER_REGISTRY_MODULE_RESOLVED = require.resolve(TEST_RUNNER_REGISTRY_MODULE_PATH);
 const HOST_MONITORING_MODULE_PATH = '../utils/host-monitoring';
 const HOST_MONITORING_MODULE_RESOLVED = require.resolve(HOST_MONITORING_MODULE_PATH);
 
@@ -39,8 +39,8 @@ function restorePatchedDeps() {
   contextEnrichment.buildErrorFeedbackPrompt = ORIGINAL_BUILD_PROMPT;
   delete require.cache[MODULE_RESOLVED];
   delete require.cache[LOGGER_MODULE_RESOLVED];
-  // Restore real routing module
-  delete require.cache[ROUTING_MODULE_RESOLVED];
+  // Restore real test runner registry module
+  delete require.cache[TEST_RUNNER_REGISTRY_MODULE_RESOLVED];
   delete require.cache[HOST_MONITORING_MODULE_RESOLVED];
 }
 
@@ -63,8 +63,8 @@ function installLoggerMock() {
   };
 }
 
-function installRoutingMock() {
-  // Install mock for createRemoteTestRouter before loading the module
+function installTestRunnerRegistryMock() {
+  // Install mock for createTestRunnerRegistry before loading the module
   mockRunVerifyCommand = vi.fn().mockResolvedValue({
     success: true,
     output: '',
@@ -74,16 +74,16 @@ function installRoutingMock() {
     remote: false,
   });
 
-  require.cache[ROUTING_MODULE_RESOLVED] = {
-    id: ROUTING_MODULE_RESOLVED,
-    filename: ROUTING_MODULE_RESOLVED,
+  require.cache[TEST_RUNNER_REGISTRY_MODULE_RESOLVED] = {
+    id: TEST_RUNNER_REGISTRY_MODULE_RESOLVED,
+    filename: TEST_RUNNER_REGISTRY_MODULE_RESOLVED,
     loaded: true,
     exports: {
-      createRemoteTestRouter: vi.fn(() => ({
+      createTestRunnerRegistry: vi.fn(() => ({
         runVerifyCommand: mockRunVerifyCommand,
         runRemoteOrLocal: vi.fn(),
-        getRemoteConfig: vi.fn(),
-        getCurrentBranch: vi.fn(() => 'main'),
+        register: vi.fn(),
+        unregister: vi.fn(),
       })),
     },
   };
@@ -189,8 +189,8 @@ function loadModuleWithMocks(options = {}) {
     : mockBuildErrorFeedbackPrompt;
 
   installLoggerMock();
-  // Install routing mock before loading the module
-  installRoutingMock();
+  // Install test-runner-registry mock before loading the module
+  installTestRunnerRegistryMock();
   installHostMonitoringMock(options.hostActivityEntries);
 
   delete require.cache[MODULE_RESOLVED];
@@ -203,11 +203,11 @@ function loadModuleWithMocks(options = {}) {
   const processQueue = Object.prototype.hasOwnProperty.call(options, 'processQueue')
     ? options.processQueue
     : vi.fn();
-  const agentRegistry = Object.prototype.hasOwnProperty.call(options, 'agentRegistry')
-    ? options.agentRegistry
-    : null;
+  const testRunnerRegistry = Object.prototype.hasOwnProperty.call(options, 'testRunnerRegistry')
+    ? options.testRunnerRegistry
+    : undefined;
 
-  mod.init({ db, startTask, processQueue, agentRegistry });
+  mod.init({ db, startTask, processQueue, testRunnerRegistry });
 
   return {
     ...mod,
@@ -926,33 +926,35 @@ describe('auto-verify-retry exported helpers', () => {
   });
 });
 
-describe('handleAutoVerifyRetry — remote routing', () => {
-  it('passes agentRegistry to createRemoteTestRouter', async () => {
+describe('handleAutoVerifyRetry — test runner registry', () => {
+  it('creates the fallback test runner registry lazily', async () => {
     const db = createMockDb({ initialConfig: { verify_command: 'npx tsc --noEmit' } });
-    const fakeRegistry = { getClient: vi.fn() };
-    loadModuleWithMocks({ db, agentRegistry: fakeRegistry });
+    loadModuleWithMocks({ db });
 
-    // Get the createRemoteTestRouter mock
-    const { createRemoteTestRouter } = require(ROUTING_MODULE_PATH);
+    const { createTestRunnerRegistry } = require(TEST_RUNNER_REGISTRY_MODULE_PATH);
 
-    // Trigger router creation by running verify
     const mod = require(MODULE_PATH);
     await mod.handleAutoVerifyRetry(makeCtx());
 
-    expect(createRemoteTestRouter).toHaveBeenCalledWith(
-      expect.objectContaining({ agentRegistry: fakeRegistry }),
-    );
+    expect(createTestRunnerRegistry).toHaveBeenCalledTimes(1);
   });
 
-  it('works with null agentRegistry (local-only fallback)', async () => {
+  it('prefers an injected testRunnerRegistry when provided', async () => {
     const db = createMockDb({ initialConfig: { verify_command: 'npx tsc --noEmit' } });
-    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db, agentRegistry: null });
+    const injectedRegistry = {
+      runVerifyCommand: vi.fn().mockResolvedValue(makeVerifyResult({ exitCode: 0, error: '' })),
+    };
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({
+      db,
+      testRunnerRegistry: injectedRegistry,
+    });
     const ctx = makeCtx();
 
     await handleAutoVerifyRetry(ctx);
 
     expect(ctx.status).toBe('completed');
-    expect(mockRunVerifyCommand).toHaveBeenCalledTimes(1);
+    expect(injectedRegistry.runVerifyCommand).toHaveBeenCalledTimes(1);
+    expect(mockRunVerifyCommand).not.toHaveBeenCalled();
   });
 
   it('includes remote flag in verify result processing', async () => {

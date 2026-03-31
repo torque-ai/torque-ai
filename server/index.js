@@ -23,6 +23,7 @@ const { defaultContainer } = require('./container');
 const serverConfig = require('./config');
 const taskManager = require('./task-manager');
 const { TASK_TIMEOUTS } = require('./constants');
+const { createTestRunnerRegistry } = require('./test-runner-registry');
 const dashboard = require('./dashboard-server');
 const ciWatcher = require('./ci/watcher');
 const apiServer = require('./api-server');
@@ -33,7 +34,6 @@ function callTool(name, args) { return require('./tools').handleToolCall(name, a
 const discovery = require('./discovery');
 const gpuMetricsServer = require('./scripts/gpu-metrics-server');
 const mcpSse = require('./mcp-sse');
-const { RemoteAgentRegistry } = require('./remote/agent-registry');
 const { MCPPlatform, isPlatformEnabled } = require('./mcp/platform');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const logger = require('./logger').child({ component: 'mcp-stdio' });
@@ -53,11 +53,10 @@ const CLAUDE_DIR_NAME = '.claude';
 const MCP_CONFIG_FILENAME = '.mcp.json';
 const DEFAULT_MCP_HOST = '127.0.0.1';
 const DEFAULT_MCP_SSE_PORT = 3458;
-const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control']);
+const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control', 'remote-agents']);
 const LOCAL_MCP_DESCRIPTION = 'TORQUE - Task Orchestration System with local LLM routing';
 
-// Remote agent registry — initialized in init() after DB is ready
-let agentRegistry = null;
+let testRunnerRegistry = null;
 let mcpPlatform = null;
 
 // Single source of truth — shared with mcp-sse.js
@@ -770,13 +769,13 @@ function init() {
     }
   }, 10000); // 10 seconds after startup
 
-  // Initialize remote agent registry (needs raw better-sqlite3 instance)
-  agentRegistry = new RemoteAgentRegistry(db.getDbInstance());
-
-  // Pass agentRegistry to verification modules for remote test routing
-  require('./validation/auto-verify-retry').init({ agentRegistry });
-  require('./validation/post-task').init({ agentRegistry });
-  require('./validation/build-verification').init({ agentRegistry });
+  testRunnerRegistry = defaultContainer.get('testRunnerRegistry');
+  if (!testRunnerRegistry) {
+    testRunnerRegistry = createTestRunnerRegistry();
+  }
+  require('./validation/auto-verify-retry').init({ testRunnerRegistry });
+  require('./validation/post-task').init({ testRunnerRegistry });
+  require('./validation/build-verification').init({ testRunnerRegistry });
 
   // Register this MCP instance for multi-session coordination
   taskManager.registerInstance();
@@ -957,7 +956,7 @@ function init() {
     debugLog,
     timerRegistry,
     logger,
-    getAgentRegistry: () => agentRegistry,
+    getTestRunnerRegistry: () => testRunnerRegistry,
   });
   startMaintenanceScheduler();
 
@@ -1367,13 +1366,8 @@ function main() {
   });
 }
 
-/**
- * Get the remote agent registry instance.
- * Returns null if the server hasn't been initialized yet.
- * @returns {RemoteAgentRegistry|null}
- */
-function getAgentRegistry() {
-  return agentRegistry;
+function getTestRunnerRegistry() {
+  return testRunnerRegistry;
 }
 
 const _testing = {
@@ -1447,7 +1441,7 @@ module.exports = {
   startCoordinationScheduler,
   startProviderQuotaInferenceTimer,
   getAutoArchiveStatuses,
-  getAgentRegistry,
+  getTestRunnerRegistry,
   _testing,
 };
 

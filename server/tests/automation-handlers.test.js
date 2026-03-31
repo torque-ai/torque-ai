@@ -15,8 +15,8 @@ vi.mock('../db/task-core', () => currentModules.taskCore);
 vi.mock('../db/project-config-core', () => currentModules.projectConfigCore);
 vi.mock('../db/workflow-engine', () => currentModules.workflowEngine);
 vi.mock('../task-manager', () => currentModules.taskManager);
-vi.mock('../remote/remote-test-routing', () => ({
-  createRemoteTestRouter: currentModules.createRemoteTestRouter,
+vi.mock('../test-runner-registry', () => ({
+  createTestRunnerRegistry: currentModules.createTestRunnerRegistry,
 }));
 vi.mock('../utils/context-enrichment', () => ({
   buildErrorFeedbackPrompt: currentModules.buildErrorFeedbackPrompt,
@@ -161,14 +161,14 @@ function createDefaultModules(overrides = {}) {
     workflowEngine,
     taskManager,
     router,
-    createRemoteTestRouter: overrides.createRemoteTestRouter || vi.fn(() => router),
+    createTestRunnerRegistry: overrides.createTestRunnerRegistry || vi.fn(() => router),
     buildErrorFeedbackPrompt: overrides.buildErrorFeedbackPrompt
       || vi.fn((prompt, originalOutput, errors) => `${prompt}\n\n${originalOutput || ''}\n\n${errors || ''}`),
     safeExecChain: overrides.safeExecChain || vi.fn(() => ({ exitCode: 0, output: '', error: '' })),
     executeValidatedCommandSync: overrides.executeValidatedCommandSync || vi.fn(() => ''),
     logger,
     loggerModule: { child: vi.fn(() => logger) },
-    indexModule: overrides.indexModule || { getAgentRegistry: vi.fn(() => overrides.agentRegistry || null) },
+    indexModule: overrides.indexModule || { getTestRunnerRegistry: vi.fn(() => overrides.testRunnerRegistry || null) },
     uuidModule: { v4: overrides.uuidV4 || vi.fn(() => `12345678-aaaa-bbbb-cccc-${String(++uuidCounter).padStart(12, '0')}`) },
     tsTools: overrides.tsTools || {},
     batchOrchestration: overrides.batchOrchestration || {},
@@ -195,8 +195,8 @@ function loadHandlers(overrides = {}) {
   vi.doMock('../db/project-config-core', () => currentModules.projectConfigCore);
   vi.doMock('../db/workflow-engine', () => currentModules.workflowEngine);
   vi.doMock('../task-manager', () => currentModules.taskManager);
-  vi.doMock('../remote/remote-test-routing', () => ({
-    createRemoteTestRouter: currentModules.createRemoteTestRouter,
+  vi.doMock('../test-runner-registry', () => ({
+    createTestRunnerRegistry: currentModules.createTestRunnerRegistry,
   }));
   vi.doMock('../utils/context-enrichment', () => ({
     buildErrorFeedbackPrompt: currentModules.buildErrorFeedbackPrompt,
@@ -219,8 +219,8 @@ function loadHandlers(overrides = {}) {
   installCjsModuleMock('../db/project-config-core', currentModules.projectConfigCore);
   installCjsModuleMock('../db/workflow-engine', currentModules.workflowEngine);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
-  installCjsModuleMock('../remote/remote-test-routing', {
-    createRemoteTestRouter: currentModules.createRemoteTestRouter,
+  installCjsModuleMock('../test-runner-registry', {
+    createTestRunnerRegistry: currentModules.createTestRunnerRegistry,
   });
   installCjsModuleMock('../utils/context-enrichment', {
     buildErrorFeedbackPrompt: currentModules.buildErrorFeedbackPrompt,
@@ -342,7 +342,7 @@ describe('automation-handlers', () => {
       });
       const text = getText(result);
 
-      expect(mocks.createRemoteTestRouter).toHaveBeenCalledTimes(1);
+      expect(mocks.createTestRunnerRegistry).toHaveBeenCalledTimes(1);
       expect(router.runVerifyCommand).toHaveBeenCalledWith('pnpm typecheck', 'C:\\repo', { timeout: 9000 });
       expect(text).toContain('### Result: PASSED');
       expect(text).toContain('**Execution:** remote (agent)');

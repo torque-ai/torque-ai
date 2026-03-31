@@ -3,7 +3,7 @@
 const http = require('node:http');
 const https = require('node:https');
 const { EventEmitter } = require('node:events');
-const { RemoteAgentClient, HEALTH_CACHE_TTL } = require('../../remote/agent-client');
+const { RemoteAgentClient, HEALTH_CACHE_TTL } = require('../agent-client');
 
 describe('RemoteAgentClient', () => {
   /** @type {RemoteAgentClient} */

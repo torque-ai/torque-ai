@@ -25,9 +25,9 @@ function clearModules(modulePaths) {
 }
 
 const MODULES_TO_CLEAR = [
-  '../handlers/remote-agent-handlers',
-  '../db/project-config-core',
-  '../logger',
+  '../handlers',
+  '../../../db/project-config-core',
+  '../../../logger',
 ];
 
 function getText(result) {
@@ -49,15 +49,15 @@ function loadHandlers({
   const child = vi.fn(() => logger);
 
   clearModules(MODULES_TO_CLEAR);
-  installCjsModuleMock('../db/project-config-core', {
+  installCjsModuleMock('../../../db/project-config-core', {
     getProjectFromPath,
     getProjectConfig,
   });
-  installCjsModuleMock('../logger', {
+  installCjsModuleMock('../../../logger', {
     child,
   });
 
-  const handlers = require('../handlers/remote-agent-handlers');
+  const handlers = require('../handlers');
   handlers._getRegistry = vi.fn(() => registry);
 
   return {

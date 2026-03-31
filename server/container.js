@@ -331,11 +331,13 @@ function initModules(db, serverConfig) {
 
   // Domain services
   if (!_defaultContainer.has('config')) {
+    const { createTestRunnerRegistry } = require('./test-runner-registry');
     _defaultContainer.registerValue('config', require('./config'));
     _defaultContainer.registerValue('discovery', require('./discovery'));
     _defaultContainer.registerValue('tools', require('./tools'));
     _defaultContainer.registerValue('freeQuotaTracker', require('./free-quota-tracker'));
     _defaultContainer.registerValue('taskManager', require('./task-manager'));
+    _defaultContainer.registerValue('testRunnerRegistry', createTestRunnerRegistry());
   }
 
   // Provider modules
@@ -454,7 +456,6 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('providerHandlers', require('./handlers/provider-handlers'));
     _defaultContainer.registerValue('providerOllamaHostsHandlers', require('./handlers/provider-ollama-hosts'));
     _defaultContainer.registerValue('providerTuningHandlers', require('./handlers/provider-tuning'));
-    _defaultContainer.registerValue('remoteAgentHandlers', require('./handlers/remote-agent-handlers'));
     _defaultContainer.registerValue('reviewHandler', require('./handlers/review-handler'));
     _defaultContainer.registerValue('strategicConfigHandlers', require('./handlers/strategic-config-handlers'));
     _defaultContainer.registerValue('webhookHandlers', require('./handlers/webhook-handlers'));

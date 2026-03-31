@@ -14,7 +14,6 @@ const { getTask, updateTaskStatus } = require('../db/task-core');
 const { getDefaultProvider, getProvider, listProviders } = require('../db/provider-routing-core');
 const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');
 const logger = require('../logger').child({ component: 'api-server' });
-const remoteAgentHandlers = require('../handlers/remote-agent-handlers');
 const v2Inference = require('./v2-inference');
 
 const {
@@ -38,6 +37,23 @@ const {
   getV2ProviderModels,
   getV2ProviderHealthPayload,
 } = require('./v2-discovery-helpers');
+
+let _remoteAgentPluginHandlers = null;
+
+function getRemoteAgentPluginHandlers() {
+  if (_remoteAgentPluginHandlers) {
+    return _remoteAgentPluginHandlers;
+  }
+
+  const database = require('../database');
+  const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
+  const { createHandlers } = require('../plugins/remote-agents/handlers');
+  _remoteAgentPluginHandlers = createHandlers({
+    agentRegistry: new RemoteAgentRegistry(database.getDbInstance()),
+    db: database,
+  });
+  return _remoteAgentPluginHandlers;
+}
 
 // ---------------------------------------------------------------------------
 // Inference helpers
@@ -1044,65 +1060,12 @@ function handleV2ProviderDetail(_req, res, context = {}, providerId, req = null)
 // Remote execution handlers
 // ---------------------------------------------------------------------------
 
-function isRemoteExecutionCoreError(result) {
-  return Boolean(result && typeof result.error_code === 'string');
-}
-
-function getRemoteExecutionErrorStatus(result) {
-  switch (result?.error_code) {
-    case 'MISSING_REQUIRED_PARAM':
-    case 'INVALID_PARAM':
-      return 400;
-    default:
-      return 500;
-  }
-}
-
-function serializeRemoteExecutionResult(result) {
-  return {
-    success: Boolean(result?.success),
-    output: typeof result?.output === 'string' ? result.output : '',
-    exitCode: Number.isFinite(result?.exitCode) ? result.exitCode : 0,
-    durationMs: Number.isFinite(result?.durationMs) ? result.durationMs : 0,
-    remote: Boolean(result?.remote),
-    warning: typeof result?.warning === 'string' && result.warning.trim()
-      ? result.warning
-      : null,
-  };
-}
-
 async function handleV2RemoteRun(req, res, _context = {}) {
-  const body = Object.prototype.hasOwnProperty.call(req, 'body')
-    ? req.body
-    : await parseBody(req);
-  const result = await remoteAgentHandlers.runRemoteCommandCore(body || {});
-
-  if (isRemoteExecutionCoreError(result)) {
-    sendJson(res, {
-      error: result.error,
-      errorCode: result.error_code,
-    }, getRemoteExecutionErrorStatus(result), req);
-    return;
-  }
-
-  sendJson(res, serializeRemoteExecutionResult(result), 200, req);
+  return getRemoteAgentPluginHandlers().run_remote_command(req, res);
 }
 
 async function handleV2RemoteTest(req, res, _context = {}) {
-  const body = Object.prototype.hasOwnProperty.call(req, 'body')
-    ? req.body
-    : await parseBody(req);
-  const result = await remoteAgentHandlers.runTestsCore(body || {});
-
-  if (isRemoteExecutionCoreError(result)) {
-    sendJson(res, {
-      error: result.error,
-      errorCode: result.error_code,
-    }, getRemoteExecutionErrorStatus(result), req);
-    return;
-  }
-
-  sendJson(res, serializeRemoteExecutionResult(result), 200, req);
+  return getRemoteAgentPluginHandlers().run_tests(req, res);
 }
 
 module.exports = {

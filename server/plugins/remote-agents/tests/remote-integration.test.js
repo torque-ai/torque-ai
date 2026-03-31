@@ -15,8 +15,8 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const Database = require('better-sqlite3');
-const { RemoteAgentClient } = require('../../remote/agent-client');
-const { RemoteAgentRegistry } = require('../../remote/agent-registry');
+const { RemoteAgentClient } = require('../agent-client');
+const { RemoteAgentRegistry } = require('../agent-registry');
 
 // ── Shared state ─────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-agent-integ-'));
 
   // Dynamic import of the ESM agent module
-  const agentModule = await import('../../../agent/index.js');
+  const agentModule = await import('../../../../agent/index.js');
 
   // Use port 0 so the OS assigns a free ephemeral port (no collision risk)
   agentInstance = agentModule.createServer({

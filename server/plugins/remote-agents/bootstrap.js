@@ -20,7 +20,7 @@
  */
 
 const os = require('os');
-const logger = require('../logger').child({ component: 'bootstrap' });
+const logger = require('../../logger').child({ component: 'bootstrap' });
 
 // Rate limiting: max 5 bootstrap requests per minute per IP
 const _rateLimits = new Map();

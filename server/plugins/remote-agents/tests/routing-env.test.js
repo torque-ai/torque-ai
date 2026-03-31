@@ -4,7 +4,7 @@
  * Tests for filterSensitiveEnv and SENSITIVE_ENV_PATTERNS
  */
 
-const { filterSensitiveEnv, SENSITIVE_ENV_PATTERNS } = require('../remote/remote-test-routing');
+const { filterSensitiveEnv, SENSITIVE_ENV_PATTERNS } = require('../remote-test-routing');
 
 describe('filterSensitiveEnv()', () => {
   it('strips API_KEY, TOKEN, and PASSWORD vars', () => {

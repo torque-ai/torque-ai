@@ -264,6 +264,29 @@ Built into `/torque-submit` and `/torque-review`:
 - **Rollback** � undo task changes on failure
 - **Adaptive retry** � auto-retry with provider fallback
 
+### Remote Agent Federation (Plugin)
+
+Remote agent registration, health checks, and distributed test routing are provided
+by the `remote-agents` plugin (`server/plugins/remote-agents/`). The plugin is loaded
+by default via `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
+
+**Architecture:** The core defines a `TestRunnerRegistry` (`server/test-runner-registry.js`)
+that validation modules call for running verify commands and tests. By default, commands
+run locally. When the remote-agents plugin loads, it registers remote-or-local routing
+that checks for configured remote agents and falls back to local execution.
+
+**To disable:** Remove `'remote-agents'` from `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
+The validation pipeline will fall back to local-only command execution.
+
+**Plugin contents:**
+- `agent-registry.js` - RemoteAgentRegistry class (persists to SQLite, manages clients)
+- `agent-client.js` - HTTP client for remote agent communication
+- `agent-server.js` - Standalone HTTP server for remote execution agents
+- `remote-test-routing.js` - Router that checks project config and routes to remote or local
+- `handlers.js` - MCP tool handlers (register, list, remove, health check, run command)
+- `tool-defs.js` - MCP tool definitions
+- `bootstrap.js` - Workstation bootstrap endpoint
+
 ## Remote Workstation
 
 Heavy commands (builds, tests, compilation) route to the configured remote workstation automatically. Enforceable remote-execution rules are managed by the governance engine; see `Operational Governance` for the rule source of truth.

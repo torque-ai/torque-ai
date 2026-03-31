@@ -7,8 +7,8 @@
  * are used to align tests with the requested API intent.
  */
 
-const { setupTestDb, teardownTestDb, getText } = require('../vitest-setup');
-const handlers = require('../../handlers/remote-agent-handlers');
+const { setupTestDb, teardownTestDb, getText } = require('../../../tests/vitest-setup');
+const handlers = require('../handlers');
 
 // API aliases requested by the task
 const registerRemoteAgent = handlers.registerRemoteAgent;

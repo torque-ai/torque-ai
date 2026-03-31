@@ -5,7 +5,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createServer } = require('../remote/agent-server');
+const { createServer } = require('../agent-server');
 
 const TEST_SECRET = 'remote-agent-server-test-secret';
 

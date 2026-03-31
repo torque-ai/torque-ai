@@ -58,30 +58,30 @@ function parseJsonBody(response) {
 }
 
 const MODULES_TO_CLEAR = [
-  '../database',
-  '../api/routes',
-  '../api/v2-dispatch',
-  '../api/v2-schemas',
-  '../api/v2-middleware',
-  '../api/v2-task-handlers',
-  '../api/v2-workflow-handlers',
-  '../api/v2-governance-handlers',
-  '../api/v2-analytics-handlers',
-  '../api/v2-infrastructure-handlers',
-  '../handlers/remote-agent-handlers',
+  '../../../database',
+  '../../../api/routes',
+  '../../../api/v2-dispatch',
+  '../../../api/v2-schemas',
+  '../../../api/v2-middleware',
+  '../../../api/v2-task-handlers',
+  '../../../api/v2-workflow-handlers',
+  '../../../api/v2-governance-handlers',
+  '../../../api/v2-analytics-handlers',
+  '../../../api/v2-infrastructure-handlers',
+  '../handlers',
 ];
 
 function loadModules() {
   clearModules(MODULES_TO_CLEAR);
 
-  installCjsModuleMock('../database', {
+  installCjsModuleMock('../../../database', {
     getDefaultProvider: vi.fn(() => null),
     onClose: () => {},
   });
-  installCjsModuleMock('../api/v2-schemas', {
+  installCjsModuleMock('../../../api/v2-schemas', {
     validateInferenceRequest: vi.fn(() => ({ valid: true, errors: [], value: {} })),
   });
-  installCjsModuleMock('../api/v2-middleware', {
+  installCjsModuleMock('../../../api/v2-middleware', {
     normalizeError: vi.fn((err) => ({
       status: 500,
       body: { error: err?.message || String(err) },
@@ -89,16 +89,16 @@ function loadModules() {
     requestId: vi.fn((_req, _res, next) => next()),
     validateRequest: vi.fn(() => vi.fn((_req, _res, next) => next())),
   });
-  installCjsModuleMock('../api/v2-task-handlers', createHandlerModuleMock());
-  installCjsModuleMock('../api/v2-workflow-handlers', createHandlerModuleMock());
-  installCjsModuleMock('../api/v2-governance-handlers', createHandlerModuleMock());
-  installCjsModuleMock('../api/v2-analytics-handlers', createHandlerModuleMock());
-  installCjsModuleMock('../api/v2-infrastructure-handlers', createHandlerModuleMock());
+  installCjsModuleMock('../../../api/v2-task-handlers', createHandlerModuleMock());
+  installCjsModuleMock('../../../api/v2-workflow-handlers', createHandlerModuleMock());
+  installCjsModuleMock('../../../api/v2-governance-handlers', createHandlerModuleMock());
+  installCjsModuleMock('../../../api/v2-analytics-handlers', createHandlerModuleMock());
+  installCjsModuleMock('../../../api/v2-infrastructure-handlers', createHandlerModuleMock());
 
   return {
-    routes: require('../api/routes'),
-    ...require('../api/v2-dispatch'),
-    remoteAgentHandlers: require('../handlers/remote-agent-handlers'),
+    routes: require('../../../api/routes'),
+    ...require('../../../api/v2-dispatch'),
+    remoteAgentHandlers: require('../handlers'),
   };
 }
 

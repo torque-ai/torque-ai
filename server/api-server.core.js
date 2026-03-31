@@ -15,7 +15,6 @@ const costTracking = require('./db/cost-tracking');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'api-server' });
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
-const remoteAgentHandlers = require('./handlers/remote-agent-handlers');
 const middleware = require('./api/middleware');
 const routes = require('./api/routes');
 const { generateOpenApiSpec } = require('./api/openapi-generator');
@@ -168,8 +167,6 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2ProviderDetail,
   handleV2RemoteRun,
   handleV2RemoteTest,
-  handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
-  handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
   handlePiiScan,
   handleShutdown,
   handleClaudeEvent,
@@ -178,7 +175,7 @@ const ROUTE_HANDLER_LOOKUP = {
   handleGetQuotaHistory,
   handleGetQuotaAutoScale,
   handleGetProviderQuotas,
-  handleBootstrapWorkstation: require('./api/bootstrap').handleBootstrapWorkstation,
+  handleBootstrapWorkstation: require('./plugins/remote-agents/bootstrap').handleBootstrapWorkstation,
   // V2 Control-Plane: Tasks
   handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
   handleV2CpListTasks: v2TaskHandlers.handleListTasks,
@@ -337,7 +334,6 @@ function createApiServer(deps = {}) {
     db: deps.db || db,
     taskManager: deps.taskManager,
     tools: deps.tools || tools,
-    agentRegistry: deps.agentRegistry,
     logger: deps.logger || logger,
   };
 
@@ -927,7 +923,6 @@ function start(options = {}) {
       db,
       taskManager: options.taskManager || null,
       tools,
-      agentRegistry: options.agentRegistry || null,
       logger,
     });
 

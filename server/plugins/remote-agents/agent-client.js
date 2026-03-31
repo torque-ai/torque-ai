@@ -2,7 +2,7 @@
 
 const http = require('node:http');
 const https = require('node:https');
-const logger = require('../logger').child({ component: 'agent-client' });
+const logger = require('../../logger').child({ component: 'agent-client' });
 
 const HEALTH_CACHE_TTL = 90000; // 90 seconds
 

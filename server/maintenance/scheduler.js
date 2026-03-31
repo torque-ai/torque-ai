@@ -16,7 +16,6 @@ let serverConfig = null;
 let debugLog = null;
 let timerRegistry = null;
 let logger = null;
-let getAgentRegistry = null;
 
 // Interval handles
 let maintenanceInterval = null;
@@ -38,7 +37,6 @@ function init(deps) {
   debugLog = deps.debugLog;
   timerRegistry = deps.timerRegistry;
   logger = deps.logger;
-  getAgentRegistry = deps.getAgentRegistry || (() => null);
 }
 
 /**
@@ -107,14 +105,6 @@ function startMaintenanceScheduler() {
         if (archived > 0) debugLog(`Archived ${archived} old task(s)`);
       } catch (archErr) {
         debugLog(`Task archival error: ${archErr.message}`);
-      }
-
-      // Run remote agent health checks
-      const agentRegistry = getAgentRegistry();
-      if (agentRegistry) {
-        agentRegistry.runHealthChecks().catch(err => {
-          debugLog(`Remote agent health check error: ${err.message}`);
-        });
       }
 
       // C-2: Execute due user cron scheduled tasks

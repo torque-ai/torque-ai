@@ -94,6 +94,43 @@ const tools = [
         }
       }
     }
+  },
+  {
+    name: 'run_remote_command',
+    description: 'Execute a shell command on the remote test agent. Falls back to local execution if agent unavailable.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          description: 'Shell command to run'
+        },
+        working_directory: {
+          type: 'string',
+          description: 'Project working directory'
+        },
+        timeout: {
+          type: 'number',
+          description: 'Timeout in ms (default 300000)',
+          default: 300000
+        }
+      },
+      required: ['command', 'working_directory']
+    }
+  },
+  {
+    name: 'run_tests',
+    description: 'Run project verify_command on remote test agent. Reads verify_command from project defaults.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        working_directory: {
+          type: 'string',
+          description: 'Project working directory'
+        }
+      },
+      required: ['working_directory']
+    }
   }
 ];
 

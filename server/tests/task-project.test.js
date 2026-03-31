@@ -160,7 +160,7 @@ const AUTOMATION_MODULES = [
   '../utils/context-enrichment',
   '../utils/safe-exec',
   '../execution/command-policy',
-  '../remote/remote-test-routing',
+  '../test-runner-registry',
 ];
 
 function loadTaskProject({ dbMock, sharedMock, loggerMock, formatTimeMock }) {
@@ -198,8 +198,13 @@ function loadAutomationHandlers({ dbMock, sharedMock, loggerMock }) {
   installCjsModuleMock('../execution/command-policy', {
     executeValidatedCommandSync: vi.fn(() => ''),
   });
-  installCjsModuleMock('../remote/remote-test-routing', {
-    createRemoteTestRouter: vi.fn(() => ({ verifyCommand: vi.fn() })),
+  installCjsModuleMock('../test-runner-registry', {
+    createTestRunnerRegistry: vi.fn(() => ({
+      runVerifyCommand: vi.fn(),
+      runRemoteOrLocal: vi.fn(),
+      register: vi.fn(),
+      unregister: vi.fn(),
+    })),
   });
   installCjsModuleMock('../handlers/automation-ts-tools', {});
   installCjsModuleMock('../handlers/automation-batch-orchestration', {});

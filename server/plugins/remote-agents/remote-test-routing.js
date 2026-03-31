@@ -22,7 +22,7 @@ const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
  */
 function findTestRunnerWorkstation() {
   try {
-    const wsModel = require('../workstation/model');
+    const wsModel = require('../../workstation/model');
     const workstations = wsModel.listWorkstations({ enabled: true });
     return workstations.find(ws =>
       ws.status === 'healthy' && wsModel.hasCapability(ws, 'test_runners')
@@ -141,7 +141,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       if (config && config.prefer_remote_tests && config.remote_agent_id) {
         // Phase 3: Try workstation lookup for remote agent
         try {
-          const wsModel = require('../workstation/model');
+          const wsModel = require('../../workstation/model');
           const ws = wsModel.getWorkstationByName(config.remote_agent_id)
             || wsModel.getWorkstation(config.remote_agent_id);
           if (

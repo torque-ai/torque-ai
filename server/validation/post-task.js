@@ -15,6 +15,7 @@ const { execFileSync, spawnSync } = require('child_process');
 const logger = require('../logger').child({ component: 'post-task-validation' });
 const serverConfig = require('../config');
 const { TASK_TIMEOUTS } = require('../constants');
+const { createTestRunnerRegistry } = require('../test-runner-registry');
 const buildVerification = require('./build-verification');
 
 /**
@@ -52,15 +53,12 @@ function parseCommand(cmdString) {
   };
 }
 
-const { createRemoteTestRouter } = require('../remote/remote-test-routing');
-
 // Dependency injection
 let db = null;
 let _getModifiedFiles = null;  // from utils/git
 let _parseGitStatusLine = null;  // from utils/git
 let _sanitizeLLMOutput = null;
-let _agentRegistry = null;
-let _router = null;
+let _testRunnerRegistry = null;
 
 /**
  * Initialize dependencies for this module.
@@ -70,7 +68,6 @@ let _router = null;
  * @param {Function} deps.getModifiedFiles - From utils/git
  * @param {Function} deps.parseGitStatusLine - From utils/git
  * @param {Function} deps.sanitizeLLMOutput - From utils/sanitize
- * @param {Object} [deps.agentRegistry] - RemoteAgentRegistry instance (optional)
  */
 function init(deps) {
   if (deps.db) db = deps.db;
@@ -78,21 +75,19 @@ function init(deps) {
   if (deps.getModifiedFiles) _getModifiedFiles = deps.getModifiedFiles;
   if (deps.parseGitStatusLine) _parseGitStatusLine = deps.parseGitStatusLine;
   if (deps.sanitizeLLMOutput) _sanitizeLLMOutput = deps.sanitizeLLMOutput;
-  if (deps.agentRegistry !== undefined) _agentRegistry = deps.agentRegistry;
-  // Reset router so it picks up the new deps on next call
-  _router = null;
-  buildVerification.init({ db, parseCommand, extractBuildErrorFiles, agentRegistry: _agentRegistry });
+  if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
+  buildVerification.init({
+    db,
+    parseCommand,
+    extractBuildErrorFiles,
+    testRunnerRegistry: _testRunnerRegistry,
+  });
 }
 
 function getRouter() {
-  if (!_router) {
-    _router = createRemoteTestRouter({
-      agentRegistry: _agentRegistry,
-      db,
-      logger,
-    });
-  }
-  return _router;
+  if (_testRunnerRegistry) return _testRunnerRegistry;
+  _testRunnerRegistry = createTestRunnerRegistry();
+  return _testRunnerRegistry;
 }
 
 const EXACT_PLACEHOLDER_MARKERS = [

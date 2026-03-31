@@ -17,7 +17,7 @@ let mockTaskManager;
 let mockSafeExecChain;
 let mockExecuteValidatedCommandSync;
 let mockBuildErrorFeedbackPrompt;
-let mockCreateRemoteTestRouter;
+let mockCreateTestRunnerRegistry;
 let mockRouter;
 let mockConstants;
 let mockConfig;
@@ -269,7 +269,7 @@ function resetMocks(options = {}) {
       durationMs: 0,
     })),
   };
-  mockCreateRemoteTestRouter = vi.fn(() => mockRouter);
+  mockCreateTestRunnerRegistry = vi.fn(() => mockRouter);
   mockConstants = {
     TASK_TIMEOUTS: {
       GIT_DIFF: 5_000,
@@ -285,7 +285,7 @@ function resetMocks(options = {}) {
     get: vi.fn((key) => configFallback(key)),
   };
   mockIndex = {
-    getAgentRegistry: vi.fn(() => null),
+    getTestRunnerRegistry: vi.fn(() => null),
   };
 
   let uuidCounter = 0;
@@ -348,7 +348,7 @@ const AUTOMATION_MODULES = [
   '../utils/context-enrichment',
   '../utils/safe-exec',
   '../execution/command-policy',
-  '../remote/remote-test-routing',
+  '../test-runner-registry',
   '../handlers/automation-ts-tools',
   '../handlers/automation-batch-orchestration',
   '../index',
@@ -390,8 +390,8 @@ function loadAutomationHandlers() {
   installCjsModuleMock('../execution/command-policy', {
     executeValidatedCommandSync: mockExecuteValidatedCommandSync,
   });
-  installCjsModuleMock('../remote/remote-test-routing', {
-    createRemoteTestRouter: mockCreateRemoteTestRouter,
+  installCjsModuleMock('../test-runner-registry', {
+    createTestRunnerRegistry: mockCreateTestRunnerRegistry,
   });
   installCjsModuleMock('../handlers/automation-ts-tools', {});
   installCjsModuleMock('../handlers/automation-batch-orchestration', {});
@@ -486,8 +486,8 @@ vi.mock('../utils/safe-exec', () => ({
 vi.mock('../execution/command-policy', () => ({
   executeValidatedCommandSync: mockExecuteValidatedCommandSync,
 }));
-vi.mock('../remote/remote-test-routing', () => ({
-  createRemoteTestRouter: mockCreateRemoteTestRouter,
+vi.mock('../test-runner-registry', () => ({
+  createTestRunnerRegistry: mockCreateTestRunnerRegistry,
 }));
 vi.mock('../handlers/automation-ts-tools', () => ({}));
 vi.mock('../handlers/automation-batch-orchestration', () => ({}));
@@ -964,11 +964,7 @@ describe('Task Project Handlers', () => {
       });
       const text = textOf(result);
 
-      expect(mockCreateRemoteTestRouter).toHaveBeenCalledWith({
-        agentRegistry: null,
-        db: mockDb,
-        logger: loggerChild,
-      });
+      expect(mockCreateTestRunnerRegistry).toHaveBeenCalledWith();
       expect(mockRouter.runVerifyCommand).toHaveBeenCalledWith('pnpm typecheck', 'C:\\repo', { timeout: 9000 });
       expect(text).toContain('### Result: PASSED');
       expect(text).toContain('**Execution:** remote (agent)');

@@ -3,7 +3,7 @@
 const { EventEmitter } = require('node:events');
 const http = require('node:http');
 const https = require('node:https');
-const { RemoteAgentClient } = require('../remote/agent-client');
+const { RemoteAgentClient } = require('../agent-client');
 
 describe('RemoteAgentClient TLS transport selection', () => {
   function mockRequest({ responseChunks = [], responseStatusCode = 200, responseDataIsBuffer = false }) {

@@ -92,11 +92,11 @@ function createMockRegistry(agents = [], clients = {}) {
 }
 
 const MODULES_TO_CLEAR = [
-  '../handlers/remote-agent-handlers',
-  '../remote/remote-test-routing',
-  '../db/project-config-core',
-  '../logger',
-  '../validation/post-task',
+  '../handlers',
+  '../remote-test-routing',
+  '../../../db/project-config-core',
+  '../../../logger',
+  '../../../validation/post-task',
 ];
 
 function loadHandlers(options = {}) {
@@ -175,16 +175,16 @@ function loadHandlers(options = {}) {
     ? options.parseCommand
     : vi.fn(options.parseCommandImpl || parseCommandString);
 
-  installMock('../remote/remote-test-routing', {
+  installMock('../remote-test-routing', {
     createRemoteTestRouter,
   });
-  installMock('../db/project-config-core', database);
-  installMock('../logger', loggerModule);
-  installMock('../validation/post-task', {
+  installMock('../../../db/project-config-core', database);
+  installMock('../../../logger', loggerModule);
+  installMock('../../../validation/post-task', {
     parseCommand,
   });
 
-  const handlers = require('../handlers/remote-agent-handlers');
+  const handlers = require('../handlers');
   handlers._getRegistry = vi.fn(() => registry);
 
   return {

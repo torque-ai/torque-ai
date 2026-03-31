@@ -22,7 +22,6 @@ const v2WorkflowHandlers = require('./v2-workflow-handlers');
 const v2GovernanceHandlers = require('./v2-governance-handlers');
 const v2AnalyticsHandlers = require('./v2-analytics-handlers');
 const v2InfrastructureHandlers = require('./v2-infrastructure-handlers');
-const remoteAgentHandlers = require('../handlers/remote-agent-handlers');
 const concurrencyHandlers = require('../handlers/concurrency-handlers');
 
 // Hoisted handler modules (avoids repeated require() inside handler functions)
@@ -348,9 +347,6 @@ const V2_CP_HANDLER_LOOKUP = {
     const text = result?.content?.[0]?.text || '';
     sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
-  // Remote execution
-  handleV2CpRunRemoteCommand: remoteAgentHandlers.handleRunRemoteCommand,
-  handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
   // Tasks
   handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
   handleV2CpListTasks: v2TaskHandlers.handleListTasks,

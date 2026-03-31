@@ -4,9 +4,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createServer } = require('../remote/agent-server');
-const { RemoteAgentClient } = require('../remote/agent-client');
-const handlers = require('../handlers/remote-agent-handlers');
+const { createServer } = require('../agent-server');
+const { RemoteAgentClient } = require('../agent-client');
+const handlers = require('../handlers');
 
 const TEST_SECRET = 'remote-test-integration-secret';
 

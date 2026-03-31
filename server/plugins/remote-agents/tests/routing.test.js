@@ -33,9 +33,9 @@ function makeMockChild(code, stdout = '', stderr = '') {
 function loadRoutingModule() {
   childProcess.spawnSync = mockSpawnSync;
   childProcess.spawn = mockSpawn;
-  const modPath = require.resolve('../remote/remote-test-routing');
+  const modPath = require.resolve('../remote-test-routing');
   delete require.cache[modPath];
-  const mod = require('../remote/remote-test-routing');
+  const mod = require('../remote-test-routing');
   childProcess.spawnSync = originalSpawnSync;
   childProcess.spawn = originalSpawn;
   return mod;
@@ -197,7 +197,7 @@ describe('remote-test-routing', () => {
       };
 
       // Mock workstation model
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       require.cache[wsModelPath] = {
         id: wsModelPath, filename: wsModelPath, loaded: true,
@@ -232,7 +232,7 @@ describe('remote-test-routing', () => {
         getProjectConfig: vi.fn().mockReturnValue({}), // empty config — no prefer_remote_tests
       };
 
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       require.cache[wsModelPath] = {
         id: wsModelPath, filename: wsModelPath, loaded: true,
@@ -267,7 +267,7 @@ describe('remote-test-routing', () => {
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
 
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       require.cache[wsModelPath] = {
         id: wsModelPath, filename: wsModelPath, loaded: true,
@@ -299,7 +299,7 @@ describe('remote-test-routing', () => {
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
 
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       require.cache[wsModelPath] = {
         id: wsModelPath, filename: wsModelPath, loaded: true,
@@ -331,7 +331,7 @@ describe('remote-test-routing', () => {
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
 
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       require.cache[wsModelPath] = {
         id: wsModelPath, filename: wsModelPath, loaded: true,
@@ -372,7 +372,7 @@ describe('remote-test-routing', () => {
         }),
       };
 
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       require.cache[wsModelPath] = {
         id: wsModelPath, filename: wsModelPath, loaded: true,
@@ -751,7 +751,7 @@ describe('remote-test-routing', () => {
       };
 
       // Mock workstation model to return a healthy test runner
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       require.cache[wsModelPath] = {
         id: wsModelPath, filename: wsModelPath, loaded: true,
@@ -797,7 +797,7 @@ describe('remote-test-routing', () => {
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
 
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       require.cache[wsModelPath] = {
         id: wsModelPath, filename: wsModelPath, loaded: true,
@@ -835,7 +835,7 @@ describe('remote-test-routing', () => {
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
 
-      const wsModelPath = require.resolve('../workstation/model');
+      const wsModelPath = require.resolve('../../../workstation/model');
       const originalWsCache = require.cache[wsModelPath];
       const mockListWs = vi.fn().mockReturnValue([
         { name: 'omen', status: 'healthy', _capabilities: { test_runners: true } },

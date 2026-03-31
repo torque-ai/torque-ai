@@ -7,8 +7,8 @@
  * with lightweight mock objects to avoid network calls.
  */
 
-const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('../vitest-setup');
-const { RemoteAgentRegistry } = require('../../remote/agent-registry');
+const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('../../../tests/vitest-setup');
+const { RemoteAgentRegistry } = require('../agent-registry');
 
 let registry;
 
@@ -29,7 +29,7 @@ function createMockClient({ host = '0.0.0.0', port = 3460, secret = 'mock', isAv
 
 describe('RemoteAgentRegistry', () => {
   beforeAll(() => {
-    setupTestDbModule('../remote/agent-registry', 'agent-registry');
+    setupTestDbModule('../plugins/remote-agents/agent-registry', 'agent-registry');
   });
   afterAll(() => teardownTestDb());
 

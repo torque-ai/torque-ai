@@ -8,18 +8,17 @@
  * auto-submits an error-feedback fix task if verification fails.
  *
  * Uses init() dependency injection (same pattern as close-phases.js).
- * Supports remote test routing via agentRegistry — when a remote agent is
- * configured for the project, verify commands run on the remote host and
- * fall back to local execution on failure.
+ * Verify commands run through the shared test runner registry so the
+ * default remote-agents plugin can override execution when available.
  */
 
 const { randomUUID } = require('crypto');
 const path = require('path');
 const logger = require('../logger').child({ component: 'auto-verify-retry' });
 const serverConfig = require('../config');
+const { createTestRunnerRegistry } = require('../test-runner-registry');
 const { buildErrorFeedbackPrompt } = require('../utils/context-enrichment');
 const { buildResumeContext, formatResumeContextForPrompt } = require('../utils/resume-context');
-const { createRemoteTestRouter } = require('../remote/remote-test-routing');
 const { extractBuildErrorFiles } = require('./post-task');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { checkResourceGate } = require('../utils/resource-gate');
@@ -46,10 +45,7 @@ const NON_CODE_EXTENSIONS = new Set([
 let _db = null;
 let _startTask = null;
 let _processQueue = null;
-let _agentRegistry = null;
-
-// Lazy-initialized router (created on first verify call after init)
-let _router = null;
+let _testRunnerRegistry = null;
 
 function tryParseJson(value) {
   if (!value || typeof value !== 'string') return null;
@@ -69,27 +65,19 @@ function isRetryTask(task) {
 /**
  * Initialize dependencies for this module.
  * @param {Object} deps
- * @param {Object} [deps.agentRegistry] - RemoteAgentRegistry instance (optional)
  */
 function init(deps) {
   if (deps.db) _db = deps.db;
   serverConfig.init({ db: deps.db });
   if (deps.startTask) _startTask = deps.startTask;
   if (deps.processQueue) _processQueue = deps.processQueue;
-  if (deps.agentRegistry !== undefined) _agentRegistry = deps.agentRegistry;
-  // Reset router so it picks up the new deps on next call
-  _router = null;
+  if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
 }
 
 function getRouter() {
-  if (!_router) {
-    _router = createRemoteTestRouter({
-      agentRegistry: _agentRegistry,
-      db: _db,
-      logger,
-    });
-  }
-  return _router;
+  if (_testRunnerRegistry) return _testRunnerRegistry;
+  _testRunnerRegistry = createTestRunnerRegistry();
+  return _testRunnerRegistry;
 }
 
 /**

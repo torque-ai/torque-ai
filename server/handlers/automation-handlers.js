@@ -21,7 +21,7 @@ const { buildErrorFeedbackPrompt } = require('../utils/context-enrichment');
 const { safeExecChain } = require('../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../execution/command-policy');
 const { ErrorCodes, makeError } = require('./shared');
-const { createRemoteTestRouter } = require('../remote/remote-test-routing');
+const { createTestRunnerRegistry } = require('../test-runner-registry');
 const logger = require('../logger').child({ component: 'automation-handlers' });
 
 /**
@@ -42,6 +42,15 @@ function sanitizeTemplateVariable(value) {
   return value;
 }
 
+function _getTestRunnerRegistry() {
+  try {
+    const { getTestRunnerRegistry } = require('../index');
+    return getTestRunnerRegistry();
+  } catch {
+    return null;
+  }
+}
+
 // Lazy-load to avoid circular deps
 let _database, _configCore, _taskCore, _taskManager, _projectConfigCore, _schedulingAutomation, _workflowEngine;
 function database() { return _database || (_database = require('../database')); }
@@ -56,19 +65,7 @@ function workflowEngine() { return _workflowEngine || (_workflowEngine = require
 let _verifyRouter = null;
 function getVerifyRouter() {
   if (!_verifyRouter) {
-    let agentRegistry = null;
-    try {
-      const indexModule = require('../index');
-      agentRegistry = indexModule.getAgentRegistry();
-      logger.info(`[automation-handlers] agentRegistry resolved: ${agentRegistry ? 'yes' : 'null'}`);
-    } catch (err) {
-      logger.warn('[automation-handlers] Failed to resolve agent registry:', err.message || err);
-    }
-    _verifyRouter = createRemoteTestRouter({
-      agentRegistry,
-      db: database(),
-      logger,
-    });
+    _verifyRouter = _getTestRunnerRegistry() || createTestRunnerRegistry();
   }
   return _verifyRouter;
 }

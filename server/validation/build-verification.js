@@ -7,41 +7,32 @@
  * build verification after task completion, with scoped error analysis
  * and WSL/Windows cross-environment support.
  *
- * Supports remote test routing via _router — when a remote workstation is
- * configured for the project, build commands run on the remote host and
- * fall back to local execution on failure.
+ * Uses the shared test runner registry so build commands can be routed by
+ * the default remote-agents plugin when available and still fall back to
+ * local execution when no override is registered.
  */
 
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const logger = require('../logger').child({ component: 'build-verification' });
-const { createRemoteTestRouter } = require('../remote/remote-test-routing');
+const { createTestRunnerRegistry } = require('../test-runner-registry');
 
 let db;
 let parseCommand;
 let extractBuildErrorFiles;
-let _agentRegistry = null;
-let _router = null;
+let _testRunnerRegistry = null;
 
 function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.parseCommand) parseCommand = deps.parseCommand;
   if (deps.extractBuildErrorFiles) extractBuildErrorFiles = deps.extractBuildErrorFiles;
-  if (deps.agentRegistry !== undefined) _agentRegistry = deps.agentRegistry;
-  // Reset router so it picks up the new deps on next call
-  _router = null;
+  if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
 }
 
 function getRouter() {
-  if (!_router) {
-    _router = createRemoteTestRouter({
-      agentRegistry: _agentRegistry,
-      db,
-      logger,
-    });
-  }
-  return _router;
+  if (_testRunnerRegistry) return _testRunnerRegistry;
+  _testRunnerRegistry = createTestRunnerRegistry();
+  return _testRunnerRegistry;
 }
 
 /**

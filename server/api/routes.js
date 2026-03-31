@@ -1190,13 +1190,6 @@ const routes = [
   { method: 'GET', path: /^\/api\/tasks\/([^/]+)\/changes$/, tool: 'task_changes', mapParams: ['task_id'] },
   { method: 'POST', path: /^\/api\/tasks\/([^/]+)\/commit$/, tool: 'commit_task', mapParams: ['task_id'], mapBody: true },
 
-  // Remote Agents
-  { method: 'POST', path: '/api/agents', tool: 'register_remote_agent', mapBody: true },
-  { method: 'GET', path: '/api/agents', tool: 'list_remote_agents' },
-  { method: 'DELETE', path: /^\/api\/agents\/([^/]+)$/, tool: 'remove_remote_agent', mapParams: ['agent_id'] },
-  { method: 'GET', path: /^\/api\/agents\/([^/]+)\/health$/, tool: 'check_remote_agent_health', mapParams: ['agent_id'] },
-  { method: 'GET', path: /^\/api\/agents\/([^/]+)$/, tool: 'get_remote_agent', mapParams: ['agent_id'] },
-
   // Stall detection
   { method: 'POST', path: '/api/stall-detection', tool: 'configure_stall_detection', mapBody: true },
 

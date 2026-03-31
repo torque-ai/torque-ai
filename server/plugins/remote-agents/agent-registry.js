@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const { RemoteAgentClient } = require('./agent-client');
-const logger = require('../logger').child({ component: 'agent-registry' });
+const logger = require('../../logger').child({ component: 'agent-registry' });
 
 /**
  * Hash a secret using scrypt with a random salt.

@@ -471,40 +471,48 @@ async function handleDeleteCredential(req, res) {
 // ─── Remote Agents ──────────────────────────────────────────────────────────
 
 function _getRegistry() {
-  try {
-    const { getAgentRegistry } = require('../index');
-    return getAgentRegistry ? getAgentRegistry() : null;
-  } catch (err) { logger.debug("task handler error", { err: err.message }); return null; }
-}
-
-function _getAgentDb() {
   if (!dbModule || typeof dbModule.getDbInstance !== 'function') return null;
-  const inst = dbModule.getDbInstance();
-  return inst && inst.prepare ? inst : null;
+  const rawDb = dbModule.getDbInstance();
+  if (!rawDb || typeof rawDb.prepare !== 'function') return null;
+
+  const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
+  return new RemoteAgentRegistry(rawDb);
 }
 
 function _sanitizeAgent(agent) {
   if (!agent) return null;
   const { secret: _secret, ...safe } = agent;
-  return safe;
+  return {
+    ...safe,
+    tls: Boolean(agent.tls),
+    rejectUnauthorized: agent.rejectUnauthorized === undefined ? true : Boolean(agent.rejectUnauthorized),
+  };
 }
 
-function _getAllAgents() {
-  const inst = _getAgentDb();
-  if (!inst) return [];
-  return inst.prepare('SELECT * FROM remote_agents ORDER BY created_at DESC').all().map(_sanitizeAgent);
+function _listAgents() {
+  const registry = _getRegistry();
+  if (!registry) return [];
+  return registry.getAll().map(_sanitizeAgent);
 }
 
-function _getAgentById(agentId) {
-  const inst = _getAgentDb();
-  if (!inst) return null;
-  return _sanitizeAgent(inst.prepare('SELECT * FROM remote_agents WHERE id = ?').get(agentId));
+function _getAgent(agentId) {
+  const registry = _getRegistry();
+  if (!registry) return null;
+  return _sanitizeAgent(registry.get(agentId));
+}
+
+async function _healthCheckAgent(agentId) {
+  const registry = _getRegistry();
+  if (!registry) return null;
+
+  await registry.runHealthChecks();
+  return _sanitizeAgent(registry.get(agentId));
 }
 
 async function handleListAgents(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    const agents = _getAllAgents();
+    const agents = _listAgents();
     sendList(res, requestId, agents, agents.length, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -538,7 +546,7 @@ async function handleCreateAgent(req, res) {
       rejectUnauthorized: body.rejectUnauthorized !== false,
     });
 
-    const created = _getAgentById(id);
+    const created = _getAgent(id);
     if (!created) {
       return sendError(res, requestId, 'operation_failed', 'Registered but failed to read result', 500, {}, req);
     }
@@ -552,7 +560,7 @@ async function handleGetAgent(req, res) {
   const requestId = resolveRequestId(req);
   const agentId = req.params?.agent_id;
 
-  const agent = _getAgentById(agentId);
+  const agent = _getAgent(agentId);
   if (!agent) {
     return sendError(res, requestId, 'agent_not_found', `Agent not found: ${agentId}`, 404, {}, req);
   }
@@ -563,7 +571,7 @@ async function handleAgentHealth(req, res) {
   const requestId = resolveRequestId(req);
   const agentId = req.params?.agent_id;
 
-  const existing = _getAgentById(agentId);
+  const existing = _getAgent(agentId);
   if (!existing) {
     return sendError(res, requestId, 'agent_not_found', `Agent not found: ${agentId}`, 404, {}, req);
   }
@@ -579,26 +587,7 @@ async function handleAgentHealth(req, res) {
       return sendSuccess(res, requestId, { ...existing, status: 'disabled' }, 200, req);
     }
 
-    let result = null;
-    try { result = await client.checkHealth(); } catch (err) { logger.debug("task handler error", { err: err.message }); result = null; }
-
-    const now = new Date().toISOString();
-    const status = result ? 'healthy' : 'down';
-    const failures = result ? 0 : ((existing.consecutive_failures || 0) + 1);
-    const metrics = result && result.system ? JSON.stringify(result.system) : existing.metrics || null;
-
-    const inst = _getAgentDb();
-    if (inst) {
-      if (result) {
-        inst.prepare('UPDATE remote_agents SET status = ?, consecutive_failures = ?, last_health_check = ?, last_healthy = ?, metrics = ? WHERE id = ?')
-          .run(status, failures, now, now, metrics, agentId);
-      } else {
-        inst.prepare('UPDATE remote_agents SET status = ?, consecutive_failures = ?, last_health_check = ?, metrics = ? WHERE id = ?')
-          .run(status, failures, now, metrics, agentId);
-      }
-    }
-
-    const refreshed = _getAgentById(agentId);
+    const refreshed = await _healthCheckAgent(agentId);
     sendSuccess(res, requestId, refreshed || existing, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
@@ -609,7 +598,7 @@ async function handleDeleteAgent(req, res) {
   const requestId = resolveRequestId(req);
   const agentId = req.params?.agent_id;
 
-  const existing = _getAgentById(agentId);
+  const existing = _getAgent(agentId);
   if (!existing) {
     return sendError(res, requestId, 'agent_not_found', `Agent not found: ${agentId}`, 404, {}, req);
   }

@@ -7,8 +7,8 @@
  * for the agent registry and its clients.
  */
 
-const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('../vitest-setup');
-const { createRemoteTestRouter } = require('../../remote/remote-test-routing');
+const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('../../../tests/vitest-setup');
+const { createRemoteTestRouter } = require('../remote-test-routing');
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ const isCI = process.env.CI === 'true';
 
 beforeAll(() => {
   if (!isCI) {
-    setupTestDbModule('../remote/remote-test-routing', 'remote-routing');
+    setupTestDbModule('../plugins/remote-agents/remote-test-routing', 'remote-routing');
   }
 });
 

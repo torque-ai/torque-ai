@@ -618,17 +618,14 @@ async function handleProviderToggle(req, res, query, providerId) {
 
 // ── Agents ─────────────────────────────────────────────────────────────────────
 
-// (from agents.js) Get agent registry from main server module
+// (from agents.js) Get agent registry from the remote-agents plugin modules
 function _getRegistry() {
-  const { getAgentRegistry } = require('../../index');
-  return getAgentRegistry ? getAgentRegistry() : null;
-}
-
-// (from agents.js) Get raw DB instance for agent queries
-function _getAgentDb() {
   if (!database || typeof database.getDbInstance !== 'function') return null;
   const dbInstance = database.getDbInstance();
-  return dbInstance && dbInstance.prepare ? dbInstance : null;
+  if (!dbInstance || typeof dbInstance.prepare !== 'function') return null;
+
+  const { RemoteAgentRegistry } = require('../../plugins/remote-agents/agent-registry');
+  return new RemoteAgentRegistry(dbInstance);
 }
 
 // (from agents.js) Strip secret from agent record and normalize booleans
@@ -644,22 +641,16 @@ function _sanitizeAgent(agent) {
 
 // (from agents.js) Fetch all agents from DB
 function _getAllAgents() {
-  const dbInstance = _getAgentDb();
-  if (!dbInstance) return [];
-  const rows = dbInstance.prepare(
-    'SELECT * FROM remote_agents ORDER BY created_at DESC'
-  ).all();
-  return rows.map(_sanitizeAgent);
+  const registry = _getRegistry();
+  if (!registry) return [];
+  return registry.getAll().map(_sanitizeAgent);
 }
 
 // (from agents.js) Fetch single agent by ID
 function _getAgentById(agentId) {
-  const dbInstance = _getAgentDb();
-  if (!dbInstance) return null;
-  const agent = dbInstance.prepare(
-    'SELECT * FROM remote_agents WHERE id = ?'
-  ).get(agentId);
-  return _sanitizeAgent(agent);
+  const registry = _getRegistry();
+  if (!registry) return null;
+  return _sanitizeAgent(registry.get(agentId));
 }
 
 // (from agents.js) Parse port with fallback to 3460
@@ -803,11 +794,6 @@ async function handleAgentHealth(req, res, query, agentId) {
     return sendError(res, 'Agent registry not initialized', 500);
   }
 
-  const dbInstance = _getAgentDb();
-  if (!dbInstance) {
-    return sendError(res, 'Agent database is not available', 500);
-  }
-
   try {
     const client = registry.getClient(decodedId);
     if (!client) {
@@ -815,32 +801,7 @@ async function handleAgentHealth(req, res, query, agentId) {
       return sendJson(res, disabled);
     }
 
-    let result = null;
-    try {
-      result = await client.checkHealth();
-    } catch (err) {
-      result = null;
-    }
-
-    const now = new Date().toISOString();
-    const status = result ? 'healthy' : 'down';
-    const failures = result ? 0 : ((existing.consecutive_failures || 0) + 1);
-    const metrics = result && result.system ? JSON.stringify(result.system) : existing.metrics || null;
-
-    if (result) {
-      dbInstance.prepare(`
-        UPDATE remote_agents
-        SET status = ?, consecutive_failures = ?, last_health_check = ?, last_healthy = ?, metrics = ?
-        WHERE id = ?
-      `).run(status, failures, now, now, metrics, decodedId);
-    } else {
-      dbInstance.prepare(`
-        UPDATE remote_agents
-        SET status = ?, consecutive_failures = ?, last_health_check = ?, metrics = ?
-        WHERE id = ?
-      `).run(status, failures, now, metrics, decodedId);
-    }
-
+    await registry.runHealthChecks();
     const refreshed = _getAgentById(decodedId);
     sendJson(res, refreshed || existing);
   } catch (err) {
