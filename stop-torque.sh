@@ -278,7 +278,7 @@ try_http_shutdown() {
   if response=$(curl -s --max-time 5 -X POST \
     -H "Content-Type: application/json" \
     -H "X-Requested-With: XMLHttpRequest" \
-    -d '{"reason":"stop-torque.sh"}' \
+    -d '{"reason":"stop-torque.sh","force":true}' \
     "http://127.0.0.1:${API_PORT}/api/shutdown" 2>/dev/null); then
     if echo "$response" | grep -q "shutting_down"; then
       log "Graceful shutdown accepted. Waiting for process to exit..."

@@ -441,39 +441,55 @@ function handleRestartServer(args) {
 
   logger.info(`[Restart] Server restart requested: ${reason}${drain ? ' (drain mode)' : ''}`);
 
+  // Count the FULL pipeline — not just running tasks.
+  // A restart is only safe when nothing is in-flight or waiting to execute.
   const localRunning = taskManager.getRunningTaskCount();
   const allRunningTasks = taskCore.listTasks({ status: 'running', limit: 1000 });
+  const allQueuedTasks = taskCore.listTasks({ status: 'queued', limit: 1000 });
+  const allPendingTasks = taskCore.listTasks({ status: 'pending', limit: 1000 });
+  const allBlockedTasks = taskCore.listTasks({ status: 'blocked', limit: 1000 });
   const totalRunning = allRunningTasks.length;
+  const totalQueued = allQueuedTasks.length;
+  const totalPending = allPendingTasks.length;
+  const totalBlocked = allBlockedTasks.length;
+  const totalActive = totalRunning + totalQueued + totalPending + totalBlocked;
 
-  if (totalRunning > 0 && !drain) {
-    const siblingRunning = totalRunning - localRunning;
-    let errorMsg = `Cannot restart: ${totalRunning} task(s) still running`;
-    if (siblingRunning > 0) {
-      errorMsg += ` (${localRunning} local, ${siblingRunning} from other sessions)`;
-    }
-    errorMsg += '. Cancel them first, wait for completion, or use drain: true to wait automatically.';
+  if (totalActive > 0 && !drain) {
+    const parts = [];
+    if (totalRunning > 0) parts.push(`${totalRunning} running`);
+    if (totalQueued > 0) parts.push(`${totalQueued} queued`);
+    if (totalPending > 0) parts.push(`${totalPending} pending`);
+    if (totalBlocked > 0) parts.push(`${totalBlocked} blocked`);
+    let errorMsg = `Cannot restart: pipeline is not empty (${parts.join(', ')})`;
+    errorMsg += '. Cancel them first, wait for completion, or use drain: true to wait for the full pipeline.';
     return {
       success: false,
       content: [{ type: 'text', text: errorMsg }],
       error: errorMsg,
       running_tasks: totalRunning,
-      local_running: localRunning,
+      queued_tasks: totalQueued,
+      pending_tasks: totalPending,
+      blocked_tasks: totalBlocked,
     };
   }
 
-  if (totalRunning > 0 && drain) {
-    logger.info(`[Restart] Drain mode: waiting for ${totalRunning} task(s) to complete (timeout: ${drainTimeoutMinutes}min)`);
+  if (totalActive > 0 && drain) {
+    logger.info(`[Restart] Drain mode: waiting for full pipeline to empty — ${totalRunning} running, ${totalQueued} queued, ${totalPending} pending, ${totalBlocked} blocked (timeout: ${drainTimeoutMinutes}min)`);
 
     const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
     const drainStarted = Date.now();
     const DRAIN_POLL_INTERVAL = 10000;
 
     const drainPoll = setInterval(() => {
-      const remaining = taskCore.listTasks({ status: 'running', limit: 1000 }).length;
+      const running = taskCore.listTasks({ status: 'running', limit: 1000 }).length;
+      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 }).length;
+      const pending = taskCore.listTasks({ status: 'pending', limit: 1000 }).length;
+      const blocked = taskCore.listTasks({ status: 'blocked', limit: 1000 }).length;
+      const remaining = running + queued + pending + blocked;
 
       if (remaining === 0) {
         clearInterval(drainPoll);
-        logger.info('[Restart] Drain complete — all tasks finished. Restarting...');
+        logger.info('[Restart] Drain complete — full pipeline empty. Restarting...');
         process._torqueRestartPending = true;
         eventBus.emitShutdown(`restart (drain complete): ${reason}`);
         return;
@@ -482,18 +498,21 @@ function handleRestartServer(args) {
       const elapsed = Date.now() - drainStarted;
       if (elapsed >= drainTimeoutMs) {
         clearInterval(drainPoll);
-        logger.info(`[Restart] Drain timeout after ${drainTimeoutMinutes}min — ${remaining} task(s) still running. Aborting restart.`);
+        logger.info(`[Restart] Drain timeout after ${drainTimeoutMinutes}min — ${remaining} task(s) still in pipeline. Aborting restart.`);
         return;
       }
 
-      logger.info(`[Restart] Drain: ${remaining} task(s) still running (${Math.round(elapsed / 1000)}s elapsed)`);
+      logger.info(`[Restart] Drain: ${running} running, ${queued} queued, ${pending} pending, ${blocked} blocked (${Math.round(elapsed / 1000)}s elapsed)`);
     }, DRAIN_POLL_INTERVAL);
 
     return {
       success: true,
       status: 'drain_started',
-      content: [{ type: 'text', text: `Queue drain started — waiting for ${totalRunning} task(s) to complete (timeout: ${drainTimeoutMinutes}min). Server will restart automatically when all tasks finish.` }],
+      content: [{ type: 'text', text: `Pipeline drain started — waiting for ${totalActive} task(s) to complete (${totalRunning} running, ${totalQueued} queued, ${totalPending} pending, ${totalBlocked} blocked). Timeout: ${drainTimeoutMinutes}min. Server will restart automatically when pipeline is empty.` }],
       running_tasks: totalRunning,
+      queued_tasks: totalQueued,
+      pending_tasks: totalPending,
+      blocked_tasks: totalBlocked,
       drain_timeout_minutes: drainTimeoutMinutes,
     };
   }

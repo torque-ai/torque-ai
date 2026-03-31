@@ -614,6 +614,33 @@ async function handleShutdown(req, res, _context = {}) {
   let body = {};
   try { body = await parseBody(req); } catch { /* ignore */ }
   const reason = body.reason || 'HTTP /api/shutdown';
+  const force = body.force === true;
+
+  // Pipeline guard: refuse shutdown if tasks are in-flight, unless force=true.
+  // stop-torque.sh should drain the pipeline first or pass force.
+  if (!force) {
+    try {
+      const taskCore = require('./db/task-core');
+      const running = taskCore.listTasks({ status: 'running', limit: 1000 }).length;
+      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 }).length;
+      const pending = taskCore.listTasks({ status: 'pending', limit: 1000 }).length;
+      const blocked = taskCore.listTasks({ status: 'blocked', limit: 1000 }).length;
+      const total = running + queued + pending + blocked;
+
+      if (total > 0) {
+        const parts = [];
+        if (running > 0) parts.push(`${running} running`);
+        if (queued > 0) parts.push(`${queued} queued`);
+        if (pending > 0) parts.push(`${pending} pending`);
+        if (blocked > 0) parts.push(`${blocked} blocked`);
+        sendJson(res, {
+          error: `Shutdown blocked: pipeline is not empty (${parts.join(', ')}). Use force: true to override.`,
+          running, queued, pending, blocked,
+        }, 409, req);
+        return;
+      }
+    } catch { /* DB may be closed — allow shutdown to proceed */ }
+  }
 
   sendJson(res, { status: 'shutting_down', reason }, 200, req);
 
