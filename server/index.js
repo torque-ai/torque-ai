@@ -769,7 +769,11 @@ function init() {
     }
   }, 10000); // 10 seconds after startup
 
-  testRunnerRegistry = defaultContainer.get('testRunnerRegistry');
+  try {
+    testRunnerRegistry = defaultContainer.get('testRunnerRegistry');
+  } catch {
+    // Container may not have booted — fall back to direct creation
+  }
   if (!testRunnerRegistry) {
     testRunnerRegistry = createTestRunnerRegistry();
   }
