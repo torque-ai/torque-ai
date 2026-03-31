@@ -679,6 +679,14 @@ function init() {
   taskManager.initEarlyDeps();
   taskManager.initSubModules();
   serverConfig.init({ db });
+  // Bump server epoch -- used by await handlers to detect orphaned tasks from crashed servers
+  {
+    const prevEpoch = parseInt(db.getConfig('server_epoch') || '0', 10);
+    const newEpoch = prevEpoch + 1;
+    db.setConfig('server_epoch', String(newEpoch));
+    serverConfig.setEpoch(newEpoch);
+    debugLog(`Server epoch: ${newEpoch}`);
+  }
 
   // Auto-inject TORQUE MCP config for local mode
   if (isLocalMode) {
@@ -724,9 +732,14 @@ function init() {
       authMode: runtimeMode,
       logger,
     });
+    console.log('[startup] Loaded ' + loadedPlugins.length + ' plugin(s)');
     for (const plugin of loadedPlugins) {
-      plugin.install(defaultContainer);
-      debugLog('Plugin installed: ' + plugin.name + ' v' + plugin.version);
+      try {
+        plugin.install(defaultContainer);
+        console.log('[startup] Plugin installed: ' + plugin.name + ' v' + plugin.version);
+      } catch (pluginErr) {
+        console.log('[startup] Plugin install failed: ' + plugin.name + ' — ' + pluginErr.message);
+      }
     }
   } catch (err) {
     debugLog('Plugin loading failed: ' + err.message);
@@ -776,8 +789,8 @@ function init() {
     const now = Date.now();
     const GRACE_PERIOD_MS = 30000; // 30 seconds grace period for startup race conditions
     let orphansCleaned = 0;
-    const markStartupOrphanFailed = (task, updates) => {
-      db.updateTaskStatus(task.id, 'failed', updates);
+    const markStartupOrphanCancelled = (task, updates) => {
+      db.updateTaskStatus(task.id, 'cancelled', { ...updates, cancel_reason: 'orphan_cleanup' });
       if (task.ollama_host_id) {
         try { db.decrementHostTasks(task.ollama_host_id); } catch { /* host may not exist */ }
       }
@@ -800,14 +813,14 @@ function init() {
       if (!task.mcp_instance_id) {
         // Legacy task with no owner — use grace period + timeout logic
         if (runningTime > Math.max(GRACE_PERIOD_MS, timeoutMs)) {
-          markStartupOrphanFailed(task, {
+          markStartupOrphanCancelled(task, {
             error_output: 'Server restarted - task was interrupted (stale, no instance owner)'
           });
         }
       } else if (task.mcp_instance_id === taskManager.getMcpInstanceId()) {
         // Our task but not in runningProcesses — leftover from our own crash/restart
         if (!taskManager.hasRunningProcess(task.id)) {
-          markStartupOrphanFailed(task, {
+          markStartupOrphanCancelled(task, {
             error_output: 'Server restarted — task orphaned from previous instance',
             completed_at: new Date().toISOString()
           });
@@ -833,7 +846,7 @@ function init() {
             }
             orphansCleaned++;
           } else {
-            markStartupOrphanFailed(task, {
+            markStartupOrphanCancelled(task, {
               error_output: `Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive (max retries exhausted)`,
               completed_at: new Date().toISOString()
             });
