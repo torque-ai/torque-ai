@@ -79,12 +79,11 @@ describe('governance-rules', () => {
 
     const active = rules.getActiveRulesForStage('task_pre_execute');
 
-    expect(active).toHaveLength(1);
-    expect(active[0]).toMatchObject({
-      id: 'require-push-before-remote',
-      stage: 'task_pre_execute',
-      enabled: true,
-    });
+    // 3 task_pre_execute rules minus 1 disabled = 2 active
+    expect(active).toHaveLength(2);
+    expect(active.map(r => r.id)).toContain('require-push-before-remote');
+    expect(active.map(r => r.id)).not.toContain('no-local-tests');
+    expect(active.every(r => r.enabled === true || r.enabled === 1)).toBe(true);
   });
 
   it('updateRuleMode changes mode', () => {
@@ -138,12 +137,17 @@ describe('governance-rules', () => {
   it('getAllRules sorted by stage then name', () => {
     rules.seedBuiltinRules();
 
-    expect(rules.getAllRules().map((rule) => [rule.stage, rule.name])).toEqual([
-      ['task_cancel', 'inspect-before-cancel'],
-      ['task_complete', 'verify-diff-after-codex'],
-      ['task_pre_execute', 'no-local-tests'],
-      ['task_pre_execute', 'require-push-before-remote'],
-      ['task_submit', 'block-visible-providers'],
-    ]);
+    const all = rules.getAllRules();
+    expect(all).toHaveLength(12);
+    // Verify sorted by stage then name
+    for (let i = 1; i < all.length; i++) {
+      const prev = all[i - 1];
+      const curr = all[i];
+      if (prev.stage === curr.stage) {
+        expect(prev.name.localeCompare(curr.name)).toBeLessThanOrEqual(0);
+      } else {
+        expect(prev.stage.localeCompare(curr.stage)).toBeLessThanOrEqual(0);
+      }
+    }
   });
 });

@@ -73,10 +73,18 @@ const loggerModuleMock = {
 };
 
 // Ensure serverConfig.getEpoch exists (added by await-restart-recovery session)
+// Patch at require.cache level so all downstream modules see it
 const serverConfigModule = require('../config');
 if (typeof serverConfigModule.getEpoch !== 'function') {
   serverConfigModule.getEpoch = () => 1;
   serverConfigModule.setEpoch = () => {};
+}
+// Also patch in require.cache to survive loadFresh() calls
+const serverConfigPath = require.resolve('../config');
+const cachedConfig = require.cache[serverConfigPath];
+if (cachedConfig && cachedConfig.exports && typeof cachedConfig.exports.getEpoch !== 'function') {
+  cachedConfig.exports.getEpoch = () => 1;
+  cachedConfig.exports.setEpoch = () => {};
 }
 
 let currentGovernanceHooks = null;
