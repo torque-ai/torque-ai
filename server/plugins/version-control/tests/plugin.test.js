@@ -43,7 +43,7 @@ describe('version-control plugin contract', () => {
 
   it('has correct name and version', () => {
     expect(plugin.name).toBe('version-control');
-    expect(plugin.version).toBe('1.0.0');
+    expect(plugin.version).toBe('2.0.0');
   });
 
   it('passes plugin contract validation', () => {

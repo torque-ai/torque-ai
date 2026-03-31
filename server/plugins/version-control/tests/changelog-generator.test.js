@@ -224,9 +224,9 @@ describe('version-control changelog generator', () => {
     expect(changelog).toContain('### Added');
     expect(changelog).toContain('### Fixed');
     expect(changelog).toContain('### Changed');
-    expect(changelog).not.toContain('### Feat');
-    expect(changelog).not.toContain('### Fix');
-    expect(changelog).not.toContain('### Refactor');
+    expect(changelog).not.toContain('### Feat\n');
+    expect(changelog).not.toContain('### Fix\n');
+    expect(changelog).not.toContain('### Refactor\n');
   });
 
   it('returns an empty changelog for an empty range', () => {
