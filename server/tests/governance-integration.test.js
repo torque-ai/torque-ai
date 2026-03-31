@@ -72,6 +72,13 @@ const loggerModuleMock = {
   error: vi.fn(),
 };
 
+// Ensure serverConfig.getEpoch exists (added by await-restart-recovery session)
+const serverConfigModule = require('../config');
+if (typeof serverConfigModule.getEpoch !== 'function') {
+  serverConfigModule.getEpoch = () => 1;
+  serverConfigModule.setEpoch = () => {};
+}
+
 let currentGovernanceHooks = null;
 const containerMock = {
   has: vi.fn((name) => name === 'governanceHooks' && Boolean(currentGovernanceHooks)),
@@ -186,11 +193,7 @@ describe('governance integration', () => {
     vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue({ enabled: true });
     vi.spyOn(providerRoutingCore, 'analyzeTaskForRouting').mockReturnValue(null);
     vi.spyOn(configCore, 'getConfig').mockReturnValue('legacy');
-    const serverConfig = require('../config');
-    if (typeof serverConfig.getEpoch !== 'function') {
-      serverConfig.getEpoch = () => 1;
-    }
-    vi.spyOn(serverConfig, 'getEpoch').mockReturnValue(1);
+    vi.spyOn(serverConfigModule, 'getEpoch').mockReturnValue(1);
     vi.spyOn(costTracking, 'estimateCost').mockReturnValue({ estimated_cost_usd: 0 });
     vi.spyOn(costTracking, 'checkBudgetBeforeSubmission').mockReturnValue({ allowed: true });
     vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([]);
