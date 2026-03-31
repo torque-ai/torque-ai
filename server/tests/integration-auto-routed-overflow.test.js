@@ -36,6 +36,7 @@ const mockServerConfig = {
   getBool: vi.fn(),
   getInt: vi.fn(),
   get: vi.fn(),
+  getEpoch: vi.fn().mockReturnValue(1),
 };
 
 vi.mock('../config', () => mockServerConfig);
@@ -49,7 +50,11 @@ describe('auto_routed overflow — proof of integration', () => {
 
     beforeEach(() => {
       const Database = require('better-sqlite3');
-      vi.resetModules();
+      // Monkey-patch config.getEpoch before createTask uses it
+      const serverConfig = require('../config');
+      if (!serverConfig.getEpoch) {
+        serverConfig.getEpoch = () => 1;
+      }
       taskCore = require('../db/task-core');
       dbHandle = new Database(':memory:');
       dbHandle.exec(`

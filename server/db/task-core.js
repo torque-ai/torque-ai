@@ -288,9 +288,10 @@ function createTask(task) {
   const project = task.project || (_getProjectFromPath ? _getProjectFromPath(task.working_directory) : null);
 
   // RB-032: Bound metadata size to prevent overflow
-  const metadataStr = task.metadata === null || task.metadata === undefined
-    ? null
-    : JSON.stringify(metadataObject);
+  // Always serialize enriched metadataObject — it may contain auto_routed/requested_provider
+  // even when the caller did not supply explicit metadata.
+  const hasEnrichedMeta = Object.keys(metadataObject).length > 0;
+  const metadataStr = hasEnrichedMeta ? JSON.stringify(metadataObject) : null;
   if (metadataStr && typeof metadataStr === 'string' && metadataStr.length > MAX_METADATA_SIZE) {
     throw new Error(`metadata exceeds maximum size (${metadataStr.length} > ${MAX_METADATA_SIZE} bytes)`);
   }

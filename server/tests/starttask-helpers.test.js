@@ -950,7 +950,8 @@ describe('resolveProviderRouting (via startTask)', () => {
       expect(task.model).toBe('claude-3-haiku');
       expect(task.original_provider).toBe('anthropic');
       expect(task.provider_switched_at).toBeNull();
-      expect(task.metadata).toBeNull();
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+      expect(meta).toMatchObject({ requested_provider: 'anthropic' });
       expect(spawnSpy).not.toHaveBeenCalled();
     } finally {
       providerSpy.mockRestore();
