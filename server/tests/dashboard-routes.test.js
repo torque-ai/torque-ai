@@ -665,27 +665,29 @@ describe('route handlers with mock db', () => {
 
   describe('agents routes', () => {
     const agents = require('../dashboard/routes/infrastructure');
-    const index = require('../index');
 
     function setupAgentDb(initialRows = []) {
       const rowsById = new Map(initialRows.map(row => [row.id, { ...row }]));
       const prepare = vi.fn((sql) => {
-        if (sql.includes('ORDER BY created_at DESC')) {
-          return {
-            all: () => Array.from(rowsById.values()).map(row => ({ ...row })),
-          };
+        if (sql.includes('SELECT * FROM remote_agents') && !sql.includes('WHERE')) {
+          return { all: () => Array.from(rowsById.values()).map(r => ({ ...r })) };
         }
         if (sql.includes('WHERE id = ?')) {
+          return { get: (id) => { const r = rowsById.get(id); return r ? { ...r } : undefined; } };
+        }
+        if (sql.includes('INSERT OR REPLACE')) {
           return {
-            get: (id) => {
-              const row = rowsById.get(id);
-              return row ? { ...row } : undefined;
+            run: (...args) => {
+              const [id, name, host, port, , max_concurrent, tls, rejectUnauthorized] = args;
+              rowsById.set(id, { id, name, host, port, secret: 'hashed', max_concurrent, tls, rejectUnauthorized, status: 'unknown' });
             },
           };
         }
-        throw new Error(`Unexpected SQL: ${sql}`);
+        if (sql.includes('enabled')) {
+          return { all: () => [] };
+        }
+        return { all: () => [], get: () => undefined, run: () => {} };
       });
-
       vi.spyOn(db, 'getDbInstance').mockReturnValue({ prepare });
       return rowsById;
     }
@@ -720,16 +722,6 @@ describe('route handlers with mock db', () => {
 
     it('handleCreateAgent forwards explicit tls settings', async () => {
       const rowsById = setupAgentDb([]);
-      const registry = {
-        register: vi.fn((agent) => {
-          rowsById.set(agent.id, {
-            ...agent,
-            tls: agent.tls ? 1 : 0,
-            rejectUnauthorized: agent.rejectUnauthorized ? 1 : 0,
-          });
-        }),
-      };
-      vi.spyOn(index, 'getAgentRegistry').mockReturnValue(registry);
 
       const req = createMockReq({
         method: 'POST',
@@ -747,16 +739,10 @@ describe('route handlers with mock db', () => {
       await agents.handleCreateAgent(req, res);
       await done;
 
-      expect(registry.register).toHaveBeenCalledWith({
-        id: 'agent-1',
-        name: 'TLS Agent',
-        host: 'secure.example.test',
-        port: 443,
-        secret: 'super-secret',
-        max_concurrent: 3,
-        tls: true,
-        rejectUnauthorized: false,
-      });
+      const stored = rowsById.get('agent-1');
+      expect(stored).toBeDefined();
+      expect(stored.tls).toBe(1);
+      expect(stored.rejectUnauthorized).toBe(0);
       expect(parseJsonBody(res.body)).toMatchObject({
         id: 'agent-1',
         tls: true,
@@ -776,16 +762,6 @@ describe('route handlers with mock db', () => {
           rejectUnauthorized: 0,
         },
       ]);
-      const registry = {
-        register: vi.fn((agent) => {
-          rowsById.set(agent.id, {
-            ...agent,
-            tls: agent.tls ? 1 : 0,
-            rejectUnauthorized: agent.rejectUnauthorized ? 1 : 0,
-          });
-        }),
-      };
-      vi.spyOn(index, 'getAgentRegistry').mockReturnValue(registry);
 
       const req = createMockReq({
         method: 'POST',
@@ -801,16 +777,8 @@ describe('route handlers with mock db', () => {
       await agents.handleCreateAgent(req, res);
       await done;
 
-      expect(registry.register).toHaveBeenCalledWith({
-        id: 'agent-1',
-        name: 'TLS Agent',
-        host: 'new.example.test',
-        port: 443,
-        secret: 'new-secret',
-        max_concurrent: 3,
-        tls: true,
-        rejectUnauthorized: false,
-      });
+      const stored = rowsById.get('agent-1');
+      expect(stored).toBeDefined();
       expect(parseJsonBody(res.body)).toMatchObject({
         id: 'agent-1',
         host: 'new.example.test',

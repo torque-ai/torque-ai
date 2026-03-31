@@ -89,7 +89,7 @@ installCjsModuleMock('../api/v2-infrastructure-handlers', handlerModule([
   'handleAddHost', 'handleRefreshModels',
   'handleHostActivity', 'handleProviderPercentiles', 'handleCoordinationDashboard',
 ]));
-installCjsModuleMock('../handlers/remote-agent-handlers', handlerModule([
+installCjsModuleMock('../plugins/remote-agents/handlers', handlerModule([
   'handleRunRemoteCommand',
   'handleRunTests',
 ]));

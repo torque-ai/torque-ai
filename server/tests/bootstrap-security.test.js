@@ -1,6 +1,6 @@
 'use strict';
 // vitest globals (describe, it, expect) are available via globals: true in config
-const { generateBootstrapScript, handleBootstrapWorkstation } = require('../api/bootstrap');
+const { generateBootstrapScript, handleBootstrapWorkstation } = require('../plugins/remote-agents/bootstrap');
 
 describe('bootstrap security', () => {
   describe('input validation', () => {

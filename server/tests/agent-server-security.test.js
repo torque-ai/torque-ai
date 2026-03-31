@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
-const { prepareShellArgs, validateRunRequest, spawnAndCapture, isAuthorized } = require('../remote/agent-server');
+const { prepareShellArgs, validateRunRequest, spawnAndCapture, isAuthorized } = require('../plugins/remote-agents/agent-server');
 
 describe('isAuthorized — timing-safe auth', () => {
   it('uses timing-safe comparison (crypto.timingSafeEqual is called)', () => {

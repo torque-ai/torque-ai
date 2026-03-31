@@ -164,7 +164,7 @@ installCjsModuleMock('../api/v2-workflow-handlers', mockHandlers.workflows);
 installCjsModuleMock('../api/v2-governance-handlers', mockHandlers.governance);
 installCjsModuleMock('../api/v2-analytics-handlers', mockHandlers.analytics);
 installCjsModuleMock('../api/v2-infrastructure-handlers', mockHandlers.infrastructure);
-installCjsModuleMock('../handlers/remote-agent-handlers', {
+installCjsModuleMock('../plugins/remote-agents/handlers', {
   handleRunRemoteCommand: vi.fn(),
   handleRunTests: vi.fn(),
 });
