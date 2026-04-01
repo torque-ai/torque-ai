@@ -89,12 +89,22 @@ function createAutoReleaseService({ db, releaseManager, changelogGenerator, logg
       log.error(`[auto-release] Failed to record release: ${err.message}`);
     }
 
+    // Link unreleased commits to this release
     try {
       const commitIds = unreleased.map(c => c.id);
       const placeholders = commitIds.map(() => '?').join(',');
       db.prepare(`UPDATE vc_commits SET release_id = ? WHERE id IN (${placeholders})`).run(releaseId, ...commitIds);
     } catch (err) {
       log.info(`[auto-release] Failed to link commits to release: ${err.message}`);
+    }
+
+    // Link the release tag commit itself (created by release-manager) back to its trigger
+    try {
+      db.prepare(
+        `UPDATE vc_commits SET release_id = ?, task_id = ?, workflow_id = ? WHERE repo_path = ? AND commit_hash = ? AND commit_type = 'release'`
+      ).run(releaseId, taskId || null, workflowId || null, repoPath, releaseResult.tag);
+    } catch (err) {
+      log.info(`[auto-release] Failed to link release commit: ${err.message}`);
     }
 
     log.info(`[auto-release] Released ${releaseResult.tag} (${bump}) for ${repoPath}`);
