@@ -375,6 +375,8 @@ export const schedules = {
     body: JSON.stringify({ enabled }),
   }),
   delete: (id) => requestV2(`/schedules/${id}`, { method: 'DELETE' }),
+  get: (id) => requestV2(`/schedules/${id}`),
+  update: (id, data) => requestV2(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // ─── Task logs (v2) ─────────────────────────────────────────────────────────

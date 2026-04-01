@@ -461,6 +461,15 @@ const routes = [
       params: validateDecodedParamField('schedule_id', 'schedule id'),
     }),
   },
+  {
+    method: 'PUT',
+    path: /^\/api\/v2\/schedules\/([^/]+)$/,
+    handlerName: 'handleV2CpUpdateSchedule',
+    mapParams: ['schedule_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('schedule_id', 'schedule id'),
+    }),
+  },
 
   // Policies
   {

@@ -606,9 +606,29 @@ function updateScheduledTask(id, updates) {
     params.push(nextRun ? nextRun.toISOString() : null);
   }
 
+  if (updates.run_at !== undefined) {
+    const runAt = new Date(updates.run_at);
+    if (runAt.getTime() < Date.now() - 60000) {
+      throw new Error('ONE_TIME_PAST: scheduled time must be in the future');
+    }
+    const runAtIso = runAt.toISOString();
+    fields.push('scheduled_time = ?');
+    params.push(runAtIso);
+    fields.push('next_run_at = ?');
+    params.push(runAtIso);
+  }
+
+  if (updates.task_description !== undefined) {
+    fields.push('task_description = ?');
+    params.push(updates.task_description);
+  }
+
   if (updates.task_config !== undefined) {
+    // Partial merge: merge caller's keys into existing task_config
+    const existing = getScheduledTask(id);
+    const merged = { ...(existing?.task_config || {}), ...updates.task_config };
     fields.push('task_config = ?');
-    params.push(JSON.stringify(updates.task_config));
+    params.push(JSON.stringify(merged));
   }
 
   if (updates.enabled !== undefined) {

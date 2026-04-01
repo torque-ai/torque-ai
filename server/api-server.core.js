@@ -207,6 +207,7 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpGetSchedule: v2GovernanceHandlers.handleGetSchedule,
   handleV2CpToggleSchedule: v2GovernanceHandlers.handleToggleSchedule,
   handleV2CpDeleteSchedule: v2GovernanceHandlers.handleDeleteSchedule,
+  handleV2CpUpdateSchedule: v2GovernanceHandlers.handleUpdateSchedule,
   handleV2CpListPolicies: v2GovernanceHandlers.handleListPolicies,
   handleV2CpGetPolicy: v2GovernanceHandlers.handleGetPolicy,
   handleV2CpSetPolicyMode: v2GovernanceHandlers.handleSetPolicyMode,

@@ -258,6 +258,53 @@ async function handleDeleteSchedule(req, res) {
   }
 }
 
+async function handleUpdateSchedule(req, res) {
+  const requestId = resolveRequestId(req);
+  const scheduleId = req.params?.schedule_id;
+  const body = req.body || await parseBody(req);
+
+  try {
+    const existing = schedulingAutomation.getScheduledTask(scheduleId);
+    if (!existing) {
+      return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
+    }
+
+    const updates = {};
+
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.timezone !== undefined) updates.timezone = body.timezone;
+    if (body.task_description !== undefined) updates.task_description = body.task_description;
+
+    // Cron-specific
+    if (body.cron_expression !== undefined) updates.cron_expression = body.cron_expression;
+
+    // One-time-specific
+    if (body.run_at !== undefined) updates.run_at = body.run_at;
+
+    // Partial task_config merge for provider/model/working_directory
+    const configUpdates = {};
+    if (body.provider !== undefined) configUpdates.provider = body.provider || null;
+    if (body.model !== undefined) configUpdates.model = body.model || null;
+    if (body.working_directory !== undefined) configUpdates.working_directory = body.working_directory || null;
+    if (body.task !== undefined) configUpdates.task = body.task;
+    if (body.workflow_id !== undefined) configUpdates.workflow_id = body.workflow_id || null;
+    if (Object.keys(configUpdates).length > 0) {
+      updates.task_config = configUpdates;
+    }
+
+    if (body.enabled !== undefined) updates.enabled = body.enabled;
+
+    const result = schedulingAutomation.updateScheduledTask(scheduleId, updates);
+    if (!result) {
+      return sendError(res, requestId, 'operation_failed', 'No fields to update', 400, {}, req);
+    }
+
+    sendSuccess(res, requestId, result, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
 // ─── Policies ───────────────────────────────────────────────────────────────
 
 async function handleListPolicies(req, res) {
@@ -1237,6 +1284,7 @@ function createV2GovernanceHandlers(_deps) {
     handleGetSchedule,
     handleToggleSchedule,
     handleDeleteSchedule,
+    handleUpdateSchedule,
     handleListPolicies,
     handleGetPolicy,
     handleSetPolicyMode,
@@ -1288,6 +1336,7 @@ module.exports = {
   handleGetSchedule,
   handleToggleSchedule,
   handleDeleteSchedule,
+  handleUpdateSchedule,
   // Policies
   handleListPolicies,
   handleGetPolicy,

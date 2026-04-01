@@ -4,6 +4,7 @@ import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import { formatDate } from '../utils/formatters';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import ScheduleDetailDrawer from '../components/ScheduleDetailDrawer';
 
 function SortHeader({ column, label, sortCol, sortDir, onSort }) {
   const active = sortCol === column;
@@ -46,6 +47,7 @@ export default function Schedules() {
   const [showConfirm, setShowConfirm] = useState(null);
   const [form, setForm] = useState({ name: '', schedule_type: 'cron', cron_expression: '', run_at: '', task_description: '', provider: '', model: '', working_directory: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [selectedScheduleId, setSelectedScheduleId] = useState(null);
   const toast = useToast();
 
   const loadSchedules = useCallback(async () => {
@@ -284,7 +286,7 @@ export default function Schedules() {
                 const schedType = schedule.schedule_type || 'cron';
                 const isOnce = schedType === 'once';
                 return (
-                  <tr key={schedule.id} className="border-b border-slate-700/30 hover:bg-slate-700/30 transition-colors">
+                  <tr key={schedule.id} onClick={() => setSelectedScheduleId(schedule.id)} className="border-b border-slate-700/30 hover:bg-slate-700/30 transition-colors cursor-pointer">
                     <td className="p-4">
                       <p className="text-white text-sm font-medium">{schedule.name}</p>
                       <p className="text-slate-400 text-xs truncate max-w-xs" title={schedule.task_description}>{schedule.task_description?.substring(0, 60)}{schedule.task_description?.length > 60 ? '...' : ''}</p>
@@ -304,8 +306,8 @@ export default function Schedules() {
                     <td className="p-4"><StatusBadge enabled={isEnabled} /></td>
                     <td className="p-4">
                       <div className="flex items-center gap-2">
-                        <button onClick={() => handleToggle(schedule.id, isEnabled)} className={`text-xs px-3 py-1 rounded transition-colors ${isEnabled ? 'bg-slate-600/30 hover:bg-slate-600 text-slate-300 hover:text-white' : 'bg-green-600/30 hover:bg-green-600 text-green-300 hover:text-white'}`}>{isEnabled ? 'Disable' : 'Enable'}</button>
-                        <button onClick={() => handleDelete(schedule.id)} className="text-xs px-3 py-1 rounded bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white transition-colors">Delete</button>
+                        <button onClick={(e) => { e.stopPropagation(); handleToggle(schedule.id, isEnabled); }} className={`text-xs px-3 py-1 rounded transition-colors ${isEnabled ? 'bg-slate-600/30 hover:bg-slate-600 text-slate-300 hover:text-white' : 'bg-green-600/30 hover:bg-green-600 text-green-300 hover:text-white'}`}>{isEnabled ? 'Disable' : 'Enable'}</button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDelete(schedule.id); }} className="text-xs px-3 py-1 rounded bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white transition-colors">Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -327,6 +329,14 @@ export default function Schedules() {
             </div>
           </div>
         </div>
+      )}
+
+      {selectedScheduleId && (
+        <ScheduleDetailDrawer
+          scheduleId={selectedScheduleId}
+          onClose={() => setSelectedScheduleId(null)}
+          onUpdated={loadSchedules}
+        />
       )}
     </div>
   );
