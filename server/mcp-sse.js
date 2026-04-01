@@ -272,7 +272,7 @@ async function handleHttpRequest(req, res) {
   if (allowedOrigin) {
     res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   }
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Request-ID');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
 
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {

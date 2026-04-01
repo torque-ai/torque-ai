@@ -64,8 +64,10 @@ function validateProtocolVersionHeader(req, res) {
 }
 
 function createSession(req) {
+  const sessionId = randomUUID();
   return {
-    _sessionId: randomUUID(),
+    _sessionId: sessionId,
+    __sessionId: sessionId,
     _remoteAddress: req.socket?.remoteAddress || req.connection?.remoteAddress || null,
     _origin: getHeader(req, 'origin'),
     _eventCounter: 0,
