@@ -25,6 +25,7 @@ const eventBus = require('./event-bus');
 // Extracted modules
 const sessionMod = require('./transports/sse/session');
 const protocolMod = require('./transports/sse/protocol');
+const streamableHttpMod = require('./transports/streamable-http');
 
 // Re-export shared state for backward compatibility
 const {
@@ -190,7 +191,7 @@ protocolMod.injectNotificationSender(sendJsonRpcNotification);
 function sendClientRequest(sessionId, method, params, timeoutMs = ELICITATION_TIMEOUT_MS) {
   const session = sessions.get(sessionId);
   if (!session || session.res.writableEnded) {
-    return Promise.resolve({ action: 'decline' });
+    return streamableHttpMod.sendClientRequest(sessionId, method, params, timeoutMs);
   }
 
   if (!session.pendingRequests) {
@@ -272,7 +273,7 @@ async function handleHttpRequest(req, res) {
     res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   }
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Request-ID');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
 
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     res.setHeader(key, value);
@@ -292,6 +293,11 @@ async function handleHttpRequest(req, res) {
   // POST /messages?sessionId=xxx — receive JSON-RPC request
   if (req.method === 'POST' && url.pathname === '/messages') {
     return handleMessagePost(req, res, url, requestId);
+  }
+
+  // Streamable HTTP endpoint for Codex and other modern MCP clients
+  if ((req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE') && url.pathname === '/mcp') {
+    return streamableHttpMod.handleHttpRequest(req, res, url);
   }
 
   // Unknown route
@@ -675,7 +681,7 @@ function start(options = {}) {
     });
 
     sseServer.listen(ssePort, '127.0.0.1', () => {
-      debugLog(`Listening on http://127.0.0.1:${ssePort}/sse`);
+      debugLog(`Listening on http://127.0.0.1:${ssePort}/sse (legacy) and /mcp (streamable HTTP)`);
       sessionMod.cleanExpiredSubscriptions();
       trackInterval(setInterval(sessionMod.cleanExpiredSubscriptions, 60 * 60 * 1000));
       // Reap stale sessions every 60s to prevent per-IP counter drift
@@ -696,6 +702,7 @@ function stop() {
 
   if (sseServer) {
     clearAllTrackedIntervals();
+    streamableHttpMod.stop();
 
     for (const [_id, session] of sessions) {
       clearTrackedInterval(session.keepaliveTimer);
@@ -783,5 +790,5 @@ module.exports = {
   taskSubscriptions,
   addSessionToTaskSubscriptions: sessionMod.addSessionToTaskSubscriptions,
   sendClientRequest,
-  getSession: sessionMod.getSession,
+  getSession: (sessionId) => sessionMod.getSession(sessionId) || streamableHttpMod.getSession(sessionId),
 };

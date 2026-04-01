@@ -2,13 +2,12 @@
 
 ## Setup
 
-TORQUE connects via MCP SSE. Point your Codex MCP config at the running TORQUE instance:
+Codex should connect to TORQUE through the streamable HTTP MCP endpoint:
 
-    [mcp.torque]
-    type = "sse"
-    url = "http://127.0.0.1:3458/sse"
+    [mcp_servers.torque]
+    url = "http://127.0.0.1:3458/mcp"
 
-TORQUE must be running first. The MCP config injector auto-configures Claude Code on startup, but Codex requires manual config.
+TORQUE must be running first. The legacy `/sse` endpoint remains available for older MCP clients, but current Codex builds expect a streamable HTTP `url` server rather than `type = "sse"`.
 
 TORQUE orchestrates AI work in Codex through multi-provider routing, queued execution, DAG workflows, and quality gates.
 

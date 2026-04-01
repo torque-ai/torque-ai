@@ -194,7 +194,7 @@ describe('MCP SSE Transport', () => {
 
       expect(response.headers['Access-Control-Allow-Origin']).toBe('http://localhost:3456');
       expect(response.headers['Access-Control-Allow-Headers']).toMatch(/Content-Type/);
-      expect(response.headers['Access-Control-Allow-Methods']).toBe('GET, POST, OPTIONS');
+      expect(response.headers['Access-Control-Allow-Methods']).toBe('GET, POST, DELETE, OPTIONS');
     });
 
     it('handles OPTIONS preflight with 204', async () => {

@@ -1,6 +1,7 @@
 'use strict';
 
 const SERVER_INFO = { name: 'torque', version: '1.0.0' };
+const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
 
 let _tools = [];
 let _coreToolNames = [];
@@ -48,7 +49,7 @@ async function handleRequest(request, session) {
       session.supportsSampling = Boolean(params?.capabilities?.sampling);
 
       const response = {
-        protocolVersion: '2024-11-05',
+        protocolVersion: session?.protocolVersion || DEFAULT_PROTOCOL_VERSION,
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
       };
@@ -145,4 +146,4 @@ async function _handleToolCallInternal(params, session) {
   }
 }
 
-module.exports = { init, handleRequest, SERVER_INFO };
+module.exports = { init, handleRequest, SERVER_INFO, DEFAULT_PROTOCOL_VERSION };
