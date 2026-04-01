@@ -79,14 +79,18 @@ function normalizeGovernanceRuleRow(row) {
 function resolveDashboardGovernanceDb() {
   try {
     const { defaultContainer } = require('../container');
-    if (!defaultContainer || typeof defaultContainer.get !== 'function') {
-      throw new Error('Container unavailable');
+    if (defaultContainer && typeof defaultContainer.get === 'function') {
+      try {
+        const db = defaultContainer.get('db');
+        if (db && typeof db.prepare === 'function') return { db };
+      } catch { /* container not booted — fall through */ }
     }
-    const db = defaultContainer.get('db');
-    if (!db || typeof db.prepare !== 'function') {
-      throw new Error('Governance rules not initialized');
-    }
-    return { db };
+    const database = require('../database');
+    const db = database && typeof database.getDbInstance === 'function'
+      ? database.getDbInstance()
+      : (database && typeof database.getDb === 'function' ? database.getDb() : database);
+    if (db && typeof db.prepare === 'function') return { db };
+    throw new Error('No database available');
   } catch (error) {
     return { error };
   }
@@ -94,21 +98,30 @@ function resolveDashboardGovernanceDb() {
 
 function resolveDashboardVersionControlDb() {
   try {
+    // Try container first
     const { defaultContainer } = require('../container');
-    if (!defaultContainer || typeof defaultContainer.get !== 'function') {
-      throw new Error('Container unavailable');
+    if (defaultContainer && typeof defaultContainer.get === 'function') {
+      try {
+        const dbService = defaultContainer.get('db');
+        const db = dbService && typeof dbService.getDbInstance === 'function'
+          ? dbService.getDbInstance()
+          : (dbService && typeof dbService.getDb === 'function' ? dbService.getDb() : dbService);
+        if (db && typeof db.prepare === 'function') {
+          return { db };
+        }
+      } catch { /* container not booted or db not registered — fall through */ }
     }
 
-    const dbService = defaultContainer.get('db');
-    const db = dbService && typeof dbService.getDbInstance === 'function'
-      ? dbService.getDbInstance()
-      : (dbService && typeof dbService.getDb === 'function' ? dbService.getDb() : dbService);
-
-    if (!db || typeof db.prepare !== 'function') {
-      throw new Error('Version control tables not initialized');
+    // Fallback: require database.js directly (same pattern as version-control plugin)
+    const database = require('../database');
+    const db = database && typeof database.getDbInstance === 'function'
+      ? database.getDbInstance()
+      : (database && typeof database.getDb === 'function' ? database.getDb() : database);
+    if (db && typeof db.prepare === 'function') {
+      return { db };
     }
 
-    return { db };
+    throw new Error('No database available via container or direct require');
   } catch (error) {
     return { error };
   }
