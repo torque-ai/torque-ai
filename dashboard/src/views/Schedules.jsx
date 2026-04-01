@@ -269,7 +269,6 @@ export default function Schedules() {
           <thead>
             <tr className="border-b border-slate-700/50">
               <SortHeader column="name" label="Name" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
-              <th className="text-left p-4 heading-sm">Type</th>
               <SortHeader column="cron_expression" label="Schedule" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <SortHeader column="next_run" label="Next Run" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <th className="text-left p-4 heading-sm">Last Run</th>
@@ -279,7 +278,7 @@ export default function Schedules() {
           </thead>
           <tbody>
             {sortedItems.length === 0 ? (
-              <tr><td colSpan={7} className="p-8 text-center text-slate-500">No scheduled tasks. Click "New Schedule" to create one.</td></tr>
+              <tr><td colSpan={6} className="p-8 text-center text-slate-500">No scheduled tasks. Click "New Schedule" to create one.</td></tr>
             ) : (
               sortedItems.map((schedule) => {
                 const isEnabled = schedule.enabled !== false && schedule.enabled !== 0;
@@ -288,11 +287,18 @@ export default function Schedules() {
                 return (
                   <tr key={schedule.id} onClick={() => setSelectedScheduleId(schedule.id)} className="border-b border-slate-700/30 hover:bg-slate-700/30 transition-colors cursor-pointer">
                     <td className="p-4">
-                      <p className="text-white text-sm font-medium">{schedule.name}</p>
-                      <p className="text-slate-400 text-xs truncate max-w-xs" title={schedule.task_description}>{schedule.task_description?.substring(0, 60)}{schedule.task_description?.length > 60 ? '...' : ''}</p>
-                    </td>
-                    <td className="p-4">
-                      <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${isOnce ? 'bg-purple-600/20 text-purple-300' : 'bg-blue-600/20 text-blue-300'}`}>{isOnce ? 'Once' : 'Cron'}</span>
+                      <div className="flex items-center gap-2">
+                        <p className="text-white text-sm font-medium">{schedule.name}</p>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${isOnce ? 'bg-purple-600/20 text-purple-300' : 'bg-blue-600/20 text-blue-300'}`}>{isOnce ? 'One-time' : 'Recurring'}</span>
+                      </div>
+                      <p className="text-slate-400 text-xs mt-0.5">
+                        {isOnce ? (
+                          <span className="text-purple-400">Fires: {formatDate(schedule.scheduled_time || schedule.next_run_at)}</span>
+                        ) : (
+                          <span className="text-blue-400">Next: {formatDate(schedule.next_run_at || schedule.next_run)}</span>
+                        )}
+                      </p>
+                      <p className="text-slate-500 text-xs truncate max-w-xs mt-0.5" title={schedule.task_description}>{schedule.task_description?.substring(0, 60)}{schedule.task_description?.length > 60 ? '...' : ''}</p>
                     </td>
                     <td className="p-4">
                       {isOnce ? (

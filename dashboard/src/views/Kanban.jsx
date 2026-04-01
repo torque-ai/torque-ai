@@ -647,6 +647,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   const prevLiveIdsRef = useRef(new Set()); // Track WS-pushed task IDs for deletion detection (RB-056)
   const hasInitializedLiveTasksRef = useRef(false);
   const failCountRef = useRef(0);
+  const debounceRefetchRef = useRef(null);
   const [lastRefreshed, setLastRefreshed] = useState(null);
   const [showSubmitForm, setShowSubmitForm] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -821,12 +822,15 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     };
   }, [loadData]);
 
-  // Refetch when WebSocket pushes stats or task mutations — full refresh including completed
+  // Debounced refetch on stats changes — coalesce rapid WebSocket events into one API round-trip.
+  // Task mutations are already applied inline via WebSocket (App.jsx setTasks), so only stats
+  // changes (overview, quality, timeseries) need a full refetch. Debounce at 5s to avoid hammering.
   useEffect(() => {
-    if (statsVersion > 0 || tasksTick > 0) {
-      loadData();
-    }
-  }, [statsVersion, tasksTick, loadData]);
+    if (statsVersion === 0) return;
+    clearTimeout(debounceRefetchRef.current);
+    debounceRefetchRef.current = setTimeout(() => loadData(), 5000);
+    return () => clearTimeout(debounceRefetchRef.current);
+  }, [statsVersion, loadData]);
 
   useEffect(() => {
     const currentLiveIds = new Set((liveTasks || []).map(t => t.id));
