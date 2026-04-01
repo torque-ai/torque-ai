@@ -131,6 +131,8 @@ function startMaintenanceScheduler(opts = {}) {
               debugLog(`Executed scheduled workflow "${schedule.name}" -> workflow ${config.workflow_id}`);
             } else {
               const taskId = require('uuid').v4();
+              const taskMeta = { ...originMetadata };
+              if (config.version_intent) taskMeta.version_intent = config.version_intent;
               db.createTask({
                 id: taskId,
                 task_description: config.task || schedule.task_description || 'Scheduled task',
@@ -141,7 +143,7 @@ function startMaintenanceScheduler(opts = {}) {
                 timeout_minutes: config.timeout_minutes || schedule.timeout_minutes || 30,
                 auto_approve: config.auto_approve || false,
                 priority: config.priority || 0,
-                metadata: originMetadata,
+                metadata: taskMeta,
               });
               db.markScheduledTaskRun(schedule.id);
               const taskManager = require('../task-manager');

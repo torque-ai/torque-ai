@@ -377,6 +377,25 @@ function createCronScheduledTask(data) {
   const now = new Date().toISOString();
   const { v4: uuidv4 } = require('uuid');
 
+  // Version intent enforcement for versioned projects
+  const workDir = (data.task_config && data.task_config.working_directory) || null;
+  if (workDir) {
+    try {
+      const { isProjectVersioned, validateVersionIntent } = require('../versioning/version-intent');
+      if (isProjectVersioned(db, workDir)) {
+        const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
+        if (!intent) {
+          throw new Error('version_intent is required for versioned project. Use: feature, fix, breaking, or internal');
+        }
+        const check = validateVersionIntent(intent);
+        if (!check.valid) throw new Error(check.error);
+      }
+    } catch (e) {
+      if (e.message.includes('version_intent')) throw e;
+      // version-intent module unavailable — allow
+    }
+  }
+
   // Validate cron expression
   parseCronExpression(data.cron_expression);
 
@@ -428,6 +447,23 @@ function createCronScheduledTask(data) {
  * After firing, the schedule is auto-deleted by markScheduledTaskRun.
  */
 function createOneTimeSchedule(data) {
+  // Version intent enforcement for versioned projects
+  const workDir = (data.task_config && data.task_config.working_directory) || null;
+  if (workDir) {
+    try {
+      const { isProjectVersioned, validateVersionIntent } = require('../versioning/version-intent');
+      if (isProjectVersioned(db, workDir)) {
+        const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
+        if (!intent) {
+          throw new Error('version_intent is required for versioned project. Use: feature, fix, breaking, or internal');
+        }
+        const check = validateVersionIntent(intent);
+        if (!check.valid) throw new Error(check.error);
+      }
+    } catch (e) {
+      if (e.message.includes('version_intent')) throw e;
+    }
+  }
   const { v4: uuidv4 } = require('uuid');
   const now = new Date();
 

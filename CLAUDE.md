@@ -366,6 +366,35 @@ These policies require Claude's judgment and cannot be reduced to rules:
 - **Prefer hashline tools over Read/Edit** -- use `hashline_read` + `hashline_edit`
   when TORQUE is available for higher edit precision.
 
+## Project Versioning
+
+TORQUE supports automated semver release management per project. When versioning is enabled, releases are cut automatically on task/workflow completion.
+
+### Enabling Versioning
+
+Enable via `project_metadata`: `versioning_enabled = true`, `versioning_start = "1.0.0"` (default 0.1.0), `versioning_auto_push = false`.
+
+### version_intent (Required for Versioned Projects)
+
+Every task, workflow, and schedule submission to a versioned project **must** include `version_intent`:
+
+| Intent | Bump | Use |
+|--------|------|-----|
+| `feature` | minor | New functionality |
+| `fix` | patch | Bug fixes |
+| `breaking` | major | Breaking changes |
+| `internal` | none | Docs, refactoring, tests |
+
+### Auto-Release
+
+- **Workflow completion** calculates bump from accumulated intents, creates git tag + changelog
+- **Standalone task completion** bumps immediately
+- **Direct commits** auto-tracked via conventional commit prefix (`feat:`, `fix:`, etc.)
+
+### For Direct Claude Changes
+
+When editing versioned projects outside TORQUE, **always use conventional commit messages**. The completion pipeline auto-scans for untracked commits and records them with inferred intent.
+
 ## Best Practices
 
 1. Use `/torque-submit` � it handles routing, baselines, and retry automatically
