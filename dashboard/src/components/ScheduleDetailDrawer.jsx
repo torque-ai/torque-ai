@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { schedules as schedulesApi } from '../api';
 import { useToast } from './Toast';
 import { format } from 'date-fns';
@@ -120,7 +120,7 @@ function EditableField({ value, onSave, type = 'text', options, placeholder, mul
   );
 }
 
-export default function ScheduleDetailDrawer({ scheduleId, onClose, onUpdated }) {
+export default memo(function ScheduleDetailDrawer({ scheduleId, onClose, onUpdated }) {
   const [schedule, setSchedule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -387,4 +387,4 @@ export default function ScheduleDetailDrawer({ scheduleId, onClose, onUpdated })
       </div>
     </>
   );
-}
+});

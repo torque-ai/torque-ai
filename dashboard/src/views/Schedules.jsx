@@ -65,11 +65,14 @@ export default function Schedules() {
   useEffect(() => {
     loadSchedules();
     const interval = setInterval(() => {
-      if (document.hidden) return;
+      if (document.hidden || selectedScheduleId) return; // pause polling while drawer is open
       loadSchedules();
     }, 60000);
     return () => clearInterval(interval);
-  }, [loadSchedules]);
+  }, [loadSchedules, selectedScheduleId]);
+
+  const closeDrawer = useCallback(() => setSelectedScheduleId(null), []);
+  const refreshAfterDrawer = useCallback(() => loadSchedules(), [loadSchedules]);
 
   function handleSort(col) {
     if (sortCol === col) {
@@ -340,8 +343,8 @@ export default function Schedules() {
       {selectedScheduleId && (
         <ScheduleDetailDrawer
           scheduleId={selectedScheduleId}
-          onClose={() => setSelectedScheduleId(null)}
-          onUpdated={loadSchedules}
+          onClose={closeDrawer}
+          onUpdated={refreshAfterDrawer}
         />
       )}
     </div>
