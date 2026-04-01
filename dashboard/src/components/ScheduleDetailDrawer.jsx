@@ -179,12 +179,18 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, onClose, onUpdat
       toast.success('Schedule updated');
       onUpdated?.();
     } catch (err) {
-      setSchedule(prev);
       if (err.message?.includes('not found') || err.status === 404) {
         toast.error('Schedule has already fired');
         onClose();
       } else {
         toast.error(`Update failed: ${err.message}`);
+        // Re-fetch server state instead of reverting to potentially stale snapshot
+        try {
+          const fresh = await schedulesApi.get(scheduleId);
+          setSchedule(fresh?.data || fresh);
+        } catch {
+          setSchedule(prev); // last resort fallback
+        }
       }
     }
   }
