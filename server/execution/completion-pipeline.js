@@ -95,6 +95,31 @@ function recordProviderHealth(task, success) {
   }
 }
 
+function triggerAutoRelease(repoPath, opts) {
+  try {
+    const database = require('../database');
+    const rawDb = database.getDbInstance();
+    if (!rawDb || typeof rawDb.prepare !== 'function') return;
+
+    const { createReleaseManager } = require('../plugins/version-control/release-manager');
+    const { createChangelogGenerator } = require('../plugins/version-control/changelog-generator');
+    const { createAutoReleaseService } = require('../versioning/auto-release');
+
+    const rm = createReleaseManager({ db: rawDb });
+    const cg = createChangelogGenerator({ db: rawDb });
+    const autoRelease = createAutoReleaseService({
+      db: rawDb,
+      releaseManager: rm,
+      changelogGenerator: cg,
+      logger,
+    });
+
+    autoRelease.cutRelease(repoPath, opts);
+  } catch (err) {
+    logger.info(`[auto-release] triggerAutoRelease failed: ${err.message}`);
+  }
+}
+
 // ─── Main handler ────────────────────────────────────────────────────────
 
 /**
@@ -241,6 +266,42 @@ function handlePostCompletion(ctx) {
     }
   } catch (webhookErr) {
     logger.info('Post-completion webhook/workflow error:', webhookErr.message);
+  }
+
+  // Phase 9: Auto-release for versioned projects
+  if (ctx.status === 'completed') {
+    try {
+      const { isProjectVersioned } = require('../versioning/version-intent');
+      const database = require('../database');
+      const rawDb = database.getDbInstance();
+      const taskWorkDir = task?.working_directory || null;
+      if (rawDb && taskWorkDir && isProjectVersioned(rawDb, taskWorkDir)) {
+        const isWorkflowTask = Boolean(task?.workflow_id);
+
+        if (isWorkflowTask) {
+          // Only release when the entire workflow is complete
+          try {
+            const workflow = deps.db.getWorkflow(task.workflow_id);
+            if (workflow && workflow.status === 'completed') {
+              triggerAutoRelease(taskWorkDir, {
+                workflowId: task.workflow_id,
+                taskId: null,
+                trigger: 'workflow',
+              });
+            }
+          } catch (_wfErr) { /* workflow lookup failed - skip */ }
+        } else {
+          // Standalone task - release immediately
+          triggerAutoRelease(taskWorkDir, {
+            workflowId: null,
+            taskId,
+            trigger: 'task',
+          });
+        }
+      }
+    } catch (releaseErr) {
+      logger.info(`[Phase 9] Auto-release error (non-fatal): ${releaseErr.message}`);
+    }
   }
 }
 

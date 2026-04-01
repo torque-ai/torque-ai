@@ -473,7 +473,7 @@ export const coordination = {
 export const versionControl = {
   getWorktrees: () => request('/version-control/worktrees'),
   getCommits: (days = 7) => request('/version-control/commits?days=' + days),
-  getReleases: () => request('/version-control/releases'),
+  getReleases: (repoPath) => request('/version-control/releases' + (repoPath ? '?repo_path=' + encodeURIComponent(repoPath) : '')),
   createRelease: (body) => request('/version-control/releases', {
     method: 'POST',
     body: JSON.stringify(body),

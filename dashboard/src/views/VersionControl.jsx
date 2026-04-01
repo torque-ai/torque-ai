@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { versionControl as versionControlApi } from '../api';
 import StatCard from '../components/StatCard';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { useToast } from '../components/Toast';
 import { formatDate } from '../utils/formatters';
+import ReleaseDetailDrawer from '../components/ReleaseDetailDrawer';
 
 const REFRESH_INTERVAL_MS = 60_000;
 const STALE_DAYS = 7;
@@ -29,13 +30,18 @@ const COMMIT_TYPE_STYLES = {
 
 const RELEASE_BUMP_STYLES = {
   major: 'bg-red-600/20 text-red-300 border border-red-500/30',
-  minor: 'bg-blue-600/20 text-blue-300 border border-blue-500/30',
-  patch: 'bg-green-600/20 text-green-300 border border-green-500/30',
+  minor: 'bg-green-600/20 text-green-300 border border-green-500/30',
+  patch: 'bg-yellow-600/20 text-yellow-300 border border-yellow-500/30',
   unknown: 'bg-slate-700 text-slate-300 border border-slate-600',
 };
 
 function createEmptyReleaseState() {
   return {
+    latest_tag: null,
+    current_version: null,
+    unreleased_count: 0,
+    next_version: null,
+    recent_releases: [],
     latestTag: null,
     nextVersion: null,
     recentReleases: [],
@@ -144,20 +150,50 @@ function normalizeReleaseData(payload) {
     }
     : null;
 
-  return {
-    latestTag: typeof payload?.latest_tag === 'string' && payload.latest_tag.trim()
-      ? payload.latest_tag.trim()
-      : null,
-    nextVersion: nextVersion && nextVersion.next ? nextVersion : null,
-    recentReleases: Array.isArray(payload?.recent_releases)
-      ? payload.recent_releases.map((release) => ({
+  const recentReleases = Array.isArray(payload?.recent_releases)
+    ? payload.recent_releases.map((release) => {
+      const commitCount = Number(release?.commit_count ?? release?.commitCount ?? 0);
+      const filesChanged = Number(release?.files_changed ?? release?.filesChanged ?? 0);
+      const releasedAt = release?.released_at || release?.created_at || null;
+      const createdAt = release?.created_at || release?.released_at || null;
+      const bumpType = typeof release?.bump_type === 'string' ? release.bump_type.toLowerCase() : null;
+
+      return {
+        ...release,
         version: typeof release?.version === 'string' && release.version.trim() ? release.version.trim() : null,
         tag: typeof release?.tag === 'string' && release.tag.trim() ? release.tag.trim() : null,
-        releasedAt: release?.released_at || release?.created_at || null,
-        commitCount: Number(release?.commit_count ?? release?.commitCount ?? 0),
-        bumpType: typeof release?.bump_type === 'string' ? release.bump_type.toLowerCase() : null,
-      }))
-      : [],
+        released_at: releasedAt,
+        created_at: createdAt,
+        commit_count: Number.isFinite(commitCount) ? commitCount : 0,
+        files_changed: Number.isFinite(filesChanged) ? filesChanged : 0,
+        bump_type: bumpType,
+        commitCount: Number.isFinite(commitCount) ? commitCount : 0,
+        filesChanged: Number.isFinite(filesChanged) ? filesChanged : 0,
+        bumpType,
+        releasedAt,
+      };
+    })
+    : [];
+
+  const latestTag = typeof payload?.latest_tag === 'string' && payload.latest_tag.trim()
+    ? payload.latest_tag.trim()
+    : null;
+  const currentVersion = typeof payload?.current_version === 'string' && payload.current_version.trim()
+    ? payload.current_version.trim()
+    : null;
+  const unreleasedCount = Number(payload?.unreleased_count ?? 0);
+
+  return {
+    latest_tag: latestTag,
+    current_version: currentVersion,
+    unreleased_count: Number.isFinite(unreleasedCount) ? unreleasedCount : 0,
+    next_version: nextVersion && nextVersion.next ? nextVersion : null,
+    recent_releases: recentReleases,
+    latestTag,
+    currentVersion,
+    unreleasedCount: Number.isFinite(unreleasedCount) ? unreleasedCount : 0,
+    nextVersion: nextVersion && nextVersion.next ? nextVersion : null,
+    recentReleases,
   };
 }
 
@@ -192,6 +228,28 @@ function formatNextVersionReason(nextVersion) {
 
 function getCommitTimestamp(commit) {
   return commit?.created_at || commit?.generated_at || null;
+}
+
+function formatReleaseTimelineDate(value) {
+  if (!value) {
+    return 'Unknown date';
+  }
+
+  try {
+    return format(new Date(value), 'MMM d, yyyy');
+  } catch {
+    return String(value);
+  }
+}
+
+function formatReleaseVersion(version, tag) {
+  const normalizedVersion = typeof version === 'string' && version.trim() ? version.trim() : null;
+  if (normalizedVersion) {
+    return normalizedVersion.startsWith('v') ? normalizedVersion : `v${normalizedVersion}`;
+  }
+
+  const normalizedTag = typeof tag === 'string' && tag.trim() ? tag.trim() : null;
+  return normalizedTag || 'Unknown release';
 }
 
 function isSameDay(dateA, dateB) {
@@ -260,6 +318,7 @@ export default function VersionControl() {
   const [refreshing, setRefreshing] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [actionInProgress, setActionInProgress] = useState(null);
+  const [selectedRelease, setSelectedRelease] = useState(null);
 
   const loadData = useCallback(async ({ background = false, notifyError = true } = {}) => {
     if (!background) {
@@ -320,24 +379,14 @@ export default function VersionControl() {
     loadData({ background: false, notifyError: true });
     loadReleases({ background: false, notifyError: true });
     const interval = setInterval(() => {
-      if (document.hidden) {
+      if (document.hidden || selectedRelease) {
         return;
       }
       loadData({ background: true, notifyError: false });
       loadReleases({ background: true, notifyError: false });
     }, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [loadData, loadReleases]);
-
-  const recentCommits = useMemo(() => {
-    return [...commits]
-      .sort((left, right) => {
-        const leftTimestamp = normalizeTimestamp(getCommitTimestamp(left)) || 0;
-        const rightTimestamp = normalizeTimestamp(getCommitTimestamp(right)) || 0;
-        return rightTimestamp - leftTimestamp;
-      })
-      .slice(0, 10);
-  }, [commits]);
+  }, [loadData, loadReleases, selectedRelease]);
 
   const stats = useMemo(() => {
     const today = new Date();
@@ -427,21 +476,45 @@ export default function VersionControl() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="heading-lg text-white">Version Control</h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="heading-lg text-white">Version Control</h2>
+            {releaseData.current_version ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-700 text-slate-100 border border-slate-600">
+                {formatReleaseVersion(releaseData.current_version)}
+              </span>
+            ) : null}
+            {releaseData.unreleased_count > 0 ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-600/20 text-amber-300 border border-amber-500/30">
+                Unreleased · {releaseData.unreleased_count}
+              </span>
+            ) : null}
+          </div>
           <p className="text-sm text-slate-400 mt-1">
-            Tracked worktrees and recent generated commits across repositories
+            Tracked worktrees and release history across repositories
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
-        >
-          <svg className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {}}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Cut Release
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+          >
+            <svg className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
@@ -544,85 +617,18 @@ export default function VersionControl() {
         </div>
       </div>
 
-      <div className="glass-card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-white">Recent Commits</h3>
-            <p className="text-sm text-slate-400 mt-1">Latest 10 generated commits from the last {COMMITS_DAYS} days</p>
-          </div>
-        </div>
-
-        {recentCommits.length === 0 ? (
-          <div className="py-10 text-center text-slate-500">
-            No recent generated commits
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {recentCommits.map((commit) => {
-              const timestamp = getCommitTimestamp(commit);
-              return (
-                <div
-                  key={commit.id || `${commit.commit_hash}-${timestamp}`}
-                  className="rounded-xl border border-slate-700/50 bg-slate-800/30 px-4 py-3"
-                >
-                  <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium lowercase ${getCommitTypeStyle(commit.commit_type)}`}>
-                          {commit.commit_type || 'unknown'}
-                        </span>
-                        {commit.scope ? (
-                          <span className="px-2 py-0.5 rounded-full text-xs bg-slate-700 text-slate-300 border border-slate-600">
-                            {commit.scope}
-                          </span>
-                        ) : null}
-                        <code className="text-xs text-slate-400 font-mono bg-slate-900/80 px-2 py-0.5 rounded">
-                          {(commit.commit_hash || '').slice(0, 7) || 'pending'}
-                        </code>
-                      </div>
-                      <p className="text-sm text-white break-words">{commit.message || 'No commit message recorded'}</p>
-                      <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-slate-500">
-                        <span>{getRepoName(commit.repo_path)}</span>
-                        <span>{commit.branch || 'unknown branch'}</span>
-                        <span>{formatDate(timestamp)}</span>
-                      </div>
-                    </div>
-                    <div className="text-xs text-slate-400 shrink-0">
-                      {formatRelativeTime(timestamp)}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       <div className="glass-card overflow-hidden mt-8">
         <div className="px-5 py-4 border-b border-slate-700/50">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <div className="flex flex-wrap items-center gap-3">
-                <h3 className="text-lg font-semibold text-white">Releases</h3>
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-slate-700 text-slate-200 border border-slate-600">
-                  {releasesLoading ? 'Loading...' : (releaseData.latestTag || 'No tags')}
-                </span>
-              </div>
-              <p className="text-sm text-slate-400 mt-1">Latest tags, inferred version bumps, and recorded release history</p>
+              <h3 className="text-lg font-semibold text-white">Release Timeline</h3>
+              <p className="text-sm text-slate-400 mt-1">Recorded releases and version history</p>
             </div>
-            <div className="xl:text-right">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Next version</p>
-              {releasesLoading ? (
-                <p className="text-sm text-slate-400 mt-2">Loading release data...</p>
-              ) : releaseData.nextVersion ? (
-                <>
-                  <p className="text-lg font-semibold text-white mt-2">{releaseData.nextVersion.next}</p>
-                  <p className="text-sm text-slate-400 mt-1">{formatNextVersionReason(releaseData.nextVersion)}</p>
-                </>
-              ) : (
-                <p className="text-sm text-slate-400 mt-2">No unreleased commits detected</p>
-              )}
-            </div>
+            {releaseData.unreleased_count > 0 ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-amber-600/20 text-amber-300 border border-amber-500/30">
+                Unreleased · {releaseData.unreleased_count}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -630,47 +636,54 @@ export default function VersionControl() {
           <div className="p-5 text-sm text-slate-400">
             Loading release history...
           </div>
-        ) : releaseData.recentReleases.length === 0 ? (
+        ) : (releaseData.recent_releases || []).length === 0 ? (
           <div className="p-8 text-center text-slate-500">
             No releases recorded yet
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px]">
-              <thead>
-                <tr className="border-b border-slate-700/50">
-                  <th className="text-left p-4 heading-sm">Version</th>
-                  <th className="text-left p-4 heading-sm">Date</th>
-                  <th className="text-left p-4 heading-sm">Commit Count</th>
-                  <th className="text-left p-4 heading-sm">Bump</th>
-                </tr>
-              </thead>
-              <tbody>
-                {releaseData.recentReleases.map((release, index) => (
-                  <tr
-                    key={`${release.tag || release.version || 'release'}-${release.releasedAt || index}`}
-                    className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors"
+          <div className="p-5">
+            <div className="space-y-1">
+              {(releaseData.recent_releases || []).map((release, index) => {
+                const releaseTimestamp = release.released_at || release.created_at;
+                const commitCount = Number(release.commit_count ?? release.commitCount ?? 0);
+                const filesChanged = Number(release.files_changed ?? release.filesChanged ?? 0);
+                const bumpType = String(release.bump_type || release.bumpType || 'unknown').toLowerCase();
+
+                return (
+                  <div
+                    key={`${release.tag || release.version || 'release'}-${releaseTimestamp || index}`}
+                    className="relative ml-2 border-l-2 border-slate-700 pl-6"
                   >
-                    <td className="p-4 align-top">
-                      <p className="text-sm font-medium text-white">{release.version || release.tag || '-'}</p>
-                      <p className="text-xs text-slate-500 mt-1">{release.tag || 'Release tag unavailable'}</p>
-                    </td>
-                    <td className="p-4 align-top">
-                      <p className="text-sm text-slate-200">{formatDate(release.releasedAt)}</p>
-                      <p className="text-xs text-slate-500 mt-1">{formatRelativeTime(release.releasedAt)}</p>
-                    </td>
-                    <td className="p-4 align-top text-sm text-slate-200">
-                      {Number(release.commitCount || 0).toLocaleString()}
-                    </td>
-                    <td className="p-4 align-top">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${getReleaseBumpStyle(release.bumpType)}`}>
-                        {release.bumpType || 'unknown'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRelease(release)}
+                      className="group relative mb-4 block w-full cursor-pointer rounded-xl px-4 py-4 text-left transition-colors hover:bg-slate-700/30"
+                    >
+                      <span
+                        className={`absolute -left-[34px] top-5 h-4 w-4 rounded-full border-4 border-slate-900 ${
+                          index === 0 ? 'bg-blue-500' : 'bg-slate-500'
+                        }`}
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-base font-semibold text-white">
+                          {formatReleaseVersion(release.version, release.tag)}
+                        </span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium capitalize ${getReleaseBumpStyle(bumpType)}`}>
+                          {bumpType}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-400">
+                        {formatReleaseTimelineDate(releaseTimestamp)}
+                        {' · '}
+                        {pluralize(Number.isFinite(commitCount) ? commitCount : 0, 'commit')}
+                        {' · '}
+                        {pluralize(Number.isFinite(filesChanged) ? filesChanged : 0, 'file')}
+                      </p>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -685,6 +698,12 @@ export default function VersionControl() {
         }}
         onConfirm={handleConfirmAction}
       />
+      {selectedRelease && (
+        <ReleaseDetailDrawer
+          release={selectedRelease}
+          onClose={() => setSelectedRelease(null)}
+        />
+      )}
     </div>
   );
 }

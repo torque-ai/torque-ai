@@ -29,6 +29,7 @@ const {
 } = require('../shared');
 const logger = require('../../logger').child({ component: 'workflow' });
 const { safeJsonParse } = require('../../utils/json');
+const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
 
 const workflowTemplates = require('./templates');
 const workflowDag = require('./dag');
@@ -612,6 +613,29 @@ function handleCreateWorkflow(args) {
       'Provide a non-empty tasks array in create_workflow, or use create_feature_workflow / instantiate_template to seed the DAG.',
       duplicatePlaceholder
     );
+  }
+
+  // Version intent enforcement for versioned projects
+  const workDir = args.working_directory || null;
+  if (workDir) {
+    try {
+      const rawDb = require('../../database').getDbInstance();
+      if (rawDb && isProjectVersioned(rawDb, workDir)) {
+        const workflowIntent = args.version_intent;
+        if (!workflowIntent) {
+          const tasksWithoutIntent = (args.tasks || []).filter(t => !t.version_intent);
+          if (tasksWithoutIntent.length > 0) {
+            return makeError(ErrorCodes.MISSING_REQUIRED_PARAM,
+              'version_intent is required for versioned project. Set on the workflow or on every task. Use: feature, fix, breaking, or internal');
+          }
+        } else {
+          const intentCheck = validateVersionIntent(workflowIntent);
+          if (!intentCheck.valid) {
+            return makeError(ErrorCodes.INVALID_PARAM, intentCheck.error);
+          }
+        }
+      }
+    } catch (_e) { /* version-intent module unavailable - allow */ }
   }
 
   const workflowId = uuidv4();

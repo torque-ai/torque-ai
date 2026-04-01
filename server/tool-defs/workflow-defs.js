@@ -101,6 +101,11 @@ const tools = [
           description: 'Workflow priority used for persistence and ordering',
           default: 0
         },
+        version_intent: {
+          type: 'string',
+          enum: ['feature', 'fix', 'breaking', 'internal'],
+          description: 'Default version intent for all tasks in this workflow. Individual tasks can override. Required for versioned projects.',
+        },
         tasks: {
           type: 'array',
           description: 'Initial workflow DAG nodes to create with the workflow. Empty workflows are rejected.',
@@ -165,6 +170,11 @@ const tools = [
               model: {
                 type: 'string',
                 description: 'Optional model override for this node'
+              },
+              version_intent: {
+                type: 'string',
+                enum: ['feature', 'fix', 'breaking', 'internal'],
+                description: 'Version intent for this task. Overrides the workflow default when provided.',
               },
               context_from: {
                 type: 'array',

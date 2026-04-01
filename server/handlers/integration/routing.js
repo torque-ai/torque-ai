@@ -16,6 +16,7 @@ const { MAX_TASK_LENGTH, isPathTraversalSafe, checkProviderAvailability } = requ
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
+const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
 const logger = require('../../logger').child({ component: 'integration-routing' });
@@ -274,7 +275,7 @@ async function handleSmartSubmitTask(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Arguments object is required');
   }
   
-  const { task, working_directory, files: rawFiles, model, timeout_minutes, priority, provider, override_provider: legacyOverrideProvider, tuning, context_stuff, context_depth, prefer_free, routing_template, __sessionId } = args;
+  const { task, working_directory, files: rawFiles, model, timeout_minutes, priority, provider, override_provider: legacyOverrideProvider, tuning, context_stuff, context_depth, prefer_free, routing_template, version_intent, __sessionId } = args;
   // Support both 'provider' (standard) and legacy 'override_provider' alias
   const override_provider = provider || legacyOverrideProvider;
   const files = Array.isArray(rawFiles) ? rawFiles : (rawFiles ? [String(rawFiles)] : undefined);
@@ -297,6 +298,21 @@ async function handleSmartSubmitTask(args) {
   }
   if (task.length > MAX_TASK_LENGTH) {
     return makeError(ErrorCodes.INVALID_PARAM, `Task description exceeds maximum length (${task.length} > ${MAX_TASK_LENGTH} characters)`);
+  }
+  if (working_directory) {
+    try {
+      const rawDb = require('../../database').getDbInstance();
+      if (rawDb && isProjectVersioned(rawDb, working_directory)) {
+        if (!version_intent) {
+          return makeError(ErrorCodes.MISSING_REQUIRED_PARAM,
+            'version_intent is required for versioned project. Use: feature, fix, breaking, or internal');
+        }
+        const intentCheck = validateVersionIntent(version_intent);
+        if (!intentCheck.valid) {
+          return makeError(ErrorCodes.INVALID_PARAM, intentCheck.error);
+        }
+      }
+    } catch (_e) { /* version-intent module unavailable — allow */ }
   }
 
   const estimatedTokens = Math.max(1, Math.ceil(task.length / 4));

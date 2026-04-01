@@ -68,6 +68,39 @@ function resolveRawDb(dbService) {
 function ensureSchema(dbHandle) {
   dbHandle.prepare(CREATE_WORKTREES_TABLE_SQL).run();
   dbHandle.prepare(CREATE_COMMITS_TABLE_SQL).run();
+
+  // vc_releases table for automated versioning
+  dbHandle.prepare(`
+    CREATE TABLE IF NOT EXISTS vc_releases (
+      id TEXT PRIMARY KEY,
+      repo_path TEXT NOT NULL,
+      version TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      bump_type TEXT NOT NULL,
+      changelog TEXT,
+      commit_count INTEGER DEFAULT 0,
+      files_changed INTEGER DEFAULT 0,
+      workflow_id TEXT,
+      task_id TEXT,
+      trigger TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+
+  // Extend vc_commits with version_intent + linkage columns
+  const cols = dbHandle.prepare("PRAGMA table_info('vc_commits')").all().map(c => c.name);
+  if (!cols.includes('version_intent')) {
+    dbHandle.prepare("ALTER TABLE vc_commits ADD COLUMN version_intent TEXT DEFAULT 'internal'").run();
+  }
+  if (!cols.includes('task_id')) {
+    dbHandle.prepare('ALTER TABLE vc_commits ADD COLUMN task_id TEXT').run();
+  }
+  if (!cols.includes('workflow_id')) {
+    dbHandle.prepare('ALTER TABLE vc_commits ADD COLUMN workflow_id TEXT').run();
+  }
+  if (!cols.includes('release_id')) {
+    dbHandle.prepare('ALTER TABLE vc_commits ADD COLUMN release_id TEXT').run();
+  }
 }
 
 function createVersionControlPlugin() {

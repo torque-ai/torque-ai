@@ -672,39 +672,53 @@ async function handleGetVersionControlCommitsRoute(_req, res, query) {
 }
 
 async function handleGetVersionControlReleasesRoute(_req, res, query) {
-  const defaults = {
-    latest_tag: null,
-    next_version: null,
-    recent_releases: [],
-  };
-
   const { db, error } = resolveDashboardVersionControlDb();
   if (error) {
-    return sendJson(res, defaults);
+    return sendJson(res, { error: 'Version control data unavailable', details: error.message }, 503);
   }
 
-  const repoPath = resolveDashboardVersionControlRepoPath(db, query.repo_path);
-  if (!repoPath) {
-    return sendJson(res, defaults);
-  }
-
-  const recentReleases = listRecentVersionControlReleases(db, repoPath);
-  const releaseManager = resolveDashboardVersionControlReleaseManager(db);
-  if (!releaseManager) {
-    return sendJson(res, {
-      ...defaults,
-      recent_releases: recentReleases,
-    });
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='vc_releases'").all();
+  if (tables.length === 0) {
+    return sendJson(res, { latest_tag: null, current_version: null, unreleased_count: 0, recent_releases: [] });
   }
 
   try {
-    const latestTagResult = await Promise.resolve(releaseManager.getLatestTag(repoPath));
-    const inferredNextVersion = await Promise.resolve(releaseManager.inferNextVersion(repoPath));
+    const repoPath = normalizeOptionalString(query.repo_path);
+    const limit = parsePositiveInteger(query.limit, 50, { min: 1, max: 200 });
+
+    let releases;
+    if (repoPath) {
+      releases = db.prepare('SELECT * FROM vc_releases WHERE repo_path = ? ORDER BY created_at DESC LIMIT ?').all(repoPath, limit);
+    } else {
+      releases = db.prepare('SELECT * FROM vc_releases ORDER BY created_at DESC LIMIT ?').all(limit);
+    }
+
+    for (const release of releases) {
+      try {
+        release.commits = db.prepare(
+          'SELECT id, commit_hash, message, commit_type, version_intent, task_id FROM vc_commits WHERE release_id = ? ORDER BY created_at ASC'
+        ).all(release.id);
+      } catch (_e) {
+        release.commits = [];
+      }
+    }
+
+    const currentTag = releases.length > 0 ? releases[0].tag : null;
+    const currentVersion = releases.length > 0 ? releases[0].version : null;
+
+    let unreleasedCount = 0;
+    try {
+      const unreleased = db.prepare(
+        "SELECT COUNT(*) as count FROM vc_commits WHERE release_id IS NULL AND version_intent != 'internal'"
+      ).get();
+      unreleasedCount = unreleased?.count || 0;
+    } catch (_e) { /* vc_commits may not have version_intent column yet */ }
 
     return sendJson(res, {
-      latest_tag: latestTagResult?.tag || null,
-      next_version: Number(inferredNextVersion?.commitCount || 0) > 0 ? inferredNextVersion : null,
-      recent_releases: recentReleases,
+      latest_tag: currentTag,
+      current_version: currentVersion,
+      unreleased_count: unreleasedCount,
+      recent_releases: releases,
     });
   } catch (err) {
     return sendJson(res, { error: err.message }, 500);
