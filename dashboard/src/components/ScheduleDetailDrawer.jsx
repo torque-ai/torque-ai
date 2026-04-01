@@ -160,6 +160,13 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, onClose, onUpdat
   }, [onClose]);
 
   async function saveField(field, value) {
+    // Block scheduling in the past
+    if (field === 'run_at' && value) {
+      if (new Date(value) <= new Date()) {
+        toast.error('Cannot schedule in the past');
+        return;
+      }
+    }
     const prev = { ...schedule };
     // Optimistic update
     if (['provider', 'model', 'working_directory', 'task'].includes(field)) {
