@@ -124,7 +124,9 @@ describe('maintenance/scheduler cron task execution', () => {
       auto_approve: false,
       priority: 0,
       metadata: {
-        scheduled_task_id: 'schedule-1',
+        scheduled_by: 'schedule-1',
+        schedule_name: 'Nightly sync',
+        schedule_type: 'cron',
         scheduled: true,
       },
     });
