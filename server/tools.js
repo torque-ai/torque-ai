@@ -579,8 +579,10 @@ function handleRestartServer(args) {
 async function handleToolCall(name, args) {
   // Inline handlers (server-level)
   switch (name) {
-    case 'ping':
-      return { pong: true, timestamp: new Date().toISOString(), message: args.message || 'keepalive' };
+    case 'ping': {
+      const pingData = { pong: true, timestamp: new Date().toISOString(), message: args.message || 'keepalive' };
+      return { content: [{ type: 'text', text: JSON.stringify(pingData) }] };
+    }
     case 'restart_server':
       return handleRestartServer(args);
     case 'unlock_all_tools':
