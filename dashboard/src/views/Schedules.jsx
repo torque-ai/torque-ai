@@ -15,7 +15,7 @@ function SortHeader({ column, label, sortCol, sortDir, onSort }) {
       <span className="inline-flex items-center gap-1">
         {label}
         <span className={`text-[10px] ${active ? 'text-blue-400' : 'text-slate-600 opacity-0 group-hover:opacity-100'} transition-opacity`}>
-          {active ? (sortDir === 'asc' ? '▲' : '▼') : '▲'}
+          {active ? (sortDir === 'asc' ? '\u25b2' : '\u25bc') : '\u25b2'}
         </span>
       </span>
     </th>
@@ -44,7 +44,7 @@ export default function Schedules() {
   const [sortDir, setSortDir] = useState('asc');
   const [showForm, setShowForm] = useState(false);
   const [showConfirm, setShowConfirm] = useState(null);
-  const [form, setForm] = useState({ name: '', cron_expression: '', task_description: '', provider: '', model: '', working_directory: '' });
+  const [form, setForm] = useState({ name: '', schedule_type: 'cron', cron_expression: '', run_at: '', task_description: '', provider: '', model: '', working_directory: '' });
   const [submitting, setSubmitting] = useState(false);
   const toast = useToast();
 
@@ -121,27 +121,52 @@ export default function Schedules() {
     setShowConfirm(null);
   }
 
-  // Simple cron format check: 5 space-separated fields
   const isValidCron = (expr) => /^[\d*,/-]+(\s+[\d*,/-]+){4}$/.test(expr.trim());
 
   async function handleCreate(e) {
     e.preventDefault();
-    if (!form.name || !form.cron_expression || !form.task_description) {
-      toast.error('Name, cron expression, and task description are required');
+    if (!form.name || !form.task_description) {
+      toast.error('Name and task description are required');
       return;
     }
-    if (!isValidCron(form.cron_expression)) {
-      toast.error('Invalid cron expression — expected 5 fields');
-      return;
+    if (form.schedule_type === 'cron') {
+      if (!form.cron_expression) {
+        toast.error('Cron expression is required');
+        return;
+      }
+      if (!isValidCron(form.cron_expression)) {
+        toast.error('Invalid cron expression \u2014 expected 5 fields');
+        return;
+      }
+    } else {
+      if (!form.run_at) {
+        toast.error('Date and time are required for one-time schedules');
+        return;
+      }
+      if (new Date(form.run_at) <= new Date()) {
+        toast.error('Scheduled time must be in the future');
+        return;
+      }
     }
     setSubmitting(true);
     try {
-      const payload = { ...form };
-      // Strip empty optional fields
-      Object.keys(payload).forEach((k) => { if (!payload[k]) delete payload[k]; });
+      const payload = {
+        name: form.name,
+        task_description: form.task_description,
+        schedule_type: form.schedule_type,
+        provider: form.provider || undefined,
+        model: form.model || undefined,
+        working_directory: form.working_directory || undefined,
+      };
+      if (form.schedule_type === 'cron') {
+        payload.cron_expression = form.cron_expression;
+      } else {
+        payload.run_at = new Date(form.run_at).toISOString();
+      }
+      Object.keys(payload).forEach((k) => { if (payload[k] === undefined) delete payload[k]; });
       await schedulesApi.create(payload);
       toast.success('Schedule created');
-      setForm({ name: '', cron_expression: '', task_description: '', provider: '', model: '', working_directory: '' });
+      setForm({ name: '', schedule_type: 'cron', cron_expression: '', run_at: '', task_description: '', provider: '', model: '', working_directory: '' });
       setShowForm(false);
       loadSchedules();
     } catch (err) {
@@ -177,110 +202,73 @@ export default function Schedules() {
         </button>
       </div>
 
-      {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <StatCard label="Total Schedules" value={totalCount} gradient="blue" />
         <StatCard label="Active" value={enabledCount} gradient="green" />
         <StatCard label="Disabled" value={totalCount - enabledCount} gradient="blue" />
       </div>
 
-      {/* Create form */}
       {showForm && (
         <form onSubmit={handleCreate} className="glass-card p-6 mb-6 space-y-4">
           <h3 className="text-lg font-semibold text-white mb-2">New Scheduled Task</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">Name</label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="e.g. Nightly test run"
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
+              <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Nightly test run" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Cron Expression</label>
-              <input
-                type="text"
-                value={form.cron_expression}
-                onChange={(e) => setForm({ ...form, cron_expression: e.target.value })}
-                placeholder="0 0 * * * (every midnight)"
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
+              <label className="block text-sm text-slate-400 mb-1">Type</label>
+              <div className="flex rounded-lg overflow-hidden border border-slate-700/50">
+                <button type="button" onClick={() => setForm({ ...form, schedule_type: 'cron' })} className={`flex-1 px-4 py-2 text-sm transition-colors ${form.schedule_type === 'cron' ? 'bg-blue-600 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'}`}>Cron</button>
+                <button type="button" onClick={() => setForm({ ...form, schedule_type: 'once' })} className={`flex-1 px-4 py-2 text-sm transition-colors ${form.schedule_type === 'once' ? 'bg-blue-600 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'}`}>One-Time</button>
+              </div>
             </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {form.schedule_type === 'cron' ? (
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Cron Expression</label>
+                <input type="text" value={form.cron_expression} onChange={(e) => setForm({ ...form, cron_expression: e.target.value })} placeholder="0 0 * * * (every midnight)" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Run At</label>
+                <input type="datetime-local" value={form.run_at} onChange={(e) => setForm({ ...form, run_at: e.target.value })} min={new Date().toISOString().slice(0, 16)} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]" />
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm text-slate-400 mb-1">Task Description</label>
-            <textarea
-              value={form.task_description}
-              onChange={(e) => setForm({ ...form, task_description: e.target.value })}
-              placeholder="What should the task do?"
-              rows={3}
-              className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y"
-            />
+            <textarea value={form.task_description} onChange={(e) => setForm({ ...form, task_description: e.target.value })} placeholder="What should the task do?" rows={3} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm text-slate-400 mb-1">Provider (optional)</label>
-              <select
-                value={form.provider}
-                onChange={(e) => setForm({ ...form, provider: e.target.value })}
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-              >
-                <option value="">Auto</option>
-                <option value="codex">Codex</option>
-                <option value="claude-cli">Claude CLI</option>
-                <option value="ollama">Ollama</option>
-              </select>
+              <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"><option value="">Auto</option><option value="codex">Codex</option><option value="claude-cli">Claude CLI</option><option value="ollama">Ollama</option></select>
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Model (optional)</label>
-              <input
-                type="text"
-                value={form.model}
-                onChange={(e) => setForm({ ...form, model: e.target.value })}
-                placeholder="e.g. qwen3:8b"
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
+              <input type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="e.g. qwen3:8b" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-1">Working Directory (optional)</label>
-              <input
-                type="text"
-                value={form.working_directory}
-                onChange={(e) => setForm({ ...form, working_directory: e.target.value })}
-                placeholder="e.g. C:/Projects/MyApp"
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
+              <input type="text" value={form.working_directory} onChange={(e) => setForm({ ...form, working_directory: e.target.value })} placeholder="e.g. C:/Projects/MyApp" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
           </div>
           <div className="flex gap-3">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
-            >
-              {submitting ? 'Creating...' : 'Create Schedule'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
+            <button type="submit" disabled={submitting} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">{submitting ? 'Creating...' : 'Create Schedule'}</button>
+            <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
           </div>
         </form>
       )}
 
-      {/* Table */}
       <div className="glass-card overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-700/50">
               <SortHeader column="name" label="Name" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
-              <SortHeader column="cron_expression" label="Cron" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+              <th className="text-left p-4 heading-sm">Type</th>
+              <SortHeader column="cron_expression" label="Schedule" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <SortHeader column="next_run" label="Next Run" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <th className="text-left p-4 heading-sm">Last Run</th>
               <SortHeader column="status" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
@@ -289,48 +277,35 @@ export default function Schedules() {
           </thead>
           <tbody>
             {sortedItems.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="p-8 text-center text-slate-500">
-                  No scheduled tasks. Click "New Schedule" to create one.
-                </td>
-              </tr>
+              <tr><td colSpan={7} className="p-8 text-center text-slate-500">No scheduled tasks. Click "New Schedule" to create one.</td></tr>
             ) : (
               sortedItems.map((schedule) => {
                 const isEnabled = schedule.enabled !== false && schedule.enabled !== 0;
+                const schedType = schedule.schedule_type || 'cron';
+                const isOnce = schedType === 'once';
                 return (
                   <tr key={schedule.id} className="border-b border-slate-700/30 hover:bg-slate-700/30 transition-colors">
                     <td className="p-4">
                       <p className="text-white text-sm font-medium">{schedule.name}</p>
-                      <p className="text-slate-400 text-xs truncate max-w-xs" title={schedule.task_description}>
-                        {schedule.task_description?.substring(0, 60)}{schedule.task_description?.length > 60 ? '...' : ''}
-                      </p>
+                      <p className="text-slate-400 text-xs truncate max-w-xs" title={schedule.task_description}>{schedule.task_description?.substring(0, 60)}{schedule.task_description?.length > 60 ? '...' : ''}</p>
                     </td>
                     <td className="p-4">
-                      <code className="text-sm text-blue-300 bg-blue-600/10 px-2 py-0.5 rounded">
-                        {schedule.cron_expression}
-                      </code>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${isOnce ? 'bg-purple-600/20 text-purple-300' : 'bg-blue-600/20 text-blue-300'}`}>{isOnce ? 'Once' : 'Cron'}</span>
                     </td>
-                    <td className="p-4 text-slate-300 text-sm">{formatDate(schedule.next_run)}</td>
-                    <td className="p-4 text-slate-300 text-sm">{formatDate(schedule.last_run)}</td>
+                    <td className="p-4">
+                      {isOnce ? (
+                        <span className="text-sm text-purple-300">{formatDate(schedule.scheduled_time || schedule.next_run_at)}</span>
+                      ) : (
+                        <code className="text-sm text-blue-300 bg-blue-600/10 px-2 py-0.5 rounded">{schedule.cron_expression}</code>
+                      )}
+                    </td>
+                    <td className="p-4 text-slate-300 text-sm">{formatDate(schedule.next_run_at || schedule.next_run)}</td>
+                    <td className="p-4 text-slate-300 text-sm">{formatDate(schedule.last_run_at || schedule.last_run)}</td>
                     <td className="p-4"><StatusBadge enabled={isEnabled} /></td>
                     <td className="p-4">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleToggle(schedule.id, isEnabled)}
-                          className={`text-xs px-3 py-1 rounded transition-colors ${
-                            isEnabled
-                              ? 'bg-slate-600/30 hover:bg-slate-600 text-slate-300 hover:text-white'
-                              : 'bg-green-600/30 hover:bg-green-600 text-green-300 hover:text-white'
-                          }`}
-                        >
-                          {isEnabled ? 'Disable' : 'Enable'}
-                        </button>
-                        <button
-                          onClick={() => handleDelete(schedule.id)}
-                          className="text-xs px-3 py-1 rounded bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white transition-colors"
-                        >
-                          Delete
-                        </button>
+                        <button onClick={() => handleToggle(schedule.id, isEnabled)} className={`text-xs px-3 py-1 rounded transition-colors ${isEnabled ? 'bg-slate-600/30 hover:bg-slate-600 text-slate-300 hover:text-white' : 'bg-green-600/30 hover:bg-green-600 text-green-300 hover:text-white'}`}>{isEnabled ? 'Disable' : 'Enable'}</button>
+                        <button onClick={() => handleDelete(schedule.id)} className="text-xs px-3 py-1 rounded bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white transition-colors">Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -345,22 +320,10 @@ export default function Schedules() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
           <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
             <h3 className="text-white font-semibold text-lg mb-2">Delete Schedule</h3>
-            <p className="text-slate-300 text-sm mb-4">
-              Delete this schedule? This action is irreversible.
-            </p>
+            <p className="text-slate-300 text-sm mb-4">Delete this schedule? This action is irreversible.</p>
             <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowConfirm(null)}
-                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmAction}
-                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
-              >
-                Delete
-              </button>
+              <button onClick={() => setShowConfirm(null)} className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors">Cancel</button>
+              <button onClick={confirmAction} className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">Delete</button>
             </div>
           </div>
         </div>

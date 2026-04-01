@@ -5,7 +5,7 @@
  * Extracted from advanced-handlers.js during Phase 7 handler decomposition.
  */
 
-const { createCronScheduledTask, listScheduledTasks, toggleScheduledTask, getResourceUsage, getResourceUsageByProject, setResourceLimits, getResourceReport } = require('../../db/scheduling-automation');
+const { createCronScheduledTask, listScheduledTasks, toggleScheduledTask, getResourceUsage, getResourceUsageByProject, setResourceLimits, getResourceReport, createOneTimeSchedule } = require('../../db/scheduling-automation');
 const { ErrorCodes, makeError } = require('../shared');
 
 
@@ -86,13 +86,17 @@ function handleListSchedules(args) {
   }
 
   let output = `## Scheduled Tasks\n\n`;
-  output += `| ID | Name | Cron | Status | Next Run | Run Count |\n`;
-  output += `|----|------|------|--------|----------|----------|\n`;
+  output += `| ID | Name | Type | Schedule | Status | Next Run | Run Count |\n`;
+  output += `|----|------|------|----------|--------|----------|----------|\n`;
 
   for (const s of schedules) {
     const status = s.enabled ? '✅ Enabled' : '❌ Disabled';
     const nextRun = s.next_run_at ? new Date(s.next_run_at).toLocaleString() : '-';
-    output += `| ${s.id} | ${s.name} | \`${s.cron_expression}\` | ${status} | ${nextRun} | ${s.run_count} |\n`;
+    const schedType = s.schedule_type || 'cron';
+    const scheduleCol = schedType === 'once'
+      ? (s.scheduled_time ? new Date(s.scheduled_time).toLocaleString() : nextRun)
+      : `\`${s.cron_expression}\``;
+    output += `| ${s.id} | ${s.name} | ${schedType} | ${scheduleCol} | ${status} | ${nextRun} | ${s.run_count} |\n`;
   }
 
   output += `\n**Total:** ${schedules.length} schedule(s)`;
@@ -110,7 +114,14 @@ function handleListSchedules(args) {
  * @returns {Object} MCP response payload.
  */
 function handleToggleSchedule(args) {
-  const { schedule_id, enabled } = args;
+  const { schedule_id } = args;
+
+  if (!schedule_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'schedule_id is required');
+  }
+
+  // Use 'in' check to distinguish "enabled: false" from "enabled not provided"
+  const enabled = 'enabled' in args ? Boolean(args.enabled) : undefined;
 
   const schedule = toggleScheduledTask(schedule_id, enabled);
 
@@ -131,6 +142,62 @@ function handleToggleSchedule(args) {
   return {
     content: [{ type: 'text', text: output }]
   };
+}
+
+
+/**
+ * Create a one-time scheduled task
+ */
+function handleCreateOneTimeSchedule(args) {
+  const { name, run_at, delay, task, workflow_id, working_directory, provider, model, auto_approve = false, timeout_minutes = 30, timezone } = args;
+
+  if (run_at && delay) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'Provide either run_at or delay, not both');
+  }
+  if (!run_at && !delay) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Either run_at or delay is required');
+  }
+  if (task && workflow_id) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'Provide either task or workflow_id, not both');
+  }
+  if (!task && !workflow_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Either task or workflow_id is required');
+  }
+
+  try {
+    const taskConfig = { task, workflow_id, working_directory, provider, model, auto_approve, timeout_minutes };
+    const schedule = createOneTimeSchedule({
+      name,
+      run_at: run_at || undefined,
+      delay: delay || undefined,
+      task_config: taskConfig,
+      timezone: timezone || null,
+    });
+
+    let output = `## One-Time Schedule Created\n\n`;
+    output += `**Name:** ${schedule.name}\n`;
+    output += `**ID:** ${schedule.id}\n`;
+    output += `**Type:** once\n`;
+    output += `**Fires At:** ${new Date(schedule.run_at).toLocaleString()}\n`;
+    if (schedule.timezone) {
+      output += `**Timezone:** ${schedule.timezone}\n`;
+    }
+    output += `**Status:** ${schedule.enabled ? 'Enabled' : 'Disabled'}\n\n`;
+
+    if (workflow_id) {
+      output += `**Workflow:** ${workflow_id}\n`;
+    } else {
+      output += `**Task:** ${task}\n`;
+    }
+    if (working_directory) {
+      output += `**Working Directory:** ${working_directory}\n`;
+    }
+    output += `\n*This schedule will auto-delete after firing.*`;
+
+    return { content: [{ type: 'text', text: output }] };
+  } catch (err) {
+    return makeError(ErrorCodes.OPERATION_FAILED, `Failed to create one-time schedule: ${err.message}`);
+  }
 }
 
 
@@ -285,6 +352,7 @@ function createSchedulingHandlers() {
     handleCreateCronSchedule,
     handleListSchedules,
     handleToggleSchedule,
+    handleCreateOneTimeSchedule,
     handleGetResourceUsage,
     handleSetResourceLimits,
     handleResourceReport,
@@ -295,6 +363,7 @@ module.exports = {
   handleCreateCronSchedule,
   handleListSchedules,
   handleToggleSchedule,
+  handleCreateOneTimeSchedule,
   handleGetResourceUsage,
   handleSetResourceLimits,
   handleResourceReport,

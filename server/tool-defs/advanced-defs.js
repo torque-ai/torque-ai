@@ -190,6 +190,27 @@ const tools = [
     }
   },
   {
+    name: 'create_one_time_schedule',
+    description: 'Create a one-time schedule that fires at a specific datetime, executes a task or workflow, then auto-deletes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Schedule name' },
+        run_at: { type: 'string', description: 'ISO 8601 datetime to fire. Mutually exclusive with delay.' },
+        delay: { type: 'string', description: 'Relative delay (e.g., "4h", "30m", "2h30m", "1d"). Mutually exclusive with run_at.' },
+        task: { type: 'string', description: 'Task description. Mutually exclusive with workflow_id.' },
+        workflow_id: { type: 'string', description: 'Workflow ID to run. Mutually exclusive with task.' },
+        working_directory: { type: 'string', description: 'Working directory for the task' },
+        provider: { type: 'string', description: 'Provider to use' },
+        model: { type: 'string', description: 'Model to use' },
+        auto_approve: { type: 'boolean', description: 'Auto-approve provider actions', default: false },
+        timeout_minutes: { type: 'number', description: 'Task timeout in minutes', default: 30 },
+        timezone: { type: 'string', description: 'IANA timezone for run_at' }
+      },
+      required: ['name']
+    }
+  },
+  {
     name: 'get_resource_usage',
     description: 'Get resource usage metrics (CPU, memory, disk I/O) for a task or project.',
     inputSchema: {

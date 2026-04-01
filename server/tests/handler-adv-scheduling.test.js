@@ -199,6 +199,45 @@ describe('handler-adv-scheduling via handleToolCall', () => {
       expect(result.isError).toBeTruthy();
       expect(getText(result)).toContain('Schedule not found');
     });
+
+    it('respects explicit enabled: false without toggling', async () => {
+      const createResult = await handleToolCall('create_cron_schedule', {
+        name: 'explicit-false-test',
+        cron_expression: '0 12 * * *',
+        task: 'Test explicit false',
+      });
+      const scheduleId = parseScheduleId(getText(createResult));
+      expect(scheduleId).toBeTruthy();
+
+      const disableResult = await handleToolCall('toggle_schedule', {
+        schedule_id: scheduleId,
+        enabled: false,
+      });
+      expect(disableResult.isError).toBeFalsy();
+      expect(getText(disableResult)).toContain('disabled');
+
+      const secondResult = await handleToolCall('toggle_schedule', {
+        schedule_id: scheduleId,
+        enabled: false,
+      });
+      expect(secondResult.isError).toBeFalsy();
+      expect(getText(secondResult)).toContain('disabled');
+    });
+
+    it('toggles when enabled is omitted', async () => {
+      const createResult = await handleToolCall('create_cron_schedule', {
+        name: 'omit-toggle-test',
+        cron_expression: '0 6 * * *',
+        task: 'Test omit toggle',
+      });
+      const scheduleId = parseScheduleId(getText(createResult));
+
+      const result = await handleToolCall('toggle_schedule', {
+        schedule_id: scheduleId,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('disabled');
+    });
   });
 
   describe('get_resource_usage', () => {
@@ -375,6 +414,45 @@ describe('handler-adv-scheduling via handleToolCall', () => {
 
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toContain('No resource usage data found for the specified criteria');
+    });
+  });
+
+  describe('parseDelay', () => {
+    let cronScheduling;
+    beforeAll(() => {
+      cronScheduling = require('../db/cron-scheduling');
+    });
+
+    it('parses minutes', () => {
+      expect(cronScheduling.parseDelay('30m')).toBe(30 * 60 * 1000);
+    });
+
+    it('parses hours', () => {
+      expect(cronScheduling.parseDelay('4h')).toBe(4 * 60 * 60 * 1000);
+    });
+
+    it('parses days', () => {
+      expect(cronScheduling.parseDelay('1d')).toBe(24 * 60 * 60 * 1000);
+    });
+
+    it('parses compound durations', () => {
+      expect(cronScheduling.parseDelay('2h30m')).toBe(2.5 * 60 * 60 * 1000);
+    });
+
+    it('parses complex compound', () => {
+      expect(cronScheduling.parseDelay('1d6h')).toBe(30 * 60 * 60 * 1000);
+    });
+
+    it('throws on empty string', () => {
+      expect(() => cronScheduling.parseDelay('')).toThrow();
+    });
+
+    it('throws on invalid format', () => {
+      expect(() => cronScheduling.parseDelay('abc')).toThrow();
+    });
+
+    it('throws on zero duration', () => {
+      expect(() => cronScheduling.parseDelay('0m')).toThrow();
     });
   });
 });

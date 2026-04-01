@@ -19,6 +19,7 @@ const configCore = require('../../db/config-core');
 const eventTracking = require('../../db/event-tracking');
 const taskCore = require('../../db/task-core');
 const projectConfigCore = require('../../db/project-config-core');
+const schedulingAutomation = require('../../db/scheduling-automation');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const taskMetadata = require('../../db/task-metadata');
 const taskManager = require('../../task-manager');
@@ -578,13 +579,13 @@ function handleListScheduled(args) {
  * Cancel a scheduled task
  */
 function handleCancelScheduled(args) {
-  const scheduled = projectConfigCore.getScheduledTask(args.schedule_id);
+  const scheduled = schedulingAutomation.getScheduledTask(args.schedule_id);
 
   if (!scheduled) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Scheduled task not found: ${args.schedule_id}`);
   }
 
-  const deleted = projectConfigCore.deleteScheduledTask(args.schedule_id);
+  const deleted = schedulingAutomation.deleteScheduledTask(args.schedule_id);
 
   if (deleted) {
     return {
@@ -610,14 +611,14 @@ function handlePauseScheduled(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'action must be "pause" or "resume"');
   }
 
-  const scheduled = projectConfigCore.getScheduledTask(args.schedule_id);
+  const scheduled = schedulingAutomation.getScheduledTask(args.schedule_id);
 
   if (!scheduled) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Scheduled task not found: ${args.schedule_id}`);
   }
 
   const newStatus = args.action === 'pause' ? 'paused' : 'active';
-  projectConfigCore.updateScheduledTask(args.schedule_id, { status: newStatus });
+  schedulingAutomation.updateScheduledTask(args.schedule_id, { status: newStatus });
 
   return {
     content: [{

@@ -423,6 +423,72 @@ function createCronScheduledTask(data) {
 }
 
 /**
+ * Create a one-time scheduled task that fires at a specific datetime.
+ * Accepts either run_at (ISO 8601) or delay (e.g., "4h", "2h30m").
+ * After firing, the schedule is auto-deleted by markScheduledTaskRun.
+ */
+function createOneTimeSchedule(data) {
+  const { v4: uuidv4 } = require('uuid');
+  const now = new Date();
+
+  let runAt;
+  if (data.run_at) {
+    runAt = new Date(data.run_at);
+  } else if (data.delay) {
+    const delayMs = parseDelay(data.delay);
+    runAt = new Date(now.getTime() + delayMs);
+  } else {
+    throw new Error('ONE_TIME_NO_TIME: either run_at or delay is required');
+  }
+
+  if (runAt.getTime() < now.getTime() - 60000) {
+    throw new Error('ONE_TIME_PAST: scheduled time must be in the future');
+  }
+
+  const scheduleId = uuidv4();
+  const taskConfig = data.task_config || {};
+  const runAtIso = runAt.toISOString();
+
+  const stmt = db.prepare(`
+    INSERT INTO scheduled_tasks (
+      id, name, task_description, working_directory, timeout_minutes,
+      auto_approve, schedule_type, cron_expression, scheduled_time, next_run_at,
+      enabled, created_at, task_config, updated_at, timezone
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const nowIso = now.toISOString();
+  stmt.run(
+    scheduleId,
+    data.name,
+    taskConfig.task || 'One-time scheduled task',
+    taskConfig.working_directory || null,
+    taskConfig.timeout_minutes || 30,
+    taskConfig.auto_approve ? 1 : 0,
+    'once',
+    null,
+    runAtIso,
+    runAtIso,
+    data.enabled !== false ? 1 : 0,
+    nowIso,
+    JSON.stringify(taskConfig),
+    nowIso,
+    data.timezone || null
+  );
+
+  return {
+    id: scheduleId,
+    name: data.name,
+    schedule_type: 'once',
+    run_at: runAtIso,
+    timezone: data.timezone || null,
+    task_config: taskConfig,
+    enabled: data.enabled !== false,
+    next_run_at: runAtIso,
+  };
+}
+
+/**
  * Toggle scheduled task enabled state
  * @param {any} id
  * @param {any} enabled
@@ -435,11 +501,14 @@ function toggleScheduledTask(id, enabled) {
 
   const newEnabled = enabled !== undefined ? enabled : !schedule.enabled;
 
-  // If enabling, recalculate next run
   let nextRun = schedule.next_run_at;
   if (newEnabled && !schedule.enabled) {
-    const next = calculateNextRun(schedule.cron_expression, new Date(), schedule.timezone || null);
-    nextRun = next ? next.toISOString() : null;
+    if (schedule.schedule_type === 'once') {
+      nextRun = schedule.scheduled_time || schedule.next_run_at;
+    } else {
+      const next = calculateNextRun(schedule.cron_expression, new Date(), schedule.timezone || null);
+      nextRun = next ? next.toISOString() : null;
+    }
   }
 
   const stmt = db.prepare(`
@@ -600,6 +669,11 @@ function markScheduledTaskRun(id) {
   const schedule = getScheduledTask(id);
   if (!schedule) return null;
 
+  if (schedule.schedule_type === 'once') {
+    deleteScheduledTask(id);
+    return null;
+  }
+
   const nextRun = calculateNextRun(schedule.cron_expression, now, schedule.timezone || null);
 
   const stmt = db.prepare(`
@@ -610,6 +684,47 @@ function markScheduledTaskRun(id) {
   stmt.run(now.toISOString(), nextRun ? nextRun.toISOString() : null, now.toISOString(), id);
 
   return getScheduledTask(id);
+}
+
+/**
+ * Parse a delay string into milliseconds.
+ * Format: concatenated segments of \d+[dhm]
+ * Examples: "30m", "4h", "2h30m", "1d6h"
+ * @param {string} delayStr - The delay string to parse
+ * @returns {number} Delay in milliseconds
+ * @throws {Error} On invalid or zero-duration input
+ */
+function parseDelay(delayStr) {
+  if (typeof delayStr !== 'string' || delayStr.trim().length === 0) {
+    throw new Error('DELAY_EMPTY: delay string cannot be empty');
+  }
+
+  const pattern = /(\d+)([dhm])/g;
+  let totalMs = 0;
+  let match;
+  let matchCount = 0;
+
+  while ((match = pattern.exec(delayStr)) !== null) {
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+    matchCount++;
+
+    switch (unit) {
+      case 'd': totalMs += value * 24 * 60 * 60 * 1000; break;
+      case 'h': totalMs += value * 60 * 60 * 1000; break;
+      case 'm': totalMs += value * 60 * 1000; break;
+    }
+  }
+
+  if (matchCount === 0) {
+    throw new Error(`DELAY_INVALID: cannot parse delay string "${delayStr}" -- expected format like "4h", "30m", "2h30m"`);
+  }
+
+  if (totalMs <= 0) {
+    throw new Error('DELAY_ZERO: delay must be greater than zero');
+  }
+
+  return totalMs;
 }
 
 // ============================================
@@ -627,7 +742,9 @@ module.exports = {
   calculateNextRun,
   matchesCronField,
   detectScheduleOverlaps,
+  parseDelay,
   createCronScheduledTask,
+  createOneTimeSchedule,
   toggleScheduledTask,
   getScheduledTask,
   listScheduledTasks,

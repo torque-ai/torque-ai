@@ -59,7 +59,7 @@ function checkDiskSpace(dirPath) {
  * Runs scheduled maintenance tasks at configured intervals
  * Idempotent - safe to call multiple times
  */
-function startMaintenanceScheduler() {
+function startMaintenanceScheduler(opts = {}) {
   // Clear existing interval to prevent duplicate schedulers
   // This handles cases where the module is reloaded or init is called multiple times
   if (maintenanceInterval) {
@@ -113,23 +113,41 @@ function startMaintenanceScheduler() {
         for (const schedule of dueSchedules) {
           try {
             const config = schedule.task_config || {};
-            const taskId = require('uuid').v4();
-            db.createTask({
-              id: taskId,
-              task_description: config.task || schedule.task_description || 'Scheduled task',
-              working_directory: config.working_directory || schedule.working_directory || null,
-              provider: config.provider || null,
-              model: config.model || null,
-              tags: config.tags || null,
-              timeout_minutes: config.timeout_minutes || schedule.timeout_minutes || 30,
-              auto_approve: config.auto_approve || false,
-              priority: config.priority || 0,
-              metadata: { scheduled_task_id: schedule.id, scheduled: true },
-            });
-            db.markScheduledTaskRun(schedule.id); // Mark BEFORE startTask to prevent duplicate execution on crash
-            const taskManager = require('../task-manager');
-            taskManager.startTask(taskId);
-            debugLog(`Executed scheduled task "${schedule.name}" -> task ${taskId}`);
+
+            const originMetadata = {
+              scheduled_by: schedule.id,
+              schedule_name: schedule.name,
+              schedule_type: schedule.schedule_type || 'cron',
+              scheduled: true,
+            };
+
+            if (config.workflow_id) {
+              db.markScheduledTaskRun(schedule.id);
+              if (typeof opts?.runWorkflow === 'function') {
+                opts.runWorkflow(config.workflow_id, originMetadata);
+              } else {
+                logger.warn(`Scheduled workflow ${config.workflow_id} skipped -- no runWorkflow handler`);
+              }
+              debugLog(`Executed scheduled workflow "${schedule.name}" -> workflow ${config.workflow_id}`);
+            } else {
+              const taskId = require('uuid').v4();
+              db.createTask({
+                id: taskId,
+                task_description: config.task || schedule.task_description || 'Scheduled task',
+                working_directory: config.working_directory || schedule.working_directory || null,
+                provider: config.provider || null,
+                model: config.model || null,
+                tags: config.tags || null,
+                timeout_minutes: config.timeout_minutes || schedule.timeout_minutes || 30,
+                auto_approve: config.auto_approve || false,
+                priority: config.priority || 0,
+                metadata: originMetadata,
+              });
+              db.markScheduledTaskRun(schedule.id);
+              const taskManager = require('../task-manager');
+              taskManager.startTask(taskId);
+              debugLog(`Executed scheduled task "${schedule.name}" -> task ${taskId}`);
+            }
           } catch (schedErr) {
             logger.error(`Scheduled task execution failed: ${schedErr.message}`);
             debugLog(`Failed to execute scheduled task "${schedule.name}": ${schedErr.message}`);

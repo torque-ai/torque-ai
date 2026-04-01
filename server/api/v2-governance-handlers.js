@@ -157,24 +157,54 @@ async function handleCreateSchedule(req, res) {
   if (!name) {
     return sendError(res, requestId, 'validation_error', 'name is required', 400, undefined, req);
   }
-  if (!body.cron_expression) {
-    return sendError(res, requestId, 'validation_error', 'cron_expression is required', 400, undefined, req);
-  }
-  if (!body.task_description) {
-    return sendError(res, requestId, 'validation_error', 'task_description is required', 400, undefined, req);
-  }
+
+  const scheduleType = body.schedule_type || 'cron';
 
   try {
-    const schedule = schedulingAutomation.createCronScheduledTask(
-      name,
-      body.cron_expression,
-      body.task_description,
-      {
-        provider: body.provider || null,
-        model: body.model || null,
-        working_directory: body.working_directory || null,
+    let schedule;
+
+    if (scheduleType === 'once') {
+      if (!body.run_at && !body.delay) {
+        return sendError(res, requestId, 'validation_error', 'run_at or delay is required for one-time schedules', 400, undefined, req);
       }
-    );
+      if (!body.task_description && !body.workflow_id) {
+        return sendError(res, requestId, 'validation_error', 'task_description or workflow_id is required', 400, undefined, req);
+      }
+
+      schedule = schedulingAutomation.createOneTimeSchedule({
+        name,
+        run_at: body.run_at || undefined,
+        delay: body.delay || undefined,
+        task_config: {
+          task: body.task_description || null,
+          workflow_id: body.workflow_id || null,
+          provider: body.provider || null,
+          model: body.model || null,
+          working_directory: body.working_directory || null,
+        },
+        timezone: body.timezone || null,
+      });
+    } else {
+      if (!body.cron_expression) {
+        return sendError(res, requestId, 'validation_error', 'cron_expression is required', 400, undefined, req);
+      }
+      if (!body.task_description) {
+        return sendError(res, requestId, 'validation_error', 'task_description is required', 400, undefined, req);
+      }
+
+      schedule = schedulingAutomation.createCronScheduledTask({
+        name,
+        cron_expression: body.cron_expression,
+        task_config: {
+          task: body.task_description,
+          provider: body.provider || null,
+          model: body.model || null,
+          working_directory: body.working_directory || null,
+        },
+        timezone: body.timezone || null,
+      });
+    }
+
     sendSuccess(res, requestId, schedule, 201, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
