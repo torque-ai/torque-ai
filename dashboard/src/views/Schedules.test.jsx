@@ -97,7 +97,7 @@ describe('Schedules', () => {
     renderWithProviders(<Schedules />, { route: '/schedules' });
     await waitFor(() => {
       expect(screen.getByText('Name')).toBeInTheDocument();
-      expect(screen.getByText('Cron')).toBeInTheDocument();
+      expect(screen.getByText('Schedule')).toBeInTheDocument();
       expect(screen.getByText('Next Run')).toBeInTheDocument();
       expect(screen.getByText('Last Run')).toBeInTheDocument();
       expect(screen.getByText('Status')).toBeInTheDocument();
