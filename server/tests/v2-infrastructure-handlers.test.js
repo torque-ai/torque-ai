@@ -1808,9 +1808,9 @@ describe('api/v2-infrastructure-handlers', () => {
       });
     });
 
+    it('returns 500 when the registry is not initialized', async () => {
       handlers._resetRegistryCache();
       mockDb.getDbInstance.mockReturnValue(null);
-
       const res = createMockRes();
 
       await handlers.handleDeleteAgent(
