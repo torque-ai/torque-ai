@@ -276,9 +276,9 @@ describe('db/backup-core', () => {
     });
     vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {});
     fs.readdirSync.mockReturnValue([
-      'torque-2026-01-03.db',
-      'torque-2026-01-02.db',
-      'torque-2026-01-01.db',
+      'torque-2026-01-03T12-00-00-000Z.db',
+      'torque-2026-01-02T12-00-00-000Z.db',
+      'torque-2026-01-01T12-00-00-000Z.db',
     ]);
 
     subject.startBackupScheduler(500);
@@ -289,9 +289,9 @@ describe('db/backup-core', () => {
     expect(fs.writeFileSync.mock.calls[0][0]).toMatch(/torque-.*\.db$/);
     expect(fs.writeFileSync.mock.calls[0][0].startsWith(backupDir)).toBe(true);
     expect(fs.writeFileSync.mock.calls[0][1]).toBe(buffer);
-    expect(fs.unlinkSync).toHaveBeenCalledWith(path.join(backupDir, 'torque-2026-01-01.db'));
+    expect(fs.unlinkSync).toHaveBeenCalledWith(path.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db'));
     expect(backupLogger.info).toHaveBeenCalledWith(expect.stringContaining('Database backed up to'));
-    expect(backupLogger.info).toHaveBeenCalledWith('[backup] Removed old backup: torque-2026-01-01.db');
+    expect(backupLogger.info).toHaveBeenCalledWith('[backup] Removed old backup: torque-2026-01-01T12-00-00-000Z.db');
   });
 
   it('skips scheduled backups when the database is closed', () => {
