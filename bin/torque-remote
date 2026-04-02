@@ -41,7 +41,7 @@ Falls back to local execution if the remote is unreachable or overloaded.
 
 Examples:
   torque-remote npx vitest run server/tests/foo.test.js
-  torque-remote dotnet build SpudgetBooks.sln
+  torque-remote dotnet build example-project.sln
   torque-remote cargo test --release
 
 Config: ~/.torque-remote.json + ~/.torque-remote.local.json
@@ -207,7 +207,7 @@ case "$TRANSPORT" in
         info "Syncing $local_branch on remote..."
         ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
           "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $local_branch && git reset --hard origin/$local_branch" \
-          2>&1 || warn "Sync failed — remote may have stale code"
+          2>&1 | tee -a /tmp/torque-remote-sync.log | grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
       fi
     fi
 
