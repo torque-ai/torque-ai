@@ -321,8 +321,7 @@ export const peekHosts = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
-  // TODO: migrate to requestV2 for consistency
-  update: (name, data) => request(`/peek-hosts/${encodeURIComponent(name)}`, {
+  update: (name, data) => requestV2(`/peek-hosts/${encodeURIComponent(name)}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   }),
@@ -333,8 +332,7 @@ export const peekHosts = {
   remove: (name) => requestV2(`/peek-hosts/${encodeURIComponent(name)}`, {
     method: 'DELETE',
   }),
-  // TODO: migrate to requestV2 for consistency
-  test: (name) => request(`/peek-hosts/${encodeURIComponent(name)}/test`, {
+  test: (name) => requestV2(`/peek-hosts/${encodeURIComponent(name)}/test`, {
     method: 'POST',
   }),
   credentials: (name) => requestV2(`/hosts/${encodeURIComponent(name)}/credentials`).then(d => d.items || d),
@@ -345,8 +343,7 @@ export const peekHosts = {
   deleteCredential: (name, type) => requestV2(`/hosts/${encodeURIComponent(name)}/credentials/${type}`, {
     method: 'DELETE',
   }),
-  // TODO: migrate to requestV2 for consistency
-  testCredential: (name, type) => request(`/hosts/${encodeURIComponent(name)}/credentials/${type}/test`, {
+  testCredential: (name, type) => requestV2(`/hosts/${encodeURIComponent(name)}/credentials/${type}/test`, {
     method: 'POST',
   }),
 };
