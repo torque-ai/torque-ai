@@ -2,21 +2,6 @@ import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import BatchHistory from './BatchHistory';
 
-// Mock recharts to avoid rendering issues in jsdom
-vi.mock('recharts', () => ({
-  LineChart: ({ children }) => <div data-testid="line-chart">{children}</div>,
-  Line: () => null,
-  BarChart: ({ children }) => <div data-testid="bar-chart">{children}</div>,
-  Bar: () => null,
-  AreaChart: ({ children }) => <div data-testid="area-chart">{children}</div>,
-  Area: () => null,
-  XAxis: () => null,
-  YAxis: () => null,
-  CartesianGrid: () => null,
-  Tooltip: () => null,
-  ResponsiveContainer: ({ children }) => <div>{children}</div>,
-}));
-
 // Mock the api module
 vi.mock('../api', () => ({
   request: vi.fn().mockResolvedValue({}),

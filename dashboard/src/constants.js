@@ -82,5 +82,5 @@ export const PROVIDER_HEX_COLORS = {
   local: '#22c55e',
 };
 
-/** Recharts hex colors for chart series */
+/** Hex colors for chart series */
 export const CHART_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#fb923c'];

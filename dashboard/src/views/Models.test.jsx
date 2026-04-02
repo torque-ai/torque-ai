@@ -2,21 +2,6 @@ import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import Models from './Models';
 
-// Mock recharts
-vi.mock('recharts', () => ({
-  BarChart: ({ children }) => <div data-testid="bar-chart">{children}</div>,
-  Bar: ({ children }) => <div>{children}</div>,
-  Cell: () => null,
-  LineChart: ({ children }) => <div data-testid="line-chart">{children}</div>,
-  Line: () => null,
-  XAxis: () => null,
-  YAxis: () => null,
-  CartesianGrid: () => null,
-  Tooltip: () => null,
-  ResponsiveContainer: ({ children }) => <div>{children}</div>,
-  Legend: () => null,
-}));
-
 vi.mock('../api', () => ({
   request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),

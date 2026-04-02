@@ -10,10 +10,7 @@ import StatCard from '../components/StatCard';
 import TaskSubmitForm from '../components/TaskSubmitForm';
 import HealthBar from '../components/HealthBar';
 import ActivityPanel from '../components/ActivityPanel';
-import {
-  LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts';
+import { SVGLineChart } from '../components/charts';
 
 const COLUMN_SORT_OPTIONS = [
   { value: 'newest', label: 'Newest first' },
@@ -1350,50 +1347,17 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       {activityData.length > 0 && (
         <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 mb-6">
           <h3 className="text-white font-medium mb-4">Task Activity</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={activityData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis
-                dataKey="date"
-                tickFormatter={(d) => {
-                  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
-                  return `${dt.getMonth() + 1}/${dt.getDate()}`;
-                }}
-                tick={{ fill: '#94a3b8', fontSize: 12 }}
-              />
-              <YAxis
-                tick={{ fill: '#94a3b8', fontSize: 12 }}
-                allowDecimals={false}
-              />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                labelStyle={{ color: '#94a3b8' }}
-                labelFormatter={(d) => {
-                  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
-                  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                }}
-              />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="completed"
-                name="Completed"
-                stroke="#10b981"
-                strokeWidth={2}
-                dot={{ r: 3, fill: '#10b981' }}
-                activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="failed"
-                name="Failed"
-                stroke="#ef4444"
-                strokeWidth={2}
-                dot={{ r: 3, fill: '#ef4444' }}
-                activeDot={{ r: 5 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <SVGLineChart
+            data={activityData} xKey="date" height={220} showLegend
+            formatX={(d) => {
+              const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
+              return `${dt.getMonth() + 1}/${dt.getDate()}`;
+            }}
+            lines={[
+              { dataKey: 'completed', color: '#10b981', name: 'Completed', dot: true },
+              { dataKey: 'failed', color: '#ef4444', name: 'Failed', dot: true },
+            ]}
+          />
         </div>
       )}
 

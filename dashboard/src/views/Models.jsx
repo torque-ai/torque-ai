@@ -3,10 +3,7 @@ import { stats as statsApi, models as modelsApi } from '../api';
 import StatCard from '../components/StatCard';
 import { formatDuration } from '../utils/formatters';
 import LoadingSkeleton from '../components/LoadingSkeleton';
-import {
-  BarChart, Bar, Cell, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts';
+import { SVGBarChart, SVGLineChart } from '../components/charts';
 
 // Distinct colors for up to 12 models
 const MODEL_COLORS = [
@@ -23,11 +20,6 @@ function formatChartDate(dateStr) {
   const d = new Date(typeof dateStr === 'string' && dateStr.length === 10 ? dateStr + 'T12:00:00' : dateStr);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
-
-const tooltipStyle = {
-  contentStyle: { backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' },
-  labelStyle: { color: '#94a3b8' },
-};
 
 export default function Models() {
   const [data, setData] = useState(null);
@@ -210,21 +202,14 @@ export default function Models() {
             {successData.length > 0 && (
               <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
                 <h3 className="text-white font-medium mb-4">Success Rate by Model</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={successData} layout="vertical" margin={{ left: 10, right: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis type="number" domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                    <YAxis type="category" dataKey="name" width={140} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                    <Tooltip {...tooltipStyle}
-                      formatter={(value, name, props) => [`${value}% (${props.payload.Tasks} tasks)`, name]} />
-                    <Bar dataKey="Success %" fill="#3b82f6" radius={[0, 4, 4, 0]}>
-                      {successData.map((entry, i) => {
-                        const rate = entry['Success %'];
-                        return <Cell key={entry.name || i} fill={rate >= 80 ? '#22c55e' : rate >= 50 ? '#f59e0b' : '#ef4444'} />;
-                      })}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <SVGBarChart
+                  data={successData} xKey="name" height={300} horizontal yWidth={140}
+                  bars={[{
+                    dataKey: 'Success %',
+                    colorFn: (entry) => entry['Success %'] >= 80 ? '#22c55e' : entry['Success %'] >= 50 ? '#f59e0b' : '#ef4444',
+                  }]}
+                  formatTooltip={(v, _name, entry) => `${v}% (${entry.Tasks} tasks)`}
+                />
               </div>
             )}
 
@@ -232,20 +217,13 @@ export default function Models() {
             {dailyData.length > 0 && (
               <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
                 <h3 className="text-white font-medium mb-4">Tasks per Day by Model</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={dailyData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="date" tickFormatter={formatChartDate} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                    <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                    <Tooltip {...tooltipStyle} labelFormatter={formatChartDate} />
-                    <Legend />
-                    {modelNames.map((name, i) => (
-                      <Line key={name} type="monotone" dataKey={name}
-                        stroke={getModelColor(i)} strokeWidth={2} dot={false}
-                        connectNulls />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
+                <SVGLineChart
+                  data={dailyData} xKey="date" height={300} showLegend
+                  formatX={formatChartDate}
+                  lines={modelNames.map((name, i) => ({
+                    dataKey: name, color: getModelColor(i), name, connectNulls: true,
+                  }))}
+                />
               </div>
             )}
           </div>

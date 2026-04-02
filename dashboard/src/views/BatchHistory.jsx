@@ -7,10 +7,7 @@ import { getRelevantModel } from '../utils/providerModels';
 import { STATUS_BG_COLORS } from '../constants';
 import { formatDuration } from '../utils/formatters';
 import { formatDistanceToNow } from 'date-fns';
-import {
-  LineChart, Line, BarChart, Bar, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
+import { SVGLineChart, SVGBarChart } from '../components/charts';
 
 const STATUS_COLORS = {
   completed: STATUS_BG_COLORS.completed,
@@ -193,11 +190,6 @@ function ExpandedWorkflow({ workflowId, onOpenDrawer, now }) {
   );
 }
 
-const chartTooltipStyle = {
-  contentStyle: { backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' },
-  labelStyle: { color: '#f1f5f9' },
-};
-
 function formatChartDate(d) {
   return new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
@@ -270,15 +262,12 @@ function Charts({ workflows, getWorkflowMeta }) {
       <div className="glass-card p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Completion Rate Trend</h3>
         {completionRateData.length > 1 ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={completionRateData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={formatChartDate} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-              <Tooltip {...chartTooltipStyle} formatter={(value) => [`${value}%`, 'Success Rate']} labelFormatter={formatChartDate} />
-              <Line type="monotone" dataKey="successRate" stroke="#22c55e" strokeWidth={2} dot={false} name="Success Rate" />
-            </LineChart>
-          </ResponsiveContainer>
+          <SVGLineChart
+            data={completionRateData} xKey="date" height={220}
+            yDomain={[0, 100]} formatX={formatChartDate} formatY={(v) => `${Math.round(v)}%`}
+            formatTooltip={(v) => `${v}%`}
+            lines={[{ dataKey: 'successRate', color: '#22c55e', name: 'Success Rate' }]}
+          />
         ) : (
           <div className="h-[220px] flex items-center justify-center text-slate-500 text-sm">
             Need 2+ days of data
@@ -290,15 +279,11 @@ function Charts({ workflows, getWorkflowMeta }) {
       <div className="glass-card p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Duration Distribution</h3>
         {durationDistData.some(d => d.count > 0) ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={durationDistData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="range" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
-              <Tooltip {...chartTooltipStyle} formatter={(value) => [value, 'Workflows']} />
-              <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <SVGBarChart
+            data={durationDistData} xKey="range" height={220}
+            bars={[{ dataKey: 'count', color: '#3b82f6', name: 'Workflows' }]}
+            formatTooltip={(v) => `${v} workflows`}
+          />
         ) : (
           <div className="h-[220px] flex items-center justify-center text-slate-500 text-sm">
             No duration data
@@ -310,15 +295,11 @@ function Charts({ workflows, getWorkflowMeta }) {
       <div className="glass-card p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Throughput Over Time</h3>
         {throughputData.length > 1 ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={throughputData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={formatChartDate} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} allowDecimals={false} />
-              <Tooltip {...chartTooltipStyle} formatter={(value) => [value, 'Workflows']} labelFormatter={formatChartDate} />
-              <Area type="monotone" dataKey="count" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} name="Workflows" />
-            </AreaChart>
-          </ResponsiveContainer>
+          <SVGLineChart
+            data={throughputData} xKey="date" height={220}
+            formatX={formatChartDate} formatTooltip={(v) => `${v} workflows`}
+            lines={[{ dataKey: 'count', color: '#3b82f6', name: 'Workflows', fill: true, fillOpacity: 0.3 }]}
+          />
         ) : (
           <div className="h-[220px] flex items-center justify-center text-slate-500 text-sm">
             Need 2+ days of data

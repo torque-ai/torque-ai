@@ -56,9 +56,14 @@ export default function TabBar({ tabs = [], defaultTab, onTabChange }) {
 
   const mountedRef = useRef(false);
   useEffect(() => {
-    if (!mountedRef.current) { mountedRef.current = true; return; }
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      // Fire on mount if hash resolved to a non-default tab
+      if (active && active !== defaultTab && onTabChange) onTabChange(active);
+      return;
+    }
     if (active && onTabChange) onTabChange(active);
-  }, [active, onTabChange]);
+  }, [active, onTabChange, defaultTab]);
 
   if (tabs.length === 0) {
     return null;

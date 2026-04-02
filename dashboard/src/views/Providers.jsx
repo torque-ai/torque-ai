@@ -5,11 +5,7 @@ import StatCard from '../components/StatCard';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { PROVIDER_HEX_COLORS } from '../constants';
 import { formatDate } from '../utils/formatters';
-import {
-  LineChart, Line, BarChart, Bar, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
-} from 'recharts';
+import { SVGLineChart, SVGBarChart, SVGPieChart } from '../components/charts';
 
 const CLOUD_API_PROVIDERS = new Set([
   'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai',
@@ -349,10 +345,6 @@ function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency
   );
 }
 
-const tooltipStyle = {
-  contentStyle: { backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' },
-  labelStyle: { color: '#f1f5f9' },
-};
 
 const CHART_METRICS = {
   requests: { field: 'total_requests', label: 'Requests' },
@@ -425,14 +417,24 @@ export default function Providers({ statsVersion, tasksTick }) {
         statsApi.timeseries({ days }),
         hostsApi.list().catch(() => []),
         providersApi.trends(days).catch(() => null),
-        requestV2('/config/codex_exhausted').catch(() => null),
-        request('/provider-quotas').catch(() => ({})),
-        request('/quota/history?days=7').catch(() => ({ history: [] })),
+        requestV2('/config/codex_exhausted', { timeout: 5000 }).catch(() => null),
+        request('/provider-quotas', { timeout: 5000 }).catch(() => ({})),
+        request('/quota/history?days=7', { timeout: 5000 }).catch(() => ({ history: [] })),
       ]);
       if (!mountedRef.current) return;
 
-      // Enrich providers with per-provider task stats
-      const enriched = Array.isArray(providersData) ? await Promise.all(
+      // Use server-enriched stats when available (the list endpoint already includes stats).
+      // Only fetch per-provider stats if the list response is missing them.
+      // Normalize field names: server returns completed_tasks, frontend uses successful_tasks.
+      const needsEnrichment = Array.isArray(providersData) && providersData.length > 0 && !providersData[0].stats;
+      if (!needsEnrichment && Array.isArray(providersData)) {
+        for (const p of providersData) {
+          if (p.stats && p.stats.completed_tasks != null && p.stats.successful_tasks == null) {
+            p.stats.successful_tasks = p.stats.completed_tasks;
+          }
+        }
+      }
+      const enriched = needsEnrichment ? await Promise.all(
         providersData.map(async (p) => {
           try {
             const statsData = await providersApi.stats(p.id || p.provider, days);
@@ -457,7 +459,7 @@ export default function Providers({ statsVersion, tasksTick }) {
             return { ...p, stats: { total_tasks: 0, successful_tasks: 0, failed_tasks: 0, success_rate: 0, avg_duration_seconds: 0 } };
           }
         })
-      ) : providersData;
+      ) : (Array.isArray(providersData) ? providersData : []);
 
       setProvidersList(enriched);
       setTimeSeries(timeSeriesData);
@@ -739,17 +741,13 @@ export default function Providers({ statsVersion, tasksTick }) {
             </select>
           </div>
           {comparisonData ? (
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={comparisonData.metrics} layout="vertical" barGap={4}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                <YAxis type="category" dataKey="metric" tick={{ fill: '#94a3b8', fontSize: 12 }} width={120} />
-                <Tooltip {...tooltipStyle} />
-                <Legend />
-                <Bar dataKey={compareA} fill={comparisonData.colorA} radius={[0, 4, 4, 0]} barSize={16} />
-                <Bar dataKey={compareB} fill={comparisonData.colorB} radius={[0, 4, 4, 0]} barSize={16} />
-              </BarChart>
-            </ResponsiveContainer>
+            <SVGBarChart
+              data={comparisonData.metrics} xKey="metric" height={320} horizontal yWidth={120} showLegend
+              bars={[
+                { dataKey: compareA, color: comparisonData.colorA, name: compareA },
+                { dataKey: compareB, color: comparisonData.colorB, name: compareB },
+              ]}
+            />
           ) : (
             <div className="h-[320px] flex items-center justify-center text-slate-500">
               Select two providers to compare
@@ -807,17 +805,14 @@ export default function Providers({ statsVersion, tasksTick }) {
         <div className="glass-card p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Usage Over Time</h3>
           <div role="img" aria-label="Usage over time: total, completed, and failed tasks">
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={timeSeries}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={formatDate} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
-              <Tooltip {...tooltipStyle} />
-              <Line type="monotone" dataKey="total" stroke="#3b82f6" strokeWidth={2} dot={false} name="Total" />
-              <Line type="monotone" dataKey="completed" stroke="#22c55e" strokeWidth={2} dot={false} name="Completed" />
-              <Line type="monotone" dataKey="failed" stroke="#ef4444" strokeWidth={2} dot={false} name="Failed" />
-            </LineChart>
-          </ResponsiveContainer>
+            <SVGLineChart
+              data={timeSeries} xKey="date" height={300} formatX={formatDate}
+              lines={[
+                { dataKey: 'total', color: '#3b82f6', name: 'Total' },
+                { dataKey: 'completed', color: '#22c55e', name: 'Completed' },
+                { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
+              ]}
+            />
           </div>
         </div>
 
@@ -826,26 +821,11 @@ export default function Providers({ statsVersion, tasksTick }) {
           <h3 className="text-lg font-semibold text-white mb-4">Provider Breakdown</h3>
           {pieData.length > 0 ? (
             <div role="img" aria-label={`Provider task distribution: ${pieData.map(d => `${d.name} ${d.value}`).join(', ')}`}>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={entry.name || index} fill={getProviderColor(entry.name)} />
-                  ))}
-                </Pie>
-                <Tooltip {...tooltipStyle} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+              <SVGPieChart
+                data={pieData} height={300} innerRadius={60} outerRadius={100}
+                showLabels showLegend
+                colorFn={(entry) => getProviderColor(entry.name)}
+              />
             </div>
           ) : (
             <div className="h-[300px] flex items-center justify-center text-slate-500">
@@ -858,34 +838,16 @@ export default function Providers({ statsVersion, tasksTick }) {
         {activeProviders.length > 0 && trends?.series && (
           <div className="glass-card p-6 lg:col-span-2">
             <h3 className="text-lg font-semibold text-white mb-4">Success Rate by Provider</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={trends.series}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={formatDate} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                <Tooltip
-                  {...tooltipStyle}
-                  formatter={(value, name) => {
-                    const provider = name.replace('_success_rate', '');
-                    return value != null ? [`${value}%`, provider] : ['-', provider];
-                  }}
-                  labelFormatter={formatDate}
-                />
-                <Legend formatter={(value) => value.replace('_success_rate', '')} />
-                {activeProviders.map((p) => (
-                  <Line
-                    key={p}
-                    type="monotone"
-                    dataKey={`${p}_success_rate`}
-                    stroke={getProviderColor(p)}
-                    strokeWidth={2}
-                    dot={false}
-                    connectNulls
-                    name={`${p}_success_rate`}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+            <SVGLineChart
+              data={trends.series} xKey="date" height={280}
+              yDomain={[0, 100]} formatX={formatDate} formatY={(v) => `${Math.round(v)}%`}
+              formatTooltip={(v) => v != null ? `${v}%` : '-'}
+              showLegend legendFormatter={(n) => n.replace('_success_rate', '')}
+              lines={activeProviders.map((p) => ({
+                dataKey: `${p}_success_rate`, color: getProviderColor(p),
+                name: `${p}_success_rate`, connectNulls: true,
+              }))}
+            />
           </div>
         )}
 
@@ -893,31 +855,16 @@ export default function Providers({ statsVersion, tasksTick }) {
         {activeProviders.length > 0 && trends?.series && (
           <div className="glass-card p-6 lg:col-span-2">
             <h3 className="text-lg font-semibold text-white mb-4">Tasks per Day by Provider</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={trends.series}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={formatDate} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                <Tooltip
-                  {...tooltipStyle}
-                  formatter={(value, name) => [value, name.replace('_total', '')]}
-                  labelFormatter={formatDate}
-                />
-                <Legend formatter={(value) => value.replace('_total', '')} />
-                {activeProviders.map((p) => (
-                  <Area
-                    key={p}
-                    type="monotone"
-                    dataKey={`${p}_total`}
-                    stackId="throughput"
-                    stroke={getProviderColor(p)}
-                    fill={getProviderColor(p)}
-                    fillOpacity={0.3}
-                    name={`${p}_total`}
-                  />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
+            <SVGLineChart
+              data={trends.series} xKey="date" height={280}
+              formatX={formatDate} showLegend
+              legendFormatter={(n) => n.replace('_total', '')}
+              formatTooltip={(v, n) => `${v}`}
+              lines={activeProviders.map((p) => ({
+                dataKey: `${p}_total`, color: getProviderColor(p),
+                name: `${p}_total`, fill: true, fillOpacity: 0.3, stackId: 'throughput',
+              }))}
+            />
           </div>
         )}
 
@@ -925,34 +872,27 @@ export default function Providers({ statsVersion, tasksTick }) {
         {durationData.length > 0 && (
           <div className="glass-card p-6 lg:col-span-2">
             <h3 className="text-lg font-semibold text-white mb-4">Average Duration by Provider</h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={durationData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={(v) => `${v}s`} />
-                <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} width={100} />
-                <Tooltip {...tooltipStyle} formatter={(v) => [`${v}s`, 'Avg Duration']} />
-                <Bar dataKey="duration" radius={[0, 4, 4, 0]}>
-                  {durationData.map((entry, i) => (
-                    <Cell key={i} fill={getProviderColor(entry.name)} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <SVGBarChart
+              data={durationData} xKey="name" height={200} horizontal
+              bars={[{
+                dataKey: 'duration', name: 'Avg Duration',
+                colorFn: (entry) => getProviderColor(entry.name),
+              }]}
+              formatY={(v) => `${Math.round(v)}s`}
+              formatTooltip={(v) => `${v}s`}
+            />
           </div>
         )}
 
         {/* Aggregate success rate trend */}
         <div className="glass-card p-6 lg:col-span-2">
           <h3 className="text-lg font-semibold text-white mb-4">Overall Success Rate Trend</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={timeSeries}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={formatDate} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} domain={[0, 100]} />
-              <Tooltip {...tooltipStyle} formatter={(value) => [`${value}%`, 'Success Rate']} />
-              <Line type="monotone" dataKey="success_rate" stroke="#22c55e" strokeWidth={2} dot={false} name="Success Rate" />
-            </LineChart>
-          </ResponsiveContainer>
+          <SVGLineChart
+            data={timeSeries} xKey="date" height={200}
+            yDomain={[0, 100]} formatX={formatDate} formatY={(v) => Math.round(v)}
+            formatTooltip={(v) => `${v}%`}
+            lines={[{ dataKey: 'success_rate', color: '#22c55e', name: 'Success Rate' }]}
+          />
         </div>
 
         {usageHistory.length > 0 && (
@@ -982,32 +922,16 @@ export default function Providers({ statsVersion, tasksTick }) {
                 </button>
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={usageChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={formatDate} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} allowDecimals={false} tickFormatter={(value) => value.toLocaleString()} />
-                <Tooltip
-                  {...tooltipStyle}
-                  formatter={(value) => [Number(value || 0).toLocaleString(), CHART_METRICS[usageMetric].label]}
-                  labelFormatter={formatDate}
-                />
-                <Legend />
-                {usageProviderKeys.map((provider) => (
-                  <Area
-                    key={provider}
-                    type="monotone"
-                    dataKey={provider}
-                    stackId="usage"
-                    stroke={getProviderColor(provider)}
-                    fill={getProviderColor(provider)}
-                    fillOpacity={0.3}
-                    strokeWidth={2}
-                    name={provider}
-                  />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
+            <SVGLineChart
+              data={usageChartData} xKey="date" height={250}
+              formatX={formatDate} formatY={(v) => Math.round(v).toLocaleString()}
+              formatTooltip={(v) => Number(v || 0).toLocaleString()}
+              showLegend
+              lines={usageProviderKeys.map((provider) => ({
+                dataKey: provider, color: getProviderColor(provider),
+                name: provider, fill: true, fillOpacity: 0.3, stackId: 'usage',
+              }))}
+            />
           </div>
         )}
       </div>

@@ -4,10 +4,7 @@ import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { PROVIDER_HEX_COLORS } from '../constants';
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
-} from 'recharts';
+import { SVGLineChart, SVGBarChart, SVGPieChart } from '../components/charts';
 
 function ProgressRing({ percent, size = 80, strokeWidth = 8 }) {
   const radius = (size - strokeWidth) / 2;
@@ -321,54 +318,23 @@ export default function Budget() {
           </div>
           {dailyCosts.length > 0 ? (
             <div role="img" aria-label={`Cost over time chart (${chartType})`}>
-            <ResponsiveContainer width="100%" height={300}>
               {chartType === 'bar' ? (
-                <BarChart data={dailyCosts}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    tickFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  />
-                  <YAxis
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    tickFormatter={(v) => `$${v}`}
-                  />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                    labelStyle={{ color: '#f1f5f9' }}
-                    formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Cost']}
-                  />
-                  <Bar dataKey="cost" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Daily Cost" />
-                </BarChart>
+                <SVGBarChart
+                  data={dailyCosts} xKey="date" height={300}
+                  bars={[{ dataKey: 'cost', color: '#3b82f6', name: 'Daily Cost' }]}
+                  formatX={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  formatY={(v) => `$${Math.round(v)}`}
+                  formatTooltip={(v) => `$${Number(v).toFixed(2)}`}
+                />
               ) : (
-                <LineChart data={dailyCosts}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    tickFormatter={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  />
-                  <YAxis
-                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    tickFormatter={(v) => `$${v}`}
-                  />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                    labelStyle={{ color: '#f1f5f9' }}
-                    formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Cost']}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="cost"
-                    stroke="#3b82f6"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Daily Cost"
-                  />
-                </LineChart>
+                <SVGLineChart
+                  data={dailyCosts} xKey="date" height={300}
+                  lines={[{ dataKey: 'cost', color: '#3b82f6', name: 'Daily Cost' }]}
+                  formatX={(d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  formatY={(v) => `$${Math.round(v)}`}
+                  formatTooltip={(v) => `$${Number(v).toFixed(2)}`}
+                />
               )}
-            </ResponsiveContainer>
             </div>
           ) : (
             <div className="h-[300px] flex items-center justify-center text-slate-500">
@@ -382,29 +348,12 @@ export default function Budget() {
           <h3 className="text-lg font-semibold text-white mb-4">Provider Breakdown</h3>
           {pieData.length > 0 ? (
             <div role="img" aria-label={`Provider cost breakdown: ${pieData.map(d => `${d.name} $${Number(d.value).toFixed(2)}`).join(', ')}`}>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={entry.name || index} fill={PROVIDER_HEX_COLORS[entry.name] || '#6b7280'} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                  formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Cost']}
-                />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+              <SVGPieChart
+                data={pieData} height={300} innerRadius={60} outerRadius={100}
+                showLabels showLegend
+                colorFn={(entry) => PROVIDER_HEX_COLORS[entry.name] || '#6b7280'}
+                formatTooltip={(v) => `$${Number(v).toFixed(2)}`}
+              />
             </div>
           ) : (
             <div className="h-[300px] flex items-center justify-center text-slate-500">

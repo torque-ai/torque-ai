@@ -1,18 +1,6 @@
 import { screen, waitFor, act, render } from '@testing-library/react';
 import { hosts as hostsApi } from './api';
 
-// Mock recharts (used by Kanban)
-vi.mock('recharts', () => ({
-  LineChart: ({ children }) => <div data-testid="line-chart">{children}</div>,
-  Line: () => null,
-  XAxis: () => null,
-  YAxis: () => null,
-  CartesianGrid: () => null,
-  Tooltip: () => null,
-  ResponsiveContainer: ({ children }) => <div>{children}</div>,
-  Legend: () => null,
-}));
-
 // Mock the api module
 vi.mock('./api', () => ({
   request: vi.fn().mockResolvedValue({}),

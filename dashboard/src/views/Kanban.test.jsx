@@ -2,18 +2,6 @@ import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import Kanban from './Kanban';
 
-// Mock recharts
-vi.mock('recharts', () => ({
-  LineChart: ({ children }) => <div data-testid="line-chart">{children}</div>,
-  Line: () => null,
-  XAxis: () => null,
-  YAxis: () => null,
-  CartesianGrid: () => null,
-  Tooltip: () => null,
-  ResponsiveContainer: ({ children }) => <div>{children}</div>,
-  Legend: () => null,
-}));
-
 vi.mock('../api', () => ({
   request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
