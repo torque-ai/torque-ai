@@ -271,23 +271,27 @@ function handlePostCompletion(ctx) {
   // Phase 9: Auto-track direct commits + auto-release for versioned projects
   if (ctx.status === 'completed') {
     try {
-      const { isProjectVersioned, inferIntentFromCommitMessage } = require('../versioning/version-intent');
+      const { resolveVersionedProject, inferIntentFromCommitMessage } = require('../versioning/version-intent');
       const database = require('../database');
       const rawDb = database.getDbInstance();
       const taskWorkDir = task?.working_directory || null;
-      if (rawDb && taskWorkDir && isProjectVersioned(rawDb, taskWorkDir)) {
+      const registeredProject = rawDb && taskWorkDir ? resolveVersionedProject(rawDb, taskWorkDir) : null;
+      if (registeredProject) {
+        // Use registered project path for DB records and git operations
+        // (taskWorkDir may be a Codex sandbox path that no longer exists)
+        const projectPath = registeredProject;
         // Scan for untracked direct commits
         try {
           const { execFileSync } = require('child_process');
           const { randomUUID } = require('crypto');
           const lastCommit = rawDb.prepare(
             'SELECT commit_hash FROM vc_commits WHERE repo_path = ? ORDER BY created_at DESC LIMIT 1'
-          ).get(taskWorkDir);
+          ).get(projectPath);
           const gitArgs = lastCommit?.commit_hash && !lastCommit.commit_hash.startsWith('v')
             ? ['log', `${lastCommit.commit_hash}..HEAD`, '--format=%H|%s', '--no-merges']
             : ['log', '-20', '--format=%H|%s', '--no-merges'];
           const gitOutput = execFileSync('git', gitArgs, {
-            cwd: taskWorkDir, encoding: 'utf8', windowsHide: true,
+            cwd: projectPath, encoding: 'utf8', windowsHide: true,
           }).trim();
           if (gitOutput) {
             const now = new Date().toISOString();
@@ -298,13 +302,13 @@ function handlePostCompletion(ctx) {
               if (!shortHash) continue;
               const existing = rawDb.prepare(
                 'SELECT id FROM vc_commits WHERE repo_path = ? AND commit_hash = ?'
-              ).get(taskWorkDir, shortHash);
+              ).get(projectPath, shortHash);
               if (existing) continue;
               const intent = inferIntentFromCommitMessage(message);
               const typeMatch = message.match(/^([a-z]+)/i);
               rawDb.prepare(
                 'INSERT INTO vc_commits (id, repo_path, branch, commit_hash, message, commit_type, scope, version_intent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-              ).run(randomUUID(), taskWorkDir, 'main', shortHash, message, typeMatch ? typeMatch[1].toLowerCase() : 'chore', null, intent, now);
+              ).run(randomUUID(), projectPath, 'main', shortHash, message, typeMatch ? typeMatch[1].toLowerCase() : 'chore', null, intent, now);
             }
           }
         } catch (_scanErr) {
@@ -317,7 +321,7 @@ function handlePostCompletion(ctx) {
           try {
             const workflow = deps.db.getWorkflow(task.workflow_id);
             if (workflow && workflow.status === 'completed') {
-              triggerAutoRelease(taskWorkDir, {
+              triggerAutoRelease(projectPath, {
                 workflowId: task.workflow_id,
                 taskId: null,
                 trigger: 'workflow',
@@ -326,7 +330,7 @@ function handlePostCompletion(ctx) {
           } catch (_wfErr) { /* workflow lookup failed - skip */ }
         } else {
           // Standalone task - release immediately
-          triggerAutoRelease(taskWorkDir, {
+          triggerAutoRelease(projectPath, {
             workflowId: null,
             taskId,
             trigger: 'task',
