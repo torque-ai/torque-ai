@@ -471,6 +471,7 @@ async function handleDeleteCredential(req, res) {
 // ─── Remote Agents ──────────────────────────────────────────────────────────
 
 let _cachedRegistry = null;
+function _resetRegistryCache() { _cachedRegistry = null; }
 function _getRegistry() {
   if (_cachedRegistry) return _cachedRegistry;
   if (!dbModule || typeof dbModule.getDbInstance !== 'function') return null;
@@ -754,6 +755,7 @@ function createV2InfrastructureHandlers(_deps) {
 
 module.exports = {
   init,
+  _resetRegistryCache,
   // Workstations
   handleListWorkstations,
   handleCreateWorkstation,

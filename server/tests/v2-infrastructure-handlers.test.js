@@ -1759,6 +1759,7 @@ describe('api/v2-infrastructure-handlers', () => {
         host: 'agent-d.internal',
         secret: 'secret-d',
       });
+      handlers._resetRegistryCache();
       mockDb.getDbInstance
         .mockReturnValueOnce(createAgentDb())
         .mockReturnValueOnce(null);
@@ -1822,6 +1823,7 @@ describe('api/v2-infrastructure-handlers', () => {
         host: 'agent-b.internal',
         secret: 'secret-b',
       });
+      handlers._resetRegistryCache();
       mockDb.getDbInstance
         .mockReturnValueOnce(createAgentDb())
         .mockReturnValueOnce(null);

@@ -96,6 +96,8 @@ beforeEach(() => {
   db.resetForTest(templateBuffer);
   bindCore();
   core.setOllamaHealthy(true);
+  // Set test API key so groq routing path is reachable
+  process.env.GROQ_API_KEY = 'test-key';
 });
 
 afterAll(() => {
