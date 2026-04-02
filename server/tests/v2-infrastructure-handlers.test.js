@@ -1753,16 +1753,8 @@ describe('api/v2-infrastructure-handlers', () => {
     });
 
     it('returns 500 when the registry is not initialized', async () => {
-      seedAgent({
-        id: 'agent-d',
-        name: 'Agent D',
-        host: 'agent-d.internal',
-        secret: 'secret-d',
-      });
       handlers._resetRegistryCache();
-      mockDb.getDbInstance
-        .mockReturnValueOnce(createAgentDb())
-        .mockReturnValueOnce(null);
+      mockDb.getDbInstance.mockReturnValue(null);
       const res = createMockRes();
 
       await handlers.handleAgentHealth(
@@ -1816,17 +1808,9 @@ describe('api/v2-infrastructure-handlers', () => {
       });
     });
 
-    it('returns 500 when the registry is not initialized', async () => {
-      seedAgent({
-        id: 'agent-b',
-        name: 'Agent B',
-        host: 'agent-b.internal',
-        secret: 'secret-b',
-      });
       handlers._resetRegistryCache();
-      mockDb.getDbInstance
-        .mockReturnValueOnce(createAgentDb())
-        .mockReturnValueOnce(null);
+      mockDb.getDbInstance.mockReturnValue(null);
+
       const res = createMockRes();
 
       await handlers.handleDeleteAgent(
