@@ -285,11 +285,11 @@ function DecisionHistoryTable({ decisions }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
-            {sorted.map((d) => {
+            {sorted.map((d, index) => {
               const providerStyle = getProviderStyle(d.provider);
               const complexityStyle = COMPLEXITY_STYLES[d.complexity] || COMPLEXITY_STYLES.unknown;
               return (
-                <tr key={d.task_id} className="hover:bg-slate-800/50">
+                <tr key={d.task_id} data-testid={`decision-row-${index}`} className="hover:bg-slate-800/50">
                   <td className="py-2 pr-4 text-slate-500 text-xs whitespace-nowrap">
                     {d.created_at ? format(new Date(d.created_at), 'MMM d, yyyy HH:mm') : '-'}
                   </td>

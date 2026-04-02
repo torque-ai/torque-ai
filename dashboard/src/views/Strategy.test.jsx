@@ -584,12 +584,12 @@ describe('Strategic', () => {
     // Click complexity header to sort
     fireEvent.click(screen.getByText('Complexity'));
 
-    // After sorting, all rows should still be present
-    // TODO: Add data-testid to decision rows to enable order verification
     await waitFor(() => {
-      expect(screen.getByText('complex')).toBeInTheDocument();
-      expect(screen.getByText('normal')).toBeInTheDocument();
-      expect(screen.getByText('simple')).toBeInTheDocument();
+      const rows = screen.getAllByTestId(/^decision-row-/);
+      expect(rows).toHaveLength(3);
+      expect(rows[0]).toHaveTextContent('simple');
+      expect(rows[1]).toHaveTextContent('normal');
+      expect(rows[2]).toHaveTextContent('complex');
     });
   });
 
@@ -609,10 +609,12 @@ describe('Strategic', () => {
     fireEvent.click(screen.getByText('Complexity'));
     fireEvent.click(screen.getByText('Complexity'));
 
-    // All rows still present after toggling
-    // TODO: Add data-testid to decision rows to enable order verification
     await waitFor(() => {
-      expect(screen.getByText('task-abc')).toBeInTheDocument();
+      const rows = screen.getAllByTestId(/^decision-row-/);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows[0]).toHaveTextContent('complex');
+      expect(rows[1]).toHaveTextContent('normal');
+      expect(rows[2]).toHaveTextContent('simple');
     });
   });
 
