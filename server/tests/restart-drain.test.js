@@ -68,6 +68,6 @@ describe('restart_server drain mode', () => {
     taskCore.listTasks.mockReturnValue([{ id: 'task-1', status: 'running' }]);
     const result = await tools.handleToolCall('restart_server', { reason: 'test' });
     expect(result.success).toBe(false);
-    expect(result.error).toContain('still running');
+    expect(result.error).toContain('Cannot restart');
   });
 });

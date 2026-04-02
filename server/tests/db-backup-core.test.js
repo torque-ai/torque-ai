@@ -258,7 +258,7 @@ describe('db/backup-core', () => {
     const { subject, fs, backupLogger } = loadSubject({
       dataDirMock: createDataDirMock(backupRoot),
     });
-    const buffer = Buffer.from('scheduler-bytes');
+    const buffer = Buffer.alloc(100001, 'x');
     const db = createDbHandle({
       serialize: vi.fn(() => buffer),
     });
@@ -320,7 +320,10 @@ describe('db/backup-core', () => {
 
   it('logs scheduler failures instead of throwing', () => {
     const { subject, fs, backupLogger } = loadSubject();
-    const db = createDbHandle();
+    const largeBuffer = Buffer.alloc(100001, 'x');
+    const db = createDbHandle({
+      serialize: vi.fn(() => largeBuffer),
+    });
     let intervalCallback;
 
     subject.setDb(db);

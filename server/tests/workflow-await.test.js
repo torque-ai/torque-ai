@@ -282,7 +282,7 @@ describe('workflow-await handlers with DB-backed state', () => {
 
     it('marks stale running tasks as orphaned when the server epoch advances', async () => {
       serverConfig.setEpoch(1);
-      const taskId = createTask({ status: 'running' });
+      const taskId = createTask({ status: 'running', max_retries: 0 });
       taskCore.updateTask(taskId, { output: 'partial orphaned output' });
       serverConfig.setEpoch(2);
 
