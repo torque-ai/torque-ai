@@ -174,9 +174,13 @@ describe('Providers', () => {
   it('shows total tasks count in summary', async () => {
     renderWithProviders(<Providers />);
     await waitFor(() => {
-      // 50 + 20 = 70 total tasks
-      expect(screen.getByText('70')).toBeInTheDocument();
+      expect(screen.getByText('ollama')).toBeInTheDocument();
     });
+    // Debug: log all text content of stat card values
+    const allBoldTexts = screen.getAllByText(/.+/, { selector: '.text-2xl' });
+    console.log('DEBUG stat values:', allBoldTexts.map(el => el.textContent));
+    // 50 + 20 = 70 total tasks
+    expect(screen.getByText('70')).toBeInTheDocument();
   });
 
   it('shows hosts label in summary', async () => {
