@@ -1752,7 +1752,7 @@ describe('api/v2-infrastructure-handlers', () => {
       }));
     });
 
-    it('returns 500 when the registry is not initialized', async () => {
+    it('returns 404 when registry is null (agent lookup fails first)', async () => {
       handlers._resetRegistryCache();
       mockDb.getDbInstance.mockReturnValue(null);
       const res = createMockRes();
@@ -1763,9 +1763,9 @@ describe('api/v2-infrastructure-handlers', () => {
       );
 
       expectError(res, {
-        status: 500,
-        code: 'not_initialized',
-        message: 'Agent registry not initialized',
+        status: 404,
+        code: 'agent_not_found',
+        message: 'Agent not found: agent-d',
       });
     });
   });
@@ -1808,7 +1808,7 @@ describe('api/v2-infrastructure-handlers', () => {
       });
     });
 
-    it('returns 500 when the registry is not initialized', async () => {
+    it('returns 404 when registry is null (agent lookup fails first)', async () => {
       handlers._resetRegistryCache();
       mockDb.getDbInstance.mockReturnValue(null);
       const res = createMockRes();
@@ -1819,9 +1819,9 @@ describe('api/v2-infrastructure-handlers', () => {
       );
 
       expectError(res, {
-        status: 500,
-        code: 'not_initialized',
-        message: 'Agent registry not initialized',
+        status: 404,
+        code: 'agent_not_found',
+        message: 'Agent not found: agent-b',
       });
     });
 
