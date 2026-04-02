@@ -152,12 +152,13 @@ function resetMockDefaults() {
   mockDb.decideApproval = vi.fn().mockReturnValue(true);
   mockDb.getScheduledTask = vi.fn().mockReturnValue(null);
   mockDb.listScheduledTasks = vi.fn().mockReturnValue([]);
-  mockDb.createCronScheduledTask = vi.fn().mockImplementation((name, cronExpression, taskDescription, options) => ({
+  mockDb.createCronScheduledTask = vi.fn().mockImplementation(({ name, cron_expression, task_config, timezone }) => ({
     id: 'schedule-1',
     name,
-    cron_expression: cronExpression,
-    task_description: taskDescription,
-    ...options,
+    cron_expression,
+    task_description: task_config?.task,
+    ...task_config,
+    timezone,
   }));
   mockDb.toggleScheduledTask = vi.fn().mockImplementation((id, enabled) => ({
     id,
@@ -509,16 +510,17 @@ describe('api/v2-governance-handlers approvals and schedules', () => {
 
       await handlers.handleCreateSchedule(req, res);
 
-      expect(mockDb.createCronScheduledTask).toHaveBeenCalledWith(
-        'Nightly sync',
-        '0 2 * * *',
-        'Sync plans',
-        {
+      expect(mockDb.createCronScheduledTask).toHaveBeenCalledWith({
+        name: 'Nightly sync',
+        cron_expression: '0 2 * * *',
+        task_config: {
+          task: 'Sync plans',
           provider: 'codex',
           model: 'gpt-5',
           working_directory: 'C:\\repo',
         },
-      );
+        timezone: null,
+      });
       expectSuccessEnvelope(res, schedule, { status: 201 });
     });
 
@@ -533,24 +535,27 @@ describe('api/v2-governance-handlers approvals and schedules', () => {
 
       await handlers.handleCreateSchedule(req, res);
 
-      expect(mockDb.createCronScheduledTask).toHaveBeenCalledWith(
-        'Hourly',
-        '0 * * * *',
-        'Check queue',
-        {
+      expect(mockDb.createCronScheduledTask).toHaveBeenCalledWith({
+        name: 'Hourly',
+        cron_expression: '0 * * * *',
+        task_config: {
+          task: 'Check queue',
           provider: null,
           model: null,
           working_directory: null,
         },
-      );
+        timezone: null,
+      });
       expectSuccessEnvelope(res, {
         id: 'schedule-1',
         name: 'Hourly',
         cron_expression: '0 * * * *',
         task_description: 'Check queue',
+        task: 'Check queue',
         provider: null,
         model: null,
         working_directory: null,
+        timezone: null,
       }, { status: 201 });
     });
 

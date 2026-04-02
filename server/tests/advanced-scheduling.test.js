@@ -226,9 +226,9 @@ describe('advanced/scheduling handlers', () => {
       });
 
       const text = getText(result);
-      expect(text).toContain('| ID | Name | Cron | Status | Next Run | Run Count |');
-      expect(text).toContain('| schedule-1 | enabled schedule | `0 6 * * *` | ✅ Enabled | Jan 3, 2026, 6:00 AM | 4 |');
-      expect(text).toContain('| schedule-2 | disabled schedule | `0 8 * * *` | ❌ Disabled | - | 0 |');
+      expect(text).toContain('| ID | Name | Type | Schedule | Status | Next Run | Run Count |');
+      expect(text).toContain('| schedule-1 | enabled schedule | cron | `0 6 * * *` | ✅ Enabled | Jan 3, 2026, 6:00 AM | 4 |');
+      expect(text).toContain('| schedule-2 | disabled schedule | cron | `0 8 * * *` | ❌ Disabled | - | 0 |');
       expect(text).toContain('**Total:** 2 schedule(s)');
     });
   });

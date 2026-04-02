@@ -65,6 +65,14 @@ vi.mock('../db/project-config-core', () => ({
   updateScheduledTask() {},
 }));
 
+vi.mock('../db/scheduling-automation', () => ({
+  getScheduledTask() { return null; },
+  listScheduledTasks() { return []; },
+  deleteScheduledTask() { return false; },
+  updateScheduledTask() {},
+  createCronScheduledTask() { return {}; },
+}));
+
 vi.mock('../db/config-core', () => ({
   getAllConfig() { return {}; },
 }));
@@ -134,6 +142,7 @@ vi.mock('uuid', () => ({
 const taskCore = require('../db/task-core');
 const taskMetadata = require('../db/task-metadata');
 const projectConfigCore = require('../db/project-config-core');
+const schedulingAutomation = require('../db/scheduling-automation');
 const configCore = require('../db/config-core');
 const eventTracking = require('../db/event-tracking');
 const providerRoutingCore = require('../db/provider-routing-core');
@@ -163,6 +172,10 @@ describe('task-operations handlers', () => {
     projectConfigCore.getScheduledTask = vi.fn(() => null);
     projectConfigCore.deleteScheduledTask = vi.fn(() => false);
     projectConfigCore.updateScheduledTask = vi.fn(() => undefined);
+    schedulingAutomation.listScheduledTasks = vi.fn(() => []);
+    schedulingAutomation.getScheduledTask = vi.fn(() => null);
+    schedulingAutomation.deleteScheduledTask = vi.fn(() => false);
+    schedulingAutomation.updateScheduledTask = vi.fn(() => undefined);
   });
 
   afterEach(() => {
@@ -611,22 +624,22 @@ describe('task-operations handlers', () => {
 
   describe('handleCancelScheduled', () => {
     it('returns error when schedule not found', () => {
-      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue(null);
+      vi.spyOn(schedulingAutomation, 'getScheduledTask').mockReturnValue(null);
       const result = handlers.handleCancelScheduled({ schedule_id: 'missing' });
       expect(result.content[0].text).toContain('not found');
     });
 
     it('cancels a scheduled task', () => {
-      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue({ name: 'My Task', run_count: 5 });
-      vi.spyOn(projectConfigCore, 'deleteScheduledTask').mockReturnValue(true);
+      vi.spyOn(schedulingAutomation, 'getScheduledTask').mockReturnValue({ name: 'My Task', run_count: 5 });
+      vi.spyOn(schedulingAutomation, 'deleteScheduledTask').mockReturnValue(true);
       const result = handlers.handleCancelScheduled({ schedule_id: 'sched-1' });
       expect(result.content[0].text).toContain('Cancelled');
       expect(result.content[0].text).toContain('5 times');
     });
 
     it('returns error when delete fails', () => {
-      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue({ name: 'My Task', run_count: 0 });
-      vi.spyOn(projectConfigCore, 'deleteScheduledTask').mockReturnValue(false);
+      vi.spyOn(schedulingAutomation, 'getScheduledTask').mockReturnValue({ name: 'My Task', run_count: 0 });
+      vi.spyOn(schedulingAutomation, 'deleteScheduledTask').mockReturnValue(false);
       const result = handlers.handleCancelScheduled({ schedule_id: 'sched-1' });
       expect(result.content[0].text).toContain('Failed to cancel');
     });
@@ -636,22 +649,22 @@ describe('task-operations handlers', () => {
 
   describe('handlePauseScheduled', () => {
     it('returns error when schedule not found', () => {
-      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue(null);
+      vi.spyOn(schedulingAutomation, 'getScheduledTask').mockReturnValue(null);
       const result = handlers.handlePauseScheduled({ schedule_id: 'missing', action: 'pause' });
       expect(result.content[0].text).toContain('not found');
     });
 
     it('pauses a scheduled task', () => {
-      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue({ name: 'My Task' });
-      vi.spyOn(projectConfigCore, 'updateScheduledTask').mockReturnValue(undefined);
+      vi.spyOn(schedulingAutomation, 'getScheduledTask').mockReturnValue({ name: 'My Task' });
+      vi.spyOn(schedulingAutomation, 'updateScheduledTask').mockReturnValue(undefined);
       const result = handlers.handlePauseScheduled({ schedule_id: 'sched-1', action: 'pause' });
       expect(result.content[0].text).toContain('Paused');
       expect(result.content[0].text).toContain('paused');
     });
 
     it('resumes a scheduled task', () => {
-      vi.spyOn(projectConfigCore, 'getScheduledTask').mockReturnValue({ name: 'My Task' });
-      vi.spyOn(projectConfigCore, 'updateScheduledTask').mockReturnValue(undefined);
+      vi.spyOn(schedulingAutomation, 'getScheduledTask').mockReturnValue({ name: 'My Task' });
+      vi.spyOn(schedulingAutomation, 'updateScheduledTask').mockReturnValue(undefined);
       const result = handlers.handlePauseScheduled({ schedule_id: 'sched-1', action: 'resume' });
       expect(result.content[0].text).toContain('Resumed');
       expect(result.content[0].text).toContain('active');
