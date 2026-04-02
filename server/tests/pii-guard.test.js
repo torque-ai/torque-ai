@@ -114,8 +114,8 @@ describe('pii-guard', () => {
     });
 
     it('applies custom string patterns', () => {
-      const result = piiGuard.scanAndReplace('Host: BahumutsOmen', {
-        customPatterns: [{ pattern: 'BahumutsOmen', replacement: 'example-host' }],
+      const result = piiGuard.scanAndReplace('Host: ZzTestHost999', {
+        customPatterns: [{ pattern: 'ZzTestHost999', replacement: 'example-host' }],
       });
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Host: example-host');

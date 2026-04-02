@@ -4,7 +4,7 @@ const piiGuard = require('../utils/pii-guard');
 
 describe('POST /api/pii-scan logic', () => {
   it('detects and sanitizes user paths', () => {
-    const result = piiGuard.scanAndReplace('Path C:\\Users\\Werem\\Projects\\app');
+    const result = piiGuard.scanAndReplace('Path C:\\Users\\<os-user>\\Projects\\app');
     expect(result.clean).toBe(false);
     expect(result.sanitized).toContain('<user>');
     expect(result.findings).toHaveLength(1);
@@ -16,8 +16,8 @@ describe('POST /api/pii-scan logic', () => {
   });
 
   it('applies custom patterns from options', () => {
-    const result = piiGuard.scanAndReplace('Machine BahumutsOmen running', {
-      customPatterns: [{ pattern: 'BahumutsOmen', replacement: 'example-host' }]
+    const result = piiGuard.scanAndReplace('Machine ZzTestHost999 running', {
+      customPatterns: [{ pattern: 'ZzTestHost999', replacement: 'example-host' }]
     });
     expect(result.sanitized).toBe('Machine example-host running');
   });

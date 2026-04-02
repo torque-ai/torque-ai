@@ -582,10 +582,11 @@ describe('tools.js aggregator source-loader', () => {
       const subject = createToolsSubject();
 
       const result = await subject.mod.handleToolCall('ping', { message: 'alive' });
+      const parsed = JSON.parse(result.content[0].text);
 
-      expect(result.pong).toBe(true);
-      expect(result.message).toBe('alive');
-      expect(Number.isNaN(Date.parse(result.timestamp))).toBe(false);
+      expect(parsed.pong).toBe(true);
+      expect(parsed.message).toBe('alive');
+      expect(Number.isNaN(Date.parse(parsed.timestamp))).toBe(false);
       expect(subject.mod.routeMap.has('ping')).toBe(false);
     });
 

@@ -42,6 +42,7 @@ installCjsModuleMock('../api/v2-task-handlers', handlerModule([
   'handleSubmitTask', 'handleListTasks', 'handleGetTask', 'handleCancelTask',
   'handleTaskDiff', 'handleTaskLogs', 'handleTaskProgress', 'handleRetryTask',
   'handleCommitTask', 'handleDeleteTask', 'handleApproveSwitch', 'handleRejectSwitch',
+  'handleReassignTaskProvider',
 ]));
 installCjsModuleMock('../api/v2-workflow-handlers', handlerModule([
   'handleCreateWorkflow', 'handleListWorkflows', 'handleGetWorkflow',
@@ -52,7 +53,7 @@ installCjsModuleMock('../api/v2-workflow-handlers', handlerModule([
 installCjsModuleMock('../api/v2-governance-handlers', handlerModule([
   'handleListApprovals', 'handleApprovalDecision', 'handleListSchedules',
   'handleCreateSchedule', 'handleGetSchedule', 'handleToggleSchedule',
-  'handleDeleteSchedule', 'handleListPolicies', 'handleGetPolicy',
+  'handleUpdateSchedule', 'handleDeleteSchedule', 'handleListPolicies', 'handleGetPolicy',
   'handleSetPolicyMode', 'handleEvaluatePolicies', 'handleListPolicyEvaluations',
   'handleGetPolicyEvaluation', 'handleOverridePolicyDecision', 'handlePeekAttestationExport',
   'handleListPlanProjects', 'handleGetPlanProject',

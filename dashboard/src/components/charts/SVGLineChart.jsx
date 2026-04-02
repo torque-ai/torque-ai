@@ -77,8 +77,8 @@ export default memo(function SVGLineChart({
 
     return {
       rows,
-      yMin: yDomain ? yDomain[0] : Math.min(0, ...vals),
-      yMax: yDomain ? yDomain[1] : niceMax(Math.max(...vals)),
+      yMin: yDomain ? yDomain[0] : (vals.length ? Math.min(0, ...vals) : 0),
+      yMax: yDomain ? yDomain[1] : (vals.length ? niceMax(Math.max(...vals)) : 1),
     };
   }, [data, lines, yDomain]);
 

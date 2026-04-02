@@ -2,7 +2,6 @@ import { lazy, Suspense, useState } from 'react';
 import TabBar from '../components/TabBar';
 
 const Strategy = lazy(() => import('./Strategy'));
-const RoutingTemplates = lazy(() => import('./RoutingTemplates'));
 const Schedules = lazy(() => import('./Schedules'));
 const Approvals = lazy(() => import('./Approvals'));
 // Coordination tab mothballed — repurpose for workstation layer coordination later

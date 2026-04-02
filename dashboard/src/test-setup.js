@@ -2,7 +2,7 @@ import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
 // Mock ResizeObserver for SVG chart components
-global.ResizeObserver = class ResizeObserver {
+globalThis.ResizeObserver = class ResizeObserver {
   constructor(cb) { this._cb = cb; }
   observe() {}
   unobserve() {}

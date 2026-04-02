@@ -60,6 +60,11 @@ export default memo(function SVGBarChart({
   if (!data.length || plotW <= 0)
     return <div ref={containerRef} style={{ width: '100%', height }} />;
 
+  function getMousePos(e) {
+    const r = containerRef.current?.getBoundingClientRect();
+    return r ? { x: e.clientX - r.left, y: e.clientY - r.top } : mouse;
+  }
+
   const n = data.length;
   const nBars = bars.length;
   const gap = 0.3; // fraction of slot used for gaps
@@ -113,13 +118,9 @@ export default memo(function SVGBarChart({
             rx={radius} fill={fill}
             onMouseEnter={(e) => {
               setHoverBar({ di, bi, v, name: b.name || b.dataKey, entry: d });
-              setMouse({ x: e.clientX - containerRef.current.getBoundingClientRect().left,
-                         y: e.clientY - containerRef.current.getBoundingClientRect().top });
+              setMouse(getMousePos(e));
             }}
-            onMouseMove={(e) => {
-              setMouse({ x: e.clientX - containerRef.current.getBoundingClientRect().left,
-                         y: e.clientY - containerRef.current.getBoundingClientRect().top });
-            }}
+            onMouseMove={(e) => setMouse(getMousePos(e))}
             onMouseLeave={() => setHoverBar(null)}
             className="cursor-pointer"
           />
@@ -176,13 +177,9 @@ export default memo(function SVGBarChart({
             rx={radius} fill={fill}
             onMouseEnter={(e) => {
               setHoverBar({ di, bi, v, name: b.name || b.dataKey, entry: d });
-              setMouse({ x: e.clientX - containerRef.current.getBoundingClientRect().left,
-                         y: e.clientY - containerRef.current.getBoundingClientRect().top });
+              setMouse(getMousePos(e));
             }}
-            onMouseMove={(e) => {
-              setMouse({ x: e.clientX - containerRef.current.getBoundingClientRect().left,
-                         y: e.clientY - containerRef.current.getBoundingClientRect().top });
-            }}
+            onMouseMove={(e) => setMouse(getMousePos(e))}
             onMouseLeave={() => setHoverBar(null)}
             className="cursor-pointer"
           />

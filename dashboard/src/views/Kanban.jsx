@@ -97,7 +97,7 @@ function LastRefreshed({ timestamp }) {
     return () => clearInterval(id);
   }, []);
   if (!timestamp) return null;
-  const secs = Math.floor((Date.now() - timestamp) / 1000);
+  const secs = Math.floor((Date.now() - timestamp) / 1000); // eslint-disable-line react-hooks/purity -- intentional: re-evaluated on tick interval
   if (secs < 5) return <span className="text-xs text-slate-600">just now</span>;
   if (secs < 60) return <span className="text-xs text-slate-600">{secs}s ago</span>;
   return <span className="text-xs text-slate-600">{Math.floor(secs / 60)}m ago</span>;
@@ -211,7 +211,7 @@ function QueueAge({ createdAt }) {
     const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
-  const secs = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
+  const secs = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000); // eslint-disable-line react-hooks/purity -- intentional: re-evaluated on tick interval
   const mins = Math.floor(secs / 60);
   const color = mins >= 5 ? 'text-red-400' : mins >= 1 ? 'text-yellow-400' : 'text-slate-400';
   const label = mins > 0 ? `${mins}m` : `${secs}s`;
@@ -606,7 +606,7 @@ const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOp
   );
 });
 
-export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, statsVersion, tasksTick, wsStats }) {
+export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, statsVersion, tasksTick: _tasksTick, wsStats }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [allTasks, setAllTasks] = useState([]);
   const [providerList, setProviderList] = useState([]);

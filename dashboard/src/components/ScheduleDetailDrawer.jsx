@@ -30,7 +30,7 @@ function EditableField({ value, onSave, type = 'text', options, placeholder, mul
   const [draft, setDraft] = useState(value ?? '');
   const inputRef = useRef(null);
 
-  useEffect(() => { setDraft(value ?? ''); }, [value]);
+  useEffect(() => { setDraft(value ?? ''); }, [value]); // eslint-disable-line react-hooks/set-state-in-effect -- sync draft with prop
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus(); }, [editing]);
 
   function save() {
@@ -133,7 +133,7 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, onClose, onUpdat
       const data = await schedulesApi.get(scheduleId);
       const s = data?.data || data;
       setSchedule(s);
-    } catch (err) {
+    } catch (_err) {
       toast.error('Failed to load schedule');
       onClose();
     } finally {

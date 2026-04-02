@@ -363,6 +363,11 @@ function createApiServer(deps = {}) {
       routes: routeTable,
       middlewareContext,
       deps: serverDeps,
+    }).catch((err) => {
+      logger.error('Unhandled error in request handler', { error: err.message, stack: err.stack, url: req.url });
+      if (!res.headersSent) {
+        sendJson(res, { error: 'Internal server error' }, 500, req);
+      }
     }),
   };
 }
@@ -790,13 +795,18 @@ async function handleRequest(req, res, context = {}) {
       const webhookName = decodeURIComponent(url.slice(INBOUND_WEBHOOK_PREFIX.length));
       if (webhookName) {
         return await handleInboundWebhook(req, res, webhookName, { requestId });
+      } else {
+        sendJson(res, { error: 'Webhook name is required' }, 400, req);
+        return;
       }
     } catch (err) {
       if (err instanceof URIError) {
         sendJson(res, { error: 'Invalid webhook name encoding' }, 400, req);
         return;
       }
-      throw err;
+      logger.error('Webhook handler error', { error: err.message, stack: err.stack, url: req.url });
+      sendJson(res, { error: 'Internal webhook error' }, 500, req);
+      return;
     }
   }
 

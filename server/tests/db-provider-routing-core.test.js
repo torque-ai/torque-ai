@@ -202,6 +202,7 @@ describe('db/provider-routing-core', () => {
     });
 
     it('routes documentation tasks to the current API provider path', () => {
+      core.updateProvider('groq', { enabled: 1 });
       const result = core.analyzeTaskForRouting('Update README documentation for setup', os.tmpdir(), []);
       expect(result.provider).toBe('groq');
       expect(result.reason).toContain('API routing: documentation task');
@@ -238,6 +239,7 @@ describe('db/provider-routing-core', () => {
     });
 
     it('ignores Ollama health when documentation routing resolves to groq', () => {
+      core.updateProvider('groq', { enabled: 1 });
       core.setOllamaHealthy(false);
       configCore.setConfig('ollama_fallback_provider', 'codex');
 
@@ -248,6 +250,7 @@ describe('db/provider-routing-core', () => {
     });
 
     it('skipHealthCheck still returns groq for documentation routing', () => {
+      core.updateProvider('groq', { enabled: 1 });
       core.setOllamaHealthy(false);
       configCore.setConfig('ollama_fallback_provider', 'codex');
 
@@ -277,6 +280,7 @@ describe('db/provider-routing-core', () => {
     });
 
     it('routes jsdoc edits through the documentation path before local complexity upgrades', () => {
+      core.updateProvider('groq', { enabled: 1 });
       bindCore({
         determineTaskComplexity: () => 'simple',
         routeTask: () => ({
@@ -292,6 +296,7 @@ describe('db/provider-routing-core', () => {
     });
 
     it('routes codex jsdoc edits through the documentation path before codex-specific handling', () => {
+      core.updateProvider('groq', { enabled: 1 });
       bindCore({
         determineTaskComplexity: () => 'normal',
         routeTask: () => ({
@@ -582,6 +587,7 @@ describe('db/provider-routing-core', () => {
       });
 
       // No _routing_template in taskMetadata — should not use the template above
+      core.updateProvider('groq', { enabled: 1 });
       const result = core.analyzeTaskForRouting(
         'Update README documentation for setup',
         os.tmpdir(),

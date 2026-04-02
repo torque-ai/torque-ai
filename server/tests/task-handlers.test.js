@@ -18,8 +18,8 @@ describe('Task Handlers', () => {
   describe('ping', () => {
     it('returns pong', async () => {
       const result = await safeTool('ping', {});
-      // ping returns {pong: true} directly, not MCP format
-      expect(result.pong).toBe(true);
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.pong).toBe(true);
     });
   });
 

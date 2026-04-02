@@ -859,7 +859,7 @@ export default function Providers({ statsVersion, tasksTick }) {
               data={trends.series} xKey="date" height={280}
               formatX={formatDate} showLegend
               legendFormatter={(n) => n.replace('_total', '')}
-              formatTooltip={(v, n) => `${v}`}
+              formatTooltip={(v) => `${v}`}
               lines={activeProviders.map((p) => ({
                 dataKey: `${p}_total`, color: getProviderColor(p),
                 name: `${p}_total`, fill: true, fillOpacity: 0.3, stackId: 'throughput',

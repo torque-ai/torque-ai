@@ -353,12 +353,12 @@ async function handleCreatePeekHost(req, res) {
   const body = req.body || await parseBody(req);
 
   if (!body.name || !body.url) {
-    return sendError(res, requestId, 'validation_error', 'name and url are required', 400);
+    return sendError(res, requestId, 'validation_error', 'name and url are required', 400, {}, req);
   }
 
   try { new URL(body.url); } catch (err) {
     logger.debug("task handler error", { err: err.message });
-    return sendError(res, requestId, 'validation_error', 'Invalid peek host URL', 400);
+    return sendError(res, requestId, 'validation_error', 'Invalid peek host URL', 400, {}, req);
   }
 
   try {
@@ -430,11 +430,11 @@ async function handleSaveCredential(req, res) {
   }
 
   if (!VALID_CREDENTIAL_TYPES.has(credType)) {
-    return sendError(res, requestId, 'validation_error', 'Unsupported credential type', 400);
+    return sendError(res, requestId, 'validation_error', 'Unsupported credential type', 400, {}, req);
   }
 
   if (!body.value || typeof body.value !== 'object' || Array.isArray(body.value)) {
-    return sendError(res, requestId, 'validation_error', 'Credential value object is required', 400);
+    return sendError(res, requestId, 'validation_error', 'Credential value object is required', 400, {}, req);
   }
 
   try {
@@ -456,7 +456,7 @@ async function handleDeleteCredential(req, res) {
   }
 
   if (!VALID_CREDENTIAL_TYPES.has(credType)) {
-    return sendError(res, requestId, 'validation_error', 'Unsupported credential type', 400);
+    return sendError(res, requestId, 'validation_error', 'Unsupported credential type', 400, {}, req);
   }
 
   const removed = hostManagement.deleteCredential
@@ -470,13 +470,16 @@ async function handleDeleteCredential(req, res) {
 
 // ─── Remote Agents ──────────────────────────────────────────────────────────
 
+let _cachedRegistry = null;
 function _getRegistry() {
+  if (_cachedRegistry) return _cachedRegistry;
   if (!dbModule || typeof dbModule.getDbInstance !== 'function') return null;
   const rawDb = dbModule.getDbInstance();
   if (!rawDb || typeof rawDb.prepare !== 'function') return null;
 
   const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
-  return new RemoteAgentRegistry(rawDb);
+  _cachedRegistry = new RemoteAgentRegistry(rawDb);
+  return _cachedRegistry;
 }
 
 function _sanitizeAgent(agent) {
@@ -529,7 +532,7 @@ async function handleCreateAgent(req, res) {
   const secret = (body.secret || '').trim();
 
   if (!id || !name || !host || !secret) {
-    return sendError(res, requestId, 'validation_error', 'id, name, host, and secret are required', 400);
+    return sendError(res, requestId, 'validation_error', 'id, name, host, and secret are required', 400, {}, req);
   }
 
   const registry = _getRegistry();

@@ -402,14 +402,16 @@ describe('handleToolCall schema validation integration', () => {
 
   it('allows valid calls through to handler (ping has no required fields)', async () => {
     const result = await handleToolCall('ping', {});
-    expect(result.pong).toBe(true);
-    expect(result.timestamp).toBeDefined();
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.pong).toBe(true);
+    expect(parsed.timestamp).toBeDefined();
   });
 
   it('allows valid calls with correct parameters (ping with message)', async () => {
     const result = await handleToolCall('ping', { message: 'hello' });
-    expect(result.pong).toBe(true);
-    expect(result.message).toBe('hello');
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.pong).toBe(true);
+    expect(parsed.message).toBe('hello');
   });
 
   it('still throws for unknown tools', async () => {

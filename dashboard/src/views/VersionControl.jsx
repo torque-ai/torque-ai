@@ -123,11 +123,6 @@ function formatRelativeTime(value) {
   }
 }
 
-function getCommitTypeStyle(type) {
-  const normalized = String(type || '').toLowerCase();
-  return COMMIT_TYPE_STYLES[normalized] || COMMIT_TYPE_STYLES.unknown;
-}
-
 function getReleaseBumpStyle(type) {
   const normalized = String(type || '').toLowerCase();
   return RELEASE_BUMP_STYLES[normalized] || RELEASE_BUMP_STYLES.unknown;
@@ -195,35 +190,6 @@ function normalizeReleaseData(payload) {
     nextVersion: nextVersion && nextVersion.next ? nextVersion : null,
     recentReleases,
   };
-}
-
-function formatNextVersionReason(nextVersion) {
-  if (!nextVersion) {
-    return 'No unreleased commits detected';
-  }
-
-  const bump = String(nextVersion.bump || '').toLowerCase();
-  const commitCount = Number(nextVersion.commitCount || 0);
-  const featCount = Number(nextVersion.breakdown?.feat || 0);
-  const fixCount = Number(nextVersion.breakdown?.fix || 0);
-
-  if (bump === 'major') {
-    return 'major bump, breaking changes detected';
-  }
-
-  if (bump === 'minor') {
-    return featCount > 0
-      ? `minor bump, ${pluralize(featCount, 'feat commit')}`
-      : `minor bump, ${pluralize(commitCount, 'commit')}`;
-  }
-
-  if (bump === 'patch') {
-    return fixCount > 0
-      ? `patch bump, ${pluralize(fixCount, 'fix commit')}`
-      : `patch bump, ${pluralize(commitCount, 'commit')}`;
-  }
-
-  return commitCount > 0 ? `${pluralize(commitCount, 'commit')} since last tag` : 'No unreleased commits detected';
 }
 
 function getCommitTimestamp(commit) {
