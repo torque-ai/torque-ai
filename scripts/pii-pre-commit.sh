@@ -102,7 +102,7 @@ has_errors=0
 if torque_available; then
   while IFS= read -r file; do
     ext="${file##*.}"
-    if echo "$ext" | grep -qiP "^($BINARY_EXTS)$"; then continue; fi
+    if echo "$ext" | grep -qiE "^($BINARY_EXTS)$"; then continue; fi
     [ -f "$file" ] || continue
     if should_skip "$file"; then continue; fi
     torque_scan "$file" || { echo "PII-GUARD: Failed to scan $file"; has_errors=1; }
@@ -111,7 +111,7 @@ else
   echo "PII-GUARD: TORQUE unavailable — running fallback regex scan"
   while IFS= read -r file; do
     ext="${file##*.}"
-    if echo "$ext" | grep -qiP "^($BINARY_EXTS)$"; then continue; fi
+    if echo "$ext" | grep -qiE "^($BINARY_EXTS)$"; then continue; fi
     [ -f "$file" ] || continue
     if should_skip "$file"; then continue; fi
     fallback_scan "$file" || has_errors=1
