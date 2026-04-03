@@ -34,40 +34,28 @@ function validateVersionIntent(intent) {
   return { valid: true, intent: normalized };
 }
 
-function normalizePath(p) {
-  return p ? p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() : '';
-}
+const { pathMatchesProject } = require('../utils/path-resolution');
 
 /**
  * Resolve a working directory to its registered project path.
- * Tries: exact match → normalized match → basename match.
+ * Uses shared path resolution (exact → normalized → basename match).
  * Returns the registered project path or null.
  */
 function resolveVersionedProject(db, workingDirectory) {
   if (!workingDirectory) return null;
   try {
-    // 1. Exact match
+    // 1. Exact match (fast path)
     const exact = db.prepare(
       "SELECT project FROM project_metadata WHERE project = ? AND key = 'versioning_enabled' AND (value = '1' OR value = 'true')"
     ).get(workingDirectory);
     if (exact) return exact.project;
 
-    // 2. Normalized path match (slash direction, trailing slash, case)
-    const norm = normalizePath(workingDirectory);
+    // 2. Normalized + basename match via shared resolver
     const all = db.prepare(
       "SELECT DISTINCT project FROM project_metadata WHERE key = 'versioning_enabled' AND (value = '1' OR value = 'true')"
     ).all();
     for (const row of all) {
-      if (normalizePath(row.project) === norm) return row.project;
-    }
-
-    // 3. Basename match (Codex sandbox: different parent, same project dir name)
-    const basename = norm.split('/').filter(Boolean).pop();
-    if (basename) {
-      for (const row of all) {
-        const regBasename = normalizePath(row.project).split('/').filter(Boolean).pop();
-        if (regBasename === basename) return row.project;
-      }
+      if (pathMatchesProject(workingDirectory, row.project)) return row.project;
     }
 
     return null;

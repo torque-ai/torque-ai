@@ -73,29 +73,10 @@ function normalizeCommitPath(filePath, workingDir) {
   const trimmed = filePath.trim().replace(/^"+|"+$/g, '');
   if (!trimmed) return null;
 
-  const resolvedWorkingDir = path.resolve(workingDir);
   if (path.isAbsolute(trimmed)) {
-    const resolvedFile = path.resolve(trimmed);
-    const relativePath = path.relative(resolvedWorkingDir, resolvedFile);
-    if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-      // Sandbox path mismatch — try suffix matching.
-      // If the absolute path ends with a recognizable project-relative suffix
-      // (e.g., sandbox/xyz/src/file.js → src/file.js), extract and validate it.
-      const fwd = resolvedFile.replace(/\\/g, '/');
-      const wdFwd = resolvedWorkingDir.replace(/\\/g, '/');
-      const wdBasename = wdFwd.split('/').filter(Boolean).pop();
-      if (wdBasename) {
-        const idx = fwd.indexOf('/' + wdBasename + '/');
-        if (idx !== -1) {
-          const suffix = fwd.slice(idx + wdBasename.length + 2);
-          if (suffix && !suffix.startsWith('..')) {
-            return suffix;
-          }
-        }
-      }
-      return null;
-    }
-    return relativePath.replace(/\\/g, '/');
+    // Use shared path resolution — handles standard relative paths AND sandbox suffix matching
+    const { resolveRelativePath } = require('../../utils/path-resolution');
+    return resolveRelativePath(trimmed, workingDir);
   }
 
   const normalizedRelative = path.normalize(trimmed);
