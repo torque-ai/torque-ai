@@ -37,13 +37,13 @@ describe('governance-rules', () => {
   });
 
   it('seedBuiltinRules inserts all builtin rules', () => {
-    expect(BUILTIN_RULES).toHaveLength(13);
+    expect(BUILTIN_RULES).toHaveLength(14);
     expect(VALID_MODES).toEqual(['block', 'warn', 'shadow', 'off']);
 
     const inserted = rules.seedBuiltinRules();
 
-    expect(inserted).toBe(13);
-    expect(rules.getAllRules()).toHaveLength(13);
+    expect(inserted).toBe(14);
+    expect(rules.getAllRules()).toHaveLength(14);
     expect(rules.getRule('block-visible-providers')).toMatchObject({
       id: 'block-visible-providers',
       stage: 'task_submit',
@@ -56,9 +56,9 @@ describe('governance-rules', () => {
   });
 
   it('seedBuiltinRules is idempotent', () => {
-    expect(rules.seedBuiltinRules()).toBe(13);
+    expect(rules.seedBuiltinRules()).toBe(14);
     expect(rules.seedBuiltinRules()).toBe(0);
-    expect(db.prepare('SELECT COUNT(*) AS count FROM governance_rules').get().count).toBe(13);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM governance_rules').get().count).toBe(14);
   });
 
   it('getRule returns single rule or null', () => {
@@ -138,7 +138,7 @@ describe('governance-rules', () => {
     rules.seedBuiltinRules();
 
     const all = rules.getAllRules();
-    expect(all).toHaveLength(13);
+    expect(all).toHaveLength(14);
     // Verify sorted by stage then name
     for (let i = 1; i < all.length; i++) {
       const prev = all[i - 1];

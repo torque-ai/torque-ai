@@ -17,6 +17,7 @@ const { safeExecChain } = require('../../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../../execution/command-policy');
 const { checkResourceGate } = require('../../utils/resource-gate');
 const { mutex: commitMutex } = require('../../utils/commit-mutex');
+const { filterTempFiles } = require('../../utils/temp-file-filter');
 const hostMonitoring = require('../../utils/host-monitoring');
 const activityMonitoring = require('../../utils/activity-monitoring');
 let _commitMutex = null, _cmLoaded = false;
@@ -1041,10 +1042,19 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
           }
 
           const commitMsg = args.commit_message || `feat: ${workflow.name}`;
+          const { kept: filteredPaths, excluded: wfTempExcluded } = filterTempFiles(commitPaths);
+          if (wfTempExcluded.length > 0) {
+            output += `Excluded ${wfTempExcluded.length} temp file(s): ${wfTempExcluded.join(', ')}\n`;
+          }
+          const finalCommitPaths = filteredPaths;
+          if (finalCommitPaths.length === 0) {
+            output += 'No files to commit after temp filter.\n';
+            return output;
+          }
 
           // Wrap git add separately so failures are clearly attributed.
           try {
-            executeValidatedCommandSync('git', ['add', '--', ...commitPaths], {
+            executeValidatedCommandSync('git', ['add', '--', ...finalCommitPaths], {
               profile: 'advanced_shell',
               dangerous: true,
               source: 'await_workflow',
@@ -1061,7 +1071,7 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
 
           let stagedPaths;
           try {
-            stagedPaths = executeValidatedCommandSync('git', ['diff', '--cached', '--name-only', '--relative', '--', ...commitPaths], {
+            stagedPaths = executeValidatedCommandSync('git', ['diff', '--cached', '--name-only', '--relative', '--', ...finalCommitPaths], {
               profile: 'safe_verify',
               source: 'await_workflow',
               caller: 'formatFinalSummary',
@@ -1082,7 +1092,7 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
 
           // Wrap git commit separately.
           try {
-            executeValidatedCommandSync('git', ['commit', '-m', commitMsg, '--', ...commitPaths], {
+            executeValidatedCommandSync('git', ['commit', '-m', commitMsg, '--', ...finalCommitPaths], {
               profile: 'advanced_shell',
               dangerous: true,
               source: 'await_workflow',
@@ -1498,7 +1508,11 @@ async function handleAwaitTask(args) {
             try {
               const commitMsg = args.commit_message || `task ${task.id.substring(0, 8)}: ${(task.task_description || '').substring(0, 72)}`;
               const taskPaths = [...collectTaskCommitPaths(task.id, cwd)];
-              const commitPaths = taskPaths.length > 0 ? taskPaths : getFallbackCommitPaths(cwd);
+              const rawPaths = taskPaths.length > 0 ? taskPaths : getFallbackCommitPaths(cwd);
+              const { kept: commitPaths, excluded: tempExcluded } = filterTempFiles(rawPaths);
+              if (tempExcluded.length > 0) {
+                logger.info(`[await_task] Excluded ${tempExcluded.length} temp file(s) from commit: ${tempExcluded.join(', ')}`);
+              }
               if (commitPaths.length > 0) {
                 executeValidatedCommandSync('git', ['add', '--', ...commitPaths], {
                   profile: 'advanced_shell',

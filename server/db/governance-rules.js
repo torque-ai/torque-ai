@@ -120,6 +120,15 @@ const BUILTIN_RULES = Object.freeze([
     checker_id: 'checkNoForceRestart',
     config: null,
   }),
+  Object.freeze({
+    id: 'reject-temp-files',
+    name: 'reject-temp-files',
+    description: 'Detect temp/debug files in task output. Shadow mode logs warnings; enforce mode flags for review.',
+    stage: 'task_post_complete',
+    default_mode: 'warn',
+    checker_id: 'checkRejectTempFiles',
+    config: null,
+  }),
 ]);
 
 function validateDb(db) {

@@ -8,6 +8,7 @@ const path = require('path');
 const { TASK_TIMEOUTS } = require('../constants');
 const { safeExecChain } = require('../utils/safe-exec');
 const { executeValidatedCommand } = require('../execution/command-policy');
+const { filterTempFiles } = require('../utils/temp-file-filter');
 const { ErrorCodes, makeError } = require('./shared');
 const logger = require('../logger').child({ component: 'auto-commit-batch' });
 
@@ -153,9 +154,13 @@ async function handleAutoCommitBatch(args) {
   }
 
   const trackedCommitFiles = _resolveTrackedCommitFiles(args, workingDir);
-  const filesToCommit = trackedCommitFiles.length > 0
+  const rawFiles = trackedCommitFiles.length > 0
     ? trackedCommitFiles
     : _getFallbackCommitFiles(workingDir);
+  const { kept: filesToCommit, excluded } = filterTempFiles(rawFiles);
+  if (excluded.length > 0) {
+    output += `Excluded ${excluded.length} temp file(s): ${excluded.join(', ')}\n`;
+  }
 
   if (filesToCommit.length === 0) {
     output += 'No changes to commit — working tree is clean.\n';
