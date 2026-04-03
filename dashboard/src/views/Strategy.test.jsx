@@ -11,14 +11,32 @@ vi.mock('../api', () => ({
     decisions: vi.fn(),
     providerHealth: vi.fn(),
   },
+  providers: {
+    list: vi.fn().mockResolvedValue([
+      { provider: 'codex', enabled: true, stats: { total_tasks: 15, completed_tasks: 14, failed_tasks: 1, success_rate: 93, avg_duration_seconds: 120 } },
+      { provider: 'ollama', enabled: true, stats: { total_tasks: 30, completed_tasks: 28, failed_tasks: 2, success_rate: 93, avg_duration_seconds: 45 } },
+    ]),
+  },
+  budget: {
+    summary: vi.fn().mockResolvedValue({ total_cost: 0.45, task_count: 45, by_provider: { codex: 0.45 } }),
+  },
+  tasks: {
+    list: vi.fn().mockResolvedValue({ tasks: [], total: 3 }),
+  },
   routingTemplates: {
     list: vi.fn().mockResolvedValue([]),
-    getActive: vi.fn().mockResolvedValue({ template: null }),
+    getActive: vi.fn().mockResolvedValue({ template: { id: 'preset-system-default', name: 'System Default' } }),
     categories: vi.fn().mockResolvedValue([]),
   },
 }));
 
-import { strategic as strategicApi } from '../api';
+import {
+  strategic as strategicApi,
+  providers as providersApi,
+  budget as budgetApi,
+  tasks as tasksApi,
+  routingTemplates as routingTemplatesApi,
+} from '../api';
 
 const mockStatus = {
   provider: 'deepinfra',
@@ -138,12 +156,56 @@ const mockProviderHealth = [
   },
 ];
 
+const mockProviderStats = [
+  {
+    provider: 'codex',
+    enabled: true,
+    stats: {
+      total_tasks: 15,
+      completed_tasks: 14,
+      failed_tasks: 1,
+      success_rate: 93,
+      avg_duration_seconds: 120,
+    },
+  },
+  {
+    provider: 'ollama',
+    enabled: true,
+    stats: {
+      total_tasks: 30,
+      completed_tasks: 28,
+      failed_tasks: 2,
+      success_rate: 93,
+      avg_duration_seconds: 45,
+    },
+  },
+];
+
+const mockBudgetSummary = {
+  total_cost: 0.45,
+  task_count: 45,
+  by_provider: { codex: 0.45 },
+};
+
+const mockTaskList = {
+  tasks: [],
+  total: 3,
+};
+
 describe('Strategic', () => {
   beforeEach(() => {
     strategicApi.status.mockResolvedValue(mockStatus);
     strategicApi.operations.mockResolvedValue({ operations: mockOperations });
     strategicApi.decisions.mockResolvedValue({ decisions: mockDecisions });
     strategicApi.providerHealth.mockResolvedValue({ providers: mockProviderHealth });
+    providersApi.list.mockResolvedValue(mockProviderStats);
+    budgetApi.summary.mockResolvedValue(mockBudgetSummary);
+    tasksApi.list.mockResolvedValue(mockTaskList);
+    routingTemplatesApi.list.mockResolvedValue([]);
+    routingTemplatesApi.getActive.mockResolvedValue({
+      template: { id: 'preset-system-default', name: 'System Default' },
+    });
+    routingTemplatesApi.categories.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -215,81 +277,81 @@ describe('Strategic', () => {
 
   // --- Stat Cards (Overview tab, default) ---
 
-  it('displays Active Provider stat card', async () => {
+  it('displays Success Rate stat card', async () => {
     renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      expect(screen.getByText('Active Provider')).toBeInTheDocument();
-      // 'deepinfra' appears in stat card, config, health card, and chain
+      expect(screen.getByText('Success Rate')).toBeInTheDocument();
+    });
+  });
+
+  it('displays Tasks (7d) stat card', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      const taskLabels = screen.getAllByText('Tasks (7d)');
+      expect(taskLabels.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('displays Queue stat card', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Queue')).toBeInTheDocument();
+    });
+  });
+
+  it('displays Cost (7d) stat card', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Cost (7d)')).toBeInTheDocument();
+    });
+  });
+
+  it('displays Providers stat card', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Providers')).toBeInTheDocument();
+    });
+  });
+
+  it('displays provider stat card subtext', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('healthy / enabled')).toBeInTheDocument();
+    });
+  });
+
+  // --- Active Routing ---
+
+  it('displays active routing section', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Active Routing')).toBeInTheDocument();
+    });
+  });
+
+  it('displays active routing template name', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Template')).toBeInTheDocument();
+      expect(screen.getByText('System Default')).toBeInTheDocument();
+    });
+  });
+
+  it('displays default provider in active routing', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Default Provider')).toBeInTheDocument();
       const deepinfraElements = screen.getAllByText('deepinfra');
       expect(deepinfraElements.length).toBeGreaterThanOrEqual(1);
     });
   });
 
-  it('displays LLM Calls stat card', async () => {
+  // --- Tasks by Provider (7d) ---
+
+  it('displays tasks by provider section', async () => {
     renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      expect(screen.getByText('LLM Calls')).toBeInTheDocument();
-    });
-  });
-
-  it('displays Fallback Rate stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategy' });
-    await waitFor(() => {
-      expect(screen.getByText('Fallback Rate')).toBeInTheDocument();
-    });
-  });
-
-  it('displays Tokens Used stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategy' });
-    await waitFor(() => {
-      expect(screen.getByText('Tokens Used')).toBeInTheDocument();
-    });
-  });
-
-  it('displays Providers Enabled stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategy' });
-    await waitFor(() => {
-      expect(screen.getByText('Providers Enabled')).toBeInTheDocument();
-    });
-  });
-
-  it('displays Providers Healthy stat card', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategy' });
-    await waitFor(() => {
-      expect(screen.getByText('Providers Healthy')).toBeInTheDocument();
-    });
-  });
-
-  // --- Active Configuration ---
-
-  it('displays active configuration section', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategy' });
-    await waitFor(() => {
-      expect(screen.getByText('Active Configuration')).toBeInTheDocument();
-    });
-  });
-
-  it('displays model name in configuration', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategy' });
-    await waitFor(() => {
-      expect(screen.getByText('meta-llama/Llama-3.1-405B-Instruct')).toBeInTheDocument();
-    });
-  });
-
-  it('displays confidence threshold in configuration', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategy' });
-    await waitFor(() => {
-      expect(screen.getByText('Confidence Threshold')).toBeInTheDocument();
-      expect(screen.getByText('40%')).toBeInTheDocument();
-    });
-  });
-
-  // --- Routing Summary ---
-
-  it('displays routing summary section', async () => {
-    renderWithProviders(<Strategic />, { route: '/strategy' });
-    await waitFor(() => {
-      expect(screen.getByText('Routing Summary')).toBeInTheDocument();
+      expect(screen.getByText('Tasks by Provider (7d)')).toBeInTheDocument();
     });
   });
 
@@ -309,8 +371,7 @@ describe('Strategic', () => {
       // These appear as chain nodes
       expect(screen.getByText('Fallback Chain')).toBeInTheDocument();
     });
-    // Check for provider count
-    expect(screen.getByText(/providers available/)).toBeInTheDocument();
+    expect(screen.getByText('2/3 healthy in chain')).toBeInTheDocument();
   });
 
   it('displays active provider label in fallback chain footer', async () => {
@@ -368,8 +429,8 @@ describe('Strategic', () => {
   it('displays success rate in health cards', async () => {
     renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      // codex has 95%, appears as "95%"
-      expect(screen.getByText('95%')).toBeInTheDocument();
+      const successRateElements = screen.getAllByText('93%');
+      expect(successRateElements.length).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -383,18 +444,20 @@ describe('Strategic', () => {
     });
   });
 
-  it('displays completed today count', async () => {
+  it('displays completed 7d count', async () => {
     renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      // codex completed_today = 22
-      expect(screen.getByText('22')).toBeInTheDocument();
+      const completedLabels = screen.getAllByText('Completed (7d)');
+      expect(completedLabels.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('28')).toBeInTheDocument();
     });
   });
 
-  it('shows "No data" for providers with no success rate', async () => {
+  it('shows a placeholder for providers with no success rate', async () => {
     renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      expect(screen.getByText('No data')).toBeInTheDocument();
+      const placeholderElements = screen.getAllByText('—');
+      expect(placeholderElements.length).toBeGreaterThanOrEqual(1);
     });
   });
 
