@@ -10,7 +10,7 @@ import StatCard from '../components/StatCard';
 import TaskSubmitForm from '../components/TaskSubmitForm';
 import HealthBar from '../components/HealthBar';
 import ActivityPanel from '../components/ActivityPanel';
-import { SVGLineChart, SVGBarChart } from '../components/charts';
+import { SVGLineChart } from '../components/charts';
 
 const COLUMN_SORT_OPTIONS = [
   { value: 'newest', label: 'Newest first' },
@@ -1347,34 +1347,22 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       {activityData.length > 0 && (
         <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 mb-6">
           <h3 className="text-white font-medium mb-4">Task Activity</h3>
-          <div className="relative">
-            {/* Bars: hourly task volume */}
-            <SVGBarChart
-              data={activityData} xKey="date" height={220}
-              bars={[{ dataKey: 'total', color: '#1e3a5f', name: 'Tasks' }]}
-              formatX={(d) => {
-                const dt = new Date(d);
-                return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
-              }}
-              formatTooltip={(v, _name, entry) => {
-                const dt = new Date(entry.date);
-                return `${v} tasks at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
-              }}
-              radius={2}
-            />
-            {/* Line overlay: smooth completion trend */}
-            <div className="absolute inset-0 pointer-events-none">
-              <SVGLineChart
-                data={activityData} xKey="date" height={220} smooth showLegend
-                formatX={() => ''}
-                formatY={() => ''}
-                lines={[
-                  { dataKey: 'completed', color: '#10b981', name: 'Completed' },
-                  { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
-                ]}
-              />
-            </div>
-          </div>
+          <SVGLineChart
+            data={activityData} xKey="date" height={220} smooth showLegend
+            yDomain={[0, undefined]}
+            formatX={(d) => {
+              const dt = new Date(d);
+              return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
+            }}
+            formatTooltip={(v, _name, entry) => {
+              const dt = new Date(entry?.date || '');
+              return isNaN(dt.getTime()) ? `${v}` : `${v} at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
+            }}
+            lines={[
+              { dataKey: 'completed', color: '#10b981', name: 'Completed' },
+              { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
+            ]}
+          />
         </div>
       )}
 

@@ -96,8 +96,8 @@ export default memo(function SVGLineChart({
 
     return {
       rows,
-      yMin: yDomain ? yDomain[0] : (vals.length ? Math.min(0, ...vals) : 0),
-      yMax: yDomain ? yDomain[1] : (vals.length ? niceMax(Math.max(...vals)) : 1),
+      yMin: yDomain?.[0] != null ? yDomain[0] : (vals.length ? Math.min(0, ...vals) : 0),
+      yMax: yDomain?.[1] != null ? yDomain[1] : (vals.length ? niceMax(Math.max(...vals)) : 1),
     };
   }, [data, lines, yDomain]);
 
