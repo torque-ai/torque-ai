@@ -695,14 +695,15 @@ function processQueueInternal(options = {}) {
   // Expire stale queued tasks
   const queueTtlMinutes = _safeConfigInt ? _safeConfigInt('queue_task_ttl_minutes', 0) : 0;
   if (queueTtlMinutes > 0 && db && typeof db.prepare === 'function') {
-    const cutoff = new Date(Date.now() - queueTtlMinutes * 60000).toISOString();
-    // Raw db.prepare() used here because the database abstraction layer does not
-    // expose a TTL-query helper. This query is read-only and parameterized —
-    // only 'cutoff' is dynamic, and it is a server-generated ISO timestamp,
-    // not user input.
-    const expired = db.prepare(
-      "SELECT id FROM tasks WHERE status IN ('queued', 'pending') AND created_at < ? AND provider != 'workflow'"
-    ).all(cutoff);
+    let expired = [];
+    try {
+      const cutoff = new Date(Date.now() - queueTtlMinutes * 60000).toISOString();
+      expired = db.prepare(
+        "SELECT id FROM tasks WHERE status IN ('queued', 'pending') AND created_at < ? AND provider != 'workflow'"
+      ).all(cutoff);
+    } catch (ttlErr) {
+      logger.warn(`[queue] TTL expiry query failed: ${ttlErr.message}`);
+    }
 
     for (const task of expired) {
       try {
