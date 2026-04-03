@@ -614,6 +614,8 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   const [stuckTasks, setStuckTasks] = useState(null);
   const [qualityStats, setQualityStats] = useState(null);
   const [activityData, setActivityData] = useState([]);
+  const [activityDaily, setActivityDaily] = useState([]);
+  const [activityView, setActivityView] = useState('hourly'); // 'hourly' | 'daily'
   const [activityLog, setActivityLog] = useState([]);
   const [activityOpen, setActivityOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -764,13 +766,14 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         setLoading(false);
 
         // Phase 2: supplementary data — fills in completed/failed/cancelled + charts
-        const [completedData, failedData, cancelledData, stuckData, qualityData, timeseriesData, providerData] = await Promise.all([
+        const [completedData, failedData, cancelledData, stuckData, qualityData, timeseriesData, dailyData, providerData] = await Promise.all([
           tasksApi.list({ status: 'completed', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
           tasksApi.list({ status: 'failed', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
           tasksApi.list({ status: 'cancelled', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
           statsApi.stuck().catch(() => null),
           statsApi.quality().catch(() => null),
           statsApi.timeseries({ days: 7, interval: 'hour' }).catch(() => []),
+          statsApi.timeseries({ days: 7 }).catch(() => []),
           providersApi.list().catch(() => []),
         ]);
         if (!isCurrent()) return;
@@ -778,6 +781,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         setStuckTasks(normalizeStuckTasks(stuckData));
         setQualityStats(qualityData);
         setActivityData(Array.isArray(timeseriesData) ? timeseriesData : []);
+        setActivityDaily(Array.isArray(dailyData) ? dailyData : []);
         setProviderList(Array.isArray(providerData) ? providerData : []);
         failCountRef.current = 0;
         setStaleData(false);
@@ -1344,25 +1348,56 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       </div>
 
       {/* Task Activity chart */}
-      {activityData.length > 0 && (
+      {(activityData.length > 0 || activityDaily.length > 0) && (
         <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 mb-6">
-          <h3 className="text-white font-medium mb-4">Task Activity</h3>
-          <SVGLineChart
-            data={activityData} xKey="date" height={220} smooth showLegend
-            yDomain={[0, undefined]}
-            formatX={(d) => {
-              const dt = new Date(d);
-              return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
-            }}
-            formatTooltip={(v, _name, entry) => {
-              const dt = new Date(entry?.date || '');
-              return isNaN(dt.getTime()) ? `${v}` : `${v} at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
-            }}
-            lines={[
-              { dataKey: 'completed', color: '#10b981', name: 'Completed' },
-              { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
-            ]}
-          />
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-medium">Task Activity</h3>
+            <div className="flex bg-slate-700/50 rounded-lg p-0.5">
+              <button
+                onClick={() => setActivityView('daily')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${activityView === 'daily' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                Daily
+              </button>
+              <button
+                onClick={() => setActivityView('hourly')}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${activityView === 'hourly' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                Hourly
+              </button>
+            </div>
+          </div>
+          {activityView === 'hourly' ? (
+            <SVGLineChart
+              data={activityData} xKey="date" height={220} smooth showLegend
+              yDomain={[0, undefined]}
+              formatX={(d) => {
+                const dt = new Date(d);
+                return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
+              }}
+              formatTooltip={(v, _name, entry) => {
+                const dt = new Date(entry?.date || '');
+                return isNaN(dt.getTime()) ? `${v}` : `${v} at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
+              }}
+              lines={[
+                { dataKey: 'completed', color: '#10b981', name: 'Completed' },
+                { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
+              ]}
+            />
+          ) : (
+            <SVGLineChart
+              data={activityDaily} xKey="date" height={220} smooth showLegend
+              yDomain={[0, undefined]}
+              formatX={(d) => {
+                const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
+                return `${dt.getMonth() + 1}/${dt.getDate()}`;
+              }}
+              lines={[
+                { dataKey: 'completed', color: '#10b981', name: 'Completed', dot: true },
+                { dataKey: 'failed', color: '#ef4444', name: 'Failed', dot: true },
+              ]}
+            />
+          )}
         </div>
       )}
 
