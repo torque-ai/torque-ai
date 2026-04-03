@@ -1,6 +1,4 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import dagre from 'dagre';
-
 const STATUS_FILL = {
   completed: '#16a34a',
   running: '#2563eb',
@@ -50,40 +48,102 @@ export default function WorkflowDAG({ tasks = [], onOpenDrawer }) {
   const layout = useMemo(() => {
     if (!tasks.length) return null;
 
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80, marginx: 20, marginy: 20 });
-    g.setDefaultEdgeLabel(() => ({}));
+    const NODESEP = 40;
+    const RANKSEP = 80;
+    const MARGIN = 20;
+
+    // Build adjacency
+    const nodeMap = new Map();
+    const inEdges = new Map();
+    const outEdges = new Map();
 
     for (const task of tasks) {
       const id = task.node_id || task.id || task.task_id;
-      g.setNode(id, { width: NODE_W, height: NODE_H, task });
+      nodeMap.set(id, task);
+      if (!inEdges.has(id)) inEdges.set(id, []);
+      if (!outEdges.has(id)) outEdges.set(id, []);
     }
 
+    const edgeList = [];
     for (const task of tasks) {
       const id = task.node_id || task.id || task.task_id;
       const deps = task.depends_on || task.dependencies || [];
       for (const dep of deps) {
-        if (g.hasNode(dep)) {
-          g.setEdge(dep, id);
+        if (nodeMap.has(dep)) {
+          outEdges.get(dep).push(id);
+          inEdges.get(id).push(dep);
+          edgeList.push({ from: dep, to: id });
         }
       }
     }
 
-    dagre.layout(g);
+    // Rank assignment via longest-path from roots (LR layout)
+    const rank = new Map();
+    const ids = [...nodeMap.keys()];
+    const roots = ids.filter((id) => inEdges.get(id).length === 0);
+    if (roots.length === 0 && ids.length > 0) roots.push(ids[0]);
 
-    const nodes = g.nodes().map((id) => {
-      const n = g.node(id);
-      return { id, x: n.x, y: n.y, width: n.width, height: n.height, task: n.task };
+    const queue = roots.map((id) => { rank.set(id, 0); return id; });
+    while (queue.length) {
+      const id = queue.shift();
+      const r = rank.get(id);
+      for (const child of outEdges.get(id)) {
+        const prev = rank.get(child);
+        if (prev === undefined || r + 1 > prev) {
+          rank.set(child, r + 1);
+          queue.push(child);
+        }
+      }
+    }
+    // Assign unranked nodes (disconnected) to rank 0
+    for (const id of ids) {
+      if (!rank.has(id)) rank.set(id, 0);
+    }
+
+    // Group by rank
+    const ranks = new Map();
+    for (const id of ids) {
+      const r = rank.get(id);
+      if (!ranks.has(r)) ranks.set(r, []);
+      ranks.get(r).push(id);
+    }
+
+    // Compute positions (LR: rank = x column, index within rank = y row)
+    const maxRank = Math.max(0, ...ranks.keys());
+    const posMap = new Map();
+
+    for (let r = 0; r <= maxRank; r++) {
+      const col = ranks.get(r) || [];
+      for (let i = 0; i < col.length; i++) {
+        const x = MARGIN + r * (NODE_W + RANKSEP) + NODE_W / 2;
+        const y = MARGIN + i * (NODE_H + NODESEP) + NODE_H / 2;
+        posMap.set(col[i], { x, y });
+      }
+    }
+
+    const nodes = ids.map((id) => {
+      const pos = posMap.get(id);
+      return { id, x: pos.x, y: pos.y, width: NODE_W, height: NODE_H, task: nodeMap.get(id) };
     });
 
-    const edges = g.edges().map((e) => {
-      const edgeData = g.edge(e);
-      return { from: e.v, to: e.w, points: edgeData.points };
+    const edges = edgeList.map((e) => {
+      const from = posMap.get(e.from);
+      const to = posMap.get(e.to);
+      // Simple edge: right side of source → left side of target
+      return {
+        from: e.from,
+        to: e.to,
+        points: [
+          { x: from.x + NODE_W / 2, y: from.y },
+          { x: to.x - NODE_W / 2, y: to.y },
+        ],
+      };
     });
 
-    const graph = g.graph();
-    const svgWidth = (graph.width || 400) + 40;
-    const svgHeight = (graph.height || 200) + 40;
+    const maxCol = ranks.size;
+    const maxRows = Math.max(1, ...([...ranks.values()].map((col) => col.length)));
+    const svgWidth = MARGIN * 2 + maxCol * (NODE_W + RANKSEP) - RANKSEP + 40;
+    const svgHeight = MARGIN * 2 + maxRows * (NODE_H + NODESEP) - NODESEP + 40;
 
     return { nodes, edges, svgWidth, svgHeight };
   }, [tasks]);
