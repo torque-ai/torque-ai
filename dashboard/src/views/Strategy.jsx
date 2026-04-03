@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { format } from 'date-fns';
-import { strategic as strategicApi } from '../api';
+import {
+  strategic as strategicApi,
+  providers as providersApi,
+  budget as budgetApi,
+  tasks as tasksApi,
+  routingTemplates as routingTemplatesApi,
+} from '../api';
+import { SVGBarChart } from '../components/charts';
 import StatCard from '../components/StatCard';
 import { PROVIDER_COLORS } from '../constants';
 import LoadingSkeleton from '../components/LoadingSkeleton';
@@ -169,9 +176,9 @@ function ProviderHealthCard({ data }) {
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div>
-          <p className="text-slate-500 mb-0.5">Success Rate (1h)</p>
+          <p className="text-slate-500 mb-0.5">Success (7d)</p>
           <p className="text-white font-medium">
-            {data.success_rate_1h !== null ? `${data.success_rate_1h}%` : '—'}
+            {data.success_rate_7d !== null && data.success_rate_7d !== undefined ? `${data.success_rate_7d}%` : '—'}
           </p>
         </div>
         <div>
@@ -179,12 +186,12 @@ function ProviderHealthCard({ data }) {
           <p className="text-white font-medium">{avgLatencyDisplay}</p>
         </div>
         <div>
-          <p className="text-slate-500 mb-0.5">Completed Today</p>
-          <p className="text-white font-medium">{data.completed_today}</p>
+          <p className="text-slate-500 mb-0.5">Completed (7d)</p>
+          <p className="text-white font-medium">{data.completed_7d || 0}</p>
         </div>
         <div>
-          <p className="text-slate-500 mb-0.5">Failed Today</p>
-          <p className="text-white font-medium">{data.failed_today}</p>
+          <p className="text-slate-500 mb-0.5">Failed (7d)</p>
+          <p className="text-white font-medium">{data.failed_7d || 0}</p>
         </div>
       </div>
     </div>
@@ -442,22 +449,40 @@ export default function Strategic() {
   const [operations, setOperations] = useState([]);
   const [decisions, setDecisions] = useState([]);
   const [providerHealth, setProviderHealth] = useState([]);
+  const [providerStats, setProviderStats] = useState([]);
+  const [budgetSummary, setBudgetSummary] = useState(null);
+  const [queueDepth, setQueueDepth] = useState({ queued: 0, running: 0 });
+  const [activeTemplate, setActiveTemplate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [topTab, setTopTab] = useState('overview');
 
   const loadData = useCallback(async () => {
+    const optionalCall = (request, fallbackValue) =>
+      Promise.resolve()
+        .then(request)
+        .catch(() => fallbackValue);
+
     try {
-      const [statusData, opsData, decisionsData, healthData] = await Promise.all([
+      const [statusData, opsData, decisionsData, healthData, provData, budgetData, queuedData, runningData, templateData] = await Promise.all([
         strategicApi.status(),
         strategicApi.operations(20),
         strategicApi.decisions(50),
         strategicApi.providerHealth(),
+        optionalCall(() => providersApi.list(), []),
+        optionalCall(() => budgetApi.summary(7), null),
+        optionalCall(() => tasksApi.list({ status: 'queued', limit: 1 }), { total: 0 }),
+        optionalCall(() => tasksApi.list({ status: 'running', limit: 1 }), { total: 0 }),
+        optionalCall(() => routingTemplatesApi.getActive(), null),
       ]);
       setStatus(statusData);
       setOperations(unwrapArrayPayload(opsData, 'operations', 'items'));
       setDecisions(unwrapArrayPayload(decisionsData, 'decisions', 'items'));
       setProviderHealth(unwrapArrayPayload(healthData, 'providers', 'items'));
+      setProviderStats(Array.isArray(provData) ? provData : []);
+      setBudgetSummary(budgetData);
+      setQueueDepth({ queued: queuedData?.total || 0, running: runningData?.total || 0 });
+      setActiveTemplate(templateData?.template || null);
       setError(null);
     } catch (err) {
       setError(err.message);
@@ -509,12 +534,12 @@ export default function Strategic() {
     );
   }
 
-  const usage = status?.usage || {};
-  const totalRuns = (usage.total_calls || 0) + (usage.fallback_calls || 0);
-  const fallbackRate = totalRuns > 0 ? ((usage.fallback_calls / totalRuns) * 100).toFixed(1) : 'N/A';
-
   const enabledProviders = providerHealth.filter((p) => p.enabled).length;
   const healthyProviders = providerHealth.filter((p) => p.health_status === 'healthy').length;
+  const totalTasks7d = providerStats.reduce((s, p) => s + (p.stats?.total_tasks || 0), 0);
+  const completedTasks7d = providerStats.reduce((s, p) => s + (p.stats?.completed_tasks || p.stats?.successful_tasks || 0), 0);
+  const successRate7d = totalTasks7d > 0 ? Math.round((completedTasks7d / totalTasks7d) * 100) : null;
+  const totalCost7d = budgetSummary?.total_cost || 0;
 
   return (
     <div className="p-6">
@@ -523,7 +548,7 @@ export default function Strategic() {
         <div>
           <h2 className="heading-lg text-white">Strategy</h2>
           <p className="text-sm text-slate-400 mt-1">
-            Routing decisions, provider health, and LLM-powered orchestration
+            Task routing, provider health, and queue status
           </p>
         </div>
         <button
@@ -558,14 +583,14 @@ export default function Strategic() {
         <>
           {/* Stat Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-            <StatCard label="Active Provider" value={status?.provider || 'none'} gradient="blue" />
-            <StatCard label="LLM Calls" value={usage.total_calls || 0} gradient="cyan" />
+            <StatCard label="Tasks (7d)" value={totalTasks7d} gradient="blue" />
             <StatCard
-              label="Fallback Rate"
-              value={fallbackRate === 'N/A' ? fallbackRate : `${fallbackRate}%`}
-              gradient={fallbackRate === 'N/A' ? 'slate' : parseFloat(fallbackRate) > 30 ? 'red' : 'green'}
+              label="Success Rate"
+              value={successRate7d !== null ? `${successRate7d}%` : 'N/A'}
+              gradient={successRate7d === null ? 'slate' : successRate7d >= 80 ? 'green' : successRate7d >= 50 ? 'orange' : 'red'}
             />
-            <StatCard label="Tokens Used" value={(usage.total_tokens || 0).toLocaleString()} gradient="purple" />
+            <StatCard label="Queue" value={queueDepth.queued + queueDepth.running} subtext={`${queueDepth.running} running`} gradient={queueDepth.queued > 10 ? 'orange' : 'cyan'} />
+            <StatCard label="Cost (7d)" value={`$${totalCost7d.toFixed(2)}`} gradient="purple" />
             <StatCard
               label="Providers"
               value={`${healthyProviders}/${enabledProviders}`}
@@ -574,61 +599,72 @@ export default function Strategic() {
             />
           </div>
 
-          {/* Config + Confidence */}
+          {/* Active Routing + Tasks by Provider */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="glass-card p-5">
-              <h3 className="text-sm font-medium text-slate-400 mb-3">Strategic Intelligence</h3>
+              <h3 className="text-sm font-medium text-slate-400 mb-3">Active Routing</h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">Provider</span>
-                  <span className="text-sm text-white font-medium capitalize">{status?.provider || 'none'}</span>
+                  <span className="text-sm text-slate-400">Template</span>
+                  <span className="text-sm text-white font-medium">{activeTemplate?.name || 'System Default'}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">Model</span>
-                  <span className="text-sm text-white font-mono text-xs">{status?.model || 'none'}</span>
+                  <span className="text-sm text-slate-400">Default Provider</span>
+                  <span className="text-sm text-white font-medium capitalize">{status?.provider || 'auto'}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">Confidence Threshold</span>
-                  <span className="text-sm text-white">{((status?.confidence_threshold || 0) * 100).toFixed(0)}%</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-400">Total Routing Decisions</span>
+                  <span className="text-sm text-slate-400">Total Decisions</span>
                   <span className="text-sm text-white">{decisions.length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-400">Tasks (7d)</span>
+                  <span className="text-sm text-white">{totalTasks7d}</span>
                 </div>
               </div>
             </div>
 
             <div className="glass-card p-5">
-              <h3 className="text-sm font-medium text-slate-400 mb-3">Routing Summary</h3>
-              <p className="text-xs text-slate-500 mb-2">Task routing decisions by provider</p>
-              <div className="space-y-2">
-                {(() => {
-                  const byProvider = {};
-                  for (const d of decisions) {
-                    byProvider[d.provider] = (byProvider[d.provider] || 0) + 1;
-                  }
-                  const entries = Object.entries(byProvider).sort((a, b) => b[1] - a[1]);
-                  if (entries.length === 0) {
-                    return <p className="text-slate-500 text-sm">No routing data yet</p>;
-                  }
-                  return entries.slice(0, 5).map(([prov, count]) => {
-                    const style = getProviderStyle(prov);
-                    const pct = decisions.length > 0 ? Math.round((count / decisions.length) * 100) : 0;
-                    return (
-                      <div key={prov} className="flex items-center gap-3">
-                        <span className={`text-xs font-medium capitalize w-24 ${style.text}`}>{prov}</span>
-                        <div className="flex-1 h-2 bg-slate-700/50 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full ${style.dot} rounded-full transition-all`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-slate-400 w-12 text-right">{count} ({pct}%)</span>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
+              <h3 className="text-sm font-medium text-slate-400 mb-3">Tasks by Provider (7d)</h3>
+              {(() => {
+                const chartData = providerStats
+                  .filter((p) => (p.stats?.total_tasks || 0) > 0)
+                  .sort((a, b) => (b.stats?.total_tasks || 0) - (a.stats?.total_tasks || 0))
+                  .slice(0, 8)
+                  .map((p) => ({
+                    name: p.provider,
+                    tasks: p.stats?.total_tasks || 0,
+                  }));
+                if (chartData.length === 0) {
+                  return <p className="text-slate-500 text-sm">No task data yet</p>;
+                }
+                return (
+                  <SVGBarChart
+                    data={chartData}
+                    xKey="name"
+                    bars={[{
+                      dataKey: 'tasks',
+                      colorFn: (entry) => {
+                        const colorMap = {
+                          codex: '#3b82f6',
+                          'claude-cli': '#8b5cf6',
+                          ollama: '#22c55e',
+                          groq: '#ec4899',
+                          deepinfra: '#f97316',
+                          hyperbolic: '#a855f7',
+                          cerebras: '#06b6d4',
+                          'google-ai': '#10b981',
+                          openrouter: '#f59e0b',
+                          'ollama-cloud': '#14b8a6',
+                          anthropic: '#f59e0b',
+                        };
+                        return colorMap[entry.name] || '#64748b';
+                      },
+                    }]}
+                    height={180}
+                    formatTooltip={(v) => `${v} tasks`}
+                  />
+                );
+              })()}
             </div>
           </div>
 
@@ -641,9 +677,54 @@ export default function Strategic() {
             />
           </div>
 
+          {/* Recent Routing Decisions */}
+          {decisions.length > 0 && (
+            <div className="glass-card p-5 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-lg font-semibold text-white">Recent Decisions</h3>
+                <button
+                  onClick={() => setTopTab('decisions')}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  View all
+                </button>
+              </div>
+              <div className="space-y-2">
+                {decisions.slice(0, 5).map((d) => {
+                  const style = getProviderStyle(d.provider);
+                  const complexityStyle = COMPLEXITY_STYLES[d.complexity] || COMPLEXITY_STYLES.unknown;
+                  return (
+                    <div key={d.task_id} className="flex items-center gap-3 text-xs">
+                      <span className="text-slate-500 w-16 shrink-0">
+                        {d.created_at ? format(new Date(d.created_at), 'HH:mm') : '—'}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full font-medium ${complexityStyle} shrink-0`}>
+                        {d.complexity}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-lg font-medium ${style.bg} ${style.text} capitalize shrink-0`}>
+                        {d.provider}
+                      </span>
+                      <span className="text-slate-400 truncate">{d.reason || d.description || '—'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Provider Health Cards */}
           <div className="mb-6">
-            <ProviderHealthGrid providers={providerHealth} />
+            <ProviderHealthGrid providers={providerHealth.map((p) => {
+              const ps = providerStats.find((s) => s.provider === p.provider);
+              return {
+                ...p,
+                total_tasks_7d: ps?.stats?.total_tasks || 0,
+                completed_7d: ps?.stats?.completed_tasks || ps?.stats?.successful_tasks || 0,
+                failed_7d: ps?.stats?.failed_tasks || 0,
+                success_rate_7d: ps?.stats?.success_rate || null,
+                avg_duration_seconds: ps?.stats?.avg_duration_seconds || p.avg_duration_seconds || null,
+              };
+            })} />
           </div>
         </>
       )}
@@ -660,7 +741,30 @@ export default function Strategic() {
 
       {/* Configuration Tab */}
       {/* Lazy-loaded and only mounted on active tab — data fetching deferred until visible */}
-      {topTab === 'config' && <Suspense fallback={<div className="text-slate-400 p-4">Loading...</div>}><StrategicConfig /></Suspense>}
+      {topTab === 'config' && (
+        <>
+          <div className="glass-card p-5 mb-6">
+            <h3 className="text-sm font-medium text-slate-400 mb-3">Strategic Intelligence</h3>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Provider</span>
+                <span className="text-sm text-white font-medium capitalize">{status?.provider || 'none'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Model</span>
+                <span className="text-sm text-white font-mono text-xs">{status?.model || 'none'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Confidence Threshold</span>
+                <span className="text-sm text-white">{((status?.confidence_threshold || 0) * 100).toFixed(0)}%</span>
+              </div>
+            </div>
+          </div>
+          <Suspense fallback={<div className="text-slate-400 p-4">Loading...</div>}>
+            <StrategicConfig />
+          </Suspense>
+        </>
+      )}
     </div>
   );
 }

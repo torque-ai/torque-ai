@@ -252,7 +252,7 @@ describe('Strategic', () => {
   it('renders subtitle text', async () => {
     renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      expect(screen.getByText('Routing decisions, provider health, and LLM-powered orchestration')).toBeInTheDocument();
+      expect(screen.getByText('Task routing, provider health, and queue status')).toBeInTheDocument();
     });
   });
 
