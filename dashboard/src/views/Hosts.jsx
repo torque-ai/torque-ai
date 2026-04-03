@@ -1131,6 +1131,7 @@ export default function Hosts({ hostActivity }) {
   const [_showAddPeek, setShowAddPeek] = useState(false);  const toast = useToast();
   const { execute: executeHostLoad } = useAbortableRequest();
   const { execute: executeWorkstationLoad } = useAbortableRequest();
+  const { execute: executePeekHostLoad } = useAbortableRequest();
 
   const loadHosts = useCallback(() => {
     return executeHostLoad(async (isCurrent) => {
@@ -1153,15 +1154,15 @@ export default function Hosts({ hostActivity }) {
   const loadWorkstations = useCallback(() => {
     return executeWorkstationLoad(async (isCurrent) => {
       try {
-        const [listData, nextConcurrencyData] = await Promise.all([
+        const [listData, nextConcurrencyData, pendingModelData] = await Promise.all([
           workstationsApi.list(),
           concurrency.get().catch(() => null),
+          models.pending().catch(() => null),
         ]);
         if (!isCurrent()) return;
         setConcurrencyData(nextConcurrencyData);
         setWorkstationList(mergeWorkstations(listData, nextConcurrencyData));
-        // Fetch pending models for approval panel
-        models.pending().then(d => setPendingModels(d.models || d.items || d || [])).catch(() => {});
+        setPendingModels(pendingModelData?.models || pendingModelData?.items || pendingModelData || []);
       } catch (err) {
         if (!isCurrent()) return;
         console.error('Failed to load workstations:', err);
@@ -1174,14 +1175,18 @@ export default function Hosts({ hostActivity }) {
     });
   }, [executeWorkstationLoad, toast]);
 
-  const loadPeekHosts = useCallback(async () => {
-    try {
-      const data = await peekHostsApi.list();
-      setPeekHostList(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Failed to load peek hosts:', err);
-    }
-  }, []);
+  const loadPeekHosts = useCallback(() => {
+    return executePeekHostLoad(async (isCurrent) => {
+      try {
+        const data = await peekHostsApi.list();
+        if (!isCurrent()) return;
+        setPeekHostList(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!isCurrent()) return;
+        console.error('Failed to load peek hosts:', err);
+      }
+    });
+  }, [executePeekHostLoad]);
 
   const refreshInfrastructure = useCallback(async () => {
     await Promise.allSettled([

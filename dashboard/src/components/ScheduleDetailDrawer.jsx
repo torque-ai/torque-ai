@@ -127,21 +127,32 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, onClose, onUpdat
   const [, setTick] = useState(0);
   const toast = useToast();
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isCancelled = () => false) => {
     if (!scheduleId) return;
     try {
       const data = await schedulesApi.get(scheduleId);
       const s = data?.data || data;
+      if (isCancelled()) return;
       setSchedule(s);
     } catch (_err) {
+      if (isCancelled()) return;
       toast.error('Failed to load schedule');
       onClose();
     } finally {
-      setLoading(false);
+      if (!isCancelled()) {
+        setLoading(false);
+      }
     }
   }, [scheduleId, toast, onClose]);
 
-  useEffect(() => { setLoading(true); load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    load(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [load]);
 
   // Countdown ticker for one-time schedules
   useEffect(() => {

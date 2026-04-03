@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { versionControl as versionControlApi } from '../api';
 import StatCard from '../components/StatCard';
@@ -285,9 +285,17 @@ export default function VersionControl() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [actionInProgress, setActionInProgress] = useState(null);
   const [selectedRelease, setSelectedRelease] = useState(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const loadData = useCallback(async ({ background = false, notifyError = true } = {}) => {
-    if (!background) {
+    if (!background && mountedRef.current) {
       setLoading(true);
     }
 
@@ -304,29 +312,41 @@ export default function VersionControl() {
         ? commitResponse
         : commitResponse?.commits || commitResponse?.items || [];
 
+      if (!mountedRef.current) {
+        return;
+      }
       setWorktrees(nextWorktrees);
       setCommits(nextCommits);
     } catch (err) {
+      if (!mountedRef.current) {
+        return;
+      }
       console.error('Failed to load version control dashboard:', err);
       if (notifyError) {
         toast.error(`Failed to load version control data: ${err.message}`);
       }
     } finally {
-      if (!background) {
+      if (!background && mountedRef.current) {
         setLoading(false);
       }
     }
   }, [toast]);
 
   const loadReleases = useCallback(async ({ background = false, notifyError = true } = {}) => {
-    if (!background) {
+    if (!background && mountedRef.current) {
       setReleasesLoading(true);
     }
 
     try {
       const response = await versionControlApi.getReleases();
+      if (!mountedRef.current) {
+        return;
+      }
       setReleaseData(normalizeReleaseData(response));
     } catch (err) {
+      if (!mountedRef.current) {
+        return;
+      }
       console.error('Failed to load version control releases:', err);
       if (!background) {
         setReleaseData(createEmptyReleaseState());
@@ -335,7 +355,7 @@ export default function VersionControl() {
         toast.error(`Failed to load release data: ${err.message}`);
       }
     } finally {
-      if (!background) {
+      if (!background && mountedRef.current) {
         setReleasesLoading(false);
       }
     }

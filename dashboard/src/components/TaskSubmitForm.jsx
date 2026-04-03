@@ -43,21 +43,29 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
 
   // Load providers on mount
   useEffect(() => {
+    let cancelled = false;
     providersApi.list()
       .then((data) => {
+        if (cancelled) return;
         const list = Array.isArray(data) ? data : [];
         setProviderList(list);
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error('Failed to load providers:', err);
         toastRef.current.error('Failed to load providers');
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Load Ollama host models on mount
   useEffect(() => {
+    let cancelled = false;
     hostsApi.list()
       .then((data) => {
+        if (cancelled) return;
         const hostList = Array.isArray(data) ? data : [];
         // Collect all unique model names across enabled hosts
         const models = new Set();
@@ -71,10 +79,14 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
         setOllamaModels([...models].filter(Boolean).sort());
       })
       .catch((err) => {
+        if (cancelled) return;
         console.error('Failed to load host models:', err);
-        toast.error('Failed to load host models');
+        toastRef.current.error('Failed to load host models');
       });
-  }, [toast]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Update available models when provider changes
   useEffect(() => {
