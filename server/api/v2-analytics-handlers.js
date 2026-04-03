@@ -36,9 +36,39 @@ function parseEventDataOrNull(raw) {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
-function buildTimeSeries(days, provider) {
+function buildTimeSeries(days, provider, interval = 'day') {
   const series = [];
   const now = new Date();
+
+  if (interval === 'hour') {
+    const totalHours = days * 24;
+    for (let i = totalHours - 1; i >= 0; i--) {
+      const hour = new Date(now);
+      hour.setMinutes(0, 0, 0);
+      hour.setHours(hour.getHours() - i);
+      const nextHour = new Date(hour);
+      nextHour.setHours(nextHour.getHours() + 1);
+
+      const filters = { completed_from: hour.toISOString(), completed_to: nextHour.toISOString(), includeArchived: true };
+      if (provider) filters.provider = provider;
+
+      const completed = taskCore.countTasks ? taskCore.countTasks({ ...filters, status: 'completed' }) : 0;
+      const failed = taskCore.countTasks ? taskCore.countTasks({ ...filters, status: 'failed' }) : 0;
+      const total = completed + failed;
+
+      series.push({
+        date: hour.toISOString(),
+        hour: hour.getHours(),
+        total,
+        completed,
+        failed,
+        success_rate: total > 0
+          ? Math.round((completed / ((completed + failed) || 1)) * 100)
+          : 0,
+      });
+    }
+    return series;
+  }
 
   for (let i = days - 1; i >= 0; i--) {
     const date = new Date(now);
@@ -135,8 +165,9 @@ async function handleTimeSeries(req, res) {
   const days = clampInt(query.days, 1, 365, 7);
   const provider = query.provider || null;
 
-  const series = buildTimeSeries(days, provider);
-  sendSuccess(res, requestId, { days, provider, series }, 200, req);
+  const interval = query.interval === 'hour' ? 'hour' : 'day';
+  const series = buildTimeSeries(days, provider, interval);
+  sendSuccess(res, requestId, { days, provider, interval, series }, 200, req);
 }
 
 // ─── Quality Stats ──────────────────────────────────────────────────────────

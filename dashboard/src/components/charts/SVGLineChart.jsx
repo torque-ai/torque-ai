@@ -174,10 +174,14 @@ export default memo(function SVGLineChart({
           areaD = `${topD}L${bases.join('L')}Z`;
         } else {
           const bottom = yOf(yMin);
-          const topD = smooth ? catmullRomPath(seg) : `M${seg[0].x},${bottom}L${seg.map(p => `${p.x},${p.y}`).join('L')}`;
-          areaD = smooth
-            ? `M${seg[0].x},${bottom}L${seg[0].x},${seg[0].y}${lineD.slice(lineD.indexOf('C'))}L${seg[seg.length - 1].x},${bottom}Z`
-            : `${topD}L${seg[seg.length - 1].x},${bottom}Z`;
+          if (smooth) {
+            // Smooth area: move to bottom-left, line up to first point, curve along top, line down to bottom-right
+            const curveStart = lineD.indexOf('C');
+            const curvePart = curveStart !== -1 ? lineD.slice(curveStart) : `L${seg[seg.length - 1].x},${seg[seg.length - 1].y}`;
+            areaD = `M${seg[0].x},${bottom}L${seg[0].x},${seg[0].y}${curvePart}L${seg[seg.length - 1].x},${bottom}Z`;
+          } else {
+            areaD = `M${seg[0].x},${bottom}L${seg.map(p => `${p.x},${p.y}`).join('L')}L${seg[seg.length - 1].x},${bottom}Z`;
+          }
         }
         paths.push(<path key={`a-${l.dataKey}-${seg[0].i}`} d={areaD} fill={l.color} fillOpacity={l.fillOpacity ?? 0.3} />);
       }
