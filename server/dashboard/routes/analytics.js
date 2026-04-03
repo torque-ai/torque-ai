@@ -134,39 +134,74 @@ function handleStatsOverview(req, res) {
 function handleTimeSeries(req, res, query) {
   const days = parseDays(query?.days, 7);
   const provider = query?.provider; // optional filter
+  const interval = query?.interval === 'hour' ? 'hour' : 'day';
 
   const series = [];
   const now = new Date();
 
-  for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i);
-    const dateStr = date.toISOString().split('T')[0];
-    const nextDate = new Date(date);
-    nextDate.setDate(nextDate.getDate() + 1);
-    const nextDateStr = nextDate.toISOString().split('T')[0];
+  if (interval === 'hour') {
+    // Hourly buckets — uses setHours() to avoid DST drift
+    const totalHours = days * 24;
+    for (let i = totalHours - 1; i >= 0; i--) {
+      const hour = new Date(now);
+      hour.setMinutes(0, 0, 0);
+      hour.setHours(hour.getHours() - i);
+      const nextHour = new Date(hour);
+      nextHour.setHours(nextHour.getHours() + 1);
 
-    // Use completed_at for historical accuracy (archived tasks included)
-    const baseFilters = {
-      completed_from: dateStr,
-      completed_to: nextDateStr,
-      includeArchived: true,
-    };
-    if (provider) baseFilters.provider = provider;
+      const baseFilters = {
+        completed_from: hour.toISOString(),
+        completed_to: nextHour.toISOString(),
+        includeArchived: true,
+      };
+      if (provider) baseFilters.provider = provider;
 
-    const completed = taskCore.countTasks({ ...baseFilters, status: 'completed' });
-    const failed = taskCore.countTasks({ ...baseFilters, status: 'failed' });
-    const total = completed + failed;
+      const completed = taskCore.countTasks({ ...baseFilters, status: 'completed' });
+      const failed = taskCore.countTasks({ ...baseFilters, status: 'failed' });
+      const total = completed + failed;
 
-    series.push({
-      date: dateStr,
-      total,
-      completed,
-      failed,
-      successRate: total > 0
-        ? Math.round((completed / (completed + failed || 1)) * 100)
-        : 0,
-    });
+      series.push({
+        date: hour.toISOString(),
+        hour: hour.getHours(),
+        total,
+        completed,
+        failed,
+        successRate: total > 0
+          ? Math.round((completed / (completed + failed || 1)) * 100)
+          : 0,
+      });
+    }
+  } else {
+    // Daily buckets (default)
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      const nextDate = new Date(date);
+      nextDate.setDate(nextDate.getDate() + 1);
+      const nextDateStr = nextDate.toISOString().split('T')[0];
+
+      const baseFilters = {
+        completed_from: dateStr,
+        completed_to: nextDateStr,
+        includeArchived: true,
+      };
+      if (provider) baseFilters.provider = provider;
+
+      const completed = taskCore.countTasks({ ...baseFilters, status: 'completed' });
+      const failed = taskCore.countTasks({ ...baseFilters, status: 'failed' });
+      const total = completed + failed;
+
+      series.push({
+        date: dateStr,
+        total,
+        completed,
+        failed,
+        successRate: total > 0
+          ? Math.round((completed / (completed + failed || 1)) * 100)
+          : 0,
+      });
+    }
   }
 
   sendJson(res, series);

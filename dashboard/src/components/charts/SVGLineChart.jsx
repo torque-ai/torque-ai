@@ -5,6 +5,25 @@ const PAD = { top: 10, right: 20, bottom: 28, left: 50 };
 
 function niceMax(v) { return v > 0 ? v * 1.1 : 1; }
 
+/** Catmull-Rom spline: convert points to a smooth SVG path string. */
+function catmullRomPath(pts, tension = 0.5) {
+  if (pts.length < 2) return '';
+  if (pts.length === 2) return `M${pts[0].x},${pts[0].y}L${pts[1].x},${pts[1].y}`;
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i - 1, 0)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(i + 2, pts.length - 1)];
+    const cp1x = p1.x + (p2.x - p0.x) / (6 / tension);
+    const cp1y = p1.y + (p2.y - p0.y) / (6 / tension);
+    const cp2x = p2.x - (p3.x - p1.x) / (6 / tension);
+    const cp2y = p2.y - (p3.y - p1.y) / (6 / tension);
+    d += `C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
+  }
+  return d;
+}
+
 /**
  * Lightweight SVG line/area chart. Replaces recharts LineChart, AreaChart,
  * Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend.
@@ -23,7 +42,7 @@ function niceMax(v) { return v > 0 ? v * 1.1 : 1; }
 export default memo(function SVGLineChart({
   data, lines, xKey = 'date', height = 300,
   formatX, formatY, formatTooltip, yDomain,
-  showLegend = false, legendFormatter,
+  showLegend = false, legendFormatter, smooth = false,
 }) {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(0);
@@ -143,23 +162,32 @@ export default memo(function SVGLineChart({
 
     for (const seg of segments) {
       if (seg.length < 2) continue;
-      const d = seg.map(p => `${p.x},${p.y}`).join(' ');
+      const lineD = smooth ? catmullRomPath(seg) : null;
+      const polyPoints = smooth ? null : seg.map(p => `${p.x},${p.y}`).join(' ');
 
       // Area fill
       if (l.fill || l.stackId) {
         let areaD;
         if (l.stackId && rows[0]._s) {
           const bases = [...seg].reverse().map(p => `${p.x},${yOf(rows[p.i]._s[l.dataKey].base)}`);
-          areaD = `M${seg.map(p => `${p.x},${p.y}`).join('L')}L${bases.join('L')}Z`;
+          const topD = smooth ? catmullRomPath(seg) : `M${seg.map(p => `${p.x},${p.y}`).join('L')}`;
+          areaD = `${topD}L${bases.join('L')}Z`;
         } else {
           const bottom = yOf(yMin);
-          areaD = `M${seg[0].x},${bottom}L${seg.map(p => `${p.x},${p.y}`).join('L')}L${seg[seg.length - 1].x},${bottom}Z`;
+          const topD = smooth ? catmullRomPath(seg) : `M${seg[0].x},${bottom}L${seg.map(p => `${p.x},${p.y}`).join('L')}`;
+          areaD = smooth
+            ? `M${seg[0].x},${bottom}L${seg[0].x},${seg[0].y}${lineD.slice(lineD.indexOf('C'))}L${seg[seg.length - 1].x},${bottom}Z`
+            : `${topD}L${seg[seg.length - 1].x},${bottom}Z`;
         }
         paths.push(<path key={`a-${l.dataKey}-${seg[0].i}`} d={areaD} fill={l.color} fillOpacity={l.fillOpacity ?? 0.3} />);
       }
 
       // Line
-      paths.push(<polyline key={`l-${l.dataKey}-${seg[0].i}`} points={d} fill="none" stroke={l.color} strokeWidth={2} />);
+      if (smooth) {
+        paths.push(<path key={`l-${l.dataKey}-${seg[0].i}`} d={lineD} fill="none" stroke={l.color} strokeWidth={2} />);
+      } else {
+        paths.push(<polyline key={`l-${l.dataKey}-${seg[0].i}`} points={polyPoints} fill="none" stroke={l.color} strokeWidth={2} />);
+      }
 
       // Dots
       if (l.dot) {

@@ -10,7 +10,7 @@ import StatCard from '../components/StatCard';
 import TaskSubmitForm from '../components/TaskSubmitForm';
 import HealthBar from '../components/HealthBar';
 import ActivityPanel from '../components/ActivityPanel';
-import { SVGLineChart } from '../components/charts';
+import { SVGLineChart, SVGBarChart } from '../components/charts';
 
 const COLUMN_SORT_OPTIONS = [
   { value: 'newest', label: 'Newest first' },
@@ -770,7 +770,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
           tasksApi.list({ status: 'cancelled', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
           statsApi.stuck().catch(() => null),
           statsApi.quality().catch(() => null),
-          statsApi.timeseries({ days: 7 }).catch(() => []),
+          statsApi.timeseries({ days: 7, interval: 'hour' }).catch(() => []),
           providersApi.list().catch(() => []),
         ]);
         if (!isCurrent()) return;
@@ -1347,17 +1347,34 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       {activityData.length > 0 && (
         <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 mb-6">
           <h3 className="text-white font-medium mb-4">Task Activity</h3>
-          <SVGLineChart
-            data={activityData} xKey="date" height={220} showLegend
-            formatX={(d) => {
-              const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
-              return `${dt.getMonth() + 1}/${dt.getDate()}`;
-            }}
-            lines={[
-              { dataKey: 'completed', color: '#10b981', name: 'Completed', dot: true },
-              { dataKey: 'failed', color: '#ef4444', name: 'Failed', dot: true },
-            ]}
-          />
+          <div className="relative">
+            {/* Bars: hourly task volume */}
+            <SVGBarChart
+              data={activityData} xKey="date" height={220}
+              bars={[{ dataKey: 'total', color: '#1e3a5f', name: 'Tasks' }]}
+              formatX={(d) => {
+                const dt = new Date(d);
+                return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
+              }}
+              formatTooltip={(v, _name, entry) => {
+                const dt = new Date(entry.date);
+                return `${v} tasks at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
+              }}
+              radius={2}
+            />
+            {/* Line overlay: smooth completion trend */}
+            <div className="absolute inset-0 pointer-events-none">
+              <SVGLineChart
+                data={activityData} xKey="date" height={220} smooth showLegend
+                formatX={() => ''}
+                formatY={() => ''}
+                lines={[
+                  { dataKey: 'completed', color: '#10b981', name: 'Completed' },
+                  { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
+                ]}
+              />
+            </div>
+          </div>
         </div>
       )}
 
