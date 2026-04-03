@@ -78,6 +78,21 @@ function normalizeCommitPath(filePath, workingDir) {
     const resolvedFile = path.resolve(trimmed);
     const relativePath = path.relative(resolvedWorkingDir, resolvedFile);
     if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      // Sandbox path mismatch — try suffix matching.
+      // If the absolute path ends with a recognizable project-relative suffix
+      // (e.g., sandbox/xyz/src/file.js → src/file.js), extract and validate it.
+      const fwd = resolvedFile.replace(/\\/g, '/');
+      const wdFwd = resolvedWorkingDir.replace(/\\/g, '/');
+      const wdBasename = wdFwd.split('/').filter(Boolean).pop();
+      if (wdBasename) {
+        const idx = fwd.indexOf('/' + wdBasename + '/');
+        if (idx !== -1) {
+          const suffix = fwd.slice(idx + wdBasename.length + 2);
+          if (suffix && !suffix.startsWith('..')) {
+            return suffix;
+          }
+        }
+      }
       return null;
     }
     return relativePath.replace(/\\/g, '/');
