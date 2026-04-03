@@ -1,5 +1,103 @@
 # Changelog
 
+## [1.7.0] - 2026-04-03
+
+### Added
+- Temp file prevention — auto-commit filter + governance rule
+- Replace dagre with inline DAG layout, eliminate lodash vulnerabilities
+- Replace recharts with lightweight SVG chart components
+- Schedule enforcement, direct commit tracking, CLAUDE.md versioning docs
+
+### Fixed
+- Force LF line endings in CLI task environments via GIT_CONFIG env
+- Resolve Strategy test mock setup for overview tab assertions
+- Use resetAllMocks to clear leaked mock implementations between tests
+- Use clearAllMocks instead of restoreAllMocks in Strategy tests
+- Set root in dashboard config to prevent CWD-dependent resolution
+- Add explicit include pattern to dashboard config
+- Scope test runner configs to prevent cross-suite leaking
+- 8 UI/data issues in Strategy routing overview page
+- Override lodash to 4.18.1 to resolve 2 Dependabot vulnerabilities
+- Add unmount guards to 6 async state-write race conditions in dashboard
+- Guard queue TTL expiry query with try/catch
+- Resolve versioned project paths with normalization and basename fallback
+- Add data-testid to Strategy decision rows for sort order verification
+- Migrate 3 remaining request() calls to requestV2() in dashboard api
+- Filter GCM credential warnings from torque-remote sync output
+- Registry-null tests expect 404 (agent lookup fails before registry check)
+- Restore deleted it() wrapper in handleDeleteAgent registry test
+- Registry cache tests — mock getDbInstance to return null directly
+- Resolve remaining 9 test failures
+- Frontend lint cleanup, server bug fixes, and remaining test updates
+- Update 9 schedule API test expectations to match object-based createCronScheduledTask signature
+- Update backup test mock filenames to match ISO timestamp pattern
+- Update 5 test expectations to match current source behavior
+- Update dashboard tests for recharts→SVG chart migration
+- Use ERE instead of PCRE for binary extension check in PII hook
+- Re-fetch server state on failed optimistic save instead of stale revert
+- Link release commit back to triggering task/workflow
+
+### Documentation
+- Recharts replacement plan — 402KB library to ~5KB SVG components
+
+### Testing
+- Update Strategy tests for routing overview redesign
+
+### Maintenance
+- Remove temp debug files from Strategy test investigation
+- Rebuild dashboard dist with strategy overview redesign
+- Rebuild dashboard dist
+- Rebuild dashboard dist with latest source
+- Add module comment to charts index
+
+## [1.6.0] - 2026-04-03
+
+### Added
+- Replace dagre with inline DAG layout, eliminate lodash vulnerabilities
+- Replace recharts with lightweight SVG chart components
+- Schedule enforcement, direct commit tracking, CLAUDE.md versioning docs
+
+### Fixed
+- Resolve Strategy test mock setup for overview tab assertions
+- Use resetAllMocks to clear leaked mock implementations between tests
+- Use clearAllMocks instead of restoreAllMocks in Strategy tests
+- Set root in dashboard config to prevent CWD-dependent resolution
+- Add explicit include pattern to dashboard config
+- Scope test runner configs to prevent cross-suite leaking
+- 8 UI/data issues in Strategy routing overview page
+- Override lodash to 4.18.1 to resolve 2 Dependabot vulnerabilities
+- Add unmount guards to 6 async state-write race conditions in dashboard
+- Guard queue TTL expiry query with try/catch
+- Resolve versioned project paths with normalization and basename fallback
+- Add data-testid to Strategy decision rows for sort order verification
+- Migrate 3 remaining request() calls to requestV2() in dashboard api
+- Filter GCM credential warnings from torque-remote sync output
+- Registry-null tests expect 404 (agent lookup fails before registry check)
+- Restore deleted it() wrapper in handleDeleteAgent registry test
+- Registry cache tests — mock getDbInstance to return null directly
+- Resolve remaining 9 test failures
+- Frontend lint cleanup, server bug fixes, and remaining test updates
+- Update 9 schedule API test expectations to match object-based createCronScheduledTask signature
+- Update backup test mock filenames to match ISO timestamp pattern
+- Update 5 test expectations to match current source behavior
+- Update dashboard tests for recharts→SVG chart migration
+- Use ERE instead of PCRE for binary extension check in PII hook
+- Re-fetch server state on failed optimistic save instead of stale revert
+- Link release commit back to triggering task/workflow
+
+### Documentation
+- Recharts replacement plan — 402KB library to ~5KB SVG components
+
+### Testing
+- Update Strategy tests for routing overview redesign
+
+### Maintenance
+- Remove temp debug files from Strategy test investigation
+- Rebuild dashboard dist with strategy overview redesign
+- Rebuild dashboard dist
+- Rebuild dashboard dist with latest source
+- Add module comment to charts index
+
 ## [1.5.0] - 2026-04-03
 
 ### Added
