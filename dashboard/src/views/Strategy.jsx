@@ -17,6 +17,10 @@ const PROVIDER_TEXT_COLORS = {
   ollama: 'text-green-400',
   groq: 'text-pink-400',
   hyperbolic: 'text-purple-400',
+  cerebras: 'text-cyan-400',
+  'google-ai': 'text-emerald-400',
+  openrouter: 'text-amber-400',
+  'ollama-cloud': 'text-teal-400',
 };
 
 const PROVIDER_STYLES = {
@@ -27,6 +31,10 @@ const PROVIDER_STYLES = {
   groq: { bg: 'bg-pink-500/20', text: PROVIDER_TEXT_COLORS.groq, border: 'border-pink-500/30', dot: 'bg-pink-400' },
   deepinfra: { bg: 'bg-orange-500/20', text: PROVIDER_TEXT_COLORS.deepinfra, border: 'border-orange-500/30', dot: 'bg-orange-400' },
   hyperbolic: { bg: 'bg-purple-500/20', text: PROVIDER_TEXT_COLORS.hyperbolic, border: 'border-purple-500/30', dot: 'bg-purple-400' },
+  cerebras: { bg: 'bg-cyan-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30', dot: 'bg-cyan-400' },
+  'google-ai': { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
+  openrouter: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', dot: 'bg-amber-400' },
+  'ollama-cloud': { bg: 'bg-teal-500/20', text: 'text-teal-400', border: 'border-teal-500/30', dot: 'bg-teal-400' },
 };
 
 const FALLBACK_PROVIDER_STYLE = { bg: 'bg-slate-500/20', text: 'text-slate-400', border: 'border-slate-500/30', dot: 'bg-slate-400' };
@@ -92,8 +100,11 @@ function ChainArrow() {
 }
 
 function FallbackChain({ chain, providerHealthMap, activeProvider }) {
-  const activeCount = Object.values(providerHealthMap).filter(
-    (h) => h.health_status === 'healthy' || h.health_status === 'warning'
+  const activeCount = chain.filter(
+    (p) => {
+      const h = providerHealthMap[p];
+      return h && (h.health_status === 'healthy' || h.health_status === 'warning');
+    }
   ).length;
   const totalCount = chain.length;
 
@@ -102,13 +113,13 @@ function FallbackChain({ chain, providerHealthMap, activeProvider }) {
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-white">Fallback Chain</h3>
         <span className="text-xs text-slate-400">
-          {activeCount}/{totalCount} providers available
+          {activeCount}/{totalCount} healthy in chain
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {chain.map((provider, i) => {
           const healthData = providerHealthMap[provider];
-          const healthStatus = healthData?.health_status || 'healthy';
+          const healthStatus = healthData?.health_status || (healthData?.enabled === false ? 'disabled' : 'healthy');
           return (
             <div key={provider} className="flex items-center gap-2">
               <FallbackChainNode
@@ -138,7 +149,7 @@ function ProviderHealthCard({ data }) {
     ? data.avg_duration_seconds < 60
       ? `${Math.round(data.avg_duration_seconds)}s`
       : `${(data.avg_duration_seconds / 60).toFixed(1)}m`
-    : '-';
+    : '—';
 
   return (
     <div className={`rounded-xl border p-4 ${style.bg} ${style.border}`}>
@@ -160,7 +171,7 @@ function ProviderHealthCard({ data }) {
         <div>
           <p className="text-slate-500 mb-0.5">Success Rate (1h)</p>
           <p className="text-white font-medium">
-            {data.success_rate_1h !== null ? `${data.success_rate_1h}%` : 'No data'}
+            {data.success_rate_1h !== null ? `${data.success_rate_1h}%` : '—'}
           </p>
         </div>
         <div>
@@ -500,7 +511,7 @@ export default function Strategic() {
 
   const usage = status?.usage || {};
   const totalRuns = (usage.total_calls || 0) + (usage.fallback_calls || 0);
-  const fallbackRate = totalRuns > 0 ? ((usage.fallback_calls / totalRuns) * 100).toFixed(1) : '0';
+  const fallbackRate = totalRuns > 0 ? ((usage.fallback_calls / totalRuns) * 100).toFixed(1) : 'N/A';
 
   const enabledProviders = providerHealth.filter((p) => p.enabled).length;
   const healthyProviders = providerHealth.filter((p) => p.health_status === 'healthy').length;
@@ -549,16 +560,24 @@ export default function Strategic() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
             <StatCard label="Active Provider" value={status?.provider || 'none'} gradient="blue" />
             <StatCard label="LLM Calls" value={usage.total_calls || 0} gradient="cyan" />
-            <StatCard label="Fallback Rate" value={`${fallbackRate}%`} gradient={parseFloat(fallbackRate) > 30 ? 'red' : 'green'} />
+            <StatCard
+              label="Fallback Rate"
+              value={fallbackRate === 'N/A' ? fallbackRate : `${fallbackRate}%`}
+              gradient={fallbackRate === 'N/A' ? 'slate' : parseFloat(fallbackRate) > 30 ? 'red' : 'green'}
+            />
             <StatCard label="Tokens Used" value={(usage.total_tokens || 0).toLocaleString()} gradient="purple" />
-            <StatCard label="Providers Enabled" value={`${enabledProviders}`} gradient="blue" />
-            <StatCard label="Providers Healthy" value={`${healthyProviders}`} gradient={healthyProviders < enabledProviders ? 'orange' : 'green'} />
+            <StatCard
+              label="Providers"
+              value={`${healthyProviders}/${enabledProviders}`}
+              subtext="healthy / enabled"
+              gradient={healthyProviders < enabledProviders ? 'orange' : 'green'}
+            />
           </div>
 
           {/* Config + Confidence */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="glass-card p-5">
-              <h3 className="text-sm font-medium text-slate-400 mb-3">Active Configuration</h3>
+              <h3 className="text-sm font-medium text-slate-400 mb-3">Strategic Intelligence</h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-400">Provider</span>
@@ -581,6 +600,7 @@ export default function Strategic() {
 
             <div className="glass-card p-5">
               <h3 className="text-sm font-medium text-slate-400 mb-3">Routing Summary</h3>
+              <p className="text-xs text-slate-500 mb-2">Task routing decisions by provider</p>
               <div className="space-y-2">
                 {(() => {
                   const byProvider = {};
