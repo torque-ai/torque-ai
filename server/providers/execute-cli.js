@@ -287,6 +287,10 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
     TORQUE_WORKFLOW_ID: task.workflow_id || '',
     TORQUE_WORKFLOW_NODE_ID: task.workflow_node_id || '',
     GIT_TERMINAL_PROMPT: '0',
+    // Force LF line endings on all platforms — prevents CRLF commits from Windows Codex tasks
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.autocrlf',
+    GIT_CONFIG_VALUE_0: 'input',
     PYTHONIOENCODING: 'utf-8',
     ...(gitCeiling ? { GIT_CEILING_DIRECTORIES: gitCeiling } : {}),
     ...envExtras
