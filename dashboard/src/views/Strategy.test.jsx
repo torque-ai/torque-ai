@@ -209,7 +209,7 @@ describe('Strategic', () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   // --- Loading / Error States ---
