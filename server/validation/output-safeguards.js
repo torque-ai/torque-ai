@@ -592,7 +592,7 @@ async function runOutputSafeguards(taskId, status, task) {
     // 19. Check for duplicate files (same name in different locations)
     const duplicateCheckEnabled = serverConfig.getBool('duplicate_file_check_enabled');
     if (duplicateCheckEnabled && status === 'completed' && task?.working_directory) {
-      const duplicates = db.checkDuplicateFiles(taskId, task.working_directory);
+      const duplicates = await db.checkDuplicateFiles(taskId, task.working_directory);
       if (duplicates.length > 0) {
         logger.info(`[Safeguard] Duplicate files detected for ${taskId}:`);
         for (const dup of duplicates) {

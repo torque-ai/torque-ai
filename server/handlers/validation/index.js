@@ -276,7 +276,7 @@ function handleRejectTask(args) {
 // File Baseline Handlers
 // ============================================
 
-function handleCaptureFileBaselines(args) {
+async function handleCaptureFileBaselines(args) {
   const { working_directory, extensions } = args;
 
   if (!working_directory) {
@@ -284,7 +284,7 @@ function handleCaptureFileBaselines(args) {
   }
 
   const exts = extensions || ['.cs', '.xaml', '.ts', '.js', '.py'];
-  const captured = fileTracking.captureDirectoryBaselines(working_directory, exts);
+  const captured = await fileTracking.captureDirectoryBaselines(working_directory, exts);
 
   return {
     content: [{

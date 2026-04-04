@@ -66,14 +66,14 @@ function handleCheckFileLocations(args) {
  * @param {object} args - Handler arguments.
  * @returns {object} Response payload.
  */
-function handleCheckDuplicateFiles(args) {
+async function handleCheckDuplicateFiles(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   if (!args.working_directory) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
 
   const taskResult = requireTask(args.task_id);
   if (taskResult.error) return taskResult.error;
 
-  const duplicates = fileTracking.checkDuplicateFiles(args.task_id, args.working_directory, {
+  const duplicates = await fileTracking.checkDuplicateFiles(args.task_id, args.working_directory, {
     fileExtensions: args.file_extensions
   });
 
@@ -188,7 +188,7 @@ function handleResolveFileLocationIssue(args) {
  * @param {object} args - Handler arguments.
  * @returns {object} Response payload.
  */
-function handleSearchSimilarFiles(args) {
+async function handleSearchSimilarFiles(args) {
   if (!args.task_id) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
   if (!args.search_term) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'search_term is required');
   if (!args.working_directory) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
@@ -196,7 +196,7 @@ function handleSearchSimilarFiles(args) {
   const taskResult = requireTask(args.task_id);
   if (taskResult.error) return taskResult.error;
 
-  const result = fileTracking.searchSimilarFiles(args.task_id, args.search_term, args.working_directory, args.search_type || 'filename');
+  const result = await fileTracking.searchSimilarFiles(args.task_id, args.search_term, args.working_directory, args.search_type || 'filename');
 
   return {
     content: [{

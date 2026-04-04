@@ -122,23 +122,22 @@ function compareFileToBaseline(filePath, workingDirectory) {
  * @returns {Array<string>} Relative paths captured.
  */
 
-function captureDirectoryBaselines(workingDirectory, extensions = BASELINE_EXTENSIONS) {
-  const fs = require('fs');
+async function captureDirectoryBaselines(workingDirectory, extensions = BASELINE_EXTENSIONS) {
+  const fsPromises = require('fs').promises;
   const path = require('path');
 
   const captured = [];
 
-  function walkDir(dir) {
+  async function walkDir(dir) {
     try {
-      const files = fs.readdirSync(dir);
-      for (const file of files) {
-        const fullPath = path.join(dir, file);
-        const stat = fs.statSync(fullPath);
+      const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
 
-        if (stat.isDirectory() && !file.startsWith('.') && file !== 'node_modules' && file !== 'bin' && file !== 'obj') {
-          walkDir(fullPath);
-        } else if (stat.isFile()) {
-          const ext = path.extname(file).toLowerCase();
+        if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== 'bin' && entry.name !== 'obj') {
+          await walkDir(fullPath);
+        } else if (entry.isFile()) {
+          const ext = path.extname(entry.name).toLowerCase();
           if (extensions.includes(ext)) {
             const relativePath = path.relative(workingDirectory, fullPath);
             captureFileBaseline(relativePath, workingDirectory);
@@ -149,7 +148,7 @@ function captureDirectoryBaselines(workingDirectory, extensions = BASELINE_EXTEN
     } catch { /* skip unreadable directories (permission errors, broken symlinks) */ }
   }
 
-  walkDir(workingDirectory);
+  await walkDir(workingDirectory);
   return captured;
 }
 
@@ -768,20 +767,20 @@ function checkFileLocationAnomalies(taskId, workingDirectory) {
  * Scans the working directory after task completion
  */
 
-function checkDuplicateFiles(taskId, workingDirectory, options = {}) {
+async function checkDuplicateFiles(taskId, workingDirectory, options = {}) {
   const { fileExtensions = BASELINE_EXTENSIONS } = options;
-  const fs = require('fs');
+  const fsPromises = require('fs').promises;
   const path = require('path');
   const duplicates = [];
 
   // Build a map of filename -> locations
   const fileMap = new Map();
 
-  function scanDirectory(dir, depth = 0) {
+  async function scanDirectory(dir, depth = 0) {
     if (depth > 10) return; // Prevent infinite recursion
 
     try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const entries = await fsPromises.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
 
@@ -790,7 +789,7 @@ function checkDuplicateFiles(taskId, workingDirectory, options = {}) {
           if (['node_modules', '.git', 'bin', 'obj', 'dist', 'build', '.vs', '.idea'].includes(entry.name)) {
             continue;
           }
-          scanDirectory(fullPath, depth + 1);
+          await scanDirectory(fullPath, depth + 1);
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
           if (fileExtensions.includes(ext)) {
@@ -806,7 +805,7 @@ function checkDuplicateFiles(taskId, workingDirectory, options = {}) {
     }
   }
 
-  scanDirectory(workingDirectory);
+  await scanDirectory(workingDirectory);
 
   // Find duplicates
   for (const [fileName, locations] of fileMap) {
@@ -853,8 +852,8 @@ function getAllFileLocationIssues(taskId) {
 
 // Delegated to db/code-analysis.js
 
-function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchType = 'filename') {
-  const fs = require('fs');
+async function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchType = 'filename') {
+  const fsPromises = require('fs').promises;
   const path = require('path');
   const now = new Date().toISOString();
   const matches = [];
@@ -862,17 +861,17 @@ function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchType = '
   // Normalize search term
   const normalizedTerm = searchTerm.toLowerCase().replace(/\.(cs|ts|tsx|js|jsx|xaml)$/i, '');
 
-  function searchDir(dir, depth = 0) {
+  async function searchDir(dir, depth = 0) {
     if (depth > 10) return;
 
     try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const entries = await fsPromises.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
 
         if (entry.isDirectory()) {
           if (!['node_modules', '.git', 'bin', 'obj', 'dist', '.vs', '.idea'].includes(entry.name)) {
-            searchDir(fullPath, depth + 1);
+            await searchDir(fullPath, depth + 1);
           }
         } else if (entry.isFile()) {
           const fileName = entry.name.toLowerCase().replace(/\.(cs|ts|tsx|js|jsx|xaml)$/i, '');
@@ -886,7 +885,7 @@ function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchType = '
             // Search for class/interface definition inside files
             if (/\.(cs|ts|tsx|js|jsx)$/.test(entry.name)) {
               try {
-                const content = fs.readFileSync(fullPath, 'utf8');
+                const content = await fsPromises.readFile(fullPath, 'utf8');
                 const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const classPattern = new RegExp(`(class|interface)\\s+${escapedTerm}\\b`, 'i');
                 if (classPattern.test(content)) {
@@ -907,7 +906,7 @@ function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchType = '
   }
 
   if (workingDirectory) {
-    searchDir(workingDirectory);
+    await searchDir(workingDirectory);
   }
 
   // Generate recommendation

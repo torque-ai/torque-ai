@@ -11,7 +11,11 @@ const db = require('./database');
 const taskCore = require('./db/task-core');
 const coordination = require('./db/coordination');
 const providerRoutingCore = require('./db/provider-routing-core');
-const dashboard = require('./dashboard-server');
+let _dashboard = null;
+function getDashboard() {
+  if (!_dashboard) _dashboard = require('./dashboard-server');
+  return _dashboard;
+}
 const logger = require('./logger').child({ component: 'task-manager' });
 const providerRegistry = require('./providers/registry');
 const providerCfg = require('./providers/config');
@@ -719,7 +723,7 @@ function stepExecution(taskId, stepMode = 'continue', count = 1) { return debugL
 // Initialize host monitoring with dependencies and start timers
 hostMonitoring.init({
   db,
-  dashboard,
+  dashboard: getDashboard(),
   cleanupOrphanedHostTasks,
   queueLockHolderId: QUEUE_LOCK_HOLDER_ID
 });
@@ -765,7 +769,7 @@ function initSubModules() {
 
 _taskExecutionHooks.init({ db });
 
-_planProjectResolver.init({ db, dashboard });
+_planProjectResolver.init({ db, dashboard: getDashboard() });
 
 _fileContextBuilder.init({
   db,
@@ -785,7 +789,7 @@ _providerRouter.init({
 
 _taskStartup.init({
   db,
-  dashboard,
+  dashboard: getDashboard(),
   serverConfig,
   providerRegistry,
   providerCfg,
@@ -821,7 +825,7 @@ _taskStartup.init({
 });
 
 _executionModule.init({
-  db, dashboard, runningProcesses, apiAbortControllers,
+  db, dashboard: getDashboard(), runningProcesses, apiAbortControllers,
   safeUpdateTaskStatus,
   recordTaskStartedAuditEvent,
   tryReserveHostSlotWithFallback,
@@ -879,7 +883,7 @@ tsserverClient.init({ db, logger });
 
 _fallbackRetryModule.init({
   db,
-  dashboard,
+  dashboard: getDashboard(),
   processQueue,
   cancelTask,
   stopTaskForRestart,
@@ -893,7 +897,7 @@ _workflowRuntimeModule.init({
   startTask,
   cancelTask,
   processQueue,
-  dashboard,
+  dashboard: getDashboard(),
 });
 registerTaskStatusTransitionListener();
 
@@ -907,7 +911,7 @@ _outputSafeguards.init({
 
 _orphanCleanup.init({
   db,
-  dashboard,
+  dashboard: getDashboard(),
   logger,
   runningProcesses,
   stallRecoveryAttempts,
@@ -944,7 +948,7 @@ _commandBuilders.init({
 });
 _closePhases.init({
   db,
-  dashboard,
+  dashboard: getDashboard(),
   checkFileQuality,
   scopedRollback,
   runBuildVerification,
@@ -976,7 +980,7 @@ _safeguardGates.init({
   scopedRollback,
   safeUpdateTaskStatus,
   taskCleanupGuard,
-  dashboard,
+  dashboard: getDashboard(),
   processQueue,
 });
 _autoVerifyRetry.init({
@@ -1032,7 +1036,7 @@ if (typeof db.onClose === 'function') {
 try { _queueScheduler.resolveCodexPendingTasks(); } catch { /* ignore */ }
 _processStreams.init({
   db,
-  dashboard,
+  dashboard: getDashboard(),
   runningProcesses,
   stallRecoveryAttempts,
   estimateProgress,
@@ -1048,7 +1052,7 @@ _processStreams.init({
 });
 
 _processLifecycle.init({
-  dashboard,
+  dashboard: getDashboard(),
   runningProcesses,
   finalizeTask,
   cancelTask,

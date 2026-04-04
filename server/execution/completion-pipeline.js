@@ -125,7 +125,7 @@ function triggerAutoRelease(repoPath, opts) {
 /**
  * Phase 8: Provider usage recording, webhooks, workflow deps, pipeline advancement.
  */
-function handlePostCompletion(ctx) {
+async function handlePostCompletion(ctx) {
   const { taskId, code, task } = ctx;
 
   if (ctx.status === 'completed') {
@@ -166,7 +166,7 @@ function handlePostCompletion(ctx) {
       error_type: finalStatus === 'pending_provider_switch' ? 'quota' : (!usageSuccess ? 'failure' : null)
     });
   } catch (usageErr) {
-    logger.info('Failed to record provider usage:', usageErr.message);
+    logger.warn('Failed to record provider usage:', usageErr.message);
   }
 
   // Record circuit-breaker outcome for the provider after terminal status is finalized.
@@ -186,7 +186,7 @@ function handlePostCompletion(ctx) {
       }
     }
   } catch (cbErr) {
-    logger.info('[CircuitBreaker] Failed to record completion outcome:', cbErr.message);
+    logger.warn('[CircuitBreaker] Failed to record completion outcome:', cbErr.message);
   }
 
   // Record model outcome for adaptive scoring (uses updatedTask for completed_at)
@@ -200,7 +200,7 @@ function handlePostCompletion(ctx) {
     }
     recordProviderHealth(outcomeTask, outcomeSuccess);
   } catch (outcomeErr) {
-    logger.info('[Outcomes] Non-fatal error:', outcomeErr.message);
+    logger.warn('[Outcomes] Non-fatal error:', outcomeErr.message);
   }
 
   // Trigger webhooks + workflow dependencies
@@ -221,7 +221,7 @@ function handlePostCompletion(ctx) {
 
     const { triggerWebhooks } = require('../handlers/webhook-handlers');
     triggerWebhooks(ctx.status, updatedTask).catch(err => {
-      logger.info('Webhook trigger error:', err.message);
+      logger.warn('Webhook trigger error:', err.message);
     });
 
     if (updatedTask && updatedTask.workflow_id) {
@@ -235,7 +235,7 @@ function handlePostCompletion(ctx) {
     }
 
     deps.runOutputSafeguards(taskId, ctx.status, updatedTask).catch(err => {
-      logger.info(`[Safeguard] Error in output safeguards for ${taskId}: ${err.message}`);
+      logger.warn(`[Safeguard] Error in output safeguards for ${taskId}: ${err.message}`);
     });
 
     // Push MCP SSE notifications to subscribed sessions
@@ -243,7 +243,7 @@ function handlePostCompletion(ctx) {
       const { dispatchTaskEvent } = require('../hooks/event-dispatch');
       dispatchTaskEvent(ctx.status, updatedTask);
     } catch (mcpErr) {
-      logger.info('[MCP Notify] Non-fatal error:', mcpErr.message);
+      logger.warn('[MCP Notify] Non-fatal error:', mcpErr.message);
     }
 
     // Clean up partial output streaming buffer + NULL out partial_output
@@ -282,7 +282,9 @@ function handlePostCompletion(ctx) {
         const projectPath = registeredProject;
         // Scan for untracked direct commits
         try {
-          const { execFileSync } = require('child_process');
+          const { execFile } = require('child_process');
+          const { promisify } = require('util');
+          const execFileAsync = promisify(execFile);
           const { randomUUID } = require('crypto');
           const lastCommit = rawDb.prepare(
             'SELECT commit_hash FROM vc_commits WHERE repo_path = ? ORDER BY created_at DESC LIMIT 1'
@@ -290,9 +292,10 @@ function handlePostCompletion(ctx) {
           const gitArgs = lastCommit?.commit_hash && !lastCommit.commit_hash.startsWith('v')
             ? ['log', `${lastCommit.commit_hash}..HEAD`, '--format=%H|%s', '--no-merges']
             : ['log', '-20', '--format=%H|%s', '--no-merges'];
-          const gitOutput = execFileSync('git', gitArgs, {
+          const { stdout: rawGitOutput } = await execFileAsync('git', gitArgs, {
             cwd: projectPath, encoding: 'utf8', windowsHide: true,
-          }).trim();
+          });
+          const gitOutput = rawGitOutput.trim();
           if (gitOutput) {
             const now = new Date().toISOString();
             for (const line of gitOutput.split('\n').filter(Boolean)) {

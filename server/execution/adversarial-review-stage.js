@@ -1,7 +1,9 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_REVIEW_CHAIN = ['codex', 'deepinfra', 'claude-cli', 'ollama'];
 const DIFF_MAX_BYTES = 50 * 1024;
@@ -69,19 +71,18 @@ function buildReviewPrompt(taskDescription, diff, highRiskFiles) {
   return lines.join('\n');
 }
 
-function collectDiff(workingDirectory) {
+async function collectDiff(workingDirectory) {
   try {
-    const output = execFileSync('git', ['diff', 'HEAD~1'], {
+    const { stdout } = await execFileAsync('git', ['diff', 'HEAD~1'], {
       cwd: workingDirectory,
       windowsHide: true,
       timeout: DIFF_TIMEOUT_MS,
       maxBuffer: DIFF_MAX_BYTES + 1024,
     });
 
-    const diff = output.toString('utf8');
-    return diff.length > DIFF_MAX_BYTES
-      ? diff.slice(0, DIFF_MAX_BYTES)
-      : diff;
+    return stdout.length > DIFF_MAX_BYTES
+      ? stdout.slice(0, DIFF_MAX_BYTES)
+      : stdout;
   } catch {
     return null;
   }
@@ -132,7 +133,7 @@ function createAdversarialReviewStage({
     if (!reviewerProvider) return;
 
     // Collect diff
-    const diff = collectDiff(task.working_directory);
+    const diff = await collectDiff(task.working_directory);
     if (!diff) return;
 
     // Build and spawn review task

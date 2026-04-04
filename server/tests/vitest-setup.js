@@ -144,6 +144,14 @@ function setupTestDb(suiteName) {
 }
 
 /**
+ * Lightweight DB-only setup — skips tools.js import (saves ~335ms per test file).
+ * Use for tests that only need the database, not handleToolCall.
+ */
+function setupTestDbOnly(suiteName) {
+  return _initDb(suiteName);
+}
+
+/**
  * Lightweight setup for direct db sub-module tests.
  * Requires the module, calls setDb(), and returns { db, mod, rawDb, testDir }.
  *
@@ -266,4 +274,4 @@ function resetTables(tables) {
   }
 }
 
-module.exports = { setupTestDb, setupTestDbModule, teardownTestDb, safeTool, getText, mkTask, rawDb, resetTables, ensureTestSchema };
+module.exports = { setupTestDb, setupTestDbOnly, setupTestDbModule, teardownTestDb, safeTool, getText, mkTask, rawDb, resetTables, ensureTestSchema };
