@@ -1,7 +1,7 @@
 'use strict';
 
-function handleListModels(args) {
-  const db = require('../database').getDbInstance();
+function handleListModels(args, deps) {
+  const db = deps?.db || require('../database').getDbInstance();
   const provider = args?.provider;
 
   let query = `
@@ -50,8 +50,8 @@ function handleListModels(args) {
   return out;
 }
 
-function handleAssignModelRole(args) {
-  const db = require('../database').getDbInstance();
+function handleAssignModelRole(args, deps) {
+  const db = deps?.db || require('../database').getDbInstance();
   const { provider, role, model_name } = args || {};
 
   if (!provider || !role || !model_name) {
@@ -71,8 +71,11 @@ function handleAssignModelRole(args) {
   return `Assigned ${provider}/${role} = ${model_name}`;
 }
 
-function createModelRegistryHandlers() {
-  return { handleListModels, handleAssignModelRole };
+function createModelRegistryHandlers(deps) {
+  return {
+    handleListModels: (args) => handleListModels(args, deps),
+    handleAssignModelRole: (args) => handleAssignModelRole(args, deps),
+  };
 }
 
 module.exports = { handleListModels, handleAssignModelRole, createModelRegistryHandlers };

@@ -535,7 +535,7 @@ async function executeOllamaTask(task) {
     try {
       const resolution = resolveFileReferences(prompt, workingDir);
       if (resolution.resolved.length > 0) {
-        const fileContext = buildFileContext(resolution.resolved, workingDir, 15000, task.task_description);
+        const fileContext = await buildFileContext(resolution.resolved, workingDir, 15000, task.task_description);
         if (fileContext) {
           prompt = task.task_description + fileContext;
           logger.info(`[Ollama] Included ${resolution.resolved.length} resolved file(s) in prompt for task ${taskId}`);

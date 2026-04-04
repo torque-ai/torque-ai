@@ -57,7 +57,9 @@ function substitutePayload(template, payload) {
       if (value == null || typeof value !== 'object') return match;
       value = value[key];
     }
-    return value != null ? String(value) : match;
+    if (value == null) return match;
+    const str = String(value).slice(0, 500).replace(/[\x00-\x1f\x7f]/g, '');
+    return str;
   });
 }
 

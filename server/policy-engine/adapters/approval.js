@@ -25,27 +25,51 @@ function normalizeLower(value) {
 }
 
 function isPlainObject(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function collectCandidateValues(source, paths) {
-  if (!isPlainObject(source)) return [];
+  if (!isPlainObject(source) || !Array.isArray(paths)) return [];
 
   const values = [];
   for (const path of paths) {
-    let current = source;
-    let matched = true;
+    if (!Array.isArray(path) || path.length === 0) continue;
 
+    let candidates = [source];
     for (const segment of path) {
-      if (!current || current[segment] === undefined || current[segment] === null) {
-        matched = false;
+      const nextCandidates = [];
+
+      for (const candidate of candidates) {
+        const entries = Array.isArray(candidate) ? candidate : [candidate];
+        for (const entry of entries) {
+          if (
+            !isPlainObject(entry)
+            || !Object.prototype.hasOwnProperty.call(entry, segment)
+            || entry[segment] === undefined
+            || entry[segment] === null
+          ) {
+            continue;
+          }
+
+          nextCandidates.push(entry[segment]);
+        }
+      }
+
+      if (nextCandidates.length === 0) {
+        candidates = [];
         break;
       }
-      current = current[segment];
+
+      candidates = nextCandidates;
     }
 
-    if (matched) {
-      values.push(current);
+    if (candidates.length > 0) {
+      values.push(...candidates);
     }
   }
 
@@ -53,7 +77,8 @@ function collectCandidateValues(source, paths) {
 }
 
 function resolveValue(sources, paths) {
-  for (const source of sources) {
+  const candidateSources = Array.isArray(sources) ? sources : [sources];
+  for (const source of candidateSources) {
     for (const candidate of collectCandidateValues(source, paths)) {
       const normalized = normalizeNonEmptyString(candidate);
       if (normalized) {
@@ -69,9 +94,13 @@ function resolveTaskId(...sources) {
     ['task_id'],
     ['taskId'],
     ['task', 'id'],
+    ['task', 'task_id'],
+    ['task', 'taskId'],
     ['target_id'],
     ['targetId'],
     ['target', 'id'],
+    ['target', 'task_id'],
+    ['target', 'taskId'],
   ]);
 }
 
@@ -80,6 +109,8 @@ function resolvePolicyId(...sources) {
     ['policy_id'],
     ['policyId'],
     ['policy', 'id'],
+    ['policy', 'policy_id'],
+    ['policy', 'policyId'],
   ]);
 }
 
@@ -89,7 +120,11 @@ function resolveProject(...sources) {
     ['project_id'],
     ['projectId'],
     ['task', 'project'],
+    ['task', 'project_id'],
+    ['task', 'projectId'],
     ['target', 'project'],
+    ['target', 'project_id'],
+    ['target', 'projectId'],
   ]);
 }
 
@@ -97,22 +132,48 @@ function resolveEvaluationId(...sources) {
   return resolveValue(sources, [
     ['evaluation_id'],
     ['evaluationId'],
+    ['policy_evaluation_id'],
+    ['policyEvaluationId'],
     ['evaluation', 'id'],
+    ['evaluation', 'evaluation_id'],
+    ['evaluation', 'evaluationId'],
+    ['task', 'evaluation_id'],
+    ['task', 'evaluationId'],
+    ['task', 'policy_evaluation_id'],
+    ['task', 'policyEvaluationId'],
+    ['target', 'evaluation_id'],
+    ['target', 'evaluationId'],
+    ['target', 'policy_evaluation_id'],
+    ['target', 'policyEvaluationId'],
   ]);
 }
 
 function resolveBooleanValue(...sources) {
-  for (const source of sources) {
-    if (!isPlainObject(source)) continue;
+  const truthyValues = new Set(['true', '1', 'yes', 'on', 'enabled', 'passed', 'pass']);
+  const falsyValues = new Set(['false', '0', 'no', 'off', 'disabled', 'failed', 'fail']);
 
-    for (const key of ['override_recorded', 'overrideRecorded']) {
-      if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-      if (source[key] === true) return true;
-      if (source[key] === false) return false;
-      if (typeof source[key] === 'string') {
-        const normalized = source[key].trim().toLowerCase();
-        if (normalized === 'true') return true;
-        if (normalized === 'false') return false;
+  for (const source of sources) {
+    for (const candidate of collectCandidateValues(source, [
+      ['override_recorded'],
+      ['overrideRecorded'],
+      ['evidence', 'override_recorded'],
+      ['evidence', 'overrideRecorded'],
+      ['override', 'recorded'],
+    ])) {
+      if (candidate === true || candidate === false) {
+        return candidate;
+      }
+
+      if (typeof candidate === 'number') {
+        return candidate !== 0;
+      }
+
+      const normalized = normalizeLower(candidate);
+      if (normalized && truthyValues.has(normalized)) {
+        return true;
+      }
+      if (normalized && falsyValues.has(normalized)) {
+        return false;
       }
     }
   }
@@ -121,40 +182,49 @@ function resolveBooleanValue(...sources) {
 }
 
 function resolveApprovalType(options = {}) {
-  const normalized = normalizeLower(options.approvalType || options.approval_type);
+  const normalized = typeof options === 'string'
+    ? normalizeLower(options)
+    : normalizeLower(resolveValue([options], [
+      ['approvalType'],
+      ['approval_type'],
+      ['approval', 'type'],
+      ['approval', 'approval_type'],
+    ]));
   return normalized === PEEK_HIGH_RISK_APPROVAL_TYPE
     ? PEEK_HIGH_RISK_APPROVAL_TYPE
     : 'policy';
 }
 
 function buildPolicyApprovalRuleName(policyId, options = {}) {
+  const normalizedPolicyId = normalizeNonEmptyString(policyId) || policyId;
   const approvalType = resolveApprovalType(options);
   if (approvalType === PEEK_HIGH_RISK_APPROVAL_TYPE) {
-    return `${PEEK_HIGH_RISK_APPROVAL_RULE_PREFIX}: ${policyId}`;
+    return `${PEEK_HIGH_RISK_APPROVAL_RULE_PREFIX}: ${normalizedPolicyId}`;
   }
 
-  return `${POLICY_APPROVAL_RULE_PREFIX}: ${policyId}`;
+  return `${POLICY_APPROVAL_RULE_PREFIX}: ${normalizedPolicyId}`;
 }
 
 function buildPolicyApprovalCondition(policyId, options = {}) {
+  const normalizedPolicyId = normalizeNonEmptyString(policyId) || policyId;
   const approvalType = resolveApprovalType(options);
   if (approvalType === PEEK_HIGH_RISK_APPROVAL_TYPE) {
     return {
       source: PEEK_HIGH_RISK_APPROVAL_SOURCE,
       approval_type: PEEK_HIGH_RISK_APPROVAL_TYPE,
-      action: policyId,
+      action: normalizedPolicyId,
       manual_only: true,
-      keywords: [`${PEEK_HIGH_RISK_APPROVAL_KEYWORD_PREFIX}:${policyId}`],
+      keywords: [`${PEEK_HIGH_RISK_APPROVAL_KEYWORD_PREFIX}:${normalizedPolicyId}`],
     };
   }
 
   return {
     source: POLICY_APPROVAL_SOURCE,
-    policy_id: policyId,
+    policy_id: normalizedPolicyId,
     manual_only: true,
     // Use an impossible keyword match so the rule can back approval_requests
     // without auto-matching unrelated queued tasks during scheduler checks.
-    keywords: [`${POLICY_APPROVAL_KEYWORD_PREFIX}:${policyId}`],
+    keywords: [`${POLICY_APPROVAL_KEYWORD_PREFIX}:${normalizedPolicyId}`],
   };
 }
 
@@ -295,6 +365,19 @@ function hasRecordedOverride(policyId, taskId, ...sources) {
   return evaluation.outcome === 'overridden' || Boolean(evaluation.latest_override);
 }
 
+/**
+ * Ensures a policy approval rule exists for the specified policy.
+ * Creates a new approval rule if one doesn't already exist.
+ * 
+ * @param {string} policyId - The ID of the policy to create an approval rule for
+ * @param {Object} options - Configuration options for the approval rule
+ * @param {Object} options.context - The context object containing task and policy information
+ * @param {Object} options.policyOutcome - The policy outcome information
+ * @param {string} [options.project] - The project associated with the rule
+ * @param {number} [options.requiredApprovers] - Number of required approvers
+ * @param {number} [options.autoApproveAfterMinutes] - Minutes after which to auto-approve
+ * @returns {Object} The approval rule object
+ */
 function ensurePolicyApprovalRule(policyId, options = {}) {
   const project = resolveProject(options, options.context, options.policyOutcome);
   const existing = findPolicyApprovalRules(policyId, project, options)[0];
@@ -332,6 +415,12 @@ function ensurePolicyApprovalRule(policyId, options = {}) {
   };
 }
 
+/**
+ * Collects approval evidence for a policy evaluation.
+ * 
+ * @param {Object} context - The context object containing task and policy information
+ * @returns {Object} Approval evidence object with type, available, and satisfied properties
+ */
 function collectApprovalEvidence(context = {}) {
   const taskId = resolveTaskId(context);
   const policyId = resolvePolicyId(context);
@@ -345,6 +434,12 @@ function collectApprovalEvidence(context = {}) {
   };
 }
 
+/**
+ * Resolves the peek recovery action from the provided sources.
+ * 
+ * @param {...Object} sources - Sources to resolve the action from
+ * @returns {string|null} The resolved action name or null if not found
+ */
 function resolvePeekRecoveryAction(...sources) {
   return resolveValue(sources, [
     ['action'],
@@ -354,6 +449,13 @@ function resolvePeekRecoveryAction(...sources) {
   ]);
 }
 
+/**
+ * Determines if a peek recovery action is considered high risk.
+ * 
+ * @param {string} action - The action to check
+ * @param {Object} context - The context object containing evidence information
+ * @returns {boolean} True if the action is high risk, false otherwise
+ */
 function isHighRiskPeekRecoveryAction(action, context = {}) {
   if (context?.evidence?.peek_recovery !== true) {
     return false;
@@ -367,6 +469,13 @@ function isHighRiskPeekRecoveryAction(action, context = {}) {
   return RISK_CLASSIFICATION[normalizedAction]?.requires_approval === true;
 }
 
+/**
+ * Determines if approval is required for a policy outcome.
+ * 
+ * @param {Object} policyOutcome - The policy outcome to check
+ * @param {Object} context - The context object containing task and policy information
+ * @returns {boolean} True if approval is required, false otherwise
+ */
 function requireApprovalForOutcome(policyOutcome = {}, context = {}) {
   const highRiskAction = resolvePeekRecoveryAction(context, policyOutcome);
   if (isHighRiskPeekRecoveryAction(highRiskAction, context)) {
@@ -414,6 +523,13 @@ function requireApprovalForOutcome(policyOutcome = {}, context = {}) {
   return true;
 }
 
+/**
+ * Checks if a high-risk Peek recovery action requires approval.
+ * 
+ * @param {string} action - The Peek recovery action to check
+ * @param {Object} context - The context object containing task and policy information
+ * @returns {Promise<Object>} An object with approval status and reason
+ */
 async function requireHighRiskApproval(action, context = {}) {
   const normalizedAction = normalizeNonEmptyString(action);
   const classification = normalizedAction ? RISK_CLASSIFICATION[normalizedAction] : null;
@@ -502,6 +618,18 @@ async function requireHighRiskApproval(action, context = {}) {
   };
 }
 
+/**
+ * Creates an approval request for a policy or high-risk action.
+ * 
+ * @param {string} taskId - The ID of the task requiring approval
+ * @param {string} policyId - The ID of the policy associated with the approval
+ * @param {Object} options - Configuration options for the approval request
+ * @param {Object} options.context - The context object containing task and policy information
+ * @param {Object} options.policyOutcome - The policy outcome information
+ * @param {string} [options.project] - The project associated with the approval
+ * @param {string} [options.approvalType] - The type of approval ('policy' or 'peek_recovery_high_risk')
+ * @returns {Object} An object with approval request details
+ */
 function attachApprovalRequest(taskId, policyId, options = {}) {
   const normalizedTaskId = normalizeNonEmptyString(taskId);
   const normalizedPolicyId = normalizeNonEmptyString(policyId);

@@ -226,7 +226,7 @@ async function handleBuildTestStyleCommit(ctx) {
     // Auto-PR creation after successful completion
     const projectConfig = db.getProjectConfig(task.project || db.getProjectFromPath(workingDir));
     if (projectConfig && projectConfig.auto_pr_enabled && ctx.status === 'completed') {
-      _tryCreateAutoPR(taskId, task, workingDir, projectConfig);
+      await _tryCreateAutoPR(taskId, task, workingDir, projectConfig);
     }
   }
 }

@@ -100,7 +100,7 @@ function trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDe
   }
 }
 
-function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, taskDescription = '') {
+async function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, taskDescription = '') {
   if (!resolvedFiles || resolvedFiles.length === 0) return '';
 
   // Try symbol-level context first (90%+ token savings when index exists)
@@ -121,7 +121,7 @@ function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, tas
     const fullPath = path.resolve(workingDirectory, actual);
     let content;
     try {
-      content = fs.readFileSync(fullPath, 'utf8');
+      content = await fs.promises.readFile(fullPath, 'utf8');
     } catch {
       continue; // Skip unreadable files
     }
@@ -199,9 +199,9 @@ function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, tas
  * @param {string} filePath - Absolute or relative path to the JS/TS file
  * @returns {Array<{name: string, startLine: number, endLine: number, lineCount: number}>}
  */
-function extractJsFunctionBoundaries(filePath) {
+async function extractJsFunctionBoundaries(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = await fs.promises.readFile(filePath, 'utf-8');
     const lines = content.split('\n');
     const boundaries = [];
 

@@ -446,7 +446,7 @@ function startTask(taskId) {
         // Build context for non-ollama, non-codex providers
         // Codex reads files itself — buildCodexCommand uses lightweight context + enrichment
         if (provider !== 'ollama' && provider !== 'codex') {
-          resolvedFileContext = buildFileContext(resolution.resolved, task.working_directory, 30000, task.task_description);
+          resolvedFileContext = await buildFileContext(resolution.resolved, task.working_directory, 30000, task.task_description);
         }
         logger.info(`[FileResolve] Pre-resolved ${resolution.resolved.length} file(s) for task ${taskId}`);
 

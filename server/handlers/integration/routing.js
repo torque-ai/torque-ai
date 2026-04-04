@@ -662,7 +662,7 @@ async function handleSmartSubmitTask(args) {
       if (largestFile && largestLineCount > 500) {
         const absLargest = path.isAbsolute(largestFile) ? largestFile : path.join(jsWorkDir, largestFile);
         let boundaries;
-        try { boundaries = taskManager.extractJsFunctionBoundaries(absLargest); }
+        try { boundaries = await taskManager.extractJsFunctionBoundaries(absLargest); }
         catch (e) { logger.warn(`[JSDecompose] Failed to parse ${largestFile}: ${e.message}`); boundaries = []; }
 
         if (boundaries.length >= 3) {

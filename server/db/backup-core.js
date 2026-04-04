@@ -221,8 +221,15 @@ async function restoreDatabase(srcPath, confirm, { force = false } = {}) {
 }
 
 function listBackups(dir) {
+  const defaultDir = path.resolve(path.join(getDataDir(), 'backups'));
   if (!dir) {
-    dir = path.join(getDataDir(), 'backups');
+    dir = defaultDir;
+  } else {
+    const resolved = path.resolve(dir);
+    const rel = path.relative(defaultDir, resolved);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      dir = defaultDir; // Reject traversal — fall back to default
+    }
   }
   if (!fs.existsSync(dir)) return [];
 

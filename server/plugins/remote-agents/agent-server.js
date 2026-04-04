@@ -350,6 +350,9 @@ async function syncProject({ baseDir, project, branch = 'main', repoUrl }) {
 
   if (!fs.existsSync(projectDir)) {
     if (repoUrl) {
+      if (!repoUrl.startsWith('https://')) {
+        return { success: false, error: 'Only https:// repository URLs are allowed' };
+      }
       await runGit(['clone', '--branch', branch, repoUrl, projectDir], {
         timeout: DEFAULT_TIMEOUT_MS,
       });

@@ -198,12 +198,20 @@ async function handleRestoreDatabase(args) {
   if (!args.src_path) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Source path is required');
   }
-  
+
   if (args.confirm !== true) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Destructive operation requires confirm: true (boolean)');
   }
+
+  const backupsDir = path.resolve(path.join(require('../../data-dir').getDataDir(), 'backups'));
+  const resolvedSrc = path.resolve(backupsDir, args.src_path);
+  const rel = path.relative(backupsDir, resolvedSrc);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'src_path must resolve to a path inside the backups directory');
+  }
+
   try {
-    const result = await backupCore.restoreDatabase(args.src_path, args.confirm);
+    const result = await backupCore.restoreDatabase(resolvedSrc, args.confirm);
     let output = `## Database Restored\n\n`;
     output += `**From:** ${result.restored_from}\n`;
     output += `**At:** ${result.restored_at}\n`;

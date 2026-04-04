@@ -107,6 +107,7 @@ function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
       }
     }
   }, killDelayMs);
+  sigkillHandle.unref();
   // Allow tests / process-exit handlers to cancel if the process exits first
   if (proc.process.once) {
     proc.process.once('exit', () => clearTimeout(sigkillHandle));
@@ -151,7 +152,7 @@ function killOrphanByPid(pid, taskId, killDelayMs = 5000, label = '') {
     return; // Process already gone, no need for SIGKILL
   }
 
-  setTimeout(() => {
+  const handle = setTimeout(() => {
     try {
       process.kill(pid, 'SIGKILL');
     } catch (err) {
@@ -160,6 +161,7 @@ function killOrphanByPid(pid, taskId, killDelayMs = 5000, label = '') {
       }
     }
   }, killDelayMs);
+  handle.unref();
 }
 
 /**
