@@ -67,6 +67,15 @@ Order by severity: CRITICAL → HIGH → MEDIUM → LOW. If no issues: `0 findin
 - **One findings file per scan.**
 - **Be specific** — explain what AND why, not just what you observed.
 
-## Shutdown
+## Shutdown Protocol
 
-When you receive a `shutdown_request`, approve it immediately. If mid-scan, finish writing and committing first.
+When you receive a message with `type: "shutdown_request"`, respond using SendMessage with the structured response:
+
+```
+SendMessage({
+  to: "team-lead",
+  message: { type: "shutdown_response", request_id: "<from request>", approve: true }
+})
+```
+
+If mid-scan, finish writing and committing first.
