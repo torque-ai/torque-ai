@@ -1,4 +1,15 @@
-const childProcess = require('child_process');
+const realChildProcess = require('child_process');
+const mockExecFile = vi.fn((_cmd, _args, _opts, cb) => {
+  if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
+  cb(null, 'diff output', '');
+});
+
+// Must mock before the module is loaded so that the destructured execFile
+// reference inside the module points to our mock, not the real function.
+vi.mock('child_process', () => ({
+  ...realChildProcess,
+  execFile: (...args) => mockExecFile(...args),
+}));
 
 describe('adversarial-review-stage', () => {
   let createStage;
@@ -13,8 +24,8 @@ describe('adversarial-review-stage', () => {
     vi.restoreAllMocks();
     vi.resetModules();
 
-    vi.spyOn(childProcess, 'execFile').mockImplementation((_cmd, _args, _opts, cb) => {
-      if (typeof _opts === 'function') { cb = _opts; }
+    mockExecFile.mockImplementation((_cmd, _args, _opts, cb) => {
+      if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
       cb(null, 'diff output', '');
     });
 
