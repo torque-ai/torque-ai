@@ -55,6 +55,7 @@ function substitutePayload(template, payload) {
     let value = payload;
     for (const key of keys) {
       if (value == null || typeof value !== 'object') return match;
+      if (!Object.prototype.hasOwnProperty.call(value, key)) return match;
       value = value[key];
     }
     if (value == null) return match;

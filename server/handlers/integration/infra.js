@@ -489,6 +489,19 @@ function handleScanProject(args) {
       for (const entry of entries) {
         if (ignoreDirs.has(entry.name)) continue;
         const fullPath = path.join(dir, entry.name);
+        // Skip symlinks to prevent directory traversal
+        try {
+          const lstat = fs.lstatSync(fullPath);
+          if (lstat.isSymbolicLink()) continue;
+        } catch {
+          continue;
+        }
+        try {
+          const realFullPath = fs.realpathSync(fullPath);
+          if (!realFullPath.startsWith(projectPath)) continue;
+        } catch {
+          continue;
+        }
         if (entry.isDirectory()) {
           walkDir(fullPath, fileList);
         } else if (entry.isFile()) {

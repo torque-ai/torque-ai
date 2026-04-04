@@ -651,6 +651,7 @@ async function handleSmartSubmitTask(args) {
         try {
           const absPath = path.isAbsolute(f) ? f : path.join(jsWorkDir, f);
           if (!/\.(?:js|ts|mjs|cjs|jsx|tsx)$/i.test(absPath)) continue;
+          if (!isPathTraversalSafe(absPath, jsWorkDir)) continue;
           const content = fs.readFileSync(absPath, 'utf-8');
           const lineCount = content.split('\n').length;
           if (lineCount > largestLineCount) { largestLineCount = lineCount; largestFile = f; }

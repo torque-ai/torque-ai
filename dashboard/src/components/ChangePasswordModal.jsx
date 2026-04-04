@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getCsrfToken } from '../api';
 
 export default function ChangePasswordModal({ onClose }) {
@@ -8,6 +8,33 @@ export default function ChangePasswordModal({ onClose }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    const modal = modalRef.current;
+    if (!modal) return;
+
+    const focusable = modal.querySelectorAll('input, button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+
+    function trapFocus(e) {
+      if (e.key !== 'Tab' || !focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+
+    modal.addEventListener('keydown', trapFocus);
+    return () => modal.removeEventListener('keydown', trapFocus);
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -52,9 +79,24 @@ export default function ChangePasswordModal({ onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-semibold text-white mb-4">Change Password</h2>
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+      onClick={onClose}
+      onKeyDown={e => {
+        if (e.key === 'Escape') onClose();
+      }}
+    >
+      <div
+        ref={modalRef}
+        className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-sm shadow-xl"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="change-password-title"
+      >
+        <h2 id="change-password-title" className="text-lg font-semibold text-white mb-4">
+          Change Password
+        </h2>
 
         {success ? (
           <p className="text-green-400 text-sm">Password changed successfully.</p>

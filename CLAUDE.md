@@ -79,6 +79,13 @@ Use the `/torque-*` commands to interact with TORQUE. Commands compose multiple 
 | `/torque-budget` | Cost tracking, budget status, provider performance |
 | `/torque-config [setting]` | Configuration — tuning, hardware, safeguards |
 | `/torque-cancel [task-id]` | Cancel running or queued tasks |
+| `/torque-ci` | CI monitoring — watch repos, diagnose failures, view history |
+| `/torque-hosts` | Manage Ollama hosts — add, remove, enable, disable, health checks |
+| `/torque-restart` | Restart the MCP server to apply code changes |
+| `/torque-scout [variant]` | Spawn discovery scouts — security, quality, visual, performance |
+| `/torque-team [brief]` | Spawn development team — Planner, QC, Remediation pipeline |
+| `/torque-templates` | View, activate, and manage routing templates |
+| `/torque-validate` | Run code quality validation — syntax, build checks, regression detection |
 
 For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit_task`).
 
@@ -226,7 +233,7 @@ TORQUE loads three plugins by default (configured in `DEFAULT_PLUGIN_NAMES` in `
 
 | Plugin | Location | Tools |
 |--------|----------|-------|
-| **snapscope** | `server/plugins/snapscope/` | `capture_screenshots`, `capture_view`, `capture_views`, `validate_manifest`, `peek_ui`, `peek_diagnose` |
+| **snapscope** | `server/plugins/snapscope/` | `capture_screenshots`, `capture_view`, `capture_views`, `validate_manifest`, `peek_ui`, `peek_interact`, `peek_elements`, `peek_hit_test`, `peek_regression`, `peek_launch`, `peek_discover`, `peek_open_url`, `peek_cdp`, `peek_refresh`, `peek_health_all`, `peek_build_and_open`, `register_peek_host`, `unregister_peek_host`, `list_peek_hosts`, `peek_diagnose`, `peek_semantic_diff`, `peek_wait`, `peek_action_sequence`, `peek_ocr`, `peek_color`, `peek_snapshot`, `peek_table`, `peek_summary`, `peek_assert`, `peek_recovery`, `peek_recovery_status`, `peek_onboard`, `peek_onboard_detect`, `peek_verify`, `peek_verify_run`, `peek_verify_specs`, `peek_baselines`, `peek_history` |
 | **version-control** | `server/plugins/version-control/` | `vc_create_worktree`, `vc_list_worktrees`, `vc_switch_worktree`, `vc_merge_worktree`, `vc_cleanup_stale`, `vc_generate_commit`, `vc_commit_status`, `vc_get_policy`, `vc_prepare_pr`, `vc_create_pr`, `vc_generate_changelog`, `vc_update_changelog_file`, `vc_create_release` |
 | **remote-agents** | `server/plugins/remote-agents/` | `register_remote_agent`, `list_remote_agents`, `get_remote_agent`, `remove_remote_agent`, `check_remote_agent_health`, `run_remote_command`, `run_tests` |
 
@@ -341,7 +348,7 @@ When editing versioned projects outside TORQUE, **always use conventional commit
 
 ## MCP Tool Reference
 
-TORQUE exposes ~200 MCP tools organized into categories. Key categories:
+TORQUE exposes ~590 MCP tools organized into categories. Key categories:
 
 | Category | Tools |
 |----------|-------|

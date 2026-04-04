@@ -196,6 +196,10 @@ function handleTestInboundWebhook(args) {
     let value = testPayload;
     for (const part of parts) {
       if (value && typeof value === 'object') {
+        if (!Object.prototype.hasOwnProperty.call(value, part)) {
+          value = undefined;
+          break;
+        }
         value = value[part];
       } else {
         value = undefined;

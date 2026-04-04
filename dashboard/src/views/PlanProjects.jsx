@@ -369,7 +369,7 @@ function ImportModal({ onClose, onImport }) {
       >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-white">Import Plan</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl" aria-label="Close">
             &times;
           </button>
         </div>

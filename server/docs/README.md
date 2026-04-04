@@ -15,7 +15,7 @@ TORQUE is an MCP (Model Context Protocol) server that enables Claude Code to del
 | **Real-Time Dashboard** | Live WebSocket UI at `http://localhost:3456` |
 | **Budget Tracking** | Token usage, cost forecasting, and budget alerts |
 | **Workflow Orchestration** | DAG-based pipelines with task dependencies |
-| **462 MCP Tools** | Comprehensive API for task management, validation, and monitoring |
+| **~590 MCP Tools** | Comprehensive API for task management, validation, and monitoring |
 
 ## Quick Start
 
@@ -51,7 +51,7 @@ TORQUE is configured automatically when you open the project in Claude Code:
 | [Provider Guide](guides/providers.md) | Provider configuration and routing |
 | [Multi-Host Guide](guides/multi-host.md) | Setting up remote Ollama hosts |
 | [Safeguards](safeguards.md) | Quality gates, validation, rollback |
-| [Tool Reference](api/tool-reference.md) | Complete reference for all 462 MCP tools |
+| [Tool Reference](api/tool-reference.md) | Complete reference for all ~590 MCP tools |
 | [Troubleshooting](runbooks/troubleshooting.md) | Common issues and solutions |
 
 ## Version

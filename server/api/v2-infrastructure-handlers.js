@@ -343,7 +343,7 @@ async function handleListPeekHosts(req, res) {
   const requestId = resolveRequestId(req);
   const hosts = (emailPeek.listPeekHosts ? emailPeek.listPeekHosts() : []).map(host => ({
     ...host,
-    credentials: hostManagement.listCredentials ? hostManagement.listCredentials(host.name, 'peek') : [],
+    credentials: (hostManagement.listCredentials ? hostManagement.listCredentials(host.name, 'peek') : []).map(({ encrypted_value, iv, auth_tag, ...safe }) => safe),
   }));
   sendList(res, requestId, hosts, hosts.length, req);
 }
@@ -415,7 +415,8 @@ async function handleListCredentials(req, res) {
   }
 
   const creds = hostManagement.listCredentials ? hostManagement.listCredentials(hostName, hostType) : [];
-  sendList(res, requestId, creds, creds.length, req);
+  const redacted = creds.map(({ encrypted_value, iv, auth_tag, ...safe }) => safe);
+  sendList(res, requestId, redacted, redacted.length, req);
 }
 
 async function handleSaveCredential(req, res) {

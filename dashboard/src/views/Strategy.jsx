@@ -227,6 +227,15 @@ function DecisionSortHeader({ field, label, sortField, sortDir, onSort }) {
     <th
       className="pb-2 pr-4 cursor-pointer select-none hover:text-slate-200 transition-colors"
       onClick={() => onSort(field)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSort(field);
+        }
+      }}
+      tabIndex={0}
+      role="columnheader"
+      aria-sort={isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
       <span className="flex items-center gap-1">
         {label}
