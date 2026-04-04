@@ -463,11 +463,21 @@ async function handleSetBudget(req, res) {
   const body = req.body || await parseBodyFn(req);
 
   const budgetUsd = parseFloat(body.budget_usd);
-  if (!budgetUsd || budgetUsd <= 0) {
-    return sendError(res, requestId, 'validation_error', 'budget_usd must be a positive number', 400, undefined, req);
+  if (isNaN(budgetUsd) || budgetUsd < 0) {
+    return sendError(res, requestId, 'validation_error', 'budget_usd must be a non-negative number', 400, undefined, req);
   }
 
   try {
+    if (budgetUsd === 0) {
+      // Clear budget
+      if (typeof costTracking.clearBudget === 'function') {
+        costTracking.clearBudget(body.provider || null);
+      } else if (typeof costTracking.setBudget === 'function') {
+        costTracking.setBudget(body.name || 'Monthly Budget', 0, body.provider || null, body.period || 'monthly', 0);
+      }
+      sendSuccess(res, requestId, { cleared: true }, 200, req);
+      return;
+    }
     const result = costTracking.setBudget(
       body.name || 'Monthly Budget',
       budgetUsd,
