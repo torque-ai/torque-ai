@@ -413,8 +413,10 @@ describe('Integration Infra Handlers', () => {
     });
 
     it('rejects with confirm=false', async () => {
+      const backupsDir = path.join(testDir, 'backups');
+      fs.mkdirSync(backupsDir, { recursive: true });
       const result = await safeTool('restore_database', {
-        src_path: path.join(testDir, 'some-backup.db'),
+        src_path: path.join(backupsDir, 'some-backup.db'),
         confirm: false
       });
       expect(result.isError).toBe(true);
@@ -422,16 +424,20 @@ describe('Integration Infra Handlers', () => {
     });
 
     it('rejects nonexistent backup file (with confirm=true)', async () => {
+      const backupsDir = path.join(testDir, 'backups');
+      fs.mkdirSync(backupsDir, { recursive: true });
       const result = await safeTool('restore_database', {
-        src_path: path.join(testDir, 'nonexistent-backup-xyz.db'),
+        src_path: path.join(backupsDir, 'nonexistent-backup-xyz.db'),
         confirm: true
       });
       expect(result.isError).toBe(true);
     });
 
     it('restores from a valid backup', async () => {
-      // Create a backup first
-      const backupPath = path.join(testDir, `infra-restore-test-${Date.now()}.db`);
+      // Create a backup inside the backups directory
+      const backupsDir = path.join(testDir, 'backups');
+      fs.mkdirSync(backupsDir, { recursive: true });
+      const backupPath = path.join(backupsDir, `infra-restore-test-${Date.now()}.db`);
       await safeTool('backup_database', { dest_path: backupPath });
 
       const result = await safeTool('restore_database', {
@@ -450,15 +456,16 @@ describe('Integration Infra Handlers', () => {
   // ============================================================
   describe('list_database_backups', () => {
     it('returns "No backups" for nonexistent directory', async () => {
+      // Pass a subdirectory inside backups/ so path validation accepts it
       const result = await safeTool('list_database_backups', {
-        directory: path.join(testDir, 'no-backups-here-xyz')
+        directory: path.join(testDir, 'backups', 'no-backups-here-xyz')
       });
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toContain('No backups');
     });
 
     it('lists backup files in a directory', async () => {
-      const backupDir = path.join(testDir, 'list-test-backups');
+      const backupDir = path.join(testDir, 'backups', 'list-test-backups');
       fs.mkdirSync(backupDir, { recursive: true });
       await safeTool('backup_database', { dest_path: path.join(backupDir, 'listed.db') });
       const result = await safeTool('list_database_backups', { directory: backupDir });
@@ -468,7 +475,7 @@ describe('Integration Infra Handlers', () => {
     });
 
     it('shows count in header', async () => {
-      const backupDir = path.join(testDir, 'count-test-backups');
+      const backupDir = path.join(testDir, 'backups', 'count-test-backups');
       fs.mkdirSync(backupDir, { recursive: true });
       await safeTool('backup_database', { dest_path: path.join(backupDir, 'first.db') });
       await safeTool('backup_database', { dest_path: path.join(backupDir, 'second.db') });
