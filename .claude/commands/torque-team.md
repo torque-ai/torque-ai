@@ -87,14 +87,14 @@ Spawn all agents **in parallel** (all with `run_in_background: true`):
 - `Agent({ name: "remediation", team_name: "torque-dev", prompt: <built prompt>, mode: "auto", run_in_background: true, model: "opus" })`
 - If `spawn_ui_reviewer`: `Agent({ name: "ui-reviewer", team_name: "torque-dev", prompt: <built prompt>, mode: "auto", run_in_background: true, model: "opus" })`
 
-### 6. Send work brief to planner
+### 6. Verify planner received the brief
 
-After all agents are spawned, kick off the pipeline:
+The work brief is already embedded in the planner's spawn prompt (Step 5). Do NOT send a duplicate via SendMessage — the planner will start working immediately from its prompt context. If the planner goes idle without starting work, then send a nudge:
 
 ```
 SendMessage({
   to: "planner",
-  message: "Work brief for planning and TORQUE submission: <work_brief>. Read the relevant source files, write task descriptions, and submit to TORQUE. Stream each task ID to queue-mgr as you submit."
+  message: "You have a work brief in your prompt. Please begin reading source files and submitting TORQUE tasks. Stream each task ID to queue-mgr as you submit."
 })
 ```
 
