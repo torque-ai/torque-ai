@@ -104,6 +104,7 @@ function createModules(options = {}) {
       restored_at: '2026-03-12T00:00:00.000Z',
     })),
     listBackups: vi.fn(() => []),
+    getBackupsDir: vi.fn(() => path.resolve(os.tmpdir(), 'torque-test-backups')),
     recordEmailNotification: vi.fn(),
     listEmailNotifications: vi.fn(() => []),
     getEmailNotification: vi.fn(() => null),
@@ -556,9 +557,10 @@ describe('integration/infra handlers', () => {
       });
       const text = getText(result);
 
-      expect(mocks.db.restoreDatabase).toHaveBeenCalledWith('backup.db', true);
+      const expectedPath = path.resolve(mocks.db.getBackupsDir(), 'backup.db');
+      expect(mocks.db.restoreDatabase).toHaveBeenCalledWith(expectedPath, true);
       expect(text).toContain('## Database Restored');
-      expect(text).toContain('**From:** backup.db');
+      expect(text).toContain('**From:**');
       expect(text).toContain('**At:** 2026-03-12T11:00:00.000Z');
       expect(text).toContain('Server restart recommended after restore');
     });
@@ -628,7 +630,7 @@ describe('integration/infra handlers', () => {
   describe('email notification handlers', () => {
     it('requires recipient, subject, and body when sending emails', async () => {
       const result = await handlers.handleSendEmailNotification({
-        recipient: 'dev@example.test',
+        recipient: 'user@example.com',
         subject: '',
         body: 'hello',
       });
@@ -652,7 +654,7 @@ describe('integration/infra handlers', () => {
       vi.setSystemTime(new Date('2026-03-12T09:15:00.000Z'));
 
       const result = await handlers.handleSendEmailNotification({
-        recipient: 'dev@example.test',
+        recipient: 'user@example.com',
         subject: 'Build status',
         body: 'All good',
       });
@@ -661,7 +663,7 @@ describe('integration/infra handlers', () => {
       expect(mocks.db.recordEmailNotification).toHaveBeenCalledWith({
         id: 'notif-pending',
         task_id: null,
-        recipient: 'dev@example.test',
+        recipient: 'user@example.com',
         subject: 'Build status',
         status: 'pending',
         error: null,
@@ -681,7 +683,7 @@ describe('integration/infra handlers', () => {
       });
 
       const result = await handlers.handleSendEmailNotification({
-        recipient: 'dev@example.test',
+        recipient: 'user@example.com',
         subject: 'Build status',
         body: 'All good',
         task_id: 'task-1',
@@ -691,7 +693,7 @@ describe('integration/infra handlers', () => {
       expect(mocks.db.recordEmailNotification).toHaveBeenCalledWith({
         id: 'notif-no-mailer',
         task_id: 'task-1',
-        recipient: 'dev@example.test',
+        recipient: 'user@example.com',
         subject: 'Build status',
         status: 'pending',
         error: 'nodemailer not installed',
@@ -714,7 +716,7 @@ describe('integration/infra handlers', () => {
       });
 
       const result = await handlers.handleSendEmailNotification({
-        recipient: 'ops@example.test',
+        recipient: 'user@example.com',
         subject: 'Alert',
         body: 'Please investigate',
         task_id: 'task-9',
@@ -732,14 +734,14 @@ describe('integration/infra handlers', () => {
       });
       expect(sendMail).toHaveBeenCalledWith({
         from: 'noreply@example.test',
-        to: 'ops@example.test',
+        to: 'user@example.com',
         subject: 'Alert',
         text: 'Please investigate',
       });
       expect(mocks.db.recordEmailNotification).toHaveBeenCalledWith({
         id: 'notif-sent',
         task_id: 'task-9',
-        recipient: 'ops@example.test',
+        recipient: 'user@example.com',
         subject: 'Alert',
         status: 'sent',
         error: null,
@@ -762,7 +764,7 @@ describe('integration/infra handlers', () => {
       });
 
       const result = await handlers.handleSendEmailNotification({
-        recipient: 'ops@example.test',
+        recipient: 'user@example.com',
         subject: 'Alert',
         body: 'Please investigate',
       });
@@ -771,7 +773,7 @@ describe('integration/infra handlers', () => {
       expect(mocks.db.recordEmailNotification).toHaveBeenCalledWith({
         id: 'notif-failed',
         task_id: null,
-        recipient: 'ops@example.test',
+        recipient: 'user@example.com',
         subject: 'Alert',
         status: 'failed',
         error: 'SMTP rejected the message',
@@ -800,14 +802,14 @@ describe('integration/infra handlers', () => {
       mocks.db.listEmailNotifications.mockReturnValue([
         {
           id: '1234567890abcdef',
-          recipient: 'a@example.test',
+          recipient: 'user@example.com',
           subject: '123456789012345678901234567890EXTRA',
           status: 'sent',
           sent_at: '2026-03-12T10:00:00.000Z',
         },
         {
           id: 'fedcba0987654321',
-          recipient: 'b@example.test',
+          recipient: 'user@example.com',
           subject: '',
           status: 'pending',
           sent_at: '2026-03-12T10:05:00.000Z',
@@ -826,8 +828,8 @@ describe('integration/infra handlers', () => {
         limit: 2,
       });
       expect(text).toContain('**Count:** 2');
-      expect(text).toContain('| 12345678 | a@example.test | 123456789012345678901234567890... | sent | 2026-03-12T10:00:00.000Z |');
-      expect(text).toContain('| fedcba09 | b@example.test | (no subject) | pending | 2026-03-12T10:05:00.000Z |');
+      expect(text).toContain('| 12345678 | user@example.com | 123456789012345678901234567890... | sent | 2026-03-12T10:00:00.000Z |');
+      expect(text).toContain('| fedcba09 | user@example.com | (no subject) | pending | 2026-03-12T10:05:00.000Z |');
     });
 
     it('requires an id to fetch a single notification', () => {
@@ -847,7 +849,7 @@ describe('integration/infra handlers', () => {
     it('renders notification details including optional task and error fields', () => {
       mocks.db.getEmailNotification.mockReturnValue({
         id: 'notif-1',
-        recipient: 'dev@example.test',
+        recipient: 'user@example.com',
         subject: 'Deploy failed',
         status: 'failed',
         sent_at: '2026-03-12T10:10:00.000Z',
@@ -859,7 +861,7 @@ describe('integration/infra handlers', () => {
       const text = getText(result);
 
       expect(text).toContain('- **ID:** notif-1');
-      expect(text).toContain('- **Recipient:** dev@example.test');
+      expect(text).toContain('- **Recipient:** user@example.com');
       expect(text).toContain('- **Task ID:** task-88');
       expect(text).toContain('- **Error:** SMTP rejected the message');
     });

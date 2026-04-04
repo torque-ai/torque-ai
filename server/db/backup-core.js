@@ -220,8 +220,12 @@ async function restoreDatabase(srcPath, confirm, { force = false } = {}) {
   };
 }
 
+function getBackupsDir() {
+  return path.resolve(path.join(getDataDir(), 'backups'));
+}
+
 function listBackups(dir) {
-  const defaultDir = path.resolve(path.join(getDataDir(), 'backups'));
+  const defaultDir = getBackupsDir();
   if (!dir) {
     dir = defaultDir;
   } else {
@@ -361,4 +365,5 @@ module.exports = {
   restoreDatabase,
   listBackups,
   cleanupOldBackups,
+  getBackupsDir,
 };

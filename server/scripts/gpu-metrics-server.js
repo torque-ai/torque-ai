@@ -469,6 +469,9 @@ async function start(opts = {}) {
     });
 
     const metricsHost = process.env.TORQUE_METRICS_HOST || '127.0.0.1';
+    if (metricsHost !== '127.0.0.1' && metricsHost !== 'localhost') {
+      console.warn('[GPU Metrics] WARNING: binding to ' + metricsHost + ' with no authentication \u2014 metrics are publicly accessible');
+    }
     server.listen(port, metricsHost, () => {
       console.error(`[gpu-metrics] Serving metrics on http://${metricsHost}:${port}/metrics`);
       resolve({ success: true, port, hasGpu });

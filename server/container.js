@@ -11,7 +11,7 @@
  *   createContainer()   → new container instance
  *   .register(name, deps, factory)  — register a factory
  *   .registerValue(name, value)     — register a pre-built value
- *   .boot()             — resolve deps, run factories, freeze
+ *   .boot()             — resolve deps, run factories
  *   .get(name)          — retrieve an instantiated service
  *   .has(name)          — check if a service is registered
  *   .list()             — list all registered service names
@@ -93,8 +93,10 @@ function createContainer() {
   const _registry = new Map();
   const _instances = new Map();
   let _booted = false;
+  let _frozen = false;
 
   function register(name, deps, factory) {
+    if (_frozen) throw new Error('Container: cannot register after freeze()');
     if (_booted) {
       throw new Error(`Container is frozen after boot() — cannot register '${name}'`);
     }
@@ -105,6 +107,7 @@ function createContainer() {
   }
 
   function registerValue(name, value) {
+    if (_frozen) throw new Error('Container: cannot registerValue after freeze()');
     if (_booted) {
       throw new Error(`Container is frozen after boot() — cannot register '${name}'`);
     }
@@ -172,11 +175,13 @@ function createContainer() {
     if (!_booted) {
       throw new Error('Container: cannot freeze before boot() — call boot() first');
     }
+    _frozen = true;
   }
 
   function resetForTest() {
     _instances.clear();
     _booted = false;
+    _frozen = false;
   }
 
   return { register, registerValue, boot, get, has, list, freeze, resetForTest };

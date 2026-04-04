@@ -145,7 +145,7 @@ function fireTaskCompletionPolicyHook(taskData) {
           const { defaultContainer } = require('../container');
           const taskCore = defaultContainer.get('taskCore');
           if (taskCore) taskCore.updateTask(policyTaskData.id, { output: compressed });
-        } catch (_) {}
+        } catch (_) { logger.warn('[Policy] Output compression failed:', _.message); }
       }
     }
 

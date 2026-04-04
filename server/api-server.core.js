@@ -619,6 +619,16 @@ async function handleShutdown(req, res, _context = {}) {
     return;
   }
 
+  // Defense-in-depth: validate Origin header if present
+  const origin = req.headers['origin'];
+  if (origin) {
+    const localhostOriginPattern = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+    if (!localhostOriginPattern.test(origin)) {
+      sendJson(res, { error: 'Origin not allowed' }, 403, req);
+      return;
+    }
+  }
+
   let body = {};
   try { body = await parseBody(req); } catch { /* ignore */ }
   const reason = body.reason || 'HTTP /api/shutdown';

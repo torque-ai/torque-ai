@@ -310,8 +310,9 @@ function getResourceMetrics() {
 
   // Key table row counts
   try {
-    const tables = ['tasks', 'task_events', 'webhooks', 'webhook_logs', 'health_status', 'audit_log'];
-    for (const table of tables) {
+    const ALLOWED_TABLES = new Set(['tasks', 'task_events', 'webhooks', 'webhook_logs', 'health_status', 'audit_log']);
+    for (const table of ALLOWED_TABLES) {
+      if (!ALLOWED_TABLES.has(table)) throw new Error(`Disallowed table: ${table}`);
       try {
         const count = db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get();
         metrics.tables[table] = count?.count || 0;

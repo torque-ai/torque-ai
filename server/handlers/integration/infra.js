@@ -203,7 +203,7 @@ async function handleRestoreDatabase(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Destructive operation requires confirm: true (boolean)');
   }
 
-  const backupsDir = path.resolve(path.join(require('../../data-dir').getDataDir(), 'backups'));
+  const backupsDir = backupCore.getBackupsDir();
   const resolvedSrc = path.resolve(backupsDir, args.src_path);
   const rel = path.relative(backupsDir, resolvedSrc);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {

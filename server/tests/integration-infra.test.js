@@ -10,16 +10,19 @@ const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-set
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const backupCore = require('../db/backup-core');
 
 let db;
 let testDir;
 let savedSmtp;
+let backupsDirSpy;
 
 describe('Integration Infra Handlers', () => {
   beforeAll(() => {
     const env = setupTestDb('integration-infra');
     db = env.db;
     testDir = env.testDir;
+    backupsDirSpy = vi.spyOn(backupCore, 'getBackupsDir').mockReturnValue(testDir);
 
     // Save and clear SMTP environment variables to ensure predictable email test behaviour
     savedSmtp = {
@@ -34,6 +37,7 @@ describe('Integration Infra Handlers', () => {
     delete process.env.SMTP_FROM;
   });
   afterAll(() => {
+    backupsDirSpy?.mockRestore();
     for (const [key, val] of Object.entries(savedSmtp)) {
       if (val !== undefined) process.env[key] = val;
       else delete process.env[key];

@@ -290,6 +290,19 @@ function handleBootstrapWorkstation(req, res) {
     return;
   }
 
+  // SSRF defense: ensure torqueHost resolves to a private/loopback range
+  const hostOnly = torqueHost.replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+  const privateRanges = [
+    /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
+    /^localhost$/i, /^::1$/, /^\[::1\]$/
+  ];
+  const isPrivate = privateRanges.some(r => r.test(hostOnly));
+  if (!isPrivate) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden — host must resolve to a private/loopback IP range');
+    return;
+  }
+
   const script = generateBootstrapScript(torqueHost, { name, port, install });
 
   res.writeHead(200, {

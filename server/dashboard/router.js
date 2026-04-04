@@ -243,6 +243,7 @@ function resolveDashboardVersionControlRepoPath(db, preferredRepoPath) {
 
   const commitColumns = getTableColumns(db, 'vc_commits');
   const commitTimestampColumn = getVersionControlTimestampColumn(commitColumns);
+  if (commitTimestampColumn && !['generated_at', 'created_at'].includes(commitTimestampColumn)) throw new Error('Invalid timestamp column');
   if (commitColumns.length > 0 && commitTimestampColumn && hasColumn(commitColumns, 'repo_path')) {
     const latestReleaseRow = db.prepare(`
       SELECT repo_path
@@ -410,6 +411,7 @@ function listRecentVersionControlReleases(db, repoPath, limit = 10) {
 
   const columns = getTableColumns(db, 'vc_commits');
   const timestampColumn = getVersionControlTimestampColumn(columns);
+  if (timestampColumn && !['generated_at', 'created_at'].includes(timestampColumn)) throw new Error('Invalid timestamp column');
   if (
     columns.length === 0
     || !timestampColumn
@@ -627,6 +629,7 @@ async function handleGetVersionControlCommitsRoute(_req, res, query) {
 
   const columns = getTableColumns(db, 'vc_commits');
   const timestampColumn = getVersionControlTimestampColumn(columns);
+  if (timestampColumn && !['generated_at', 'created_at'].includes(timestampColumn)) throw new Error('Invalid timestamp column');
   if (columns.length === 0 || !timestampColumn) {
     return sendJson(res, { commits: [], count: 0 });
   }

@@ -252,6 +252,7 @@ async function acquireTaskLock(taskId, options = {}) {
       throw new Error(`acquireTaskLock timed out after ${maxWaitMs}ms for task ${taskId}`);
     }
     await waitForTaskLock(taskId);
+    await new Promise(r => setTimeout(r, 10));
     if (!finalizationLocks.get(taskId)) {
       finalizationLocks.set(taskId, true);
       return;

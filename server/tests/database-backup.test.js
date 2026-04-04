@@ -2,15 +2,22 @@ const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-set
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const backupCore = require('../db/backup-core');
 
 describe('Database Backup/Restore', () => {
   let testDir;
+  let backupsDirSpy;
 
   beforeAll(() => {
     const ctx = setupTestDb('db-backup');
     testDir = ctx.testDir;
+    // Mock getBackupsDir so listBackups accepts test temp directories
+    backupsDirSpy = vi.spyOn(backupCore, 'getBackupsDir').mockReturnValue(testDir);
   });
-  afterAll(() => { teardownTestDb(); });
+  afterAll(() => {
+    backupsDirSpy?.mockRestore();
+    teardownTestDb();
+  });
 
   describe('backup_database', () => {
     it('creates a backup with default path', async () => {

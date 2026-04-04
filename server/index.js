@@ -713,6 +713,9 @@ function init() {
     defaultContainer.registerValue('taskManager', taskManager);
     defaultContainer.registerValue('dashboard', dashboard);
   }
+  if (!defaultContainer.has('toolRouter')) {
+    defaultContainer.registerValue('toolRouter', { callTool });
+  }
 
   // Initialize task-manager early deps (provider registry, config) now that DB is ready.
   // initSubModules() wires the extracted module graph; must run before queue processing.

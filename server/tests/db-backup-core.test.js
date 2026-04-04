@@ -503,7 +503,7 @@ describe('db/backup-core', () => {
 
   it('lists only database backups and sorts them newest-first', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\data', 'backups');
+    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
     const statsByPath = new Map([
       [path.join(backupDir, 'old.db'), { size: 10, mtime: new Date('2026-01-01T00:00:00.000Z') }],
       [path.join(backupDir, 'mid.sqlite'), { size: 20, mtime: new Date('2026-02-01T00:00:00.000Z') }],
@@ -540,7 +540,7 @@ describe('db/backup-core', () => {
 
   it('does not delete anything during cleanup when the keep count already covers all backups', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\data', 'backups');
+    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
     const statsByPath = new Map([
       [path.join(backupDir, 'one.db'), { size: 1, mtime: new Date('2025-01-01T00:00:00.000Z') }],
       [path.join(backupDir, 'two.db'), { size: 2, mtime: new Date('2025-01-02T00:00:00.000Z') }],
@@ -558,7 +558,7 @@ describe('db/backup-core', () => {
 
   it('cleans up only old backups beyond the retention count and ignores unlink failures', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\data', 'backups');
+    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
     const oldOne = path.join(backupDir, 'old-1.db');
     const oldTwo = path.join(backupDir, 'old-2.db');
     const statsByPath = new Map([

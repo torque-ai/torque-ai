@@ -853,7 +853,7 @@ List each potential bug with line numbers and explanation.`
 
   // Read file content for chunk extraction
   const fs = require('fs');
-  const fileContent = fs.readFileSync(file_path, 'utf8');
+  const fileContent = await fs.promises.readFile(file_path, 'utf8');
   const lines = fileContent.split('\n');
 
   // Submit each chunk as a separate task
