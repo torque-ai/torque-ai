@@ -40,9 +40,9 @@ If the variant isn't recognized, show the table and ask the user to pick one.
 
 ### 2. Read agent files
 
-Read two files and concatenate them:
-1. Base: `~/.claude/agents/torque-scout.md` — extract markdown body (after frontmatter `---`)
-2. Variant: `~/.claude/agents/scouts/<variant>.md` — read the full file
+Read two files and concatenate them. Try project-local paths first, fall back to global:
+1. Base: `.claude/agents/torque-scout.md` (project) or `~/.claude/agents/torque-scout.md` (global) — extract markdown body (after frontmatter `---`)
+2. Variant: `.claude/agents/scouts/<variant>.md` (project) or `~/.claude/agents/scouts/<variant>.md` (global) — read the full file
 
 Build the prompt:
 ```
