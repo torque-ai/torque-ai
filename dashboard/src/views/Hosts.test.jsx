@@ -3,7 +3,6 @@ import { renderWithProviders } from '../test-utils';
 import Hosts from './Hosts';
 
 vi.mock('../api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   concurrency: {
     get: vi.fn(),
@@ -72,7 +71,7 @@ const mockHosts = [
   {
     id: 'host-2',
     name: 'remote-gpu-host',
-    url: 'http://192.168.1.100:11434',
+    url: 'http://192.0.2.100:11434',
     status: 'down',
     enabled: true,
     running_tasks: 0,
@@ -187,7 +186,7 @@ describe('Hosts', () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
       expect(screen.getByText('http://localhost:11434')).toBeInTheDocument();
-      expect(screen.getByText('http://192.168.1.100:11434')).toBeInTheDocument();
+      expect(screen.getByText('http://192.0.2.100:11434')).toBeInTheDocument();
     });
   });
 

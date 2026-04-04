@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { providers as providersApi, request } from '../api';
+import { providers as providersApi, tasks as tasksApi } from '../api';
 
 const STATUS_DOT = {
   healthy: 'bg-green-500',
@@ -32,7 +32,7 @@ export default function HealthBar() {
   const refresh = useCallback(async (active = { current: true }) => {
     const [provResult, runResult] = await Promise.allSettled([
       providersApi.list(),
-      request('/tasks?status=running'),
+      tasksApi.list({ status: 'running' }),
     ]);
 
     if (!active.current) return;

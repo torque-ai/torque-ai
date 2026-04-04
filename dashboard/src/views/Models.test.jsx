@@ -3,7 +3,6 @@ import { renderWithProviders } from '../test-utils';
 import Models from './Models';
 
 vi.mock('../api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   stats: {
     models: vi.fn(),

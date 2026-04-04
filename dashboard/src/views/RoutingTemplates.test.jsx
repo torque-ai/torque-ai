@@ -3,7 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react';
 import RoutingTemplates from './RoutingTemplates';
 
 vi.mock('../api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   routingTemplates: {
     list: vi.fn().mockResolvedValue({

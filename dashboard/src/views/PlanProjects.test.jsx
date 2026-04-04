@@ -3,7 +3,6 @@ import { renderWithProviders } from '../test-utils';
 import PlanProjects from './PlanProjects';
 
 vi.mock('../api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   planProjects: {
     list: vi.fn(),

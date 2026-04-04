@@ -4,11 +4,11 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 // Mock the api module
 vi.mock('../api', () => ({
   providers: { list: vi.fn() },
-  request: vi.fn(),
+  tasks: { list: vi.fn() },
 }));
 
 import HealthBar from './HealthBar';
-import { providers, request } from '../api';
+import { providers, tasks } from '../api';
 
 const MOCK_PROVIDERS = [
   { id: 'codex', name: 'Codex', enabled: true, status: 'healthy' },
@@ -22,7 +22,7 @@ describe('HealthBar', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     providers.list.mockResolvedValue(MOCK_PROVIDERS);
-    request.mockResolvedValue({ tasks: [{ id: '1' }, { id: '2' }] });
+    tasks.list.mockResolvedValue({ tasks: [{ id: '1' }, { id: '2' }] });
   });
 
   afterEach(() => {

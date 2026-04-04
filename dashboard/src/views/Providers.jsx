@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud, requestV2, request } from '../api';
+import { providers as providersApi, stats as statsApi, hosts as hostsApi, concurrency, providerCrud, requestV2, quota as quotaApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import LoadingSkeleton from '../components/LoadingSkeleton';
@@ -418,8 +418,8 @@ export default function Providers({ statsVersion, tasksTick }) {
         hostsApi.list().catch(() => []),
         providersApi.trends(days).catch(() => null),
         requestV2('/config/codex_exhausted', { timeout: 5000 }).catch(() => null),
-        request('/provider-quotas', { timeout: 5000 }).catch(() => ({})),
-        request('/quota/history?days=7', { timeout: 5000 }).catch(() => ({ history: [] })),
+        quotaApi.status().then((data) => data?.providers || data).catch(() => ({})),
+        quotaApi.history(7).catch(() => ({ history: [] })),
       ]);
       if (!mountedRef.current) return;
 

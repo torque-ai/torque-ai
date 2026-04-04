@@ -3,7 +3,6 @@ import { renderWithProviders } from '../test-utils';
 import Workflows from './Workflows';
 
 vi.mock('../api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   workflows: {
     list: vi.fn(),

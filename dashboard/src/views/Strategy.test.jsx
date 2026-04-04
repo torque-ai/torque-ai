@@ -3,7 +3,6 @@ import { renderWithProviders } from '../test-utils';
 import Strategic from './Strategy';
 
 vi.mock('../api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   strategic: {
     status: vi.fn(),

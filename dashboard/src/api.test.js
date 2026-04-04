@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { tasks, providers, stats, planProjects, hosts, concurrency, workstations, budget, taskLogs, system, instances, projectTuning, workflows, benchmarks, request } from './api.js';
+import { tasks, providers, stats, planProjects, hosts, concurrency, workstations, budget, taskLogs, system, instances, projectTuning, workflows, benchmarks } from './api.js';
 
 // --- Test helpers ---
 
@@ -35,266 +35,6 @@ describe('api.js', () => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
   });
-
-  // ========== request() behavior ==========
-
-  describe('request()', () => {
-    it('performs successful GET request', async () => {
-      globalThis.fetch = mockFetch({ body: { success: true } });
-      const result = await request('/health');
-      expect(result).toEqual({ success: true });
-      expect(globalThis.fetch).toHaveBeenCalledWith('/api/health', expect.objectContaining({
-        headers: expect.objectContaining({
-          'Content-Type': 'application/json',
-        }),
-      }));
-    });
-
-    it('performs successful POST request with caller-supplied headers', async () => {
-      globalThis.fetch = mockFetch({ body: { id: 'new-task' } });
-      const result = await request('/tasks', {
-        method: 'POST',
-        body: JSON.stringify({ name: 'sample' }),
-        headers: { 'X-Trace-Id': 'abc-123' },
-      });
-      expect(result).toEqual({ id: 'new-task' });
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/tasks',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ name: 'sample' }),
-          headers: { 'X-Trace-Id': 'abc-123' },
-        })
-      );
-    });
-
-    it('performs successful PUT request', async () => {
-      globalThis.fetch = mockFetch({ body: { status: 'updated' } });
-      const result = await request('/tasks/7', {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'done' }),
-      });
-      expect(result).toEqual({ status: 'updated' });
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/tasks/7',
-        expect.objectContaining({
-          method: 'PUT',
-          body: JSON.stringify({ status: 'done' }),
-        })
-      );
-    });
-
-    it('performs successful DELETE request', async () => {
-      globalThis.fetch = mockFetch({ body: { removed: true } });
-      const result = await request('/tasks/7', {
-        method: 'DELETE',
-      });
-      expect(result).toEqual({ removed: true });
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/tasks/7',
-        expect.objectContaining({
-          method: 'DELETE',
-        })
-      );
-    });
-
-    it('sends JSON content-type header by default', async () => {
-      globalThis.fetch = mockFetch({ body: { ok: true } });
-      await request('/headers');
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
-        })
-      );
-    });
-
-    it('constructs URL with API_BASE prefix', async () => {
-      globalThis.fetch = mockFetch({ body: [] });
-      await request('/tasks');
-      expect(globalThis.fetch).toHaveBeenCalledWith('/api/tasks', expect.any(Object));
-    });
-
-    it('returns parsed JSON for JSON responses', async () => {
-      globalThis.fetch = mockFetch({ body: { id: '123', status: 'running' } });
-      const result = await request('/tasks/123');
-      expect(result).toEqual({ id: '123', status: 'running' });
-    });
-
-    it('returns empty object for 204 No Content', async () => {
-      const headerMap = new Map([
-        ['content-type', 'application/json'],
-        ['content-length', null],
-      ]);
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 204,
-        headers: { get: (k) => headerMap.get(k.toLowerCase()) ?? null },
-        json: vi.fn(),
-        text: vi.fn(),
-      });
-      const result = await request('/empty');
-      expect(result).toEqual({});
-    });
-
-    it('returns empty object for content-length: 0', async () => {
-      const headerMap = new Map([
-        ['content-type', 'application/json'],
-        ['content-length', '0'],
-      ]);
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: { get: (k) => headerMap.get(k.toLowerCase()) ?? null },
-        json: vi.fn(),
-        text: vi.fn(),
-      });
-      const result = await request('/empty');
-      expect(result).toEqual({});
-    });
-
-    it('returns text wrapper for non-JSON responses', async () => {
-      globalThis.fetch = mockFetch({ body: 'plain text', contentType: 'text/plain' });
-      const result = await request('/status');
-      expect(result).toEqual({ text: 'plain text' });
-    });
-
-    it('throws on HTTP error with JSON error body', async () => {
-      globalThis.fetch = mockFetch({ status: 404, body: { error: 'Not found' } });
-      await expect(request('/bad')).rejects.toThrow('Not found');
-    });
-
-    it('throws on 401 with JSON error body', async () => {
-      globalThis.fetch = mockFetch({ status: 401, body: { error: 'Unauthorized' } });
-      await expect(request('/secure')).rejects.toThrow('Unauthorized');
-    });
-
-    it('throws on 403 with text error body', async () => {
-      globalThis.fetch = mockFetch({ status: 403, body: 'Forbidden', contentType: 'text/plain' });
-      await expect(request('/secure')).rejects.toThrow('Forbidden');
-    });
-
-    it('throws on 500 server error with JSON error body', async () => {
-      globalThis.fetch = mockFetch({ status: 500, body: { error: 'Server broken' } });
-      await expect(request('/server')).rejects.toThrow('Server broken');
-    });
-
-    it('throws on HTTP error with text body', async () => {
-      globalThis.fetch = mockFetch({ status: 500, body: 'Internal Server Error', contentType: 'text/plain' });
-      await expect(request('/broken')).rejects.toThrow('Internal Server Error');
-    });
-
-    it('throws on invalid JSON response', async () => {
-      const headerMap = new Map([['content-type', 'application/json']]);
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: { get: (k) => headerMap.get(k.toLowerCase()) ?? null },
-        json: vi.fn().mockRejectedValue(new SyntaxError('Unexpected token')),
-        text: vi.fn().mockResolvedValue('not json'),
-      });
-      await expect(request('/broken-json')).rejects.toThrow('Invalid JSON response (HTTP 200)');
-    });
-
-    it('uses caller-provided headers as-is when custom headers are supplied', async () => {
-      globalThis.fetch = mockFetch({ body: { ok: true } });
-      await request('/tasks', {
-        method: 'POST',
-        headers: {
-          'X-Feature-Flag': 'enabled',
-          Authorization: 'Bearer token',
-        },
-      });
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/tasks',
-        expect.objectContaining({
-          headers: {
-            'X-Feature-Flag': 'enabled',
-            Authorization: 'Bearer token',
-          },
-        })
-      );
-    });
-
-    it('allows overriding request Content-Type', async () => {
-      globalThis.fetch = mockFetch({ body: { ok: true }, contentType: 'text/plain' });
-      await request('/raw', {
-        method: 'POST',
-        body: 'raw',
-        headers: {
-          'Content-Type': 'text/plain',
-        },
-      });
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/raw',
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            'Content-Type': 'text/plain',
-          }),
-        })
-      );
-    });
-
-    it('converts AbortError to timeout message', async () => {
-      const abortErr = new DOMException('The operation was aborted.', 'AbortError');
-      globalThis.fetch = vi.fn().mockRejectedValue(abortErr);
-      await expect(request('/timeout')).rejects.toThrow('Request timed out');
-    });
-
-    it('rethrows non-abort errors unchanged', async () => {
-      globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Network error'));
-      await expect(request('/network')).rejects.toThrow('Network error');
-    });
-
-    it('passes AbortController signal to fetch', async () => {
-      globalThis.fetch = mockFetch({ body: {} });
-      await request('/signal');
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ signal: expect.any(AbortSignal) })
-      );
-    });
-
-    it('wraps external abort signal when AbortSignal.any is unavailable', async () => {
-      let fetchSignal;
-      globalThis.fetch = vi.fn().mockImplementation((_url, options) => {
-        fetchSignal = options.signal;
-        return new Promise((_resolve, reject) => {
-          options.signal.addEventListener('abort', () => {
-            reject(new DOMException('The operation was aborted.', 'AbortError'));
-          }, { once: true });
-        });
-      });
-
-      const externalController = new AbortController();
-      const originalAbortSignal = globalThis.AbortSignal;
-      vi.stubGlobal('AbortSignal', undefined);
-
-      try {
-        const pending = request('/signal', { signal: externalController.signal, timeout: 10000 });
-        externalController.abort();
-
-        await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
-        expect(fetchSignal).not.toBe(externalController.signal);
-        expect(fetchSignal.aborted).toBe(true);
-      } finally {
-        vi.stubGlobal('AbortSignal', originalAbortSignal);
-      }
-    });
-
-    it('throws for 204 when response is not ok', async () => {
-      const headerMap = new Map([['content-type', 'application/json']]);
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 204,
-        headers: { get: (k) => headerMap.get(k.toLowerCase()) ?? null },
-        json: vi.fn(),
-        text: vi.fn(),
-      });
-      await expect(request('/empty')).rejects.toThrow('HTTP 204');
-    });
-  });
-
 
   // ========== tasks endpoints ==========
 
@@ -365,11 +105,11 @@ describe('api.js', () => {
       );
     });
 
-    it('cancel() sends POST to /api/tasks/:id/cancel', async () => {
+    it('cancel() sends POST to /api/v2/tasks/:id/cancel', async () => {
       globalThis.fetch = mockFetch({ body: {} });
       await tasks.cancel('abc-123');
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/tasks/abc-123/cancel',
+        '/api/v2/tasks/abc-123/cancel',
         expect.objectContaining({ method: 'POST' })
       );
     });
@@ -534,10 +274,10 @@ describe('api.js', () => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/hosts/host-1', expect.any(Object));
     });
 
-    it('activity() sends GET to /api/hosts/activity', async () => {
+    it('activity() sends GET to /api/v2/hosts/activity', async () => {
       globalThis.fetch = mockFetch({ body: [] });
       await hosts.activity();
-      expect(globalThis.fetch).toHaveBeenCalledWith('/api/hosts/activity', expect.any(Object));
+      expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/hosts/activity', expect.any(Object));
     });
 
     it('toggle() sends POST with enabled body', async () => {
@@ -677,10 +417,10 @@ describe('api.js', () => {
   });
 
   describe('instances', () => {
-    it('list() sends GET to /api/instances', async () => {
+    it('list() sends GET to /api/v2/instances', async () => {
       globalThis.fetch = mockFetch({ body: [] });
       await instances.list();
-      expect(globalThis.fetch).toHaveBeenCalledWith('/api/instances', expect.any(Object));
+      expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/instances', expect.any(Object));
     });
   });
 
@@ -694,9 +434,9 @@ describe('api.js', () => {
 
     it('get() encodes project path', async () => {
       globalThis.fetch = mockFetch({ body: {} });
-      await projectTuning.get('C:/Users/test/project');
+      await projectTuning.get('C:/Users/<user>/project');
       expect(globalThis.fetch).toHaveBeenCalledWith(
-        `/api/project-tuning/${encodeURIComponent('C:/Users/test/project')}`,
+        `/api/v2/project-tuning/${encodeURIComponent('C:/Users/<user>/project')}`,
         expect.any(Object)
       );
     });
@@ -745,10 +485,10 @@ describe('api.js', () => {
       expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/workflows/wf-1', expect.any(Object));
     });
 
-    it('tasks() sends GET to /api/workflows/:id/tasks', async () => {
+    it('tasks() sends GET to /api/v2/workflows/:id/tasks', async () => {
       globalThis.fetch = mockFetch({ body: [] });
       await workflows.tasks('wf-1');
-      expect(globalThis.fetch).toHaveBeenCalledWith('/api/workflows/wf-1/tasks', expect.any(Object));
+      expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/workflows/wf-1/tasks', expect.any(Object));
     });
 
     it('history() sends GET to /api/v2/workflows/:id/history', async () => {

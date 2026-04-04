@@ -6,7 +6,6 @@
  * continue to receive the same data shapes.
  */
 
-const API_BASE = '/api';
 const V2_BASE = '/api/v2';
 
 const DEFAULT_TIMEOUT = 15000;
@@ -38,14 +37,6 @@ export function getCsrfToken() {
   // Fallback: read from the non-HttpOnly torque_csrf cookie
   const match = document.cookie.split(';').find(c => c.trim().startsWith('torque_csrf='));
   return match ? match.split('=')[1]?.trim() : '';
-}
-
-/**
- * Generic fetch wrapper with error handling and timeout
- */
-export async function request(endpoint, options = {}) {
-  const url = `${API_BASE}${endpoint}`;
-  return _fetch(url, options);
 }
 
 /**
@@ -175,7 +166,7 @@ export const tasks = {
     method: 'PATCH',
     body: JSON.stringify({ provider }),
   }),
-  cancel: (id) => request(`/tasks/${id}/cancel`, { method: 'POST' }),
+  cancel: (id) => requestV2(`/tasks/${id}/cancel`, { method: 'POST' }),
   approveSwitch: (id) => requestV2(`/tasks/${id}/approve-switch`, { method: 'POST' }),
   rejectSwitch: (id) => requestV2(`/tasks/${id}/reject-switch`, { method: 'POST' }),
   submit: (data) => requestV2('/tasks', {
@@ -190,7 +181,7 @@ export const providers = {
   list: () => requestV2('/providers').then(d => d.items || d.providers || d),
   stats: (id, days = 7) => requestV2(`/providers/${id}/stats?days=${days}`),
   trends: (days = 7) => requestV2(`/providers/trends?days=${days}`),
-  percentiles: (id, days = 7) => request(`/providers/${id}/percentiles?days=${days}`),
+  percentiles: (id, days = 7) => requestV2(`/providers/${id}/percentiles?days=${days}`),
   toggle: (id, enabled) => requestV2(`/providers/${id}/toggle`, {
     method: 'POST',
     body: JSON.stringify({ enabled }),
@@ -240,7 +231,7 @@ export const planProjects = {
 export const hosts = {
   list: () => requestV2('/hosts').then(d => d.items || d),
   get: (id) => requestV2(`/hosts/${id}`),
-  activity: (options) => request('/hosts/activity', options),
+  activity: (options) => requestV2('/hosts/activity', options),
   toggle: (id, enabled) => requestV2(`/hosts/${id}/toggle`, {
     method: 'POST',
     body: JSON.stringify({ enabled }),
@@ -388,17 +379,17 @@ export const system = {
   status: () => requestV2('/system/status'),
 };
 
-// ─── Instance discovery (legacy — no v2 equivalent) ─────────────────────────
+// ─── Instance discovery (v2 passthrough) ────────────────────────────────────
 
 export const instances = {
-  list: (options) => request('/instances', options),
+  list: (options) => requestV2('/instances', options),
 };
 
-// ─── Project tuning (v2 — note: v2 uses /tuning not /project-tuning) ───────
+// ─── Project tuning (v2, with passthrough for get) ──────────────────────────
 
 export const projectTuning = {
   list: () => requestV2('/tuning').then(d => d.items || d),
-  get: (projectPath) => request(`/project-tuning/${encodeURIComponent(projectPath)}`),
+  get: (projectPath) => requestV2(`/project-tuning/${encodeURIComponent(projectPath)}`),
   set: (projectPath, settings, description) => requestV2('/tuning', {
     method: 'POST',
     body: JSON.stringify({ projectPath, settings, description }),
@@ -416,7 +407,7 @@ export const workflows = {
     return requestV2(`/workflows${query ? `?${query}` : ''}`).then(d => d.items || d);
   },
   get: (id) => requestV2(`/workflows/${id}`),
-  tasks: (id) => request(`/workflows/${id}/tasks`),
+  tasks: (id) => requestV2(`/workflows/${id}/tasks`),
   history: (id) => requestV2(`/workflows/${id}/history`),
 };
 
@@ -445,50 +436,48 @@ export const approvals = {
   }),
 };
 
-// ─── Governance (legacy — no v2 equivalent) ─────────────────────────────────
+// ─── Governance (v2 passthrough) ────────────────────────────────────────────
 
 export const governance = {
-  getRules: (params) => request('/governance/rules' + buildQuery(params)),
-  updateRule: (id, body) => request('/governance/rules/' + id, {
-    method: 'PATCH',
+  getRules: (params) => requestV2('/governance/rules' + buildQuery(params)),
+  updateRule: (id, body) => requestV2('/governance/rules/' + id, {
+    method: 'PUT',
     body: JSON.stringify(body),
   }),
-  resetViolations: (id) => request('/governance/rules/' + id + '/reset', {
+  resetViolations: (id) => requestV2('/governance/rules/' + id + '/reset', {
     method: 'POST',
   }),
 };
 
-// ─── Coordination (legacy — no v2 equivalent) ──────────────────────────────
+// ─── Coordination (v2 passthrough) ──────────────────────────────────────────
 
 export const coordination = {
-  getDashboard: (hours = 24) => request(`/coordination?hours=${hours}`),
-  listAgents: () => request('/coordination/agents'),
-  listRules: () => request('/coordination/rules'),
-  listClaims: () => request('/coordination/claims'),
+  getDashboard: (hours = 24) => requestV2(`/coordination?hours=${hours}`),
+  listAgents: () => requestV2('/coordination/agents'),
+  listRules: () => requestV2('/coordination/rules'),
+  listClaims: () => requestV2('/coordination/claims'),
 };
 
 export const versionControl = {
-  getWorktrees: () => request('/version-control/worktrees'),
-  getCommits: (days = 7) => request('/version-control/commits?days=' + days),
-  getReleases: (repoPath) => request('/version-control/releases' + (repoPath ? '?repo_path=' + encodeURIComponent(repoPath) : '')),
-  createRelease: (body) => request('/version-control/releases', {
+  getWorktrees: () => requestV2('/version-control/worktrees'),
+  getCommits: (days = 7) => requestV2('/version-control/commits?days=' + days),
+  getReleases: (repoPath) => requestV2('/version-control/releases' + (repoPath ? '?repo_path=' + encodeURIComponent(repoPath) : '')),
+  createRelease: (body) => requestV2('/version-control/releases', {
     method: 'POST',
     body: JSON.stringify(body),
   }),
-  deleteWorktree: (id) => request('/version-control/worktrees/' + id, { method: 'DELETE' }),
-  mergeWorktree: (id, opts = {}) => request('/version-control/worktrees/' + id + '/merge', {
+  deleteWorktree: (id) => requestV2('/version-control/worktrees/' + id, { method: 'DELETE' }),
+  mergeWorktree: (id, opts = {}) => requestV2('/version-control/worktrees/' + id + '/merge', {
     method: 'POST',
     body: JSON.stringify(opts),
   }),
 };
 
-// ─── Free-tier quota status (legacy — no v2 equivalent yet) ─────────────────
-
-const LEGACY_FREE_TIER_BASE = `/${['free', 'tier'].join('-')}`;
+// ─── Provider quota status (v2 passthrough) ─────────────────────────────────
 
 export const quota = {
-  status: () => request(`${LEGACY_FREE_TIER_BASE}/status`),
-  history: (days = 7) => request(`${LEGACY_FREE_TIER_BASE}/history?days=${days}`),
+  status: () => requestV2('/provider-quotas/status'),
+  history: (days = 7) => requestV2('/provider-quotas/history?days=' + days),
 };
 
 // ─── Strategic Brain (v2 for status/decisions/provider-health) ──────────────
@@ -507,7 +496,7 @@ function unwrapListPayload(data, ...keys) {
 
 export const strategic = {
   status: () => requestV2('/strategic/status'),
-  operations: (limit = 20) => request(`/strategic/operations?limit=${limit}`),
+  operations: (limit = 20) => requestV2(`/strategic/operations?limit=${limit}`),
   decisions: (limit = 50) => requestV2(`/strategic/decisions?limit=${limit}`).then(d => unwrapListPayload(d, 'decisions')),
   providerHealth: () => requestV2('/strategic/provider-health').then(d => unwrapListPayload(d, 'providers')),
   getConfig: (opts = {}) => requestV2('/strategic/config', opts),

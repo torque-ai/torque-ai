@@ -3,7 +3,6 @@ import { renderWithProviders } from '../test-utils';
 import Kanban from './Kanban';
 
 vi.mock('../api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   tasks: {
     list: vi.fn(),

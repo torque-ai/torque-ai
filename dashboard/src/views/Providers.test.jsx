@@ -15,11 +15,14 @@ vi.mock('../api', () => ({
   hosts: {
     list: vi.fn(),
   },
+  quota: {
+    status: vi.fn(),
+    history: vi.fn(),
+  },
   requestV2: vi.fn(),
-  request: vi.fn(),
 }));
 
-import { providers as providersApi, stats as statsApi, hosts as hostsApi, requestV2, request } from '../api';
+import { providers as providersApi, stats as statsApi, hosts as hostsApi, quota as quotaApi, requestV2 } from '../api';
 
 const mockProvidersList = [
   {
@@ -62,18 +65,12 @@ describe('Providers', () => {
       ],
     });
     requestV2.mockResolvedValue(null);
-    const usageHistoryPath = '/quota/history?days=7';
-    request.mockImplementation((path) => {
-      if (path === '/provider-quotas') return Promise.resolve({});
-      if (path === usageHistoryPath) {
-        return Promise.resolve({
-          history: [
-            { date: '2026-03-09', provider: 'ollama', total_requests: 7, total_tokens: 7000 },
-            { date: '2026-03-09', provider: 'codex', total_requests: 3, total_tokens: 9000 },
-          ],
-        });
-      }
-      return Promise.resolve({});
+    quotaApi.status.mockResolvedValue({});
+    quotaApi.history.mockResolvedValue({
+      history: [
+        { date: '2026-03-09', provider: 'ollama', total_requests: 7, total_tokens: 7000 },
+        { date: '2026-03-09', provider: 'codex', total_requests: 3, total_tokens: 9000 },
+      ],
     });
   });
 

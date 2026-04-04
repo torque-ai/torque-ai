@@ -4,7 +4,6 @@ import BatchHistory from './BatchHistory';
 
 // Mock the api module
 vi.mock('../api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   workflows: {
     list: vi.fn(),

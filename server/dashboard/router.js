@@ -848,6 +848,7 @@ const routes = [
   { method: 'GET',  pattern: /^\/api\/provider-quotas$/,                  handler: infrastructure.handleProviderQuotas },
   { method: 'GET',  pattern: /^\/api\/providers\/trends$/,                handler: infrastructure.handleProviderTrends, compat: true },
   { method: 'GET',  pattern: /^\/api\/providers\/([^/]+)\/percentiles$/,  handler: infrastructure.handleProviderPercentiles },
+  { method: 'GET',  pattern: /^\/api\/v2\/providers\/([^/]+)\/percentiles$/, handler: infrastructure.handleProviderPercentiles },
   { method: 'GET',  pattern: /^\/api\/providers\/([^/]+)\/stats$/,        handler: infrastructure.handleProviderStats, compat: true },
   { method: 'POST', pattern: /^\/api\/providers\/([^/]+)\/toggle$/,       handler: infrastructure.handleProviderToggle, compat: true },
 
@@ -879,6 +880,7 @@ const routes = [
   // --- Hosts --- (compat: v2 equivalents at /api/v2/hosts)
   { method: 'GET',  pattern: /^\/api\/hosts$/,                   handler: infrastructure.handleListHosts, compat: true },
   { method: 'GET',  pattern: /^\/api\/hosts\/activity$/,         handler: infrastructure.handleHostActivity },
+  { method: 'GET',  pattern: /^\/api\/v2\/hosts\/activity$/,     handler: infrastructure.handleHostActivity },
   { method: 'POST', pattern: /^\/api\/hosts\/scan$/,             handler: infrastructure.handleHostScan, compat: true },
   { method: 'POST',   pattern: /^\/api\/hosts\/([^/]+)\/toggle$/,  handler: infrastructure.handleHostToggle, compat: true },
   { method: 'GET',    pattern: /^\/api\/peek-hosts$/,                    handler: infrastructure.handleListPeekHosts, compat: true },
@@ -903,11 +905,13 @@ const routes = [
   // --- System --- (compat: v2 system-status equivalent at /api/v2/system/status)
   { method: 'GET', pattern: /^\/api\/system\/status$/, handler: infrastructure.handleSystemStatus, compat: true },
   { method: 'GET', pattern: /^\/api\/instances$/,      handler: infrastructure.handleInstances },
+  { method: 'GET', pattern: /^\/api\/v2\/instances$/,  handler: infrastructure.handleInstances },
 
   // --- Project Tuning --- (compat: v2 equivalents at /api/v2/tuning)
   { method: 'GET',    pattern: /^\/api\/project-tuning$/,         handler: admin.handleListProjectTuning, compat: true },
   { method: 'POST',   pattern: /^\/api\/project-tuning$/,         handler: admin.handleCreateProjectTuning, compat: true },
   { method: 'GET',    pattern: /^\/api\/project-tuning\/(.+)$/,   handler: admin.handleGetProjectTuning },
+  { method: 'GET',    pattern: /^\/api\/v2\/project-tuning\/(.+)$/, handler: admin.handleGetProjectTuning },
   { method: 'DELETE', pattern: /^\/api\/project-tuning\/(.+)$/,   handler: admin.handleDeleteProjectTuning, compat: true },
 
   // --- Benchmarks --- (compat: v2 equivalents at /api/v2/benchmarks)
@@ -922,16 +926,25 @@ const routes = [
 
   // --- Governance ---
   { method: 'GET',   pattern: /^\/api\/governance\/rules$/,               handler: handleGetGovernanceRulesRoute },
+  { method: 'GET',   pattern: /^\/api\/v2\/governance\/rules$/,           handler: handleGetGovernanceRulesRoute },
   { method: 'PATCH', pattern: /^\/api\/governance\/rules\/([^/]+)$/,      handler: handlePatchGovernanceRuleRoute },
+  { method: 'PUT',   pattern: /^\/api\/v2\/governance\/rules\/([^/]+)$/,  handler: handlePatchGovernanceRuleRoute },
   { method: 'POST',  pattern: /^\/api\/governance\/rules\/([^/]+)\/reset$/, handler: handleResetGovernanceRuleRoute },
+  { method: 'POST',  pattern: /^\/api\/v2\/governance\/rules\/([^/]+)\/reset$/, handler: handleResetGovernanceRuleRoute },
 
   // --- Version Control ---
   { method: 'GET',    pattern: /^\/api\/version-control\/releases$/,                  handler: handleGetVersionControlReleasesRoute },
+  { method: 'GET',    pattern: /^\/api\/v2\/version-control\/releases$/,              handler: handleGetVersionControlReleasesRoute },
   { method: 'POST',   pattern: /^\/api\/version-control\/releases$/,                  handler: handleCreateVersionControlReleaseRoute },
+  { method: 'POST',   pattern: /^\/api\/v2\/version-control\/releases$/,              handler: handleCreateVersionControlReleaseRoute },
   { method: 'GET',    pattern: /^\/api\/version-control\/worktrees$/,                 handler: handleGetVersionControlWorktreesRoute },
+  { method: 'GET',    pattern: /^\/api\/v2\/version-control\/worktrees$/,             handler: handleGetVersionControlWorktreesRoute },
   { method: 'GET',    pattern: /^\/api\/version-control\/commits$/,                   handler: handleGetVersionControlCommitsRoute },
+  { method: 'GET',    pattern: /^\/api\/v2\/version-control\/commits$/,               handler: handleGetVersionControlCommitsRoute },
   { method: 'DELETE', pattern: /^\/api\/version-control\/worktrees\/([^/]+)$/,        handler: handleDeleteVersionControlWorktreeRoute },
+  { method: 'DELETE', pattern: /^\/api\/v2\/version-control\/worktrees\/([^/]+)$/,    handler: handleDeleteVersionControlWorktreeRoute },
   { method: 'POST',   pattern: /^\/api\/version-control\/worktrees\/([^/]+)\/merge$/, handler: handleMergeVersionControlWorktreeRoute },
+  { method: 'POST',   pattern: /^\/api\/v2\/version-control\/worktrees\/([^/]+)\/merge$/, handler: handleMergeVersionControlWorktreeRoute },
 
   // --- Workflows --- (compat: v2 equivalents at /api/v2/workflows)
   { method: 'GET', pattern: /^\/api\/workflows$/,                       handler: analytics.handleListWorkflows, compat: true },
@@ -947,9 +960,13 @@ const routes = [
 
   // --- Coordination ---
   { method: 'GET',  pattern: /^\/api\/coordination$/,                       handler: admin.handleGetDashboard },
+  { method: 'GET',  pattern: /^\/api\/v2\/coordination$/,                   handler: admin.handleGetDashboard },
   { method: 'GET',  pattern: /^\/api\/coordination\/agents$/,               handler: admin.handleListAgents },
+  { method: 'GET',  pattern: /^\/api\/v2\/coordination\/agents$/,           handler: admin.handleListAgents },
   { method: 'GET',  pattern: /^\/api\/coordination\/rules$/,                handler: admin.handleListRoutingRules },
+  { method: 'GET',  pattern: /^\/api\/v2\/coordination\/rules$/,            handler: admin.handleListRoutingRules },
   { method: 'GET',  pattern: /^\/api\/coordination\/claims$/,               handler: admin.handleListClaims },
+  { method: 'GET',  pattern: /^\/api\/v2\/coordination\/claims$/,           handler: admin.handleListClaims },
 
   // --- Strategic Brain --- (compat: v2 partial — operations has no v2 equivalent)
   { method: 'GET',  pattern: /^\/api\/strategic\/status$/,             handler: analytics.handleGetStrategicStatus, compat: true },
@@ -959,7 +976,9 @@ const routes = [
 
   // --- Provider Quotas ---
   { method: 'GET',  pattern: /^\/api\/quota\/status$/,             handler: analytics.handleQuotaStatus },
+  { method: 'GET',  pattern: /^\/api\/v2\/provider-quotas\/status$/, handler: analytics.handleQuotaStatus },
   { method: 'GET',  pattern: /^\/api\/quota\/history$/,            handler: analytics.handleQuotaHistory },
+  { method: 'GET',  pattern: /^\/api\/v2\/provider-quotas\/history$/, handler: analytics.handleQuotaHistory },
   { method: 'GET',  pattern: /^\/api\/quota\/auto-scale$/,         handler: analytics.handleQuotaAutoScale },
 ];
 

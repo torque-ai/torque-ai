@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { budget as budgetApi, request, routingTemplates } from '../api';
+import { budget as budgetApi, requestV2, routingTemplates } from '../api';
 import { useToast } from '../components/Toast';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 
@@ -181,7 +181,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
 
   const loadOptionalProviderScores = useCallback(async () => {
     try {
-      const scores = normalizeProviderScores(await request('/provider-scores'));
+      const scores = normalizeProviderScores(await requestV2('/provider-scores'));
       if (!mountedRef.current) return;
       setProviderScores(scores);
       setHasProviderScores(true);
@@ -197,7 +197,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
 
   const loadOptionalBudgetStatus = useCallback(async () => {
     try {
-      const data = normalizeBudgetStatus(await request('/cost-budgets'));
+      const data = normalizeBudgetStatus(await requestV2('/cost-budgets'));
       if (!mountedRef.current) return;
       setBudgetStatus(data);
       setHasBudgetStatus(true);
@@ -232,7 +232,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
     setLoadError('');
 
     const results = await Promise.allSettled([
-      request(`/project-config?project=${encodeURIComponent(projectName)}`),
+      requestV2(`/project-config?project=${encodeURIComponent(projectName)}`),
       routingTemplates.list(),
       routingTemplates.getActive(),
       loadOptionalProviderScores(),
@@ -319,7 +319,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
 
     setSavingConfig(true);
     try {
-      await request('/project-config', {
+      await requestV2('/project-config', {
         method: 'POST',
         body: JSON.stringify({
           project: activeProject,

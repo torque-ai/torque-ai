@@ -3,7 +3,6 @@ import { hosts as hostsApi } from './api';
 
 // Mock the api module
 vi.mock('./api', () => ({
-  request: vi.fn().mockResolvedValue({}),
   requestV2: vi.fn().mockResolvedValue({}),
   tasks: {
     list: vi.fn().mockResolvedValue({ tasks: [] }),
@@ -56,6 +55,14 @@ vi.mock('./api', () => ({
     setActive: vi.fn().mockResolvedValue({}),
   },
   default: {},
+}));
+
+vi.mock('./views/ProjectSettings', () => ({
+  default: () => (
+    <div>
+      <h1>Project Settings</h1>
+    </div>
+  ),
 }));
 
 // Mock useAbortableRequest (used by Kanban, History, etc.)
