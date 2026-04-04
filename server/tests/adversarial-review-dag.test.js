@@ -9,11 +9,19 @@ describe('adversarial-review-dag-injection', () => {
   let mockProjectConfig;
   let mockWorkflowEngine;
 
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.resetModules();
-
+  beforeAll(() => {
     vi.spyOn(childProcess, 'execFile').mockImplementation((_cmd, _args, _opts, cb) => {
+      if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
+      cb(null, 'diff output', '');
+    });
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
+  });
+
+  beforeEach(() => {
+    childProcess.execFile.mockImplementation((_cmd, _args, _opts, cb) => {
       if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
       cb(null, 'diff output', '');
     });
@@ -30,8 +38,10 @@ describe('adversarial-review-dag-injection', () => {
     };
     mockProjectConfig = { getProjectConfig: vi.fn().mockReturnValue({ adversarial_review: 'always' }) };
 
-    const mod = require('../execution/adversarial-review-stage');
-    createStage = mod.createAdversarialReviewStage;
+    if (!createStage) {
+      const mod = require('../execution/adversarial-review-stage');
+      createStage = mod.createAdversarialReviewStage;
+    }
   });
 
   function makeCtx(overrides = {}) {

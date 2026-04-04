@@ -9,14 +9,21 @@ describe('adversarial-review-stage', () => {
   let mockTaskManager;
   let mockProjectConfig;
 
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.resetModules();
-
-    // Spy on execFile BEFORE requiring the module under test.
-    // The module destructures execFile at load time, and promisify captures it.
-    // The spy must be in place when require() runs so promisify wraps the spy.
+  beforeAll(() => {
+    // Spy once before any module loads — promisify captures this reference.
     vi.spyOn(childProcess, 'execFile').mockImplementation((_cmd, _args, _opts, cb) => {
+      if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
+      cb(null, 'diff output', '');
+    });
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
+  });
+
+  beforeEach(() => {
+    // Reset the mock implementation but keep the spy in place
+    childProcess.execFile.mockImplementation((_cmd, _args, _opts, cb) => {
       if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
       cb(null, 'diff output', '');
     });
@@ -28,8 +35,10 @@ describe('adversarial-review-stage', () => {
     mockTaskManager = { startTask: vi.fn().mockReturnValue({ started: true }) };
     mockProjectConfig = { getProjectConfig: vi.fn().mockReturnValue({ adversarial_review: 'always' }) };
 
-    const mod = require('../execution/adversarial-review-stage');
-    createStage = mod.createAdversarialReviewStage;
+    if (!createStage) {
+      const mod = require('../execution/adversarial-review-stage');
+      createStage = mod.createAdversarialReviewStage;
+    }
   });
 
   function makeCtx(overrides = {}) {
