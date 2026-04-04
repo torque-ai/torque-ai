@@ -38,8 +38,16 @@ function setup() {
   // provider. These tests verify routing decisions, not fallback execution.
   db.setConfig('codex_enabled', '0');
   db.setConfig('claude_cli_enabled', '0');
-  // Clear any active routing template so it doesn't override provider decisions
-  db.setConfig('active_routing_template', '');
+  // Disable all cloud providers to isolate routing decisions to ollama
+  db.setConfig('active_routing_template', 'none');
+  db.setConfig('anthropic_enabled', '0');
+  db.setConfig('deepinfra_enabled', '0');
+  db.setConfig('cerebras_enabled', '0');
+  db.setConfig('groq_enabled', '0');
+  db.setConfig('google_ai_enabled', '0');
+  db.setConfig('hyperbolic_enabled', '0');
+  db.setConfig('openrouter_enabled', '0');
+  db.setConfig('ollama_cloud_enabled', '0');
 }
 
 async function cleanup() {
