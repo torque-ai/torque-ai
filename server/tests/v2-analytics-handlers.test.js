@@ -391,6 +391,7 @@ describe('api/v2-analytics-handlers', () => {
       });
       expect(expectSuccess(res)).toEqual({
         days: 3,
+        interval: 'day',
         provider: 'codex',
         series: [
           { date: '2026-03-08', total: 5, completed: 4, failed: 1, success_rate: 80 },
@@ -1159,7 +1160,7 @@ describe('api/v2-analytics-handlers', () => {
 
       expectError(res, {
         code: 'validation_error',
-        message: 'budget_usd must be a positive number',
+        message: 'budget_usd must be a non-negative number',
       });
       expect(mockDb.setBudget).not.toHaveBeenCalled();
     });
@@ -1174,7 +1175,7 @@ describe('api/v2-analytics-handlers', () => {
 
       expectError(res, {
         code: 'validation_error',
-        message: 'budget_usd must be a positive number',
+        message: 'budget_usd must be a non-negative number',
       });
       expect(mockDb.setBudget).not.toHaveBeenCalled();
     });
